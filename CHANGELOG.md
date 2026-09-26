@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.18] - 2026-09-26
+
 ### Changed
 - Remote PCs use the `remote-v4` runtime, which carries the fix below to the remote side: an omo
   or gjc pane that finished keeps reading DONE after the bridge restarts. A connected PC's bridge
@@ -376,7 +378,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.17...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.18...HEAD
+[0.3.18]: https://github.com/devswha/herdr-web-ui/compare/v0.3.17...v0.3.18
 [0.3.17]: https://github.com/devswha/herdr-web-ui/compare/v0.3.16...v0.3.17
 [0.3.16]: https://github.com/devswha/herdr-web-ui/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/devswha/herdr-web-ui/compare/v0.3.14...v0.3.15
