@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The app speaks Korean. It follows the browser's language, or **Settings → Appearance → Language**
+  picks English or 한국어. Every label, button, hint and status in the client is translated; what
+  agents write, terminal output and server messages are not. A test keeps the dictionary complete.
+
 ## [0.3.14] - 2026-09-26
 
 ### Added

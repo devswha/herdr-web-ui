@@ -28,6 +28,7 @@ import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/menti
 import { useSettings } from "../lib/settings.ts";
 import { modKeyLabel } from "../lib/shortcuts.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { useT } from "../lib/i18n.ts";
 
 export interface ComposerProps {
   connected: boolean;
@@ -61,7 +62,7 @@ const RESIZE_SLACK = { mouse: 3, touch: 10 } as const;
 /** Two taps on the grip this close return the box to its automatic height (iOS may send no dblclick). */
 const DOUBLE_TAP_MS = 350;
 const COMMAND_SOURCES = ["builtin", "user", "project"] as const;
-const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
+export const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
   builtin: "Built in",
   user: "User",
   project: "Project",
@@ -137,6 +138,7 @@ export function Composer({
   onAbort,
   onUploadImage,
 }: ComposerProps) {
+  const t = useT();
   const machineId = useMachineId();
   const { fetchPaneCommands, fetchPaneFiles } = useMachineApi();
   const { settings } = useSettings();
@@ -183,8 +185,8 @@ export function Composer({
   const uploading = attachments.some((attachment) => attachment.state === "uploading");
   const agentLabel = agentDisplayLabel(agent);
   const placeholder = !connected
-    ? "Reconnecting… message held here, never queued"
-    : answerHint ?? `Message ${agentLabel}…`;
+    ? t("Reconnecting… message held here, never queued")
+    : answerHint ?? t("Message {agent}…", { agent: agentLabel });
 
   useEffect(() => {
     try {
@@ -464,7 +466,7 @@ export function Composer({
       setCaret(rest.length);
       textRef.current = rest;
       caretRef.current = rest.length;
-      setNote(edited ? "Sent as it was. Your changes made while it was sending stayed here and were not sent." : null);
+      setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.") : null);
       for (const attachment of sentAttachments) URL.revokeObjectURL(attachment.previewUrl);
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
     };
@@ -537,27 +539,27 @@ export function Composer({
   const menuId = `composer-menu-${paneId}`;
 
   return (
-    <div className="composer" role="group" aria-label="Message composer">
+    <div className="composer" role="group" aria-label={t("Message composer")}>
       <div className="composer-status" role="status" data-status={agentStatus ?? "unknown"}>
         {agent && <AgentMark agent={agent} size={14} />}
         <span className="composer-agent-label">{agentLabel}</span>
         <span className="composer-status-separator" aria-hidden="true">·</span>
-        <strong>{composerStatusWord(agentStatus)}</strong>
-        {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label="Model and reasoning">
-          <span className="composer-model" title={metadata.model ?? "Model not available"}>{metadata.model ?? "Model —"}</span>
-          <span className="composer-reasoning" title={metadata.reasoning_effort ? `Reasoning effort: ${metadata.reasoning_effort}` : "Reasoning effort not available"}>
-            Reasoning {metadata.reasoning_effort ?? "—"}
+        <strong>{t(composerStatusWord(agentStatus))}</strong>
+        {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
+          <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
+          <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+            {t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}
           </span>
         </span>}
         {(uploading || !connected) && (
           <span className="composer-status-hint">
-            <span aria-hidden="true">·</span> {uploading ? "Uploading file…" : "Reconnecting… message held here, never queued"}
+            <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}
           </span>
         )}
         {/* what the placeholder used to cram in; Enter-sends is the chat convention and goes unsaid */}
         <span className="composer-keys-hint" aria-hidden="true">
-          <kbd className="kbd">/</kbd> commands <kbd className="kbd">@</kbd> files
-          {!settings.enterSends && <> <kbd className="kbd">{modKeyLabel()}+Enter</kbd> sends</>}
+          <kbd className="kbd">/</kbd> {t("commands")} <kbd className="kbd">@</kbd> {t("files")}
+          {!settings.enterSends && <> <kbd className="kbd">{modKeyLabel()}+Enter</kbd> {t("sends")}</>}
         </span>
       </div>
 
@@ -577,25 +579,25 @@ export function Composer({
           className="composer-resize"
           role="separator"
           aria-orientation="horizontal"
-          aria-label="Resize message box"
+          aria-label={t("Resize message box")}
           aria-valuemin={minHeight}
           aria-valuemax={maxHeight}
           aria-valuenow={gripValue}
           aria-valuetext={manualHeight === null ? "automatic height" : `${gripValue} pixels`}
           tabIndex={0}
-          title="Drag to resize · double-click to reset"
+          title={t("Drag to resize · double-click to reset")}
           onPointerDown={startResize}
           onKeyDown={onResizeKey}
         />
         {menuOpen && trigger && (
-          <div id={menuId} className="menu composer-menu" role="listbox" aria-label={trigger.kind === "slash" ? "Slash commands" : "Files"}>
+          <div id={menuId} className="menu composer-menu" role="listbox" aria-label={t(trigger.kind === "slash" ? "Slash commands" : "Files")}>
             {trigger.kind === "slash" ? (
               COMMAND_SOURCES.map((source) => {
                 const group = filteredCommands.filter((command) => command.source === source);
                 if (group.length === 0) return null;
                 return (
                   <div className="composer-menu-group" key={source}>
-                    <div className="menu-heading">{SOURCE_LABEL[source]}</div>
+                    <div className="menu-heading">{t(SOURCE_LABEL[source])}</div>
                     {group.map((command) => {
                       const index = orderedCommands.indexOf(command);
                       return (
@@ -619,7 +621,7 @@ export function Composer({
               })
             ) : (
               <div className="composer-menu-group">
-                <div className="menu-heading">Files</div>
+                <div className="menu-heading">{t("Files")}</div>
                 {files.map((file, index) => (
                   <button
                     id={`${menuId}-${index}`}
@@ -640,15 +642,15 @@ export function Composer({
         )}
 
         {attachments.length > 0 && (
-          <div className="composer-attachments" aria-label="Attached files">
+          <div className="composer-attachments" aria-label={t("Attached files")}>
             {attachments.map((attachment) => (
               <div className={`composer-attachment is-${attachment.state}`} key={attachment.id}>
                 {attachment.previewUrl ? <img src={attachment.previewUrl} alt={attachment.file.name} />
                   : <span className="composer-attachment-file" title={attachment.file.name}><FileText aria-hidden="true" /><span>{attachment.file.name}</span></span>}
                 <span className="composer-attachment-state">
-                  {attachment.state === "uploading" ? "Uploading" : attachment.state === "error" ? "Failed" : "Attached"}
+                  {t(attachment.state === "uploading" ? "Uploading" : attachment.state === "error" ? "Failed" : "Attached")}
                 </span>
-                <button type="button" aria-label={`Remove ${attachment.file.name}`} onClick={() => removeAttachment(attachment)}>
+                <button type="button" aria-label={t("Remove {file}", { file: attachment.file.name })} onClick={() => removeAttachment(attachment)}>
                   <X aria-hidden="true" />
                 </button>
               </div>
@@ -663,7 +665,7 @@ export function Composer({
           maxLength={MAX_COMPOSER_CHARS}
           value={text}
           placeholder={placeholder}
-          aria-label="Message"
+          aria-label={t("Message")}
           aria-controls={menuOpen ? menuId : undefined}
           aria-expanded={menuOpen}
           aria-activedescendant={menuOpen ? `${menuId}-${selectedIndex}` : undefined}
@@ -701,8 +703,8 @@ export function Composer({
           <button
             type="button"
             className="icon-button composer-attach"
-            aria-label="Attach files"
-            title="Attach files"
+            aria-label={t("Attach files")}
+            title={t("Attach files")}
             disabled={!connected || uploading}
             onClick={() => fileInputRef.current?.click()}
           >
@@ -714,21 +716,21 @@ export function Composer({
             <button
               type="button"
               className="composer-queue-button"
-              aria-label="Queue message"
-              title="Queue as the next message"
+              aria-label={t("Queue message")}
+              title={t("Queue as the next message")}
               disabled={!connected || uploading || sending || text.trim().length === 0}
               onClick={send}
             >
               <Clock aria-hidden="true" />
-              Queue
+              {t("Queue")}
             </button>
           )}
           {isWorking ? (
             <button
               type="button"
               className="composer-action composer-stop"
-              aria-label="Stop agent"
-              title="Stop agent"
+              aria-label={t("Stop agent")}
+              title={t("Stop agent")}
               disabled={!connected}
               onClick={onAbort}
             >
@@ -738,8 +740,8 @@ export function Composer({
             <button
               type="button"
               className="composer-action composer-send"
-              aria-label="Send message"
-              title="Send message"
+              aria-label={t("Send message")}
+              title={t("Send message")}
               disabled={!connected || uploading || sending || text.trim().length === 0}
               onClick={send}
             >

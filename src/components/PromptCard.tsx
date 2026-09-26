@@ -7,6 +7,7 @@ import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
+import { useT } from "../lib/i18n.ts";
 
 export interface PromptCardProps {
   paneId: string;
@@ -19,6 +20,7 @@ export interface PromptCardProps {
 }
 
 export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedAnswer = null, onTypedAnswerDone }: PromptCardProps) {
+  const t = useT();
   const { answerPanePrompt } = useMachineApi();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [custom, setCustom] = useState("");
@@ -66,17 +68,17 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   };
 
   return (
-    <section className="prompt-card" role="region" aria-label="Agent is asking" aria-busy={pending}>
+    <section className="prompt-card" role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
       <header className="prompt-card-header">
-        <span className="badge badge-blocked">input needed</span>
+        <span className="badge badge-blocked">{t("input needed")}</span>
         <h2>{prompt.title}</h2>
       </header>
       <p className="prompt-card-question">{prompt.question}</p>
       {prompt.queued && (
         <p className="prompt-card-hint">
           {prompt.queued === "open"
-            ? "Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed."
-            : "Codex keeps working meanwhile. Answer here; the message box still talks to Codex."}
+            ? t("Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed.")
+            : t("Codex keeps working meanwhile. Answer here; the message box still talks to Codex.")}
         </p>
       )}
       {prompt.body !== null && prompt.body.length > 0 && <pre className="prompt-card-body">{prompt.body}</pre>}
@@ -105,7 +107,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       )}
       {prompt.custom_option_index !== null && (
         <div className="prompt-card-custom">
-          <input className="input" value={custom} disabled={pending} placeholder={prompt.options[prompt.custom_option_index]?.label ?? "Type an answer"} aria-label="Custom answer" onChange={(event) => setCustom(event.currentTarget.value)} onKeyDown={(event) => {
+          <input className="input" value={custom} disabled={pending} placeholder={prompt.options[prompt.custom_option_index]?.label ?? t("Type an answer")} aria-label={t("Custom answer")} onChange={(event) => setCustom(event.currentTarget.value)} onKeyDown={(event) => {
             if (event.key === "Enter" && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
           }} />
           <button type="button" className="btn btn-primary" disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
@@ -115,9 +117,9 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       )}
       {typedAnswer?.option_index !== undefined && (
         <div className="prompt-card-confirm" role="alert" ref={confirmRef}>
-          <span>Send <strong>{typedAnswer.option_index + 1}. {prompt.options[typedAnswer.option_index]?.label}</strong>?</span>
-          <button type="button" className="btn btn-primary" disabled={pending} onClick={() => void answer(typedAnswer).finally(() => onTypedAnswerDone?.())}>Confirm</button>
-          <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>Cancel</button>
+          <span>{t("Send {answer}?", { answer: `${typedAnswer.option_index + 1}. ${prompt.options[typedAnswer.option_index]?.label ?? ""}` })}</span>
+          <button type="button" className="btn btn-primary" disabled={pending} onClick={() => void answer(typedAnswer).finally(() => onTypedAnswerDone?.())}>{t("Confirm")}</button>
+          <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>{t("Cancel")}</button>
         </div>
       )}
       {error !== null && <p className="prompt-card-error" role="alert">{error}</p>}

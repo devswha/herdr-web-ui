@@ -5,6 +5,7 @@
  * Anything else is the prompt's own "type something" answer when it has one.
  */
 import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
+import { t } from "./i18n.ts";
 
 export type TypedAnswer = Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text">;
 
@@ -54,19 +55,19 @@ function range(prompt: InteractivePrompt): string {
 
 /** How a typed message answers this prompt: the composer's placeholder while it waits. */
 export function answerHint(prompt: InteractivePrompt): string {
-  if (prompt.multi_select) return "Answer above: type the numbers you choose, e.g. 1 3";
+  if (prompt.multi_select) return t("Answer above: type the numbers you choose, e.g. 1 3");
   // a free-form question (Codex's queue) has no options to number
-  if (choices(prompt).length === 0) return "Answer above: type your reply…";
+  if (choices(prompt).length === 0) return t("Answer above: type your reply…");
   return prompt.custom_option_index !== null
-    ? `Answer above: type ${range(prompt)} or your own reply…`
-    : `Answer above: type ${range(prompt)} to choose…`;
+    ? t("Answer above: type {range} or your own reply…", { range: range(prompt) })
+    : t("Answer above: type {range} to choose…", { range: range(prompt) });
 }
 
 /** Why a message was not sent: the prompt takes only its options (answerFromText gave null). */
 export function answerRefusal(prompt: InteractivePrompt): string {
   return prompt.multi_select
-    ? "Choose with the option numbers above, e.g. 1 3."
-    : `Choose one of the options above: type ${range(prompt)}.`;
+    ? t("Choose with the option numbers above, e.g. 1 3.")
+    : t("Choose one of the options above: type {range}.", { range: range(prompt) });
 }
 
 /**
