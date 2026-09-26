@@ -55,11 +55,11 @@ const COMMAND_CACHE_MS = 60_000;
 const SLASH_USAGE_KEY = "herdr-web-ui:slash-usage";
 /** One height for every pane on this device: it is the screen, not the conversation, that decides it. */
 const COMPOSER_HEIGHT_KEY = "herdr-web-ui:composer-height";
-/** whether the quick replies row shows, one choice for every pane on this device */
+/** whether the quick replies row shows, one choice for every pane on this device; hidden until asked for */
 const QUICK_OPEN_KEY = "herdr-web-ui:quick-replies-open";
 
 function storedQuickOpen(): boolean {
-  try { return window.localStorage.getItem(QUICK_OPEN_KEY) !== "0"; } catch { return true; }
+  try { return window.localStorage.getItem(QUICK_OPEN_KEY) === "1"; } catch { return false; }
 }
 const COMPOSER_HEIGHT_MAX = 480;
 const COMPOSER_HEIGHT_STEP = 24;

@@ -95,7 +95,9 @@ try {
   await page.locator(".composer-queue-text").waitFor({ state: "hidden" });
   console.log("PASS queue held through status changes and explicitly sent to its owner");
 
-  // a quick reply goes out as typed, and leaves a draft in the box alone
+  // a quick reply goes out as typed, and leaves a draft in the box alone; the row is hidden until asked for
+  assert.equal(await page.locator(".composer-quick").count(), 0);
+  await page.getByRole("button", { name: "Show quick replies", exact: true }).click();
   await composer.fill("draft stays");
   const quickCount = inputs.length;
   await page.getByRole("group", { name: "Quick replies", exact: true }).getByRole("button", { name: "continue", exact: true }).click();
@@ -111,7 +113,6 @@ try {
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await page.getByRole("button", { name: "Hide quick replies", exact: true }).click();
   assert.equal(await page.locator(".composer-quick").count(), 0);
-  await page.getByRole("button", { name: "Show quick replies", exact: true }).click();
   await composer.fill("");
   await report("idle");
   // idle after work reads DONE (server/completion.ts)
