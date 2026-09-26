@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   ArrowDown, Bot, Brain, Check, ChevronDown, ChevronRight, ChevronUp, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, FilePen, FileSearch, Globe, ListChecks, Terminal, Wrench,
   type LucideProps,
@@ -23,6 +23,10 @@ import { machinePath } from "../../shared/machines.ts";
 import { fileUrl } from "../lib/api.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { lineDiff } from "../lib/diff.ts";
+import { formatTokens } from "../lib/compose.ts";
+
+/** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
+const ChatPaneContext = createContext<string | null>(null);
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
 import { currentLanguage, useT } from "../lib/i18n.ts";
@@ -247,14 +251,31 @@ function toolIcon(name: string): ComponentType<LucideProps> {
   return Wrench;
 }
 
+/** A cut output's rest, fetched when asked for: the page carries the first few thousand characters. */
+function useWholeOutput(ref: string | undefined): { text: string | null; state: "idle" | "loading" | "failed"; load: () => void } {
+  const paneId = useContext(ChatPaneContext);
+  const machineId = useMachineId();
+  const [text, setText] = useState<string | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
+  const load = useCallback(() => {
+    if (ref === undefined || paneId === null) return;
+    setState("loading");
+    fetch(machinePath(machineId, `pane/conversation/tool-output?${new URLSearchParams({ pane_id: paneId, ref }).toString()}`))
+      .then(async (response) => { if (!response.ok) throw new Error(String(response.status)); setText(await response.text()); setState("idle"); })
+      .catch(() => setState("failed"));
+  }, [machineId, paneId, ref]);
+  return { text, state, load };
+}
+
 /** One row of a work block: `▸ name  summary`, expanding to the call's input and output. */
 function WorkRow({ part }: { part: ToolPartType }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const whole = useWholeOutput(part.output_ref);
   const Icon = toolIcon(part.name);
   const summary = todoCallSummary(part) ?? part.summary;
   // the list is the answer of a todo call: its raw text would say it twice
-  const output = isTodoTool(part.name) && parseTodoAnswer(part.output) !== null ? "" : part.output;
+  const output = isTodoTool(part.name) && parseTodoAnswer(part.output) !== null ? "" : whole.text ?? part.output;
   return <div className={`work-row${part.error ? " is-error" : ""}`}>
     <button type="button" className="work-row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
@@ -263,7 +284,10 @@ function WorkRow({ part }: { part: ToolPartType }) {
       {part.error && <span className="work-row-failed">{t("failed")}</span>}
       {summary.length > 0 && summary !== part.name && <><span className="work-row-sep" aria-hidden="true">/</span><span className="work-row-summary">{summary}</span></>}
     </button>
-    {open && <div className="work-row-detail"><ToolInputView part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className="chat-tool-io">{output}</pre></section>}</div>}
+    {open && <div className="work-row-detail"><ToolInputView part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className={`chat-tool-io${whole.text !== null ? " is-whole" : ""}`}>{output}</pre>
+      {part.output_ref !== undefined && whole.text === null && <button type="button" className="btn btn-ghost chat-tool-more" disabled={whole.state === "loading"} onClick={whole.load}>
+        {t(whole.state === "loading" ? "Loading the whole output…" : whole.state === "failed" ? "Couldn't load the whole output — retry" : "Show the whole output ({size} characters)", { size: formatTokens(part.output_size ?? 0) })}
+      </button>}</section>}</div>}
   </div>;
 }
 
@@ -607,7 +631,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
   const todos = useMemo(() => state.source === "conversation" ? todoState(turns) : null, [state.source, turns]);
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
 
-  return <div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
+  return <ChatPaneContext.Provider value={paneId}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
       {/* one button in every state: swapping it for a status line of another height would shift the reader */}
       {state.source === "conversation" && typeof olderCursor === "string" && (
@@ -634,5 +658,5 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
       : away && <button type="button" className="btn chat-new-messages is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>}
-  </div>;
+  </div></ChatPaneContext.Provider>;
 });

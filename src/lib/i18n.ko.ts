@@ -487,4 +487,9 @@ export const KO: Record<string, string> = {
   "Open image": "이미지 열기",
   "Attached image": "첨부한 이미지",
   "Conversation compacted": "대화가 압축됨",
+  "Skills": "스킬",
+  "Plugins": "플러그인",
+  "Show the whole output ({size} characters)": "전체 출력 보기 ({size}자)",
+  "Loading the whole output…": "전체 출력을 불러오는 중…",
+  "Couldn't load the whole output — retry": "전체 출력을 불러오지 못했습니다 — 다시 시도",
 };

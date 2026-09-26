@@ -31,6 +31,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   theirs.
 - Where a compaction folded a Claude conversation, a divider says so, and opens to its summary.
 - Headings down to `######` render as headings.
+- A tool output cut for the chat (past 4,000 characters) has a "Show the whole output" button that
+  fetches the rest, up to 2 MB, into a box of its own.
+- The `/` menu lists Claude's skills (yours and the project's) and the skills and commands of the
+  plugins turned on in its settings, as `/<plugin>:<name>`. In a Codex pane it lists your saved
+  prompts as `/prompts:<name>`, and `$` opens Codex's skills.
 
 ### Fixed
 - An agent's chat said "No conversation yet" until its first answer arrived, seconds on a remote PC.

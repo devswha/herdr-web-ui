@@ -871,3 +871,14 @@
   border: var(--hairline) solid var(--border);
   border-radius: var(--radius-lg);
 }
+
+/* a cut output's rest, on request; once whole, it scrolls in its own box instead of growing the page */
+.chat-tool-more {
+  margin-top: var(--space-1);
+  font-size: var(--fs-xs);
+}
+
+.chat-tool-io.is-whole {
+  max-height: 60vh;
+  overflow: auto;
+}
