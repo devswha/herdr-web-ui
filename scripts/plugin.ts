@@ -26,11 +26,27 @@ import { DEFAULT_PORT } from "../shared/protocol.ts";
 
 const ROOT = process.env["HERDR_PLUGIN_ROOT"] ?? import.meta.dir.replace(/\/scripts$/, "");
 const STATE_DIR = process.env["HERDR_PLUGIN_STATE_DIR"] ?? join(homedir(), ".local", "state", "herdr-web-ui");
-const CONFIG_DIR = process.env["HERDR_PLUGIN_CONFIG_DIR"] ?? join(homedir(), ".config", "herdr-web-ui");
+const CONFIG_DIR = process.env["HERDR_PLUGIN_CONFIG_DIR"] ?? herdrConfigDir() ?? join(homedir(), ".config", "herdr-web-ui");
 const PID_FILE = join(STATE_DIR, "server.pid");
 const LOG_FILE = join(STATE_DIR, "server.log");
 /** the server needs a moment to bind and open its first herdr connection */
 const READY_TIMEOUT_MS = 20_000;
+
+/**
+ * Run by hand (`pair` on a headless PC), herdr's env is not there to name the config dir:
+ * ask herdr for it, so the PORT, HOST and token the plugin runs with are the ones used.
+ */
+function herdrConfigDir(): string | null {
+  const herdr = Bun.which("herdr");
+  if (herdr === null) return null;
+  try {
+    const result = Bun.spawnSync([herdr, "plugin", "config-dir", "devswha.herdr-web-ui"], { stdout: "pipe", stderr: "ignore", timeout: 3000 });
+    const dir = result.exitCode === 0 ? result.stdout.toString().trim() : "";
+    return dir !== "" && existsSync(join(dir, "env")) ? dir : null;
+  } catch {
+    return null;
+  }
+}
 
 /** `KEY=value` lines from the plugin's config dir: the token lives here, not in herdr's env. */
 function userEnv(): Record<string, string> {

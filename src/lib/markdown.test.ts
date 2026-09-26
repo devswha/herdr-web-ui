@@ -65,6 +65,15 @@ describe("inline markdown", () => {
       { type: "link", href: "https://www.example.com/a/b", children: [{ type: "text", value: "www.example.com/a/b" }] },
       { type: "text", value: "." },
     ]);
+    // a file and its line, or a folder with a dot, is not an address
+    expect(parseInline("[main.ts](main.ts:42)")).toMatchObject([{ type: "file", path: "main.ts" }]);
+    expect(parseInline("[README.md](README.md:3:1)")).toMatchObject([{ type: "file", path: "README.md" }]);
+    expect(parseInline("[notes](notes.v2/todo.md)")).toMatchObject([{ type: "file", path: "notes.v2/todo.md" }]);
+    expect(parseInline("[call](tel:123)")).toEqual([{ type: "text", value: "call" }]);
+    // a local server by address is plain http, as localhost is
+    expect(parseInline("[server](127.0.0.1:8080)")).toMatchObject([{ type: "link", href: "http://127.0.0.1:8080" }]);
+    expect(parseInline("[dev](192.168.0.10:5173/app)")).toMatchObject([{ type: "link", href: "http://192.168.0.10:5173/app" }]);
+    expect(parseInline("[v](1.2.3.4)")).toMatchObject([{ type: "file", path: "1.2.3.4" }]);
     // a bare domain in prose stays prose, and a code span keeps its address as code (rendered as a link)
     expect(parseInline("example.com is fine")).toEqual([{ type: "text", value: "example.com is fine" }]);
     expect(parseInline("`https://example.com/x`")).toEqual([{ type: "code", value: "https://example.com/x" }]);
