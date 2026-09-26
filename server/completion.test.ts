@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SessionSnapshot } from "../shared/protocol.ts";
 import { CompletionTracker } from "./completion.ts";
 
@@ -60,5 +63,43 @@ describe("CompletionTracker", () => {
     tracker.observe("gone", "idle");
     tracker.present(snapshot([]));
     expect(tracker.present(snapshot([{ id: "gone", status: "idle" }])).panes[0]!.agent_status).toBe("idle");
+  });
+
+  it("keeps what finished, and what was working, across a restart of this server", () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-completion-"));
+    try {
+      const file = join(dir, "completions.json");
+      const before = new CompletionTracker(file, () => "herdr-a");
+      before.observe("finished", "working", "gjc");
+      expect(before.observe("finished", "idle", "gjc")).toBe("done");
+      // omo mid-turn when the server stopped, and finished before it came back
+      before.observe("running", "working", "pi");
+      const after = new CompletionTracker(file, () => "herdr-a");
+      const panes = after.present(snapshot([{ id: "finished", status: "idle" }, { id: "running", status: "idle" }])).panes;
+      expect(panes.map((pane) => pane.agent_status)).toEqual(["done", "done"]);
+      // seen after the restart stays seen after the next one
+      expect(after.seen("finished")).toBe(true);
+      const again = new CompletionTracker(file, () => "herdr-a");
+      expect(again.present(snapshot([{ id: "finished", status: "idle" }, { id: "running", status: "idle" }])).panes.map((pane) => pane.agent_status)).toEqual(["idle", "done"]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("drops what was kept for another herdr, whose pane ids name other panes, and a broken file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-completion-"));
+    try {
+      const file = join(dir, "completions.json");
+      const before = new CompletionTracker(file, () => "herdr-a");
+      before.observe("p", "working");
+      before.observe("p", "idle");
+      const restarted = new CompletionTracker(file, () => "herdr-b");
+      expect(restarted.present(snapshot([{ id: "p", status: "idle" }])).panes[0]!.agent_status).toBe("idle");
+      writeFileSync(file, "{not json");
+      expect(new CompletionTracker(file, () => "herdr-a").present(snapshot([{ id: "p", status: "idle" }])).panes[0]!.agent_status).toBe("idle");
+      // without a herdr to name, nothing is written: it could not be told apart later
+      const nowhere = join(dir, "none.json");
+      new CompletionTracker(nowhere, () => null).observe("p", "working");
+      expect(existsSync(nowhere)).toBe(false);
+      expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ herdr: "herdr-a" });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
