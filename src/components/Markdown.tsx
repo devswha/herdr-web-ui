@@ -14,6 +14,7 @@ function FilePath({ path, code, open }: { path: string; code: boolean; open: (pa
 
 function Inline({ nodes }: { nodes: InlineNode[] }) {
   const open = useContext(OpenFileContext);
+  const t = useT();
   return <>{nodes.map((node, index) => {
     const key = `${node.type}-${index}`;
     switch (node.type) {
@@ -29,7 +30,7 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
       case "file": {
         const label = <OpenFileContext.Provider value={null}><Inline nodes={node.children} /></OpenFileContext.Provider>;
         return open !== null
-          ? <button key={key} type="button" className="markdown-file" title={`Open ${node.path}`} onClick={() => open(node.path)}>{label}</button>
+          ? <button key={key} type="button" className="markdown-file" title={t("Open {path}", { path: node.path })} onClick={() => open(node.path)}>{label}</button>
           : <span key={key}>{label} (<code>{node.path}</code>)</span>;
       }
     }
