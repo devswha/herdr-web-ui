@@ -32,6 +32,21 @@ export function safeMarkdownHref(href: string): string | null {
 }
 
 /**
+ * An address written without its scheme, as people and agents do: `www.example.com/x`,
+ * `docs.example.com/guide`, `localhost:7317/`. A host with a dot needs a path, a port or a
+ * `www.` to count, so `README.md` stays a file; `localhost` needs nothing more.
+ */
+export function webLikeHref(target: string): string | null {
+  const value = target.trim();
+  if (/^localhost(?::\d+)?(?:\/[^\s]*)?$/i.test(value)) return `http://${value}`;
+  const match = /^(www\.[^\s/:]+|[a-z0-9-]+(?:\.[a-z0-9-]+)+)(:\d+)?(\/[^\s]*)?$/i.exec(value);
+  if (match === null) return null;
+  const [, host, port, path] = match;
+  if (!host!.includes(".") || (!/^www\./i.test(host!) && port === undefined && path === undefined)) return null;
+  return `https://${value}`;
+}
+
+/**
  * The file a link names, when its target is a path rather than an address: agents link
  * files they wrote (`[report](/repo/out/REPORT.md)`, `[x](src/x.ts#L12)`). A line anchor
  * (`#L12`, `:12`) is dropped; the viewer opens the file.
@@ -66,7 +81,7 @@ export function parseInline(source: string, links = true): InlineNode[] {
   // rendering exactly as it appears in the terminal and native transcript.
   // a bare or <angle> http(s) URL is a link too; it stops at the first non-ASCII character,
   // so `…/pull/36에서` links the address and leaves the Korean after it as text
-  const marker = /(`[^`\n]+`|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|https?:\/\/[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
+  const marker = /(`[^`\n]+`|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
   let offset = 0;
   for (const match of source.matchAll(marker)) {
     const index = match.index ?? 0;
@@ -75,17 +90,18 @@ export function parseInline(source: string, links = true): InlineNode[] {
     if (token.startsWith("<")) {
       const url = token.slice(1, -1);
       nodes.push(links ? { type: "link", href: url, children: [{ type: "text", value: url }] } : { type: "text", value: token });
-    } else if (/^https?:/i.test(token)) {
+    } else if (/^(?:https?:|www\.)/i.test(token)) {
       // what ends a sentence is not part of the address: "see https://x.dev/a)." links x.dev/a
       token = trimUrl(token);
-      nodes.push(links ? { type: "link", href: token, children: [{ type: "text", value: token }] } : { type: "text", value: token });
+      const href = /^www\./i.test(token) ? `https://${token}` : token;
+      nodes.push(links ? { type: "link", href, children: [{ type: "text", value: token }] } : { type: "text", value: token });
     } else if (token.startsWith("`")) {
       nodes.push({ type: "code", value: token.slice(1, -1) });
     } else if (token.startsWith("[")) {
       const split = token.lastIndexOf("](");
       const label = token.slice(1, split);
       const target = token.slice(split + 2, -1);
-      const href = safeMarkdownHref(target);
+      const href = safeMarkdownHref(target) ?? webLikeHref(target);
       const file = href === null ? markdownFileTarget(target) : null;
       nodes.push(href !== null ? { type: "link", href, children: parseInline(label, false) }
         : file !== null ? { type: "file", path: file, children: parseInline(label, false) }

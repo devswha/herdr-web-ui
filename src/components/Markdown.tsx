@@ -21,7 +21,11 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
       case "text":
         if (open === null) return <span key={key}>{node.value}</span>;
         return <span key={key}>{splitFilePaths(node.value).map((part, n) => typeof part === "string" ? part : <FilePath key={n} path={part.path} code={false} open={open} />)}</span>;
-      case "code": return open !== null && codeIsFilePath(node.value) ? <FilePath key={key} path={node.value} code open={open} /> : <code key={key}>{node.value}</code>;
+      case "code": {
+        // agents often put an address in backticks: it stays code to the eye, and opens
+        if (/^https?:\/\/\S+$/i.test(node.value)) return <a key={key} className="markdown-code-link" href={node.value} target="_blank" rel="noopener noreferrer"><code>{node.value}</code></a>;
+        return open !== null && codeIsFilePath(node.value) ? <FilePath key={key} path={node.value} code open={open} /> : <code key={key}>{node.value}</code>;
+      }
       case "strong": return <strong key={key}><Inline nodes={node.children} /></strong>;
       case "em": return <em key={key}><Inline nodes={node.children} /></em>;
       case "del": return <del key={key}><Inline nodes={node.children} /></del>;
