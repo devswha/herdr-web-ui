@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.19] - 2026-09-27
+
 ### Added
 - Quick replies: one-tap messages above the chat's message box (`continue`, `yes`, `no`,
   `commit and push`, `retry` to start with). Each is sent as if typed: queued while the agent works,
@@ -436,7 +438,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.18...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.19...HEAD
+[0.3.19]: https://github.com/devswha/herdr-web-ui/compare/v0.3.18...v0.3.19
 [0.3.18]: https://github.com/devswha/herdr-web-ui/compare/v0.3.17...v0.3.18
 [0.3.17]: https://github.com/devswha/herdr-web-ui/compare/v0.3.16...v0.3.17
 [0.3.16]: https://github.com/devswha/herdr-web-ui/compare/v0.3.15...v0.3.16
