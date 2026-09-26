@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-09-26
+
 ### Added
 - A pairing code from the PC's terminal, for a headless PC with no browser to open Settings →
   Devices in: `bun scripts/plugin.ts pair` (in the plugin checkout; a terminal command, since herdr
@@ -354,7 +356,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.15...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.16...HEAD
+[0.3.16]: https://github.com/devswha/herdr-web-ui/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/devswha/herdr-web-ui/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/devswha/herdr-web-ui/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/devswha/herdr-web-ui/compare/v0.3.12...v0.3.13
