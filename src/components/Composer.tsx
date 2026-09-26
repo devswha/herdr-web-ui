@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Clock, FileText, Paperclip, SendHorizontal, Square, X, Zap } from "lucide-react";
+import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -57,12 +57,6 @@ const COMMAND_CACHE_MS = 60_000;
 const SLASH_USAGE_KEY = "herdr-web-ui:slash-usage";
 /** One height for every pane on this device: it is the screen, not the conversation, that decides it. */
 const COMPOSER_HEIGHT_KEY = "herdr-web-ui:composer-height";
-/** whether the quick replies row shows, one choice for every pane on this device; hidden until asked for */
-const QUICK_OPEN_KEY = "herdr-web-ui:quick-replies-open";
-
-function storedQuickOpen(): boolean {
-  try { return window.localStorage.getItem(QUICK_OPEN_KEY) === "1"; } catch { return false; }
-}
 const COMPOSER_HEIGHT_MAX = 480;
 const COMPOSER_HEIGHT_STEP = 24;
 /** How far a press on the grip must travel to become a resize: a tap or a resting finger sets nothing. */
@@ -180,7 +174,8 @@ export function Composer({
   const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [quickOpen, setQuickOpen] = useState(storedQuickOpen);
+  // shown only when chosen in Settings → Quick replies: a button beside the box was one more thing to read
+  const quickOpen = settings.showQuickReplies;
   const quickReplies = quickReplyButtons(settings);
   const [manualHeight, setManualHeight] = useState<number | null>(readComposerHeight);
   /** the box's rendered height, for the grip to announce while the height is automatic */
@@ -504,13 +499,6 @@ export function Composer({
     void result.then(settle).finally(() => { if (mounted.current) setSending(false); });
   }, [connected, onSend, sending]);
 
-  const toggleQuick = useCallback(() => {
-    setQuickOpen((open) => {
-      try { window.localStorage.setItem(QUICK_OPEN_KEY, open ? "0" : "1"); } catch { /* private mode: the choice lasts this page */ }
-      return !open;
-    });
-  }, []);
-
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
@@ -776,18 +764,6 @@ export function Composer({
           >
             <Paperclip aria-hidden="true" />
           </button>
-          {quickReplies.length > 0 && (
-            <button
-              type="button"
-              className="icon-button composer-quick-toggle"
-              aria-label={t(quickOpen ? "Hide quick replies" : "Show quick replies")}
-              aria-pressed={quickOpen}
-              title={t(quickOpen ? "Hide quick replies" : "Show quick replies")}
-              onClick={toggleQuick}
-            >
-              <Zap aria-hidden="true" />
-            </button>
-          )}
         </div>
         <div className="composer-controls composer-controls-right">
           {queueMode && (

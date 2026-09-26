@@ -32,6 +32,8 @@ export interface Settings {
   alertDone: DoneAlerts;
   /** one-tap replies above the composer, in order; blank ones are kept while being typed, never shown */
   quickReplies: string[];
+  /** whether the quick replies show above the composer at all */
+  showQuickReplies: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -45,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   alertInput: true,
   alertDone: "long",
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
+  showQuickReplies: false,
 };
 
 export const QUICK_REPLIES_MAX = 12;
@@ -101,6 +104,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     quickReplies: Array.isArray(record["quickReplies"])
       ? record["quickReplies"].filter((reply): reply is string => typeof reply === "string").slice(0, QUICK_REPLIES_MAX).map((reply) => reply.slice(0, QUICK_REPLY_MAX_CHARS))
       : [...DEFAULT_SETTINGS.quickReplies],
+    showQuickReplies: typeof record["showQuickReplies"] === "boolean" ? record["showQuickReplies"] : DEFAULT_SETTINGS.showQuickReplies,
   };
 }
 

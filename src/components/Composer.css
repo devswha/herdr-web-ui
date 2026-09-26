@@ -602,9 +602,6 @@
   cursor: default;
 }
 
-.composer-quick-toggle[aria-pressed="true"] {
-  color: var(--accent);
-}
 
 @media (pointer: coarse) {
   .composer-quick-reply {

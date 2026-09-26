@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The ⚡ button beside the message box is gone: quick replies show above the box only when turned on
+  in **Settings → Quick replies** (off by default), so the box looks as it did before them.
+
 ## [0.3.19] - 2026-09-27
 
 ### Added
