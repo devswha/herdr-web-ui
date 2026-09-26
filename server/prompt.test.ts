@@ -45,7 +45,8 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     expect(question).toMatchObject({
       agent: "claude",
       kind: "question",
-      title: "Question",
+      // a single question is titled by its header chip
+      title: "Dataset",
       question: "Which evaluation dataset should we use?",
       multi_select: false,
       custom_option_index: 3,
@@ -662,5 +663,44 @@ tab to add notes | enter to submit answer | esc to interrupt
     expect(() => answerKeys(claudeQuestion(), { option_index: 99 })).toThrow("valid option index");
     expect(() => answerKeys(claudeQuestion(), { custom_text: 42 } as never)).toThrow("must be a string");
     expect(() => answerKeys(claudeQuestion(), { option_indices: null } as never)).toThrow("must be an array");
+  });
+});
+
+describe("Claude's question in a narrow pane", () => {
+  // live-captured from Claude Code 2.1.283 in a 44-column herdr pane: the hint wraps
+  const narrow = `────────────────────────────────────────────
+ ☐ 재현 테스트
+
+│ 재현용 테스트 질문입니다. 지금 이 질문
+│ 화면을 백그라운드에서 캡처하고 있으니,
+│ 15초쯤 기다렸다가 아무거나 골라 주세요.
+│ 기다리는 동안 채팅 모드에 이 질문 카드가
+│ 뜨는지도 봐 주시면 좋습니다.
+
+❯ 1. 채팅에 카드가 안 떠요
+     채팅 모드에 이 질문이 보이지 않음
+  2. 채팅에 카드가 떠요
+     채팅 모드에 이 질문이 카드로 보임
+  3. Type something.
+────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to
+cancel
+`;
+
+  test("reads the question though its hint wrapped, and knows it is still open", () => {
+    const prompt = parseInteractivePrompt("claude", narrow);
+    expect(prompt).toMatchObject({
+      kind: "question",
+      title: "재현 테스트",
+      options: [{ label: "채팅에 카드가 안 떠요" }, { label: "채팅에 카드가 떠요" }],
+      custom_option_index: 2,
+    });
+    expect(prompt?.question).toStartWith("재현용 테스트 질문입니다.");
+  });
+
+  test("does not take an answered menu above later output for an open one", () => {
+    expect(parseInteractivePrompt("claude", narrow + "\n● Done.\n\n> ")).toBeNull();
   });
 });

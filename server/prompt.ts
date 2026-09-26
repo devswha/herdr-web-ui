@@ -87,11 +87,20 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function findLastIndex(lines: string[], predicate: (line: string) => boolean): number {
+function findLastIndex(lines: string[], predicate: (line: string, index: number) => boolean): number {
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    if (predicate(lines[index]!)) return index;
+    if (predicate(lines[index]!, index)) return index;
   }
   return -1;
+}
+
+/**
+ * A line and the two after it, as one: a narrow pane wraps a hint line
+ * (`Enter to select · ↑/↓ to navigate · Esc to` / `cancel`), so hints are matched
+ * across the wrap. The last line a window matches from is where the hint begins.
+ */
+function wrapped(lines: string[], index: number): string {
+  return lines.slice(index, index + 3).map(cleanLine).filter((line) => line && !isDivider(line)).join(" ");
 }
 
 function nearestQuestion(lines: string[], beforeIndex: number): string | null {
@@ -188,7 +197,7 @@ function publicPrompt(parsed: ParsedPrompt): InteractivePrompt {
 
 function parseOmpQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (line) => OMP_SINGLE_HINT_RE.test(cleanLine(line)) || OMP_MULTI_HINT_RE.test(cleanLine(line)));
+  const hintIndex = findLastIndex(lines, (_, index) => OMP_SINGLE_HINT_RE.test(wrapped(lines, index)) || OMP_MULTI_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
   const dividers = findMenuDividers(lines, hintIndex);
   if (!dividers) return null;
@@ -213,7 +222,7 @@ function parseOmpQuestion(screen: string): ParsedPrompt | null {
 
 function parseCodexContinueMenu(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (line) => CODEX_CONTINUE_HINT_RE.test(cleanLine(line)));
+  const hintIndex = findLastIndex(lines, (_, index) => CODEX_CONTINUE_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
   const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
   if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
@@ -232,7 +241,7 @@ function parseCodexContinueMenu(screen: string): ParsedPrompt | null {
 
 function parseCodexQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (line) => CODEX_ASK_HINT_RE.test(line));
+  const hintIndex = findLastIndex(lines, (_, index) => CODEX_ASK_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
   const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 48), hintIndex);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
@@ -265,7 +274,7 @@ function parseCodexQuestion(screen: string): ParsedPrompt | null {
  */
 function parseCodexAsyncQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (line) => CODEX_ASYNC_ASK_HINT_RE.test(line));
+  const hintIndex = findLastIndex(lines, (_, index) => CODEX_ASYNC_ASK_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
   const header = findLastIndex(lines.slice(Math.max(0, hintIndex - 48), hintIndex), (line) => CODEX_QUEUE_HEADER_RE.test(cleanLine(line)));
   const top = header < 0 ? Math.max(0, hintIndex - 48) : Math.max(0, hintIndex - 48) + header + 1;
@@ -361,7 +370,7 @@ function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueF
 
 function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (line) => CLAUDE_ASK_HINT_RE.test(line));
+  const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_ASK_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
   const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
@@ -370,13 +379,14 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   if (chatIndex !== rows.length - 1 || customIndex !== chatIndex - 1 || customIndex < 1) return null;
   const tabs = claudeTabs(lines, rows[0]!.lineIndex);
   const question = claudeQuestionText(lines, tabs?.index ?? -1, rows[0]!.lineIndex) ?? nearestQuestion(lines, rows[0]!.lineIndex);
+  const chip = tabs === null ? claudeChip(lines, rows[0]!.lineIndex) : null;
   if (!question) return null;
   const optionRows = rows.slice(0, customIndex);
   const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]!));
   const current = tabs?.tabs.findIndex((tab) => !tab.answered) ?? -1;
   // a bar cut off by a narrow pane does not show how many questions there are
   const title = tabs && current >= 0 ? `${tabs.tabs[current]!.label}${tabs.whole && tabs.tabs.length > 1 ? ` · ${current + 1} of ${tabs.tabs.length}` : ""}`
-    : multiSelect ? "Multiple choice" : "Question";
+    : chip ?? (multiSelect ? "Multiple choice" : "Question");
   return finishPrompt("claude", {
     kind: "question", title, question, body: null,
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
@@ -387,6 +397,17 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: customIndex, rejectWithEscapeIndex: null,
   });
+}
+
+/** A single question's header chip (`☐ Dataset`), the question's own short name; null when there is none. */
+function claudeChip(lines: string[], firstRow: number): string | null {
+  for (let index = firstRow - 1; index >= Math.max(0, firstRow - 40); index -= 1) {
+    const line = cleanLine(lines[index]!);
+    if (isDivider(line) || CLAUDE_TABS_RE.test(line)) return null;
+    const chip = /^[☐☒☑✔]\s+(\S.*)$/.exec(line);
+    if (chip !== null) return chip[1]!.trim();
+  }
+  return null;
 }
 
 /**
@@ -485,7 +506,7 @@ function parseOmpApproval(screen: string): ParsedPrompt | null {
 
 function parseClaudeApproval(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const planIndex = findLastIndex(lines, (line) => /Claude has written up a plan and is ready to execute\. Would you like to proceed\?/i.test(cleanLine(line)));
+  const planIndex = findLastIndex(lines, (_, index) => /Claude has written up a plan and is ready to execute\. Would you like to proceed\?/i.test(wrapped(lines, index)));
   if (planIndex >= 0) {
     const rows = parseNumberedRows(lines, planIndex + 1, lines.length);
     if (!sequentialRows(rows) || rows.length < 3 || rows.filter((row) => row.selected).length !== 1) return null;
@@ -509,7 +530,7 @@ function parseClaudeApproval(screen: string): ParsedPrompt | null {
   const questionIndex = findLastIndex(lines, (line) => /^Do you want to .+\?$/i.test(cleanLine(line)));
   if (questionIndex < 0) return null;
   // options end at the key hint: a line under the last one is then only its wrapped label
-  const hintIndex = findLastIndex(lines, (line) => /esc to cancel/i.test(cleanLine(line)));
+  const hintIndex = findLastIndex(lines, (_, index) => /esc to cancel/i.test(wrapped(lines, index)));
   const rows = parseNumberedRows(lines, questionIndex + 1, hintIndex > questionIndex ? hintIndex : lines.length);
   if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
   let title: string;
@@ -550,17 +571,23 @@ function parseClaudeApproval(screen: string): ParsedPrompt | null {
 
 function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   const cleanLines = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine);
-  const last = cleanLines.filter((line) => line && !isDivider(line)).at(-1) ?? "";
-  if (prompt.responder === "omp-question") return OMP_SINGLE_HINT_RE.test(last) || OMP_MULTI_HINT_RE.test(last);
-  if (prompt.responder === "codex-menu") return CODEX_CONTINUE_HINT_RE.test(last);
-  if (prompt.responder === "codex-question") return CODEX_ASK_HINT_RE.test(last);
-  if (prompt.responder === "codex-async-question") return cleanLines.slice(-4).some((line) => CODEX_ASYNC_ASK_HINT_RE.test(line));
-  if (prompt.responder === "claude-question") return CLAUDE_ASK_HINT_RE.test(last);
+  const shown = cleanLines.filter((line) => line && !isDivider(line));
+  const last = shown.at(-1) ?? "";
+  // The menu is still at the bottom. A narrow pane wraps its hint, so the last line alone can
+  // be the hint's tail (`cancel`): the lines before it count only when the match runs into
+  // the last one, never for a hint that ended above later output (an answered, stale menu).
+  const ends = (re: RegExp): boolean => [1, 2, 3].some((span) =>
+    re.test(shown.slice(-span).join(" ")) && (span === 1 || !re.test(shown.slice(-span, -1).join(" "))));
+  if (prompt.responder === "omp-question") return ends(OMP_SINGLE_HINT_RE) || ends(OMP_MULTI_HINT_RE);
+  if (prompt.responder === "codex-menu") return ends(CODEX_CONTINUE_HINT_RE);
+  if (prompt.responder === "codex-question") return ends(CODEX_ASK_HINT_RE);
+  if (prompt.responder === "codex-async-question") return cleanLines.slice(-4).some((line) => CODEX_ASYNC_ASK_HINT_RE.test(line)) || ends(CODEX_ASYNC_ASK_HINT_RE);
+  if (prompt.responder === "claude-question") return ends(CLAUDE_ASK_HINT_RE);
   if (prompt.responder === "claude-submit") return /^(?:[›>❯]\s*)?\d+\.\s+Cancel$/i.test(last);
-  if (prompt.responder === "codex-approval") return /press enter to confirm|esc to cancel|enter continue.*esc back|^\d+\.\s+(?:No|Reject|Cancel|Deny)\b/i.test(last);
-  if (prompt.responder === "omp-approval") return /^(?:Approve|Deny)$|esc.*cancel/i.test(last);
-  if (prompt.responder === "claude-approval") return /esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain/i.test(last);
-  return /ctrl\+g to edit|shift\+tab to approve with this feedback/i.test(last);
+  if (prompt.responder === "codex-approval") return ends(/press enter to confirm|esc to cancel|enter continue.*esc back|^\d+\.\s+(?:No|Reject|Cancel|Deny)\b/i);
+  if (prompt.responder === "omp-approval") return ends(/^(?:Approve|Deny)$|esc.*cancel/i);
+  if (prompt.responder === "claude-approval") return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain/i);
+  return ends(/ctrl\+g to edit|shift\+tab to approve with this feedback/i);
 }
 
 function parsePrompt(agent: string, screen: string): ParsedPrompt | null {
