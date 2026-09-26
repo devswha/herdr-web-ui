@@ -218,7 +218,8 @@ export class HerdrSocket {
    * as written, `payload` the same shaped for the pane's paste mode. null, sending
    * nothing, when offline.
    */
-  submit(paneId: string, text: string, payload: string): Promise<SubmitResult> | null {
+  /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage) */
+  submit(paneId: string, text: string, payload: string, typed = false): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null) return null;
     return (async (): Promise<SubmitResult> => {
@@ -236,7 +237,7 @@ export class HerdrSocket {
           resolve({ ok: false, code: "timeout", message: "the pane did not confirm this message in time" });
         }, SUBMIT_TIMEOUT_MS);
       });
-      this.rawSend({ type: "submit", id, pane_id: paneId, text, payload });
+      this.rawSend({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}) });
       return await result;
     })();
   }

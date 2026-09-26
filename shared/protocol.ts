@@ -354,8 +354,9 @@ export type ClientMessage =
   /** a composer message, sent to servers whose snapshot lists "submit": the server types it and
    * its own Enter after a short gap, and answers with a submit-result of the same id. `text` is
    * the message as written (agent.prompt pastes it itself), `payload` the same shaped for the
-   * pane's bracketed-paste mode, typed when no agent is in front */
-  | { type: "submit"; id: number; pane_id: string; text: string; payload: string }
+   * pane's bracketed-paste mode, typed when no agent is in front. `typed`: the terminal's own
+   * input line, which types `payload` like the keyboard would even into an agent's open menu */
+  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean }
   | { type: "resize"; pane_id: string; cols: number; rows: number }
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }

@@ -36,6 +36,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The `/` menu lists Claude's skills (yours and the project's) and the skills and commands of the
   plugins turned on in its settings, as `/<plugin>:<name>`. In a Codex pane it lists your saved
   prompts as `/prompts:<name>`, and `$` opens Codex's skills.
+- On a phone, the terminal lens has an input line above the key bar. A phone keyboard rewrites
+  what it typed (dictation revising a phrase, a Korean syllable being composed, autocorrect), and
+  the terminal could not take back keys it had sent, so every revision arrived as more text. The
+  line is written with the keyboard's own editing and goes to the pane whole, then Enter (typed
+  like the keyboard, into an agent's open menu too); an empty line's button presses Enter alone.
+  Tapping the terminal no longer raises the keyboard; the ⌨ key on the key bar switches to typing
+  straight into it, remembered per device. Desktops are unchanged.
 
 ### Fixed
 - An agent's chat said "No conversation yet" until its first answer arrived, seconds on a remote PC.
