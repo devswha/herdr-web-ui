@@ -62,7 +62,7 @@ The connection server first honors an explicit `HERDR_WEB_BUNDLE_MANIFEST`, then
 
 `.github/workflows/remote-bundles.yml` builds and smoke-tests Linux/macOS × x64/arm64, plus a real SSH password-authentication job on Linux. Dispatching it produces artifacts; pushing a `remote-vN` tag, where N is `REMOTE_BUNDLE_VERSION` in `shared/machines.ts`, publishes all four archives and the combined `manifest.json` after the checks pass. Raising `REMOTE_BUNDLE_VERSION` makes every connected PC's bridge incompatible until it is updated (**Update bridge…**), so publish the `remote-vN` release before the app release that carries the new number. Locally built bundles and manifests under `remote-bundles/` must be rebuilt too, since an older manifest there fails closed.
 
-The default manifest is `https://github.com/devswha/herdr-web-ui/releases/download/remote-v<REMOTE_BUNDLE_VERSION>/manifest.json` (currently `remote-v2`). Version and SHA-256 checks run on the connection server and SHA-256 is checked again on the remote PC before extraction. Each runtime contains its own version metadata. A malformed/incompatible manifest stops installation before a running bridge is stopped.
+The default manifest is `https://github.com/devswha/herdr-web-ui/releases/download/remote-v<REMOTE_BUNDLE_VERSION>/manifest.json` (currently `remote-v3`). Version and SHA-256 checks run on the connection server and SHA-256 is checked again on the remote PC before extraction. Each runtime contains its own version metadata. A malformed/incompatible manifest stops installation before a running bridge is stopped.
 
 ## Verification
 
