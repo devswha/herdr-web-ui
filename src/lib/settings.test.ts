@@ -38,3 +38,11 @@ describe("quick replies", () => {
     expect(sanitizeSettings({}).quickReplies).toEqual(DEFAULT_SETTINGS.quickReplies);
   });
 });
+
+describe("quick replies row", () => {
+  it("stays hidden until chosen in settings", () => {
+    expect(DEFAULT_SETTINGS.showQuickReplies).toBe(false);
+    expect(sanitizeSettings({ showQuickReplies: true }).showQuickReplies).toBe(true);
+    expect(sanitizeSettings({ showQuickReplies: "yes" }).showQuickReplies).toBe(false);
+  });
+});

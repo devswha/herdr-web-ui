@@ -171,7 +171,10 @@ export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogP
 
           <section className="settings-section">
             <h3>{t("Quick replies")}</h3>
-            <p className="settings-description">{t("One-tap messages above the message box, on this device. Each is sent as if typed: queued while the agent works, an answer when a question is open.")}</p>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Show above the message box")}</span><span className="settings-description">{t("One-tap messages above the message box, on this device. Each is sent as if typed: queued while the agent works, an answer when a question is open.")}</span></div>
+              <Toggle label={t("Show above the message box")} checked={settings.showQuickReplies} onChange={(showQuickReplies) => update({ showQuickReplies })} />
+            </div>
             <ol className="quick-replies-list">
               {settings.quickReplies.map((reply, index) => (
                 <li key={index}>

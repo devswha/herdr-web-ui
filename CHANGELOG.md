@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The ⚡ button beside the message box is gone: quick replies show above the box only when turned on
+  in **Settings → Quick replies** (off by default), so the box looks as it did before them.
+- The context left is a small ring beside the model, filled by what is used and red when little is
+  left, as Codex's app shows it; hovering or tapping it says "Context 27% left" with the token
+  counts. A session whose window the transcript does not name shows no ring.
+- The `/ commands  @ files` hint above the message box is gone.
+
 ## [0.3.19] - 2026-09-27
 
 ### Added
