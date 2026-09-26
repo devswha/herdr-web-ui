@@ -34,6 +34,7 @@ import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
+import { useT } from "./lib/i18n.ts";
 
 const APP_TITLE = "herdr web ui";
 const POLL_MS = 5000;
@@ -107,6 +108,7 @@ function Brand() {
 }
 
 export function App() {
+  const t = useT();
   const { settings, resolvedTheme, update: updateSettings } = useSettings();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
@@ -412,14 +414,14 @@ export function App() {
 
   const bell =
     notifications !== "granted"
-      ? { label: "Enable notifications", title: "Notify me when a pane needs input or finishes", disabled: false }
+      ? { label: t("Enable notifications"), title: t("Notify me when a pane needs input or finishes"), disabled: false }
       : pushOn
-        ? { label: "Alerts on", title: "Alerts on — pushed to this device, even with the app closed", disabled: true }
+        ? { label: t("Alerts on"), title: t("Alerts on — pushed to this device, even with the app closed"), disabled: true }
         : pushSupported()
-          ? { label: "Alerts on in this tab", title: "Alerts on while this tab is open — tap to get them with the app closed too", disabled: false }
+          ? { label: t("Alerts on in this tab"), title: t("Alerts on while this tab is open — tap to get them with the app closed too"), disabled: false }
           : {
-              label: "Alerts on in this tab",
-              title: "Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app)",
+              label: t("Alerts on in this tab"),
+              title: t("Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app)"),
               disabled: true,
             };
   const bellVisible = notifications !== "unsupported" && notifications !== "denied";
@@ -483,7 +485,7 @@ export function App() {
           <main className="terminal-host">
             <div className="terminal-placeholder">
               <div className="terminal-placeholder-inner">
-                <span>Connecting to herdr web ui…</span>
+                <span>{t("Connecting to herdr web ui…")}</span>
               </div>
             </div>
           </main>
@@ -499,7 +501,7 @@ export function App() {
         <button
           type="button"
           className="icon-button drawer-toggle"
-          aria-label={drawerOpen ? "Close workspace list" : "Open workspace list"}
+          aria-label={t(drawerOpen ? "Close workspace list" : "Open workspace list")}
           aria-expanded={drawerOpen}
           aria-controls="workspace-drawer"
           onClick={() => setDrawerOpen((open) => !open)}
@@ -509,9 +511,9 @@ export function App() {
         <button
           type="button"
           className="icon-button header-desktop-only sidebar-toggle"
-          aria-label={sidebarCollapsed ? "Show workspace list" : "Hide workspace list"}
+          aria-label={t(sidebarCollapsed ? "Show workspace list" : "Hide workspace list")}
           aria-pressed={!sidebarCollapsed}
-          title="Toggle sidebar (⌘⇧B)"
+          title={t("Toggle sidebar (⌘⇧B)")}
           onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
         >
           <PanelLeft />
@@ -540,13 +542,13 @@ export function App() {
         )}
         {selectedPane && (
           <div className="segmented view-switch" role="group" aria-label="Pane view">
-            <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")} title="Chat transcript (⌘⇧J)">
+            <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")} title={t("Chat transcript (⌘⇧J)")}>
               <MessageSquare />
-              <span className="header-desktop-only">Chat</span>
+              <span className="header-desktop-only">{t("Chat")}</span>
             </button>
-            <button type="button" aria-pressed={view === "terminal"} onClick={() => setView("terminal")} title="Live terminal (⌘⇧J)">
+            <button type="button" aria-pressed={view === "terminal"} onClick={() => setView("terminal")} title={t("Live terminal (⌘⇧J)")}>
               <SquareTerminal />
-              <span className="header-desktop-only">Terminal</span>
+              <span className="header-desktop-only">{t("Terminal")}</span>
             </button>
           </div>
         )}
@@ -554,18 +556,18 @@ export function App() {
           <span
             className={`conn ${connected ? "conn-live" : "conn-reconnecting"}`}
             role="status"
-            title={targetHerdr ? `herdr ${targetHerdr.version} · protocol ${targetHerdr.protocol}` : undefined}
+            title={targetHerdr ? t("herdr {version} · protocol {protocol}", { version: targetHerdr.version, protocol: targetHerdr.protocol }) : undefined}
           >
             <span className="conn-dot" aria-hidden="true" />
-            <span className="conn-text">{connected ? "live" : outputStopped ? "disconnected" : "reconnecting"}</span>
+            <span className="conn-text">{t(connected ? "live" : outputStopped ? "disconnected" : "reconnecting")}</span>
           </span>
-          {!targetHerdr && <span className="pill pill-offline">herdr offline</span>}
+          {!targetHerdr && <span className="pill pill-offline">{t("herdr offline")}</span>}
           {selectedPane && (
-            <button type="button" className="icon-button files-button" aria-label="Browse files" title="Browse files" onClick={() => setFilesOpen(true)}>
+            <button type="button" className="icon-button files-button" aria-label={t("Browse files")} title={t("Browse files")} onClick={() => setFilesOpen(true)}>
               <FolderOpen />
             </button>
           )}
-          <button type="button" className="icon-button" aria-label="Command palette" title="Command palette (⌘⇧K)" onClick={() => setPaletteOpen(true)}>
+          <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => setPaletteOpen(true)}>
             <Search />
           </button>
           {bellVisible && (
@@ -580,11 +582,11 @@ export function App() {
               <Bell />
             </button>
           )}
-          <button type="button" className="icon-button" aria-label="Settings" title="Settings (⌘⇧,)" onClick={() => setSettingsOpen(true)}>
+          <button type="button" className="icon-button" aria-label={t("Settings")} title={t("Settings (⌘⇧,)")} onClick={() => setSettingsOpen(true)}>
             <Settings />
           </button>
           {health?.auth?.required && (
-            <button type="button" className="icon-button lock-button header-desktop-only" aria-label="Lock" title="Lock" onClick={() => void lock()}>
+            <button type="button" className="icon-button lock-button header-desktop-only" aria-label={t("Lock")} title={t("Lock")} onClick={() => void lock()}>
               <Lock />
             </button>
           )}
@@ -595,7 +597,7 @@ export function App() {
       <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
-          {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>Retry</button></div>}
+          {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
           <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onAdd={() => { setUpdateRemote(false); setMachineDialog("new"); }} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewSessionOpen(true); setDrawerOpen(false); }} />
         </aside>
 

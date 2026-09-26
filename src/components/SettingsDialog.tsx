@@ -7,6 +7,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys } from "../lib/shortcuts.ts";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, useSettings } from "../lib/settings.ts";
+import { LANGUAGE_NAMES, useT, type LanguageSetting } from "../lib/i18n.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
@@ -35,6 +36,7 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
 
 export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogProps) {
   const { settings, update } = useSettings();
+  const t = useT();
   const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
   // server-side: the web server updates PC bridges, so it keeps this choice
@@ -78,103 +80,113 @@ export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogP
     <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="modal settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="modal-header">
-          <h2 className="modal-title" id="settings-title">Settings</h2>
-          <button type="button" className="icon-button" aria-label="Close settings" onClick={onClose}><X /></button>
+          <h2 className="modal-title" id="settings-title">{t("Settings")}</h2>
+          <button type="button" className="icon-button" aria-label={t("Close settings")} onClick={onClose}><X /></button>
         </header>
         <div className="modal-body settings-body">
           <section className="settings-section">
-            <h3>Appearance</h3>
+            <h3>{t("Appearance")}</h3>
             <div className="settings-row">
-              <div><span className="settings-label">Theme</span><span className="settings-description">Choose the app color scheme</span></div>
-              <div className="segmented" aria-label="Theme">
+              <div><span className="settings-label">{t("Theme")}</span><span className="settings-description">{t("Choose the app color scheme")}</span></div>
+              <div className="segmented" aria-label={t("Theme")}>
                 {(["dark", "light", "system"] as const).map((theme, index) => (
                   <button key={theme} ref={index === 0 ? firstControlRef : undefined} type="button" aria-pressed={settings.theme === theme} onClick={() => update({ theme })}>
-                    {theme[0]?.toUpperCase()}{theme.slice(1)}
+                    {t(theme === "dark" ? "Dark" : theme === "light" ? "Light" : "System")}
                   </button>
                 ))}
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">Density</span><span className="settings-description">Adjust spacing throughout the interface</span></div>
-              <div className="segmented" aria-label="Density">
+              <div><span className="settings-label">{t("Density")}</span><span className="settings-description">{t("Adjust spacing throughout the interface")}</span></div>
+              <div className="segmented" aria-label={t("Density")}>
                 {(["comfortable", "compact"] as const).map((density) => (
                   <button key={density} type="button" aria-pressed={settings.density === density} onClick={() => update({ density })}>
-                    {density[0]?.toUpperCase()}{density.slice(1)}
+                    {t(density === "compact" ? "Compact" : "Comfortable")}
                   </button>
                 ))}
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">Terminal font size</span><span className="settings-description">Applied to every terminal pane</span></div>
-              <div className="settings-stepper" aria-label="Terminal font size">
-                <button type="button" className="icon-button" aria-label="Decrease terminal font size" disabled={settings.terminalFontSize <= TERMINAL_FONT_MIN} onClick={() => update({ terminalFontSize: settings.terminalFontSize - 1 })}><Minus /></button>
+              <div><span className="settings-label">{t("Language")}</span><span className="settings-description">{t("Follows the browser unless you choose one")}</span></div>
+              <div className="segmented" aria-label={t("Language")}>
+                {(["system", "en", "ko"] as const satisfies readonly LanguageSetting[]).map((language) => (
+                  <button key={language} type="button" aria-pressed={settings.language === language} onClick={() => update({ language })}>
+                    {language === "system" ? t("System") : LANGUAGE_NAMES[language]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Terminal font size")}</span><span className="settings-description">{t("Applied to every terminal pane")}</span></div>
+              <div className="settings-stepper" aria-label={t("Terminal font size")}>
+                <button type="button" className="icon-button" aria-label={t("Decrease terminal font size")} disabled={settings.terminalFontSize <= TERMINAL_FONT_MIN} onClick={() => update({ terminalFontSize: settings.terminalFontSize - 1 })}><Minus /></button>
                 <output aria-live="polite">{settings.terminalFontSize}px</output>
-                <button type="button" className="icon-button" aria-label="Increase terminal font size" disabled={settings.terminalFontSize >= TERMINAL_FONT_MAX} onClick={() => update({ terminalFontSize: settings.terminalFontSize + 1 })}><Plus /></button>
+                <button type="button" className="icon-button" aria-label={t("Increase terminal font size")} disabled={settings.terminalFontSize >= TERMINAL_FONT_MAX} onClick={() => update({ terminalFontSize: settings.terminalFontSize + 1 })}><Plus /></button>
               </div>
             </div>
           </section>
 
           <section className="settings-section">
-            <h3>Composer</h3>
+            <h3>{t("Composer")}</h3>
             <div className="settings-row">
-              <div><span className="settings-label">Enter sends</span><span className="settings-description">When off, Mod+Enter sends</span></div>
-              <Toggle label="Enter sends" checked={settings.enterSends} onChange={(enterSends) => update({ enterSends })} />
+              <div><span className="settings-label">{t("Enter sends")}</span><span className="settings-description">{t("When off, Mod+Enter sends")}</span></div>
+              <Toggle label={t("Enter sends")} checked={settings.enterSends} onChange={(enterSends) => update({ enterSends })} />
             </div>
           </section>
 
           <section className="settings-section">
-            <h3>Chat</h3>
+            <h3>{t("Chat")}</h3>
             <div className="settings-row">
-              <div><span className="settings-label">Show thinking</span><span className="settings-description">Include the agent's reasoning blocks</span></div>
-              <Toggle label="Show thinking" checked={settings.showThinking} onChange={(showThinking) => update({ showThinking })} />
+              <div><span className="settings-label">{t("Show thinking")}</span><span className="settings-description">{t("Include the agent's reasoning blocks")}</span></div>
+              <Toggle label={t("Show thinking")} checked={settings.showThinking} onChange={(showThinking) => update({ showThinking })} />
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">Chat font size</span><span className="settings-description">Messages, code and prompt cards in the chat view</span></div>
-              <div className="settings-stepper" aria-label="Chat font size">
-                <button type="button" className="icon-button" aria-label="Decrease chat font size" disabled={chatFontSize(settings) <= CHAT_FONT_MIN} onClick={() => update({ chatFontSize: chatFontSize(settings) - 1 })}><Minus /></button>
+              <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code and prompt cards in the chat view")}</span></div>
+              <div className="settings-stepper" aria-label={t("Chat font size")}>
+                <button type="button" className="icon-button" aria-label={t("Decrease chat font size")} disabled={chatFontSize(settings) <= CHAT_FONT_MIN} onClick={() => update({ chatFontSize: chatFontSize(settings) - 1 })}><Minus /></button>
                 <output aria-live="polite">{chatFontSize(settings)}px</output>
-                <button type="button" className="icon-button" aria-label="Increase chat font size" disabled={chatFontSize(settings) >= CHAT_FONT_MAX} onClick={() => update({ chatFontSize: chatFontSize(settings) + 1 })}><Plus /></button>
+                <button type="button" className="icon-button" aria-label={t("Increase chat font size")} disabled={chatFontSize(settings) >= CHAT_FONT_MAX} onClick={() => update({ chatFontSize: chatFontSize(settings) + 1 })}><Plus /></button>
               </div>
             </div>
           </section>
 
           <section className="settings-section">
-            <h3>Shortcuts</h3>
+            <h3>{t("Shortcuts")}</h3>
             <table className="settings-shortcuts">
               <tbody>{SHORTCUTS.map((shortcut) => (
-                <tr key={shortcut.id}><th scope="row">{shortcut.label}</th><td>{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</td></tr>
+                <tr key={shortcut.id}><th scope="row">{t(shortcut.label)}</th><td>{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</td></tr>
               ))}</tbody>
             </table>
           </section>
 
           <section className="settings-section">
-            <h3>Phone</h3>
+            <h3>{t("Phone")}</h3>
             <PhonePanel plan={plan} loading={access === undefined} onRefresh={loadAccess} />
           </section>
 
           <section className="settings-section">
-            <h3>Devices</h3>
+            <h3>{t("Devices")}</h3>
             <DevicesPanel pairUrl={pairUrl} auth={auth} />
           </section>
 
           <section className="settings-section">
-            <h3>Install</h3>
-            {installPrompt.installed ? <p className="settings-hint">Installed</p> : installPrompt.canInstall ? (
-              <button type="button" className="btn btn-primary" onClick={() => void installPrompt.install()}>Install app</button>
+            <h3>{t("Install")}</h3>
+            {installPrompt.installed ? <p className="settings-hint">{t("Installed")}</p> : installPrompt.canInstall ? (
+              <button type="button" className="btn btn-primary" onClick={() => void installPrompt.install()}>{t("Install app")}</button>
             ) : <p className="settings-hint">{installPrompt.help}</p>}
           </section>
 
           <section className="settings-section settings-about">
-            <h3>About</h3>
+            <h3>{t("About")}</h3>
             <p><strong>herdr web ui</strong></p>
-            <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />Star on GitHub</a>
+            <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
             <a href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
           </section>
           {pcSettings && <section className="settings-section">
-            <h3>Remote PCs</h3>
+            <h3>{t("Remote PCs")}</h3>
             <div className="settings-row">
-              <div><span className="settings-label">Update PC bridges automatically</span><span className="settings-description">When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.</span></div>
-              <Toggle label="Update PC bridges automatically" checked={pcSettings.auto_update_bridges} onChange={(auto_update_bridges) => void updatePcSettings({ auto_update_bridges })} />
+              <div><span className="settings-label">{t("Update PC bridges automatically")}</span><span className="settings-description">{t("When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.")}</span></div>
+              <Toggle label={t("Update PC bridges automatically")} checked={pcSettings.auto_update_bridges} onChange={(auto_update_bridges) => void updatePcSettings({ auto_update_bridges })} />
             </div>
             {pcSettingsError && <p className="settings-hint" role="alert">{pcSettingsError}</p>}
           </section>}

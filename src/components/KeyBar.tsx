@@ -3,6 +3,7 @@ import type { MouseEvent, PointerEvent, ReactNode } from "react";
 import "./KeyBar.css";
 
 import type { KeyBarKey } from "../lib/keys.ts";
+import { useT } from "../lib/i18n.ts";
 
 export type { KeyBarKey };
 
@@ -64,7 +65,7 @@ function Chevron({ direction }: { direction: Direction }) {
   );
 }
 
-const ARROWS: ReadonlyArray<{ key: KeyBarKey; label: string; direction: Direction }> = [
+export const ARROWS: ReadonlyArray<{ key: KeyBarKey; label: string; direction: Direction }> = [
   { key: "ArrowUp", label: "Up", direction: "up" },
   { key: "ArrowDown", label: "Down", direction: "down" },
   { key: "ArrowLeft", label: "Left", direction: "left" },
@@ -77,8 +78,9 @@ const ARROWS: ReadonlyArray<{ key: KeyBarKey; label: string; direction: Directio
  * toolbar: a toolbar promises arrow-key navigation between items, which these skip.
  */
 export function KeyBar({ onKey, ctrlArmed, onToggleCtrl }: KeyBarProps) {
+  const t = useT();
   return (
-    <div className="key-bar" role="group" aria-label="Terminal keys">
+    <div className="key-bar" role="group" aria-label={t("Terminal keys")}>
       <Key dataKey="Escape" onPress={() => onKey("Escape")}>
         Esc
       </Key>
@@ -89,11 +91,11 @@ export function KeyBar({ onKey, ctrlArmed, onToggleCtrl }: KeyBarProps) {
         Ctrl
       </Key>
       {ARROWS.map((arrow) => (
-        <Key key={arrow.key} dataKey={arrow.key} label={arrow.label} onPress={() => onKey(arrow.key)}>
+        <Key key={arrow.key} dataKey={arrow.key} label={t(arrow.label)} onPress={() => onKey(arrow.key)}>
           <Chevron direction={arrow.direction} />
         </Key>
       ))}
-      <Key dataKey="ctrl-c" label="Control C" onPress={() => onKey("ctrl-c")}>
+      <Key dataKey="ctrl-c" label={t("Control C")} onPress={() => onKey("ctrl-c")}>
         ^C
       </Key>
     </div>

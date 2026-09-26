@@ -13,6 +13,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the absolute path the session file keeps, so that answer was never found on screen. Answers are
   now looked for up to their last link target.
 
+## [0.3.15] - 2026-09-26
+
+### Added
+- The app speaks Korean. It follows the browser's language, or **Settings → Appearance → Language**
+  picks English or 한국어. Every label, button, hint and status in the client is translated; what
+  agents write, terminal output and server messages are not. A test keeps the dictionary complete.
+
 ## [0.3.14] - 2026-09-26
 
 ### Added
@@ -326,7 +333,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.14...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.15...HEAD
+[0.3.15]: https://github.com/devswha/herdr-web-ui/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/devswha/herdr-web-ui/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/devswha/herdr-web-ui/compare/v0.3.12...v0.3.13
 [0.3.12]: https://github.com/devswha/herdr-web-ui/compare/v0.3.11...v0.3.12

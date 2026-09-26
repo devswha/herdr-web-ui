@@ -11,6 +11,7 @@
 
 import type { AgentStatus, SlashCommand } from "../../shared/protocol.ts";
 import { knownStatus, STATUS_WORD } from "./status.ts";
+import { t } from "./i18n.ts";
 
 /** The composer never queues: this cap keeps one send inside a single WS frame. */
 export const MAX_COMPOSER_CHARS = 20_000;
@@ -31,11 +32,11 @@ export function composerPayload(text: string, bracketedPaste: boolean): string {
 
 /** Why a composer message did not go (SubmitResult's code): the composer keeps the text and says this. */
 export function submitNote(code: string, message: string): string {
-  if (code === "agent_blocked") return "Not sent: the agent is waiting for an answer in the terminal. Answer it first.";
-  if (code === "read_only") return "Not sent: this view only watches the pane.";
-  if (code === "submit_timeout") return "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.";
-  if (code === "disconnected" || code === "timeout") return "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.";
-  return `Not sent: ${message}`;
+  if (code === "agent_blocked") return t("Not sent: the agent is waiting for an answer in the terminal. Answer it first.");
+  if (code === "read_only") return t("Not sent: this view only watches the pane.");
+  if (code === "submit_timeout") return t("Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.");
+  if (code === "disconnected" || code === "timeout") return t("Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.");
+  return t("Not sent: {message}", { message });
 }
 
 /**
