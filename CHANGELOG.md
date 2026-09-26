@@ -13,6 +13,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   taken as the answer when a question is open, and a draft in the box stays. **Settings → Quick
   replies** edits the list on each device; the row is hidden until the ⚡ button beside the paperclip
   shows it.
+- The chat's status line says how much context is left: `74% left` from the window Codex records,
+  or for Claude once a request has run past 200k (the 1M window); `68k used` where the transcript
+  names no window (omp, omo, gjc, and Claude below 200k). It turns red at 20% left. Hovering shows
+  the token counts.
 
 ### Changed
 - Alerts wait before they go out, and a change of the pane meanwhile calls them off: a question

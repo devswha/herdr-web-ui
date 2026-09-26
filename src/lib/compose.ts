@@ -88,3 +88,16 @@ export function rankSlashCommands(
       return frequency || left.name.localeCompare(right.name);
     });
 }
+
+/** A token count the way a status line reads it: 950, 68k, 1.2M. */
+export function formatTokens(tokens: number): string {
+  if (tokens < 1_000) return String(Math.round(tokens));
+  if (tokens < 1_000_000) return `${Math.round(tokens / 1_000)}k`;
+  return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
+/** What is left of the context, as the agents' own status lines put it; null when the window is unknown. */
+export function contextLeftPercent(context: { used: number; window: number | null }): number | null {
+  if (context.window === null || context.window <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((1 - context.used / context.window) * 100)));
+}

@@ -183,6 +183,11 @@ export interface ConversationMetadata {
   model: string | null;
   /** Recorded reasoning effort / thinking level; null means not reported. */
   reasoning_effort: string | null;
+  /**
+   * How much of the model's context the last request filled, in tokens; absent until a
+   * response reports its usage. `window` is null when the transcript does not say it.
+   */
+  context?: { used: number; window: number | null };
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */
