@@ -98,20 +98,6 @@
   text-overflow: ellipsis;
 }
 
-.composer-keys-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex: none;
-  margin-left: auto;
-  color: var(--text-dim);
-  font-size: var(--fs-2xs);
-}
-
-.composer-keys-hint .kbd {
-  margin-left: var(--space-1);
-}
-
 /* one row: attach | textarea | actions. The controls sit at the bottom of their cells so a
    grown textarea keeps them beside its last line, like a chat app; the attachment strip is
    its own row above */
@@ -428,8 +414,7 @@
 
   .composer-agent-label,
   .composer-status-separator,
-  .composer-status-hint,
-  .composer-keys-hint {
+  .composer-status-hint {
     display: none;
   }
 }
@@ -437,11 +422,6 @@
 @media (pointer: coarse) {
   .composer-surface {
     --composer-control-h: var(--touch-target);
-  }
-
-  /* touch keyboards have no / @ shortcuts worth teaching here */
-  .composer-keys-hint {
-    display: none;
   }
 
   .composer-controls .icon-button,

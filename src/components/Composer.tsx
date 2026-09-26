@@ -28,7 +28,6 @@ import {
 } from "../lib/compose.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
-import { modKeyLabel } from "../lib/shortcuts.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { useT } from "../lib/i18n.ts";
 
@@ -584,7 +583,7 @@ export function Composer({
                 ? t("Context used: {used} tokens (the agent does not say its window)", { used })
                 : t("Context used: {used} of {window} tokens", { used, window: formatTokens(metadata.context.window) })}
             >
-              {left === null ? t("{used} used", { used }) : t("{percent}% left", { percent: left })}
+              {left === null ? t("Context {used} used", { used }) : t("Context {percent}% left", { percent: left })}
             </span>
           );
         })()}
@@ -593,11 +592,6 @@ export function Composer({
             <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}
           </span>
         )}
-        {/* what the placeholder used to cram in; Enter-sends is the chat convention and goes unsaid */}
-        <span className="composer-keys-hint" aria-hidden="true">
-          <kbd className="kbd">/</kbd> {t("commands")} <kbd className="kbd">@</kbd> {t("files")}
-          {!settings.enterSends && <> <kbd className="kbd">{modKeyLabel()}+Enter</kbd> {t("sends")}</>}
-        </span>
       </div>
 
       {quickOpen && quickReplies.length > 0 && (
