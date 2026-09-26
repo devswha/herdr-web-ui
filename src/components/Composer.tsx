@@ -128,6 +128,39 @@ async function cachedPaneCommands(paneId: string, machineId: string, fetchComman
   return commands;
 }
 
+/**
+ * What is left of the context, as a ring filled by what is used (as Codex's app shows it):
+ * red when little is left. The number is on hover, and on a tap beside the ring (a touch
+ * screen has no hover). A window the transcript does not name draws no ring.
+ */
+function ContextRing({ context }: { context: NonNullable<ConversationMetadata["context"]> }) {
+  const t = useT();
+  const [shown, setShown] = useState(false);
+  const left = contextLeftPercent(context);
+  if (left === null || context.window === null) return null;
+  const label = t("Context {percent}% left", { percent: left });
+  const detail = t("{used} of {window} tokens", { used: formatTokens(context.used), window: formatTokens(context.window) });
+  const radius = 6;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <button
+      type="button"
+      className={`composer-context${left <= 20 ? " is-low" : ""}`}
+      aria-label={`${label} · ${detail}`}
+      title={`${label} · ${detail}`}
+      aria-expanded={shown}
+      onClick={() => setShown((open) => !open)}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle className="composer-context-track" cx="8" cy="8" r={radius} />
+        <circle className="composer-context-used" cx="8" cy="8" r={radius}
+          strokeDasharray={`${circumference * (100 - left) / 100} ${circumference}`} transform="rotate(-90 8 8)" />
+      </svg>
+      {shown && <span className="composer-context-text">{label}</span>}
+    </button>
+  );
+}
+
 /** Chat-style input surface with pane-local drafts, command/file completion, and image mentions. */
 export function Composer({
   connected,
@@ -573,20 +606,7 @@ export function Composer({
             {t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}
           </span>
         </span>}
-        {metadata?.context && (() => {
-          const left = contextLeftPercent(metadata.context);
-          const used = formatTokens(metadata.context.used);
-          return (
-            <span
-              className={`composer-context${left !== null && left <= 20 ? " is-low" : ""}`}
-              title={metadata.context.window === null
-                ? t("Context used: {used} tokens (the agent does not say its window)", { used })
-                : t("Context used: {used} of {window} tokens", { used, window: formatTokens(metadata.context.window) })}
-            >
-              {left === null ? t("Context {used} used", { used }) : t("Context {percent}% left", { percent: left })}
-            </span>
-          );
-        })()}
+        {metadata?.context && <ContextRing context={metadata.context} />}
         {(uploading || !connected) && (
           <span className="composer-status-hint">
             <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}

@@ -59,9 +59,39 @@
 }
 
 /* what is left of the context: plain until a compaction is near */
+/* the context left: a ring filled by what is used, its number on hover or a tap */
 .composer-context {
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.composer-context svg {
+  width: 14px;
+  height: 14px;
+}
+
+.composer-context-track,
+.composer-context-used {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.composer-context-track {
+  stroke: var(--border);
+}
+
+.composer-context-used {
+  stroke: currentColor;
+  stroke-linecap: round;
 }
 
 .composer-context.is-low {
