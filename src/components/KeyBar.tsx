@@ -1,4 +1,5 @@
 import type { MouseEvent, PointerEvent, ReactNode } from "react";
+import { Keyboard } from "lucide-react";
 
 import "./KeyBar.css";
 
@@ -12,6 +13,9 @@ export interface KeyBarProps {
   onKey: (key: KeyBarKey) => void;
   ctrlArmed: boolean;
   onToggleCtrl: () => void;
+  /** on a touch screen: whether the keyboard types straight into the terminal (else the input line) */
+  directTyping?: boolean;
+  onToggleDirect?: () => void;
 }
 
 /**
@@ -77,7 +81,7 @@ export const ARROWS: ReadonlyArray<{ key: KeyBarKey; label: string; direction: D
  * for touch, a hardware keyboard already has all of them. Hence role="group", not
  * toolbar: a toolbar promises arrow-key navigation between items, which these skip.
  */
-export function KeyBar({ onKey, ctrlArmed, onToggleCtrl }: KeyBarProps) {
+export function KeyBar({ onKey, ctrlArmed, onToggleCtrl, directTyping, onToggleDirect }: KeyBarProps) {
   const t = useT();
   return (
     <div className="key-bar" role="group" aria-label={t("Terminal keys")}>
@@ -98,6 +102,11 @@ export function KeyBar({ onKey, ctrlArmed, onToggleCtrl }: KeyBarProps) {
       <Key dataKey="ctrl-c" label={t("Control C")} onPress={() => onKey("ctrl-c")}>
         ^C
       </Key>
+      {onToggleDirect && (
+        <Key dataKey="direct" label={t("Type straight into the terminal")} pressed={directTyping} onPress={onToggleDirect}>
+          <Keyboard aria-hidden="true" />
+        </Key>
+      )}
     </div>
   );
 }

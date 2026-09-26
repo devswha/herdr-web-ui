@@ -15,6 +15,7 @@ import { parseOsc52 } from "../lib/osc52.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar } from "./KeyBar.tsx";
+import { TerminalInput } from "./TerminalInput.tsx";
 import { ChatView } from "./ChatView.tsx";
 import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
@@ -59,6 +60,27 @@ export interface PaneTerminalProps {
   onServerMessage?: (message: ServerMessage) => void;
 }
 
+
+/** Whether this device types in the terminal's input line or straight into the grid: remembered per device. */
+const DIRECT_TYPING_KEY = "herdr-web-ui:direct-typing";
+
+function storedDirectTyping(): boolean {
+  try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
+}
+
+/** A touch screen as the main pointer: its soft keyboard is what the input line is for. */
+function useCoarsePointer(): boolean {
+  const query = "(pointer: coarse)";
+  const [coarse, setCoarse] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
+  useEffect(() => {
+    const media = window.matchMedia?.(query);
+    if (!media) return;
+    const onChange = (): void => setCoarse(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return coarse;
+}
 export function PaneTerminal({
   paneId,
   agent = null,
@@ -94,6 +116,12 @@ export function PaneTerminal({
   // observe mode: the ref is what onData and the resize listeners read mid-stream
   const observeRef = useRef(false);
   const [observing, setObserving] = useState(false);
+  // a touch screen writes in the terminal's input line; typing straight into the grid is chosen
+  const coarse = useCoarsePointer();
+  const [directTyping, setDirectTyping] = useState(storedDirectTyping);
+  const inputLine = coarse && !directTyping && !chatView;
+  const inputLineRef = useRef(inputLine);
+  inputLineRef.current = inputLine;
   // input typed while disconnected, held for the user to review and send
   const [draft, setDraft] = useState<InputDraft>(EMPTY_DRAFT);
   const draftPaneRef = useRef<string | null>(null);
@@ -452,14 +480,15 @@ export function PaneTerminal({
     const term = termRef.current;
     if (!term) return;
     term.input(keySequence(key, term.modes.applicationCursorKeysMode));
-    term.focus();
+    // with the input line, the keyboard belongs to it: a key tap must not move it to the grid
+    if (!inputLineRef.current) term.focus();
   }, []);
 
   const toggleCtrl = useCallback(() => {
     const armed = !ctrlRef.current;
     ctrlRef.current = armed;
     setCtrlArmed(armed);
-    termRef.current?.focus();
+    if (!inputLineRef.current) termRef.current?.focus();
   }, []);
 
   // ask the server for the role change; the role-ack handler applies the local
@@ -503,6 +532,51 @@ export function PaneTerminal({
       return true;
     });
   }, []);
+
+  // the terminal's input line: the text typed like the keyboard would, into an agent's open
+  // menu too, then Enter after the server's gap; several lines go as one paste
+  const sendTerminalLine = useCallback((text: string): false | Promise<true | string> => {
+    const term = termRef.current;
+    const socket = socketRef.current;
+    const pane = paneRef.current;
+    if (!term || !socket || pane === null) return false;
+    const message = composerMessage(text);
+    const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
+    const sent = socket.submit(pane, message, payload, true);
+    if (sent === null) return false;
+    term.scrollToBottom();
+    return sent.then((result) => (result.ok ? true : submitNote(result.code, result.message)));
+  }, []);
+
+  const pressEnter = useCallback((): boolean => {
+    const socket = socketRef.current;
+    const pane = paneRef.current;
+    if (!socket || pane === null || !socket.connected) return false;
+    socket.sendInput(pane, "\r");
+    termRef.current?.scrollToBottom();
+    return true;
+  }, []);
+
+  const toggleDirect = useCallback(() => {
+    setDirectTyping((direct) => {
+      const next = !direct;
+      try { window.localStorage.setItem(DIRECT_TYPING_KEY, next ? "1" : "0"); } catch { /* private mode: this page only */ }
+      return next;
+    });
+  }, []);
+
+  // the input line keeps a tapped grid from raising the keyboard; typing straight into it gives it back
+  useEffect(() => {
+    const textarea = hostRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+    if (!textarea) return;
+    if (inputLine) {
+      textarea.setAttribute("inputmode", "none");
+      if (document.activeElement === textarea) textarea.blur();
+    } else {
+      textarea.removeAttribute("inputmode");
+      if (coarse && !chatView && directTyping) termRef.current?.focus();
+    }
+  }, [inputLine, coarse, chatView, directTyping, paneId]);
 
   // the composer's stop button: Escape interrupts the agent's current turn in every
   // supported TUI (Claude Code, omp, codex) without killing the process the way ^C would
@@ -709,7 +783,9 @@ export function PaneTerminal({
           onUploadImage={uploadImage}
         />
       )}
-      {paneId !== null && !observing && !chatView && <KeyBar onKey={pressKey} ctrlArmed={ctrlArmed} onToggleCtrl={toggleCtrl} />}
+      {paneId !== null && !observing && !ended && inputLine && <TerminalInput key={paneId} connected={connected} onSend={sendTerminalLine} onEnter={pressEnter} />}
+      {paneId !== null && !observing && !chatView && <KeyBar onKey={pressKey} ctrlArmed={ctrlArmed} onToggleCtrl={toggleCtrl}
+        {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>
   );
 }

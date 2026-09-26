@@ -183,6 +183,24 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("types the terminal's input line into a waiting agent like the keyboard, then its Enter", async () => {
+    const socket = await Socket.connect();
+    await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "blocked" });
+    try {
+      const from = chunks(agent).length;
+      socket.send({ type: "submit", id: 12, pane_id: agent.pane, text: "2", payload: "2", typed: true });
+      expect(await socket.result(12)).toMatchObject({ ok: true });
+      const read = await received(agent, from, 1);
+      expect(typed(agent, from)).toBe("2\r");
+      // the Enter keeps its own gap after the text, as a composer message's does
+      const enter = read.findIndex((chunk) => chunk.data.includes("\r"));
+      if (enter > 0) expect(read[enter]!.at - read[enter - 1]!.at).toBeGreaterThanOrEqual(SUBMIT_DELAY_MS);
+    } finally {
+      await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "idle" });
+      socket.close();
+    }
+  }, 30_000);
+
   it("still hands a message to a Codex blocked only by questions waiting collapsed in its queue", async () => {
     const socket = await Socket.connect();
     try {

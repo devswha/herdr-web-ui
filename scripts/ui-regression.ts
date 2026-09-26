@@ -239,6 +239,44 @@ try {
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
+
+  // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
+  const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const touchPage = await touch.newPage();
+  touchPage.on("pageerror", (error) => errors.push(error.message));
+  const touchSent: Array<Record<string, unknown>> = [];
+  touchPage.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
+    const message = JSON.parse(String(payload)) as Record<string, unknown>;
+    if (message.type === "input" || message.type === "submit") touchSent.push(message);
+  }));
+  await touchPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
+  await touchPage.locator(".conn-live").waitFor();
+  await touchPage.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+  const line = touchPage.getByRole("textbox", { name: "Terminal input line", exact: true });
+  await line.waitFor();
+  assert.equal(await touchPage.locator(".xterm-helper-textarea").getAttribute("inputmode"), "none");
+  await line.fill("printf 'line-ok\\n'");
+  await line.press("Enter");
+  await until(() => touchSent.some((message) => message.type === "submit" && message.typed === true), "input line submit");
+  const submitted = touchSent.find((message) => message.type === "submit")!;
+  assert.equal(submitted.pane_id, paneB);
+  assert.equal(submitted.text, "printf 'line-ok\\n'");
+  // the line clears once the pane confirmed it
+  await until(async () => (await line.inputValue()) === "", "input line cleared after send");
+  // an empty line's button is Enter alone
+  const enters = touchSent.length;
+  await touchPage.getByRole("button", { name: "Press Enter in the terminal", exact: true }).click();
+  await until(() => touchSent.length > enters && touchSent.at(-1)?.type === "input" && touchSent.at(-1)?.text === "\r", "enter from the empty line");
+  // typing straight into the grid is one tap away, and gives the keyboard back to it
+  await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
+  assert.equal(await touchPage.locator(".terminal-input").count(), 0);
+  assert.equal(await touchPage.locator(".xterm-helper-textarea").getAttribute("inputmode"), null);
+  await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
+  await line.waitFor();
+  assert.equal(await touchPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  assert.deepEqual(errors, []);
+  await touch.close();
+  console.log("PASS touch terminal input line sends whole lines, Enter alone, and yields to direct typing");
 } finally {
   for (const release of releases) release();
   await browser?.close();

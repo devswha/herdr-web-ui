@@ -235,7 +235,7 @@ export function createServer(
    * the bytes, so the pane sees the whole gap. So does a Codex "blocked" only by questions
    * waiting collapsed in its queue: its main prompt still takes the message.
    */
-  async function submitText(paneId: string, text: string, payload: string, arrivedAt: number): Promise<void> {
+  async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false): Promise<void> {
     const inTime = (): void => {
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) {
         throw new HerdrError("submit_timeout", "the message waited too long behind earlier input; nothing was typed");
@@ -245,7 +245,9 @@ export function createServer(
     if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
     lastTyped.delete(paneId);
     inTime();
-    try {
+    // the terminal's input line stands in for the keyboard: it types what the user wrote, an
+    // answer into an open menu included, where agent.prompt would refuse
+    if (!fromTerminal) try {
       await agentPrompt(paneId, text);
       return;
     } catch (error) {
@@ -1121,7 +1123,7 @@ export function createServer(
               }
               const arrivedAt = Date.now();
               try {
-                await serialize(message.pane_id, () => submitText(message.pane_id, message.text, message.payload, arrivedAt));
+                await serialize(message.pane_id, () => submitText(message.pane_id, message.text, message.payload, arrivedAt, message.typed === true));
                 result(true);
               } catch (error) {
                 result(false, error instanceof HerdrError ? error.code : "submit_failed", error instanceof Error ? error.message : String(error));
