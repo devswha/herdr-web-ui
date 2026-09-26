@@ -15,10 +15,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the other device however you like.
 
 ### Fixed
-- An agent that finished in the pane herdr's terminal has in front read READY, and sent no alert,
-  though nobody was looking: herdr reports a finish there as idle, and working from a browser or
-  a phone never moves that focus. A finish now reads DONE and alerts in every pane, until the pane
-  works again or focus moves onto it in herdr's terminal.
 - Web addresses in the chat open. An address in backticks (`` `https://…` ``, as agents often
   write them) is a link that still looks like code; `[docs](www.example.com/x)`,
   `[guide](docs.example.com/guide)` and `[here](localhost:7317)` are links, not files; a bare
@@ -28,6 +24,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   terminal was open. Codex shows such a link as its label and a path relative to the repo, not
   the absolute path the session file keeps, so that answer was never found on screen. Answers are
   now looked for up to their last link target.
+- An agent that finished in the pane herdr's terminal has in front read READY, and sent no alert,
+  though nobody was looking: herdr reports a finish there as idle, and working from a browser or
+  a phone never moves that focus. A finish now reads DONE and alerts in every pane, until the pane
+  works again or focus moves onto it in herdr's terminal.
 - A chat link to a local file (`[report](/repo/output/REPORT.md)`, as Codex writes them) showed
   only its label, so a sentence like "results and evidence" ended with nothing after it. The label
   now opens the file in the viewer, and where no viewer is available the path shows after it.
