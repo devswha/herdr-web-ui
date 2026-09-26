@@ -1,4 +1,5 @@
 import type { ConversationPart } from "../../shared/protocol.ts";
+import { t } from "./i18n.ts";
 
 export type ToolPart = Extract<ConversationPart, { kind: "tool" }>;
 export type ThinkingPart = Extract<ConversationPart, { kind: "thinking" }>;
@@ -29,11 +30,12 @@ export function splitTurn(parts: ConversationPart[]): SplitTurn {
 
 type WorkCategory = "edit" | "read" | "command" | "other";
 
-const CATEGORY_LABEL: Record<WorkCategory, [singular: string, plural: string]> = {
-  edit: ["edit", "edits"],
-  read: ["file read", "file reads"],
-  command: ["command", "commands"],
-  other: ["other tool", "other tools"],
+/** "{n} edit" / "{n} edits": both forms are translated, Korean uses one */
+export const CATEGORY_LABEL: Record<WorkCategory, [singular: string, plural: string]> = {
+  edit: ["{n} edit", "{n} edits"],
+  read: ["{n} file read", "{n} file reads"],
+  command: ["{n} command", "{n} commands"],
+  other: ["{n} other tool", "{n} other tools"],
 };
 
 function categorize(name: string): WorkCategory {
@@ -50,7 +52,7 @@ export function workSummary(parts: readonly ConversationPart[]): string {
   for (const part of parts) if (part.kind === "tool") counts[categorize(part.name)] += 1;
   return (Object.keys(counts) as WorkCategory[])
     .filter((category) => counts[category] > 0)
-    .map((category) => `${counts[category]} ${CATEGORY_LABEL[category][counts[category] === 1 ? 0 : 1]}`)
+    .map((category) => t(CATEGORY_LABEL[category][counts[category] === 1 ? 0 : 1], { n: counts[category] }))
     .join(" · ");
 }
 
@@ -60,8 +62,9 @@ export function formatWorkDuration(startTs: string | null, endTs: string | null)
   const ms = Date.parse(endTs) - Date.parse(startTs);
   if (!Number.isFinite(ms) || ms < 0) return null;
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return t("{s}s", { s: seconds });
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  return minutes < 60 ? `${minutes}m${rest > 0 ? ` ${rest}s` : ""}` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  if (minutes < 60) return rest > 0 ? t("{m}m {s}s", { m: minutes, s: rest }) : t("{m}m", { m: minutes });
+  return t("{h}h {m}m", { h: Math.floor(minutes / 60), m: minutes % 60 });
 }

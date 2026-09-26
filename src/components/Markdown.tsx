@@ -3,11 +3,13 @@ import { Check, Copy } from "lucide-react";
 
 import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
+import { useT } from "../lib/i18n.ts";
 
 /** A file path the viewer opens: a button that reads as the text or code it replaced. */
 function FilePath({ path, code, open }: { path: string; code: boolean; open: (path: string) => void }) {
+  const t = useT();
   const label = code ? <code>{path}</code> : path;
-  return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={`Open ${path}`} onClick={() => open(path)}>{label}</button>;
+  return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={t("Open {path}", { path })} onClick={() => open(path)}>{label}</button>;
 }
 
 function Inline({ nodes }: { nodes: InlineNode[] }) {
@@ -42,6 +44,7 @@ function List({ block }: { block: ListBlock }) {
 }
 
 function CodeBlock({ language, value }: { language: string; value: string }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const block = useRef<HTMLDivElement>(null);
@@ -70,14 +73,14 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
     <div className="markdown-code" ref={block}>
       <div className="markdown-code-header">
         <span>{language || "text"}</span>
-        <button type="button" className="icon-button markdown-code-copy" onClick={() => void copy()} aria-label={copied ? "Code copied" : "Copy code"}>
+        <button type="button" className="icon-button markdown-code-copy" onClick={() => void copy()} aria-label={t(copied ? "Code copied" : "Copy code")}>
           {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
         </button>
       </div>
       <pre><code>{fold !== null && !expanded ? fold.head : value}</code></pre>
       {fold !== null && (
         <button type="button" className="markdown-code-more" aria-expanded={expanded} onClick={toggle}>
-          {expanded ? "Show less" : `Show all ${fold.lines} lines`}
+          {expanded ? t("Show less") : t("Show all {n} lines", { n: fold.lines })}
         </button>
       )}
     </div>

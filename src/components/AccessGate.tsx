@@ -5,9 +5,8 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, authenticate, pairDevice } from "../lib/api.ts";
 import { deviceLabel } from "../lib/phone.ts";
 import type { AccessRefusal } from "../../shared/protocol.ts";
+import { useT } from "../lib/i18n.ts";
 
-const CODE_WRONG = "That code is wrong, used up or expired. Start a new pairing on the PC.";
-const TOKEN_WRONG = "Token does not match.";
 
 export interface AccessGateProps {
   /** why the server refused this browser, when it said */
@@ -26,6 +25,7 @@ export interface AccessGateProps {
  * HttpOnly cookie either way.
  */
 export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps) {
+  const t = useT();
   const codeRef = useRef<HTMLInputElement | null>(null);
   const tokenRef = useRef<HTMLInputElement | null>(null);
   const [code, setCode] = useState(initialCode);
@@ -42,7 +42,7 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
       await pairDevice(value, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0));
       onUnlocked();
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? CODE_WRONG : err instanceof Error ? err.message : String(err));
+      setError(err instanceof ApiError && err.status === 401 ? t("That code is wrong, used up or expired. Start a new pairing on the PC.") : err instanceof Error ? err.message : String(err));
       setSubmitting(null);
       codeRef.current?.select();
     }
@@ -67,7 +67,7 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
       await authenticate(token);
       onUnlocked();
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? TOKEN_WRONG : err instanceof Error ? err.message : String(err));
+      setError(err instanceof ApiError && err.status === 401 ? t("Token does not match.") : err instanceof Error ? err.message : String(err));
       setSubmitting(null);
       tokenRef.current?.select();
     }
@@ -81,13 +81,13 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
           herdr <span className="brand-sub">web ui</span>
         </h1>
         {reason === "other_user" && (
-          <p className="access-gate-refused" role="status">Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.</p>
+          <p className="access-gate-refused" role="status">{t("Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.")}</p>
         )}
         <p className="access-gate-copy">
-          {reason === "token_required" ? "This server requires an access token or a pairing code." : "Pair this device with a code from the PC: Settings → Devices, on the PC itself."}
+          {t(reason === "token_required" ? "This server requires an access token or a pairing code." : "Pair this device with a code from the PC: Settings → Devices, on the PC itself.")}
         </p>
         <form aria-labelledby="access-gate-title" onSubmit={submitCode}>
-          <label className="access-gate-label" htmlFor="access-gate-code">Pairing code</label>
+          <label className="access-gate-label" htmlFor="access-gate-code">{t("Pairing code")}</label>
           <input
             ref={codeRef}
             id="access-gate-code"
@@ -105,13 +105,13 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
             onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
           />
           <button type="submit" className="access-gate-submit" disabled={submitting !== null}>
-            {submitting === "code" ? "Pairing…" : "Pair this device"}
+            {t(submitting === "code" ? "Pairing…" : "Pair this device")}
           </button>
         </form>
         <details className="access-gate-alt">
-          <summary>Have an access token instead?</summary>
+          <summary>{t("Have an access token instead?")}</summary>
           <form onSubmit={(event) => void submitToken(event)}>
-            <label className="access-gate-label" htmlFor="access-gate-token">Access token</label>
+            <label className="access-gate-label" htmlFor="access-gate-token">{t("Access token")}</label>
             <input
               ref={tokenRef}
               id="access-gate-token"
@@ -124,7 +124,7 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
               onChange={(event) => setToken(event.target.value)}
             />
             <button type="submit" className="access-gate-submit" disabled={submitting !== null}>
-              {submitting === "token" ? "Unlocking…" : "Unlock"}
+              {t(submitting === "token" ? "Unlocking…" : "Unlock")}
             </button>
           </form>
         </details>

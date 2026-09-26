@@ -7,6 +7,7 @@ import type { FileInfo } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
 import { formatBytes } from "../lib/bridgeProgress.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
+import { useT } from "../lib/i18n.ts";
 
 /** Bigger images are offered as a download: a phone decodes an image whole. */
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -25,6 +26,7 @@ export interface FileViewerProps {
  * play and seek at once), PDFs, and the start of a text file. Anything can be downloaded.
  */
 export function FileViewer({ path: asked, paneId, onClose }: FileViewerProps) {
+  const t = useT();
   const { fetchFileInfo, fileUrl } = useMachineApi();
   // the path as given, until a choice among files of that name replaces it
   const [path, setPath] = useState(asked);
@@ -49,7 +51,7 @@ export function FileViewer({ path: asked, paneId, onClose }: FileViewerProps) {
       if (!cancelled) setText(body);
     }).catch((reason: unknown) => {
       if (cancelled) return;
-      setError(reason instanceof ApiError && reason.status === 404 ? "No readable file at this path." : "The file could not be opened.");
+      setError(reason instanceof ApiError && reason.status === 404 ? t("No readable file at this path.") : t("The file could not be opened."));
     });
     return () => { cancelled = true; };
   }, [path, paneId, fetchFileInfo, fileUrl]);
@@ -68,7 +70,7 @@ export function FileViewer({ path: asked, paneId, onClose }: FileViewerProps) {
       <p className="file-viewer-note">Several files are named {path.split("/").pop()}:</p>
       <ul>{candidates.map((candidate) => <li key={candidate}><button type="button" className="btn btn-ghost" onClick={() => setPath(candidate)}>{candidate}</button></li>)}</ul>
     </div>;
-    if (info === null) return <p className="file-viewer-note">Opening…</p>;
+    if (info === null) return <p className="file-viewer-note">{t("Opening…")}</p>;
     switch (info.kind) {
       case "image":
         return info.size > MAX_INLINE_IMAGE_BYTES
@@ -81,9 +83,9 @@ export function FileViewer({ path: asked, paneId, onClose }: FileViewerProps) {
       case "pdf":
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "text":
-        return text === null ? <p className="file-viewer-note">Opening…</p> : <>
+        return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
           <pre className="file-viewer-text">{text}</pre>
-          {info.size > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">Showing the first {formatBytes(TEXT_PREVIEW_BYTES)} of {formatBytes(info.size)}.</p>}
+          {info.size > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(info.size) })}</p>}
         </>;
       default:
         return <p className="file-viewer-note">{info.mime}, {formatBytes(info.size)}. This file can't be shown here; download it instead.</p>;
@@ -101,9 +103,9 @@ export function FileViewer({ path: asked, paneId, onClose }: FileViewerProps) {
               <span className="file-viewer-path"><span dir="ltr">{info?.path ?? path}</span></span>
             </p>
           </div>
-          <a className="icon-button" href={url} target="_blank" rel="noopener" aria-label="Open in a new tab" title="Open in a new tab"><ExternalLink aria-hidden="true" /></a>
-          <a className="icon-button" href={fileUrl(info?.path ?? path, paneId, true)} download={info?.name ?? true} aria-label="Download" title="Download"><Download aria-hidden="true" /></a>
-          <button type="button" className="icon-button" aria-label="Close file" onClick={onClose}><X aria-hidden="true" /></button>
+          <a className="icon-button" href={url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>
+          <a className="icon-button" href={fileUrl(info?.path ?? path, paneId, true)} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
+          <button type="button" className="icon-button" aria-label={t("Close file")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>
         <div className="file-viewer-body">{body}</div>
       </section>

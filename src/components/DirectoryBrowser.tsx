@@ -7,6 +7,7 @@ import type { DirectoryListing } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
 import { formatBytes } from "../lib/bridgeProgress.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
+import { useT } from "../lib/i18n.ts";
 
 export interface DirectoryBrowserProps {
   /** where to open: the path typed so far (absolute, `~` or `~/…`); empty or unreadable opens home */
@@ -32,6 +33,7 @@ function childPath(parent: string, name: string): string {
  * PC the session starts on. Nothing is kept but the folder shown now.
  */
 export function DirectoryBrowser({ start, onPick, onOpenFile }: DirectoryBrowserProps) {
+  const t = useT();
   const { fetchDirectories } = useMachineApi();
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -54,8 +56,8 @@ export function DirectoryBrowser({ start, onPick, onOpenFile }: DirectoryBrowser
       // a path typed half-way opens home instead of an error
       if (fallbackHome && reason instanceof ApiError && reason.code === "invalid_cwd") return void open("", showHidden, false);
       setError(reason instanceof ApiError && reason.status === 404
-        ? "This PC's bridge cannot browse folders yet. Type the path instead."
-        : reason instanceof ApiError && reason.code === "invalid_cwd" ? "This folder cannot be opened." : "Folders could not be loaded.");
+        ? t("This PC's bridge cannot browse folders yet. Type the path instead.")
+        : reason instanceof ApiError && reason.code === "invalid_cwd" ? t("This folder cannot be opened.") : t("Folders could not be loaded."));
     } finally {
       if (id === request.current) setLoading(false);
     }
@@ -67,12 +69,12 @@ export function DirectoryBrowser({ start, onPick, onOpenFile }: DirectoryBrowser
   const shown = listing ? homeRelative(listing.path, listing.home) : start || "~";
 
   return (
-    <div className="dir-browser" role="group" aria-label="Choose a folder" aria-busy={loading}>
+    <div className="dir-browser" role="group" aria-label={t("Choose a folder")} aria-busy={loading}>
       <div className="dir-browser-bar">
-        <button type="button" className="icon-button" aria-label="Parent folder" title="Parent folder" disabled={!listing?.parent || loading} onClick={() => listing?.parent && void open(listing.parent, hidden, false)}>
+        <button type="button" className="icon-button" aria-label={t("Parent folder")} title={t("Parent folder")} disabled={!listing?.parent || loading} onClick={() => listing?.parent && void open(listing.parent, hidden, false)}>
           <ArrowUp aria-hidden="true" />
         </button>
-        <button type="button" className="icon-button" aria-label="Home folder" title="Home folder" disabled={loading || (listing !== null && listing.path === listing.home)} onClick={() => void open("", hidden, false)}>
+        <button type="button" className="icon-button" aria-label={t("Home folder")} title={t("Home folder")} disabled={loading || (listing !== null && listing.path === listing.home)} onClick={() => void open("", hidden, false)}>
           <House aria-hidden="true" />
         </button>
         <span className="dir-browser-path" title={path}><span dir="ltr">{shown}</span></span>
@@ -96,17 +98,17 @@ export function DirectoryBrowser({ start, onPick, onOpenFile }: DirectoryBrowser
               </button>
             </li>
           ))}
-          {listing !== null && listing.directories.length === 0 && (listing.files ?? []).length === 0 && <li className="dir-browser-note">{onOpenFile ? "Nothing here" : "No folders here"}</li>}
-          {listing?.truncated && <li className="dir-browser-note">Showing the first {listing.directories.length} folders; type the rest of the path to go further.</li>}
+          {listing !== null && listing.directories.length === 0 && (listing.files ?? []).length === 0 && <li className="dir-browser-note">{t(onOpenFile ? "Nothing here" : "No folders here")}</li>}
+          {listing?.truncated && <li className="dir-browser-note">{t("Showing the first {n} folders; type the rest of the path to go further.", { n: listing.directories.length })}</li>}
         </ul>
       )}
       <div className="dir-browser-footer">
         <label className="dir-browser-hidden">
           <input type="checkbox" checked={hidden} disabled={loading && listing === null} onChange={(event) => { setHidden(event.target.checked); if (listing) void open(listing.path, event.target.checked, false); }} />
-          Show hidden
+          {t("Show hidden")}
         </label>
         {onPick && <button type="button" className="btn btn-primary" disabled={listing === null || loading} onClick={() => listing && onPick(homeRelative(listing.path, listing.home))}>
-          Use this folder
+          {t("Use this folder")}
         </button>}
       </div>
     </div>

@@ -6,6 +6,7 @@
  */
 
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
@@ -22,6 +23,8 @@ export interface Settings {
   enterSends: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
   showThinking: boolean;
+  /** UI language; `system` follows the browser (src/lib/i18n.ts) */
+  language: LanguageSetting;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatFontSize: null,
   enterSends: true,
   showThinking: false,
+  language: "system",
 };
 
 const STORAGE_KEY = "herdr-web-ui:settings";
@@ -67,6 +71,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       : DEFAULT_SETTINGS.chatFontSize,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
+    language: record["language"] === "en" || record["language"] === "ko" || record["language"] === "system" ? record["language"] : DEFAULT_SETTINGS.language,
   };
 }
 
@@ -104,8 +109,9 @@ export function terminalTheme(theme: ResolvedTheme): { background: string; foreg
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
 const THEME_COLOR: Record<ResolvedTheme, string> = { dark: "#181613", light: "#faf8f3" };
 
-function applyToDocument(settings: Settings, resolved: ResolvedTheme): void {
+function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: Language): void {
   const root = document.documentElement;
+  root.lang = language;
   root.dataset["theme"] = resolved;
   root.dataset["density"] = settings.density;
   // ChatView.css scales its type tokens by this: the chosen size over the density's
@@ -118,6 +124,8 @@ interface SettingsContextValue {
   settings: Settings;
   /** the theme after resolving `system` against the OS preference */
   resolvedTheme: ResolvedTheme;
+  /** the language after resolving `system` against the browser's */
+  resolvedLanguage: Language;
   update: (patch: Partial<Settings>) => void;
 }
 
@@ -137,9 +145,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const resolvedTheme: ResolvedTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
 
+  const [browserLanguages, setBrowserLanguages] = useState<readonly string[]>(() => (typeof navigator !== "undefined" ? navigator.languages : []));
   useEffect(() => {
-    applyToDocument(settings, resolvedTheme);
-  }, [settings, resolvedTheme]);
+    const onChange = (): void => setBrowserLanguages([...navigator.languages]);
+    window.addEventListener("languagechange", onChange);
+    return () => window.removeEventListener("languagechange", onChange);
+  }, []);
+  const resolvedLanguage = resolveLanguage(settings.language, browserLanguages);
+  // helpers outside React read this during the same render, so it is set before the children render
+  setCurrentLanguage(resolvedLanguage);
+
+  useEffect(() => {
+    applyToDocument(settings, resolvedTheme, resolvedLanguage);
+  }, [settings, resolvedTheme, resolvedLanguage]);
 
   const update = useCallback((patch: Partial<Settings>) => {
     setSettings((current) => {
@@ -149,7 +167,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const value = useMemo(() => ({ settings, resolvedTheme, update }), [settings, resolvedTheme, update]);
+  const value = useMemo(() => ({ settings, resolvedTheme, resolvedLanguage, update }), [settings, resolvedTheme, resolvedLanguage, update]);
   return createElement(SettingsContext.Provider, { value }, children);
 }
 

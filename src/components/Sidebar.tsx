@@ -10,6 +10,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { useT } from "../lib/i18n.ts";
 
 const CLOSE_ARM_MS = 3000;
 const ERROR_NOTE_MS = 5000;
@@ -32,10 +33,11 @@ export function displayPaneTitle(pane: PaneInfo): string {
 }
 
 export function StatusBadge({ status }: { status?: AgentStatus }) {
+  const t = useT();
   const value = knownStatus(status);
   return (
-    <span className={`badge badge-${value}`} data-status={value} title={`Agent ${value}`}>
-      {STATUS_WORD[value]}
+    <span className={`badge badge-${value}`} data-status={value} title={t("Agent {status}", { status: t(STATUS_WORD[value]) })}>
+      {t(STATUS_WORD[value])}
     </span>
   );
 }
@@ -60,6 +62,7 @@ export interface SidebarProps {
 }
 
 export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded = false }: SidebarProps) {
+  const t = useT();
   const machineId = useMachineId();
   const { closePane, moveWorkspace, renamePane, renameWorkspace } = useMachineApi();
   const [armedId, setArmedId] = useState<string | null>(null);
@@ -116,7 +119,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     armTimer.current = null;
     setArmedId(null);
     void closePane(paneId).catch((reason: unknown) => {
-      noteError(`Close failed: ${reason instanceof Error ? reason.message : String(reason)}`, paneId);
+      noteError(t("Close failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
     });
   };
 
@@ -129,7 +132,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     const label = paneLabel.trim();
     setEditingPaneId(null);
     void renamePane(paneId, label).catch((reason: unknown) => {
-      noteError(`Rename failed: ${reason instanceof Error ? reason.message : String(reason)}`, paneId);
+      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
     });
   };
 
@@ -142,7 +145,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     const label = workspaceLabel.trim();
     setEditingWorkspaceId(null);
     void renameWorkspace(workspaceId, label).catch((reason: unknown) => {
-      noteError(`Rename failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }));
     });
   };
 
@@ -158,7 +161,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     setWorkspaceOrder(next);
     void moveWorkspace(workspaceId, boundedIndex).catch((reason: unknown) => {
       setWorkspaceOrder(previous);
-      noteError(`Reorder failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+      noteError(t("Reorder failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }));
     });
   };
 
@@ -189,8 +192,8 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     <button
       type="button"
       className="sidebar-drag-handle"
-      aria-label={`Reorder workspace ${workspace.label}`}
-      title="Drag to reorder · Alt+↑/↓"
+      aria-label={t("Reorder workspace {name}", { name: workspace.label })}
+      title={t("Drag to reorder · Alt+↑/↓")}
       draggable={draggable}
       onDragStart={(event) => onDragStart(event, workspace.workspace_id)}
       onDragEnd={() => setDragWorkspaceId(null)}
@@ -209,10 +212,10 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
         </button>
       </div>}
 
-      <nav className="sidebar-list" aria-label="Herdr workspaces">
-        {!snapshot && <p className="tree-state" role="status">Loading workspaces…</p>}
+      <nav className="sidebar-list" aria-label={t("Herdr workspaces")}>
+        {!snapshot && <p className="tree-state" role="status">{t("Loading workspaces…")}</p>}
         {snapshot && snapshot.workspaces.length === 0 && (
-          <p className="tree-state tree-state-empty" role="status">No workspaces yet</p>
+          <p className="tree-state tree-state-empty" role="status">{t("No workspaces yet")}</p>
         )}
         {orderedWorkspaces.map((workspace) => {
           const visiblePanes = panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
@@ -242,7 +245,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                   {editingWorkspaceId === workspace.workspace_id ? (
                     <input
                       className="input workspace-rename-input"
-                      aria-label="Workspace name"
+                      aria-label={t("Workspace name")}
                       autoFocus
                       value={workspaceLabel}
                       onChange={(event) => setWorkspaceLabel(event.target.value)}
@@ -258,7 +261,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                     </span>
                   )}
                   <StatusBadge status={workspace.agent_status} />
-                  <button type="button" className="sidebar-row-action workspace-rename" aria-label={`Rename workspace ${workspace.label}`} onClick={() => beginWorkspaceRename(workspace)}>
+                  <button type="button" className="sidebar-row-action workspace-rename" aria-label={t("Rename workspace {name}", { name: workspace.label })} onClick={() => beginWorkspaceRename(workspace)}>
                     <Pencil aria-hidden="true" />
                   </button>
                 </header>
@@ -287,7 +290,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                             actions.selectPane(pane.pane_id);
                           }}
                         >
-                          <span className={`agent-mark-holder${pane.agent ? "" : " is-shell"}`} title={pane.agent ?? "Shell"}>
+                          <span className={`agent-mark-holder${pane.agent ? "" : " is-shell"}`} title={pane.agent ?? t("Shell")}>
                             {pane.agent ? <AgentMark agent={pane.agent} size={22} /> : <Terminal aria-hidden="true" />}
                           </span>
                           <span className="pane-copy">
@@ -295,7 +298,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                               {editing ? (
                                 <input
                                   className="input pane-rename-input"
-                                  aria-label="Pane name"
+                                  aria-label={t("Pane name")}
                                   autoFocus
                                   value={paneLabel}
                                   onClick={(event) => event.stopPropagation()}
@@ -318,17 +321,17 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                           </span>
                         </div>
                         <div className="pane-actions">
-                          <button type="button" className="sidebar-row-action" aria-label={`Rename ${displayTitle}`} title="Rename pane" onClick={() => beginPaneRename(pane)}>
+                          <button type="button" className="sidebar-row-action" aria-label={t("Rename {title}", { title: displayTitle })} title={t("Rename pane")} onClick={() => beginPaneRename(pane)}>
                             <Pencil aria-hidden="true" />
                           </button>
                           <button
                             type="button"
                             className={`sidebar-row-action pane-close${armedId === pane.pane_id ? " is-armed" : ""}`}
-                            aria-label={armedId === pane.pane_id ? `Confirm close ${displayTitle}` : `Close ${displayTitle}`}
-                            title={armedId === pane.pane_id ? "Click again to close" : "Close pane"}
+                            aria-label={armedId === pane.pane_id ? t("Confirm close {title}", { title: displayTitle }) : t("Close {title}", { title: displayTitle })}
+                            title={armedId === pane.pane_id ? t("Click again to close") : t("Close pane")}
                             onClick={() => closePaneClick(pane.pane_id)}
                           >
-                            {armedId === pane.pane_id ? <span>sure?</span> : <X aria-hidden="true" />}
+                            {armedId === pane.pane_id ? <span>{t("sure?")}</span> : <X aria-hidden="true" />}
                           </button>
                         </div>
                       </div>
