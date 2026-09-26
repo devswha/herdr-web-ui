@@ -123,7 +123,7 @@ bun "$(ls -d ~/.config/herdr/plugins/github/devswha.herdr-web-ui-* | head -1)/sc
 bun scripts/plugin.ts pair                                                                             # from a checkout
 ```
 
-It prints the code, the address the phone opens when Tailscale serves one, and that address as a QR code. (`herdr plugin action invoke devswha.herdr-web-ui.pair` runs the same, but herdr keeps an action's output in `herdr plugin log list` rather than printing it.)
+It prints the code, the address the phone opens when Tailscale serves one, and that address as a QR code. It is a command to run in a terminal, not a herdr action: herdr keeps an action's output in its log, and a pairing code belongs on the screen, not in a log.
 
 Its PID and log live under `HERDR_PLUGIN_STATE_DIR`. For persistent settings (see [Configuration](#configuration)), add `KEY=value` lines to the `env` file in the directory that `herdr plugin config-dir devswha.herdr-web-ui` prints. Protect that file if it holds a token.
 

@@ -9,11 +9,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Added
 - A pairing code from the PC's terminal, for a headless PC with no browser to open Settings →
-  Devices in: `bun scripts/plugin.ts pair` (the plugin checkout has it, and herdr's `pair` action
-  runs it) prints the code, the address a phone opens when Tailscale serves one, and that address as
-  a QR code. Run by hand, it reads the PORT, HOST and token the plugin runs with from the config dir
-  herdr names for it. Settings → Devices also shows the pairing link as text, to send to the other
-  device however you like.
+  Devices in: `bun scripts/plugin.ts pair` (in the plugin checkout; a terminal command, since herdr
+  keeps an action's output in its log) prints the code, the address a phone opens when Tailscale
+  serves one, and that address as a QR code. Run by hand, it reads the PORT, HOST and token the
+  plugin runs with from the config dir herdr names for it. Settings → Devices also shows the pairing
+  link as text, to send to the other device however you like.
 
 ### Fixed
 - Web addresses in the chat open. An address in backticks (`` `https://…` ``, as agents often write
