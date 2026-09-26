@@ -27,8 +27,10 @@ import { herdrSocketPath } from "./herdr/client.ts";
  *
  * herdr keeps its own `done` across a restart of this server; what is kept here was lost
  * with it, and every omo or gjc pane that had finished read READY again after an update.
- * So both sets are kept in a file too, for the herdr they were seen in: a herdr started
- * anew reuses pane ids for other panes, and its socket is then another file.
+ * So the finished panes are kept in a file too, for the herdr they were seen in: a herdr
+ * started anew reuses pane ids for other panes, and its socket is then another file. The
+ * panes still working are not: what became of them while this server was down (finished,
+ * and seen at herdr's terminal?) is unknown, and a DONE nobody needs is an alert too.
  */
 export class CompletionTracker {
   /** panes that worked (or were blocked) since they were last idle, done or seen */
@@ -45,10 +47,9 @@ export class CompletionTracker {
   constructor(private readonly file: string | null = null, private readonly herdr: () => string | null = herdrSocketId) {
     if (file === null) return;
     try {
-      const state = JSON.parse(readFileSync(file, "utf8")) as { herdr?: unknown; worked?: unknown; finished?: unknown };
+      const state = JSON.parse(readFileSync(file, "utf8")) as { herdr?: unknown; finished?: unknown };
       const current = herdr();
       if (current === null || state.herdr !== current) return;
-      for (const pane of Array.isArray(state.worked) ? state.worked : []) if (typeof pane === "string") this.worked.add(pane);
       for (const pane of Array.isArray(state.finished) ? state.finished : []) if (typeof pane === "string") this.finished.add(pane);
       this.saved = this.serialize(current);
     } catch { /* none yet, or unreadable: start empty */ }
@@ -96,7 +97,7 @@ export class CompletionTracker {
   }
 
   private serialize(herdr: string): string {
-    return JSON.stringify({ herdr, worked: [...this.worked].sort(), finished: [...this.finished].sort() });
+    return JSON.stringify({ herdr, finished: [...this.finished].sort() });
   }
 
   /** Written whole, and only on a change: a crash mid-write must not leave half a file. */

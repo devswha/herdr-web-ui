@@ -9,9 +9,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Fixed
 - An omo or gjc pane that had finished read READY again after this server restarted (an update
-  does), and one that finished while it was down never read DONE: what this server adds to
-  herdr's own `done` lived in memory. It is now kept in `completions.json` in the state directory,
-  for the herdr it was seen in; a herdr started anew starts it over.
+  does): what this server adds to herdr's own `done` lived in memory. It is now kept in
+  `completions.json` in the state directory, for the herdr it was seen in; a herdr started anew
+  starts it over.
 
 ## [0.3.17] - 2026-09-26
 
