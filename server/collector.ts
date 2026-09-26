@@ -12,6 +12,8 @@ import { sessionSnapshot, subscribeEvents, type EventFrame, type Subscription } 
  *   the full set (see `reconcile`).
  * - `pane.created` / `pane.closed` / `pane.exited` subscribe globally (no pane_id)
  *   and drive both the pane-set reconciliation and the structure broadcasts.
+ * - `pane.focused` subscribes globally too, and fires for a tab or workspace brought to the
+ *   front as well (`{event:"pane_focused", data:{type, pane_id, workspace_id}}`).
  *
  * Status frames are flat (`{event:"pane.agent_status_changed", data:{pane_id, agent_status, ...}}`)
  * while structure frames carry a snake_case `data.type` - both shapes below parse only
@@ -35,6 +37,8 @@ export interface StatusCollectorHandlers {
   onBaseline: (panes: readonly HerdrPane[]) => void;
   onPaneEnded: (paneId: string) => void;
   onStructureChange: () => void;
+  /** herdr's focus moved onto this pane: whoever is at its terminal has it in front */
+  onFocus?: (paneId: string) => void;
 }
 
 export interface StatusCollector {
@@ -52,6 +56,12 @@ export function parseStatusFrame(frame: EventFrame): { paneId: string; status: A
 export type StructureEvent =
   | { kind: "pane-ended"; paneId: string }
   | { kind: "structure-changed" };
+
+/** The pane a focus frame (`{data:{type:"pane_focused", pane_id}}`) brought to the front. */
+export function parseFocusFrame(frame: EventFrame): string | null {
+  const data = frame.data as { type?: unknown; pane_id?: unknown } | undefined;
+  return data?.type === "pane_focused" && typeof data.pane_id === "string" ? data.pane_id : null;
+}
 
 /** Structure frames: `{event:"pane_exited"|"pane_created"|"pane_closed", data:{type, pane_id?}}`. */
 export function parseStructureFrame(frame: EventFrame): StructureEvent | null {
@@ -77,6 +87,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers): StatusC
   let backstopTimer: ReturnType<typeof setInterval> | null = null;
   let lifecycleRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let lifecycleSubscription: Subscription | null = null;
+  let focusRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let focusSubscription: Subscription | null = null;
 
   const STRUCTURE_SUBSCRIPTIONS = [
     { type: "pane.created" },
@@ -175,7 +187,24 @@ export function startStatusCollector(handlers: StatusCollectorHandlers): StatusC
     });
   }
 
+  /** Its own connection: a focus type an older herdr refuses must not cost pane exits. */
+  function startFocus(): void {
+    const onFocus = handlers.onFocus;
+    if (stopped || onFocus === undefined) return;
+    focusSubscription = subscribeEvents([{ type: "pane.focused" }], {
+      onEvent: (frame) => {
+        const paneId = parseFocusFrame(frame);
+        if (paneId !== null) onFocus(paneId);
+      },
+      onClose: () => {
+        if (stopped) return;
+        focusRetryTimer = setTimeout(startFocus, RECONNECT_DELAY_MS);
+      },
+    });
+  }
+
   startLifecycle();
+  startFocus();
   void reconcile();
   backstopTimer = setInterval(() => void reconcile(), BACKSTOP_INTERVAL_MS);
 
@@ -185,7 +214,9 @@ export function startStatusCollector(handlers: StatusCollectorHandlers): StatusC
       if (reconcileTimer !== null) clearTimeout(reconcileTimer);
       if (backstopTimer !== null) clearInterval(backstopTimer);
       if (lifecycleRetryTimer !== null) clearTimeout(lifecycleRetryTimer);
+      if (focusRetryTimer !== null) clearTimeout(focusRetryTimer);
       lifecycleSubscription?.close();
+      focusSubscription?.close();
       closeStatusSubscription();
     },
   };

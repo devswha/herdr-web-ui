@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { EventFrame } from "./herdr/client.ts";
-import { parseStatusFrame, parseStructureFrame } from "./collector.ts";
+import { parseFocusFrame, parseStatusFrame, parseStructureFrame } from "./collector.ts";
 
 /**
  * Frame shapes are the live wire format observed against herdr protocol 22 (see
@@ -46,3 +46,12 @@ describe("parseStructureFrame", () => {
   });
 });
 
+describe("parseFocusFrame", () => {
+  it("names the pane a focus lands on, from the live frame", () => {
+    // live (herdr 0.9.0): a workspace brought to the front also sends pane_focused for its pane
+    expect(parseFocusFrame({ event: "pane_focused", data: { pane_id: "w1A4:p1", type: "pane_focused", workspace_id: "w1A4" } })).toBe("w1A4:p1");
+    expect(parseFocusFrame({ event: "tab_focused", data: { tab_id: "w1A4:t1", type: "tab_focused", workspace_id: "w1A4" } })).toBeNull();
+    expect(parseFocusFrame({ data: { type: "pane_focused", pane_id: 3 } })).toBeNull();
+    expect(parseFocusFrame({})).toBeNull();
+  });
+});

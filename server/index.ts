@@ -510,11 +510,15 @@ export function createServer(
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent) => {
       // an agent herdr lost on the way still works and finishes as such (server/completion.ts)
-      void completions.observe(paneId, raw, agent).then((status) => {
-        if (status === null) return;
-        broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
-        push.onStatus(paneId, status).catch(logPushError);
-      });
+      const status = completions.observe(paneId, raw, agent);
+      broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
+      push.onStatus(paneId, status).catch(logPushError);
+    },
+    // a finish reported as done, now in front at herdr's terminal: seen, idle again
+    onFocus: (paneId) => {
+      if (!completions.seen(paneId)) return;
+      broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: "idle" });
+      push.onStatus(paneId, "idle").catch(logPushError);
     },
     onBaseline: (panes) => push.seed(panes),
     onPaneEnded: (paneId) => {

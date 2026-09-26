@@ -15,6 +15,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the other device however you like.
 
 ### Fixed
+- An agent that finished in the pane herdr's terminal has in front read READY, and sent no alert,
+  though nobody was looking: herdr reports a finish there as idle, and working from a browser or
+  a phone never moves that focus. A finish now reads DONE and alerts in every pane, until the pane
+  works again or focus moves onto it in herdr's terminal.
 - Web addresses in the chat open. An address in backticks (`` `https://…` ``, as agents often
   write them) is a link that still looks like code; `[docs](www.example.com/x)`,
   `[guide](docs.example.com/guide)` and `[here](localhost:7317)` are links, not files; a bare
