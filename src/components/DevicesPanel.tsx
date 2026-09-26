@@ -4,6 +4,7 @@ import { Check, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import "./DevicesPanel.css";
 
 import { ApiError, fetchDevices, pairDevice, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { copyText } from "../lib/clipboard.ts";
 import { deviceLabel } from "../lib/phone.ts";
 import type { HealthAuth, PairedDevice, PairingCode } from "../../shared/protocol.ts";
 import { QrCode } from "./QrCode.tsx";
@@ -49,6 +50,8 @@ export function DevicesPanel({ pairUrl, auth, onPaired }: DevicesPanelProps) {
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [justPaired, setJustPaired] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const linkRef = useRef<HTMLAnchorElement>(null);
   const known = useRef(new Set<string>());
 
   const load = useCallback(async () => {
@@ -112,7 +115,7 @@ export function DevicesPanel({ pairUrl, auth, onPaired }: DevicesPanelProps) {
     <div className="devices-panel">
       {auth?.via !== undefined && <p className={auth.via === "open" ? "settings-hint devices-open" : "settings-description"}>{t(VIA[auth.via])}</p>}
       {auth?.via === "open" && <div className="phone-actions"><button type="button" className="btn btn-primary" onClick={() => void pairSelf()}>{t("Pair this device now")}</button></div>}
-      <p className="settings-description">{t("A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. Pairing needs a code from this screen, on the PC or on a device already paired.")}</p>
+      <p className="settings-description">{t("A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. A code comes from this screen on the PC or on a device already paired, or from the pair command in the PC's terminal.")}</p>
       {devices === null ? <p className="settings-hint" role="status">{t("Loading…")}</p> : devices.length === 0 ? (
         <p className="settings-hint">{t("No devices paired yet.")}</p>
       ) : (
@@ -155,6 +158,13 @@ export function DevicesPanel({ pairUrl, auth, onPaired }: DevicesPanelProps) {
             <p className="settings-description">
               {t(qrValue !== null ? "Or scan the QR code: it opens the app with the code filled in." : "Open the app's address on that device and enter it.")} {t("Expires in {time}.", { time: left })}
             </p>
+            {qrValue !== null && (
+              <p className="devices-link">
+                <span className="settings-description">{t("Or send this link to it:")}</span>
+                <a ref={linkRef} href={qrValue}>{qrValue}</a>
+                <button type="button" className="btn btn-ghost" onClick={() => void copyText(qrValue, linkRef.current).then((ok) => { if (ok) { setLinkCopied(true); window.setTimeout(() => setLinkCopied(false), 1600); } })}>{t(linkCopied ? "Copied" : "Copy")}</button>
+              </p>
+            )}
             <div className="phone-actions">
               <button type="button" className="btn" onClick={() => void pair()}><RefreshCw aria-hidden="true" />{t("New code")}</button>
               <button type="button" className="btn btn-ghost" onClick={() => setCode(null)}>{t("Done")}</button>

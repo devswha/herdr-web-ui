@@ -1082,6 +1082,37 @@ describe("pairing and identity", () => {
     expect(await auth()).toMatchObject({ authenticated: true, via: "local" });
   });
 
+  it("the plugin script prints a code a headless PC's owner can hand to a phone", async () => {
+    const configDir = mkdtempSync(join(tmpdir(), "herdr-pair-cli-"));
+    try {
+      // spawned asynchronously: a synchronous spawn would block the very server the script asks
+      const pairCli = async (port: number) => {
+        const child = Bun.spawn(["bun", "scripts/plugin.ts", "pair"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", HERDR_PLUGIN_CONFIG_DIR: configDir, HERDR_WEB_TOKEN: "" }, stdout: "pipe", stderr: "pipe" });
+        const [out, err, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        return { out, err, exitCode };
+      };
+      const run = await pairCli(open.port);
+      const out = run.out;
+      expect(run.exitCode, run.err).toBe(0);
+      const code = /Pairing code: (\d{3}) (\d{3})/.exec(out);
+      expect(code).not.toBeNull();
+      expect(out).toContain("enter the code");
+      const paired = await fetch(`${base()}/api/devices/pair`, { method: "POST", headers: { ...guard, ...proxied() }, body: JSON.stringify({ code: `${code![1]}${code![2]}`, label: "Phone by CLI" }) });
+      expect(paired.status).toBe(204);
+      const list = (await (await fetch(`${base()}/api/devices`)).json()) as { devices: Array<{ label: string }> };
+      expect(list.devices.map((d) => d.label)).toContain("Phone by CLI");
+      // with a token configured, the script reads it from the plugin's env file and gets past the gate
+      const tokenState = mkdtempSync(join(tmpdir(), "herdr-pair-cli-token-"));
+      const secured = createServer({ port: 0, stateDir: tokenState, token: "cli-t0k3n", tailscaleOwner: null });
+      try {
+        writeFileSync(join(configDir, "env"), "HERDR_WEB_TOKEN=cli-t0k3n\n");
+        const withToken = await pairCli(secured.port);
+        expect(withToken.exitCode, withToken.err).toBe(0);
+        expect(withToken.out).toMatch(/Pairing code: \d{3} \d{3}/);
+      } finally { secured.stop(); rmSync(tokenState, { recursive: true, force: true }); }
+    } finally { rmSync(configDir, { recursive: true, force: true }); }
+  });
+
   it("a configured token still gates this PC, and identity and devices get past it", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-pairing-token-"));
     const secured = createServer({ port: 0, stateDir: state, token: "t0k3n", tailscaleOwner: OWNER });

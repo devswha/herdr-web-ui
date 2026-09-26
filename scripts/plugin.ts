@@ -4,7 +4,7 @@
  * herdr's startup hooks are one-shot initialization commands, not supervised
  * daemons (https://herdr.dev/docs/plugins/), so this script owns the process:
  * `start` detaches the server and records its pid under HERDR_PLUGIN_STATE_DIR,
- * `stop` takes it down, `status` reports. Start is idempotent — a server that is
+ * `stop` takes it down, `status` reports, `pair` prints a pairing code for another device. Start is idempotent — a server that is
  * already answering on the port is left alone, which is what makes it safe as
  * both a startup hook and a hand-invoked action.
  *
@@ -19,6 +19,8 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+import qrcode from "qrcode-generator";
 
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 
@@ -130,6 +132,43 @@ function stop(): number {
   return 0;
 }
 
+/**
+ * A pairing code for another device, printed here. A headless PC has no browser of its own to
+ * open Settings → Devices in, so this is how its owner lets a phone in: the code, the address the
+ * phone opens (when Tailscale serves one), and that address as a QR code for a screen to scan.
+ */
+async function pair(): Promise<number> {
+  if (!(await health())) {
+    process.stderr.write(`herdr web ui is not running at ${origin}; start it first\n`);
+    return 1;
+  }
+  const headers: Record<string, string> = { "content-type": "application/json", "x-herdr-machine": "1" };
+  if ((env["HERDR_WEB_TOKEN"] ?? "") !== "") headers["authorization"] = `Bearer ${env["HERDR_WEB_TOKEN"]}`;
+  const started = await fetch(`${origin}/api/devices/pair/start`, { method: "POST", headers, body: "{}" });
+  if (!started.ok) {
+    process.stderr.write(`could not start a pairing (${started.status}): ${await started.text()}\n`);
+    return 1;
+  }
+  const { code } = (await started.json()) as { code: string; expires_at: string };
+  let url: string | null = null;
+  try {
+    const access = (await (await fetch(`${origin}/api/access`, { headers })).json()) as { tailscale: { serving_url: string | null } };
+    url = access.tailscale.serving_url;
+  } catch { /* an older server: the code alone */ }
+  const out: string[] = [`Pairing code: ${code.slice(0, 3)} ${code.slice(3)}   (good for 10 minutes, for one device)`];
+  if (url !== null) {
+    out.push(`On the other device, open ${url} and enter the code, or scan this to open it with the code filled in:`, "");
+    const qr = qrcode(0, "M");
+    qr.addData(`${url}/?pair=${code}`);
+    qr.make();
+    out.push(qr.createASCII(1, 1));
+  } else {
+    out.push("On the other device, open the app's address and enter the code. Settings → Phone, on any signed-in device, shows the address and how to get one.");
+  }
+  process.stdout.write(out.join("\n") + "\n");
+  return 0;
+}
+
 /** Reporting "down" is not an action failure: herdr logs a nonzero exit as failed. */
 async function status(): Promise<number> {
   const pid = recordedPid();
@@ -142,7 +181,8 @@ const command = process.argv[2] ?? "status";
 if (command === "start") process.exit(await start());
 else if (command === "stop") process.exit(stop());
 else if (command === "status") process.exit(await status());
+else if (command === "pair") process.exit(await pair());
 else {
-  process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status>\n`);
+  process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status|pair>\n`);
   process.exit(2);
 }

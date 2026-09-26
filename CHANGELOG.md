@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- A pairing code from the PC's terminal, for a headless PC with no browser to open
+  Settings → Devices in: `bun scripts/plugin.ts pair` (the plugin checkout has it, and herdr's
+  `pair` action runs it) prints the code, the address a phone opens when Tailscale serves one, and
+  that address as a QR code. Settings → Devices also shows the pairing link as text, to send to
+  the other device however you like.
+
 ### Fixed
 - A Codex chat whose last answer ends with a file link said "Conversation unavailable" while the
   terminal was open. Codex shows such a link as its label and a path relative to the repo, not

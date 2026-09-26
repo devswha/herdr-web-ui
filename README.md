@@ -116,6 +116,15 @@ herdr plugin action invoke devswha.herdr-web-ui.status
 herdr plugin action invoke devswha.herdr-web-ui.stop
 ```
 
+**Headless PC?** With no browser to open Settings → Devices in, get a pairing code in the terminal:
+
+```bash
+bun ~/.config/herdr/plugins/github/devswha.herdr-web-ui-*/scripts/plugin.ts pair   # plugin install
+bun scripts/plugin.ts pair                                                         # from a checkout
+```
+
+It prints the code, the address the phone opens when Tailscale serves one, and that address as a QR code. (`herdr plugin action invoke devswha.herdr-web-ui.pair` runs the same, but herdr keeps an action's output in `herdr plugin log list` rather than printing it.)
+
 Its PID and log live under `HERDR_PLUGIN_STATE_DIR`. For persistent settings (see [Configuration](#configuration)), add `KEY=value` lines to the `env` file in the directory that `herdr plugin config-dir devswha.herdr-web-ui` prints. Protect that file if it holds a token.
 
 ## Supported agents
@@ -188,7 +197,7 @@ More in [remote PCs](docs/remote-pcs.md).
 Anyone who can reach the server can type into your terminals, so what matters is who gets in. It listens on `127.0.0.1` by default, which means only this computer. From anywhere else, a request gets in in one of three ways:
 
 - **It is you, says Tailscale.** `tailscale serve` states the requesting device's Tailscale login in a header it strips from anything incoming. A login that matches this PC's own gets in; another login is refused. Nothing to set up.
-- **It is a paired device.** **Settings → Devices**, on the PC (or on a device already paired), shows a six-digit code that lives ten minutes and a QR code that carries it. The other device enters it once and keeps its own credential in an HttpOnly cookie; the list shows it, and **Revoke** ends it at its next request.
+- **It is a paired device.** **Settings → Devices**, on the PC (or on a device already paired), shows a six-digit code that lives ten minutes and a QR code that carries it. On a headless PC, the `pair` command prints the same in its terminal (see [Quick start](#quick-start)); Devices also shows the pairing link as text, to send to the other device. The other device enters it once and keeps its own credential in an HttpOnly cookie; the list shows it, and **Revoke** ends it at its next request.
 - **It holds the token.** `HERDR_WEB_TOKEN`, for scripts and proxies, as a cookie after sign-in or as `Authorization: Bearer <token>`. When a token is set it gates everything, this computer included, as before.
 
 | How you reach it | What gets you in |

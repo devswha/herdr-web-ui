@@ -36,3 +36,10 @@ id = "status"
 title = "herdr web ui status"
 contexts = ["workspace"]
 command = ["bun", "scripts/plugin.ts", "status"]
+
+# a pairing code for a phone, printed in the terminal: a headless PC has no browser to show one in
+[[actions]]
+id = "pair"
+title = "Pair a device with herdr web ui"
+contexts = ["workspace"]
+command = ["bun", "scripts/plugin.ts", "pair"]

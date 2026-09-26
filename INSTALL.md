@@ -131,8 +131,9 @@ code, or the exact command still to run. Who gets in:
 - The user's own Tailscale devices get in as the user: `tailscale serve` states the login, and the
   server compares it with this PC's. Nothing to configure.
 - Any other device (someone else's, or a LAN or public address) is paired: **Settings → Devices**
-  on the PC shows a six-digit code and a QR code; the device enters it once. Do this with the user
-  present; never read a code aloud into a log.
+  on the PC shows a six-digit code and a QR code; the device enters it once. On a headless PC with
+  no browser, `bun "$(ls -d ~/.config/herdr/plugins/github/devswha.herdr-web-ui-* | head -1)/scripts/plugin.ts" pair`
+  prints the code in the terminal (herdr's `pair` action runs the same but keeps the output in its log). Do this with the user present; never read a code aloud into a log.
 - A token (`HERDR_WEB_TOKEN`) is for scripts and proxies. Only when the user asks for one, create it
   without printing it. For the plugin:
 
