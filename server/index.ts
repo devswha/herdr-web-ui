@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 
 import type { AgentKind, ClientMessage, ClientRole, HealthAuth, HerdrPane, ServerFeature, ServerMessage } from "../shared/protocol.ts";
@@ -17,7 +17,7 @@ import { badRequest, errorResponse, isJsonObject, jsonResponse } from "./http.ts
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation } from "./conversation.ts";
-import { completions } from "./completion.ts";
+import { CompletionTracker } from "./completion.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile } from "./file-view.ts";
 import {
@@ -319,7 +319,9 @@ export function createServer(
     },
   });
 
-  const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push);
+  /** `done` for agents herdr loses track of (server/completion.ts), kept across restarts */
+  const completions = new CompletionTracker(join(options.stateDir ?? defaultStateDir(), "completions.json"));
+  const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions);
   const bridgeToken = randomBytes(32).toString("hex");
 
   function broadcast(paneId: string, message: ServerMessage): void {

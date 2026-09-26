@@ -10,7 +10,7 @@ import type { PushService } from "./push.ts";
 import type { BridgeDescriptor } from "./bridge.ts";
 import { sessionSnapshot } from "./herdr/client.ts";
 import { labelOmoPanes } from "./conversation.ts";
-import { completions } from "./completion.ts";
+import type { CompletionTracker } from "./completion.ts";
 import { shellQuote, validateTarget } from "./machine-security.ts";
 import { BUNDLE_DIR, installBundle, REMOTE_PATH } from "./remote-bundle.ts";
 import { SshConnection } from "./ssh.ts";
@@ -76,7 +76,7 @@ export class MachineManager {
   private autoQueued = new Set<string>();
   private emitTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(readonly stateDir: string, private push: PushService) {
+  constructor(readonly stateDir: string, private push: PushService, private completions: CompletionTracker) {
     this.statePath = join(stateDir, "machines.json");
     this.sshDir = join(stateDir, "ssh");
     this.settingsPath = join(stateDir, "machine-settings.json");
@@ -120,7 +120,7 @@ export class MachineManager {
   async refreshLocal(): Promise<void> {
     if (this.localBusy || this.stopped) return;
     this.localBusy = true;
-    try { this.local.snapshot = completions.present(await labelOmoPanes(await sessionSnapshot())); this.local.state = "connected"; this.local.error = null; }
+    try { this.local.snapshot = this.completions.present(await labelOmoPanes(await sessionSnapshot())); this.local.state = "connected"; this.local.error = null; }
     catch (e) { this.local.state = "error"; this.local.error = String(e instanceof Error ? e.message : e); }
     finally { this.localBusy = false; this.emit(); }
   }
