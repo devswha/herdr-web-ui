@@ -53,6 +53,23 @@ describe("inline markdown", () => {
     }
   });
 
+  it("links an address written without its scheme, and leaves files and non-addresses alone", () => {
+    expect(parseInline("[docs](www.example.com/x)")).toEqual([{ type: "link", href: "https://www.example.com/x", children: [{ type: "text", value: "docs" }] }]);
+    expect(parseInline("[guide](docs.example.com/guide)")).toMatchObject([{ type: "link", href: "https://docs.example.com/guide" }]);
+    expect(parseInline("[here](localhost:7317)")).toMatchObject([{ type: "link", href: "http://localhost:7317" }]);
+    expect(parseInline("[api](api.example.com:8443/v1)")).toMatchObject([{ type: "link", href: "https://api.example.com:8443/v1" }]);
+    expect(parseInline("[readme](README.md)")).toMatchObject([{ type: "file", path: "README.md" }]);
+    expect(parseInline("[x](src/x.ts)")).toMatchObject([{ type: "file", path: "src/x.ts" }]);
+    expect(parseInline("see www.example.com/a/b.")).toEqual([
+      { type: "text", value: "see " },
+      { type: "link", href: "https://www.example.com/a/b", children: [{ type: "text", value: "www.example.com/a/b" }] },
+      { type: "text", value: "." },
+    ]);
+    // a bare domain in prose stays prose, and a code span keeps its address as code (rendered as a link)
+    expect(parseInline("example.com is fine")).toEqual([{ type: "text", value: "example.com is fine" }]);
+    expect(parseInline("`https://example.com/x`")).toEqual([{ type: "code", value: "https://example.com/x" }]);
+  });
+
   it("parses inline code, bold, italic, and strikethrough", () => {
     expect(parseInline("`code` **bold** *italic* ~~gone~~").map((node) => node.type)).toEqual([
       "code", "text", "strong", "text", "em", "text", "del",

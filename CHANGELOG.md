@@ -15,6 +15,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the other device however you like.
 
 ### Fixed
+- Web addresses in the chat open. An address in backticks (`` `https://…` ``, as agents often
+  write them) is a link that still looks like code; `[docs](www.example.com/x)`,
+  `[guide](docs.example.com/guide)` and `[here](localhost:7317)` are links, not files; a bare
+  `www.example.com/…` links like a full URL does. In the terminal view, addresses in the output
+  open in a new tab on click.
 - A Codex chat whose last answer ends with a file link said "Conversation unavailable" while the
   terminal was open. Codex shows such a link as its label and a path relative to the repo, not
   the absolute path the session file keeps, so that answer was never found on screen. Answers are

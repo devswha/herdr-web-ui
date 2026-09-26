@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
@@ -178,6 +179,8 @@ export function PaneTerminal({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // an address in the terminal opens in a new tab; the page never navigates away from the pane
+    term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
     term.open(host);
     // herdr reads the wheel as mouse reports. Were reporting ever off, xterm would turn
     // a wheel into arrow keys, which walk an agent's prompt history instead of scrolling.
