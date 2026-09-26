@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { forgetHistoryChains } from "./codex.ts";
-import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, MAX_TURNS, omoTranscriptPath, parseClaudeTranscript, parseOmpTranscript, transcriptPage } from "./conversation.ts";
+import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, MAX_TURNS, omoTranscriptPath, parseClaudeTranscript, parseOmpTranscript, transcriptImage, transcriptPage } from "./conversation.ts";
 
 /** Minimal but shape-true slices of a Claude Code session jsonl. */
 const lines = [
@@ -100,9 +100,11 @@ describe("parseClaudeTranscript", () => {
       null,
     ].map((entry) => JSON.stringify(entry)).join("\n");
     const turns = parseClaudeTranscript(transcript);
-    expect(turns).toHaveLength(2);
+    // the compaction is no bookkeeping: it marks where the conversation was folded
+    expect(turns).toHaveLength(3);
     expect(turns[0]?.parts[0]).toMatchObject({ kind: "tool", output: "result" });
     expect(turns[1]?.parts).toEqual([{ kind: "text", text: "Actual request" }]);
+    expect(turns[2]?.parts).toEqual([{ kind: "compact", text: "compacted context" }]);
   });
 });
 
@@ -466,5 +468,56 @@ describe("tool calls that failed", () => {
       { type: "message", message: { role: "toolResult", toolCallId: "c1", isError: true, content: [{ type: "text", text: "exit 1" }] } },
     ));
     expect(omp.flatMap((turn) => turn.parts).filter((part) => part.kind === "tool").map((part) => part.error === true)).toEqual([true]);
+  });
+});
+
+describe("images and compactions in a Claude transcript", () => {
+  const lines = (...records: unknown[]) => records.map((record) => JSON.stringify(record)).join("\n");
+  it("names a pasted image by its entry and block, and never carries its data", () => {
+    const turns = parseClaudeTranscript(lines(
+      { type: "user", uuid: "11111111-2222-3333-4444-555555555555", timestamp: "2026-09-27T00:00:00Z", message: { content: [
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } },
+        { type: "text", text: "what is this?" },
+        { type: "image", source: { type: "base64", media_type: "image/svg+xml", data: "PHN2Zz4=" } },
+      ] } },
+      { type: "user", uuid: "66666666-2222-3333-4444-555555555555", message: { content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "/9j/" } }] } },
+    ));
+    expect(turns.map((turn) => turn.parts)).toEqual([
+      [{ kind: "image", media_type: "image/png", ref: "11111111-2222-3333-4444-555555555555:0" }, { kind: "text", text: "what is this?" }],
+      [{ kind: "image", media_type: "image/jpeg", ref: "66666666-2222-3333-4444-555555555555:0" }],
+    ]);
+    expect(JSON.stringify(turns)).not.toContain("iVBOR");
+  });
+
+  it("marks where a compaction folded the conversation, with its summary", () => {
+    const turns = parseClaudeTranscript(lines(
+      { type: "user", timestamp: "2026-09-27T00:00:00Z", message: { content: "before" } },
+      { type: "user", isCompactSummary: true, timestamp: "2026-09-27T01:00:00Z", message: { content: "This session is being continued. Summary: X" } },
+    ));
+    expect(turns.at(-1)).toEqual({ role: "user", ts: "2026-09-27T01:00:00Z", parts: [{ kind: "compact", text: "This session is being continued. Summary: X" }] });
+  });
+});
+
+describe("transcriptImage", () => {
+  it("decodes the image a ref names, and nothing else", () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-image-"));
+    try {
+      const path = join(dir, "session.jsonl");
+      const uuid = "11111111-2222-3333-4444-555555555555";
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      writeFileSync(path, [
+        { type: "user", uuid: "99999999-2222-3333-4444-555555555555", message: { content: [{ type: "text", text: "x" }] } },
+        { type: "user", uuid, message: { content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } }, { type: "text", text: "what?" }, { type: "image", source: { type: "base64", media_type: "image/svg+xml", data: "PHN2Zz4=" } }] } },
+      ].map((entry) => JSON.stringify(entry)).join("\n"));
+      const image = transcriptImage(path, `${uuid}:0`);
+      expect(image?.mediaType).toBe("image/png");
+      expect(Buffer.from(image!.bytes).equals(png)).toBe(true);
+      // a text block, a type a page never shows, another entry's index, a ref that is no ref
+      expect(transcriptImage(path, `${uuid}:1`)).toBeNull();
+      expect(transcriptImage(path, `${uuid}:2`)).toBeNull();
+      expect(transcriptImage(path, "99999999-2222-3333-4444-555555555555:0")).toBeNull();
+      expect(transcriptImage(path, "../../etc/passwd:0")).toBeNull();
+      expect(transcriptImage(join(dir, "missing.jsonl"), `${uuid}:0`)).toBeNull();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

@@ -24,6 +24,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A Codex patch reads as a diff: each file as a header, then its lines in red and green, and the row
   is summed up by the files it touches, also when an `exec` script applies it.
 - While reading further up the chat, a ↓ button takes you back to the end, new messages or not.
+- Images you sent show above your message: ones pasted into Claude's prompt, fetched only when
+  shown, and ones attached here (an `@…png` mention). A tap opens them.
+- An edit reads as one diff: unchanged lines once, removed and added lines in place between them,
+  instead of the whole old block and then the whole new one. Several edits to one file each get
+  theirs.
+- Where a compaction folded a Claude conversation, a divider says so, and opens to its summary.
+- Headings down to `######` render as headings.
 
 ### Fixed
 - An agent's chat said "No conversation yet" until its first answer arrived, seconds on a remote PC.

@@ -18,7 +18,7 @@ export interface ListBlock {
 }
 
 export type MarkdownBlock =
-  | { type: "heading"; level: 1 | 2 | 3; content: InlineNode[] }
+  | { type: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; content: InlineNode[] }
   | { type: "paragraph"; lines: InlineNode[][] }
   | ListBlock
   | { type: "blockquote"; blocks: MarkdownBlock[] }
@@ -136,7 +136,7 @@ function lineAt(lines: string[], index: number): string {
 
 function startsBlock(lines: string[], index: number): boolean {
   const line = lines[index] ?? "";
-  return /^```/.test(line) || /^#{1,3}\s+/.test(line) || /^\s*>/.test(line) || /^(?:\s*[-*_]){3,}\s*$/.test(line) || listLine.test(line)
+  return /^```/.test(line) || /^#{1,6}\s+/.test(line) || /^\s*>/.test(line) || /^(?:\s*[-*_]){3,}\s*$/.test(line) || listLine.test(line)
     || (line.includes("|") && tableSeparator.test(lines[index + 1] ?? ""));
 }
 
@@ -194,9 +194,9 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
       continue;
     }
 
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading !== null) {
-      blocks.push({ type: "heading", level: (heading[1] ?? "#").length as 1 | 2 | 3, content: parseInline(heading[2] ?? "") });
+      blocks.push({ type: "heading", level: (heading[1] ?? "#").length as 1 | 2 | 3 | 4 | 5 | 6, content: parseInline(heading[2] ?? "") });
       index += 1;
       continue;
     }

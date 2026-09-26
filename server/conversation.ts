@@ -82,10 +82,14 @@ function toolSummary(name: string, input: Record<string, unknown>): string {
 interface TranscriptEntry {
   type?: string;
   timestamp?: string;
+  uuid?: string;
   isMeta?: boolean;
   isCompactSummary?: boolean;
   message?: { role?: string; content?: unknown };
 }
+
+/** The image types a chat shows; anything else stays out of the page. */
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /**
  * Splits one transcript file's contents into turns. Adjacent assistant entries
@@ -113,8 +117,15 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
     } catch {
       continue; // a torn tail line while Claude is mid-append
     }
-    if (entry === null || typeof entry !== "object" || entry.isMeta || entry.isCompactSummary) continue;
+    if (entry === null || typeof entry !== "object" || entry.isMeta) continue;
     const content = entry.message?.content;
+    // a compaction's summary marks where the conversation was folded, readable on request
+    if (entry.isCompactSummary) {
+      const summary = typeof content === "string" ? content
+        : Array.isArray(content) ? content.map((block) => typeof block === "object" && block !== null && (block as { type?: unknown }).type === "text" ? String((block as { text?: unknown }).text ?? "") : "").join("\n") : "";
+      turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "compact", text: summary }] });
+      continue;
+    }
 
     if (entry.type === "user" && typeof content === "string") {
       if (isCommandEntry(content)) continue;
@@ -145,7 +156,13 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
         if (tool.output.length > 4000) tool.output = `${tool.output.slice(0, 4000)}\n… trimmed`;
         if (result.is_error === true) tool.error = true;
       }
-      if (prompt.trim()) turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(prompt) }] });
+      // an image pasted into the prompt: named here, fetched only when shown
+      const images: ConversationPart[] = typeof entry.uuid !== "string" ? [] : content.flatMap((block: unknown, index: number) => {
+        const image = block as { type?: unknown; source?: { type?: unknown; media_type?: unknown } } | null;
+        if (image?.type !== "image" || image.source?.type !== "base64" || typeof image.source.media_type !== "string" || !IMAGE_TYPES.has(image.source.media_type)) return [];
+        return [{ kind: "image" as const, media_type: image.source.media_type, ref: `${entry.uuid}:${index}` }];
+      });
+      if (prompt.trim() || images.length > 0) turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [...images, ...(prompt.trim() ? [{ kind: "text" as const, text: unwrapPastes(prompt) }] : [])] });
       continue;
     }
 
@@ -875,4 +892,45 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
   cache.set(key, { signature, turns, metadata, cursor });
   if (cache.size > 32) cache.delete(cache.keys().next().value!);
   return { source, turns, metadata, cursor, version };
+}
+
+/**
+ * One image a user pasted into a Claude prompt, by the ref its image part carries
+ * (`<entry uuid>:<block index>`): the transcript holds it as base64, so it is decoded
+ * here rather than sent with every poll of the conversation. Null when there is no such
+ * image. Only Claude transcripts hold images by entry id.
+ */
+export async function conversationImage(paneId: string, ref: string, codexHome?: string): Promise<{ mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null> {
+  if (!IMAGE_REF.test(ref)) return null;
+  const snapshot = await sessionSnapshot();
+  const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
+  if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
+  let resolved: { source: RecognizedConversation["source"]; path: string };
+  try { resolved = await resolveTranscript(paneId, pane.agent ?? pane.agent_session?.agent ?? "", pane.cwd, codexHome, snapshot.panes); }
+  catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
+  return resolved.source === "claude-transcript" ? transcriptImage(resolved.path, ref) : null;
+}
+
+const IMAGE_REF = /^([0-9a-f-]{8,64}):(\d{1,3})$/i;
+
+/** The image an image part's ref names in a Claude transcript file, decoded; null when there is none. */
+export function transcriptImage(path: string, ref: string): { mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null {
+  const match = IMAGE_REF.exec(ref);
+  if (match === null) return null;
+  const [, uuid, index] = match;
+  let text: string;
+  try { text = readFileSync(path, "utf8"); } catch { return null; }
+  const needle = `"uuid":"${uuid}"`;
+  for (const line of text.split("\n")) {
+    if (!line.includes(needle)) continue;
+    let entry: TranscriptEntry;
+    try { entry = JSON.parse(line) as TranscriptEntry; } catch { continue; }
+    if (entry.uuid !== uuid || !Array.isArray(entry.message?.content)) continue;
+    const block = entry.message.content[Number(index)] as { type?: unknown; source?: { type?: unknown; media_type?: unknown; data?: unknown } } | undefined;
+    if (block?.type !== "image" || block.source?.type !== "base64" || typeof block.source.data !== "string") return null;
+    const mediaType = String(block.source.media_type);
+    if (!IMAGE_TYPES.has(mediaType)) return null;
+    return { mediaType, bytes: new Uint8Array(Buffer.from(block.source.data, "base64")) };
+  }
+  return null;
 }

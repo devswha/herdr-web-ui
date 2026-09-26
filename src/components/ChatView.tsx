@@ -19,6 +19,10 @@ import { useSettings } from "../lib/settings.ts";
 import { usePageVisible } from "../lib/visibility.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { patchText } from "../../shared/patch.ts";
+import { machinePath } from "../../shared/machines.ts";
+import { fileUrl } from "../lib/api.ts";
+import { useMachineId } from "../lib/machineContext.tsx";
+import { lineDiff } from "../lib/diff.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
 import { currentLanguage, useT } from "../lib/i18n.ts";
@@ -167,6 +171,13 @@ function ToolFile({ path, suffix }: { path: string; suffix?: string }) {
   return <p className="chat-tool-file"><button type="button" className="chat-tool-file-link" title={t("Open {path}", { path })} onClick={() => open(path)}>{path}</button>{suffix}</p>;
 }
 
+/** An edit's old and new text as one diff: the unchanged lines once, the changes in place. */
+function EditDiff({ before, after }: { before: string; after: string }) {
+  const lines = lineDiff(before, after);
+  return <pre className="chat-diff">{lines.map((line, index) =>
+    <span key={index} className={line.kind === "add" ? "chat-diff-add" : line.kind === "del" ? "chat-diff-del" : undefined}>{line.kind === "add" ? "+ " : line.kind === "del" ? "- " : "  "}{line.text}{"\n"}</span>)}</pre>;
+}
+
 /** A Codex patch as a diff: each file it touches a header that opens it, then its lines coloured. */
 function PatchView({ patch }: { patch: string }) {
   const sections: Array<{ file: string | null; action: string; lines: string[] }> = [];
@@ -202,7 +213,13 @@ function ToolInputView({ part }: { part: ToolPartType }) {
   if (command !== undefined) return <div className="chat-tool-io"><pre>{command}</pre>{(str("cwd") ?? str("description")) !== undefined && <p className="chat-tool-io-meta">{str("cwd") ?? str("description")}</p>}</div>;
   const oldString = str("old_string");
   const newString = str("new_string");
-  if (oldString !== undefined || newString !== undefined) return <div className="chat-tool-io">{str("file_path") !== undefined && <ToolFile path={str("file_path")!} />}{oldString !== undefined && <pre className="chat-diff chat-diff-del">{oldString}</pre>}{newString !== undefined && <pre className="chat-diff chat-diff-add">{newString}</pre>}</div>;
+  if (oldString !== undefined || newString !== undefined) return <div className="chat-tool-io">{str("file_path") !== undefined && <ToolFile path={str("file_path")!} />}<EditDiff before={oldString ?? ""} after={newString ?? ""} /></div>;
+  // several edits to one file: each its own diff, in order
+  if (Array.isArray(parsed["edits"]) && parsed["edits"].every((item) => item !== null && typeof item === "object")) {
+    const edits = parsed["edits"] as Array<Record<string, unknown>>;
+    return <div className="chat-tool-io">{str("file_path") !== undefined && <ToolFile path={str("file_path")!} />}{edits.map((item, index) =>
+      <EditDiff key={index} before={typeof item["old_string"] === "string" ? item["old_string"] : ""} after={typeof item["new_string"] === "string" ? item["new_string"] : ""} />)}</div>;
+  }
   const editScript = str("input");
   if (editScript !== undefined) return <pre className="chat-tool-io chat-diff">{editScript.split("\n").map((line, index) => <span key={index} className={ompEditLineClass(line)}>{line}{"\n"}</span>)}</pre>;
   const content = str("content");
@@ -285,11 +302,36 @@ function WorkBlockView({ parts, duration, live, defaultOpen, showThinking }: { p
     {open && <div className="work-block-rows">{visible.map((part, index) =>
       part.kind === "thinking" ? <ThinkingRow key={index} text={part.text} />
         : part.kind === "text" ? <div key={index} className="work-narration"><Markdown>{part.text}</Markdown></div>
-          : <WorkRow key={index} part={part} />)}</div>}
+          : part.kind === "tool" ? <WorkRow key={index} part={part} /> : null)}</div>}
   </section>;
 }
 
+/** Image files a message mentions as `@path`, the way this app attaches them: shown as thumbnails. */
+const IMAGE_MENTION = /(?:^|\s)@(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)/gi;
+
+function UserImages({ paneId, parts, text }: { paneId: string; parts: ConversationPart[]; text: string }) {
+  const t = useT();
+  const machineId = useMachineId();
+  const open = useContext(OpenFileContext);
+  const pasted = parts.filter((part): part is Extract<ConversationPart, { kind: "image" }> => part.kind === "image");
+  const mentioned = [...new Set([...text.matchAll(IMAGE_MENTION)].map((match) => match[1]!))];
+  if (pasted.length === 0 && mentioned.length === 0) return null;
+  return <div className="chat-user-images">
+    {pasted.map((part) => {
+      const src = machinePath(machineId, `pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: part.ref }).toString()}`);
+      return <a key={part.ref} className="chat-user-image" href={src} target="_blank" rel="noopener noreferrer" title={t("Open image")}><img src={src} alt={t("Attached image")} loading="lazy" /></a>;
+    })}
+    {mentioned.map((path) => {
+      const src = fileUrl(path, paneId, machineId);
+      return open !== null
+        ? <button key={path} type="button" className="chat-user-image" title={t("Open {path}", { path })} onClick={() => open(path)}><img src={src} alt={path} loading="lazy" /></button>
+        : <a key={path} className="chat-user-image" href={src} target="_blank" rel="noopener noreferrer" title={path}><img src={src} alt={path} loading="lazy" /></a>;
+    })}
+  </div>;
+}
+
 interface TurnProps {
+  paneId: string;
   turn: ConversationTurn;
   /** the last turn while the agent runs: its work block reads "Working…" */
   live: boolean;
@@ -299,14 +341,22 @@ interface TurnProps {
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
-const Turn = memo(function Turn({ turn, live, last, showThinking }: TurnProps) {
+const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
   const t = useT();
   const time = formatTime(turn.ts);
+  const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
+  if (compact !== undefined) {
+    return <details className="chat-compact">
+      <summary>{t("Conversation compacted")}{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
+      <div className="chat-compact-text"><Markdown>{compact.text}</Markdown></div>
+    </details>;
+  }
   if (turn.role === "user") {
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
     return <article className="chat-turn chat-turn-user">
-      <div className="chat-bubble"><Markdown>{text}</Markdown></div>
-      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}<CopyButton text={text} label={t("Copy message")} /></div>
+      <UserImages paneId={paneId} parts={turn.parts} text={text} />
+      {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
+      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
     </article>;
   }
   const { work, answer } = splitTurn(turn.parts);
@@ -322,10 +372,10 @@ const Turn = memo(function Turn({ turn, live, last, showThinking }: TurnProps) {
   </article>;
 });
 
-function FallbackTurn({ message }: { message: TranscriptMessage }) {
+function FallbackTurn({ paneId, message }: { paneId: string; message: TranscriptMessage }) {
   if (message.role === "status") return null;
   const turn: ConversationTurn = { role: message.role === "user" ? "user" : "assistant", ts: null, parts: [{ kind: "text", text: message.text }] };
-  return <Turn turn={turn} live={false} last={false} showThinking={false} />;
+  return <Turn paneId={paneId} turn={turn} live={false} last={false} showThinking={false} />;
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
@@ -569,11 +619,11 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
       {state.source === "conversation"
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
-            return <Turn key={`${turn.role}:${turn.ts ?? index}`} turn={turn} live={last && turn.role === "assistant" && agentStatus === "working"} last={last} showThinking={settings.showThinking} />;
+            return <Turn key={`${turn.role}:${turn.ts ?? index}`} paneId={paneId} turn={turn} live={last && turn.role === "assistant" && agentStatus === "working"} last={last} showThinking={settings.showThinking} />;
           })
         : agent === "codex"
           ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>
-          : state.messages.map((message, index) => <FallbackTurn key={index} message={message} />)}
+          : state.messages.map((message, index) => <FallbackTurn key={index} paneId={paneId} message={message} />)}
       {!ended && !connected && <p className="chat-inline-state">{t("reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? "locked — the token gate is asking again" : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}

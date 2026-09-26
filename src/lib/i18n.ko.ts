@@ -484,4 +484,7 @@ export const KO: Record<string, string> = {
   "{n} failed": "실패 {n}개",
   "Loading conversation…": "대화를 불러오는 중…",
   "Jump to latest": "최신 메시지로 이동",
+  "Open image": "이미지 열기",
+  "Attached image": "첨부한 이미지",
+  "Conversation compacted": "대화가 압축됨",
 };
