@@ -130,7 +130,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
       }).join("\n");
       for (const block of content) {
         if (typeof block !== "object" || block === null) continue;
-        const result = block as { type?: string; tool_use_id?: string; content?: unknown };
+        const result = block as { type?: string; tool_use_id?: string; content?: unknown; is_error?: unknown };
         if (result.type !== "tool_result" || typeof result.tool_use_id !== "string") continue;
         const tool = pending.get(result.tool_use_id);
         if (tool === undefined) continue;
@@ -143,6 +143,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
               ? output.map((part) => (typeof part === "object" && part !== null && "text" in part ? String((part as { text: unknown }).text) : "")).join("")
               : "";
         if (tool.output.length > 4000) tool.output = `${tool.output.slice(0, 4000)}\n… trimmed`;
+        if (result.is_error === true) tool.error = true;
       }
       if (prompt.trim()) turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(prompt) }] });
       continue;
@@ -187,6 +188,8 @@ interface OmpEntry {
     role?: string;
     content?: unknown;
     toolCallId?: string;
+    /** on a toolResult: the call failed */
+    isError?: unknown;
     stopReason?: unknown;
     errorMessage?: unknown;
   };
@@ -248,6 +251,7 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): Conversa
         .map((part) => (typeof part.text === "string" ? part.text : ""))
         .join("");
       tool.output = output.length > 4000 ? `${output.slice(0, 4000)}\n… trimmed` : output;
+      if (message.isError === true) tool.error = true;
       continue;
     }
 

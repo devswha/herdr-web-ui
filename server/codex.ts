@@ -5,6 +5,7 @@ import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
+import { patchFiles, patchText } from "../shared/patch.ts";
 import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
 
 type RecordValue = Record<string, unknown>;
@@ -57,6 +58,20 @@ function entries(text: string): RecordValue[] {
   return text.split("\n").flatMap((line) => {
     try { return [record(JSON.parse(line))]; } catch { return []; }
   });
+}
+
+
+/**
+ * Whether a Codex tool output says the call failed. Codex records no flag: its command
+ * runner writes the exit code into the output, and a script or patch its own verdict. A
+ * script that completed is judged as a whole, however its commands went.
+ */
+export function codexCallFailed(output: string): boolean {
+  const head = output.slice(0, 2000);
+  if (/^Script completed\b/m.test(head)) return false;
+  if (/^Script failed\b/m.test(head) || /apply_patch verification failed/.test(head)) return true;
+  const code = /^(?:Process exited with code|Exit code:) (\d+)$/m.exec(head) ?? /"exit_code":\s*(\d+)/.exec(head);
+  return code !== null && code[1] !== "0";
 }
 
 export function parseCodexTranscript(text: string, maxTurns = 100): ConversationTurn[] {
@@ -130,7 +145,10 @@ export function parseCodexTranscript(text: string, maxTurns = 100): Conversation
       const raw = payload.type === "function_call" ? payload.arguments : payload.input;
       let args = record(raw);
       if (typeof raw === "string") { try { args = record(JSON.parse(raw)); } catch { /* Freeform tool input. */ } }
-      const summary = /^request_user_input/.test(name) && questionTitles(args).length > 0
+      // a patch, bare or in an exec script, is summed up by the files it touches
+      const patch = typeof raw === "string" ? patchText(raw) : null;
+      const summary = patch !== null && patchFiles(patch).length > 0 ? patchFiles(patch).join(", ")
+        : /^request_user_input/.test(name) && questionTitles(args).length > 0
         ? questionTitles(args).join(" · ")
         : [args.cmd, args.command, args.file_path, args.path, args.pattern, args.description, args.url].find((v) => typeof v === "string");
       const part: Extract<ConversationPart, { kind: "tool" }> = {
@@ -144,6 +162,7 @@ export function parseCodexTranscript(text: string, maxTurns = 100): Conversation
       if (!tool) continue;
       const output = contentText(payload.output);
       tool.output = output.length > 4000 ? `${output.slice(0, 4000)}\n… trimmed` : output;
+      if (codexCallFailed(output)) tool.error = true;
       tools.delete(string(payload.call_id));
       const turn = turns.at(-1);
       if (turn?.role === "assistant" && ts) turn.end_ts = ts;

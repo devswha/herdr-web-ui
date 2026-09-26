@@ -479,4 +479,9 @@ export const KO: Record<string, string> = {
   "{used} used": "{used} 사용",
   "Context used: {used} of {window} tokens": "컨텍스트 사용량: {window} 토큰 중 {used}",
   "Context used: {used} tokens (the agent does not say its window)": "컨텍스트 사용량: {used} 토큰 (에이전트가 전체 크기를 알려주지 않음)",
+  "failed": "실패",
+  "Error": "오류",
+  "{n} failed": "실패 {n}개",
+  "Loading conversation…": "대화를 불러오는 중…",
+  "Jump to latest": "최신 메시지로 이동",
 };

@@ -176,7 +176,8 @@ export type ConversationPart =
   | { kind: "text"; text: string; phase?: "commentary" | "final_answer" }
   /** the agent's reasoning block; the client folds it and shows it only on request */
   | { kind: "thinking"; text: string }
-  | { kind: "tool"; name: string; summary: string; input: string; output: string };
+  /** `error`: the call failed (the agent recorded it so, or its output says a command exited non-zero) */
+  | { kind: "tool"; name: string; summary: string; input: string; output: string; error?: boolean };
 
 /** Latest model settings actually recorded by this agent. */
 export interface ConversationMetadata {
