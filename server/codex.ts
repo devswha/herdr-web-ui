@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
 import { patchFiles, patchText } from "../shared/patch.ts";
+import { trimOutput } from "./tool-output.ts";
 import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
 
 type RecordValue = Record<string, unknown>;
@@ -42,6 +43,11 @@ function questionTitles(args: RecordValue): string[] {
   return Array.isArray(args.questions)
     ? args.questions.map((question) => string(record(question).title) || string(record(question).question)).filter(Boolean)
     : [];
+}
+
+/** A tool call's output as Codex recorded it, as text. */
+export function codexOutputText(value: unknown): string {
+  return contentText(value);
 }
 
 function contentText(value: unknown, user = false): string {
@@ -161,7 +167,7 @@ export function parseCodexTranscript(text: string, maxTurns = 100): Conversation
       const tool = tools.get(string(payload.call_id));
       if (!tool) continue;
       const output = contentText(payload.output);
-      tool.output = output.length > 4000 ? `${output.slice(0, 4000)}\n… trimmed` : output;
+      trimOutput(tool, output, string(payload.call_id));
       if (codexCallFailed(output)) tool.error = true;
       tools.delete(string(payload.call_id));
       const turn = turns.at(-1);

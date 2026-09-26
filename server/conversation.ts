@@ -26,7 +26,8 @@ import { join } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
-import { codexHistorySegments, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
+import { codexHistorySegments, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
+import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
 /** Enough turns for a conversation. */
@@ -88,6 +89,18 @@ interface TranscriptEntry {
   message?: { role?: string; content?: unknown };
 }
 
+function claudeResultText(output: unknown): string {
+  return typeof output === "string" ? output
+    : Array.isArray(output) ? output.map((part) => (typeof part === "object" && part !== null && "text" in part ? String((part as { text: unknown }).text) : "")).join("")
+      : "";
+}
+
+function ompResultText(content: unknown): string {
+  return Array.isArray(content)
+    ? content.map((part) => (typeof part === "object" && part !== null && typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "")).join("")
+    : "";
+}
+
 /** The image types a chat shows; anything else stays out of the page. */
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
@@ -146,14 +159,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
         const tool = pending.get(result.tool_use_id);
         if (tool === undefined) continue;
         pending.delete(result.tool_use_id);
-        const output = result.content;
-        tool.output =
-          typeof output === "string"
-            ? output
-            : Array.isArray(output)
-              ? output.map((part) => (typeof part === "object" && part !== null && "text" in part ? String((part as { text: unknown }).text) : "")).join("")
-              : "";
-        if (tool.output.length > 4000) tool.output = `${tool.output.slice(0, 4000)}\n… trimmed`;
+        trimOutput(tool, claudeResultText(result.content), result.tool_use_id);
         if (result.is_error === true) tool.error = true;
       }
       // an image pasted into the prompt: named here, fetched only when shown
@@ -264,10 +270,7 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): Conversa
       const tool = pending.get(message.toolCallId);
       if (tool === undefined) continue;
       pending.delete(message.toolCallId);
-      const output = contentParts(message.content)
-        .map((part) => (typeof part.text === "string" ? part.text : ""))
-        .join("");
-      tool.output = output.length > 4000 ? `${output.slice(0, 4000)}\n… trimmed` : output;
+      trimOutput(tool, ompResultText(message.content), message.toolCallId);
       if (message.isError === true) tool.error = true;
       continue;
     }
@@ -931,6 +934,49 @@ export function transcriptImage(path: string, ref: string): { mediaType: string;
     const mediaType = String(block.source.media_type);
     if (!IMAGE_TYPES.has(mediaType)) return null;
     return { mediaType, bytes: new Uint8Array(Buffer.from(block.source.data, "base64")) };
+  }
+  return null;
+}
+
+const TOOL_REF = /^[A-Za-z0-9_:.-]{1,128}$/;
+/** A whole output is still bounded: a page of it, not a log file. */
+const TOOL_OUTPUT_MAX = 2_000_000;
+
+/** The whole output of a tool call whose page output was cut, by its id; null when there is none. */
+export async function toolOutput(paneId: string, ref: string, codexHome?: string): Promise<string | null> {
+  if (!TOOL_REF.test(ref)) return null;
+  const snapshot = await sessionSnapshot();
+  const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
+  if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
+  let resolved: { source: RecognizedConversation["source"]; path: string };
+  try { resolved = await resolveTranscript(paneId, pane.agent ?? pane.agent_session?.agent ?? "", pane.cwd, codexHome, snapshot.panes); }
+  catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
+  return transcriptToolOutput(resolved.source, resolved.path, ref);
+}
+
+/** The output a transcript file holds for one tool call id, whole (up to TOOL_OUTPUT_MAX). */
+export function transcriptToolOutput(source: RecognizedConversation["source"], path: string, ref: string): string | null {
+  if (!TOOL_REF.test(ref)) return null;
+  let text: string;
+  try { text = readFileSync(path, "utf8"); } catch { return null; }
+  const needle = source === "claude-transcript" ? `"tool_use_id":"${ref}"` : source === "codex-transcript" ? `"call_id":"${ref}"` : `"toolCallId":"${ref}"`;
+  for (const line of text.split("\n")) {
+    if (!line.includes(needle)) continue;
+    let entry: Record<string, unknown>;
+    try { entry = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+    let output: string | null = null;
+    if (source === "claude-transcript") {
+      const content = (entry.message as { content?: unknown } | undefined)?.content;
+      const result = Array.isArray(content) ? content.find((block) => (block as { type?: unknown; tool_use_id?: unknown } | null)?.type === "tool_result" && (block as { tool_use_id?: unknown }).tool_use_id === ref) : undefined;
+      if (result !== undefined) output = claudeResultText((result as { content?: unknown }).content);
+    } else if (source === "codex-transcript") {
+      const payload = entry.payload as { type?: unknown; call_id?: unknown; output?: unknown } | undefined;
+      if ((payload?.type === "function_call_output" || payload?.type === "custom_tool_call_output") && payload.call_id === ref) output = codexOutputText(payload.output);
+    } else {
+      const message = entry.message as { role?: unknown; toolCallId?: unknown; content?: unknown } | undefined;
+      if (message?.role === "toolResult" && message.toolCallId === ref) output = ompResultText(message.content);
+    }
+    if (output !== null) return output.length > TOOL_OUTPUT_MAX ? `${output.slice(0, TOOL_OUTPUT_MAX)}\n… trimmed` : output;
   }
   return null;
 }

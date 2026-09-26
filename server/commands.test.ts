@@ -38,3 +38,40 @@ describe("paneCommands", () => {
     expect(commands).toContainEqual({ name: "team:review", description: "Review this project thoroughly", source: "project" });
   });
 });
+
+describe("skills and plugins", () => {
+  const write = (path: string, text: string) => { mkdirSync(join(path, ".."), { recursive: true }); writeFileSync(path, text); };
+
+  it("offers Claude's skills, user and project, and the enabled plugins' skills and commands", () => {
+    const home = temp("skills-home-");
+    const cwd = temp("skills-cwd-");
+    write(join(home, ".claude", "skills", "patina", "SKILL.md"), "---\nname: patina\ndescription: Rewrite AI prose\n---\n");
+    write(join(home, ".claude", "skills", "notes", "README.md"), "no SKILL.md: not a skill");
+    write(join(cwd, ".claude", "skills", "deploy", "SKILL.md"), "---\ndescription: Ship it\n---\n");
+    const plugin = join(home, ".claude", "plugins", "cache", "market", "hud", "1.0.0");
+    write(join(plugin, "skills", "setup", "SKILL.md"), "---\nname: setup\ndescription: Configure the HUD\n---\n");
+    write(join(plugin, "commands", "configure.md"), "---\ndescription: Configure options\n---\n");
+    const off = join(home, ".claude", "plugins", "cache", "market", "off", "1.0.0");
+    write(join(off, "skills", "hidden", "SKILL.md"), "---\nname: hidden\n---\n");
+    write(join(home, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { "hud@market": [{ installPath: plugin }], "off@market": [{ installPath: off }] } }));
+    write(join(home, ".claude", "settings.json"), JSON.stringify({ enabledPlugins: { "hud@market": true, "off@market": false } }));
+    const extra = paneCommands("claude", cwd, home).filter((command) => command.source === "skill" || command.source === "plugin");
+    expect(extra).toEqual([
+      { name: "deploy", description: "Ship it", source: "skill" },
+      { name: "hud:configure", description: "Configure options", source: "plugin" },
+      { name: "hud:setup", description: "Configure the HUD", source: "plugin" },
+      { name: "patina", description: "Rewrite AI prose", source: "skill" },
+    ]);
+  });
+
+  it("offers Codex's saved prompts as /prompts:<name> and its skills with $", () => {
+    const home = temp("codex-home-");
+    write(join(home, ".codex", "prompts", "review.md"), "Review the diff\n");
+    write(join(home, ".codex", "skills", "deepinit", "SKILL.md"), "---\nname: deepinit\ndescription: Deep codebase initialization\n---\n");
+    const extra = paneCommands("codex", null, home).filter((command) => command.source !== "builtin");
+    expect(extra).toEqual([
+      { name: "deepinit", description: "Deep codebase initialization", source: "skill", trigger: "$" },
+      { name: "prompts:review", description: "Review the diff", source: "user" },
+    ]);
+  });
+});

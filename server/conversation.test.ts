@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { forgetHistoryChains } from "./codex.ts";
-import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, MAX_TURNS, omoTranscriptPath, parseClaudeTranscript, parseOmpTranscript, transcriptImage, transcriptPage } from "./conversation.ts";
+import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, MAX_TURNS, omoTranscriptPath, parseClaudeTranscript, parseOmpTranscript, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 
 /** Minimal but shape-true slices of a Claude Code session jsonl. */
 const lines = [
@@ -518,6 +518,33 @@ describe("transcriptImage", () => {
       expect(transcriptImage(path, "99999999-2222-3333-4444-555555555555:0")).toBeNull();
       expect(transcriptImage(path, "../../etc/passwd:0")).toBeNull();
       expect(transcriptImage(join(dir, "missing.jsonl"), `${uuid}:0`)).toBeNull();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe("a cut tool output and the whole of it", () => {
+  it("keeps the call id of an output cut for the page, and finds the whole one by it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-output-"));
+    try {
+      const long = "x".repeat(9_000);
+      const claude = [
+        { type: "assistant", timestamp: "2026-09-27T00:00:00Z", message: { content: [{ type: "tool_use", id: "toolu_long", name: "Bash", input: { command: "big" } }, { type: "tool_use", id: "toolu_short", name: "Bash", input: { command: "small" } }] } },
+        { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "toolu_long", content: long }, { type: "tool_result", tool_use_id: "toolu_short", content: "ok" }] } },
+      ].map((entry) => JSON.stringify(entry)).join("\n");
+      const tools = parseClaudeTranscript(claude).flatMap((turn) => turn.parts).filter((part) => part.kind === "tool");
+      expect(tools.map((tool) => [tool.output_ref, tool.output_size])).toEqual([["toolu_long", 9_000], [undefined, undefined]]);
+      expect(tools[0]!.output.length).toBeLessThan(4_100);
+      const path = join(dir, "claude.jsonl");
+      writeFileSync(path, claude);
+      expect(transcriptToolOutput("claude-transcript", path, "toolu_long")).toBe(long);
+      expect(transcriptToolOutput("claude-transcript", path, "toolu_none")).toBeNull();
+      expect(transcriptToolOutput("claude-transcript", path, "../etc")).toBeNull();
+      const omp = join(dir, "omp.jsonl");
+      writeFileSync(omp, JSON.stringify({ type: "message", message: { role: "toolResult", toolCallId: "call_1", content: [{ type: "text", text: long }] } }));
+      expect(transcriptToolOutput("omp-transcript", omp, "call_1")).toBe(long);
+      const codex = join(dir, "codex.jsonl");
+      writeFileSync(codex, JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id: "call_x", output: long } }));
+      expect(transcriptToolOutput("codex-transcript", codex, "call_x")).toBe(long);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

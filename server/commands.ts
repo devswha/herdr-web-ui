@@ -29,7 +29,50 @@ function description(markdown: string): string {
   return (body.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "").slice(0, 120);
 }
 
-function customCommands(root: string, source: "user" | "project"): SlashCommand[] {
+/** `name:` from a SKILL.md's frontmatter, else its directory's name. */
+function skillName(markdown: string, directory: string): string {
+  const frontmatter = markdown.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/);
+  const named = frontmatter?.[1]?.match(/^name:\s*(.+?)\s*$/m)?.[1]?.trim().replace(/^(["'])(.*)\1$/, "$2");
+  return named && /^[\p{L}\p{N}_:-]+$/u.test(named) ? named : directory;
+}
+
+/** Skills under a root: one directory each, with a SKILL.md; `prefix` names a plugin's. */
+function skills(root: string, source: SlashCommand["source"], options: { prefix?: string; trigger?: "$" } = {}): SlashCommand[] {
+  if (!existsSync(root)) return [];
+  const result: SlashCommand[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    const file = join(root, entry.name, "SKILL.md");
+    if (!existsSync(file)) continue;
+    let markdown: string;
+    try { markdown = readFileSync(file, "utf8"); } catch { continue; }
+    const name = skillName(markdown, entry.name);
+    result.push({ name: options.prefix ? `${options.prefix}:${name}` : name, description: description(markdown), source, ...(options.trigger ? { trigger: options.trigger } : {}) });
+  }
+  return result;
+}
+
+/**
+ * The skills and commands of the Claude plugins turned on in settings.json, as Claude
+ * offers them: `/<plugin>:<name>`.
+ */
+function pluginCommands(home: string): SlashCommand[] {
+  const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; } };
+  const enabled = (read(join(home, ".claude", "settings.json")) as { enabledPlugins?: Record<string, unknown> } | null)?.enabledPlugins ?? {};
+  const installed = (read(join(home, ".claude", "plugins", "installed_plugins.json")) as { plugins?: Record<string, Array<{ installPath?: unknown }>> } | null)?.plugins ?? {};
+  const result: SlashCommand[] = [];
+  for (const [id, on] of Object.entries(enabled)) {
+    if (on !== true) continue;
+    const installPath = installed[id]?.[0]?.installPath;
+    if (typeof installPath !== "string") continue;
+    const plugin = id.split("@")[0]!;
+    result.push(...skills(join(installPath, "skills"), "plugin", { prefix: plugin }));
+    result.push(...customCommands(join(installPath, "commands"), "plugin").map((command) => ({ ...command, name: `${plugin}:${command.name}` })));
+  }
+  return result;
+}
+
+function customCommands(root: string, source: SlashCommand["source"]): SlashCommand[] {
   if (!existsSync(root)) return [];
   const result: SlashCommand[] = [];
   const visit = (directory: string): void => {
@@ -52,6 +95,15 @@ export function paneCommands(agent: string | null | undefined, cwd: string | nul
   if (agent === "claude") {
     commands.push(...customCommands(join(home, ".claude", "commands"), "user"));
     if (cwd) commands.push(...customCommands(join(cwd, ".claude", "commands"), "project"));
+    commands.push(...skills(join(home, ".claude", "skills"), "skill"));
+    if (cwd) commands.push(...skills(join(cwd, ".claude", "skills"), "skill"));
+    commands.push(...pluginCommands(home));
+  }
+  if (agent === "codex") {
+    // Codex's saved prompts run as /prompts:<name>; its skills are named with `$`
+    commands.push(...customCommands(join(home, ".codex", "prompts"), "user").map((command) => ({ ...command, name: `prompts:${command.name}` })));
+    commands.push(...skills(join(home, ".codex", "skills"), "skill", { trigger: "$" }));
+    if (cwd) commands.push(...skills(join(cwd, ".codex", "skills"), "skill", { trigger: "$" }));
   }
   return commands.sort((left, right) => left.name.localeCompare(right.name) || left.source.localeCompare(right.source));
 }

@@ -16,7 +16,7 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isJsonObject, jsonResponse } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation } from "./conversation.ts";
+import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile } from "./file-view.ts";
@@ -819,6 +819,19 @@ export function createServer(
             ...(lines === undefined ? {} : { lines }),
           });
           return jsonResponse({ read });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/conversation/tool-output") {
+        const paneId = url.searchParams.get("pane_id");
+        const ref = url.searchParams.get("ref");
+        if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
+        try {
+          const output = await toolOutput(paneId, ref, options.codexHome);
+          if (output === null) return jsonResponse({ error: { code: "output_not_found", message: "no such tool call in this pane's conversation" } }, 404);
+          return new Response(output, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "private, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
         } catch (error) {
           return errorResponse(error);
         }

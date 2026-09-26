@@ -69,11 +69,13 @@ const COMPOSER_HEIGHT_STEP = 24;
 const RESIZE_SLACK = { mouse: 3, touch: 10 } as const;
 /** Two taps on the grip this close return the box to its automatic height (iOS may send no dblclick). */
 const DOUBLE_TAP_MS = 350;
-const COMMAND_SOURCES = ["builtin", "user", "project"] as const;
+const COMMAND_SOURCES = ["builtin", "user", "project", "skill", "plugin"] as const;
 export const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
   builtin: "Built in",
   user: "User",
   project: "Project",
+  skill: "Skills",
+  plugin: "Plugins",
 };
 
 type CommandCacheEntry = { loadedAt: number; commands: SlashCommand[] };
@@ -191,7 +193,8 @@ export function Composer({
   attachmentsRef.current = attachments;
   textRef.current = text;
   caretRef.current = caret;
-  const trigger = useMemo(() => activeTrigger(text, caret), [caret, text]);
+  // Codex names its skills with `$`: only there does a `$` open a menu
+  const trigger = useMemo(() => activeTrigger(text, caret, { skills: agent === "codex" }), [agent, caret, text]);
   const uploading = attachments.some((attachment) => attachment.state === "uploading");
   const agentLabel = agentDisplayLabel(agent);
   const placeholder = !connected
@@ -340,7 +343,9 @@ export function Composer({
   const gripValue = Math.round(Math.min(maxHeight, Math.max(minHeight, manualHeight ?? autoHeight)));
 
   const filteredCommands = useMemo(
-    () => (trigger?.kind === "slash" ? rankSlashCommands(commands, trigger.query, slashUsage) : []),
+    () => (trigger?.kind === "slash"
+      ? rankSlashCommands(commands.filter((command) => (command.trigger ?? "/") === (trigger.prefix ?? "/")), trigger.query, slashUsage)
+      : []),
     [commands, slashUsage, trigger],
   );
   const orderedCommands = useMemo(
@@ -386,7 +391,7 @@ export function Composer({
 
   const selectCompletion = useCallback(
     (choice: SlashCommand | string, currentTrigger: ActiveTrigger) => {
-      const replacement = currentTrigger.kind === "slash" ? `/${(choice as SlashCommand).name} ` : `@${choice as string} `;
+      const replacement = currentTrigger.kind === "slash" ? `${currentTrigger.prefix ?? "/"}${(choice as SlashCommand).name} ` : `@${choice as string} `;
       const completed = applyCompletion(text, currentTrigger, replacement);
       setTextAndCaret(completed.text, completed.caret);
       setMenuDismissed(true);
@@ -672,7 +677,7 @@ export function Composer({
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => selectCompletion(command, trigger)}
                         >
-                          <span className="menu-item-main">/{command.name}</span>
+                          <span className="menu-item-main">{command.trigger ?? "/"}{command.name}</span>
                           <span className="menu-item-hint">{command.description}</span>
                         </button>
                       );
