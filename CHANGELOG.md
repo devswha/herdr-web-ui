@@ -8,18 +8,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
-- A pairing code from the PC's terminal, for a headless PC with no browser to open
-  Settings → Devices in: `bun scripts/plugin.ts pair` (the plugin checkout has it, and herdr's
-  `pair` action runs it) prints the code, the address a phone opens when Tailscale serves one, and
-  that address as a QR code. Settings → Devices also shows the pairing link as text, to send to
-  the other device however you like.
+- A pairing code from the PC's terminal, for a headless PC with no browser to open Settings →
+  Devices in: `bun scripts/plugin.ts pair` (the plugin checkout has it, and herdr's `pair` action
+  runs it) prints the code, the address a phone opens when Tailscale serves one, and that address as
+  a QR code. Run by hand, it reads the PORT, HOST and token the plugin runs with from the config dir
+  herdr names for it. Settings → Devices also shows the pairing link as text, to send to the other
+  device however you like.
 
 ### Fixed
-- Web addresses in the chat open. An address in backticks (`` `https://…` ``, as agents often
-  write them) is a link that still looks like code; `[docs](www.example.com/x)`,
+- Web addresses in the chat open. An address in backticks (`` `https://…` ``, as agents often write
+  them) is a link that still looks like code; `[docs](www.example.com/x)`,
   `[guide](docs.example.com/guide)` and `[here](localhost:7317)` are links, not files; a bare
-  `www.example.com/…` links like a full URL does. In the terminal view, addresses in the output
-  open in a new tab on click.
+  `www.example.com/…` links like a full URL does, and `[here](127.0.0.1:8080)` over plain http. A
+  file and its line (`[main.ts](main.ts:42)`) still opens the file, never a site of that name. In
+  the terminal view, addresses in the output open in a new tab on click.
 - A Codex chat whose last answer ends with a file link said "Conversation unavailable" while the
   terminal was open. Codex shows such a link as its label and a path relative to the repo, not
   the absolute path the session file keeps, so that answer was never found on screen. Answers are
@@ -27,6 +29,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A chat link to a local file (`[report](/repo/output/REPORT.md)`, as Codex writes them) showed
   only its label, so a sentence like "results and evidence" ended with nothing after it. The label
   now opens the file in the viewer, and where no viewer is available the path shows after it.
+
 ## [0.3.15] - 2026-09-26
 
 ### Added

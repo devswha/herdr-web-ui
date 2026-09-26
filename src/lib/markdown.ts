@@ -33,29 +33,32 @@ export function safeMarkdownHref(href: string): string | null {
 
 /**
  * An address written without its scheme, as people and agents do: `www.example.com/x`,
- * `docs.example.com/guide`, `localhost:7317/`. A host with a dot needs a path, a port or a
- * `www.` to count, so `README.md` stays a file; `localhost` needs nothing more.
+ * `docs.example.com/guide`, `localhost:7317/`. A host needs a letters-only top level and,
+ * past `www.`, a path to count: `README.md:3` is a file and its line, `notes.v2/x` a folder.
+ * localhost and an IPv4 address are local servers, plain http, where a port is enough.
  */
 export function webLikeHref(target: string): string | null {
   const value = target.trim();
-  if (/^localhost(?::\d+)?(?:\/[^\s]*)?$/i.test(value)) return `http://${value}`;
-  const match = /^(www\.[^\s/:]+|[a-z0-9-]+(?:\.[a-z0-9-]+)+)(:\d+)?(\/[^\s]*)?$/i.exec(value);
+  if (/^(?:localhost(?::\d+)?|\d{1,3}(?:\.\d{1,3}){3}:\d+|\d{1,3}(?:\.\d{1,3}){3}(?=\/))(?:\/\S*)?$/i.test(value)) return `http://${value}`;
+  const match = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?::\d+)?(\/\S*)?$/i.exec(value);
   if (match === null) return null;
-  const [, host, port, path] = match;
-  if (!host!.includes(".") || (!/^www\./i.test(host!) && port === undefined && path === undefined)) return null;
-  return `https://${value}`;
+  const [, host, path] = match;
+  return /^www\./i.test(host!) || path !== undefined ? `https://${value}` : null;
 }
 
 /**
  * The file a link names, when its target is a path rather than an address: agents link
- * files they wrote (`[report](/repo/out/REPORT.md)`, `[x](src/x.ts#L12)`). A line anchor
- * (`#L12`, `:12`) is dropped; the viewer opens the file.
+ * files they wrote (`[report](/repo/out/REPORT.md)`, `[x](src/x.ts#L12)`, `[x](x.ts:12)`).
+ * A line anchor (`#L12`, `:12`) is dropped; the viewer opens the file. A line after a bare
+ * word is a scheme's (`tel:123`), not a file's.
  */
 export function markdownFileTarget(href: string): string | null {
   const value = href.trim();
-  if (value === "" || /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("#")) return null;
-  const path = value.replace(/#.*$/, "").replace(/(?::\d+){1,2}$/, "");
-  return path === "" ? null : path;
+  if (value === "" || value.startsWith("#")) return null;
+  const withoutAnchor = value.replace(/#.*$/, "");
+  const path = withoutAnchor.replace(/(?::\d+){1,2}$/, "");
+  if (path === "" || /^[a-z][a-z0-9+.-]*:/i.test(path) || (path !== withoutAnchor && !/[./]/.test(path))) return null;
+  return path;
 }
 
 /** A bare URL without the punctuation that closes the sentence around it (GFM's autolink rule). */

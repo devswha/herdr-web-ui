@@ -119,8 +119,8 @@ herdr plugin action invoke devswha.herdr-web-ui.stop
 **Headless PC?** With no browser to open Settings → Devices in, get a pairing code in the terminal:
 
 ```bash
-bun ~/.config/herdr/plugins/github/devswha.herdr-web-ui-*/scripts/plugin.ts pair   # plugin install
-bun scripts/plugin.ts pair                                                         # from a checkout
+bun "$(ls -d ~/.config/herdr/plugins/github/devswha.herdr-web-ui-* | head -1)/scripts/plugin.ts" pair   # plugin install
+bun scripts/plugin.ts pair                                                                             # from a checkout
 ```
 
 It prints the code, the address the phone opens when Tailscale serves one, and that address as a QR code. (`herdr plugin action invoke devswha.herdr-web-ui.pair` runs the same, but herdr keeps an action's output in `herdr plugin log list` rather than printing it.)

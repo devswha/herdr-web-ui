@@ -12,8 +12,10 @@ function FilePath({ path, code, open }: { path: string; code: boolean; open: (pa
   return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={t("Open {path}", { path })} onClick={() => open(path)}>{label}</button>;
 }
 
-function Inline({ nodes }: { nodes: InlineNode[] }) {
-  const open = useContext(OpenFileContext);
+/** `interactive` is false inside a link or file label: nothing clickable nests in another. */
+function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactive?: boolean }) {
+  const context = useContext(OpenFileContext);
+  const open = interactive ? context : null;
   const t = useT();
   return <>{nodes.map((node, index) => {
     const key = `${node.type}-${index}`;
@@ -23,16 +25,16 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
         return <span key={key}>{splitFilePaths(node.value).map((part, n) => typeof part === "string" ? part : <FilePath key={n} path={part.path} code={false} open={open} />)}</span>;
       case "code": {
         // agents often put an address in backticks: it stays code to the eye, and opens
-        if (/^https?:\/\/\S+$/i.test(node.value)) return <a key={key} className="markdown-code-link" href={node.value} target="_blank" rel="noopener noreferrer"><code>{node.value}</code></a>;
+        if (interactive && /^https?:\/\/\S+$/i.test(node.value)) return <a key={key} className="markdown-code-link" href={node.value} target="_blank" rel="noopener noreferrer"><code>{node.value}</code></a>;
         return open !== null && codeIsFilePath(node.value) ? <FilePath key={key} path={node.value} code open={open} /> : <code key={key}>{node.value}</code>;
       }
-      case "strong": return <strong key={key}><Inline nodes={node.children} /></strong>;
-      case "em": return <em key={key}><Inline nodes={node.children} /></em>;
-      case "del": return <del key={key}><Inline nodes={node.children} /></del>;
-      case "link": return <a key={key} href={node.href} target="_blank" rel="noopener noreferrer"><Inline nodes={node.children} /></a>;
+      case "strong": return <strong key={key}><Inline nodes={node.children} interactive={interactive} /></strong>;
+      case "em": return <em key={key}><Inline nodes={node.children} interactive={interactive} /></em>;
+      case "del": return <del key={key}><Inline nodes={node.children} interactive={interactive} /></del>;
+      case "link": return <a key={key} href={node.href} target="_blank" rel="noopener noreferrer"><Inline nodes={node.children} interactive={false} /></a>;
       // the label opens the file; where nothing can open one, the path shows after it, as Codex's terminal does
       case "file": {
-        const label = <OpenFileContext.Provider value={null}><Inline nodes={node.children} /></OpenFileContext.Provider>;
+        const label = <Inline nodes={node.children} interactive={false} />;
         return open !== null
           ? <button key={key} type="button" className="markdown-file" title={t("Open {path}", { path: node.path })} onClick={() => open(node.path)}>{label}</button>
           : <span key={key}>{label} (<code>{node.path}</code>)</span>;
