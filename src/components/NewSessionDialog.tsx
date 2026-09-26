@@ -7,6 +7,7 @@ import type { AgentKind } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { useT } from "../lib/i18n.ts";
 
 const LAST_AGENT_KEY = "herdr-web-ui:new-session-agent";
 
@@ -32,6 +33,7 @@ function directoryBasename(value: string): string {
 }
 
 export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machineName }: NewSessionDialogProps) {
+  const t = useT();
   const machineId = useMachineId();
   const { createWorkspace, fetchAgentKinds } = useMachineApi();
   const [agents, setAgents] = useState<AgentKind[]>([]);
@@ -86,7 +88,7 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
   if (!open) return null;
 
   const selectedAgent = agents.find((agent) => agent.kind === agentKind);
-  const pendingLabel = selectedAgent ? `Starting ${selectedAgent.label}… up to 60s` : "Starting shell…";
+  const pendingLabel = selectedAgent ? t("Starting {agent}… up to 60s", { agent: selectedAgent.label }) : t("Starting shell…");
   const fieldsDisabled = pending || createdPaneId !== null;
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -115,7 +117,7 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
       onCreated(result.pane_id);
     } catch (reason: unknown) {
       setPending(false);
-      if (reason instanceof ApiError && reason.code === "invalid_cwd") setError("Directory not found");
+      if (reason instanceof ApiError && reason.code === "invalid_cwd") setError(t("Directory not found"));
       else setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
@@ -128,21 +130,21 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
     <div className="modal-scrim new-session-scrim" onMouseDown={closeFromScrim}>
       <form className="modal new-session-modal" role="dialog" aria-modal="true" aria-labelledby="new-session-title" onSubmit={(event) => void submit(event)}>
         <header className="modal-header">
-          <h2 className="modal-title" id="new-session-title">New session · {machineName ?? machineId}</h2>
-          <button type="button" className="icon-button" aria-label="Close new session dialog" disabled={pending} onClick={onClose}>
+          <h2 className="modal-title" id="new-session-title">{t("New session")} · {machineName ?? machineId}</h2>
+          <button type="button" className="icon-button" aria-label={t("Close new session dialog")} disabled={pending} onClick={onClose}>
             <X aria-hidden="true" />
           </button>
         </header>
         <div className="modal-body">
           <label className="field">
-            <span className="field-label">Agent</span>
+            <span className="field-label">{t("Agent")}</span>
             <select ref={firstFieldRef} className="select" value={agentKind} disabled={fieldsDisabled} onChange={(event) => setAgentKind(event.target.value)}>
-              <option value="">Shell only</option>
+              <option value="">{t("Shell only")}</option>
               {agents.map((agent) => <option key={agent.kind} value={agent.kind}>{agent.label}</option>)}
             </select>
           </label>
           <div className="field">
-            <label className="field-label" htmlFor="new-session-cwd">Directory</label>
+            <label className="field-label" htmlFor="new-session-cwd">{t("Directory")}</label>
             <div className="new-session-cwd">
               <input id="new-session-cwd" className="input" value={cwd} disabled={fieldsDisabled} autoComplete="off" onChange={(event) => setCwd(event.target.value)} />
               <button type="button" className="btn" aria-expanded={browsing} disabled={fieldsDisabled} onClick={() => setBrowsing((open) => !open)}>
@@ -151,10 +153,10 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
               </button>
             </div>
             {browsing && <DirectoryBrowser start={cwd} onPick={(picked) => { setCwd(picked); setBrowsing(false); }} />}
-            <span className="field-hint">absolute path or ~/…</span>
+            <span className="field-hint">{t("absolute path or ~/…")}</span>
           </div>
           <label className="field">
-            <span className="field-label">Name</span>
+            <span className="field-label">{t("Name")}</span>
             <input
               className="input"
               value={name}
@@ -163,14 +165,14 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
               placeholder={directoryBasename(cwd)}
               onChange={(event) => setName(event.target.value)}
             />
-            <span className="field-hint">Optional workspace label</span>
+            <span className="field-hint">{t("Optional workspace label")}</span>
           </label>
           {pending && <p className="new-session-note" role="status">{pendingLabel}</p>}
           {error && <p className="field-hint new-session-error" role="alert">{error}</p>}
         </div>
         <footer className="modal-footer">
-          <button type="button" className="btn btn-ghost" disabled={pending} onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={pending}>{pending ? "Starting…" : createdPaneId !== null ? "Open session" : "Start session"}</button>
+          <button type="button" className="btn btn-ghost" disabled={pending} onClick={onClose}>{t("Cancel")}</button>
+          <button type="submit" className="btn btn-primary" disabled={pending}>{t(pending ? "Starting…" : createdPaneId !== null ? "Open session" : "Start session")}</button>
         </footer>
       </form>
     </div>

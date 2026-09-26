@@ -19,6 +19,7 @@ import { useSettings } from "../lib/settings.ts";
 import { usePageVisible } from "../lib/visibility.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
+import { currentLanguage, useT } from "../lib/i18n.ts";
 
 const TRANSCRIPT_LINES = 400;
 const POLL_MS = 2000;
@@ -55,7 +56,7 @@ const EMPTY_STATE: ChatState = { source: "conversation", turns: [], messages: []
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
   const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString(currentLanguage() === "ko" ? "ko-KR" : "en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
 function plainText(markdown: string): string {
@@ -69,6 +70,7 @@ function plainText(markdown: string): string {
 
 /** A quiet text button that copies and says "Copied" for a moment. */
 function CopyButton({ text, label, className = "icon-button chat-copy", children }: { text: string; label: string; className?: string; children?: React.ReactNode }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = async (): Promise<void> => {
     await navigator.clipboard.writeText(text);
@@ -76,7 +78,7 @@ function CopyButton({ text, label, className = "icon-button chat-copy", children
     window.setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <button type="button" className={className} onClick={() => void copy()} aria-label={copied ? "Copied" : label} title={copied ? "Copied" : label}>
+    <button type="button" className={className} onClick={() => void copy()} aria-label={copied ? t("Copied") : label} title={copied ? t("Copied") : label}>
       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
       {children}
     </button>
@@ -127,6 +129,7 @@ const TODO_OPEN_KEY = "herdr-web-ui:todo-open";
  * remembered for every pane.
  */
 function TodoPanel({ items }: { items: TodoItem[] }) {
+  const t = useT();
   const [open, setOpen] = useState(() => { try { return localStorage.getItem(TODO_OPEN_KEY) === "1"; } catch { return false; } });
   const toggle = (): void => {
     setOpen(!open);
@@ -135,8 +138,8 @@ function TodoPanel({ items }: { items: TodoItem[] }) {
   const counted = items.filter((item) => item.status !== "dropped");
   const done = counted.filter((item) => item.status === "completed").length;
   const now = items.find((item) => item.status === "in_progress") ?? items.find((item) => item.status === "blocked");
-  const status = counted.length > 0 && done === counted.length ? "All done" : now ? `${now.status === "blocked" ? "Blocked" : "Now"}: ${now.label}` : `${counted.length - done} to do`;
-  return <section className={`todo-panel${open ? " is-open" : ""}`} aria-label="Todo list">
+  const status = counted.length > 0 && done === counted.length ? t("All done") : now ? t(now.status === "blocked" ? "Blocked: {label}" : "Now: {label}", { label: now.label }) : t("{n} to do", { n: counted.length - done });
+  return <section className={`todo-panel${open ? " is-open" : ""}`} aria-label={t("Todo list")}>
     <button type="button" className="todo-panel-head" aria-expanded={open} onClick={toggle}>
       <ListChecks className="todo-panel-icon" aria-hidden="true" />
       <span className="todo-panel-count">{done}/{counted.length}</span>
@@ -197,6 +200,7 @@ function toolIcon(name: string): ComponentType<LucideProps> {
 
 /** One row of a work block: `▸ name  summary`, expanding to the call's input and output. */
 function WorkRow({ part }: { part: ToolPartType }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const Icon = toolIcon(part.name);
   const summary = todoCallSummary(part) ?? part.summary;
@@ -209,17 +213,18 @@ function WorkRow({ part }: { part: ToolPartType }) {
       <span className="work-row-name">{part.name}</span>
       {summary.length > 0 && summary !== part.name && <><span className="work-row-sep" aria-hidden="true">/</span><span className="work-row-summary">{summary}</span></>}
     </button>
-    {open && <div className="work-row-detail"><ToolInputView part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>Output</h4><pre className="chat-tool-io">{output}</pre></section>}</div>}
+    {open && <div className="work-row-detail"><ToolInputView part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t("Output")}</h4><pre className="chat-tool-io">{output}</pre></section>}</div>}
   </div>;
 }
 
 function ThinkingRow({ text }: { text: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return <div className="work-row work-row-thinking">
     <button type="button" className="work-row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <Brain className="work-row-icon" aria-hidden="true" />
-      <span className="work-row-name">thinking</span>
+      <span className="work-row-name">{t("thinking")}</span>
     </button>
     {open && <div className="work-row-detail work-thinking-text">{text}</div>}
   </div>;
@@ -231,12 +236,13 @@ function ThinkingRow({ text }: { text: string }) {
  * each until opened; the narration reads as dim prose between them.
  */
 function WorkBlockView({ parts, duration, live, defaultOpen, showThinking }: { parts: ConversationPart[]; duration: string | null; live: boolean; defaultOpen: boolean; showThinking: boolean }) {
+  const t = useT();
   const [chosenOpen, setOpen] = useState<boolean | null>(null);
   const open = chosenOpen ?? defaultOpen;
   const visible = showThinking ? parts : parts.filter((part) => part.kind !== "thinking");
   if (visible.length === 0) return null;
   const summary = workSummary(visible);
-  const title = live ? "Working…" : duration !== null ? `Worked for ${duration}` : "Worked";
+  const title = live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
   return <section className={`work-block${live ? " is-live" : ""}`}>
     <button type="button" className="work-block-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
@@ -261,12 +267,13 @@ interface TurnProps {
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
 const Turn = memo(function Turn({ turn, live, last, showThinking }: TurnProps) {
+  const t = useT();
   const time = formatTime(turn.ts);
   if (turn.role === "user") {
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
     return <article className="chat-turn chat-turn-user">
       <div className="chat-bubble"><Markdown>{text}</Markdown></div>
-      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}<CopyButton text={text} label="Copy message" /></div>
+      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}<CopyButton text={text} label={t("Copy message")} /></div>
     </article>;
   }
   const { work, answer } = splitTurn(turn.parts);
@@ -275,8 +282,8 @@ const Turn = memo(function Turn({ turn, live, last, showThinking }: TurnProps) {
     {work.length > 0 && <WorkBlockView parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={last} showThinking={showThinking} />}
     {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
-      <CopyButton className="chat-meta-btn" text={answerText} label="Copy as markdown">MD</CopyButton>
-      <CopyButton className="chat-meta-btn" text={plainText(answerText)} label="Copy as plain text">TXT</CopyButton>
+      <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")}>MD</CopyButton>
+      <CopyButton className="chat-meta-btn" text={plainText(answerText)} label={t("Copy as plain text")}>TXT</CopyButton>
       {time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}
     </div>}
   </article>;
@@ -290,6 +297,7 @@ function FallbackTurn({ message }: { message: TranscriptMessage }) {
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
 export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, ended, agent, agentStatus, onMetadata, onPrompt, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
+  const t = useT();
   const { fetchPaneConversation, fetchPanePrompt, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
   // polls pause while the page is hidden and pick up at once when it is back
@@ -510,30 +518,30 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
   const todos = useMemo(() => state.source === "conversation" ? todoState(turns) : null, [state.source, turns]);
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
 
-  return <div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={`conversation of ${paneId}`}>
+  return <div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
       {/* one button in every state: swapping it for a status line of another height would shift the reader */}
       {state.source === "conversation" && typeof olderCursor === "string" && (
         <button type="button" className="btn btn-ghost chat-older" disabled={olderState === "loading"} onClick={() => void loadOlder()}>
-          {olderState === "loading" ? "Loading earlier messages…" : olderState === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages"}
+          {t(olderState === "loading" ? "Loading earlier messages…" : olderState === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages")}
         </button>
       )}
-      {state.source === "conversation" && olderCursor === null && older.length > 0 && <p className="chat-endcap">beginning of conversation</p>}
+      {state.source === "conversation" && olderCursor === null && older.length > 0 && <p className="chat-endcap">{t("beginning of conversation")}</p>}
       {state.source === "conversation"
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
             return <Turn key={`${turn.role}:${turn.ts ?? index}`} turn={turn} live={last && turn.role === "assistant" && agentStatus === "working"} last={last} showThinking={settings.showThinking} />;
           })
         : agent === "codex"
-          ? <details className="chat-terminal-fallback"><summary>Conversation unavailable — show terminal output</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>
+          ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>
           : state.messages.map((message, index) => <FallbackTurn key={index} message={message} />)}
-      {!ended && !connected && <p className="chat-inline-state">reconnecting…</p>}
+      {!ended && !connected && <p className="chat-inline-state">{t("reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? "locked — the token gate is asking again" : error}</p>}
-      {empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>No conversation yet — say something below</p></div>}
+      {empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => { setPrompt(null); onPendingAnswerDone?.(); }} />}
-      {ended && <p className="chat-endcap">terminal ended</p>}
+      {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
       {todos !== null && todos.length > 0 && <TodoPanel items={todos} />}
     </div>
-    {newMessages && <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>New messages <ArrowDown aria-hidden="true" /></button>}
+    {newMessages && <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>}
   </div>;
 });

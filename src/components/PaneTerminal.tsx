@@ -19,6 +19,7 @@ import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { terminalTheme, type ResolvedTheme } from "../lib/settings.ts";
+import { useT } from "../lib/i18n.ts";
 
 // xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
 // must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback
@@ -69,6 +70,7 @@ export function PaneTerminal({
   onConnectionChange,
   onServerMessage,
 }: PaneTerminalProps) {
+  const t = useT();
   const machineId = useMachineId();
   const { answerPanePrompt, uploadPaneImage } = useMachineApi();
   const chatView = view === "chat";
@@ -520,7 +522,7 @@ export function PaneTerminal({
       const pane = paneRef.current;
       // Codex's queue open in the terminal holds the input: a message would become the answer
       if (pane !== null && heldByOpenQueue) {
-        return "Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.";
+        return t("Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.");
       }
       if (pane !== null && answering !== null) {
         // never typed into the agent's menu: only as one of its options, or its own reply row
@@ -535,7 +537,7 @@ export function PaneTerminal({
           () => { setPromptRefresh((key) => key + 1); return true; },
           (cause: unknown) => {
             setPromptRefresh((key) => key + 1);
-            return cause instanceof ApiError && cause.status === 409 ? "The question on screen changed; check it and answer again." : String(cause instanceof Error ? cause.message : cause);
+            return cause instanceof ApiError && cause.status === 409 ? t("The question on screen changed; check it and answer again.") : String(cause instanceof Error ? cause.message : cause);
           },
         );
       }
@@ -577,7 +579,7 @@ export function PaneTerminal({
               <path d="M7 9l3 3-3 3" />
               <path d="M12.5 15h4.5" />
             </svg>
-            <span>Select a pane to open its terminal</span>
+            <span>{t("Select a pane to open its terminal")}</span>
           </div>
         </div>
       )}
@@ -585,7 +587,7 @@ export function PaneTerminal({
         {paneId !== null && outputError && (
           <div className="terminal-banner terminal-banner-warning terminal-banner-output-error" role="status">
             <span>{outputError}</span>
-            <a className="btn" href={`?machine=${encodeURIComponent(machineId)}&pane=${encodeURIComponent(paneId)}`}>Reconnect</a>
+            <a className="btn" href={`?machine=${encodeURIComponent(machineId)}&pane=${encodeURIComponent(paneId)}`}>{t("Reconnect")}</a>
           </div>
         )}
         {/* the chat lens says these itself (ChatView), inline; the pills are the grid's */}
@@ -602,7 +604,7 @@ export function PaneTerminal({
         )}
         {paneId !== null && !ended && connected && !draftIsEmpty(draft) && (
           <div className="terminal-banner terminal-banner-draft" role="status">
-            <span className="draft-label">input held while disconnected:</span>
+            <span className="draft-label">{t("input held while disconnected:")}</span>
             <code className="draft-text">{draft.text.length > 0 ? draft.text : "—"}</code>
             {draft.droppedSpecial > 0 && (
               <span className="draft-dropped">{draft.droppedSpecial} special key{draft.droppedSpecial === 1 ? "" : "s"} dropped</span>
@@ -647,15 +649,15 @@ export function PaneTerminal({
         )}
       </div>
       {paneId !== null && !observing && !ended && queued !== null && queued.pane === paneId && (
-        <div className="composer-queue" role="group" aria-label="Queued next message">
+        <div className="composer-queue" role="group" aria-label={t("Queued next message")}>
           <span className="composer-queue-label">
-            {readyForQueue ? "Held message — review and send" : "Held until the agent is ready"}
+            {t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}
           </span>
           <textarea
             className="composer-queue-text"
             value={queued.text}
             rows={Math.min(4, queued.text.split("\n").length)}
-            aria-label="Queued message"
+            aria-label={t("Queued message")}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -666,7 +668,7 @@ export function PaneTerminal({
               type="button"
               className="composer-queue-send"
               disabled={!connected || queueSending || heldByOpenQueue}
-              title={heldByOpenQueue ? "Codex has a question open in the terminal: answer it above first" : undefined}
+              title={heldByOpenQueue ? t("Codex has a question open in the terminal: answer it above first") : undefined}
               onClick={() => {
                 // a held message leaves the queue only once the pane has it; one send at a time
                 setQueueSending(true);
@@ -695,7 +697,7 @@ export function PaneTerminal({
           connected={connected}
           queueMode={busy}
           answerHint={answering === null ? null
-            : pendingAnswer?.promptId === answering.id ? "Confirm your answer in the card above, or type another…" : answerHint(answering)}
+            : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           onSend={composerSend}
           onAbort={abortTurn}
           onUploadImage={uploadImage}
