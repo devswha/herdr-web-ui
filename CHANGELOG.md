@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.17] - 2026-09-26
+
 ### Changed
 - Remote PCs use the `remote-v3` runtime, which carries 0.3.16's server fixes to the remote side: a
   finish in the pane herdr has in front reads DONE, and a Codex answer ending with a file link is
@@ -363,7 +365,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.16...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.17...HEAD
+[0.3.17]: https://github.com/devswha/herdr-web-ui/compare/v0.3.16...v0.3.17
 [0.3.16]: https://github.com/devswha/herdr-web-ui/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/devswha/herdr-web-ui/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/devswha/herdr-web-ui/compare/v0.3.13...v0.3.14
