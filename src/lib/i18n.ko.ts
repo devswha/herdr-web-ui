@@ -475,4 +475,8 @@ export const KO: Record<string, string> = {
   "Hide quick replies": "빠른 답장 숨기기",
   "Show quick replies": "빠른 답장 보기",
   "Restore defaults": "기본값으로 되돌리기",
+  "{percent}% left": "{percent}% 남음",
+  "{used} used": "{used} 사용",
+  "Context used: {used} of {window} tokens": "컨텍스트 사용량: {window} 토큰 중 {used}",
+  "Context used: {used} tokens (the agent does not say its window)": "컨텍스트 사용량: {used} 토큰 (에이전트가 전체 크기를 알려주지 않음)",
 };

@@ -1,16 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  agentDisplayLabel,
-  composerMessage,
-  composerPayload,
-  composerStatusWord,
-  imageMention,
-  MAX_COMPOSER_CHARS,
-  QUEUE_READY_STATUS,
-  rankSlashCommands,
-  submitNote,
-} from "./compose.ts";
+import { agentDisplayLabel, composerMessage, composerPayload, composerStatusWord, contextLeftPercent, formatTokens, imageMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -104,5 +94,14 @@ describe("composer presentation helpers", () => {
       commands[0]!,
       commands[1]!,
     ]);
+  });
+});
+
+describe("context left", () => {
+  it("reads tokens and what is left the short way", () => {
+    expect([950, 67_723, 435_404, 1_000_000, 1_250_000].map(formatTokens)).toEqual(["950", "68k", "435k", "1M", "1.3M"]);
+    expect(contextLeftPercent({ used: 67_723, window: 258_400 })).toBe(74);
+    expect(contextLeftPercent({ used: 300_000, window: 258_400 })).toBe(0);
+    expect(contextLeftPercent({ used: 67_723, window: null })).toBeNull();
   });
 });

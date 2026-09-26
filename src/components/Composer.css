@@ -58,6 +58,16 @@
   border-radius: var(--radius-sm);
 }
 
+/* what is left of the context: plain until a compaction is near */
+.composer-context {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-context.is-low {
+  color: var(--status-blocked);
+}
+
 .composer-status .agent-mark {
   display: inline-flex;
   flex: none;

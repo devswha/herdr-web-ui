@@ -64,3 +64,33 @@ describe("recorded conversation model settings", () => {
     expect(parseConversationMetadata("", "scrollback")).toEqual({ model: null, reasoning_effort: null });
   });
 });
+
+describe("context use", () => {
+  const assistant = (usage: Record<string, number>, model = "claude-opus-5-5", extra: Record<string, unknown> = {}) =>
+    ({ type: "assistant", ...extra, message: { role: "assistant", model, usage } });
+
+  it("reads Codex's last request against the window it states", () => {
+    const tokens = (total: number) => ({ type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { total_tokens: total }, model_context_window: 258_400 } } });
+    expect(parseConversationMetadata(jsonl(tokens(10_000), tokens(67_723), { type: "event_msg", payload: { type: "token_count", info: null } }), "codex-transcript").context)
+      .toEqual({ used: 67_723, window: 258_400 });
+  });
+
+  it("adds up a Claude request's input and cache, skipping subagents, and knows the 1M window once past 200k", () => {
+    const small = parseConversationMetadata(jsonl(assistant({ input_tokens: 2, cache_creation_input_tokens: 700, cache_read_input_tokens: 40_000, output_tokens: 900 })), "claude-transcript");
+    expect(small.context).toEqual({ used: 40_702, window: null });
+    const long = parseConversationMetadata(jsonl(
+      assistant({ input_tokens: 5, cache_read_input_tokens: 420_000 }),
+      assistant({ input_tokens: 1, cache_read_input_tokens: 5_000 }, "claude-opus-5-5", { isSidechain: true }),
+      // compacted: the use shrinks, the window stays
+      assistant({ input_tokens: 3, cache_read_input_tokens: 30_000 }),
+      assistant({ input_tokens: 0, output_tokens: 0 }, "<synthetic>"),
+    ), "claude-transcript");
+    expect(long.context).toEqual({ used: 30_003, window: 1_000_000 });
+  });
+
+  it("reads omp's usage shape, with no window to go by", () => {
+    const entry = { type: "message", message: { role: "assistant", model: "gpt-6", usage: { input: 2, output: 7_000, cacheRead: 10_000, cacheWrite: 22_000 } } };
+    expect(parseConversationMetadata(jsonl(entry), "omo-transcript").context).toEqual({ used: 32_002, window: null });
+    expect(parseConversationMetadata(jsonl({ type: "message", message: { role: "user" } }), "omp-transcript").context).toBeUndefined();
+  });
+});

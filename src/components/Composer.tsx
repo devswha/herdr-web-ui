@@ -20,6 +20,8 @@ import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
   composerStatusWord,
+  contextLeftPercent,
+  formatTokens,
   imageMention,
   MAX_COMPOSER_CHARS,
   rankSlashCommands,
@@ -579,6 +581,20 @@ export function Composer({
             {t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}
           </span>
         </span>}
+        {metadata?.context && (() => {
+          const left = contextLeftPercent(metadata.context);
+          const used = formatTokens(metadata.context.used);
+          return (
+            <span
+              className={`composer-context${left !== null && left <= 20 ? " is-low" : ""}`}
+              title={metadata.context.window === null
+                ? t("Context used: {used} tokens (the agent does not say its window)", { used })
+                : t("Context used: {used} of {window} tokens", { used, window: formatTokens(metadata.context.window) })}
+            >
+              {left === null ? t("{used} used", { used }) : t("{percent}% left", { percent: left })}
+            </span>
+          );
+        })()}
         {(uploading || !connected) && (
           <span className="composer-status-hint">
             <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}

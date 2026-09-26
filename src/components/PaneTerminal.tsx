@@ -129,8 +129,11 @@ export function PaneTerminal({
     if (agentStatus === "working") setPendingAnswer(null);
   }, [agentStatus]);
   const onChatMetadata = useCallback((pane: string, value: ConversationMetadata | null) => {
+    // the same settings keep the same object: every 2 s poll would otherwise re-render the composer
     setChatMetadata((previous) => previous?.pane === pane && previous.value?.model === value?.model
-      && previous.value?.reasoning_effort === value?.reasoning_effort ? previous : { pane, value });
+      && previous.value?.reasoning_effort === value?.reasoning_effort
+      && previous.value?.context?.used === value?.context?.used
+      && previous.value?.context?.window === value?.context?.window ? previous : { pane, value });
   }, []);
   // The next message is held per target in localStorage for an explicit send. It carries the
   // pane it was written for, because a pane switch changes `agent`/`agentStatus`
