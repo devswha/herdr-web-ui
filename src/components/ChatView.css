@@ -162,6 +162,9 @@
 .markdown h1,
 .markdown h2,
 .markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6,
 .markdown blockquote,
 .markdown-list {
   margin: 0 0 var(--space-3);
@@ -170,9 +173,16 @@
 .markdown h1 { font-size: var(--fs-xl); }
 .markdown h2 { font-size: var(--fs-lg); }
 .markdown h3 { font-size: var(--fs-md); }
+/* below h3 the size stops shrinking: the weight, then the dim colour, tell the levels apart */
+.markdown h4,
+.markdown h5,
+.markdown h6 { font-size: var(--fs-md); }
 .markdown h1,
 .markdown h2,
-.markdown h3 { color: inherit; font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
+.markdown h3,
+.markdown h4,
+.markdown h5 { color: inherit; font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
+.markdown h6 { color: var(--text-dim); font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
 
 .markdown-list {
   padding-left: var(--space-5);
@@ -801,4 +811,63 @@
     width: var(--touch-target);
     min-height: var(--touch-target);
   }
+}
+
+/* images the user sent: thumbnails above their bubble, opened full size on a tap */
+.chat-user-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.chat-user-image {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  cursor: zoom-in;
+}
+
+.chat-user-image img {
+  display: block;
+  max-width: min(9rem, 38vw);
+  max-height: 7rem;
+  object-fit: cover;
+}
+
+/* where a compaction folded the conversation: a quiet divider, its summary on request */
+.chat-compact {
+  margin: var(--space-4) 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.chat-compact > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.chat-compact > summary::before,
+.chat-compact > summary::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: var(--hairline) solid var(--border);
+}
+
+.chat-compact > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-compact-text {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
 }

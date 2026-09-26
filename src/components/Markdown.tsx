@@ -106,7 +106,7 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
     const key = `${block.type}-${index}`;
     switch (block.type) {
       case "heading": {
-        const Tag = `h${block.level}` as "h1" | "h2" | "h3";
+        const Tag = `h${block.level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
         return <Tag key={key}><Inline nodes={block.content} /></Tag>;
       }
       case "paragraph":

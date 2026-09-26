@@ -177,7 +177,11 @@ export type ConversationPart =
   /** the agent's reasoning block; the client folds it and shows it only on request */
   | { kind: "thinking"; text: string }
   /** `error`: the call failed (the agent recorded it so, or its output says a command exited non-zero) */
-  | { kind: "tool"; name: string; summary: string; input: string; output: string; error?: boolean };
+  | { kind: "tool"; name: string; summary: string; input: string; output: string; error?: boolean }
+  /** an image the user sent, fetched on demand: GET /api/pane/conversation/image?pane_id=…&ref=… */
+  | { kind: "image"; media_type: string; ref: string }
+  /** the summary a compaction left; the conversation before it is what it sums up */
+  | { kind: "compact"; text: string };
 
 /** Latest model settings actually recorded by this agent. */
 export interface ConversationMetadata {

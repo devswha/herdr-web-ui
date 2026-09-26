@@ -16,7 +16,7 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isJsonObject, jsonResponse } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation } from "./conversation.ts";
+import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile } from "./file-view.ts";
@@ -819,6 +819,20 @@ export function createServer(
             ...(lines === undefined ? {} : { lines }),
           });
           return jsonResponse({ read });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/conversation/image") {
+        const paneId = url.searchParams.get("pane_id");
+        const ref = url.searchParams.get("ref");
+        if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
+        try {
+          const image = await conversationImage(paneId, ref, options.codexHome);
+          if (image === null) return jsonResponse({ error: { code: "image_not_found", message: "no such image in this pane's conversation" } }, 404);
+          // an entry's image never changes: the browser keeps it
+          return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": "private, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
         } catch (error) {
           return errorResponse(error);
         }
