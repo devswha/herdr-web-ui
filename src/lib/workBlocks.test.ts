@@ -52,3 +52,10 @@ describe("formatWorkDuration", () => {
     expect(formatWorkDuration(null, "2026-01-01T00:00:00Z")).toBeNull();
   });
 });
+
+describe("workSummary failures", () => {
+  it("says how many calls failed, last", () => {
+    const failed: ConversationPart = { kind: "tool", name: "Bash", summary: "", input: "", output: "", error: true };
+    expect(workSummary([{ kind: "tool", name: "Edit", summary: "", input: "", output: "" }, failed, failed])).toBe("1 edit · 2 commands · 2 failed");
+  });
+});

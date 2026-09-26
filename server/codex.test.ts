@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexHistoryTail, codexRolloutPath, forgetHistoryChains, matchCodexTranscript, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
+import { codexCallFailed, codexHistoryTail, codexRolloutPath, forgetHistoryChains, matchCodexTranscript, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
 const ts = "2026-09-22T01:00:00.000Z";
@@ -315,5 +315,29 @@ describe("Codex rollout resolution", () => {
   it("does not bind using user context, tool output or a previous session above the welcome card", () => {
     expect(matchCodexTranscript(answer, [{ path: "user", text: jsonl(message("user", answer)) }])).toBeNull();
     expect(matchCodexTranscript(`${answer}\nOpenAI Codex (v1.0)\nNew session`, [{ path: "old", text: jsonl(message("assistant", answer)) }])).toBeNull();
+  });
+});
+
+describe("Codex tool calls that failed, and patches", () => {
+  it("reads a failure from the output Codex records, judging a completed script as a whole", () => {
+    expect(codexCallFailed("Chunk ID: 1\nWall time: 0.0 seconds\nProcess exited with code 1\nOutput:\n")).toBe(true);
+    expect(codexCallFailed("Process exited with code 0\nOutput:\nok")).toBe(false);
+    expect(codexCallFailed('{"output":"boom","metadata":{"exit_code":2}}')).toBe(true);
+    expect(codexCallFailed("Script failed\nError: x")).toBe(true);
+    expect(codexCallFailed("apply_patch verification failed: Failed to find expected lines in /x")).toBe(true);
+    expect(codexCallFailed("Script completed\nProcess exited with code 1")).toBe(false);
+    expect(codexCallFailed("{\"accepted\":true}")).toBe(false);
+  });
+
+  it("marks the failed call and sums a patch up by its files", () => {
+    const patch = "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-x\n+y\n*** End Patch\n";
+    const turns = parseCodexTranscript(jsonl(
+      { type: "response_item", payload: { type: "custom_tool_call", call_id: "p", name: "apply_patch", input: patch } },
+      { type: "response_item", payload: { type: "custom_tool_call_output", call_id: "p", output: "Success. Updated the following files:\nM src/a.ts" } },
+      { type: "response_item", payload: { type: "function_call", call_id: "c", name: "exec_command", arguments: JSON.stringify({ cmd: "false" }) } },
+      { type: "response_item", payload: { type: "function_call_output", call_id: "c", output: "Process exited with code 1\nOutput:\n" } },
+    ));
+    const tools = turns.flatMap((turn) => turn.parts).filter((part) => part.kind === "tool");
+    expect(tools.map((tool) => [tool.summary, tool.error === true])).toEqual([["src/a.ts", false], ["false", true]]);
   });
 });

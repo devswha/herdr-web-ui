@@ -17,6 +17,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   or for Claude once a request has run past 200k (the 1M window); `68k used` where the transcript
   names no window (omp, omo, gjc, and Claude below 200k). It turns red at 20% left. Hovering shows
   the token counts.
+- A tool call that failed says so: its row reads "failed" in red, its output is headed Error, and
+  the folded "Worked for…" header counts the failures. Claude and omp record the failure; for Codex
+  it is read from the output (a command that exited non-zero, a script or patch that failed).
+- A file a tool call names (an edit, a read, a patch's files) opens in the viewer on a tap.
+- A Codex patch reads as a diff: each file as a header, then its lines in red and green, and the row
+  is summed up by the files it touches, also when an `exec` script applies it.
+- While reading further up the chat, a ↓ button takes you back to the end, new messages or not.
+
+### Fixed
+- An agent's chat said "No conversation yet" until its first answer arrived, seconds on a remote PC.
+  It now says it is loading.
 
 ### Changed
 - Alerts wait before they go out, and a change of the pane meanwhile calls them off: a question

@@ -752,3 +752,53 @@
 .markdown-file:hover code {
   text-decoration-style: solid;
 }
+
+/* a call that failed: its name in the alert colour and a word that says so, even folded */
+.work-row.is-error .work-row-name,
+.work-row.is-error .work-row-icon {
+  color: var(--status-blocked);
+}
+
+.work-row-failed {
+  flex: none;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--status-blocked-tint);
+  color: var(--status-blocked);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+}
+
+/* a file a tool call names opens in the viewer: a link in look, a button underneath */
+.chat-tool-file-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.chat-tool-file-link:hover {
+  color: var(--accent);
+  text-decoration-style: solid;
+}
+
+/* the way back to the end while reading up: the pill's round, wordless form */
+.chat-new-messages.is-icon {
+  width: var(--control-h);
+  padding: 0;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+@media (pointer: coarse) {
+  .chat-new-messages.is-icon {
+    width: var(--touch-target);
+    min-height: var(--touch-target);
+  }
+}

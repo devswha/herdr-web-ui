@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   ArrowDown, Bot, Brain, Check, ChevronDown, ChevronRight, ChevronUp, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, FilePen, FileSearch, Globe, ListChecks, Terminal, Wrench,
   type LucideProps,
@@ -17,6 +17,8 @@ import { phaseRows, taskRows, todoRows, type ChecklistRow } from "../lib/checkli
 import { isTodoTool, parseTodoAnswer, todoCallSummary, todoState, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { useSettings } from "../lib/settings.ts";
 import { usePageVisible } from "../lib/visibility.ts";
+import { OpenFileContext } from "../lib/filePaths.ts";
+import { patchText } from "../../shared/patch.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
 import { currentLanguage, useT } from "../lib/i18n.ts";
@@ -157,10 +159,40 @@ function ompEditLineClass(line: string): string | undefined {
   return undefined;
 }
 
+/** A file a tool call names: it opens in the viewer where one can, and reads as text elsewhere. */
+function ToolFile({ path, suffix }: { path: string; suffix?: string }) {
+  const t = useT();
+  const open = useContext(OpenFileContext);
+  if (open === null) return <p className="chat-tool-file">{path}{suffix}</p>;
+  return <p className="chat-tool-file"><button type="button" className="chat-tool-file-link" title={t("Open {path}", { path })} onClick={() => open(path)}>{path}</button>{suffix}</p>;
+}
+
+/** A Codex patch as a diff: each file it touches a header that opens it, then its lines coloured. */
+function PatchView({ patch }: { patch: string }) {
+  const sections: Array<{ file: string | null; action: string; lines: string[] }> = [];
+  for (const line of patch.split("\n")) {
+    const file = /^\*\*\* (Update|Add|Delete) File: (.+)$/.exec(line);
+    if (file !== null) { sections.push({ file: file[2]!.trim(), action: file[1]!, lines: [] }); continue; }
+    if (/^\*\*\* (Begin|End) Patch/.test(line)) continue;
+    if (sections.length === 0) sections.push({ file: null, action: "", lines: [] });
+    sections.at(-1)!.lines.push(line);
+  }
+  // the blank line a patch ends on is not part of any file
+  for (const section of sections) while (section.lines.at(-1)?.trim() === "") section.lines.pop();
+  const lineClass = (line: string): string | undefined =>
+    line.startsWith("@@") || line.startsWith("*** Move to:") ? "chat-diff-head" : line.startsWith("+") ? "chat-diff-add" : line.startsWith("-") ? "chat-diff-del" : undefined;
+  return <div className="chat-tool-io">{sections.map((section, index) => <div key={index}>
+    {section.file !== null && <ToolFile path={section.file} suffix={section.action === "Update" ? undefined : ` (${section.action.toLowerCase()})`} />}
+    {section.lines.length > 0 && <pre className="chat-diff">{section.lines.map((line, at) => <span key={at} className={lineClass(line)}>{line}{"\n"}</span>)}</pre>}
+  </div>)}</div>;
+}
+
 function ToolInputView({ part }: { part: ToolPartType }) {
   // a todo call shows the list as it stood after it, when the agent answered with it
   const after = isTodoTool(part.name) ? parseTodoAnswer(part.output) : null;
   if (after !== null && after.length > 0) return <TodoList items={after} />;
+  const patch = patchText(part.input);
+  if (patch !== null) return <PatchView patch={patch} />;
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(part.input) as Record<string, unknown>; }
   catch { return <pre className="chat-tool-io">{part.input}</pre>; }
@@ -170,13 +202,13 @@ function ToolInputView({ part }: { part: ToolPartType }) {
   if (command !== undefined) return <div className="chat-tool-io"><pre>{command}</pre>{(str("cwd") ?? str("description")) !== undefined && <p className="chat-tool-io-meta">{str("cwd") ?? str("description")}</p>}</div>;
   const oldString = str("old_string");
   const newString = str("new_string");
-  if (oldString !== undefined || newString !== undefined) return <div className="chat-tool-io">{str("file_path") !== undefined && <p className="chat-tool-file">{str("file_path")}</p>}{oldString !== undefined && <pre className="chat-diff chat-diff-del">{oldString}</pre>}{newString !== undefined && <pre className="chat-diff chat-diff-add">{newString}</pre>}</div>;
+  if (oldString !== undefined || newString !== undefined) return <div className="chat-tool-io">{str("file_path") !== undefined && <ToolFile path={str("file_path")!} />}{oldString !== undefined && <pre className="chat-diff chat-diff-del">{oldString}</pre>}{newString !== undefined && <pre className="chat-diff chat-diff-add">{newString}</pre>}</div>;
   const editScript = str("input");
   if (editScript !== undefined) return <pre className="chat-tool-io chat-diff">{editScript.split("\n").map((line, index) => <span key={index} className={ompEditLineClass(line)}>{line}{"\n"}</span>)}</pre>;
   const content = str("content");
-  if (content !== undefined) return <div className="chat-tool-io">{(str("file_path") ?? str("path")) !== undefined && <p className="chat-tool-file">{str("file_path") ?? str("path")}</p>}<pre>{content}</pre></div>;
+  if (content !== undefined) return <div className="chat-tool-io">{(str("file_path") ?? str("path")) !== undefined && <ToolFile path={(str("file_path") ?? str("path"))!} />}<pre>{content}</pre></div>;
   const path = str("file_path") ?? str("path");
-  if (path !== undefined) return <div className="chat-tool-io"><p className="chat-tool-file">{str("pattern") !== undefined ? `${path} — /${str("pattern")}/` : path}</p></div>;
+  if (path !== undefined) return <div className="chat-tool-io"><ToolFile path={path} suffix={str("pattern") !== undefined ? ` — /${str("pattern")}/` : undefined} /></div>;
   for (const [key, toRows] of [["list", phaseRows], ["todos", todoRows], ["tasks", taskRows]] as const) {
     const value = parsed[key];
     if (Array.isArray(value)) {
@@ -206,14 +238,15 @@ function WorkRow({ part }: { part: ToolPartType }) {
   const summary = todoCallSummary(part) ?? part.summary;
   // the list is the answer of a todo call: its raw text would say it twice
   const output = isTodoTool(part.name) && parseTodoAnswer(part.output) !== null ? "" : part.output;
-  return <div className="work-row">
+  return <div className={`work-row${part.error ? " is-error" : ""}`}>
     <button type="button" className="work-row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <Icon className="work-row-icon" aria-hidden="true" />
       <span className="work-row-name">{part.name}</span>
+      {part.error && <span className="work-row-failed">{t("failed")}</span>}
       {summary.length > 0 && summary !== part.name && <><span className="work-row-sep" aria-hidden="true">/</span><span className="work-row-summary">{summary}</span></>}
     </button>
-    {open && <div className="work-row-detail"><ToolInputView part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t("Output")}</h4><pre className="chat-tool-io">{output}</pre></section>}</div>}
+    {open && <div className="work-row-detail"><ToolInputView part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className="chat-tool-io">{output}</pre></section>}</div>}
   </div>;
 }
 
@@ -308,6 +341,10 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
   const [error, setError] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [newMessages, setNewMessages] = useState(false);
+  /** scrolled up from the end: the way back is offered even when nothing new came */
+  const [away, setAway] = useState(false);
+  /** the first answer for this pane arrived (or failed): until then an empty chat is only loading */
+  const [loaded, setLoaded] = useState(false);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
   const [promptPollKey, setPromptPollKey] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
@@ -334,7 +371,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
 
   useEffect(() => {
     shownPane.current = paneId;
-    stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setError(null); setErrorStatus(null); setPrompt(null);
+    stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null);
     dropOlder();
     lastAnswer.current = null;
   }, [paneId]);
@@ -399,12 +436,13 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
           signature.current = nextSignature;
           setState(next);
         }
-        setError(null); setErrorStatus(null);
+        setError(null); setErrorStatus(null); setLoaded(true);
         // only an answer laid out in full is skipped when it comes back unchanged: a read
         // cancelled mid-way (a pane switch, the page hidden during a gap fill) is redone
         lastAnswer.current = conversation;
       } catch (cause) {
         if (cancelled) return;
+        setLoaded(true);
         setError(cause instanceof Error ? cause.message : String(cause));
         setErrorStatus(cause instanceof ApiError ? cause.status : null);
       } finally {
@@ -505,6 +543,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
     const node = scroller.current;
     if (node === null) return;
     stickToBottom.current = node.scrollTop + node.clientHeight >= node.scrollHeight - 48;
+    setAway(!stickToBottom.current);
     if (stickToBottom.current) setNewMessages(false);
     if (node.scrollTop < LOAD_OLDER_PX && olderState === "idle") void loadOlder();
   };
@@ -512,7 +551,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
     const node = scroller.current;
     if (node === null) return;
     node.scrollTo({ top: node.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    stickToBottom.current = true; setNewMessages(false);
+    stickToBottom.current = true; setNewMessages(false); setAway(false);
   };
   const turns = useMemo(() => older.length > 0 ? [...older, ...state.turns] : state.turns, [older, state.turns]);
   const todos = useMemo(() => state.source === "conversation" ? todoState(turns) : null, [state.source, turns]);
@@ -537,11 +576,13 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
           : state.messages.map((message, index) => <FallbackTurn key={index} message={message} />)}
       {!ended && !connected && <p className="chat-inline-state">{t("reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? "locked — the token gate is asking again" : error}</p>}
-      {empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
+      {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => { setPrompt(null); onPendingAnswerDone?.(); }} />}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
       {todos !== null && todos.length > 0 && <TodoPanel items={todos} />}
     </div>
-    {newMessages && <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>}
+    {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
+      : away && <button type="button" className="btn chat-new-messages is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>}
   </div>;
 });
