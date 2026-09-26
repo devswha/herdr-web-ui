@@ -7,6 +7,7 @@
 
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
+import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
@@ -25,6 +26,10 @@ export interface Settings {
   showThinking: boolean;
   /** UI language; `system` follows the browser (src/lib/i18n.ts) */
   language: LanguageSetting;
+  /** alert this device when an agent waits on the user (shared/notify-policy.ts AlertPrefs) */
+  alertInput: boolean;
+  /** alert this device when a turn finishes: never, after a long one, or every one */
+  alertDone: DoneAlerts;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -35,7 +40,14 @@ export const DEFAULT_SETTINGS: Settings = {
   enterSends: true,
   showThinking: false,
   language: "system",
+  alertInput: true,
+  alertDone: "long",
 };
+
+/** This device's alert choices, as the server keeps them with its push subscription. */
+export function alertPrefs(settings: Settings): AlertPrefs {
+  return { input: settings.alertInput, done: settings.alertDone };
+}
 
 const STORAGE_KEY = "herdr-web-ui:settings";
 export const TERMINAL_FONT_MIN = 10;
@@ -72,6 +84,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     language: record["language"] === "en" || record["language"] === "ko" || record["language"] === "system" ? record["language"] : DEFAULT_SETTINGS.language,
+    alertInput: typeof record["alertInput"] === "boolean" ? record["alertInput"] : DEFAULT_SETTINGS.alertInput,
+    alertDone: record["alertDone"] === "off" || record["alertDone"] === "long" || record["alertDone"] === "always" ? record["alertDone"] : DEFAULT_SETTINGS.alertDone,
   };
 }
 

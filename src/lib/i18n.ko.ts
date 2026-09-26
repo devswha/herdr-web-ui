@@ -457,4 +457,13 @@ export const KO: Record<string, string> = {
   "Your own Tailscale devices get in as you. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "내 Tailscale 기기는 나로 인식되어 들어옵니다. 다른 사람의 기기나 LAN·공개 주소는 페어링이 필요합니다. 아래 기기 항목을 보세요.",
   "Access and safety": "접근과 안전",
   "…": "…",
+  "Alerts": "알림",
+  "For this device. An alert waits a little first, and none comes when the pane changes meanwhile, as when you answer at the PC.": "이 기기에 적용됩니다. 알림은 잠시 기다렸다가 보내며, 그사이 PC에서 답하는 등 pane 상태가 바뀌면 보내지 않습니다.",
+  "Needs input": "입력 필요",
+  "An agent waits for an answer or a permission": "에이전트가 답이나 권한을 기다릴 때",
+  "Finished": "작업 완료",
+  "Long turns: only work that took a minute or more": "긴 작업: 1분 이상 걸린 작업만",
+  "Off": "끄기",
+  "Long turns": "긴 작업",
+  "Every turn": "매번",
 };

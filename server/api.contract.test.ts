@@ -19,7 +19,7 @@ let server: { port: number; stop: () => void };
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-contract-"));
 
 beforeAll(() => {
-  server = createServer({ port: 0, stateDir });
+  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
 });
 
 afterAll(() => {
@@ -973,7 +973,7 @@ describe("web push", () => {
       const before = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
       expect(before.panes.find((pane) => pane.pane_id === watchedId)?.agent_status).toBe("working");
 
-      restarted = createServer({ port: 0, stateDir: restartDir });
+      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
       const subscribe = await fetch(`http://localhost:${restarted.port}/api/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json" },

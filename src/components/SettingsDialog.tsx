@@ -151,6 +151,25 @@ export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogP
           </section>
 
           <section className="settings-section">
+            <h3>{t("Alerts")}</h3>
+            <p className="settings-description">{t("For this device. An alert waits a little first, and none comes when the pane changes meanwhile, as when you answer at the PC.")}</p>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Needs input")}</span><span className="settings-description">{t("An agent waits for an answer or a permission")}</span></div>
+              <Toggle label={t("Needs input")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
+            </div>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Finished")}</span><span className="settings-description">{t("Long turns: only work that took a minute or more")}</span></div>
+              <div className="segmented" aria-label={t("Finished")}>
+                {(["off", "long", "always"] as const).map((alertDone) => (
+                  <button key={alertDone} type="button" aria-pressed={settings.alertDone === alertDone} onClick={() => update({ alertDone })}>
+                    {t(alertDone === "off" ? "Off" : alertDone === "long" ? "Long turns" : "Every turn")}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="settings-section">
             <h3>{t("Shortcuts")}</h3>
             <table className="settings-shortcuts">
               <tbody>{SHORTCUTS.map((shortcut) => (
