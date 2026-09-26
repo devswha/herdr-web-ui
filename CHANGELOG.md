@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- Remote PCs use the `remote-v3` runtime, which carries 0.3.16's server fixes to the remote side: a
+  finish in the pane herdr has in front reads DONE, and a Codex answer ending with a file link is
+  found on screen. With **Update PC bridges automatically** on (the default), a connected PC's
+  bridge updates itself once the app has; otherwise it asks for **Update bridge…**. herdr sessions
+  are kept either way.
+
 ## [0.3.16] - 2026-09-26
 
 ### Added
