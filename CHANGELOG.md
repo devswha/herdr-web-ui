@@ -16,6 +16,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   does never, after a long turn (the default) or every time (then after 10 seconds). An ended
   terminal follows the finish choice.
 
+### Fixed
+- A Claude question never showed as a card in the chat when its pane was narrow (a phone, a split):
+  the hint under the menu wraps (`… Esc to` / `cancel`), and it was looked for on one line. Hints
+  are now read across the wrap, in every agent's menus, and so is the check that a menu is still
+  open before an answer is typed into it. A single question's card is titled by its header chip.
+
 ## [0.3.18] - 2026-09-26
 
 ### Changed
