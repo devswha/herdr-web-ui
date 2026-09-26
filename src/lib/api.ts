@@ -17,6 +17,7 @@ import type {
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
 import type { UpdateCommand, UpdateStatus } from "../../shared/update.ts";
+import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
@@ -324,8 +325,9 @@ export async function fetchPushKey(): Promise<string> {
   return (await getJson<PushKey>("/api/push")).public_key;
 }
 
-export async function registerPushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
-  await sendJson("/api/push/subscribe", "POST", { subscription });
+/** `alerts`: what this device wants to hear about; the server applies it to every alert it sends here. */
+export async function registerPushSubscription(subscription: PushSubscriptionJSON, alerts?: AlertPrefs): Promise<void> {
+  await sendJson("/api/push/subscribe", "POST", alerts === undefined ? { subscription } : { subscription, alerts });
 }
 
 export async function unregisterPushSubscription(endpoint: string): Promise<void> {

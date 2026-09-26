@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, sanitizeSettings } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, sanitizeSettings } from "./settings.ts";
 
 describe("chat font size", () => {
   it("follows the density until one is chosen, and keeps a chosen one within bounds", () => {
@@ -12,5 +12,13 @@ describe("chat font size", () => {
     expect(sanitizeSettings({ chatFontSize: 15.6 }).chatFontSize).toBe(16);
     expect(sanitizeSettings({ chatFontSize: "18" }).chatFontSize).toBeNull();
     expect(sanitizeSettings({ terminalFontSize: 15 }).chatFontSize).toBeNull();
+  });
+});
+
+describe("alert choices", () => {
+  it("default to questions and long turns, and drop anything unknown to the default", () => {
+    expect(alertPrefs(DEFAULT_SETTINGS)).toEqual({ input: true, done: "long" });
+    expect(alertPrefs(sanitizeSettings({ alertInput: false, alertDone: "always" }))).toEqual({ input: false, done: "always" });
+    expect(alertPrefs(sanitizeSettings({ alertInput: "no", alertDone: "sometimes" }))).toEqual({ input: true, done: "long" });
   });
 });

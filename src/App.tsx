@@ -17,13 +17,14 @@ import { MachineDialog } from "./components/MachineDialog.tsx";
 import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
-import { useSettings } from "./lib/settings.ts";
+import { alertPrefs, useSettings } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
 import {
   notificationState,
   requestNotificationPermission,
   shouldNotifyStatus,
+  alertsAllow,
   showPaneEndedNotification,
   showPaneStatusNotification,
   type NotificationState,
@@ -110,6 +111,10 @@ function Brand() {
 export function App() {
   const t = useT();
   const { settings, resolvedTheme, update: updateSettings } = useSettings();
+  // this device's alert choices: sent with its push subscription, and applied to tab alerts here
+  const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
+  const alertsRef = useRef(alerts);
+  alertsRef.current = alerts;
   const [machines, setMachines] = useState<Machine[]>([]);
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     const query = new URLSearchParams(window.location.search);
@@ -252,7 +257,7 @@ export function App() {
         const previous = statusRef.current.get(key);
         statusRef.current.set(key, message.agent_status);
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-        if (pane && shouldNotifyStatus(previous, message.agent_status) && !pushOnRef.current) showPaneStatusNotification(message.pane_id, `${machine.name} · ${paneTitle(pane)}`, message.agent_status, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
+        if (pane && shouldNotifyStatus(previous, message.agent_status) && !pushOnRef.current && alertsAllow(alertsRef.current, message.agent_status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${paneTitle(pane)}`, message.agent_status, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
         setMachines((list) => {
           let changed = false;
           const next = list.map((m) => {
@@ -265,7 +270,7 @@ export function App() {
           return changed ? next : list;
         });
       }
-      if (message.type === "pane-exited" && !pushOnRef.current) {
+      if (message.type === "pane-exited" && !pushOnRef.current && alertsRef.current.done !== "off") {
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
         if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${paneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
       }
@@ -283,7 +288,7 @@ export function App() {
     setNotifications(next);
     if (next !== "granted") return;
     try {
-      const endpoint = await ensurePushSubscription();
+      const endpoint = await ensurePushSubscription(alertsRef.current);
       setPushOn(endpoint !== null);
       // the confirmation push proves the whole path (server -> push service -> this device)
       if (endpoint) await sendTestPush(endpoint);
@@ -293,11 +298,12 @@ export function App() {
   }, []);
 
   // a device that already allowed alerts re-registers on every load: idempotent, and it
-  // brings the device back if the server lost its subscriptions
+  // brings the device back if the server lost its subscriptions; a changed choice of
+  // alerts goes the same way
   useEffect(() => {
     if (locked !== false || notifications !== "granted" || !pushSupported()) return;
     let cancelled = false;
-    ensurePushSubscription()
+    ensurePushSubscription(alerts)
       .then((endpoint) => {
         if (!cancelled) setPushOn(endpoint !== null);
       })
@@ -307,7 +313,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [locked, notifications]);
+  }, [locked, notifications, alerts]);
 
   const unlock = useCallback(() => {
     setLocked(false);

@@ -12,6 +12,14 @@
  * Requests are built by web-push's generateRequestDetails (RFC 8291 aes128gcm + RFC
  * 8292 VAPID) and sent with fetch; its sendNotification path goes through node:https
  * and https-proxy-agent, which Bun does not need.
+ *
+ * An alert waits before it goes out, and a change of the pane's status meanwhile calls it
+ * off: a question answered at the desk, or a finish followed by the next prompt, never
+ * reaches the phone. herdr says nothing of whether anyone is at the PC, so a change that
+ * quick is taken for someone being there (as Claude Code waits ~6 s on a permission
+ * prompt and ~60 s after a reply before it notifies). A question waits `short`; a finish
+ * waits `long`, and only one after a turn that worked `longTurn` or more is worth it,
+ * unless the device asked for every finish (which then waits `short`).
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -21,9 +29,12 @@ import webpush from "web-push";
 import { paneStorageId } from "../shared/machines.ts";
 import type { AgentStatus, HerdrPane, PushPayload } from "../shared/protocol.ts";
 import {
+  type AlertPrefs,
+  DEFAULT_ALERTS,
   ENDED_NOTIFICATION_BODY,
   paneNotificationTag,
   paneTitle,
+  parseAlerts,
   shouldNotifyStatus,
   statusNotificationBody,
 } from "../shared/notify-policy.ts";
@@ -34,9 +45,22 @@ const PUSH_TTL_SECONDS = 12 * 60 * 60;
 const PUSH_TIMEOUT_MS = 10_000;
 const DEFAULT_SUBJECT = "https://github.com/devswha/herdr-web-ui";
 
+/** How long an alert waits for the pane to change first, and the turn a finish is worth telling. */
+export interface AlertTiming {
+  /** a question, and a finish on a device that wants every one */
+  short: number;
+  /** a finish after a long turn */
+  long: number;
+  /** the least a turn works for its finish to be worth an alert (`done: "long"`) */
+  longTurn: number;
+}
+export const DEFAULT_ALERT_TIMING: AlertTiming = { short: 10_000, long: 60_000, longTurn: 60_000 };
+
 export interface PushSubscriptionRecord {
   endpoint: string;
   keys: { p256dh: string; auth: string };
+  /** what this device wants alerts for; absent in a record from before there was a choice */
+  alerts?: AlertPrefs;
 }
 
 
@@ -44,15 +68,18 @@ export type PushDelivery = { ok: true } | { ok: false; status: number | null; go
 
 export interface PushService {
   publicKey(): string;
-  subscribe(subscription: PushSubscriptionRecord): void;
+  /** `alerts` absent keeps what the device chose before (a re-registration on load) */
+  subscribe(subscription: PushSubscriptionRecord, alerts?: AlertPrefs): void;
   unsubscribe(endpoint: string): void;
   /** One confirmation push to one device, so enabling alerts proves the whole path works. */
   sendTest(endpoint: string): Promise<PushDelivery | null>;
   /** The collector's view of every pane: status baselines and the titles notifications use. */
   seed(panes: readonly HerdrPane[], machineId?: string, machineName?: string): void;
-  /** Resolves once every device has answered (the server fires and forgets; tests wait). */
+  /** Schedules the alert this change is worth, and calls off the one it overtakes. */
   onStatus(paneId: string, status: AgentStatus, machineId?: string): Promise<void>;
   onEnded(paneId: string, machineId?: string): Promise<void>;
+  /** Resolves once every alert scheduled so far went out or was called off (tests wait). */
+  settled(): Promise<void>;
 }
 
 export interface PushServiceOptions {
@@ -60,6 +87,8 @@ export interface PushServiceOptions {
   subject?: string;
   /** Current title of a pane, looked up when an alert fires; falls back to the last seeded one. */
   lookupTitle?: (paneId: string) => Promise<string | undefined>;
+  timing?: Partial<AlertTiming>;
+  now?: () => number;
 }
 
 export { defaultStateDir } from "./update-state.ts";
@@ -142,7 +171,8 @@ export function createPushService(options: PushServiceOptions): PushService {
     if (Array.isArray(stored)) {
       for (const entry of stored) {
         const parsed = parseSubscription(entry);
-        if (parsed) subscriptions.set(parsed.endpoint, parsed);
+        const alerts = (entry as { alerts?: unknown } | null)?.alerts;
+        if (parsed) subscriptions.set(parsed.endpoint, alerts === undefined ? parsed : { ...parsed, alerts: parseAlerts(alerts) });
       }
     }
     return subscriptions;
@@ -185,9 +215,9 @@ export function createPushService(options: PushServiceOptions): PushService {
     return { ok: false, status, gone };
   }
 
-  async function broadcast(message: PushPayload, urgency: "normal" | "high"): Promise<void> {
+  async function broadcast(message: PushPayload, urgency: "normal" | "high", to: readonly PushSubscriptionRecord[] = [...store().values()]): Promise<void> {
     await Promise.all(
-      [...store().values()].map((subscription) =>
+      to.map((subscription) =>
         deliver(subscription, message, urgency).catch((error: unknown) => {
           console.error(`web push failed: ${error instanceof Error ? error.message : String(error)}`);
         }),
@@ -205,11 +235,56 @@ export function createPushService(options: PushServiceOptions): PushService {
     return titles.get(paneId) ?? paneId;
   }
 
+  const timing = { ...DEFAULT_ALERT_TIMING, ...options.timing };
+  const now = options.now ?? Date.now;
+  /** when each pane's current turn began: from `working`/`blocked` entered, until idle or done */
+  const turnStart = new Map<string, number>();
+  /** the alert each pane is waiting to send, called off by the pane's next change */
+  const waiting = new Map<string, () => void>();
+  /** every alert not yet sent or called off, for `settled()` */
+  const inFlight = new Set<Promise<void>>();
+
+  function callOff(key: string): void {
+    waiting.get(key)?.();
+    waiting.delete(key);
+  }
+
+  /** How long a device waits before this alert reaches it, or null: it does not want it. */
+  function delayFor(prefs: AlertPrefs, status: AgentStatus, worked: number | null): number | null {
+    if (status === "blocked") return prefs.input ? timing.short : null;
+    if (status !== "done" || prefs.done === "off") return null;
+    if (prefs.done === "always") return timing.short;
+    // a turn that began before this server knew the pane is of unknown length: tell it
+    return worked === null || worked >= timing.longTurn ? timing.long : null;
+  }
+
+  /** One timer per delay, each for the devices that wait that long; all called off together. */
+  function schedule(key: string, groups: Map<number, PushSubscriptionRecord[]>, send: (to: PushSubscriptionRecord[]) => Promise<void>): void {
+    const cancels: Array<() => void> = [];
+    for (const [delay, to] of groups) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const done = new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          if (waiting.get(key) === cancelAll) waiting.delete(key);
+          send(to).catch((error: unknown) => {
+            console.error(`web push failed: ${error instanceof Error ? error.message : String(error)}`);
+          }).finally(resolve);
+        }, delay);
+        cancels.push(() => { clearTimeout(timer); resolve(); });
+      });
+      inFlight.add(done);
+      void done.finally(() => inFlight.delete(done));
+    }
+    const cancelAll = (): void => { for (const cancel of cancels) cancel(); };
+    waiting.set(key, cancelAll);
+  }
+
   return {
     publicKey: () => keys().publicKey,
 
-    subscribe(subscription) {
-      store().set(subscription.endpoint, subscription);
+    subscribe(subscription, alerts) {
+      const kept = alerts ?? store().get(subscription.endpoint)?.alerts;
+      store().set(subscription.endpoint, kept === undefined ? subscription : { ...subscription, alerts: kept });
       persist();
     },
 
@@ -236,15 +311,46 @@ export function createPushService(options: PushServiceOptions): PushService {
       const key = paneStorageId(machineId, paneId);
       const previous = lastStatus.get(key);
       lastStatus.set(key, status);
-      if (!shouldNotifyStatus(previous, status) || store().size === 0) return;
-      const title = machineId === "local" ? await titleOf(paneId) : titles.get(key) ?? paneId;
-      await broadcast({ ...statusMessage(paneId, title, status), ...(machineId === "local" ? {} : { machine_id: machineId }), tag: paneNotificationTag(paneId, machineId) }, status === "blocked" ? "high" : "normal");
+      if (previous === status) return;
+      // answered, working again, or seen: whatever was waiting is no longer news
+      callOff(key);
+      const busy = (value: AgentStatus | undefined): boolean => value === "working" || value === "blocked";
+      // a first sighting mid-turn has no start: its length stays unknown
+      if (busy(status) && previous !== undefined && !busy(previous)) turnStart.set(key, now());
+      let worked: number | null = null;
+      if (!busy(status)) {
+        const start = turnStart.get(key);
+        worked = start === undefined ? null : now() - start;
+        turnStart.delete(key);
+      }
+      if (!shouldNotifyStatus(previous, status)) return;
+      const groups = new Map<number, PushSubscriptionRecord[]>();
+      for (const subscription of store().values()) {
+        const delay = delayFor(subscription.alerts ?? DEFAULT_ALERTS, status, worked);
+        if (delay !== null) groups.set(delay, [...(groups.get(delay) ?? []), subscription]);
+      }
+      if (groups.size === 0) return;
+      schedule(key, groups, async (to) => {
+        const title = machineId === "local" ? await titleOf(paneId) : titles.get(key) ?? paneId;
+        // a device that dropped out meanwhile is not written to
+        const live = to.filter((subscription) => store().has(subscription.endpoint));
+        await broadcast({ ...statusMessage(paneId, title, status), ...(machineId === "local" ? {} : { machine_id: machineId }), tag: paneNotificationTag(paneId, machineId) }, status === "blocked" ? "high" : "normal", live);
+      });
     },
 
     async onEnded(paneId, machineId = "local") {
-      if (store().size === 0) return;
+      const key = paneStorageId(machineId, paneId);
+      callOff(key);
+      turnStart.delete(key);
+      // an ended terminal is a finish of its own: a device that wants none hears none
+      const to = [...store().values()].filter((subscription) => (subscription.alerts ?? DEFAULT_ALERTS).done !== "off");
+      if (to.length === 0) return;
       // the pane may already be gone from herdr: the seeded title is what is left
-      await broadcast({ ...endedMessage(paneId, titles.get(paneStorageId(machineId, paneId)) ?? paneId), ...(machineId === "local" ? {} : { machine_id: machineId }), tag: paneNotificationTag(paneId, machineId) }, "normal");
+      await broadcast({ ...endedMessage(paneId, titles.get(key) ?? paneId), ...(machineId === "local" ? {} : { machine_id: machineId }), tag: paneNotificationTag(paneId, machineId) }, "normal", to);
+    },
+
+    async settled() {
+      while (inFlight.size > 0) await Promise.all([...inFlight]);
     },
   };
 }
@@ -253,7 +359,7 @@ export function createPushService(options: PushServiceOptions): PushService {
  * /api/push routes. All sit behind the token gate (they are /api/ and not health/auth):
  * a subscription receives pane titles until it is removed.
  *   GET    /api/push                        -> { public_key }
- *   POST   /api/push/subscribe { subscription } -> 204
+ *   POST   /api/push/subscribe { subscription, alerts? } -> 204 (alerts: this device's AlertPrefs)
  *   DELETE /api/push/subscribe { endpoint } -> 204
  *   POST   /api/push/test      { endpoint } -> 204 | 404 subscription_not_found | 502 push_failed
  */
@@ -271,12 +377,12 @@ export async function handlePushRequest(request: Request, pathname: string, push
   } catch {
     return badRequest("invalid_json", "request body must be JSON");
   }
-  const body = (typeof payload === "object" && payload !== null ? payload : {}) as { subscription?: unknown; endpoint?: unknown };
+  const body = (typeof payload === "object" && payload !== null ? payload : {}) as { subscription?: unknown; endpoint?: unknown; alerts?: unknown };
 
   if (route === "POST /api/push/subscribe") {
     const subscription = parseSubscription(body.subscription);
     if (!subscription) return badRequest("invalid_subscription", "subscription needs an http(s) endpoint and p256dh/auth keys");
-    push.subscribe(subscription);
+    push.subscribe(subscription, body.alerts === undefined ? undefined : parseAlerts(body.alerts));
     return new Response(null, { status: 204 });
   }
   if (typeof body.endpoint !== "string") return badRequest("missing_endpoint", "endpoint is required");

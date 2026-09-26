@@ -7,6 +7,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- Alerts wait before they go out, and a change of the pane meanwhile calls them off: a question
+  answered at the PC within 10 seconds, or a finish followed by the next prompt within a minute,
+  never buzzes the phone. A finish is told only after a turn that worked a minute or more, since a
+  quick answer is read where it was asked.
+- **Settings → Alerts** chooses, per device, whether a waiting agent alerts, and whether a finish
+  does never, after a long turn (the default) or every time (then after 10 seconds). An ended
+  terminal follows the finish choice.
+
 ## [0.3.18] - 2026-09-26
 
 ### Changed

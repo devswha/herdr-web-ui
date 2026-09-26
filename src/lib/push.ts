@@ -1,3 +1,4 @@
+import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import { fetchPushKey, registerPushSubscription, unregisterPushSubscription } from "./api.ts";
 
 /**
@@ -55,14 +56,14 @@ let pending: Promise<string | null> | null = null;
  * subscriptions and keep only the later one, so the confirmation push could go to a
  * dead endpoint. Concurrent callers therefore share one attempt.
  */
-export function ensurePushSubscription(): Promise<string | null> {
-  pending ??= subscribeDevice().finally(() => {
+export function ensurePushSubscription(alerts?: AlertPrefs): Promise<string | null> {
+  pending ??= subscribeDevice(alerts).finally(() => {
     pending = null;
   });
   return pending;
 }
 
-async function subscribeDevice(): Promise<string | null> {
+async function subscribeDevice(alerts?: AlertPrefs): Promise<string | null> {
   if (!pushSupported() || globalThis.Notification?.permission !== "granted") return null;
   const registration = await workerRegistration();
   if (!registration) return null;
@@ -74,7 +75,7 @@ async function subscribeDevice(): Promise<string | null> {
     subscription = null;
   }
   subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-  await registerPushSubscription(subscription.toJSON());
+  await registerPushSubscription(subscription.toJSON(), alerts);
   return subscription.endpoint;
 }
 

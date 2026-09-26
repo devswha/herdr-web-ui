@@ -38,7 +38,7 @@ import {
   workspaceMove,
   workspaceRename,
 } from "./herdr/client.ts";
-import { createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
+import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -184,6 +184,8 @@ export function createServer(
     registerBridge?: boolean;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
+    /** how long a push alert waits for the pane to change first (server/push.ts); tests send at once */
+    alertTiming?: Partial<AlertTiming>;
     /** ATTACH_RETRY_FOR_MS; tests shorten it */
     attachRetryForMs?: number;
   } = {},
@@ -313,6 +315,7 @@ export function createServer(
   }
   const push = createPushService({
     stateDir: options.stateDir ?? defaultStateDir(),
+    timing: options.alertTiming,
     lookupTitle: async (paneId) => {
       const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
       return pane ? paneTitle(pane) : undefined;

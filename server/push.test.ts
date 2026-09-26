@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { AlertPrefs } from "../shared/notify-policy.ts";
 import type { AgentStatus, HerdrPane } from "../shared/protocol.ts";
 import { createPushService, parseSubscription, type PushService } from "./push.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
@@ -39,9 +40,15 @@ afterEach(() => {
   rmSync(stateDir, { recursive: true, force: true });
 });
 
+/** Alerts go out at once, and each status change is awaited until its alert went out. */
 function subscribed(options: Partial<Parameters<typeof createPushService>[0]> = {}): PushService {
-  const push = createPushService({ stateDir, ...options });
+  const push = createPushService({ stateDir, timing: { short: 0, long: 0, longTurn: 0 }, ...options });
   push.subscribe(fake.subscription);
+  const onStatus = push.onStatus;
+  push.onStatus = async (...args) => {
+    await onStatus(...args);
+    await push.settled();
+  };
   return push;
 }
 
@@ -182,5 +189,80 @@ describe("push delivery", () => {
     expect(await push.sendTest(fake.subscription.endpoint)).toEqual({ ok: false, status: 500, gone: false });
     fake.answerWith(201);
     expect(await push.sendTest(fake.subscription.endpoint)).toEqual({ ok: true });
+  });
+});
+
+describe("alert timing and each device's choice", () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  /** real timers, short enough for a test; the clock that measures turns is ours to move */
+  function timed(alerts?: AlertPrefs) {
+    let clock = 0;
+    const push = createPushService({ stateDir, timing: { short: 40, long: 80, longTurn: 1_000 }, now: () => clock });
+    push.subscribe(fake.subscription, alerts);
+    push.seed([pane("w1:p1", "idle", "claude")]);
+    return { push, advance: (ms: number) => { clock += ms; } };
+  }
+
+  it("calls off a question answered before it goes out, and sends one left waiting", async () => {
+    const { push } = timed();
+    await push.onStatus("w1:p1", "working");
+    await push.onStatus("w1:p1", "blocked");
+    await sleep(10);
+    await push.onStatus("w1:p1", "working");
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+    await push.onStatus("w1:p1", "blocked");
+    await push.settled();
+    expect(fake.received.map((r) => r.payload.body)).toEqual(["waiting for your input"]);
+  });
+
+  it("tells a finish only after a turn that worked a while, and not one followed by the next prompt", async () => {
+    const { push, advance } = timed();
+    await push.onStatus("w1:p1", "working");
+    advance(500);
+    await push.onStatus("w1:p1", "done");
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+    await push.onStatus("w1:p1", "working");
+    advance(2_000);
+    await push.onStatus("w1:p1", "done");
+    await sleep(10);
+    // the next prompt went in before the alert: the user is there
+    await push.onStatus("w1:p1", "working");
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+    advance(2_000);
+    await push.onStatus("w1:p1", "done");
+    await push.settled();
+    expect(fake.received.map((r) => r.payload.body)).toEqual(["work finished"]);
+  });
+
+  it("follows what the device chose: no questions, every finish, or no finish at all", async () => {
+    const quiet = timed({ input: false, done: "always" });
+    await quiet.push.onStatus("w1:p1", "blocked");
+    await quiet.push.onStatus("w1:p1", "done");
+    await quiet.push.settled();
+    expect(fake.received.map((r) => r.payload.body)).toEqual(["work finished"]);
+    fake.received.length = 0;
+    const none = timed({ input: true, done: "off" });
+    await none.push.onStatus("w1:p1", "working");
+    none.advance(5_000);
+    await none.push.onStatus("w1:p1", "done");
+    await none.push.onEnded("w1:p1");
+    await none.push.settled();
+    expect(fake.received).toHaveLength(0);
+  });
+
+  it("keeps a device's choice through a re-registration without one, and a restart", async () => {
+    const push = createPushService({ stateDir });
+    push.subscribe(fake.subscription, { input: false, done: "off" });
+    push.subscribe(fake.subscription);
+    const stored = JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8")) as Array<{ alerts?: AlertPrefs }>;
+    expect(stored[0]!.alerts).toEqual({ input: false, done: "off" });
+    const restarted = createPushService({ stateDir, timing: { short: 0, long: 0, longTurn: 0 } });
+    restarted.seed([pane("w1:p1", "working", "claude")]);
+    await restarted.onStatus("w1:p1", "blocked");
+    await restarted.settled();
+    expect(fake.received).toHaveLength(0);
   });
 });
