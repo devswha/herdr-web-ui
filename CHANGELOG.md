@@ -44,11 +44,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Tapping the terminal no longer raises the keyboard; the ⌨ key on the key bar switches to typing
   straight into it, remembered per device. Desktops are unchanged.
 
-### Fixed
-- An agent's chat said "No conversation yet" until its first answer arrived, seconds on a remote PC.
-  It now says it is loading.
-
 ### Changed
+- Remote PCs use the `remote-v5` runtime, which carries this release's server side to them: the
+  context left and failed calls in their chats, images and whole tool outputs, skills in the menu,
+  questions read in a narrow pane, and the terminal's input line. A connected PC's bridge updates
+  itself as for `remote-v3`.
 - Alerts wait before they go out, and a change of the pane meanwhile calls them off: a question
   answered at the PC within 10 seconds, or a finish followed by the next prompt within a minute,
   never buzzes the phone. A finish is told only after a turn that worked a minute or more, since a
@@ -58,6 +58,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   terminal follows the finish choice.
 
 ### Fixed
+- An agent's chat said "No conversation yet" until its first answer arrived, seconds on a remote PC.
+  It now says it is loading.
 - A Claude question never showed as a card in the chat when its pane was narrow (a phone, a split):
   the hint under the menu wraps (`… Esc to` / `cancel`), and it was looked for on one line. Hints
   are now read across the wrap, in every agent's menus, and so is the check that a menu is still
