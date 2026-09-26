@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- Remote PCs use the `remote-v4` runtime, which carries the fix below to the remote side: an omo
+  or gjc pane that finished keeps reading DONE after the bridge restarts. A connected PC's bridge
+  updates itself as for `remote-v3`.
+
 ### Fixed
 - An omo or gjc pane that had finished read READY again after this server restarted (an update
   does): what this server adds to herdr's own `done` lived in memory. It is now kept in
