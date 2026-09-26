@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Quick replies: one-tap messages above the chat's message box (`continue`, `yes`, `no`,
+  `commit and push`, `retry` to start with). Each is sent as if typed: queued while the agent works,
+  taken as the answer when a question is open, and a draft in the box stays. **Settings → Quick
+  replies** edits the list on each device; the ⚡ button beside the paperclip hides or shows the row.
+
 ### Changed
 - Alerts wait before they go out, and a change of the pane meanwhile calls them off: a question
   answered at the PC within 10 seconds, or a finish followed by the next prompt within a minute,

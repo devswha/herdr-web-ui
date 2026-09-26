@@ -176,3 +176,22 @@
     transition: none;
   }
 }
+
+.quick-replies-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quick-replies-list li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.quick-replies-list .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}

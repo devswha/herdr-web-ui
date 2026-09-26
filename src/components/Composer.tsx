@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
+import { Clock, FileText, Paperclip, SendHorizontal, Square, X, Zap } from "lucide-react";
 
 import "./Composer.css";
 
@@ -25,7 +25,7 @@ import {
   rankSlashCommands,
 } from "../lib/compose.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
-import { useSettings } from "../lib/settings.ts";
+import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import { modKeyLabel } from "../lib/shortcuts.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { useT } from "../lib/i18n.ts";
@@ -55,6 +55,12 @@ const COMMAND_CACHE_MS = 60_000;
 const SLASH_USAGE_KEY = "herdr-web-ui:slash-usage";
 /** One height for every pane on this device: it is the screen, not the conversation, that decides it. */
 const COMPOSER_HEIGHT_KEY = "herdr-web-ui:composer-height";
+/** whether the quick replies row shows, one choice for every pane on this device */
+const QUICK_OPEN_KEY = "herdr-web-ui:quick-replies-open";
+
+function storedQuickOpen(): boolean {
+  try { return window.localStorage.getItem(QUICK_OPEN_KEY) !== "0"; } catch { return true; }
+}
 const COMPOSER_HEIGHT_MAX = 480;
 const COMPOSER_HEIGHT_STEP = 24;
 /** How far a press on the grip must travel to become a resize: a tap or a resting finger sets nothing. */
@@ -170,6 +176,8 @@ export function Composer({
   const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(storedQuickOpen);
+  const quickReplies = quickReplyButtons(settings);
   const [manualHeight, setManualHeight] = useState<number | null>(readComposerHeight);
   /** the box's rendered height, for the grip to announce while the height is automatic */
   const [autoHeight, setAutoHeight] = useState(0);
@@ -476,6 +484,26 @@ export function Composer({
     void result.then(settle).finally(() => { if (mounted.current) setSending(false); });
   }, [attachments, connected, onSend, sending, text, uploading]);
 
+  /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
+  const sendQuick = useCallback((reply: string) => {
+    if (!connected || sending) return;
+    setNote(null);
+    const settle = (result: boolean | string): void => {
+      if (mounted.current && typeof result === "string") setNote(result);
+    };
+    const result = onSend(reply);
+    if (!(result instanceof Promise)) { settle(result); return; }
+    setSending(true);
+    void result.then(settle).finally(() => { if (mounted.current) setSending(false); });
+  }, [connected, onSend, sending]);
+
+  const toggleQuick = useCallback(() => {
+    setQuickOpen((open) => {
+      try { window.localStorage.setItem(QUICK_OPEN_KEY, open ? "0" : "1"); } catch { /* private mode: the choice lasts this page */ }
+      return !open;
+    });
+  }, []);
+
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
@@ -562,6 +590,23 @@ export function Composer({
           {!settings.enterSends && <> <kbd className="kbd">{modKeyLabel()}+Enter</kbd> {t("sends")}</>}
         </span>
       </div>
+
+      {quickOpen && quickReplies.length > 0 && (
+        <div className="composer-quick" role="group" aria-label={t("Quick replies")}>
+          {quickReplies.map((reply, index) => (
+            <button
+              key={`${index}:${reply}`}
+              type="button"
+              className="composer-quick-reply"
+              title={t("Send “{reply}”", { reply })}
+              disabled={!connected || sending}
+              onClick={() => sendQuick(reply)}
+            >
+              {reply}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div
         className={`composer-surface${dragging ? " is-dragging" : ""}`}
@@ -710,6 +755,18 @@ export function Composer({
           >
             <Paperclip aria-hidden="true" />
           </button>
+          {quickReplies.length > 0 && (
+            <button
+              type="button"
+              className="icon-button composer-quick-toggle"
+              aria-label={t(quickOpen ? "Hide quick replies" : "Show quick replies")}
+              aria-pressed={quickOpen}
+              title={t(quickOpen ? "Hide quick replies" : "Show quick replies")}
+              onClick={toggleQuick}
+            >
+              <Zap aria-hidden="true" />
+            </button>
+          )}
         </div>
         <div className="composer-controls composer-controls-right">
           {queueMode && (

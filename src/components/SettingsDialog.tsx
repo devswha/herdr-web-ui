@@ -6,7 +6,7 @@ import "./SettingsDialog.css";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys } from "../lib/shortcuts.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, useSettings } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, useSettings } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, useT, type LanguageSetting } from "../lib/i18n.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
@@ -166,6 +166,34 @@ export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogP
                   </button>
                 ))}
               </div>
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <h3>{t("Quick replies")}</h3>
+            <p className="settings-description">{t("One-tap messages above the message box, on this device. Each is sent as if typed: queued while the agent works, an answer when a question is open.")}</p>
+            <ol className="quick-replies-list">
+              {settings.quickReplies.map((reply, index) => (
+                <li key={index}>
+                  <input
+                    className="input"
+                    value={reply}
+                    maxLength={QUICK_REPLY_MAX_CHARS}
+                    aria-label={t("Quick reply {number}", { number: index + 1 })}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    onChange={(event) => update({ quickReplies: settings.quickReplies.map((current, at) => at === index ? event.target.value : current) })}
+                  />
+                  <button type="button" className="icon-button" aria-label={t("Remove quick reply {number}", { number: index + 1 })} onClick={() => update({ quickReplies: settings.quickReplies.filter((_, at) => at !== index) })}>
+                    <X aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ol>
+            <div className="phone-actions">
+              <button type="button" className="btn" disabled={settings.quickReplies.length >= QUICK_REPLIES_MAX} onClick={() => update({ quickReplies: [...settings.quickReplies, ""] })}><Plus aria-hidden="true" />{t("Add reply")}</button>
+              <button type="button" className="btn btn-ghost" onClick={() => update({ quickReplies: [...DEFAULT_SETTINGS.quickReplies] })}>{t("Restore defaults")}</button>
             </div>
           </section>
 
