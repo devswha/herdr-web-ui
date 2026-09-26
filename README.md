@@ -33,7 +33,7 @@
 
 - **Nothing in between.** Claude Code, Codex, omp, omo, gjc and the rest keep running in herdr exactly as you start them. There is no wrapper command, no second daemon and no account. herdr owns the sessions; this app reads herdr's socket and attaches to its terminals.
 - **Chat and terminal, one pane.** Read the agent's own transcript as a chat, with its work folded per turn and its todo list pinned below. Flip to the real terminal for full-screen TUIs and raw keys.
-- **Answer from anywhere.** Approval, question and plan menus show up as cards you answer with one tap. Push alerts tell you when an agent needs you or finishes, and stay quiet when you already answered at the PC.
+- **Answer from anywhere.** Approval, question and plan menus show up as cards you answer with one tap, and your own quick replies (`continue`, `commit and push`, …) sit above the message box. Push alerts tell you when an agent needs you or finishes, and stay quiet when you already answered at the PC.
 - **Built for the phone.** It installs as an app, with a terminal key bar, touch scrolling of herdr's history, file and image attachments, and agent panes that open in the chat.
 - **Every machine, one sidebar.** Add Linux and macOS PCs over SSH. Their agents join the list with the same chat, terminal and alerts.
 - **Yours only.** It runs on your machine and listens on `127.0.0.1` by default. It sends nothing anywhere except GitHub (for its own updates) and your browser's push service.

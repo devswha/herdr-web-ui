@@ -466,4 +466,13 @@ export const KO: Record<string, string> = {
   "Off": "끄기",
   "Long turns": "긴 작업",
   "Every turn": "매번",
+  "Quick replies": "빠른 답장",
+  "One-tap messages above the message box, on this device. Each is sent as if typed: queued while the agent works, an answer when a question is open.": "메시지 입력창 위에 놓이는 한 번 탭 메시지로, 이 기기에 적용됩니다. 직접 입력한 것처럼 보내므로 에이전트가 작업 중이면 대기열에 들어가고, 질문이 열려 있으면 답으로 쓰입니다.",
+  "Quick reply {number}": "빠른 답장 {number}",
+  "Remove quick reply {number}": "빠른 답장 {number} 삭제",
+  "Add reply": "답장 추가",
+  "Send “{reply}”": "“{reply}” 보내기",
+  "Hide quick replies": "빠른 답장 숨기기",
+  "Show quick replies": "빠른 답장 보기",
+  "Restore defaults": "기본값으로 되돌리기",
 };

@@ -30,6 +30,8 @@ export interface Settings {
   alertInput: boolean;
   /** alert this device when a turn finishes: never, after a long one, or every one */
   alertDone: DoneAlerts;
+  /** one-tap replies above the composer, in order; blank ones are kept while being typed, never shown */
+  quickReplies: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -42,7 +44,16 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "system",
   alertInput: true,
   alertDone: "long",
+  quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
 };
+
+export const QUICK_REPLIES_MAX = 12;
+export const QUICK_REPLY_MAX_CHARS = 200;
+
+/** The replies worth a button: what the list holds, without the blank ones still being written. */
+export function quickReplyButtons(settings: Settings): string[] {
+  return settings.quickReplies.filter((reply) => reply.trim() !== "");
+}
 
 /** This device's alert choices, as the server keeps them with its push subscription. */
 export function alertPrefs(settings: Settings): AlertPrefs {
@@ -86,6 +97,10 @@ export function sanitizeSettings(raw: unknown): Settings {
     language: record["language"] === "en" || record["language"] === "ko" || record["language"] === "system" ? record["language"] : DEFAULT_SETTINGS.language,
     alertInput: typeof record["alertInput"] === "boolean" ? record["alertInput"] : DEFAULT_SETTINGS.alertInput,
     alertDone: record["alertDone"] === "off" || record["alertDone"] === "long" || record["alertDone"] === "always" ? record["alertDone"] : DEFAULT_SETTINGS.alertDone,
+    // kept as typed (a trailing space is the next word being started), only bounded
+    quickReplies: Array.isArray(record["quickReplies"])
+      ? record["quickReplies"].filter((reply): reply is string => typeof reply === "string").slice(0, QUICK_REPLIES_MAX).map((reply) => reply.slice(0, QUICK_REPLY_MAX_CHARS))
+      : [...DEFAULT_SETTINGS.quickReplies],
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, sanitizeSettings } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings } from "./settings.ts";
 
 describe("chat font size", () => {
   it("follows the density until one is chosen, and keeps a chosen one within bounds", () => {
@@ -20,5 +20,21 @@ describe("alert choices", () => {
     expect(alertPrefs(DEFAULT_SETTINGS)).toEqual({ input: true, done: "long" });
     expect(alertPrefs(sanitizeSettings({ alertInput: false, alertDone: "always" }))).toEqual({ input: false, done: "always" });
     expect(alertPrefs(sanitizeSettings({ alertInput: "no", alertDone: "sometimes" }))).toEqual({ input: true, done: "long" });
+  });
+});
+
+describe("quick replies", () => {
+  it("keep replies as typed, bounded, and show only the ones with something to send", () => {
+    expect(quickReplyButtons(DEFAULT_SETTINGS)).toEqual(["continue", "yes", "no", "commit and push", "retry"]);
+    // a trailing space is the next word being typed: it stays
+    const typed = sanitizeSettings({ quickReplies: ["run the ", "", "  ", 7, "ship it"] });
+    expect(typed.quickReplies).toEqual(["run the ", "", "  ", "ship it"]);
+    expect(quickReplyButtons(typed)).toEqual(["run the ", "ship it"]);
+    const many = sanitizeSettings({ quickReplies: Array.from({ length: 20 }, (_, index) => "x".repeat(300) + index) });
+    expect(many.quickReplies).toHaveLength(QUICK_REPLIES_MAX);
+    expect(many.quickReplies.every((reply) => reply.length === QUICK_REPLY_MAX_CHARS)).toBe(true);
+    // an emptied list is a choice, not a broken record
+    expect(sanitizeSettings({ quickReplies: [] }).quickReplies).toEqual([]);
+    expect(sanitizeSettings({}).quickReplies).toEqual(DEFAULT_SETTINGS.quickReplies);
   });
 });

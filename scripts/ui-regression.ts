@@ -95,6 +95,30 @@ try {
   await page.locator(".composer-queue-text").waitFor({ state: "hidden" });
   console.log("PASS queue held through status changes and explicitly sent to its owner");
 
+  // a quick reply goes out as typed, and leaves a draft in the box alone; the row is hidden until asked for
+  assert.equal(await page.locator(".composer-quick").count(), 0);
+  await page.getByRole("button", { name: "Show quick replies", exact: true }).click();
+  await composer.fill("draft stays");
+  const quickCount = inputs.length;
+  await page.getByRole("group", { name: "Quick replies", exact: true }).getByRole("button", { name: "continue", exact: true }).click();
+  await until(() => inputs.length > quickCount, "quick reply send");
+  assert.equal(inputs.at(-1)?.pane_id, paneA);
+  assert.match(inputs.at(-1)!.text, /^continue/);
+  assert.equal(await composer.inputValue(), "draft stays");
+  // mid-turn it is held like a typed message
+  await report("working");
+  await page.locator('.composer-status[data-status="working"]').waitFor();
+  await page.getByRole("group", { name: "Quick replies", exact: true }).getByRole("button", { name: "retry", exact: true }).click();
+  assert.equal(await page.locator(".composer-queue-text").inputValue(), "retry");
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page.getByRole("button", { name: "Hide quick replies", exact: true }).click();
+  assert.equal(await page.locator(".composer-quick").count(), 0);
+  await composer.fill("");
+  await report("idle");
+  // idle after work reads DONE (server/completion.ts)
+  await page.locator('.composer-status:not([data-status="working"])').waitFor();
+  console.log("PASS quick replies send as typed, queue mid-turn, and leave the draft");
+
   const selectPane = async (paneId: string) => {
     await page.locator(`.pane-select[title^="${paneId} —"]`).click();
     await page.getByRole("log", { name: `conversation of ${paneId}`, exact: true }).waitFor();
