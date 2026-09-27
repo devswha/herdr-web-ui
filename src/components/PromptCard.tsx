@@ -111,7 +111,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
             if (event.key === "Enter" && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
           }} />
           <button type="button" className="btn btn-primary" disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
-            <Send aria-hidden="true" /> Send
+            <Send aria-hidden="true" /> {t("Send")}
           </button>
         </div>
       )}
