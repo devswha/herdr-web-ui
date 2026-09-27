@@ -100,6 +100,8 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
 - **Integration and browser**: checksum-pinned herdr 0.9.1, Node 22, isolated state/session,
   `bun run test:integration`, and `scripts/ui-regression.ts` with the lockfile's Chromium.
   Missing herdr fails the integration suite. The owned session is stopped even on failure.
+  Integration tests have a 15-second default timeout so their bounded process-startup
+  probes can finish; individual tests can still specify a longer timeout.
 
 `scripts/ci-tests.ts` discovers all `.test.ts` files under src/shared/server/scripts.
 Files named `*.contract.test.ts`, tests under `server/herdr/` and `server/pty/`, and

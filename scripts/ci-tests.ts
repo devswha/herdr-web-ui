@@ -13,7 +13,8 @@ if (suite === "integration" && process.env["HERDR_TEST_LIVE"] === "1") {
   throw new Error("CI integration tests must use an isolated herdr session");
 }
 console.log(`${suite}: ${selected.length} test files`);
-const child = Bun.spawn([process.execPath, "test", ...selected.map((file) => `./${file}`)], {
+// Live process/pane probes can poll for 10s; Bun's 5s default would cut them off early.
+const child = Bun.spawn([process.execPath, "test", ...(suite === "integration" ? ["--timeout", "15000"] : []), ...selected.map((file) => `./${file}`)], {
   env: { ...process.env, HERDR_TEST_MODE: suite },
   stdin: "inherit", stdout: "inherit", stderr: "inherit",
 });
