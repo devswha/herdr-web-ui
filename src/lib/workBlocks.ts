@@ -1,5 +1,6 @@
 import type { ConversationPart } from "../../shared/protocol.ts";
 import { turnSkills } from "./skillActivity.ts";
+import { isTodoTool } from "./todos.ts";
 import { t } from "./i18n.ts";
 
 export type ToolPart = Extract<ConversationPart, { kind: "tool" }>;
@@ -53,7 +54,8 @@ export function workSummary(parts: readonly ConversationPart[]): string {
   let failed = 0;
   for (const part of parts) {
     if (part.kind !== "tool") continue;
-    if (!part.skill) counts[categorize(part.name)] += 1;
+    // a todo update is the plan, pinned under the chat, not an edit: TodoWrite would match /write/
+    if (!part.skill && !isTodoTool(part.name)) counts[categorize(part.name)] += 1;
     if (part.error) failed += 1;
   }
   // a failure says so in the folded header: it is what a glance at a finished turn must not miss
