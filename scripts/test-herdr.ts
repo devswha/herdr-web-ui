@@ -34,6 +34,8 @@ async function answers(socket: string): Promise<boolean> {
 
 /** Point this process (and what it spawns) at the test session, starting its server if needed. */
 export async function useTestHerdr(): Promise<string | null> {
+  // Unit tests must not discover or start herdr, even on a developer's PC.
+  if (process.env["HERDR_TEST_MODE"] === "unit") return null;
   if (process.env["HERDR_TEST_LIVE"] === "1") return null;
   const herdr = herdrBinary();
   if (!herdr) return null;

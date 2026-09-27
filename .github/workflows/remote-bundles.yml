@@ -1,12 +1,26 @@
 name: Remote PC bundles
 on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'shared/**'
+      - 'scripts/build-remote-bundle.ts'
+      - 'scripts/remote-bundle-smoke.ts'
+      - 'scripts/ssh-*.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/remote-bundles.yml'
   workflow_dispatch:
   push:
     tags: ['remote-v*']
 permissions:
   contents: read
+concurrency:
+  group: remote-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   bundle:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +43,7 @@ jobs:
           name: remote-${{ matrix.os }}
           path: remote-bundles/*
   ssh:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

@@ -70,13 +70,60 @@ after changing the staged session. Files, images, push and remote PCs are not pa
 
 ## Releasing
 
-1. Bump `version` in `package.json` and `herdr-plugin.toml`.
-2. Move the `Unreleased` notes in [CHANGELOG.md](../CHANGELOG.md) under the new version.
-3. Commit, then push `main` together with a `vX.Y.Z` tag: `git push origin main vX.Y.Z`.
+1. Open a release PR that bumps `version` in `package.json` and `herdr-plugin.toml`,
+   and moves the `Unreleased` notes in [CHANGELOG.md](../CHANGELOG.md) under the new version.
+2. Merge it after CI passes.
+3. Run **Actions → Release → Run workflow**, select `main`, and enter `X.Y.Z` without `v`.
+   The CLI equivalent is `gh workflow run release.yml --ref main -f version=X.Y.Z`.
 
-The release workflow checks that the three versions agree, builds, tests and publishes the GitHub release. Installs pick it up within five minutes.
+The workflow validates metadata, then runs the same unit, integration and browser checks
+as PRs against the exact `main` commit selected when the run starts. Only after all checks
+pass does it create the tag and GitHub release. A failed validation creates neither.
+Do not push release tags by hand: installed updaters read Git tags directly, so a tag is
+visible to them even without a GitHub release. Existing tags cannot be reused; fix a
+published version with a new patch release. If publishing fails after a tag was created,
+verify that tag's commit and repair its GitHub release rather than moving the tag.
 
 Remote-PC runtime bundles are released separately: raise `REMOTE_BUNDLE_VERSION` in `shared/machines.ts` and push a `remote-vN` tag. See [remote PCs](remote-pcs.md).
+
+## Pull requests and CI
+
+Use short-lived `feat/*`, `fix/*` or `chore/*` branches from `main`. Keep each PR focused
+on one change, squash merge it after required checks pass, and delete its remote branch
+after merging. Remove local branches/worktrees only when their work is finished.
+There is no permanent `develop` branch. Release metadata changes also go through a PR.
+
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
+
+- **Fast checks**: frozen dependency install, generated type freshness, typecheck, build,
+  and `bun run test:unit`. This suite does not start herdr.
+- **Integration and browser**: checksum-pinned herdr 0.9.1, Node 22, isolated state/session,
+  `bun run test:integration`, and `scripts/ui-regression.ts` with the lockfile's Chromium.
+  Missing herdr fails the integration suite. The owned session is stopped even on failure.
+
+`scripts/ci-tests.ts` discovers all `.test.ts` files under src/shared/server/scripts.
+Files named `*.contract.test.ts`, plus tests under `server/herdr/` and `server/pty/`,
+belong to integration; everything else belongs to unit. Name new live-server tests
+`*.contract.test.ts`. Plain `bun test` still runs both suites for local development.
+
+Remote/server/shared/dependency changes also run the existing four-platform bundle and
+SSH workflow on PRs; its publishing job only runs for `remote-v*` tags. Website publishing
+continues after `main` pushes.
+
+Repository protection should require PRs and both CI checks on `main`, including for
+administrators, with branches up to date before merging. Force pushes and branch deletion
+are disabled. Human approvals are optional for this maintainer-led project; external
+contributions still need maintainer review. CodeRabbit is advisory, not a required check.
+Release tags must not be moved or deleted. These GitHub settings are separate from files
+in the checkout.
+
+The [CodeRabbit configuration](../.coderabbit.yaml) reviews non-draft PRs, reads the committed
+[review guidelines](../.github/REVIEW.md) and any available AGENTS.md,
+and focuses on protocol, permissions and terminal lifecycle regressions. Generated output
+and media are excluded. Enable the [CodeRabbit GitHub App](https://github.com/apps/coderabbitai)
+for this repository to activate it; the YAML alone does not install the app. Reassess
+useful findings versus false positives after two weeks. Keep final merge decisions with
+the maintainer.
 
 ## Layout
 
