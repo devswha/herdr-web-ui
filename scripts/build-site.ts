@@ -2,19 +2,27 @@
  * Assembles the website into _site/ for GitHub Pages (.github/workflows/pages.yml) and for a local
  * look (`bun run build:site`, then serve _site/ under /herdr-web-ui/).
  *
- * The page is site/index.html. Everything it shows is copied from the repository, except the two
- * demo videos: they are not committed (docs/development.md, "README media"), so a build uses the
- * local docs/screenshots/*.mp4 when they exist and otherwise downloads the uploads the README links
- * under "Watch the demos in HD", desktop first, then phone. Poster frames are cut from the videos
- * with ffmpeg when it is installed (the workflow installs it); without it the page drops the
- * poster attributes and the stills stay full size.
+ * The page is site/index.html, and everything it shows is committed (site/assets/, site/media/, below).
+ * The build still publishes the two README demo videos and the README stills under media/ and assets/
+ * (earlier versions of the page linked them, so those addresses keep working), and fetching the videos
+ * is what checks that the README still links them: they are not committed (docs/development.md,
+ * "README media"), so a build uses the local docs/screenshots/*.mp4 when they exist and otherwise
+ * downloads the uploads the README links under "Watch the demos in HD", desktop first, then phone.
+ * Poster frames are cut with ffmpeg when it is installed (the workflow installs it); without it the
+ * stills stay full size and posters that could not be made are dropped from the page.
  *
  * demo/ is the app itself, built by Vite with relative asset paths into demo/app/, loaded behind
  * site/demo/transport.ts (bundled to demo-transport.js and injected before the app's scripts) so it
  * runs on the fixtures in site/demo/ instead of a server; site/demo/index.html frames it with a
  * banner. Building it needs node_modules (`bun install`).
+ *
+ * site/assets/ (stills, logo marks, grain) and site/media/ (the film and the hero loop, with their
+ * posters) are committed already optimised and copied whole. The page names the media files whether
+ * or not they are there yet: a missing poster is cut from its video when ffmpeg can, and a file that
+ * is still missing has its src/data-src/poster dropped from the built page, so it requests nothing
+ * dead and shows the still laid under every video instead.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,6 +71,20 @@ async function run(cmd: string[]): Promise<boolean> {
   return code === 0;
 }
 
+// size guard, before anything is removed: the page's media and stills are committed, so they must stay small
+const MB = 1024 * 1024;
+const caps: Record<string, (file: string) => number> = {
+  "site/media": (file) => (file === "herdr-web-ui-film.mp4" ? 24 : 4) * MB,
+  "site/assets": () => 0.75 * MB,
+};
+for (const [dir, cap] of Object.entries(caps)) {
+  const from = join(root, dir);
+  for (const file of existsSync(from) ? readdirSync(from, { recursive: true, encoding: "utf8" }) : []) {
+    const stat = statSync(join(from, file));
+    if (stat.isFile() && stat.size > cap(file)) throw new Error(`${dir}/${file} is ${(stat.size / MB).toFixed(2)} MB, over its ${cap(file) / MB} MB cap`);
+  }
+}
+
 rmSync(out, { recursive: true, force: true });
 for (const [from, to] of copies) {
   const target = join(out, to);
@@ -70,6 +92,12 @@ for (const [from, to] of copies) {
   copyFileSync(join(root, from), target);
 }
 writeFileSync(join(out, ".nojekyll"), "");
+
+// committed page assets and media, copied as they are
+for (const dir of ["assets", "media"]) {
+  const from = join(root, "site", dir);
+  if (existsSync(from)) cpSync(from, join(out, dir), { recursive: true });
+}
 
 const hasFfmpeg = Bun.which("ffmpeg") !== null;
 for (const still of stills) {
@@ -99,6 +127,21 @@ for (const [index, video] of videos.entries()) {
     writeFileSync(page, readFileSync(page, "utf8").replace(` poster="media/${video.poster}"`, ""));
   }
 }
+
+// the page's own media: cut a missing poster from its video, then unlink whatever is still missing
+const pageMedia = ["herdr-web-ui-film", "chat-loop"];
+let page = readFileSync(join(out, "index.html"), "utf8");
+for (const name of pageMedia) {
+  const video = join(out, "media", `${name}.mp4`);
+  const poster = join(out, "media", `${name}.jpg`);
+  if (existsSync(video) && !existsSync(poster) && hasFfmpeg) await run(["ffmpeg", "-v", "error", "-y", "-i", video, "-frames:v", "1", "-q:v", "3", poster]);
+  for (const [file, attrs] of [[video, "src|data-src"], [poster, "poster|data-poster"]] as const) {
+    if (existsSync(file)) continue;
+    console.warn(`site/media/${file.split("/").pop()} is missing: the page shows its still instead`);
+    page = page.replace(new RegExp(` (?:${attrs})="media/${file.split("/").pop()!.replace(".", "\\.")}"`, "g"), "");
+  }
+}
+writeFileSync(join(out, "index.html"), page);
 
 // the demo: the real client, relative paths, the transport in front of it
 const demoApp = join(out, "demo", "app");
