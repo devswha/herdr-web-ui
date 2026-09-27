@@ -85,6 +85,11 @@ function resumedIds(argv: string[]): string[] {
 /** Same-cwd peers are inspected even when herdr calls omo's SDK child `claude`. */
 export async function omoTranscriptForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<string | null> {
   const runtimes: OmoRuntime[] = [];
+  // Only an open file in the session store is evidence: omo also holds its background
+  // tasks' logs (<cwd>/.omo/senpi-task/logs/*.jsonl) open, and one of those pinned the
+  // pane to a path no candidate matches, so the chat lost the transcript mid-session.
+  let store = join(home, ".omo", "agent", "sessions");
+  try { store = realpathSync(store); } catch { /* no store yet: no descriptor can be in it */ }
   await Promise.all(panes.filter((pane) => pane.cwd === cwd).map(async (pane) => {
     const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: pane.pane_id }).catch(() => null);
     if (!info?.process_info?.foreground_processes) { runtimes.push({ paneId: pane.pane_id, startedAt: null, paths: [], ids: [] }); return; }
@@ -100,7 +105,7 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
       for (const descriptor of descriptors) {
         try {
           const path = readlinkSync(`/proc/${process.pid}/fd/${descriptor}`);
-          if (path.endsWith(".jsonl")) paths.push(path);
+          if (path.endsWith(".jsonl") && path.startsWith(store + sep)) paths.push(path);
         } catch { /* descriptor closed */ }
       }
     }
