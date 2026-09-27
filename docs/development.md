@@ -102,8 +102,9 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
   Missing herdr fails the integration suite. The owned session is stopped even on failure.
 
 `scripts/ci-tests.ts` discovers all `.test.ts` files under src/shared/server/scripts.
-Files named `*.contract.test.ts`, plus tests under `server/herdr/` and `server/pty/`,
-belong to integration; everything else belongs to unit. Name new live-server tests
+Files named `*.contract.test.ts`, tests under `server/herdr/` and `server/pty/`, and
+`server/updater.test.ts` (which includes real bridge restart/rollback cases) belong
+to integration; everything else belongs to unit. Name new live-server tests
 `*.contract.test.ts`. Plain `bun test` still runs both suites for local development.
 
 Remote/server/shared/dependency changes also run the existing four-platform bundle and

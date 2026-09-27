@@ -63,7 +63,11 @@ jobs:
           echo "$RUNNER_TEMP/herdr-bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - run: bun run test:integration
+      - name: Integration tests including updater restart and rollback
+        run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name CI
+          bun run test:integration
       - name: Install the lockfile's Playwright Chromium
         run: |
           bun node_modules/playwright-core/cli.js install --with-deps chromium
