@@ -694,14 +694,14 @@ export function PaneTerminal({
             <span className="draft-label">{t("input held while disconnected:")}</span>
             <code className="draft-text">{draft.text.length > 0 ? draft.text : "—"}</code>
             {draft.droppedSpecial > 0 && (
-              <span className="draft-dropped">{draft.droppedSpecial} special key{draft.droppedSpecial === 1 ? "" : "s"} dropped</span>
+              <span className="draft-dropped">{t(draft.droppedSpecial === 1 ? "{count} special key dropped" : "{count} special keys dropped", { count: draft.droppedSpecial })}</span>
             )}
             <span className="draft-actions">
               <button type="button" className="draft-send" disabled={draft.text.length === 0 || observing} onClick={sendDraft}>
-                Send
+                {t("Send")}
               </button>
               <button type="button" className="draft-discard" onClick={discardDraft}>
-                Discard
+                {t("Discard")}
               </button>
             </span>
           </div>
@@ -764,10 +764,10 @@ export function PaneTerminal({
                   .finally(() => setQueueSending(false));
               }}
             >
-              Send now
+              {t("Send now")}
             </button>
             <button type="button" className="composer-queue-discard" onClick={() => setQueued(null)}>
-              Discard
+              {t("Discard")}
             </button>
           </span>
         </div>

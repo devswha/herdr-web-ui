@@ -208,7 +208,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
       {!embedded && <div className="sidebar-topbar">
         <button type="button" className="btn sidebar-new-session" onClick={actions.openNewSession}>
           <Plus aria-hidden="true" />
-          New session
+          {t("New session")}
         </button>
       </div>}
 
@@ -352,12 +352,12 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
         {canInstall && (
           <button type="button" className="btn btn-ghost sidebar-footer-action" onClick={() => void install().catch((reason: unknown) => noteError(reason instanceof Error ? reason.message : String(reason)))}>
             <Download aria-hidden="true" />
-            Install app
+            {t("Install app")}
           </button>
         )}
         <button type="button" className="btn btn-ghost sidebar-footer-action" onClick={actions.openSettings}>
           <Settings aria-hidden="true" />
-          Settings
+          {t("Settings")}
         </button>
         <div className="sidebar-brandline">
           <span className="sidebar-app-name">herdr web ui</span>

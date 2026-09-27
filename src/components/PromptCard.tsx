@@ -102,7 +102,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       </div>
       {prompt.multi_select && (
         <button type="button" className="btn btn-primary prompt-card-submit" disabled={pending || selected.size === 0} onClick={() => void answer({ option_indices: [...selected].sort((a, b) => a - b) })}>
-          Submit
+          {t("Submit")}
         </button>
       )}
       {prompt.custom_option_index !== null && (

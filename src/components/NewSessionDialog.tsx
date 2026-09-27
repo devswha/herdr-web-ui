@@ -149,7 +149,7 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
               <input id="new-session-cwd" className="input" value={cwd} disabled={fieldsDisabled} autoComplete="off" onChange={(event) => setCwd(event.target.value)} />
               <button type="button" className="btn" aria-expanded={browsing} disabled={fieldsDisabled} onClick={() => setBrowsing((open) => !open)}>
                 <FolderOpen aria-hidden="true" />
-                Browse
+                {t("Browse")}
               </button>
             </div>
             {browsing && <DirectoryBrowser start={cwd} onPick={(picked) => { setCwd(picked); setBrowsing(false); }} />}

@@ -85,6 +85,12 @@ export function KeyBar({ onKey, ctrlArmed, onToggleCtrl, directTyping, onToggleD
   const t = useT();
   return (
     <div className="key-bar" role="group" aria-label={t("Terminal keys")}>
+      {/* first: on a narrow cover screen the row scrolls, and the mode toggle must not be the key cut off */}
+      {onToggleDirect && (
+        <Key dataKey="direct" label={t("Type straight into the terminal")} pressed={directTyping} onPress={onToggleDirect}>
+          <Keyboard aria-hidden="true" />
+        </Key>
+      )}
       <Key dataKey="Escape" onPress={() => onKey("Escape")}>
         Esc
       </Key>
@@ -102,11 +108,6 @@ export function KeyBar({ onKey, ctrlArmed, onToggleCtrl, directTyping, onToggleD
       <Key dataKey="ctrl-c" label={t("Control C")} onPress={() => onKey("ctrl-c")}>
         ^C
       </Key>
-      {onToggleDirect && (
-        <Key dataKey="direct" label={t("Type straight into the terminal")} pressed={directTyping} onPress={onToggleDirect}>
-          <Keyboard aria-hidden="true" />
-        </Key>
-      )}
     </div>
   );
 }

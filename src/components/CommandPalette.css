@@ -128,3 +128,8 @@
     padding-top: var(--space-4);
   }
 }
+
+/* a phone-width screen is touched, not typed on: the key hints only take the row's room */
+@media (max-width: 480px) {
+  .palette-shortcut { display: none; }
+}
