@@ -62,6 +62,7 @@ const flag = (name: string): boolean => args.includes("--" + name);
 function serve(): { url: string; stop: () => void } {
   const server = Bun.serve({
     port: 0,
+    hostname: "127.0.0.1",
     async fetch(req) {
       const path = decodeURIComponent(new URL(req.url).pathname);
       if (path === "/") return new Response(STAGE_HTML, { headers: { "content-type": "text/html; charset=utf-8" } });
