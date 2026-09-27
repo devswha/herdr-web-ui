@@ -9,7 +9,8 @@ with the `drawtext` filter and the DejaVu Sans font; neither is needed to run
 the app. Maskable icons include extra padding for rounded and circular masks.
 
 The [social preview](../../public/social-preview.png) is 1280 × 640 PNG,
-under 1 MB. It is also the README banner. GitHub's repository preview is a
+under 1 MB. The README banner is `docs/media/banner.png` and the website's
+Open Graph image is `site/assets/og.png`, both from `scripts/readme-media/banner.ts`. GitHub's repository preview is a
 separate setting: open [repository settings](https://github.com/devswha/herdr-web-ui/settings),
 then **Social preview → Edit → Upload an image** and select that file.
 See [GitHub's instructions](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview).
