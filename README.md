@@ -1,12 +1,11 @@
 <p align="center">
-  <img src="public/social-preview.png" width="960" alt="herdr web ui — Your agents. Any screen. A ram with a terminal prompt, browser window and pointer.">
+  <a href="https://devswha.github.io/herdr-web-ui/"><img src="docs/media/banner.png" width="960" alt="herdr web ui: Your agents, in plain conversation. A Claude Code chat with its work folded and its plan pinned, beside a Codex approval card on a phone."></a>
 </p>
 
-<h1 align="center">herdr web ui</h1>
-
-<p align="center"><b>Your herdr agents, in a browser and on your phone.</b><br>Read them as a chat, drop into the live terminal, answer when they ask — from any screen.</p>
+<p align="center"><b>Your agents, in plain conversation.</b><br>herdr web ui reads Claude Code, Codex, omp, omo and gjc from their own transcripts and shows them as a chat you can read and answer, in a browser or on your phone.</p>
 
 <p align="center">
+  <a href="https://devswha.github.io/herdr-web-ui/#film">Film</a> ·
   <a href="https://devswha.github.io/herdr-web-ui/">Website</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#supported-agents">Agents</a> ·
@@ -25,16 +24,20 @@
   <img src="https://img.shields.io/badge/PWA-installable-93c36b" alt="Installable PWA">
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/demo-desktop.gif" width="880" alt="Demo: reading a Claude Code chat with its folded work, answering a Codex approval from the chat, typing into a live terminal, and jumping to a gjc pane from the command palette.">
-</p>
+```bash
+curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh
+```
+
+<p align="center"><sub>Linux (x64, arm64) or macOS · or <a href="https://devswha.github.io/herdr-web-ui/demo/">try it in your browser</a> first</sub></p>
+
+<p align="center"><a href="https://devswha.github.io/herdr-web-ui/#film"><img src="docs/media/chat-loop.gif" width="880" alt="The herdr web ui chat of a Claude Code pane: it keeps working with its plan pinned below while an earlier turn's work folds shut and opens again."></a><br><sub><a href="https://devswha.github.io/herdr-web-ui/#film"><b>▶︎ Watch the film</b></a> (0:56, the real app)</sub></p>
 
 [herdr](https://github.com/herdrdev/herdr) keeps your coding agents running in its terminals. herdr web ui is its browser and phone client: the same panes and the same live agents, whether you are at your desk, on the couch or on another continent.
 
-- **Nothing in between.** Claude Code, Codex, omp, omo, gjc and the rest keep running in herdr exactly as you start them. There is no wrapper command, no second daemon and no account. herdr owns the sessions; this app reads herdr's socket and attaches to its terminals.
 - **Chat and terminal, one pane.** Read the agent's own transcript as a chat, with its work folded per turn and its todo list pinned below. Flip to the real terminal for full-screen TUIs and raw keys.
 - **Answer from anywhere.** Approval, question and plan menus show up as cards you answer with one tap, and your own quick replies (`continue`, `commit and push`, …) sit above the message box. Push alerts tell you when an agent needs you or finishes, and stay quiet when you already answered at the PC.
 - **Built for the phone.** It installs as an app, with a terminal key bar, touch scrolling of herdr's history, file and image attachments, and agent panes that open in the chat.
+- **Nothing in between.** Claude Code, Codex, omp, omo, gjc and the rest keep running in herdr exactly as you start them. There is no wrapper command, no second daemon and no account. herdr owns the sessions; this app reads herdr's socket and attaches to its terminals.
 - **Every machine, one sidebar.** Add Linux and macOS PCs over SSH. Their agents join the list with the same chat, terminal and alerts.
 - **Yours only.** It runs on your machine and listens on `127.0.0.1` by default. It sends nothing anywhere except GitHub (for its own updates) and your browser's push service.
 - **Keeps itself current.** It installs releases in the background, health-checks the new build and rolls back if the check fails, without stopping herdr or your agents.
@@ -43,23 +46,23 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/desktop-chat.png" alt="Chat view of a Claude Code pane: the prompt, a folded &quot;Worked for 2m 36s&quot; block, and a Markdown answer with a code block and a link."></td>
-    <td width="50%"><img src="docs/screenshots/desktop-terminal.png" alt="Terminal view of a shell pane: git history and a passing bun test run in the live herdr terminal."></td>
+    <td colspan="2"><img src="docs/media/look-chat.png" alt="Chat view of a Claude Code pane: its &quot;Worked for 2m 36s&quot; block opened into Grep, Read, Edit, Write and Bash rows, above a Markdown answer with a code block and a link."></td>
   </tr>
   <tr>
-    <td align="center"><b>Chat</b>: the agent's own transcript, work folded per turn</td>
-    <td align="center"><b>Terminal</b>: the same pane, live, through <code>herdr terminal attach</code></td>
+    <td colspan="2" align="center"><b>Chat</b>: the agent's own transcript, each turn's work folded into one line you can open</td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/screenshots/desktop-prompt.png" alt="A Codex pane waiting for input: an &quot;Allow command?&quot; card for git push with its three options, answered from the chat."></td>
+    <td width="50%"><img src="docs/media/look-prompt.png" alt="A Codex pane waiting for input: an &quot;Allow command?&quot; card for git push with its three options, answered from the chat."></td>
+    <td width="50%"><img src="docs/media/look-terminal.png" alt="Terminal view of a shell pane: git history and a passing bun test run in the live herdr terminal."></td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><b>Answer prompts</b>: approvals and questions become cards, answered from the chat</td>
+    <td align="center"><b>Answer prompts</b>: approvals and questions become cards, answered from the chat</td>
+    <td align="center"><b>Terminal</b>: the same pane, live, through<br><code>herdr terminal attach</code></td>
   </tr>
 </table>
 
 <p align="center">
-  <img src="docs/screenshots/demo-mobile.gif" width="200" alt="Phone demo: scrolling a chat, opening the session list, approving a Codex command, the terminal with its key bar, and typing a message.">
+  <img src="docs/screenshots/demo-mobile.gif" width="219" alt="Phone demo: scrolling a chat, opening the session list, approving a Codex command, the terminal with its key bar, and typing a message.">
   <img src="docs/screenshots/mobile-chat.png" width="200" alt="Phone chat view of a Claude Code pane.">
   <img src="docs/screenshots/mobile-terminal.png" width="200" alt="Phone terminal view with the Esc, Tab, Ctrl, arrow and Ctrl+C key bar.">
   <img src="docs/screenshots/mobile-sessions.png" width="200" alt="Phone session list with Claude Code, Codex, gjc, omo and shell panes and their live status.">
