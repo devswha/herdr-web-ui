@@ -178,7 +178,7 @@ Other PCs over SSH are added from the web UI (**Add PC**), not by an install ste
 | `HERDR_WEB_AUTO_UPDATE` | `0` | `1` installs new versions automatically |
 | `HERDR_WEB_STATE_DIR` | `~/.config/herdr-web-ui` | Push keys, device subscriptions, PC registrations, update builds. Keep it across reinstalls. |
 
-The [README](README.md#configuration) lists the rest.
+The [user guide](docs/guide.md#configuration) lists the rest.
 
 ## Update
 

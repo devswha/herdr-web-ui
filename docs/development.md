@@ -46,14 +46,14 @@ Browser checks look for Chrome at `/opt/google/chrome/chrome`; set `CHROME_PATH`
 The MP4s are not committed: GitHub plays a README video only from an upload (`github.com/user-attachments/…`), so drop them into an issue or PR comment and use the link it gives.
 The website takes the same two uploads from the README, so a new recording needs only the README links changed.
 
-The README's top images are rendered from the film's stills (below): `bun scripts/readme-media/banner.ts [banner] [og] [look]`
+The user guide's gallery and the retained banner assets are rendered from the film's stills (below): `bun scripts/readme-media/banner.ts [banner] [og] [look]`
 draws `banner.html` in headless Chrome into `docs/media/banner.png` (1920×800), `site/assets/og.png` (1280×640) and
 `docs/media/look-{chat,prompt,terminal}.png` (1760×1150), each quantized to 256 colours. `docs/media/chat-loop.gif`
 comes from `scripts/film/render.ts loop`.
 
 ## The film
 
-The site's film (`site/media/herdr-web-ui-film.mp4`, 56 s) and hero loop (`site/media/chat-loop.mp4`, with the README's
+The film (`site/media/herdr-web-ui-film.mp4`, 56 s) and chat loop (`site/media/chat-loop.mp4`, with the README's
 `docs/media/chat-loop.gif`) are the real client on the demo's fixtures, recorded and composited by `scripts/film/`.
 Raw footage and renders go to `_film/` (gitignored); only the outputs under `site/media/`, `site/assets/` and
 `docs/media/` are committed. Needs ffmpeg and Chrome at `/usr/bin/google-chrome` (`CHROME_PATH` otherwise).
@@ -83,13 +83,15 @@ bun scripts/film/render.ts check                # acceptance frame grabs, sizes,
 
 ## Website
 
-<https://devswha.github.io/herdr-web-ui/> is `site/index.html`, a static page. `bun run build:site`
-assembles it into `_site/` with the icons, `site/assets/` (stills, logo marks, grain, `og.png`) and
-`site/media/` (the film and the hero loop with their posters; see "The film"), all committed already
-optimised. It still publishes the two README demo videos under `media/` (the local `docs/screenshots/*.mp4`
-when present, otherwise the README's uploads), with ffmpeg a poster frame for each, so older links keep
-working. A media file the page names but that is missing is dropped from the built page, which then shows
-the still laid under each video.
+<https://devswha.github.io/herdr-web-ui/> is `site/index.html`, a static page with desktop and phone
+demos, a screenshot gallery, supported agents, phone setup and a comparison table. `bun run build:site`
+assembles it into `_site/` with icons, the social preview and scaled screenshots from `docs/screenshots/`.
+The two demo videos come from local `docs/screenshots/*.mp4` when present, otherwise the README's uploads;
+ffmpeg creates their poster frames. Without ffmpeg, the page omits unavailable posters.
+
+The build also copies the retained `site/assets/` and `site/media/` files, including the film linked
+from the README and its chat loop. These remain available at their existing URLs even though the
+homepage uses the desktop and phone demos.
 `.github/workflows/pages.yml` installs ffmpeg, runs the same build and deploys it to GitHub Pages on
 every push to `main`.
 

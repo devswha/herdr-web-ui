@@ -2,10 +2,8 @@
  * Assembles the website into _site/ for GitHub Pages (.github/workflows/pages.yml) and for a local
  * look (`bun run build:site`, then serve _site/ under /herdr-web-ui/).
  *
- * The page is site/index.html, and everything it shows is committed (site/assets/, site/media/, below).
- * The build still publishes the two README demo videos and the README stills under media/ and assets/
- * (earlier versions of the page linked them, so those addresses keep working), and fetching the videos
- * is what checks that the README still links them: they are not committed (docs/development.md,
+ * The page is site/index.html. Its demo videos and screenshots are published under media/ and assets/.
+ * Fetching the videos checks that the README still links them: they are not committed (docs/development.md,
  * "README media"), so a build uses the local docs/screenshots/*.mp4 when they exist and otherwise
  * downloads the uploads the README links under "Watch the demos in HD", desktop first, then phone.
  * Poster frames are cut with ffmpeg when it is installed (the workflow installs it); without it the
@@ -17,10 +15,9 @@
  * banner. Building it needs node_modules (`bun install`).
  *
  * site/assets/ (stills, logo marks, grain) and site/media/ (the film and the hero loop, with their
- * posters) are committed already optimised and copied whole. The page names the media files whether
- * or not they are there yet: a missing poster is cut from its video when ffmpeg can, and a file that
- * is still missing has its src/data-src/poster dropped from the built page, so it requests nothing
- * dead and shows the still laid under every video instead.
+ * posters) are committed already optimised and copied whole, preserving the film URL linked from
+ * the README. A missing film/loop poster is cut from its video when ffmpeg can; references to missing
+ * film/loop files are removed if a page uses them. The homepage uses the two demo videos above.
  */
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

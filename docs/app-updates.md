@@ -1,6 +1,6 @@
 # App update implementation and verification
 
-The previous app had network-first PWA navigation and immutable frontend assets, but no server update discovery or installation. The new managed entrypoint adds both. See [README usage](../README.md#updates).
+The previous app had network-first PWA navigation and immutable frontend assets, but no server update discovery or installation. The new managed entrypoint adds both. See [update usage](guide.md#updates).
 
 ## Reference and choices
 
