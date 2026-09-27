@@ -46,12 +46,50 @@ Browser checks look for Chrome at `/opt/google/chrome/chrome`; set `CHROME_PATH`
 The MP4s are not committed: GitHub plays a README video only from an upload (`github.com/user-attachments/…`), so drop them into an issue or PR comment and use the link it gives.
 The website takes the same two uploads from the README, so a new recording needs only the README links changed.
 
+The README's top images are rendered from the film's stills (below): `bun scripts/readme-media/banner.ts [banner] [og] [look]`
+draws `banner.html` in headless Chrome into `docs/media/banner.png` (1920×800), `site/assets/og.png` (1280×640) and
+`docs/media/look-{chat,prompt,terminal}.png` (1760×1150), each quantized to 256 colours. `docs/media/chat-loop.gif`
+comes from `scripts/film/render.ts loop`.
+
+## The film
+
+The site's film (`site/media/herdr-web-ui-film.mp4`, 56 s) and hero loop (`site/media/chat-loop.mp4`, with the README's
+`docs/media/chat-loop.gif`) are the real client on the demo's fixtures, recorded and composited by `scripts/film/`.
+Raw footage and renders go to `_film/` (gitignored); only the outputs under `site/media/`, `site/assets/` and
+`docs/media/` are committed. Needs ffmpeg and Chrome at `/usr/bin/google-chrome` (`CHROME_PATH` otherwise).
+
+```bash
+bun run build:site                              # the demo the takes are recorded from
+bun scripts/film/capture.ts [stills] [rec] [stepped] [R10 R11 … | still names]   # _film/footage/
+bun scripts/film/site-assets.ts                 # site/assets/*.webp|jpg|png from the stills
+bun scripts/readme-media/banner.ts              # banner, og.png, look-*.png from the stills
+bun scripts/film/render.ts film                 # site/media/herdr-web-ui-film.{mp4,jpg}
+bun scripts/film/render.ts loop                 # site/media/chat-loop.{mp4,jpg}, docs/media/chat-loop.gif
+bun scripts/film/render.ts check                # acceptance frame grabs, sizes, loop seam
+```
+
+- `capture.ts` serves `_site/` under `/herdr-web-ui/` and records `demo/app/` (no demo banner) at 2x with `hand.ts`
+  (CDP screencast frames with paint times, plus a cue log of every pointer move, click and tap). Film-only staging lives
+  here as init scripts, never in `site/demo/`: fixture `mods` (`todo`, `real`, `stream`, `story`, `worked`) change what
+  the fixtures say, and `filmHold` holds the demo's own 4.5 s / 2.4 s timers so a turn stays running on camera.
+  `_film/footage/INDEX.md` lists every take, its mods and its marks.
+- `timeline.ts` is the film shot by shot as data (source ranges from each take's `marks.json`, camera, type);
+  `camera.ts` the easing and matrices; `stage.ts` the compositor page that draws one frame; `footage.ts` reads the takes.
+- `render.ts` renders frames in parallel Chromes and encodes once. `render.ts report` prints the shot table with the
+  maximum magnification (never above 1 source px per output px); `render.ts stills 8 13.6 …` grabs single frames.
+- After a re-capture, re-check what was placed by hand on the frames (the header of `render.ts` lists it), then
+  re-render. `build-site.ts` fails if a file in `site/media/` is over 4 MB (the film: 24 MB) or one in `site/assets/`
+  is over 750 KB.
+
 ## Website
 
 <https://devswha.github.io/herdr-web-ui/> is `site/index.html`, a static page. `bun run build:site`
-assembles it into `_site/` with the icons, social preview and screenshots it references, the two demo
-videos (the local `docs/screenshots/*.mp4` when present, otherwise the README's uploads) and, with
-ffmpeg, a poster frame for each video and smaller stills; without ffmpeg the page has no posters.
+assembles it into `_site/` with the icons, `site/assets/` (stills, logo marks, grain, `og.png`) and
+`site/media/` (the film and the hero loop with their posters; see "The film"), all committed already
+optimised. It still publishes the two README demo videos under `media/` (the local `docs/screenshots/*.mp4`
+when present, otherwise the README's uploads), with ffmpeg a poster frame for each, so older links keep
+working. A media file the page names but that is missing is dropped from the built page, which then shows
+the still laid under each video.
 `.github/workflows/pages.yml` installs ffmpeg, runs the same build and deploys it to GitHub Pages on
 every push to `main`.
 
@@ -135,8 +173,8 @@ the maintainer.
 | [`src/`](../src/) | React UI: chat, terminal, composer, sidebar, settings |
 | [`server/`](../server/) | API, WebSockets, transcript readers, push, PTY bridge, remote PCs and updater |
 | [`shared/`](../shared/) | HTTP/WebSocket contract and generated herdr types |
-| [`scripts/`](../scripts/) | Plugin lifecycle, type generation, remote bundles, README media and browser checks |
+| [`scripts/`](../scripts/) | Plugin lifecycle, type generation, remote bundles, README media, the film and browser checks |
 | [`public/`](../public/) | PWA manifest, service worker and icons |
-| [`docs/`](.) | Remote PCs, updates, flow control, chat audit and brand assets |
+| [`docs/`](.) | Remote PCs, updates, flow control, chat audit, brand assets and README media (`docs/media/`) |
 | [`site/`](../site/) | The website, built by `scripts/build-site.ts` and deployed by GitHub Pages |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |
