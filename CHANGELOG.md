@@ -7,6 +7,25 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.26] - 2026-09-27
+
+### Changed
+- Releases are published only from a `main` commit that passed the full CI run, and pull requests
+  must pass the same checks before they merge.
+
+### Fixed
+- Foldable and tablet-width screens (481-768px, e.g. a Galaxy Z Fold8 inner screen): the header no
+  longer breaks the Korean "채팅"/"터미널" labels one syllable per line, and no longer shows the
+  sidebar collapse toggle (a no-op in drawer mode) or sign out beside the drawer button. Up to
+  560px the chat/terminal switch shows icons only, so the pane title keeps room.
+- The chat's terminal-text fallback, used when an agent's transcript cannot be found, reflows lines
+  the terminal soft-wrapped instead of breaking them where the pty's columns ended. A PC whose
+  herdr predates unwrapped reads falls back to the old read.
+- Korean UI: the new session dialog's Browse, the prompt card's Submit and Send, and the held-input
+  and queued-message banners' Send, Discard and Send now are translated.
+- Phone-width screens (up to 480px) hide the command palette's keyboard shortcut hints, and the
+  key bar puts its direct-typing toggle first, so a narrow cover screen no longer cuts it off.
+
 ## [0.3.25] - 2026-09-27
 
 ### Added
@@ -543,7 +562,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.25...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.26...HEAD
+[0.3.26]: https://github.com/devswha/herdr-web-ui/compare/v0.3.25...v0.3.26
 [0.3.25]: https://github.com/devswha/herdr-web-ui/compare/v0.3.24...v0.3.25
 [0.3.24]: https://github.com/devswha/herdr-web-ui/compare/v0.3.23...v0.3.24
 [0.3.23]: https://github.com/devswha/herdr-web-ui/compare/v0.3.22...v0.3.23
