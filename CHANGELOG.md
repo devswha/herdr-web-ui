@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.27] - 2026-09-27
+
+### Fixed
+- An omo pane's chat keeps its transcript while a background task runs. omo holds the task's log
+  (`.omo/senpi-task/logs/*.jsonl` in the working directory) open, and that file was taken for the
+  pane's session, so the chat fell back to terminal text until omo restarted. Only files in omo's
+  session store count now.
+
 ## [0.3.26] - 2026-09-27
 
 ### Changed
@@ -562,7 +570,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.26...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.27...HEAD
+[0.3.27]: https://github.com/devswha/herdr-web-ui/compare/v0.3.26...v0.3.27
 [0.3.26]: https://github.com/devswha/herdr-web-ui/compare/v0.3.25...v0.3.26
 [0.3.25]: https://github.com/devswha/herdr-web-ui/compare/v0.3.24...v0.3.25
 [0.3.24]: https://github.com/devswha/herdr-web-ui/compare/v0.3.23...v0.3.24
