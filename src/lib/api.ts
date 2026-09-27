@@ -75,20 +75,29 @@ export async function fetchSession(machineId = "local"): Promise<SessionSnapshot
   return body.snapshot;
 }
 
+/** PCs whose herdr rejected `recent_unwrapped`: an older herdr, read row by row from then on. */
+const wrappedOnly = new Set<string>();
+
 /**
  * GET /api/pane/read as the chat view polls it: herdr's own scrollback (up to
  * `lines`), ANSI-stripped text. herdr owns scrollback — the attach stream cannot
- * serve history, so the transcript reads it back instead.
+ * serve history, so the transcript reads it back instead. `recent_unwrapped`
+ * rejoins the rows the terminal soft-wrapped, so a line reflows to the chat's
+ * width instead of breaking where the pty's columns ended.
  */
 export async function fetchPaneTranscript(paneId: string, lines: number, machineId = "local"): Promise<PaneReadResult> {
-  const query = new URLSearchParams({
-    pane_id: paneId,
-    source: "recent",
-    format: "text",
-    lines: String(lines),
-  });
-  const body = await getJson<{ read: PaneReadResult }>(machinePath(machineId, `pane/read?${query.toString()}`));
-  return body.read;
+  const read = async (source: "recent" | "recent_unwrapped"): Promise<PaneReadResult> => {
+    const query = new URLSearchParams({ pane_id: paneId, source, format: "text", lines: String(lines) });
+    return (await getJson<{ read: PaneReadResult }>(machinePath(machineId, `pane/read?${query.toString()}`))).read;
+  };
+  if (wrappedOnly.has(machineId)) return read("recent");
+  try {
+    return await read("recent_unwrapped");
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "invalid_request") throw error;
+    wrappedOnly.add(machineId);
+    return read("recent");
+  }
 }
 
 /** Which turns (ConversationResponse.cursor): the page `before` a cursor, not past `since`; the newest ones `from` a held start. */
