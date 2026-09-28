@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.29] - 2026-09-28
+
 ### Fixed
 - Restore GJC chat when its writer closes the transcript between writes. Resolve the
   native terminal-to-session breadcrumb, validate it against the running process and
