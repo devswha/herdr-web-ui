@@ -78,7 +78,7 @@ export function ReportDialog({ paneId, agent, agentStatus, model, onClose }: Rep
     });
   }, [description, gathered, include, environment]);
   const report = editedReport ?? generatedReport;
-  const issue = issueUrl(reportTitle(description, agent), report);
+  const issue = issueUrl(reportTitle(description, environment.agent), report);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape") { event.preventDefault(); onClose(); } };

@@ -524,6 +524,7 @@ export const KO: Record<string, string> = {
   "Copy failed: select the text and copy it": "복사하지 못했습니다: 내용을 선택해 직접 복사하세요",
   "Save as file": "파일로 저장",
   "Open a GitHub issue": "GitHub 이슈 열기",
+  "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "대기 메시지를 저장하지 못했습니다. 이 탭을 유지하거나 새로고침 전에 메시지를 복사하세요.",
   "Queued messages": "대기 메시지",
   "Queued messages ({n})": "대기 메시지 {n}개",
   "Message {n}": "메시지 {n}",

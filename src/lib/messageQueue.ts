@@ -1,11 +1,13 @@
 /** Held messages are explicitly sent, never dispatched by reconnects or status changes. */
 export interface HeldMessage { id: string; text: string }
 type QueueStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-let serial = 0;
-const newId = () => `${Date.now().toString(36)}-${(++serial).toString(36)}`;
+const newId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 /** Target-scoped cache also lets an ACK remove its own item after the user switches panes. */
 export class MessageQueueStore {
+  private saved = new Map<string, string | null>();
+  private unsaved = new Set<string>();
+  isUnsaved(owner: string): boolean { return this.unsaved.has(owner); }
   private queues = new Map<string, HeldMessage[]>();
   private listeners = new Set<() => void>();
   private pending = new Set<string>();
@@ -17,14 +19,28 @@ export class MessageQueueStore {
   beginSend(owner: string, id: string): boolean {
     if (this.pending.has(id)) return false;
     this.pending.add(id);
-    this.write(owner, [...this.read(owner)]);
+    this.queues.set(owner, [...this.read(owner)]);
+    for (const listener of this.listeners) listener();
     return true;
   }
   endSend(owner: string, id: string): void {
     this.pending.delete(id);
-    this.write(owner, [...this.read(owner)]);
+    this.queues.set(owner, [...this.read(owner)]);
+    for (const listener of this.listeners) listener();
   }
   constructor(private storage: () => QueueStorage = () => window.localStorage) {}
+
+  /** Reconcile storage before mutation; another tab may have written since our last render. */
+  refresh(owner: string): void {
+    if (this.unsaved.has(owner)) return;
+    try {
+      const raw = this.storage().getItem(`herdr-web-ui:queue:${owner}`);
+      if (this.saved.has(owner) && raw === this.saved.get(owner)) return;
+      this.queues.delete(owner);
+      this.read(owner);
+      for (const listener of this.listeners) listener();
+    } catch { /* keep in-memory messages when storage cannot be read */ }
+  }
 
   read(owner: string): HeldMessage[] {
     const cached = this.queues.get(owner);
@@ -44,6 +60,7 @@ export class MessageQueueStore {
         });
       }
     } catch { /* previous versions stored a single plain-text message */ }
+    this.saved.set(owner, raw);
     this.queues.set(owner, messages);
     return messages;
   }
@@ -52,22 +69,35 @@ export class MessageQueueStore {
     this.queues.set(owner, messages);
     try {
       const key = `herdr-web-ui:queue:${owner}`;
-      if (messages.length) this.storage().setItem(key, JSON.stringify({ version: 1, messages }));
+      const raw = messages.length ? JSON.stringify({ version: 1, messages }) : null;
+      if (raw !== null) this.storage().setItem(key, raw);
       else this.storage().removeItem(key);
-    } catch { /* keep the queue in memory when storage is unavailable */ }
+      this.saved.set(owner, raw);
+      this.unsaved.delete(owner);
+    } catch { this.unsaved.add(owner); }
     for (const listener of this.listeners) listener();
   }
 
   add(owner: string, text: string): void {
+    this.refresh(owner);
     this.write(owner, [...this.read(owner), { id: newId(), text }]);
   }
   edit(owner: string, id: string, text: string): void {
+    this.refresh(owner);
     this.write(owner, this.read(owner).map((message) => message.id === id ? { ...message, text } : message));
   }
   remove(owner: string, id: string): void {
+    this.refresh(owner);
     this.write(owner, this.read(owner).filter((message) => message.id !== id));
   }
 }
 
 // Machine switches remount the terminal; outstanding sends must share the same owner cache.
 export const messageQueues = new MessageQueueStore();
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    const prefix = "herdr-web-ui:queue:";
+    if (event.key?.startsWith(prefix)) messageQueues.refresh(event.key.slice(prefix.length));
+  });
+}

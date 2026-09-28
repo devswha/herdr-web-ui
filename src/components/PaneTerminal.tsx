@@ -709,6 +709,7 @@ export function PaneTerminal({
             <strong>{t("Queued messages ({n})", { n: queued.length })}</strong>
             <span className="composer-queue-label">{t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}</span>
           </div>
+          {queueStore.isUnsaved(queueOwner) && <p className="composer-queue-error" role="status">{t("Queue could not be saved. Keep this tab open or copy the messages before reloading.")}</p>}
           <ol className="composer-queue-list">
           {queued.map((message, index) => <li className="composer-queue-item" key={message.id}>
             <label className="composer-queue-label" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>

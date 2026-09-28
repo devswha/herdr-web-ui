@@ -65,3 +65,23 @@ it("shares pending sends and notifies a remounted view on acknowledgement", () =
   queue.add("a", "third");
   expect(notices).toBe(3);
 });
+
+it("reads another tab's latest additions before edits or late acknowledgements", () => {
+  const { queue, storage } = fixture();
+  const other = new MessageQueueStore(() => storage);
+  queue.add("a", "first");
+  const first = other.read("a")[0]!;
+  queue.add("a", "second");
+  other.add("a", "third");
+  queue.remove("a", first.id);
+  other.refresh("a");
+  expect(other.read("a").map(m => m.text)).toEqual(["second", "third"]);
+});
+
+it("reports failed persistence without throwing away the in-memory queue", () => {
+  const queue = new MessageQueueStore(() => { throw new Error("quota"); });
+  queue.add("a", "keep me");
+  expect(queue.isUnsaved("a")).toBe(true);
+  queue.refresh("a");
+  expect(queue.read("a")[0]!.text).toBe("keep me");
+});
