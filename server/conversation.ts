@@ -13,7 +13,7 @@
  *   tree routes it and process/session evidence selects a unique transcript
  *   under ~/.omo/agent/sessions/<cwd-slug>/. It writes omp's session shape, so
  *   parseOmpTranscript reads it.
- * - gjc: a unique open session file belonging to its process, also in omp session format.
+ * - gjc: an open session file or fresh native terminal breadcrumb belonging to its process.
  *
  * This module turns those files into the conversation the chat lens renders;
  * the pty stays the input path. Pure parsing lives in parseClaudeTranscript /
@@ -26,9 +26,10 @@ import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
 import { join } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
-import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
+import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
+import { gjcTerminal } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
@@ -719,10 +720,72 @@ function transcriptCwd(path: string): string | null {
   }
 }
 
+/** Unique visible transcript evidence; timestamps never choose a winner. */
+export function matchGjcTranscript(screen: string, candidates: { path: string; text: string }[]): string | null {
+  const normalize = (value: string) => value.normalize("NFKC").replace(/[^\p{L}\p{N}]/gu, "");
+  const visible = normalize(screen);
+  const matches = new Set<string>();
+  for (const file of candidates) {
+    const turns = parseOmpTranscript(file.text, Infinity).filter(turn => turn.role === "assistant").slice(-8);
+    if (turns.some(turn => turn.parts.some(part => {
+      if (part.kind !== "text") return false;
+      const anchor = normalize(part.text).slice(-160);
+      return anchor.length >= 64 && visible.includes(anchor);
+    }))) matches.add(file.path);
+  }
+  return matches.size === 1 ? [...matches][0]! : null;
+}
+
+/** Bound both directory enumeration and content reads; never match an arbitrary subset. */
+function gjcDisplayCandidates(root: string, cwd: string): { path: string; text: string }[] {
+  try {
+    const dirs = readdirSync(root, { withFileTypes: true });
+    if (dirs.length > 512) return [];
+    const paths = new Set<string>();
+    let inspected = 0;
+    for (const dir of dirs) {
+      if (!dir.isDirectory()) continue;
+      const entries = readdirSync(join(root, dir.name));
+      inspected += entries.length;
+      if (inspected > 4096) return [];
+      for (const name of entries) {
+        if (!name.endsWith(".jsonl")) continue;
+        const path = realpathSync(join(root, dir.name, name));
+        if (path.startsWith(`${root}/`) && statSync(path).isFile() && transcriptCwd(path) === cwd) paths.add(path);
+      }
+    }
+    if (paths.size > 64) return [];
+    return [...paths].map(path => {
+      const size = statSync(path).size;
+      const start = Math.max(0, size - 65536);
+      let text = readRange(path, start, size);
+      if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+      return { path, text };
+    });
+  } catch { return []; }
+}
+
+/** Validate the native two-line terminal breadcrumb and reject reused-terminal leftovers. */
+export function gjcBreadcrumbPath(home: string, cwd: string, terminalId: string, startedAt: number): string | null {
+  if (!/^(?:pts-\d+|tty[\w-]+|tmux-%\d+)$/.test(terminalId) || !Number.isFinite(startedAt)) return null;
+  try {
+    const marker = join(home, ".gjc", "agent", "terminal-sessions", terminalId);
+    const stat = statSync(marker);
+    if (!stat.isFile() || stat.size > 8192 || stat.mtimeMs < startedAt - 1000) return null;
+    const [savedCwd, savedPath] = readFileSync(marker, "utf8").split("\n");
+    if (!savedCwd || !savedPath || realpathSync(savedCwd) !== realpathSync(cwd)) return null;
+    const root = realpathSync(join(home, ".gjc", "agent", "sessions"));
+    const path = realpathSync(savedPath);
+    if (!path.startsWith(`${root}/`) || !path.endsWith(".jsonl") || !statSync(path).isFile()) return null;
+    const headerCwd = transcriptCwd(path);
+    return headerCwd && realpathSync(headerCwd) === realpathSync(cwd) ? path : null;
+  } catch { return null; }
+}
+
 /**
  * A directory descriptor or cwd proves only the store, not the active session.
- * Require one exact open transcript; recency changes when a sibling pane writes.
- * Without readable descriptors (including macOS), fail closed rather than guess.
+ * Prefer an exact open transcript, then GJC's terminal-scoped breadcrumb written
+ * during this process lifetime. Never infer ownership from cwd or session recency.
  */
 export async function gjcTranscriptPath(paneId: string, cwd: string, home = process.env["HOME"] ?? ""): Promise<string> {
   let root: string;
@@ -733,6 +796,8 @@ export async function gjcTranscriptPath(paneId: string, cwd: string, home = proc
     { pane_id: paneId },
   ).catch(() => null);
   const paths = new Set<string>();
+  const breadcrumbs = new Set<string>();
+  let running = false;
   for (const process of info?.process_info?.foreground_processes ?? []) {
     const argv = Array.isArray(process.argv) ? process.argv.map(String) : [];
     // Native gjc and interpreter-launched gjc scripts both occur in process_info.
@@ -740,8 +805,14 @@ export async function gjcTranscriptPath(paneId: string, cwd: string, home = proc
     const isGjc = executable.test(argv[0] ?? "") ||
       (/(^|\/)(?:bun|node)(?:\.exe)?$/.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
     if (typeof process.pid !== "number" || !isGjc) continue;
-    let fds: string[];
-    try { fds = readdirSync(`/proc/${process.pid}/fd`); } catch { continue; }
+    running = true;
+    const terminal = gjcTerminal(process.pid);
+    if (terminal) {
+      const path = gjcBreadcrumbPath(home, cwd, terminal.id, terminal.startedAt);
+      if (path) breadcrumbs.add(path);
+    }
+    let fds: string[] = [];
+    try { fds = readdirSync(`/proc/${process.pid}/fd`); } catch { /* macOS uses the native breadcrumb */ }
     for (const fd of fds) {
       try {
         const target = realpathSync(readlinkSync(`/proc/${process.pid}/fd/${fd}`));
@@ -750,8 +821,18 @@ export async function gjcTranscriptPath(paneId: string, cwd: string, home = proc
       } catch { /* closed, deleted or unreadable descriptor */ }
     }
   }
-  if (paths.size !== 1) throw new ConversationUnavailable("no_session_path");
-  return [...paths][0]!;
+  const candidates = paths.size > 0 ? paths : breadcrumbs;
+  if (candidates.size === 1) return [...candidates][0]!;
+  if (candidates.size > 1 || !running) throw new ConversationUnavailable("no_session_path");
+  // Some GJC builds publish neither a file descriptor nor a terminal breadcrumb.
+  // Match substantial assistant text in this pane against every same-cwd candidate.
+  const files = gjcDisplayCandidates(root, cwd);
+  if (files.length > 0) {
+    const screen = await paneRead({ paneId, source: "visible", lines: 1000 }).catch(() => null);
+    const matched = screen ? matchGjcTranscript(screen.text, files) : null;
+    if (matched) return matched;
+  }
+  throw new ConversationUnavailable("no_session_path");
 }
 
 /**

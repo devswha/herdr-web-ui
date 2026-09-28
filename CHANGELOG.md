@@ -7,6 +7,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Restore GJC chat when its writer closes the transcript between writes. Resolve the
+  native terminal-to-session breadcrumb, validate it against the running process and
+  session store, or match a unique substantial assistant answer visible in that pane.
+  Ambiguous matches never fall back to the newest file in the working directory.
+  When native history is unavailable, agent panes show a labeled terminal-output
+  disclosure instead of presenting raw terminal UI as assistant messages.
+- A latest assistant turn waiting on approval remains in progress instead of reading
+  “Worked for …”. The transcript's last-activity timestamp is not a completion signal.
+- Suppress native browser tap highlights on buttons and links so mobile approval options
+  show only the app's selection and pressed states.
+
+### Documentation
+- Clarify that pinned plans require supported todo-tool records. Claude Code sessions
+  without TodoWrite do not currently show a pinned plan; TaskCreate/TaskUpdate support
+  remains pending.
+
 ## [0.3.28] - 2026-09-28
 
 ### Fixed

@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/7d30e956-df88-4513-a432-5f91e756c262
 
 A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Open the sessions you already run, read what your agents are doing, and answer them from wherever you are.
 
-- **Chat and terminal, one pane** — read native Claude Code, Codex, omp, omo and gjc transcripts with commands and edits folded per turn and the plan pinned below. Switch to the live terminal for full-screen TUIs, raw keys and herdr's scrollback. [Supported agents →](docs/guide.md#supported-agents)
+- **Chat and terminal, one pane** — read native Claude Code, Codex, omp, omo and gjc transcripts with commands and edits folded per turn and supported todo-tool plans pinned below. Switch to the live terminal for full-screen TUIs, raw keys and herdr's scrollback. [Supported agents →](docs/guide.md#supported-agents)
 - **Approve with a tap** — supported agents' approvals, questions and plan menus become cards in the chat. Pick an option; the app checks that the prompt is still current before sending your answer.
 - **Take your agents with you** — install the PWA on your phone, scroll by touch, and use Esc, Tab, Ctrl and arrows above the keyboard. Settings shows your Tailscale address as a QR code. [Phone setup →](docs/guide.md#on-your-phone)
 - **Know when you're needed** — live status for every pane, plus push alerts when an agent needs input, finishes or its terminal ends, even with the app closed.

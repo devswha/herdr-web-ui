@@ -1,4 +1,4 @@
-import type { ConversationPart } from "../../shared/protocol.ts";
+import type { ConversationPart, ConversationTurn } from "../../shared/protocol.ts";
 import { turnSkills } from "./skillActivity.ts";
 import { isTodoTool } from "./todos.ts";
 import { t } from "./i18n.ts";
@@ -78,4 +78,9 @@ export function formatWorkDuration(startTs: string | null, endTs: string | null)
   const rest = seconds % 60;
   if (minutes < 60) return rest > 0 ? t("{m}m {s}s", { m: minutes, s: rest }) : t("{m}m", { m: minutes });
   return t("{h}h {m}m", { h: Math.floor(minutes / 60), m: minutes % 60 });
+}
+
+/** end_ts is the latest activity time, not proof that an approval-blocked turn finished. */
+export function isLiveWorkTurn(turn: ConversationTurn, last: boolean, status?: string): boolean {
+  return last && turn.role === "assistant" && (status === "working" || status === "blocked");
 }

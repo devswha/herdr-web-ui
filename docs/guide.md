@@ -135,14 +135,14 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **gjc** | Native session file, from the session directory gjc keeps open | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
-The model and reasoning effort come from what the session recorded, never from answer text. The todo list comes from Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
+The model and reasoning effort come from what the session recorded, never from answer text. The todo list comes from Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. The panel appears only when one of these supported tools is recorded in the transcript. Plain-text plans and Claude Code `TaskCreate` / `TaskUpdate` calls are not currently reconstructed; Claude Code sessions that do not call `TodoWrite` will have no pinned plan. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
 
 ## Features
 
 | | |
 | --- | --- |
 | **Read the conversation** | Prompts and Markdown answers (links, code blocks, tables). Each turn's commands, edits and progress are folded into one "Worked for …" block. Copy an answer as Markdown or plain text. |
-| **Follow the plan** | The agent's todo list stays pinned to the bottom of the chat: the done count and the current item, or the whole list by phase when opened. |
+| **Follow the plan** | When the transcript contains supported todo-tool calls, the agent's todo list stays pinned to the bottom of the chat: the done count and the current item, or the whole list by phase when opened. |
 | **Drop into the real terminal** | xterm.js on the live pane: full-screen TUIs, raw keys and herdr's scrollback, shared with your own herdr TUI. |
 | **Answer prompts** | Approval, question and plan menus become cards. Tap an option, or type its number in the composer. The server checks that the menu is still current before answering. |
 | **Compose** | `/` commands and `@` file mentions, any file or image attached by path, a draft per pane, and multiple queued messages while the agent works. |

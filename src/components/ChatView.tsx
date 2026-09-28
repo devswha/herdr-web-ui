@@ -14,7 +14,7 @@ import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
-import { formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
+import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, todoState, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { useSettings } from "../lib/settings.ts";
@@ -681,9 +681,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
       {state.source === "conversation"
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
-            return <Turn key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} paneId={paneId} turn={turn} live={last && turn.role === "assistant" && agentStatus === "working"} last={last} showThinking={settings.showThinking} />;
+            return <Turn key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus)} last={last} showThinking={settings.showThinking} />;
           })
-        : agent === "codex"
+        : agent !== null
           ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>
           : state.messages.map((message, index) => <FallbackTurn key={index} paneId={paneId} message={message} />)}
       {!ended && !connected && <p className="chat-inline-state">{t("reconnecting…")}</p>}

@@ -1020,3 +1020,8 @@ button {
 @media (max-width: 480px) {
   .files-button { display: none; }
 }
+
+/* Keep native tap overlays from obscuring the app's own pressed/selected states. */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}

@@ -2,8 +2,10 @@ import { afterAll, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { herdrRpc, workspaceClose, workspaceCreate } from "./herdr/client.ts";
-import { ConversationUnavailable, gjcTranscriptPath } from "./conversation.ts";
+import { herdrRpc, workspaceClose, workspaceCreate, paneRead } from "./herdr/client.ts";
+import { ConversationUnavailable, gjcTranscriptPath, transcriptPage } from "./conversation.ts";
+
+import { gjcTerminal } from "./gjc-runtime.ts";
 
 const home = mkdtempSync(join(tmpdir(), "herdr-gjc-binding-"));
 const dir = join(home, ".gjc", "agent", "sessions", "v2-shared");
@@ -11,17 +13,17 @@ mkdirSync(dir, { recursive: true });
 const workspaces: string[] = [];
 const script = join(home, "gjc");
 // The stand-in keeps actual descriptors open; all files and panes belong to this test.
-writeFileSync(script, "for (const path of process.argv.slice(2)) require('node:fs').openSync(path, 'r');\nconsole.log('GJC descriptor ready'); setInterval(() => {}, 1000);\n");
+writeFileSync(script, "for (const path of process.argv.slice(2)) require('node:fs').openSync(path, 'r');\nconsole.log('GJC descriptor ready'); console.log(process.env.GJC_TEST_SCREEN || ''); setInterval(() => {}, 1000);\n");
 afterAll(async () => {
   for (const workspace of workspaces) await workspaceClose(workspace);
   rmSync(home, { recursive: true, force: true });
 });
 
-async function pane(paths: string[]): Promise<string> {
+async function pane(paths: string[], screen = ""): Promise<string> {
   const created = await workspaceCreate({ cwd: home, label: "herdr-web-ui-test-gjc-binding" });
   workspaces.push(created.workspace.workspace_id);
   const id = created.root_pane.pane_id;
-  await herdrRpc("pane.send_text", { pane_id: id, text: `${process.execPath} ${script} ${paths.join(" ")}\n` });
+  await herdrRpc("pane.send_text", { pane_id: id, text: `GJC_TEST_SCREEN='${screen.replaceAll("'", "'\\''")}' ${process.execPath} ${script} ${paths.join(" ")}\n` });
   for (let attempt = 0; attempt < 100; attempt++) {
     const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: id });
     const process = info.process_info?.foreground_processes?.find((p) => p.argv?.includes(script));
@@ -48,4 +50,57 @@ it("binds same-cwd panes to their own files regardless of which transcript was m
   const ambiguous = await pane([a, b]);
   await expect(gjcTranscriptPath(ambiguous, home, home)).rejects.toThrow(ConversationUnavailable);
   await expect(gjcTranscriptPath(first, "/different-cwd", home)).rejects.toThrow(ConversationUnavailable);
+});
+
+
+it("restores a directory-only runtime using its fresh terminal breadcrumb, without cwd recency", async () => {
+  const a = join(dir, "breadcrumb-a.jsonl"), b = join(dir, "breadcrumb-b.jsonl");
+  for (const [path, answer] of [[a, "first answer"], [b, "second answer"]]) {
+    writeFileSync(path!, JSON.stringify({ type: "session", cwd: home }) + "\n" + JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: answer }] } }) + "\n");
+  }
+  const first = await pane([dir]), second = await pane([dir]);
+  const marker = async (id: string, path: string) => {
+    const info = await herdrRpc<{ process_info: { foreground_processes: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: id });
+    const pid = info.process_info.foreground_processes.find(p => p.argv?.includes(script))!.pid;
+    const terminal = gjcTerminal(pid)!;
+    expect(terminal).not.toBeNull();
+    const folder = join(home, ".gjc", "agent", "terminal-sessions");
+    mkdirSync(folder, { recursive: true });
+    const file = join(folder, terminal.id);
+    writeFileSync(file, `${home}\n${path}\n`);
+    return { file, terminal };
+  };
+  const one = await marker(first, a);
+  await marker(second, b);
+  utimesSync(b, new Date(), new Date(Date.now() + 60_000));
+  expect(await gjcTranscriptPath(first, home, home)).toBe(a);
+  expect(await gjcTranscriptPath(second, home, home)).toBe(b);
+  const conversation = transcriptPage("gjc-transcript", await gjcTranscriptPath(first, home, home));
+  expect(conversation.turns[0]!.parts[0]).toMatchObject({ kind: "text", text: "first answer" });
+  // /new or /resume updates this terminal's pointer, even if its old file is newer.
+  writeFileSync(one.file, `${home}\n${b}\n`);
+  expect(await gjcTranscriptPath(first, home, home)).toBe(b);
+  utimesSync(one.file, new Date(0), new Date(one.terminal.startedAt - 60_000));
+  await expect(gjcTranscriptPath(first, home, home)).rejects.toThrow(ConversationUnavailable);
+});
+
+
+it("restores a directory-only runtime by unique visible assistant text, never newest-file order", async () => {
+  const answer = "This uniquely identifiable assistant answer belongs to the first pane and describes restoring its structured chat without borrowing a neighboring session.";
+  const other = "A completely different assistant response belongs to the neighboring pane and explains its own unrelated task with enough detail to distinguish the two sessions.";
+  const record = (value: string) => JSON.stringify({ type: "session", cwd: home }) + "\n" + JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: value }] } }) + "\n";
+  const a = join(dir, "visible-a.jsonl"), b = join(dir, "visible-b.jsonl");
+  writeFileSync(a, record(answer)); writeFileSync(b, record(other));
+  const first = await pane([dir], answer), second = await pane([dir], other);
+  for (const [id, text] of [[first, answer], [second, other]]) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if ((await paneRead({ paneId: id! })).text.includes(text!.slice(0, 40))) break;
+      await Bun.sleep(50);
+    }
+  }
+  utimesSync(b, new Date(), new Date(Date.now() + 60_000));
+  expect(await gjcTranscriptPath(first, home, home)).toBe(a);
+  expect(await gjcTranscriptPath(second, home, home)).toBe(b);
+  writeFileSync(join(dir, "duplicate.jsonl"), record(answer));
+  await expect(gjcTranscriptPath(first, home, home)).rejects.toThrow(ConversationUnavailable);
 });

@@ -63,3 +63,15 @@ describe("workSummary failures", () => {
     expect(workSummary([{ kind: "tool", name: "Edit", summary: "", input: "", output: "" }, failed, failed])).toBe("1 edit · 2 commands · 2 failed");
   });
 });
+
+
+it("keeps an approval-blocked assistant turn live, including with a last-activity timestamp", async () => {
+  const { isLiveWorkTurn } = await import("./workBlocks.ts");
+  const turn = { role: "assistant" as const, ts: null, parts: [], end_ts: "2026-09-28T00:00:00Z" };
+  expect(isLiveWorkTurn(turn, true, "blocked")).toBe(true);
+  expect(isLiveWorkTurn({ ...turn, end_ts: undefined }, true, "blocked")).toBe(true);
+  expect(isLiveWorkTurn(turn, true, "working")).toBe(true);
+  expect(isLiveWorkTurn(turn, false, "blocked")).toBe(false);
+  expect(isLiveWorkTurn(turn, true, "idle")).toBe(false);
+  expect(isLiveWorkTurn({ ...turn, role: "user" }, true, "blocked")).toBe(false);
+});

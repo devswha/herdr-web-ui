@@ -174,12 +174,29 @@ still read the native file on demand. This change does not alter the input path.
 
 ### GJC pane binding (2026-09-28)
 
-GJC resolution requires a unique open JSONL file under the canonical
+GJC resolution prefers a unique open JSONL file under the canonical
 `~/.gjc/agent/sessions/` store, belonging to the requested pane's GJC process and
-matching the pane cwd in its session header. Directory descriptors, cwd matches,
-and modification times do not establish ownership. Missing, unreadable or
-ambiguous evidence returns `no_session_path`; this includes macOS without `/proc`
-and GJC versions that only hold the session directory open. The terminal remains
-available. `server/gjc.contract.test.ts` exercises distinct open files in two
-same-cwd panes against an isolated herdr session, changes recency, and checks
-ambiguous and directory-only descriptors.
+matching the pane cwd in its session header. When the writer does not keep that file
+open, the bridge reads GJC's native `~/.gjc/agent/terminal-sessions/<terminal-id>`
+breadcrumb (cwd and exact session path on separate lines). The key comes from the
+running process's terminal; the breadcrumb must have been written during that process's
+lifetime. Its cwd, canonical store containment, and transcript header are checked.
+Linux uses `/proc`; macOS uses `ps` for the tty and process start time. macOS metadata
+parsing is fixture-tested; an end-to-end macOS run is still required.
+
+For GJC builds that publish neither signal, a bounded scan of the native store matches
+substantial assistant text against the requested pane's visible output. Exactly one
+same-cwd transcript must match; short/generic text and duplicate matches are rejected.
+The local GJC 0.17.2 binary was verified with an isolated resumed session, no model
+request, and no open transcript or breadcrumb: its native answer resolved correctly.
+
+Directory descriptors, cwd matches alone, and transcript modification times do not establish
+ownership. Missing, unreadable, stale or ambiguous evidence still returns
+`no_session_path`; visible-text recovery also requires the identifying answer to remain
+on screen. Custom GJC stores and terminal IDs that cannot be resolved remain
+unsupported. No newest-file fallback is restored.
+
+`server/gjc.contract.test.ts` covers distinct open files and fresh per-terminal
+breadcrumbs in same-cwd panes, session switching, stale breadcrumbs and ambiguous
+files against an isolated herdr session. `server/gjc-runtime.test.ts` checks macOS
+metadata parsing and rejects mismatched cwd, path traversal and symlink escapes.

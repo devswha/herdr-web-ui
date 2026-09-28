@@ -158,6 +158,8 @@ try {
   });
   await report("working");
   await page.locator('.composer-status[data-status="working"]').waitFor();
+  await page.locator(".chat-terminal-fallback").waitFor();
+  assert.equal(await page.locator(".chat-terminal-fallback").getAttribute("open"), null, "Claude without a native transcript gets an explicit fallback, not pseudo-chat");
   await composer.fill("printf 'browser-queue-ok\\n'");
   await page.getByRole("button", { name: "Queue message", exact: true }).click();
   for (const text of ["# second queued message", "# third queued message"]) {
@@ -385,8 +387,12 @@ try {
   mobilePage.on("pageerror", (error) => errors.push(error.message));
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
   await mobilePage.locator(".conn-live").waitFor();
+  const tapHighlight = await mobilePage.locator(".view-switch button").first().evaluate((node) => getComputedStyle(node).webkitTapHighlightColor);
+  assert.equal(tapHighlight, "rgba(0, 0, 0, 0)", "native tap overlays do not obscure selection");
   await mobilePage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).fill("mobile draft");
+  await mobilePage.locator(".chat-terminal-fallback").waitFor();
+  assert.equal(await mobilePage.locator(".chat-terminal-fallback").getAttribute("open"), null, "missing native history is labeled, not presented as broken chat");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   const mobileReportButton = mobilePage.getByRole("button", { name: "Report a problem", exact: true });
   assert.equal(await mobileReportButton.innerText(), "Report a problem");
