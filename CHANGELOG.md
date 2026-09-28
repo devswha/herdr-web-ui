@@ -7,6 +7,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Prompt cards list each option on its own full-width row, number, label and description
+  aligned, instead of wrapping buttons of uneven width. The first option is no longer filled
+  as if already chosen, which left its description unreadable in both themes. Checked and
+  typed picks share one highlight, a `(Recommended)` option shows a tag, multi-select Submit
+  counts the picks, and the custom-answer field is labelled.
+- Enter while an IME is composing in the prompt card's custom answer no longer sends the
+  half-composed text.
+
 ## [0.3.29] - 2026-09-28
 
 ### Fixed
