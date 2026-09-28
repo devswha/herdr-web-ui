@@ -15,6 +15,10 @@ const releases: Array<() => void> = [];
 const errors: string[] = [];
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+/** WebKit's IME commit: an Enter keydown after compositionend, isComposing false, key code 229 */
+const IME_ENTER = { key: "Enter", code: "Enter", keyCode: 229, which: 229, bubbles: true, cancelable: true };
+/** how long a send that should not happen gets to show up */
+const NO_SEND_WAIT_MS = 400;
 
 async function until(check: () => boolean | Promise<boolean>, label: string): Promise<void> {
   const deadline = Date.now() + 15_000;
@@ -228,6 +232,17 @@ try {
   await page.locator('.composer-status:not([data-status="working"])').waitFor();
   console.log("PASS quick replies send as typed, queue mid-turn, and leave the draft");
 
+  // the Enter that commits an IME candidate is not a send: WebKit can deliver it after
+  // compositionend, with isComposing false and key code 229
+  await composer.fill("한글 조합");
+  const imeInputs = inputs.length;
+  await composer.dispatchEvent("keydown", IME_ENTER);
+  await page.waitForTimeout(NO_SEND_WAIT_MS);
+  assert.equal(inputs.length, imeInputs);
+  assert.equal(await composer.inputValue(), "한글 조합");
+  await composer.fill("");
+  console.log("PASS the composer keeps an IME's committing Enter");
+
   // a problem report gathers the pane's pieces, sends nothing on its own, and files a prefilled issue
   await page.getByRole("button", { name: "Report a problem", exact: true }).click();
   const reportDialog = page.getByRole("dialog", { name: "Report a problem" });
@@ -437,6 +452,14 @@ try {
   assert.equal(submitted.text, "printf 'line-ok\\n'");
   // the line clears once the pane confirmed it
   await until(async () => (await line.inputValue()) === "", "input line cleared after send");
+  // an IME's committing Enter (key code 229) stays in the line
+  await line.fill("echo 한글");
+  const imeSent = touchSent.length;
+  await line.dispatchEvent("keydown", IME_ENTER);
+  await touchPage.waitForTimeout(NO_SEND_WAIT_MS);
+  assert.equal(touchSent.length, imeSent);
+  assert.equal(await line.inputValue(), "echo 한글");
+  await line.fill("");
   // an empty line's button is Enter alone
   const enters = touchSent.length;
   await touchPage.getByRole("button", { name: "Press Enter in the terminal", exact: true }).click();

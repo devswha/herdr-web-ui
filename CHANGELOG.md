@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- In Safari and other WebKit browsers, the Enter that commits an IME candidate (Korean,
+  Japanese, Chinese) no longer sends the chat message or the touch terminal's input line.
+  WebKit delivers it after composition ends, as key code 229.
+
 ## [0.3.29] - 2026-09-28
 
 ### Fixed

@@ -535,7 +535,8 @@ export function Composer({
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.nativeEvent.isComposing) return;
+      // an IME keeps its keys; WebKit can send the committing Enter after compositionend, as key code 229
+      if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
       if (menuOpen && trigger) {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();

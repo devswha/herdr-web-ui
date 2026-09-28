@@ -49,8 +49,9 @@ export function TerminalInput({ connected, onSend, onEnter }: TerminalInputProps
   }, [connected, onEnter, onSend, sending, t, text]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Enter sends; Shift+Enter breaks the line; an IME still composing keeps its Enter
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    // Enter sends; Shift+Enter breaks the line; an IME keeps its Enter, including the committing
+    // one WebKit can send after compositionend as key code 229
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     event.preventDefault();
     send();
   };
