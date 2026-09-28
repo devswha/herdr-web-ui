@@ -388,7 +388,12 @@ try {
   await mobilePage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).fill("mobile draft");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await mobilePage.getByRole("button", { name: "Report a problem", exact: true }).click();
+  const mobileReportButton = mobilePage.getByRole("button", { name: "Report a problem", exact: true });
+  assert.equal(await mobileReportButton.innerText(), "Report a problem");
+  const reportButtonBox = await mobileReportButton.boundingBox();
+  assert.ok(reportButtonBox && reportButtonBox.height >= 44 && reportButtonBox.width >= 44, "report action has a touch-sized target");
+  if (process.env.UI_EVIDENCE_DIR) await mobilePage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "report-mobile-button.png") });
+  await mobileReportButton.click();
   const mobileReport = mobilePage.getByRole("dialog", { name: "Report a problem" });
   await mobileReport.getByRole("link", { name: "Open a GitHub issue" }).waitFor();
   await mobileReport.getByRole("textbox", { name: "Report", exact: true }).fill("한글 보고서 😀".repeat(1000));

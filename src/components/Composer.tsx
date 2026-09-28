@@ -615,8 +615,8 @@ export function Composer({
           </span>
         )}
         {/* while problems are being chased: a report of this pane's chat, one tap away */}
-        <button type="button" className="icon-button composer-report" aria-label={t("Report a problem")} title={t("Report a problem")} onClick={() => setReporting(true)}>
-          <Bug aria-hidden="true" />
+        <button type="button" className="btn btn-ghost composer-report" aria-label={t("Report a problem")} title={t("Report a problem")} onClick={() => setReporting(true)}>
+          <Bug aria-hidden="true" /><span>{t("Report a problem")}</span>
         </button>
       </div>
 

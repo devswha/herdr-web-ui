@@ -10,7 +10,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - Problem reports now bound the full encoded GitHub URL, preventing errors with long or Korean
   reports. Large reports can be copied or saved for attachment. The report dialog fits mobile
-  screens, and manual edits survive status updates and inclusion changes until explicitly rebuilt.
+  screens, its chat entry button has a visible label and a touch-sized target, and manual edits
+  survive status updates and inclusion changes until explicitly rebuilt.
 - Messages queued while an agent works now form a persistent list per PC and pane instead of
   replacing the previous message. Each item can be edited, discarded, or explicitly sent;
   confirming one send leaves the remaining messages intact.

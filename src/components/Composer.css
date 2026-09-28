@@ -98,13 +98,22 @@
   color: var(--status-blocked);
 }
 
-/* the problem report: small, at the status line's end, out of the way of what it reports on */
+/* A labeled report action stays discoverable beside the chat status. */
 .composer-report {
   flex: none;
-  width: calc(var(--control-h) * 0.75);
-  height: calc(var(--control-h) * 0.75);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: auto;
+  height: var(--control-h);
+  padding-inline: var(--space-2);
+  font-size: var(--fs-xs);
   margin-left: auto;
   color: var(--text-dim);
+}
+
+@media (pointer: coarse) {
+  .composer-report { min-height: calc(var(--touch-target) + var(--space-1)); }
 }
 
 .composer-report svg {
@@ -473,7 +482,7 @@
   .composer-queue-button,
   .composer-attachment button {
     min-width: var(--touch-target);
-    min-height: var(--touch-target);
+    min-height: calc(var(--touch-target) + var(--space-1));
   }
 
   .composer-resize {
@@ -633,7 +642,7 @@
 
 @media (pointer: coarse) {
   .composer-quick-reply {
-    min-height: var(--touch-target);
+    min-height: calc(var(--touch-target) + var(--space-1));
   }
 }
 
