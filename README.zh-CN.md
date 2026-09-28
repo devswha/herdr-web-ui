@@ -26,10 +26,9 @@
 
 ---
 
-<p align="center">
-  <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4"><img src="docs/media/chat-loop.gif" width="880" alt="浏览器中的 Claude Code：查看固定显示的计划，展开或折叠每条回答背后的工作过程。"></a><br>
-  <sub><a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 观看演示视频</a> · 56 秒真实应用演示</sub>
-</p>
+https://github.com/user-attachments/assets/7d30e956-df88-4513-a432-5f91e756c262
+
+<p align="center"><sub>在终端窗格中运行 Claude Code，同一会话切换为聊天，再到手机上继续 · 实机录制 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒演示影片</a></sub></p>
 
 **在电脑和手机上，随时与智能体对话。**
 

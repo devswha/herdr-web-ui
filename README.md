@@ -26,10 +26,9 @@
 
 ---
 
-<p align="center">
-  <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4"><img src="docs/media/chat-loop.gif" width="880" alt="Claude Code in the browser: follow its pinned plan and expand or fold the work behind each answer."></a><br>
-  <sub><a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ Watch the film</a> · 56 seconds in the real app</sub>
-</p>
+https://github.com/user-attachments/assets/7d30e956-df88-4513-a432-5f91e756c262
+
+<p align="center"><sub>Claude Code in a terminal pane, the same session as a chat, then on the phone · recorded live · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ the 56-second film</a></sub></p>
 
 **Your agents, in plain conversation. On your desktop and your phone.**
 
