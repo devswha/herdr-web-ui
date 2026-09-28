@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- GJC chat only selects a unique transcript file held open by the pane's process.
+  Panes sharing a working directory no longer follow whichever session was modified
+  last. When exact file evidence is unavailable (including directory-only descriptors
+  and platforms without `/proc`), chat reports unavailable instead of guessing.
+- Machine polling no longer overwrites newer streamed pane statuses or machine rosters.
+  Superseded HTTP responses and errors are ignored; subsequent polls still catch up.
+
 ## [0.3.27] - 2026-09-27
 
 ### Fixed

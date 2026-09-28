@@ -17,6 +17,7 @@ import { MachineDialog } from "./components/MachineDialog.tsx";
 import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
+import { SnapshotRequests } from "./lib/snapshotRequests.ts";
 import { alertPrefs, useSettings } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
@@ -181,8 +182,14 @@ export function App() {
     catch { /* retain the gate while the connection server restarts */ }
     try { const next = await fetchHealth(); setHealth((previous) => sameData(previous, next) ? previous : next); } catch { setHealth(null); }
   }, []);
+  const snapshotRequests = useRef(new SnapshotRequests());
   const load = useCallback(async () => {
-    try { const next = await fetchMachines(); setMachines((previous) => sameData(previous, next) ? previous : next); setError(null); setLocked(false); }
+    try {
+      await snapshotRequests.current.read(fetchMachines, (next) => {
+        setMachines((previous) => sameData(previous, next) ? previous : next);
+        setError(null); setLocked(false);
+      });
+    }
     catch (err) {
       if (err instanceof ApiError && err.status === 401) { setLocked(true); return; }
       setError(err instanceof Error ? err.message : String(err));
@@ -245,6 +252,8 @@ export function App() {
     events.onmessage = (event) => {
       let payload: MachineEvent;
       try { payload = JSON.parse(event.data); } catch { return; }
+      // A poll started before this event can carry an older roster or pane status.
+      snapshotRequests.current.invalidate();
       if (payload.type === "machines") {
         seed(payload.machines);
         setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
