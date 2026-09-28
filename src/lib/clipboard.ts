@@ -10,7 +10,10 @@ export async function copyText(text: string, fallback?: HTMLElement | null): Pro
   } catch {
     /* no clipboard API here, or the browser refused */
   }
-  if (fallback) {
+  if (fallback instanceof HTMLTextAreaElement || fallback instanceof HTMLInputElement) {
+    fallback.focus();
+    fallback.select();
+  } else if (fallback) {
     const range = document.createRange();
     range.selectNodeContents(fallback);
     const selection = window.getSelection();

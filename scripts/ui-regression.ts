@@ -160,18 +160,37 @@ try {
   await page.locator('.composer-status[data-status="working"]').waitFor();
   await composer.fill("printf 'browser-queue-ok\\n'");
   await page.getByRole("button", { name: "Queue message", exact: true }).click();
+  for (const text of ["# second queued message", "# third queued message"]) {
+    await composer.fill(text);
+    await page.getByRole("button", { name: "Queue message", exact: true }).click();
+  }
+  assert.equal(await page.locator(".composer-queue-text").count(), 3);
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
+  await page.locator(".composer-queue-text").nth(1).fill("# edited second message");
+  await page.reload();
+  await page.locator(".conn-live").waitFor();
+  await until(async () => await page.locator(".composer-queue-text").count() === 3, "queue restored");
+  assert.equal(await page.locator(".composer-queue-text").nth(1).inputValue(), "# edited second message");
+  await page.locator(`.pane-select[title^="${paneB} —"]`).click();
+  await until(async () => await page.locator(".composer-queue-text").count() === 0, "other pane has no queue");
+  await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await until(async () => await page.locator(".composer-queue-text").count() === 3, "owner queue restored");
+  await page.getByRole("button", { name: "Discard", exact: true }).nth(2).click();
   const inputCount = inputs.length;
   await report("blocked");
   await page.locator('.composer-status[data-status="blocked"]').waitFor();
   await Bun.sleep(300);
   assert.equal(inputs.length, inputCount, "approval state must hold the queue");
-  assert.equal(await page.locator(".composer-queue-text").count(), 1);
+  assert.equal(await page.locator(".composer-queue-text").count(), 2);
   await report("idle");
   await Bun.sleep(300);
   assert.equal(inputs.length, inputCount, "a status change must not dispatch held input");
-  await page.getByRole("button", { name: "Send now", exact: true }).click();
+  await page.getByRole("button", { name: "Send now", exact: true }).first().click();
   await until(() => inputs.length > inputCount, "explicit queue send");
   assert.equal(inputs.at(-1)?.pane_id, paneA);
+  await until(async () => await page.locator(".composer-queue-text").count() === 1, "only sent item removed");
+  assert.equal(await page.locator(".composer-queue-text").inputValue(), "# edited second message");
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
   await page.locator(".composer-queue-text").waitFor({ state: "hidden" });
   console.log("PASS queue held through status changes and explicitly sent to its owner");
 
@@ -216,9 +235,18 @@ try {
   await reportDialog.getByLabel("Terminal screen").check();
   await until(async () => (await reportText.inputValue()).includes("## Terminal screen"), "screen included");
   assert.match(await reportText.inputValue(), /## What went wrong\n\nlist numbers read 1\. 1\. 1\./);
+  const redacted = "한글 보고서 😀\n".repeat(1000);
+  await reportText.fill(redacted);
+  await reportDialog.getByLabel("Terminal screen").uncheck();
+  await report("working");
+  await Bun.sleep(300);
+  assert.equal(await reportText.inputValue(), redacted, "manual redactions survive live updates and option changes");
+  assert.ok((await reportDialog.getByRole("link", { name: "Open a GitHub issue" }).getAttribute("href"))!.length <= 2000);
   const download = page.waitForEvent("download");
   await reportDialog.getByRole("button", { name: "Save as file", exact: true }).click();
-  assert.match((await download).suggestedFilename(), /^herdr-report-.+\.md$/);
+  const savedReport = await download;
+  assert.match(savedReport.suggestedFilename(), /^herdr-report-.+\.md$/);
+  assert.equal(await Bun.file((await savedReport.path())!).text(), redacted, "saved report is complete");
   // the issue page itself is GitHub's: the address asked for is what is checked, and never loaded
   let issueRequested = "";
   await page.context().route(/^https:\/\/github\.com\//, async (route) => {
@@ -226,13 +254,18 @@ try {
     await route.fulfill({ status: 200, contentType: "text/plain", body: "stub" });
   });
   const popup = page.waitForEvent("popup");
-  await reportDialog.getByRole("button", { name: "Open a GitHub issue", exact: true }).click();
+  await reportDialog.getByRole("link", { name: "Open a GitHub issue", exact: true }).click();
   const issue = await popup;
   await until(() => issueRequested !== "", "issue address requested");
   const issueAddress = new URL(issueRequested);
   assert.equal(`${issueAddress.origin}${issueAddress.pathname}`, "https://github.com/devswha/herdr-web-ui/issues/new");
   assert.equal(issueAddress.searchParams.get("title"), "[claude] list numbers read 1. 1. 1.");
+  assert.ok(issueRequested.length <= 2000);
+  assert.match(issueAddress.searchParams.get("body")!, /Please paste the full report/);
   await issue.close();
+  await reportDialog.getByRole("button", { name: "Rebuild report" }).click();
+  assert.match(await reportText.inputValue(), /## Environment/);
+  await report("idle");
   await reportDialog.getByRole("button", { name: "Close", exact: true }).click();
   await reportDialog.waitFor({ state: "hidden" });
   console.log("PASS a problem report gathers the pane, saves a file, and opens a prefilled issue");
@@ -355,6 +388,18 @@ try {
   await mobilePage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).fill("mobile draft");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await mobilePage.getByRole("button", { name: "Report a problem", exact: true }).click();
+  const mobileReport = mobilePage.getByRole("dialog", { name: "Report a problem" });
+  await mobileReport.getByRole("link", { name: "Open a GitHub issue" }).waitFor();
+  await mobileReport.getByRole("textbox", { name: "Report", exact: true }).fill("한글 보고서 😀".repeat(1000));
+  for (const theme of ["light", "dark"]) {
+    await mobilePage.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+    const action = await mobileReport.getByRole("link", { name: "Open a GitHub issue" }).boundingBox();
+    assert.ok(action && action.y >= 0 && action.y + action.height <= 844, "mobile issue action fits viewport");
+    assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    if (process.env.UI_EVIDENCE_DIR) await mobilePage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `report-mobile-${theme}.png`) });
+  }
+  await mobileReport.getByRole("button", { name: "Close", exact: true }).click();
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 

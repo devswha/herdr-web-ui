@@ -13,7 +13,7 @@ import type { AgentStatus, SlashCommand } from "../../shared/protocol.ts";
 import { knownStatus, STATUS_WORD } from "./status.ts";
 import { t } from "./i18n.ts";
 
-/** The composer never queues: this cap keeps one send inside a single WS frame. */
+/** This cap keeps one composer message inside a single WS frame. */
 export const MAX_COMPOSER_CHARS = 20_000;
 
 const PASTE_START = "\u001b[200~";
@@ -47,15 +47,7 @@ export function imageMention(path: string): string {
   return `@${path} `;
 }
 
-/**
- * Agent states that mean "the run is over, the next line is wanted", and so let a
- * parked message auto-dispatch. Deliberately an allow-list: `unknown` is what a pane
- * reports before the status collector has seen it (and during a reconnect), and
- * herdr's AgentStatus is widened with `(string & {})`, so a state a newer herdr
- * invents must never fire the queue into a still-running agent. Anything unrecognized
- * keeps the message parked for the user's own `Send now`. `blocked` may be an
- * approval or question menu, so it must never receive an automatic submission.
- */
+/** Ready states affect the held-message hint only; sending always requires a user action. */
 export const QUEUE_READY_STATUS: Readonly<Partial<Record<string, true>>> = { done: true, idle: true };
 
 /** The composer's status word: the shared vocabulary, with a blank state reading as READY (a shell is always ready). */

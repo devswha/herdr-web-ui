@@ -8,6 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- Problem reports now bound the full encoded GitHub URL, preventing errors with long or Korean
+  reports. Large reports can be copied or saved for attachment. The report dialog fits mobile
+  screens, and manual edits survive status updates and inclusion changes until explicitly rebuilt.
+- Messages queued while an agent works now form a persistent list per PC and pane instead of
+  replacing the previous message. Each item can be edited, discarded, or explicitly sent;
+  confirming one send leaves the remaining messages intact.
 - On iPhone (iOS 26 and later) the header of the home-screen app was blurred, not in Safari. iOS
   lays its Liquid Glass edge blur over the top of an installed web app unless a fixed or sticky box
   with a background covers that edge; the header is now sticky, so iOS takes its color there.

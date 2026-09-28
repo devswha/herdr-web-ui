@@ -489,8 +489,12 @@
   }
 }
 
-/* PaneTerminal's existing parked-message card remains visually compatible. */
+/* A bounded, scrollable list leaves room for the chat and composer on phones. */
 .composer-queue {
+  min-height: 0;
+  max-height: min(34dvh, 22rem);
+  overflow-y: auto;
+  flex-shrink: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -632,3 +636,9 @@
     min-height: var(--touch-target);
   }
 }
+
+.composer-queue-heading { display: grid; gap: var(--space-1); font-size: var(--fs-sm); }
+.composer-queue-list { margin: 0; padding: 0; list-style: none; }
+.composer-queue-item { display: grid; gap: var(--space-1); padding: var(--space-2) 0; }
+.composer-queue-item + .composer-queue-item { border-top: var(--hairline) solid var(--border); }
+.composer-queue-error { margin: 0; color: var(--text); font-size: var(--fs-xs); }

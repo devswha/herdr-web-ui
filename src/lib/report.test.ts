@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { buildReport, ISSUE_BODY_MAX, ISSUES_URL, issueUrl, reportTitle, reportTurns } from "./report.ts";
+import { buildReport, ISSUE_URL_MAX, ISSUES_URL, issueUrl, reportTitle, reportTurns } from "./report.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 
 const environment = { app: "0.3.20", herdr: "0.9.0", machine: "local", agent: "claude", status: "idle", source: "claude-transcript" as const, model: "claude-opus-5-5", browser: "Chrome", viewport: "390x844" };
@@ -33,8 +33,19 @@ describe("problem report", () => {
     expect(short.cut).toBe(false);
     expect(short.url.startsWith(`${ISSUES_URL}?`)).toBe(true);
     expect(new URL(short.url).searchParams.get("body")).toBe("body");
-    const long = issueUrl("t", "y".repeat(ISSUE_BODY_MAX + 500));
+    const long = issueUrl("t", "y".repeat(ISSUE_URL_MAX + 500));
     expect(long.cut).toBe(true);
-    expect(new URL(long.url).searchParams.get("body")).toContain("full report is attached as a file");
+    expect(long.url.length).toBeLessThanOrEqual(ISSUE_URL_MAX);
+    expect(new URL(long.url).searchParams.get("body")).toContain("Please paste the full report");
   });
+});
+
+it("bounds the encoded address for Korean, emoji and reserved characters", () => {
+  for (const value of ["한글", "😀", "&?#%", "ascii"]) {
+    const result = issueUrl(value.repeat(500), value.repeat(2000));
+    expect(result.cut).toBe(true);
+    expect(result.url.length).toBeLessThanOrEqual(ISSUE_URL_MAX);
+    expect(new URL(result.url).searchParams.get("body")).toContain("attach the saved Markdown file");
+    expect(new URL(result.url).searchParams.get("title")).not.toContain("�");
+  }
 });

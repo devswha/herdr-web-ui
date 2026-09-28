@@ -7,8 +7,8 @@
 import type { ConversationResponse, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
 
 export const ISSUES_URL = "https://github.com/devswha/herdr-web-ui/issues/new";
-/** A prefilled issue travels in the URL: past this the body is cut and the file carries the rest. */
-export const ISSUE_BODY_MAX = 6000;
+/** Bound the entire encoded URL, including multibyte text, below intermediary request-line limits. */
+export const ISSUE_URL_MAX = 2000;
 /** A tool output in the report: enough to see its shape, not the whole log. */
 const TOOL_OUTPUT_CHARS = 600;
 
@@ -74,12 +74,18 @@ export function buildReport(parts: ReportParts): string {
 export function reportTitle(description: string, agent: string | null): string {
   const first = description.trim().split("\n")[0]?.trim() ?? "";
   const title = first.length > 0 ? first : "Problem report";
-  return `${agent ? `[${agent}] ` : ""}${title.length > 90 ? `${title.slice(0, 89)}…` : title}`;
+  const characters = Array.from(title);
+  return `${agent ? `[${agent}] ` : ""}${characters.length > 90 ? `${characters.slice(0, 89).join("")}…` : title}`;
 }
 
-/** A new issue with the report in it; a body too long for a URL is cut, and says the file has the rest. */
+/** Long reports use a short handoff form; the user can copy or attach the full report. */
 export function issueUrl(title: string, body: string): { url: string; cut: boolean } {
-  const cut = body.length > ISSUE_BODY_MAX;
-  const text = cut ? `${body.slice(0, ISSUE_BODY_MAX)}\n\n… _(cut here: the full report is attached as a file)_\n` : body;
-  return { url: `${ISSUES_URL}?${new URLSearchParams({ title, body: text }).toString()}`, cut };
+  const safeTitle = Array.from(title).slice(0, 100).join("");
+  const address = (text: string) => `${ISSUES_URL}?${new URLSearchParams({ title: safeTitle, body: text }).toString()}`;
+  const full = address(body);
+  if (full.length <= ISSUE_URL_MAX) return { url: full, cut: false };
+  return {
+    url: address("Please paste the full report copied from herdr web ui here, or attach the saved Markdown file.\n\nReview the report before submitting this issue."),
+    cut: true,
+  };
 }

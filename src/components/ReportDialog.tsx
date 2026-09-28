@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Download, ExternalLink, X } from "lucide-react";
 
 import "./ReportDialog.css";
 
@@ -43,7 +43,12 @@ export function ReportDialog({ paneId, agent, agentStatus, model, onClose }: Rep
   const [gathered, setGathered] = useState<Gathered | null>(null);
   const [description, setDescription] = useState("");
   const [include, setInclude] = useState({ turns: true, prompt: true, screen: false });
-  const [report, setReport] = useState("");
+  const [editedReport, setEditedReport] = useState<string | null>(null);
+  const [environment] = useState(() => ({
+    app: __APP_VERSION__, machine: machineId, agent, status: agentStatus ?? null, model,
+    browser: navigator.userAgent,
+    viewport: `${window.innerWidth}x${window.innerHeight}${window.matchMedia?.("(pointer: coarse)").matches ? " touch" : ""}`,
+  }));
   const [note, setNote] = useState<string | null>(null);
   const preview = useRef<HTMLTextAreaElement>(null);
 
@@ -61,22 +66,19 @@ export function ReportDialog({ paneId, agent, agentStatus, model, onClose }: Rep
     return () => { cancelled = true; };
   }, [fetchPaneConversation, fetchPanePrompt, fetchPaneTranscript, paneId]);
 
-  // the text follows what is chosen; edits made in it last until the choice changes
-  useEffect(() => {
-    if (gathered === null) return;
-    const turns = gathered.conversation?.turns ?? [];
-    setReport(buildReport({
+  // Keep manual edits (including redactions) intact as props or inclusion choices change.
+  const generatedReport = useMemo(() => {
+    if (gathered === null) return "";
+    return buildReport({
       description,
-      environment: {
-        app: __APP_VERSION__, herdr: gathered.herdr, machine: machineId, agent, status: agentStatus ?? null,
-        source: gathered.conversation?.source ?? null, model,
-        browser: navigator.userAgent, viewport: `${window.innerWidth}x${window.innerHeight}${window.matchMedia?.("(pointer: coarse)").matches ? " touch" : ""}`,
-      },
-      turns: include.turns ? turns.slice(-REPORT_TURNS) : null,
+      environment: { ...environment, herdr: gathered.herdr, source: gathered.conversation?.source ?? null },
+      turns: include.turns ? (gathered.conversation?.turns ?? []).slice(-REPORT_TURNS) : null,
       prompt: include.prompt ? gathered.prompt : undefined,
       screen: include.screen ? gathered.screen ?? "" : null,
-    }));
-  }, [agent, agentStatus, description, gathered, include, machineId, model]);
+    });
+  }, [description, gathered, include, environment]);
+  const report = editedReport ?? generatedReport;
+  const issue = issueUrl(reportTitle(description, agent), report);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape") { event.preventDefault(); onClose(); } };
@@ -93,12 +95,6 @@ export function ReportDialog({ paneId, agent, agentStatus, model, onClose }: Rep
     window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   };
   const copy = async (): Promise<void> => setNote(t(await copyText(report, preview.current) ? "Copied" : "Copy failed: select the text and copy it"));
-  const file = (): void => {
-    const { url, cut } = issueUrl(reportTitle(description, agent), report);
-    // a report too long for a URL goes as a file beside the issue
-    if (cut) { save(); setNote(t("The report was too long for the issue: attach the saved file to it.")); }
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
 
   const choice = (key: keyof typeof include, label: string) => (
     <label className="report-choice">
@@ -108,7 +104,7 @@ export function ReportDialog({ paneId, agent, agentStatus, model, onClose }: Rep
   );
 
   return (
-    <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="modal-scrim report-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="modal report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-title">
         <header className="modal-header">
           <h2 className="modal-title" id="report-title">{t("Report a problem")}</h2>
@@ -118,20 +114,34 @@ export function ReportDialog({ paneId, agent, agentStatus, model, onClose }: Rep
           <label className="report-label" htmlFor="report-description">{t("What went wrong?")}</label>
           <textarea id="report-description" className="input report-description" rows={2} value={description}
             placeholder={t("e.g. the list numbers read 1. 1. 1.")} onChange={(event) => setDescription(event.target.value)} />
-          <div className="report-choices">
+          <fieldset className="report-choices">
+            <legend>{t("Include in report")}</legend>
             {choice("turns", t("Latest {n} turns, as parsed", { n: REPORT_TURNS }))}
             {choice("prompt", t("Prompt card, as parsed"))}
             {choice("screen", t("Terminal screen"))}
-          </div>
+          </fieldset>
           <p className="settings-description">{t("Nothing is sent on its own. Read it first: a conversation can hold code or secrets. Edit anything out below.")}</p>
-          <textarea ref={preview} className="input report-preview" aria-label={t("Report")} value={gathered === null ? t("Gathering…") : report}
-            readOnly={gathered === null} spellCheck={false} onChange={(event) => setReport(event.target.value)} />
+          <div className="report-preview-heading">
+            <label className="report-label" htmlFor="report-preview">{t("Review and edit report")}</label>
+            <span className="report-size">{t("{n} characters", { n: report.length })}</span>
+          </div>
+          {editedReport !== null && <div className="report-edit-note">
+            <p>{t("Your edits are kept. Rebuilding applies the choices above and replaces your edits.")}</p>
+            <button type="button" className="btn" onClick={() => setEditedReport(null)}>{t("Rebuild report")}</button>
+          </div>}
+          <textarea id="report-preview" ref={preview} className="input report-preview" aria-label={t("Report")} value={gathered === null ? t("Gathering…") : report}
+            readOnly={gathered === null} spellCheck={false} onChange={(event) => setEditedReport(event.target.value)} />
           {note !== null && <p className="settings-hint" role="status">{note}</p>}
         </div>
-        <footer className="modal-footer">
-          <button type="button" className="btn" disabled={gathered === null} onClick={() => void copy()}>{t("Copy")}</button>
-          <button type="button" className="btn" disabled={gathered === null} onClick={save}>{t("Save as file")}</button>
-          <button type="button" className="btn btn-primary" disabled={gathered === null} onClick={file}>{t("Open a GitHub issue")}</button>
+        <footer className="modal-footer report-footer">
+          {gathered !== null && issue.cut && <p className="report-handoff" role="status">{t("This report is too long to prefill. Copy or save it, then paste or attach it on GitHub.")}</p>}
+          <div className="report-footer-actions">
+          <button type="button" className="btn" disabled={gathered === null} onClick={() => void copy()}><Copy aria-hidden="true" size={16} />{t("Copy")}</button>
+          <button type="button" className="btn" disabled={gathered === null} onClick={save}><Download aria-hidden="true" size={16} />{t("Save as file")}</button>
+          {gathered === null
+            ? <button type="button" className="btn btn-primary" disabled>{t("Open a GitHub issue")}</button>
+            : <a className="btn btn-primary report-github" href={issue.url} target="_blank" rel="noopener noreferrer"><ExternalLink aria-hidden="true" size={16} />{t("Open a GitHub issue")}</a>}
+          </div>
         </footer>
       </section>
     </div>

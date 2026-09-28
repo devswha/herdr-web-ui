@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -8,7 +8,8 @@ import "./PaneTerminal.css";
 import { HerdrSocket } from "../lib/ws.ts";
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
-import { QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
+import { messageQueues } from "../lib/messageQueue.ts";
+import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
@@ -30,12 +31,6 @@ const FONT_STACK =
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
-
-/** The one message parked for a pane, tagged with the pane it belongs to. */
-interface QueuedMessage {
-  pane: string;
-  text: string;
-}
 
 export interface PaneTerminalProps {
   /** The pane this terminal attaches to; null renders the placeholder. */
@@ -163,14 +158,12 @@ export function PaneTerminal({
       && previous.value?.context?.used === value?.context?.used
       && previous.value?.context?.window === value?.context?.window ? previous : { pane, value });
   }, []);
-  // The next message is held per target in localStorage for an explicit send. It carries the
-  // pane it was written for, because a pane switch changes `agent`/`agentStatus`
-  // in the same commit that reloads this state: without the tag, the dispatch
-  // effect sees the OLD text beside the NEW pane's ready status and types one
-  // pane's message into another pane's agent.
-  const queueOwner = useRef<string | null>(null);
-  const [queued, setQueued] = useState<QueuedMessage | null>(null);
-  const [queueSending, setQueueSending] = useState(false);
+  const queueStore = messageQueues;
+  const queueOwner = paneId === null ? null : paneStorageId(machineId, paneId);
+  const queued = useSyncExternalStore(queueStore.subscribe, () => queueStore.read(queueOwner ?? ""));
+  const sendingRef = useRef(false);
+  const [queueSending, setQueueSending] = useState<string | null>(null);
+  const [queueError, setQueueError] = useState<{ owner: string; id: string; text: string } | null>(null);
 
   paneRef.current = paneId;
   onConnectionChangeRef.current = onConnectionChange;
@@ -457,15 +450,6 @@ export function PaneTerminal({
     setDraft(saved);
     draftPaneRef.current = paneId;
     term.reset();
-    // a message queued for the next idle moment is remembered per pane
-    queueOwner.current = null;
-    setQueued(() => {
-      if (paneId === null) return null;
-      try {
-        const text = window.localStorage.getItem(`herdr-web-ui:queue:${paneStorageId(machineId, paneId)}`);
-        return text === null ? null : { pane: paneId, text };
-      } catch { return null; }
-    });
     if (!paneId) return;
     try {
       fit?.fit();
@@ -594,8 +578,7 @@ export function PaneTerminal({
     term.input("\u001b");
   }, []);
 
-  // chatmux's queue-next: while the pane's agent runs, a send becomes the ONE
-  // queued message; it leaves the queue when the agent is known to be ready.
+  // While the agent runs, append to its held messages. Each requires an explicit send.
   // a question in Codex's queue leaves the composer alone: Codex keeps working, and a
   // message ("stop, don't touch prod") must reach it, not become the answer; its card answers it
   const answering = chatView && chatPrompt !== null && chatPrompt.pane === paneId && !chatPrompt.value.queued ? chatPrompt.value : null;
@@ -629,29 +612,14 @@ export function PaneTerminal({
         );
       }
       if (pane !== null && agent !== null && agentStatus === "working") {
-        setQueued({ pane, text });
+        queueStore.add(paneStorageId(machineId, pane), text);
         return true; // the composer may clear its box: the text lives in the queue card
       }
       return sendComposerText(text);
     },
-    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText],
+    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, queueStore, machineId],
   );
 
-  // A reconnect or status refresh never sends held text without a user action.
-  // Held messages survive reloads but always require review and an explicit send.
-  useEffect(() => {
-    const pane = paneRef.current;
-    if (pane === null) return;
-    const owner = paneStorageId(machineId, pane);
-    if (queueOwner.current !== owner) { queueOwner.current = owner; return; }
-    try {
-      if (queued !== null && queued.pane === pane && queued.text.trim().length > 0) {
-        window.localStorage.setItem(`herdr-web-ui:queue:${paneStorageId(machineId, pane)}`, queued.text);
-      } else if (queued === null) window.localStorage.removeItem(`herdr-web-ui:queue:${paneStorageId(machineId, pane)}`);
-    } catch {
-      /* private mode: the queue just stops being remembered */
-    }
-  }, [queued]);
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
@@ -735,42 +703,50 @@ export function PaneTerminal({
           />
         )}
       </div>
-      {paneId !== null && !observing && !ended && queued !== null && queued.pane === paneId && (
-        <div className="composer-queue" role="group" aria-label={t("Queued next message")}>
-          <span className="composer-queue-label">
-            {t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}
-          </span>
-          <textarea
-            className="composer-queue-text"
-            value={queued.text}
-            rows={Math.min(4, queued.text.split("\n").length)}
-            aria-label={t("Queued message")}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(event) => setQueued({ pane: queued.pane, text: event.target.value })}
-          />
-          <span className="composer-queue-actions">
-            <button
-              type="button"
-              className="composer-queue-send"
-              disabled={!connected || queueSending || heldByOpenQueue}
-              title={heldByOpenQueue ? t("Codex has a question open in the terminal: answer it above first") : undefined}
-              onClick={() => {
-                // a held message leaves the queue only once the pane has it; one send at a time
-                setQueueSending(true);
-                void Promise.resolve(sendComposerText(queued.text))
-                  .then((result) => { if (result === true) setQueued(null); })
-                  .finally(() => setQueueSending(false));
-              }}
-            >
-              {t("Send now")}
-            </button>
-            <button type="button" className="composer-queue-discard" onClick={() => setQueued(null)}>
-              {t("Discard")}
-            </button>
-          </span>
-        </div>
+      {paneId !== null && !observing && !ended && queueOwner !== null && queued.length > 0 && (
+        <section className="composer-queue" aria-label={t("Queued messages")}>
+          <div className="composer-queue-heading">
+            <strong>{t("Queued messages ({n})", { n: queued.length })}</strong>
+            <span className="composer-queue-label">{t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}</span>
+          </div>
+          <ol className="composer-queue-list">
+          {queued.map((message, index) => <li className="composer-queue-item" key={message.id}>
+            <label className="composer-queue-label" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>
+            <textarea
+              id={`queued-${message.id}`}
+              className="composer-queue-text"
+              value={message.text}
+              rows={Math.min(4, message.text.split("\n").length)}
+              aria-label={t("Queued message {n}", { n: index + 1 })}
+              maxLength={MAX_COMPOSER_CHARS}
+              disabled={queueStore.isSending(message.id)}
+              spellCheck={false} autoCapitalize="off" autoCorrect="off"
+              onChange={(event) => { queueStore.edit(queueOwner, message.id, event.target.value); }}
+            />
+            <div className="composer-queue-actions">
+              <button type="button" className="composer-queue-send"
+                disabled={!connected || queueSending !== null || queued.some((item) => queueStore.isSending(item.id)) || heldByOpenQueue || message.text.trim().length === 0}
+                title={heldByOpenQueue ? t("Codex has a question open in the terminal: answer it above first") : undefined}
+                onClick={() => {
+                  if (sendingRef.current || !queueStore.beginSend(queueOwner, message.id)) return;
+                  sendingRef.current = true;
+                  setQueueSending(message.id); setQueueError(null);
+                  const owner = queueOwner;
+                  void Promise.resolve(sendComposerText(message.text))
+                    .then((result) => {
+                      if (result === true) { queueStore.remove(owner, message.id); }
+                      else setQueueError({ owner, id: message.id, text: typeof result === "string" ? result : t("Not sent. Reconnect and try again.") });
+                    })
+                    .catch(() => setQueueError({ owner, id: message.id, text: t("Not confirmed. Check the terminal before sending again.") }))
+                    .finally(() => { queueStore.endSend(owner, message.id); sendingRef.current = false; setQueueSending(null); });
+                }}>{t("Send now")}</button>
+              <button type="button" className="composer-queue-discard" disabled={queueStore.isSending(message.id)}
+                onClick={() => { queueStore.remove(queueOwner, message.id); }}>{t("Discard")}</button>
+            </div>
+            {queueError?.owner === queueOwner && queueError.id === message.id && <p className="composer-queue-error" role="status">{queueError.text}</p>}
+          </li>)}
+          </ol>
+        </section>
       )}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}

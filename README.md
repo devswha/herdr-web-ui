@@ -40,7 +40,7 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Open 
 - **Take your agents with you** — install the PWA on your phone, scroll by touch, and use Esc, Tab, Ctrl and arrows above the keyboard. Settings shows your Tailscale address as a QR code. [Phone setup →](docs/guide.md#on-your-phone)
 - **Know when you're needed** — live status for every pane, plus push alerts when an agent needs input, finishes or its terminal ends, even with the app closed.
 - **Every PC in one sidebar** — add Linux and macOS machines over SSH. Their workspaces, chats, files and terminals appear alongside your local sessions. [Remote PCs →](docs/remote-pcs.md)
-- **Send context, open results** — slash commands, file mentions, image and file attachments, quick replies and a queued message while the agent works. Preview or download the files it produces. [All features →](docs/guide.md#features)
+- **Send context, open results** — slash commands, file mentions, image and file attachments, quick replies and multiple queued messages while the agent works. Preview or download the files it produces. [All features →](docs/guide.md#features)
 - **Keep your existing workflow** — herdr owns the agents and terminals; this app connects to them. Use your TUI and browser together, with local access, device pairing or a shared token. [Access and safety →](docs/guide.md#access-and-safety)
 - **Update without stopping your agents** — install releases from Settings, with health checks and rollback. Opt into automatic installation with `HERDR_WEB_AUTO_UPDATE=1`. [Updates →](docs/guide.md#updates)
 
