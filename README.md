@@ -5,6 +5,10 @@
 </p>
 
 <p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <a href="https://devswha.github.io/herdr-web-ui/">website</a> ·
   <a href="#install">install</a> ·
   <a href="https://devswha.github.io/herdr-web-ui/demo/">try the demo</a> ·
@@ -40,27 +44,6 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Open 
 - **Keep your existing workflow** — herdr owns the agents and terminals; this app connects to them. Use your TUI and browser together, with local access, device pairing or a shared token. [Access and safety →](docs/guide.md#access-and-safety)
 - **Update without stopping your agents** — install releases from Settings, with health checks and rollback. Opt into automatic installation with `HERDR_WEB_AUTO_UPDATE=1`. [Updates →](docs/guide.md#updates)
 
-<details>
-<summary><b>Watch the demos in HD</b> — desktop and phone</summary>
-
-Desktop · chat, approvals and the live terminal:
-
-https://github.com/user-attachments/assets/4ca73671-ebfc-4c18-b8f2-99331abf9fa7
-
-Phone · sessions, chat and the terminal key bar:
-
-https://github.com/user-attachments/assets/2f030569-1004-425e-835d-9e775ec6e4c8
-
-<p align="center">
-  <img src="docs/screenshots/mobile-chat.png" width="200" alt="Claude Code chat on a phone.">
-  <img src="docs/screenshots/mobile-terminal.png" width="200" alt="Live terminal on a phone with Esc, Tab, Ctrl and arrow keys.">
-  <img src="docs/screenshots/mobile-sessions.png" width="200" alt="Agent sessions and their live status on a phone.">
-</p>
-
-[Browse the screenshot gallery →](docs/guide.md#a-look-around)
-
-</details>
-
 ---
 
 ## install
@@ -70,6 +53,10 @@ curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh
 ```
 
 Linux (x64, arm64) or macOS. Installs missing herdr 0.9.0+, Bun 1.4+ and Node 18+ prerequisites for your user, then installs the app as a herdr plugin. When Tailscale is running, it sets up a tailnet HTTPS address and prints a QR code.
+
+<p align="center">
+  <img src="docs/screenshots/install.png" width="720" alt="Installer output: Bun, Node and the herdr plugin install, then tailscale serve publishes the app and a QR code for the phone appears.">
+</p>
 
 Already have the prerequisites? Install just the plugin:
 
