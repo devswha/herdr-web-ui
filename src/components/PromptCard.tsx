@@ -129,7 +129,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
           {hasChoices && <span className="prompt-card-custom-label" id={customLabelId}>{t("Or type your own answer")}</span>}
           <div className="prompt-card-custom-row">
             <input className="input" value={custom} disabled={pending} placeholder={prompt.options[prompt.custom_option_index]?.label ?? t("Type an answer")} aria-label={hasChoices ? undefined : t("Custom answer")} aria-labelledby={hasChoices ? customLabelId : undefined} onChange={(event) => setCustom(event.currentTarget.value)} onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.nativeEvent.isComposing && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
+              // an IME's Enter commits the candidate; WebKit can send it after compositionend, as key code 229
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
             }} />
             <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
               <Send aria-hidden="true" /> {t("Send")}
