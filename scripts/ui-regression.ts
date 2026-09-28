@@ -484,7 +484,10 @@ try {
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).waitFor();
   await securedPage.keyboard.press("Control+Shift+K");
   await securedPage.getByRole("option", { name: "Sign out", exact: true }).waitFor();
+  // Simulate a late terminal focus change: Escape must still dismiss the modal.
+  await securedPage.getByRole("button", { name: "Sign out", exact: true }).focus();
   await securedPage.keyboard.press("Escape");
+  await securedPage.getByRole("dialog", { name: "Command palette", exact: true }).waitFor({ state: "hidden" });
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).click();
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);

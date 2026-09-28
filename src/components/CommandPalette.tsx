@@ -1,5 +1,5 @@
 import { useMachineId } from "../lib/machineContext.tsx";
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, PanelLeft, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
@@ -72,6 +72,20 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Terminal attachment can move focus after the palette opens. Escape belongs to
+  // this modal even then, and must not leak through to the underlying terminal.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const dismiss = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", dismiss, true);
+    return () => window.removeEventListener("keydown", dismiss, true);
+  }, [open, onClose]);
+
   useEffect(() => {
     if (!open) return;
     setQuery("");
@@ -138,10 +152,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     if (action) runAction(action);
   };
   const onKeyDown = (event: React.KeyboardEvent): void => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    } else if (event.key === "ArrowDown" && itemCount > 0) {
+    if (event.key === "ArrowDown" && itemCount > 0) {
       event.preventDefault();
       setActiveIndex((index) => (index + 1) % itemCount);
     } else if (event.key === "ArrowUp" && itemCount > 0) {
