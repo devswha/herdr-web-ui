@@ -52,7 +52,7 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Open 
 curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh
 ```
 
-Linux (x64, arm64) or macOS. Installs missing herdr 0.9.0+, Bun 1.4+ and Node 18+ prerequisites for your user, then installs the app as a herdr plugin. When Tailscale is running, it sets up a tailnet HTTPS address and prints a QR code.
+Linux (x64, arm64) or macOS. Installs missing herdr 0.9.0+, Bun 1.4+ and Node 18+ prerequisites for your user, then installs the app as a herdr plugin. If an existing herdr installation is older than 0.9.0, update and restart herdr yourself before rerunning the installer. With the default listen address and Tailscale running, successful HTTPS setup provides a tailnet address and QR code.
 
 <p align="center">
   <img src="docs/screenshots/install.png" width="720" alt="Installer output: Bun, Node and the herdr plugin install, then tailscale serve publishes the app and a QR code for the phone appears.">
