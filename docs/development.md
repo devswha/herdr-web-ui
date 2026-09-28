@@ -44,7 +44,7 @@ Browser checks look for Chrome at `/opt/google/chrome/chrome`; set `CHROME_PATH`
 - `compose.ts` draws every output frame on a canvas: a backdrop, a browser window or a phone, the frame under an eased camera, and a vector cursor with click ripples or touch rings. It writes `demo-*.mp4` (1920×1200 and 1080×1920, 30 fps) and a GIF of each. Stills get the same window or phone on a transparent background.
 
 The MP4s are not committed: GitHub plays a README video only from an upload (`github.com/user-attachments/…`), so drop them into an issue or PR comment and use the link it gives.
-The website takes the same two uploads from the README, so a new recording needs only the README links changed.
+The website downloads the same two uploads, listed in `scripts/build-site.ts` (`videos`), so a new recording needs its links changed there as well.
 
 The user guide's gallery and the retained banner assets are rendered from the film's stills (below): `bun scripts/readme-media/banner.ts [banner] [og] [look]`
 draws `banner.html` in headless Chrome into `docs/media/banner.png` (1920×800), `site/assets/og.png` (1280×640) and

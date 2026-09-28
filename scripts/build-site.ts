@@ -3,9 +3,8 @@
  * look (`bun run build:site`, then serve _site/ under /herdr-web-ui/).
  *
  * The page is site/index.html. Its demo videos and screenshots are published under media/ and assets/.
- * Fetching the videos checks that the README still links them: they are not committed (docs/development.md,
- * "README media"), so a build uses the local docs/screenshots/*.mp4 when they exist and otherwise
- * downloads the uploads the README links under "Watch the demos in HD", desktop first, then phone.
+ * The videos are not committed (docs/development.md, "README media"), so a build uses the local
+ * docs/screenshots/*.mp4 when they exist and otherwise downloads their GitHub uploads (`videos`).
  * Poster frames are cut with ffmpeg when it is installed (the workflow installs it); without it the
  * stills stay full size and posters that could not be made are dropped from the page.
  *
@@ -47,19 +46,14 @@ const stills: Array<{ file: string; width: number }> = [
   { file: "mobile-sessions.png", width: 640 },
 ];
 
-const videos: Array<{ file: string; poster: string; at: string }> = [
-  { file: "demo-desktop.mp4", poster: "demo-desktop.jpg", at: "6" },
-  { file: "demo-mobile.mp4", poster: "demo-mobile.jpg", at: "5" },
+/**
+ * The homepage's two demos and their GitHub uploads (made by scripts/readme-media/capture.ts). They are
+ * listed here, not read from the README, so the README can change how it presents its videos.
+ */
+const videos: Array<{ file: string; poster: string; at: string; upload: string }> = [
+  { file: "demo-desktop.mp4", poster: "demo-desktop.jpg", at: "6", upload: "https://github.com/user-attachments/assets/4ca73671-ebfc-4c18-b8f2-99331abf9fa7" },
+  { file: "demo-mobile.mp4", poster: "demo-mobile.jpg", at: "5", upload: "https://github.com/user-attachments/assets/2f030569-1004-425e-835d-9e775ec6e4c8" },
 ];
-
-/** The README's two HD demo uploads, in the order they appear: desktop, then phone. */
-function readmeVideoUrls(): string[] {
-  const readme = readFileSync(join(root, "README.md"), "utf8");
-  const block = readme.split("Watch the demos in HD")[1]?.split("</details>")[0] ?? "";
-  const urls = [...block.matchAll(/https:\/\/github\.com\/user-attachments\/assets\/[0-9a-f-]+/g)].map((m) => m[0]);
-  if (urls.length !== videos.length) throw new Error(`README names ${urls.length} demo uploads, expected ${videos.length}`);
-  return urls;
-}
 
 async function run(cmd: string[]): Promise<boolean> {
   const proc = Bun.spawn(cmd, { stdout: "ignore", stderr: "pipe" });
@@ -104,17 +98,14 @@ for (const still of stills) {
 }
 
 mkdirSync(join(out, "media"), { recursive: true });
-let urls: string[] | undefined;
-for (const [index, video] of videos.entries()) {
+for (const video of videos) {
   const target = join(out, "media", video.file);
   const local = join(root, "docs/screenshots", video.file);
   if (existsSync(local)) {
     copyFileSync(local, target);
   } else {
-    urls ??= readmeVideoUrls();
-    const url = urls[index]!;
-    const response = await fetch(url, { redirect: "follow" });
-    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    const response = await fetch(video.upload, { redirect: "follow" });
+    if (!response.ok) throw new Error(`${video.upload}: HTTP ${response.status}`);
     writeFileSync(target, new Uint8Array(await response.arrayBuffer()));
   }
   const poster = join(out, "media", video.poster);
