@@ -35,6 +35,7 @@ import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
+import { useFileViewer } from "./lib/useFileViewer.ts";
 import { useT } from "./lib/i18n.ts";
 
 const APP_TITLE = "herdr web ui";
@@ -155,7 +156,10 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
-  const [viewing, setViewing] = useState<string | null>(null);
+  const { viewing, openFile, closeFile } = useFileViewer();
+  const viewFile = useCallback((path: string) => {
+    openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
+  }, [openFile, selectedPaneId, selectedMachineId]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
@@ -400,7 +404,7 @@ export function App() {
 
   // the ?pane= a notification opened us with has done its job once it selected the pane
   useEffect(() => {
-    if (paneFromUrl() !== null) window.history.replaceState(null, "", window.location.pathname);
+    if (paneFromUrl() !== null) window.history.replaceState(window.history.state, "", window.location.pathname);
   }, []);
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
@@ -619,7 +623,7 @@ export function App() {
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
 
         {/* a file path in the chat opens in the viewer, relative to the selected pane's folder */}
-        <OpenFileContext.Provider value={selectedPaneId !== null ? setViewing : null}>
+        <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
         <main className="terminal-host">
           <PaneTerminal
             key={selectedMachineId}
@@ -653,9 +657,11 @@ export function App() {
       {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={() => setMachineDialog(null)} onConnected={(id) => { setMachineDialog(null); selectTarget(id, null); void load(); }} />}
       <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} updates={updates} />
       {filesOpen && selectedPane && (
-        <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} onOpenFile={setViewing} onClose={() => setFilesOpen(false)} />
+        <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}
-      {viewing !== null && <FileViewer path={viewing} paneId={selectedPaneId} onClose={() => setViewing(null)} />}
+      {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
+        <FileViewer path={viewing.path} paneId={viewing.paneId} onClose={closeFile} />
+      </MachineContext.Provider>}
       <CommandPalette key={selectedMachineId} open={paletteOpen} onClose={() => setPaletteOpen(false)} snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} actions={actions} />
     </div></MachineContext.Provider>
   );

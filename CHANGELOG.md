@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Android's system Back button closes a file or video preview and returns to the
+  chat instead of leaving the app. Closing with X, Escape or the backdrop also
+  consumes the preview's history entry; Forward restores the original file target.
+
 ## [0.3.27] - 2026-09-27
 
 ### Fixed
