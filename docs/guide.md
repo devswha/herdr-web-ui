@@ -68,7 +68,8 @@ Run it again at any time, for example after setting up Tailscale: it keeps what 
 <details>
 <summary>Other ways to install</summary>
 
-**The plugin alone**, when herdr, Bun and Node are there already. It skips the phone step; run it later with the `phone` command below.
+**The plugin alone**, when herdr, Bun and Node are there already. After installing, choose
+the plugin's **Phone setup** action inside herdr to see the address, QR and a pairing code.
 
 ```bash
 herdr plugin install devswha/herdr-web-ui
@@ -107,6 +108,7 @@ bun scripts/plugin.ts pair                                                      
 ```bash
 herdr plugin action invoke devswha.herdr-web-ui.start    # leaves a running server alone
 herdr plugin action invoke devswha.herdr-web-ui.status
+herdr plugin action invoke devswha.herdr-web-ui.phone    # visible phone setup pane
 herdr plugin action invoke devswha.herdr-web-ui.stop
 ```
 

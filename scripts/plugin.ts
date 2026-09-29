@@ -19,11 +19,13 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import qrcode from "qrcode-generator";
 
 import { DEFAULT_PORT } from "../shared/protocol.ts";
+import type { RemoteAccess } from "../shared/protocol.ts";
+import { activePluginScript } from "./plugin-runtime.ts";
 import { parseTailscale, parseTailscaleIp, parseTailscaleOwner, readTailscale, tailscaleBinary } from "../server/tailscale.ts";
 
 /**
@@ -295,6 +297,44 @@ async function phone(): Promise<number> {
   return 0;
 }
 
+/** The marketplace action has a real pane, so its address, QR and pairing code stay visible. */
+async function phoneSetup(): Promise<number> {
+  const stateDir = env["HERDR_WEB_STATE_DIR"] ?? join(env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr-web-ui");
+  const active = activePluginScript(ROOT, port, stateDir);
+  if (active !== join(resolve(ROOT), "scripts", "plugin.ts") && resolve(active) !== resolve(import.meta.filename)) {
+    const child = Bun.spawn([process.execPath, active, "phone-setup"], { cwd: ROOT, env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+    return await child.exited;
+  }
+  process.stdout.write(`Phone setup\n\nApp on this PC: ${link(origin)}\n`);
+  let code = 0;
+  if (!(await health())) {
+    process.stdout.write("The app is not running. Run the Start herdr web ui action, then reopen Phone setup.\n");
+    code = 1;
+  } else {
+    const headers: Record<string, string> = {};
+    if (env["HERDR_WEB_TOKEN"]) headers["authorization"] = `Bearer ${env["HERDR_WEB_TOKEN"]}`;
+    try {
+      const response = await fetch(`${origin}/api/access`, { headers, signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error(`access request failed (${response.status})`);
+      const access = await response.json() as RemoteAccess;
+      if (!access.tailscale.serving_url) {
+        if (access.tailscale.serve_command) process.stdout.write(`To make a phone address, run this on the PC, then reopen Phone setup:\n\n  ${access.tailscale.serve_command}\n\n`);
+        else process.stdout.write("For a phone address, set up Tailscale on both devices, or use your own HTTPS proxy. Settings → Phone shows the connection options.\n\n");
+      }
+      code = await pair();
+    } catch {
+      process.stderr.write("Could not read phone setup. Check the app's token and connection, then reopen this pane.\n");
+      code = 1;
+    }
+  }
+  if (process.stdin.isTTY) {
+    process.stdout.write("\nPress Enter to finish. Reopen Phone setup for a fresh pairing code.\n");
+    await new Promise<void>((done) => { process.stdin.once("data", () => done()); process.stdin.resume(); });
+    process.stdin.pause();
+  }
+  return code;
+}
+
 /** Reporting "down" is not an action failure: herdr logs a nonzero exit as failed. */
 async function status(): Promise<number> {
   const pid = recordedPid();
@@ -311,7 +351,8 @@ else if (command === "stop") process.exit(stop());
 else if (command === "status") process.exit(await status());
 else if (command === "pair") process.exit(await pair());
 else if (command === "phone") process.exit(await phone());
+else if (command === "phone-setup") process.exit(await phoneSetup());
 else {
-  process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status|pair|phone>\n`);
+  process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status|pair|phone|phone-setup>\n`);
   process.exit(2);
 }

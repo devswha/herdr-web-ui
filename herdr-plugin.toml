@@ -36,3 +36,15 @@ id = "status"
 title = "herdr web ui status"
 contexts = ["workspace"]
 command = ["bun", "scripts/plugin.ts", "status"]
+
+[[panes]]
+id = "phone"
+title = "Phone setup"
+placement = "zoomed"
+command = ["bun", "scripts/plugin.ts", "phone-setup"]
+
+[[actions]]
+id = "phone"
+title = "Phone setup"
+contexts = ["workspace"]
+command = ["herdr", "plugin", "pane", "open", "--plugin", "devswha.herdr-web-ui", "--entrypoint", "phone", "--placement", "zoomed", "--focus"]

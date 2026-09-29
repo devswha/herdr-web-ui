@@ -8,6 +8,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- The herdr plugin's **Phone setup** action opens a pane with the phone address, QR and
+  a pairing code. It follows the active app release and shows any needed Tailscale command.
 - A **Needs you** group at the top of the sidebar gathers agents waiting for input across
   connected PCs, including collapsed PCs, without changing workspace order.
 - Japanese (日本語) and Simplified Chinese (简体中文) join English and Korean in Settings →
