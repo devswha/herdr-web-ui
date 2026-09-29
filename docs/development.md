@@ -45,9 +45,9 @@ Browser checks look for Chrome at `/opt/google/chrome/chrome`; set `CHROME_PATH`
 
 The MP4s are not committed: GitHub plays a README video only from an upload (`github.com/user-attachments/…`), so drop them into an issue or PR comment and use the link it gives.
 The website downloads the same two uploads, listed in `scripts/build-site.ts` (`videos`), so a new recording needs its links changed there as well.
-The README's feature grid shows a looping ~7-second cut of each feature video (`docs/media/readme/*.webp`, 800 px, 15 fps), each linking to its upload. Cut one with
-`ffmpeg -ss <start> -t <seconds> -i clip.mp4 -vf "fps=15,scale=800:-2:flags=lanczos" -c:v libwebp_anim -loop 0 -quality 72 -compression_level 6 -an out.webp`;
-start on a sharp frame, not mid camera move. The top video stays a GitHub upload so it plays at full quality.
+The README's feature grid shows a looping ~7-second cut of each feature video (`docs/media/readme/*.webp`, 800×450, 15 fps), each linking to its upload. Cut one with
+`ffmpeg -ss <start> -t <seconds> -i clip.mp4 -vf "fps=15,scale=800:450:force_original_aspect_ratio=increase:flags=lanczos,crop=800:450" -c:v libwebp_anim -loop 0 -quality 72 -compression_level 6 -an out.webp`;
+the scale and crop fill 800×450 from any source aspect. Start on a sharp frame, not mid camera move. The top video stays a GitHub upload so it plays at full quality.
 
 The user guide's gallery and the retained banner assets are rendered from the film's stills (below): `bun scripts/readme-media/banner.ts [banner] [og] [look]`
 draws `banner.html` in headless Chrome into `docs/media/banner.png` (1920×800), `site/assets/og.png` (1280×640) and
