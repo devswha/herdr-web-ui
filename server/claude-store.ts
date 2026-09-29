@@ -30,11 +30,17 @@ export function claudeProjectDir(cwd: string): string {
   return `${name.slice(0, MAX_PROJECT_NAME)}-${Math.abs(stringHash(cwd)).toString(36)}`;
 }
 
-function isFile(path: string): boolean {
-  try { return statSync(path).isFile(); } catch { return false; }
+/** Only an absent path is a miss: an unreadable store is an error to report, not an empty one. */
+function absent(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
 }
 
-/** Session id → the file a project scan found it in; checked again on every use. */
+function isFile(path: string): boolean {
+  try { return statSync(path).isFile(); } catch (error) { if (absent(error)) return false; throw error; }
+}
+
+/** Store + session id → the file a project scan found it in; checked again on every use. */
 const found = new Map<string, string>();
 
 export function forgetClaudeSessions(): void {
@@ -54,14 +60,15 @@ export function claudeTranscriptFile(home: string, session: string, cwds: readon
     const path = join(projects, claudeProjectDir(cwd), file);
     if (isFile(path)) return path;
   }
-  const known = found.get(session);
+  const key = `${projects}\0${session}`;
+  const known = found.get(key);
   if (known !== undefined && isFile(known)) return known;
-  found.delete(session);
+  found.delete(key);
   let entries: string[];
-  try { entries = readdirSync(projects); } catch { return null; }
+  try { entries = readdirSync(projects); } catch (error) { if (absent(error)) return null; throw error; }
   for (const entry of entries) {
     const path = join(projects, entry, file);
-    if (isFile(path)) { found.set(session, path); return path; }
+    if (isFile(path)) { found.set(key, path); return path; }
   }
   return null;
 }

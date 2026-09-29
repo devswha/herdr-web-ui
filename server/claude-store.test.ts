@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeProjectDir, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
@@ -59,6 +59,21 @@ describe("claudeTranscriptFile", () => {
     // a remembered file that has gone is looked up again, not answered
     rmSync(join(projects, "-some-other-name"), { recursive: true });
     expect(claudeTranscriptFile(dir, SESSION, ["/w/moved-on"])).toBeNull();
+  });
+
+  it("keeps a session found by a scan to the store it was found in", () => {
+    const first = home(), second = home();
+    transcript(first.projects, "-elsewhere");
+    expect(claudeTranscriptFile(first.home, SESSION, ["/w/project"])).toBe(join(first.projects, "-elsewhere", `${SESSION}.jsonl`));
+    expect(claudeTranscriptFile(second.home, SESSION, ["/w/project"])).toBeNull();
+  });
+
+  it("reports a store it cannot read instead of calling the transcript missing", () => {
+    if (process.getuid?.() === 0) return; // root reads anything
+    const { home: dir, projects } = home();
+    chmodSync(projects, 0o000);
+    try { expect(() => claudeTranscriptFile(dir, SESSION, [])).toThrow(); }
+    finally { chmodSync(projects, 0o700); }
   });
 
   it("answers null without a projects store or a file for the session", () => {
