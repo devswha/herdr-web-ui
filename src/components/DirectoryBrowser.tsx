@@ -81,6 +81,7 @@ export function DirectoryBrowser({ start, onPick, onOpenFile }: DirectoryBrowser
       </div>
       {error !== null ? <p className="dir-browser-note dir-browser-error" role="alert">{error}</p> : (
         <ul className="dir-browser-list" ref={listRef}>
+          {listing === null && <li className="dir-browser-note" role="status">{t("Loading…")}</li>}
           {listing?.directories.map((name) => (
             <li key={name}>
               <button type="button" className="dir-browser-item" disabled={loading} onClick={() => void open(childPath(path, name), hidden, false)}>

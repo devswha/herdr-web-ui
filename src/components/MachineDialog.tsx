@@ -9,6 +9,7 @@ import { useT } from "../lib/i18n.ts";
 export function MachineDialog({ machine, updateRemote = false, onClose, onConnected }: { machine?: Machine; updateRemote?: boolean; onClose(): void; onConnected(id: string): void }) {
   const t = useT();
   const dialog = useRef<HTMLDialogElement>(null);
+  const destinationField = useRef<HTMLInputElement>(null);
   const [destination, setDestination] = useState(machine?.target?.destination ?? "");
   const [name, setName] = useState(machine?.name ?? "");
   const [port, setPort] = useState(String(machine?.target?.port ?? ""));
@@ -24,7 +25,9 @@ export function MachineDialog({ machine, updateRemote = false, onClose, onConnec
 
   // closing cancels a job that still waits on this dialog (a question, an approval); an
   // approved install keeps going on the server and shows in the sidebar
-  useEffect(() => { dialog.current?.showModal(); return () => { const current = jobRef.current; if (current && !["connected", "failed", "cancelled", "installing", "starting"].includes(current.phase)) void answerMachineSetup(current.id, { action: "cancel" }).catch(() => {}); }; }, []);
+  // React's autoFocus runs at mount, while the dialog is still closed; showModal() then moves focus
+  // to the first focusable element (Close), so the field is focused again once the dialog is open
+  useEffect(() => { dialog.current?.showModal(); destinationField.current?.focus(); return () => { const current = jobRef.current; if (current && !["connected", "failed", "cancelled", "installing", "starting"].includes(current.phase)) void answerMachineSetup(current.id, { action: "cancel" }).catch(() => {}); }; }, []);
   const running = !!job && ["installing", "starting"].includes(job.phase);
   useEffect(() => {
     if (!job || finished) return;
@@ -57,7 +60,7 @@ export function MachineDialog({ machine, updateRemote = false, onClose, onConnec
     <header className="modal-header"><h2 id="machine-dialog-title" className="modal-title"><Monitor size={18} /> {t(updateRemote ? "Update remote bridge" : machine ? "Reconnect PC" : "Add PC")}</h2><button className="icon-button" aria-label={t("Close PC setup")} onClick={onClose}><X /></button></header>
     <div className="modal-body">
       {(!job || finished && job.phase !== "connected") && <form id="machine-connect-form" onSubmit={(e) => { e.preventDefault(); void begin(); }}>
-        <label className="field"><span className="field-label">{t("SSH alias or user@address")}</span><input autoFocus className="input" required autoComplete="off" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="devbox or user@192.168.1.20" /></label>
+        <label className="field"><span className="field-label">{t("SSH alias or user@address")}</span><input ref={destinationField} autoFocus className="input" required autoComplete="off" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="devbox or user@192.168.1.20" /></label>
         <label className="field"><span className="field-label">{t("PC name")}</span><input className="input" maxLength={100} value={name} placeholder={destination || t("Filled from the SSH address")} onChange={(e) => setName(e.target.value)} /></label>
         <details><summary>{t("Advanced settings")}</summary><div className="machine-advanced">
           <label className="field"><span className="field-label">{t("SSH port")}</span><input className="input" type="number" min="1" max="65535" placeholder={t("From SSH config (default 22)")} value={port} onChange={(e) => setPort(e.target.value)} /></label>

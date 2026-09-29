@@ -8,6 +8,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- Image thumbnails in a chat message keep a fixed box, so a lazy image no longer grows the
+  message by about 120 px when it loads and pushes the view off the bottom. Non-square
+  attachment tiles in the composer are cropped to fill instead of stretched.
+- A tap on a touch screen no longer leaves the hover background on the paperclip, the
+  search button and other buttons and menu rows; hover styles now apply only where a pointer
+  can hover.
+- The folder browser shows a loading row until its first listing arrives, instead of an
+  empty list. File sizes read in bytes below 1 KB ("179 B", not "1 KB"), and an empty file
+  reads "0 B", not "0 MB".
+- On a phone, a short text file in the file viewer starts at the top instead of floating in
+  the middle of the screen; images, video, audio and PDFs stay centered.
+- Escape in a file opened from the Files dialog closes only the viewer, so the folder you
+  browsed to stays open; Escape still closes the Files dialog when no file is open.
+- The Add PC dialog focuses the SSH field when it opens, not the Close button.
 - When a GJC pane is matched to its transcript by the text on screen, the oldest whole
   record in each candidate's 64 KiB tail is read too. A complete record was dropped along
   with the cut first line, or in place of it when the window started exactly on a record.

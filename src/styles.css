@@ -477,8 +477,11 @@ button {
   height: var(--icon-size);
 }
 
-.icon-button:hover:not(:disabled) {
-  background: var(--bg-hover);
+/* hover only where a pointer can hover: after a tap a touch screen keeps :hover on the button */
+@media (hover: hover) {
+  .icon-button:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
 }
 
 .icon-button:active,
@@ -521,9 +524,11 @@ button {
   height: 16px;
 }
 
-.btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+  }
 }
 
 .btn:disabled {
@@ -537,9 +542,11 @@ button {
   color: var(--primary-text);
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+  }
 }
 
 .btn-danger {
@@ -554,8 +561,10 @@ button {
   color: var(--text);
 }
 
-.btn-ghost:hover:not(:disabled) {
-  border-color: transparent;
+@media (hover: hover) {
+  .btn-ghost:hover:not(:disabled) {
+    border-color: transparent;
+  }
 }
 
 /* fingers: the header controls grow to the touch target; the header still fits them */
@@ -855,10 +864,16 @@ button {
   color: var(--text-dim);
 }
 
-.menu-item[aria-selected="true"],
-.menu-item:hover {
+.menu-item[aria-selected="true"] {
   background: var(--bg-hover);
   color: var(--text-strong);
+}
+
+@media (hover: hover) {
+  .menu-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-strong);
+  }
 }
 
 .menu-item-main {
@@ -914,8 +929,10 @@ button {
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 
-.error-retry:hover {
-  background: var(--danger-tint);
+@media (hover: hover) {
+  .error-retry:hover {
+    background: var(--danger-tint);
+  }
 }
 
 /* ---------- mobile: sidebar becomes a drawer ---------- */
