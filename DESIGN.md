@@ -251,11 +251,11 @@ Comfortable values are `:root`; the final column is the complete compact overrid
   account in the user's order: provider mark, mono `--fs-2xs` percent of the limit closest to
   running out (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
   filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
-  chrome. A chip whose numbers are stale or missing dims. With every account hidden from the
-  strip, a dim gauge mark keeps the popover reachable.
+  chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
+  left out of the strip and the popover; with every account hidden, neither shows.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
   footer and scrolling past the sidebar's top bar: per account its mark, name and plan pill with
-  the email or login right-aligned and ellipsized, hidden accounts included, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
+  the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
   note is dim, red for an expired sign-in or a failed request.
 
 ### New session dialog

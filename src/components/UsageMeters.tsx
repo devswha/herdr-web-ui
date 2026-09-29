@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent } from "react";
-import { Gauge, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 import "./UsageMeters.css";
 
@@ -104,10 +104,9 @@ export function UsageMeters() {
   };
 
   const count = settings.usageCount;
-  const providers = report ? orderProviders(report.providers, settings.usageOrder) : [];
-  if (!settings.showUsage || providers.length === 0) return null;
-  // hidden ones stay in the popover; the strip stays too, so the popover can still be opened
-  const shown = providers.filter((usage) => !settings.usageHidden.includes(usage.key));
+  // an account hidden in Settings is left out of the strip and the popover alike
+  const shown = report ? orderProviders(report.providers, settings.usageOrder).filter((usage) => !settings.usageHidden.includes(usage.key)) : [];
+  if (!settings.showUsage || shown.length === 0) return null;
   const folded = shown.length > MAX_CHIPS ? shown.length - (MAX_CHIPS - 1) : 0;
   const chips = folded > 0 ? shown.slice(0, MAX_CHIPS - 1) : shown;
   const summary = shown.map((usage) => {
@@ -122,13 +121,12 @@ export function UsageMeters() {
         type="button"
         className="usage-strip"
         aria-expanded={open}
-        aria-label={summary ? `${t("Subscription usage")}: ${summary}` : t("Subscription usage")}
-        title={summary || t("Subscription usage")}
+        aria-label={`${t("Subscription usage")}: ${summary}`}
+        title={summary}
         onClick={() => setOpen(!open)}
       >
         {chips.map((usage) => <Chip key={usage.key} usage={usage} count={count} />)}
         {folded > 0 && <span className="usage-more">+{folded}</span>}
-        {chips.length === 0 && <Gauge className="usage-strip-icon" aria-hidden="true" />}
       </button>
       {open && (
         <div className="usage-popover" role="dialog" aria-label={t("Subscription usage")}>
@@ -139,7 +137,7 @@ export function UsageMeters() {
               <RefreshCw aria-hidden="true" className={loading ? "is-spinning" : undefined} />
             </button>
           </header>
-          {providers.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} />)}
+          {shown.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} />)}
         </div>
       )}
     </div>

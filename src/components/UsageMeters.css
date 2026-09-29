@@ -60,12 +60,6 @@
   background: linear-gradient(to right, var(--text-dim) var(--fill), var(--border-strong) var(--fill));
 }
 
-/* every account hidden from the strip: one mark still opens the popover */
-.usage-strip-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--text-dim);
-}
 
 .usage-chip.is-high .usage-chip-value {
   color: var(--status-blocked);

@@ -179,7 +179,7 @@ Only providers with a sign-in are shown; a GitHub account without Copilot is lef
 
 - **Read only.** The server never refreshes a token: Claude, Codex, Cursor and Grok rotate refresh tokens, and a refresh the tool did not make would sign it out. An expired sign-in says so; using the tool once renews it.
 - **Asked only while someone looks.** Nothing runs in the background. The server asks a provider at most every five minutes, a refresh from the popover at most every 30 seconds, and a provider that answered 429 not before it said to.
-- **Yours to arrange.** Settings → Subscription usage orders the accounts (until then the one nearest a limit comes first), hides any from the strip while its popover still lists them, and switches the meters between what is used and what is left.
+- **Yours to arrange.** Settings → Subscription usage orders the accounts (until then the one nearest a limit comes first), hides any (from the strip and its popover alike), and switches the meters between what is used and what is left.
 - **The server's PC only.** Remote PCs are not included.
 - A macOS keychain the server's session cannot open (a server started outside the logged-in desktop session, for one) shows as such instead of the numbers.
 

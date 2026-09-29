@@ -91,15 +91,16 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     const names = () => page.locator(".usage-popover .usage-provider").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
     await settingsButton.click();
     await page.getByRole("button", { name: "Remaining", exact: true }).click();
-    await page.getByRole("switch", { name: "Show Codex · me@work.example beside Settings", exact: true }).click();
+    await page.getByRole("switch", { name: "Show Codex · me@work.example", exact: true }).click();
     await page.getByRole("button", { name: "Move Cursor up", exact: true }).click();
     await page.keyboard.press("Escape");
     assert.equal(await strip.getAttribute("aria-label"),
       "Subscription usage: Claude · me@example.com 37% left, Cursor 80% left, Codex · me@example.com 70% left, Copilot · me 100% left, Grok 100% left, Antigravity —");
     assert.deepEqual(await page.locator(".usage-chip-value").allTextContents(), ["37%", "80%", "70%"]);
     await strip.click();
-    assert.deepEqual((await names()).slice(0, 4), ["Codex · me@work.example", "Claude · me@example.com", "Cursor", "Codex · me@example.com"], "a hidden account stays in the popover, in its place");
-    assert.equal(await popover.locator(".usage-row-value").first().textContent(), "88% left");
+    assert.deepEqual((await names()).slice(0, 3), ["Claude · me@example.com", "Cursor", "Codex · me@example.com"], "a hidden account is left out of the popover too");
+    assert.equal(await popover.locator(".usage-provider").count(), 6);
+    assert.equal(await popover.locator(".usage-row-value").first().textContent(), "58% left");
     if (process.env.UI_EVIDENCE_DIR) await page.locator(".sidebar-shell").screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-popover-left.png") });
     await page.keyboard.press("Escape");
     await settingsButton.click();

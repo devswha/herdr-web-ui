@@ -38,7 +38,7 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
   );
 }
 
-/** The accounts the plan meters know, in the strip's order: each moves up or down and shows or hides beside Settings. */
+/** The accounts the plan meters know, in the strip's order: each moves up or down, and shows or is hidden. */
 function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   const { settings, update } = useSettings();
   const t = useT();
@@ -60,7 +60,7 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
             <button type="button" className="icon-button" aria-label={t("Move {name} up", { name })} disabled={index === 0} onClick={() => move(usage.key, -1)}><ChevronUp aria-hidden="true" /></button>
             <button type="button" className="icon-button" aria-label={t("Move {name} down", { name })} disabled={index === ordered.length - 1} onClick={() => move(usage.key, 1)}><ChevronDown aria-hidden="true" /></button>
             <Toggle
-              label={t("Show {name} beside Settings", { name })}
+              label={t("Show {name}", { name })}
               checked={!hidden}
               onChange={(show) => update({ usageHidden: show ? settings.usageHidden.filter((key) => key !== usage.key) : [...settings.usageHidden, usage.key] })}
             />
@@ -260,7 +260,7 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
             )}
             {settings.showUsage && usage.report && usage.report.providers.length > 0 && (
               <>
-                <p className="settings-description">{t("Order the accounts and choose which show beside Settings. Hidden ones are still listed when it is opened.")}</p>
+                <p className="settings-description">{t("Order the accounts and choose which to show. A hidden account is left out of the strip beside Settings and its list.")}</p>
                 <UsageAccounts providers={usage.report.providers} />
                 {settings.usageOrder.length > 0 && (
                   <div className="phone-actions">

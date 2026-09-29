@@ -45,7 +45,7 @@ export interface Settings {
   usageCount: UsageCount;
   /** the plan meters' order by ProviderUsage.key; accounts not in it follow, the one nearest a limit first */
   usageOrder: string[];
-  /** accounts kept out of the strip beside Settings, by ProviderUsage.key; its popover still lists them */
+  /** accounts left out of the plan meters, strip and popover alike, by ProviderUsage.key */
   usageHidden: string[];
 }
 
