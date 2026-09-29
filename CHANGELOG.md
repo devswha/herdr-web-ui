@@ -13,7 +13,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Changed
 - The new-session dialog's agent list shows each agent's mark beside its name, and the plain
-  shell entry reads "Shell" in every language (it was "셸만" in Korean).
+  shell entry reads "Shell" in every language (it was "셸만" in Korean). Every agent herdr can
+  start now has a mark (Amp, Antigravity, Cline, Devin, Droid, Gemini CLI, GitHub Copilot,
+  Grok, Hermes, Kilo, Kimi, Kiro, maki, Muse, pi, Qoder, Qwen) instead of a letter, in the
+  sidebar and palette too.
 
 ### Fixed
 - The chat finds a Claude Code pane's conversation when its folder name has a dot, an

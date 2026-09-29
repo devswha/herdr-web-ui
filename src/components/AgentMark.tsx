@@ -1,5 +1,7 @@
 import { useId } from "react";
 
+import { AGENT_SVG_MARKS } from "./agentSvgMarks.ts";
+
 /**
  * Provider marks for the agents herdr names, ported from chatmux's
  * llm-logo-provider set (same owner, same visual language). Monochrome marks
@@ -145,6 +147,14 @@ function OmoMark({ size }: { size: number }) {
 }
 
 /** The agent nobody has drawn yet: its initial in a quiet disc. */
+/** A mark kept as SVG markup; its ids get this instance's prefix so copies never collide. */
+function SvgMark({ agent, size }: { agent: string; size: number }) {
+  const prefix = useId().replace(/[^\w-]/g, "");
+  const { viewBox, body } = AGENT_SVG_MARKS[agent]!;
+  const html = body.replace(/(id="|url\(#|href="#)([\w-]+)/g, `$1${prefix}-$2`);
+  return <svg viewBox={viewBox} width={size} height={size} role="img" aria-label={agent} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 function FallbackMark({ agent, size }: { agent: string; size: number }) {
   const initial = agent.trim().charAt(0).toUpperCase() || "?";
   return (
@@ -173,6 +183,8 @@ export function AgentMark({ agent, size = 16, className }: AgentMarkProps) {
       <GjcMark size={size} />
     ) : agent === "omo" ? (
       <OmoMark size={size} />
+    ) : Object.hasOwn(AGENT_SVG_MARKS, agent) ? (
+      <SvgMark agent={agent} size={size} />
     ) : (
       <FallbackMark agent={agent} size={size} />
     );
