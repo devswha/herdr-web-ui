@@ -92,7 +92,7 @@
       .modes button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
       .top .install-link { height: 34px; padding: 0 16px; color: var(--ink); }
       @media (max-width: 900px) { .top nav { display: none; } .top .stars { margin-left: auto; } }
-      @media (max-width: 560px) { .top .modes, .top .install-link { display: none; } }
+      @media (max-width: 560px) { .top .install-link { display: none; } .top .modes button { padding: 0 8px; } }
 
       /* hero */
       .hero { position: relative; overflow: hidden; padding: clamp(40px, 6vw, 72px) var(--gut) clamp(36px, 5vw, 56px); }
@@ -201,12 +201,15 @@
       .clips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 32px; border-top: 1px solid var(--line); }
       .clip { display: block; padding: 22px var(--gut) 28px; border-bottom: 1px solid var(--line); }
       .clip:nth-child(odd) { border-right: 1px solid var(--line); }
-      .clip img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid var(--line2); background: var(--panel); }
+      .clip img, .clip canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid var(--line2); background: var(--panel); }
+      .clip img[hidden] { display: none; }
       .clip h3 { margin-top: 16px; color: var(--ink); font-family: var(--disp); font-weight: 800; font-size: 19px; letter-spacing: -0.03em; }
       .clip h3 .arw { display: inline-block; margin-left: 6px; color: var(--faint); font-family: var(--body); font-weight: 400; font-size: 0.8em; transition: transform 0.15s ease; }
       .clip:hover h3 .arw { transform: translateX(4px); color: var(--spot); }
       .clip p { margin-top: 6px; font-size: 14.5px; color: var(--faint); }
-      .clips-note { padding: 14px var(--gut); border-bottom: 1px solid var(--line); color: var(--faint); }
+      .clips-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; padding: 14px var(--gut); border-bottom: 1px solid var(--line); color: var(--faint); }
+      .clips-toggle { height: 30px; padding: 0 12px; border: 1px solid var(--line2); background: none; color: var(--dim); cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+      .clips-toggle:hover { color: var(--ink); border-color: var(--faint); }
       @media (max-width: 760px) {
         .clips { grid-template-columns: minmax(0, 1fr); }
         .clip:nth-child(odd) { border-right: 0; }
@@ -442,7 +445,10 @@
             <p>Add Linux and macOS machines over SSH, and their sessions join your local ones.</p>
           </a>
         </div>
-        <p class="clips-note caps">Each clip is a live recording of the desktop and a phone at once. Click one for the full video.</p>
+        <div class="clips-note caps">
+          <p>Each clip is a live recording of the desktop and a phone at once. Click one for the full video.</p>
+          <button type="button" class="clips-toggle" aria-pressed="false">Pause clips</button>
+        </div>
       </section>
 
       <section class="band" aria-labelledby="band-title">
@@ -578,19 +584,26 @@
         for (const button of document.querySelectorAll(".copy")) {
           const idle = button.textContent;
           let timer;
+          const show = (label, done) => {
+            button.textContent = label;
+            button.classList.toggle("is-done", done);
+            clearTimeout(timer);
+            timer = setTimeout(() => { button.textContent = idle; button.classList.remove("is-done"); }, done ? 1600 : 4000);
+          };
           button.addEventListener("click", async () => {
             try {
               await navigator.clipboard.writeText(button.dataset.copy);
-              button.textContent = "Copied";
-              button.classList.add("is-done");
-              clearTimeout(timer);
-              timer = setTimeout(() => { button.textContent = idle; button.classList.remove("is-done"); }, 1600);
+              show("Copied", true);
             } catch {
+              // no Clipboard API here (or it was refused): copy the selected command the old way
               const range = document.createRange();
               range.selectNodeContents(button.previousElementSibling);
               const selection = getSelection();
               selection.removeAllRanges();
               selection.addRange(range);
+              let copied = false;
+              try { copied = document.execCommand("copy"); } catch {}
+              if (copied) show("Copied", true); else show("Selected: copy it", false);
             }
           });
         }
@@ -615,6 +628,36 @@
             if (view === "live") film.pause(); else if (!matchMedia("(prefers-reduced-motion: reduce)").matches) film.play().catch(() => {});
           });
         }
+
+        // An animated WebP in an <img> cannot be paused: a paused clip shows a still of it on a
+        // canvas instead. Reduced motion starts paused.
+        const clipImages = [...document.querySelectorAll(".clip img")];
+        const clipsToggle = document.querySelector(".clips-toggle");
+        const freeze = (img) => {
+          if (clipsToggle.getAttribute("aria-pressed") !== "true" || img.hidden || !img.naturalWidth) return;
+          const still = document.createElement("canvas");
+          still.width = img.naturalWidth;
+          still.height = img.naturalHeight;
+          still.getContext("2d").drawImage(img, 0, 0);
+          still.setAttribute("role", "img");
+          still.setAttribute("aria-label", img.alt);
+          img.after(still);
+          img.hidden = true;
+        };
+        const pauseClips = (paused) => {
+          clipsToggle.setAttribute("aria-pressed", String(paused));
+          clipsToggle.textContent = paused ? "Play clips" : "Pause clips";
+          for (const img of clipImages) {
+            if (paused) {
+              if (img.complete) freeze(img); else img.addEventListener("load", () => freeze(img), { once: true });
+            } else if (img.hidden) {
+              img.nextElementSibling.remove();
+              img.hidden = false;
+            }
+          }
+        };
+        clipsToggle.addEventListener("click", () => pauseClips(clipsToggle.getAttribute("aria-pressed") !== "true"));
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) pauseClips(true);
 
         if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
           for (const video of document.querySelectorAll("video")) { video.removeAttribute("autoplay"); video.pause(); }
