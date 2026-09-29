@@ -3,9 +3,11 @@
  * for where it comes from (this PC, with no proxy in front), for who Tailscale says it is
  * (the PC's own login, which `tailscale serve` states in a header it strips from what it
  * receives), or for what it holds (a paired device's cookie, or the shared token). A token,
- * when one is configured, gates everything, this PC included: the remote-PC bridge runs on
- * a loopback port of a PC other people may use. Without a token, and until the first device is
- * paired, anything that reaches the server is let in as it always was, except through a proxy
+ * when one is configured, is required of everything else, this PC included: a paired device
+ * and the PC's own Tailscale login still get in without it, but a plain local connection does
+ * not, since the remote-PC bridge runs on a loopback port of a PC other people may use.
+ * Without a token, and until the first device is paired, anything that reaches the server is
+ * let in as it always was, except through a proxy
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
  * node (tailscale serve states no person for it), and a tailnet can hold many of those.
  */

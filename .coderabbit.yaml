@@ -49,4 +49,5 @@ knowledge_base:
     enabled: true
     filePatterns:
       - '.github/REVIEW.md'
+      - 'CONTRIBUTING.md'
       - '**/AGENTS.md'
