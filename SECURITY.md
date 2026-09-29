@@ -47,8 +47,10 @@ In scope, for example:
 
 Out of scope, as documented in [Access and safety](docs/guide.md#access-and-safety):
 
-- a server bound off loopback, or behind a proxy, with no token set and no device paired yet: it is
-  open to anyone who reaches it, and the server warns about it on startup;
+- getting into a server that is still ungated by design: bound off loopback or behind a proxy, with
+  no token set and no device ever paired, and not behind a proxy on a PC whose Tailscale login is
+  known. It is open to anyone who reaches it, and the server warns about it on startup. Getting past
+  the gate once a token is set or a device is paired is in scope;
 - anything reached through `tailscale funnel`, which is unsupported;
 - people you gave access to (a paired device, the token, your tailnet login) using it;
 - vulnerabilities in herdr, the agents, Tailscale or the browser themselves: report those upstream.
