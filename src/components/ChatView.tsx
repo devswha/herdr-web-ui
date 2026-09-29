@@ -169,7 +169,8 @@ function TodoPanel({ items }: { items: TodoItem[] }) {
       <span className="todo-panel-now">{status}</span>
       {open ? <ChevronUp className="todo-panel-caret" aria-hidden="true" /> : <ChevronDown className="todo-panel-caret" aria-hidden="true" />}
     </button>
-    {open && <div className="todo-panel-body"><TodoList items={items} /></div>}
+    {/* focusable so a click in the list keeps focus in the panel, where Escape is heard */}
+    {open && <div className="todo-panel-body" tabIndex={-1}><TodoList items={items} /></div>}
   </section>;
 }
 
