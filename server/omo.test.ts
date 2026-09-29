@@ -2,7 +2,7 @@ import { expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { omoCandidates, selectOmoTranscript, type OmoRuntime } from "./omo.ts";
+import { heldSessionIds, omoCandidates, selectOmoTranscript, type OmoRuntime } from "./omo.ts";
 
 const runtime = (paneId: string, startedAt: number | null = 10_000, paths: string[] = [], ids: string[] = []): OmoRuntime => ({ paneId, startedAt, paths, ids });
 const files = [
@@ -45,6 +45,25 @@ it("reads session identity from bounded headers and rejects foreign cwd and esca
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+it("reads only the live process's own holder records, never a reused pid's leftovers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "herdr-omo-holders-"));
+  try {
+    const hold = (id: string, pid: number, processStartedAtMs: number) => {
+      const holders = join(dir, "session-holders", encodeURIComponent(id));
+      mkdirSync(holders, { recursive: true });
+      writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, bootAtMs: 0, processStartedAtMs, cwd: "/project" }));
+    };
+    hold("current", 42, 10_000);
+    hold("crashed-earlier", 42, 2_000);
+    hold("another-process", 7, 10_000);
+    hold("odd/id", 43, 10_000);
+    expect(heldSessionIds(dir, 42, 10_900)).toEqual(["current"]);
+    expect(heldSessionIds(dir, 42, null).sort()).toEqual(["crashed-earlier", "current"]);
+    expect(heldSessionIds(dir, 43, 10_000)).toEqual(["odd/id"]);
+    expect(heldSessionIds(dir, 99, 10_000)).toEqual([]);
+    expect(heldSessionIds(join(dir, "missing"), 42, 10_000)).toEqual([]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 it("does not pin a launch session id after a new unclaimed session appears", () => {
   const newer = [...files, { path: "/new.jsonl", id: "new-session", createdAt: 15_000 }];

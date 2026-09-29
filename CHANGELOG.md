@@ -13,6 +13,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   from the README's own media: its top video, with a tab that swaps it for the demo app, its
   four feature clips, and the installer screenshot.
 
+## [0.3.33] - 2026-09-29
+
+### Fixed
+- The chat finds an omo pane's conversation again with current omo, which no longer keeps
+  its session file open. It now reads the session omo records as held by the pane's
+  process, so the chat works with several omo panes in one folder, on macOS, and after
+  `--continue`, `--resume` or `/new`.
+- The installed Android app picks up the auto-rotate fix from 0.3.32 a day sooner. The
+  first launch after upgrading from 0.3.31 or older still got the old, rotating web
+  manifest from the previous service worker's cache, and Chrome checks the installed app
+  against it at most once a day.
 ## [0.3.32] - 2026-09-29
 
 ### Added

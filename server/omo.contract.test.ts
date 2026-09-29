@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { processStartedAt } from "./process-start.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-omo-binding-"));
 const workspaces: string[] = [];
@@ -46,6 +47,38 @@ it("uses live process evidence and stops cwd inference as soon as a second omo s
   const duplicate = await pane("resumed-session");
   expect(await read(second)).toBeNull();
   expect(await read(duplicate)).toBeNull();
+});
+
+it("binds each omo pane in a shared cwd to the session its process holds", async () => {
+  // omo keeps no descriptor on its session file; it publishes a holder record instead
+  const hold = async (paneId: string, id: string) => {
+    const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: paneId });
+    const pid = info.process_info!.foreground_processes!.find((process) => isOmoProcess(process.argv ?? []))!.pid;
+    const holders = join(dir, "session-holders", encodeURIComponent(id));
+    mkdirSync(holders, { recursive: true });
+    writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, bootAtMs: 0, processStartedAtMs: Math.floor(processStartedAt(pid)! / 1000) * 1000, cwd: root }));
+  };
+  const first = await pane();
+  const second = await pane();
+  const afterNew = await pane("launch-session");
+  const reportedBefore = await pane();
+  const resumed = session("held-resumed", "2020-01-01T00:00:00Z");
+  const fresh = session("held-fresh");
+  session("launch-session");
+  const replaced = session("held-after-new");
+  const reported = session("herdr-reported");
+  const heldSinceReport = session("held-since-report");
+  await hold(first, "held-resumed");
+  await hold(second, "held-fresh");
+  await hold(afterNew, "held-after-new");
+  await hold(reportedBefore, "held-since-report");
+  expect(await read(first)).toBe(resumed);
+  expect(await read(second)).toBe(fresh);
+  expect(await read(afterNew)).toBe(replaced);
+  // herdr still names the session this pane had before /new
+  const panes = (await sessionSnapshot()).panes.map((entry) =>
+    entry.pane_id === reportedBefore ? { ...entry, agent_session: { agent: "omo", kind: "path", source: "herdr:omo", value: reported } } : entry);
+  expect(await omoTranscriptForPane(reportedBefore, root, panes, root)).toBe(heldSinceReport);
 });
 
 it("ignores the background task logs omo holds open outside its session store", async () => {
