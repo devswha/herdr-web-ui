@@ -630,14 +630,17 @@
   --chat-fs-sm: calc(var(--fs-sm) * var(--chat-scale, 1));
 }
 
-/* a pane wide enough keeps a lane for it (the transcript steps left, still centred when
-   there is room): the lane is its width once the chat is 56rem wide, and nothing below
-   that, where the card overlays the conversation instead. % is of the chat's width. */
-.terminal-surface:has(> .todo-panel) .chat-transcript {
-  --todo-lane: clamp(0px, (100% - 56rem) * 1000, 22rem + var(--space-3) * 2);
-  width: min(100% - var(--todo-lane), var(--content-w));
-  margin-right: max(var(--todo-lane), (100% - var(--content-w)) / 2);
-  margin-left: auto;
+/* a pane 56rem wide or wider keeps a lane for it (the transcript steps left, still centred
+   when there is room); a narrower one gets the card over the conversation instead. The
+   breakpoint is the pane surface's own width (the container the card is placed in), not
+   the chat's padded, scrollbar-narrowed content box. */
+@container pane-surface (min-width: 56rem) {
+  .terminal-surface:has(> .todo-panel) .chat-transcript {
+    --todo-lane: calc(22rem + var(--space-3) * 2);
+    width: min(100% - var(--todo-lane), var(--content-w));
+    margin-right: max(var(--todo-lane), (100% - var(--content-w)) / 2);
+    margin-left: auto;
+  }
 }
 
 .todo-panel.is-open {
