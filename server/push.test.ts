@@ -281,3 +281,30 @@ it("cancels the remaining delay group after an earlier device already received i
     expect(slower.received).toHaveLength(0);
   } finally { slower.stop(); }
 });
+
+it("settles only after a delivery already under way, when a later group is called off", async () => {
+  let release!: () => void;
+  let asked!: () => void;
+  const titleAsked = new Promise<void>((resolve) => { asked = resolve; });
+  const push = createPushService({
+    stateDir, timing: { short: 0, long: 500, longTurn: 0 },
+    lookupTitle: () => { asked(); return new Promise((resolve) => { release = () => resolve("claude"); }); },
+  });
+  const slower = await startFakePushService();
+  try {
+    push.subscribe(fake.subscription, { input: true, done: "always" });
+    push.subscribe(slower.subscription, { input: true, done: "long" });
+    push.seed([pane("w1:p1", "working", "claude")]);
+    await push.onStatus("w1:p1", "done");
+    await titleAsked;
+    await push.onStatus("w1:p1", "working");
+    let settled = false;
+    const settling = push.settled().then(() => { settled = true; });
+    await Bun.sleep(50);
+    expect(settled).toBe(false);
+    release();
+    await settling;
+    expect(fake.received).toHaveLength(1);
+    expect(slower.received).toHaveLength(0);
+  } finally { slower.stop(); }
+});

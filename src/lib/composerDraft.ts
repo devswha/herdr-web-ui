@@ -5,6 +5,8 @@ export class ComposerDraftStore {
   private drafts = new Map<string, Draft>();
   private saved = new Map<string, string | null>();
   private unsaved = new Set<string>();
+  /** the text each pending send carries, and whether the draft stopped extending it meanwhile */
+  private pending = new Map<string, { sent: string; edited: boolean }>();
   private listeners = new Set<() => void>();
   constructor(private storage: () => DraftStorage = () => window.localStorage) {}
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -34,6 +36,10 @@ export class ComposerDraftStore {
   set(key: string, value: string | ((previous: string) => string)): void {
     const draft = this.read(key);
     const text = typeof value === "string" ? value : value(draft.text);
+    // cleared and retyped while on its way, a draft can end up starting with the sent text
+    // again: once it stopped extending it, the whole of it is the user's own
+    const pending = this.pending.get(key);
+    if (pending && !text.startsWith(pending.sent)) pending.edited = true;
     this.drafts.set(key, { ...draft, text });
     try {
       if (text) this.storage().setItem(key, text);
@@ -43,14 +49,17 @@ export class ComposerDraftStore {
     } catch { this.unsaved.add(key); }
     this.notify();
   }
-  begin(key: string): boolean {
+  /** `sent`: the draft text this send carries, settled once it is acknowledged */
+  begin(key: string, sent?: string): boolean {
     const draft = this.read(key);
     if (draft.sending) return false;
+    if (sent !== undefined) this.pending.set(key, { sent, edited: false });
     this.drafts.set(key, { ...draft, sending: true });
     this.notify();
     return true;
   }
   end(key: string): void {
+    this.pending.delete(key);
     this.drafts.set(key, { ...this.read(key), sending: false });
     this.notify();
   }
@@ -58,7 +67,9 @@ export class ComposerDraftStore {
   settle(key: string, sent: string): { text: string; edited: boolean } {
     this.refresh(key);
     const current = this.read(key).text;
-    const edited = current !== sent && !current.startsWith(sent);
+    const editedMeanwhile = this.pending.get(key)?.edited === true;
+    this.pending.delete(key);
+    const edited = editedMeanwhile || current !== sent && !current.startsWith(sent);
     const text = edited ? current : current.slice(sent.length);
     this.set(key, text);
     return { text, edited };

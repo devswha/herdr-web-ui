@@ -40,3 +40,15 @@ it("retains unsaved edits when browser storage is unavailable", () => {
   store.set("a", "sent then next");
   expect(store.settle("a", "sent").text).toBe(" then next");
 });
+it("keeps a draft cleared and retyped while its send was on its way", () => {
+  const { store } = fixture();
+  store.set("a", "a"); store.begin("a", "a");
+  store.set("a", ""); store.set("a", "ab");
+  expect(store.settle("a", "a")).toEqual({ text: "ab", edited: true });
+  store.end("a");
+  // a plain append during the next send still loses only the sent prefix
+  store.set("a", "x"); store.begin("a", "x");
+  store.set("a", "xy");
+  expect(store.settle("a", "x")).toEqual({ text: "y", edited: false });
+  store.end("a");
+});
