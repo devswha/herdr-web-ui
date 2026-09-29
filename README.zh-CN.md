@@ -69,6 +69,36 @@ herdr plugin install devswha/herdr-web-ui
 
 服务器默认监听 `127.0.0.1`。如需从其他设备访问，请参阅[手机设置](docs/guide.md#on-your-phone)和[访问与安全](docs/guide.md#access-and-safety)。
 
+<a id="feature-videos"></a>
+
+## 功能视频
+
+另外四段约 20 秒的短片，与顶部视频一样为实机录制：电脑和手机同时录制，等待和进度条部分已加速。
+
+### 从手机附加截图
+
+__C__
+
+<p align="center"><sub>手机附上一张合计显示为 $NaN 的收据截图，请 Claude 修复。电脑上显示同一条带图片的消息。Claude 修复问题并补上测试，diff 可在聊天中打开。</sub></p>
+
+### 打开智能体生成的文件
+
+__B__
+
+<p align="center"><sub>Claude 将图表写成 SVG 文件，并在回复中给出文件路径。在电脑上点击即可在文件查看器中打开，在手机上轻点也一样。</sub></p>
+
+### 浏览窗格中的文件
+
+__D__
+
+<p align="center"><sub>文件夹按钮打开窗格所在的文件夹，Claude 写的文件在查看器中打开。在手机上，通过命令面板的 Browse files（浏览文件）完成同样的操作。</sub></p>
+
+### 通过 SSH 添加电脑
+
+__E__
+
+<p align="center"><sub>Add PC（添加电脑）通过 SSH 连接一台 Linux 电脑并安装桥接程序。它的会话加入侧边栏，终端在那台电脑上运行。手机菜单同时列出两台电脑。远程会话是为录制预先准备的。</sub></p>
+
 <a id="docs"></a>
 
 ## 文档
