@@ -12,6 +12,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   other herdr users can find the app. Reruns, such as the one for the phone address, skip it.
 
 ### Fixed
+- The chat finds a Claude Code pane's conversation when its folder name has a dot, an
+  underscore, a space or non-ASCII characters (a Korean folder, `example.com`, `my_project`).
+  The project folder is now named the way Claude Code names it, and a session Claude
+  started in another folder is found by its id.
 - A GJC pane's chat stays on the pane's own session after GJC runs subagents. GJC points its
   terminal breadcrumb at a subagent's transcript while the subagent runs and leaves it
   there, so the chat switched to that subagent's conversation, and its last turn read

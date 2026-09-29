@@ -5,7 +5,7 @@
  * - Codex: native rollout JSONL, resolved by session metadata/open descriptors
  *   or a unique pane-text match for shared app-server TUIs (codex.ts).
  * - Claude Code: herdr's agent.get names the session id, the transcript lives
- *   at ~/.claude/projects/<cwd-slug>/<session>.jsonl (the store chatmux reads).
+ *   at ~/.claude/projects/<project>/<session>.jsonl (claude-store.ts finds it).
  * - omp: herdr's agent.get hands us the session jsonl path outright under
  *   ~/.omp/agent/sessions/<cwd-slug>/ — same shape of truth, one less hop.
  * - omo: herdr knows nothing about its store and its label for the pane flips
@@ -30,6 +30,7 @@ import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPan
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
+import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 import { gjcTranscriptForPane } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
 import { trimOutput } from "./tool-output.ts";
@@ -56,11 +57,6 @@ const MAX_PAGE_BYTES = 4 * TRANSCRIPT_WINDOW_BYTES;
 
 /** Settings recorded once at the start (an omp thinking level) sit before a tail window. */
 const METADATA_HEAD_BYTES = 64 * 1024;
-
-/** Claude's project slug: the cwd with every `/` replaced by `-`. */
-function projectSlug(cwd: string): string {
-  return cwd.replaceAll("/", "-");
-}
 
 /** Session ids are uuids; refusing anything else keeps the path traversal-free. */
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -570,6 +566,7 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
 /** Forget every scan and parse kept between polls (tests compare against a cold read). */
 export function forgetTranscriptState(): void {
   cache.clear();
+  forgetClaudeSessions();
   liveScans.clear();
   settledTurns.clear();
   codexTurns.clear();
@@ -632,12 +629,14 @@ export async function labelOmoPanes(snapshot: SessionSnapshot): Promise<SessionS
   };
 }
 
-/** Claude's transcript for a pane: herdr names the session id, the store is addressed by cwd slug. */
-async function claudeTranscriptPath(paneId: string, cwd: string): Promise<string> {
+/** Claude's transcript for a pane: herdr names the session id, claude-store.ts finds its project. */
+async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[]): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
   const session = info.agent.agent_session?.value;
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
-  return join(process.env["HOME"] ?? "", ".claude", "projects", projectSlug(cwd), `${session}.jsonl`);
+  const path = claudeTranscriptFile(process.env["HOME"] ?? "", session, cwds);
+  if (!path) throw new ConversationUnavailable("transcript_missing");
+  return path;
 }
 
 /** omp's transcript: herdr hands over the absolute path, accepted only inside the user's own store. */
@@ -660,7 +659,9 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
  * label: omo's own store is read only when omo is really running
  * in that pane, never on a matching cwd alone.
  */
-async function resolveTranscript(paneId: string, agent: string, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: RecognizedConversation["source"]; path: string }> {
+async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: RecognizedConversation["source"]; path: string }> {
+  const paneId = pane.pane_id;
+  const agent = pane.agent ?? pane.agent_session?.agent ?? "";
   if ((agent === "omo" || agent === "pi" || agent === "claude") && await paneRunsOmo(paneId)) {
     const path = await omoTranscriptForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes);
     if (!path) throw new ConversationUnavailable("no_session_path");
@@ -672,7 +673,8 @@ async function resolveTranscript(paneId: string, agent: string, cwd: string, cod
       if (!path) throw new ConversationUnavailable("no_session_path");
       return { source: "codex-transcript", path };
     }
-    if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, cwd) };
+    // Claude's project is the directory it started in, the process's own cwd more often than the pane's
+    if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]) };
     if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId) };
     if (agent === "gjc") return { source: "gjc-transcript", path: await gjcTranscriptPath(paneId, cwd) };
     throw new ConversationUnavailable("no_recognized_transcript");
@@ -703,7 +705,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
   if (typeof pane.cwd !== "string" || pane.cwd.length === 0) throw new ConversationUnavailable("no_recognized_transcript");
 
-  const { source, path } = await resolveTranscript(paneId, pane.agent ?? pane.agent_session?.agent ?? "", pane.cwd, codexHome, snapshot.panes);
+  const { source, path } = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
   return transcriptPage(source, path, page, codexHome);
 }
 
@@ -794,7 +796,7 @@ export async function conversationImage(paneId: string, ref: string, codexHome?:
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
   let resolved: { source: RecognizedConversation["source"]; path: string };
-  try { resolved = await resolveTranscript(paneId, pane.agent ?? pane.agent_session?.agent ?? "", pane.cwd, codexHome, snapshot.panes); }
+  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   if (resolved.source === "codex-transcript") return codexTranscriptImage(codexHistorySegments(resolved.path, codexHome), ref, pane.cwd);
   return resolved.source === "claude-transcript" ? transcriptImage(resolved.path, ref) : null;
@@ -836,7 +838,7 @@ export async function toolOutput(paneId: string, ref: string, codexHome?: string
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
   let resolved: { source: RecognizedConversation["source"]; path: string };
-  try { resolved = await resolveTranscript(paneId, pane.agent ?? pane.agent_session?.agent ?? "", pane.cwd, codexHome, snapshot.panes); }
+  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   return transcriptToolOutput(resolved.source, resolved.path, ref);
 }
