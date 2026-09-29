@@ -103,7 +103,7 @@ export const ZH: Record<string, string> = {
   "Rename workspace {name}": "重命名工作区 {name}",
   "Reorder workspace {name}": "调整工作区 {name} 的顺序",
   "Drag to reorder · Alt+↑/↓": "拖动以调整顺序 · Alt+↑/↓",
-  "Shell": "命令行",
+  "Shell": "Shell",
   "Pane name": "面板名称",
   "Rename {title}": "重命名 {title}",
   "Rename pane": "重命名面板",
