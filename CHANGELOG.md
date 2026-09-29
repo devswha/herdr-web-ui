@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The website is redesigned after herdr.dev: ink and paper modes, one large headline with the
+  install line, a strip of figures, and five numbered rows for what the app does. It is built
+  from the README's own media: its top video, with a tab that swaps it for the demo app, its
+  four feature clips, and the installer screenshot.
+
 ## [0.3.33] - 2026-09-29
 
 ### Fixed
@@ -18,7 +24,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   first launch after upgrading from 0.3.31 or older still got the old, rotating web
   manifest from the previous service worker's cache, and Chrome checks the installed app
   against it at most once a day.
-
 ## [0.3.32] - 2026-09-29
 
 ### Added
