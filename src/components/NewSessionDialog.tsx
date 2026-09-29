@@ -5,6 +5,7 @@ import "./NewSessionDialog.css";
 
 import type { AgentKind } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
+import { AgentPicker } from "./AgentPicker.tsx";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
@@ -44,7 +45,7 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
   const [error, setError] = useState<string | null>(null);
   const [createdPaneId, setCreatedPaneId] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
-  const firstFieldRef = useRef<HTMLSelectElement>(null);
+  const firstFieldRef = useRef<HTMLButtonElement>(null);
   const defaultCwdRef = useRef(defaultCwd);
   defaultCwdRef.current = defaultCwd;
 
@@ -136,13 +137,10 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
           </button>
         </header>
         <div className="modal-body">
-          <label className="field">
-            <span className="field-label">{t("Agent")}</span>
-            <select ref={firstFieldRef} className="select" value={agentKind} disabled={fieldsDisabled} onChange={(event) => setAgentKind(event.target.value)}>
-              <option value="">{t("Shell only")}</option>
-              {agents.map((agent) => <option key={agent.kind} value={agent.kind}>{agent.label}</option>)}
-            </select>
-          </label>
+          <div className="field">
+            <span className="field-label" id="new-session-agent">{t("Agent")}</span>
+            <AgentPicker ref={firstFieldRef} agents={agents} value={agentKind} disabled={fieldsDisabled} labelledBy="new-session-agent" onChange={setAgentKind} />
+          </div>
           <div className="field">
             <label className="field-label" htmlFor="new-session-cwd">{t("Directory")}</label>
             <div className="new-session-cwd">

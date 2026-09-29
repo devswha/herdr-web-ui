@@ -11,6 +11,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The one-line installer ends a first install with one line asking for a GitHub star, so
   other herdr users can find the app. Reruns, such as the one for the phone address, skip it.
 
+### Changed
+- The new-session dialog's agent list shows each agent's mark beside its name, and the plain
+  shell entry reads "Shell" in every language (it was "셸만" in Korean).
+
 ### Fixed
 - The chat finds a Claude Code pane's conversation when its folder name has a dot, an
   underscore, a space or non-ASCII characters (a Korean folder, `example.com`, `my_project`).

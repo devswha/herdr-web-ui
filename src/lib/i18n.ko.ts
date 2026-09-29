@@ -178,7 +178,6 @@ export const KO: Record<string, string> = {
   // ---- new session ----
   "Close new session dialog": "새 세션 창 닫기",
   "Agent": "에이전트",
-  "Shell only": "셸만",
   "Directory": "폴더",
   "Browse": "찾아보기",
   "absolute path or ~/…": "절대 경로 또는 ~/…",
