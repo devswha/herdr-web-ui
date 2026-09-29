@@ -221,9 +221,12 @@ export function PaneTerminal({
     // image-paste shortcut against the server's clipboard and canceling text paste.
     // Returning false skips xterm's key handling without preventing browser defaults.
     // With text selected, Ctrl+C (and Ctrl+Shift+C) copies it instead of interrupting the pane.
+    // A non-Latin layout (Korean, Russian...) reports its own character as the key, so the
+    // physical key names the letter then; a Latin layout keeps its own (Dvorak's C is not KeyC).
     term.attachCustomKeyEventHandler((event) => {
       if (!event.ctrlKey || event.altKey || event.metaKey) return true;
-      const key = event.key.toLowerCase();
+      const typed = event.key.toLowerCase();
+      const key = /^[a-z]$/.test(typed) ? typed : /^Key([A-Z])$/.exec(event.code)?.[1]?.toLowerCase() ?? typed;
       if (key === "v") return false;
       if (key === "c" && term.hasSelection()) {
         if (event.type === "keydown") {
@@ -263,10 +266,11 @@ export function PaneTerminal({
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     let selecting = false;
     const onMouseDown = (event: MouseEvent): void => {
-      if (event.button !== 0 || term.modes.mouseTrackingMode === "none") return;
+      if (event.button !== 0) return;
       if ((event as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities?.firesTouchEvents) return;
       if (!term.element?.contains(event.target as Node)) return;
-      Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
+      // with reporting off xterm already selects on a plain drag; only the release copy is ours
+      if (term.modes.mouseTrackingMode !== "none") Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
       selecting = true;
     };
     const onMouseUp = (event: MouseEvent): void => {

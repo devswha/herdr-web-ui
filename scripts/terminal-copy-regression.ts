@@ -75,6 +75,19 @@ setInterval(() => {}, 1000);
     await page.waitForTimeout(300);
     assert.equal(inputs.at(-1), "\x03", "Ctrl+C without a selection still interrupts");
 
+    // a Korean layout: the C key reports "ㅊ", and Ctrl+C with a selection still copies
+    await page.mouse.dblclick(box.x + 20, box.y + box.height / 2);
+    await page.waitForTimeout(100);
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    const beforeHangul = inputs.length;
+    const cdp = await context.newCDPSession(page);
+    const hangulC = { key: "ㅊ", code: "KeyC", windowsVirtualKeyCode: 67, modifiers: 2 };
+    await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...hangulC });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...hangulC });
+    await page.waitForTimeout(300);
+    assert.equal(await clipboard(page), "DRAGCOPY-first-line", "Ctrl+C on a Korean layout must copy the selection");
+    assert.equal(inputs.length, beforeHangul, "Ctrl+C on a Korean layout with a selection must not send ^C");
+
     // a line longer than the terminal is wide: report how it copies
     const long = page.locator(".pane-terminal .xterm-rows > div", { hasText: "LONG-" });
     const longBox = (await long.boundingBox())!;
