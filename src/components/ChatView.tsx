@@ -140,13 +140,16 @@ function TodoList({ items }: { items: TodoItem[] }) {
 const TODO_OPEN_KEY = "herdr-web-ui:todo-open";
 
 /**
- * The agent's todo list as it stands, pinned to the bottom of the chat: one line (done
- * count and the item in progress) that opens to the whole list. Whether it is open is
- * remembered for every pane.
+ * The agent's todo list as it stands, floating at the top right of the chat (the
+ * gajae-code-app WORK card) instead of inside the transcript: one pill (done count and
+ * the item in progress) that opens to a card with the whole list. On a wide pane it sits
+ * in the margin beside the conversation; on a narrow one it overlays it until closed.
+ * Whether it is open is remembered for every pane.
  */
 function TodoPanel({ items }: { items: TodoItem[] }) {
   const t = useT();
   const [open, setOpen] = useState(() => { try { return localStorage.getItem(TODO_OPEN_KEY) === "1"; } catch { return false; } });
+  const head = useRef<HTMLButtonElement>(null);
   const toggle = (): void => {
     setOpen(!open);
     try { localStorage.setItem(TODO_OPEN_KEY, open ? "0" : "1"); } catch { /* private mode */ }
@@ -155,14 +158,19 @@ function TodoPanel({ items }: { items: TodoItem[] }) {
   const done = counted.filter((item) => item.status === "completed").length;
   const now = items.find((item) => item.status === "in_progress") ?? items.find((item) => item.status === "blocked");
   const status = counted.length > 0 && done === counted.length ? t("All done") : now ? t(now.status === "blocked" ? "Blocked: {label}" : "Now: {label}", { label: now.label }) : t("{n} to do", { n: counted.length - done });
-  return <section className={`todo-panel${open ? " is-open" : ""}`} aria-label={t("Todo list")}>
-    <button type="button" className="todo-panel-head" aria-expanded={open} onClick={toggle}>
+  return <section
+    className={`todo-panel${open ? " is-open" : ""}`}
+    aria-label={t("Todo list")}
+    onKeyDown={(event) => { if (open && event.key === "Escape" && !event.nativeEvent.isComposing) { event.stopPropagation(); toggle(); head.current?.focus(); } }}
+  >
+    <button type="button" ref={head} className="todo-panel-head" aria-expanded={open} title={open ? undefined : status} onClick={toggle}>
       <ListChecks className="todo-panel-icon" aria-hidden="true" />
       <span className="todo-panel-count">{done}/{counted.length}</span>
       <span className="todo-panel-now">{status}</span>
-      {open ? <ChevronDown className="todo-panel-caret" aria-hidden="true" /> : <ChevronUp className="todo-panel-caret" aria-hidden="true" />}
+      {open ? <ChevronUp className="todo-panel-caret" aria-hidden="true" /> : <ChevronDown className="todo-panel-caret" aria-hidden="true" />}
     </button>
-    {open && <div className="todo-panel-body"><TodoList items={items} /></div>}
+    {/* focusable so a click in the list keeps focus in the panel, where Escape is heard */}
+    {open && <div className="todo-panel-body" tabIndex={-1}><TodoList items={items} /></div>}
   </section>;
 }
 
@@ -726,9 +734,10 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => { setPrompt(null); onPendingAnswerDone?.(); }} />}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
-      {todos !== null && todos.length > 0 && <TodoPanel items={todos} />}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
       : away && <button type="button" className="btn chat-new-messages is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>}
-  </div></ChatHistoryContext.Provider></ChatPaneContext.Provider>;
+  </div>
+  {todos !== null && todos.length > 0 && <TodoPanel items={todos} />}
+  </ChatHistoryContext.Provider></ChatPaneContext.Provider>;
 });
