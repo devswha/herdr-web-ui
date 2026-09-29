@@ -16,6 +16,7 @@ import type {
   SlashCommand,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
+import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { UpdateCommand, UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
@@ -228,6 +229,30 @@ async function sendJson(url: string, method: "POST" | "PATCH" | "DELETE", body: 
   });
   if (!response.ok) throw await errorFrom(url, response);
   return response;
+}
+
+/** GET /api/pane/scroll: where the pane's viewport sits in its history (null: herdr reports none). */
+export async function fetchPaneScroll(paneId: string, machineId = "local"): Promise<PaneScrollInfo | null> {
+  return (await getJson<{ scroll: PaneScrollInfo | null }>(machinePath(machineId, `pane/scroll?pane_id=${encodeURIComponent(paneId)}`))).scroll;
+}
+
+/** POST /api/pane/scroll: moves the viewport; herdr redraws the attached terminal. */
+export async function scrollPane(paneId: string, offsetFromBottom: number, machineId = "local"): Promise<PaneScrollInfo | null> {
+  const response = await sendJson(machinePath(machineId, "pane/scroll"), "POST", { pane_id: paneId, offset_from_bottom: offsetFromBottom });
+  return ((await response.json()) as { scroll: PaneScrollInfo | null }).scroll;
+}
+
+/** A cell in a pane's whole history: rows count from the top of the scrollback. */
+export interface PaneTextPoint { row: number; col: number }
+
+/** GET /api/pane/selection: the text between two history cells, both inclusive, wrapped lines joined. */
+export async function fetchPaneSelection(paneId: string, anchor: PaneTextPoint, cursor: PaneTextPoint, machineId = "local"): Promise<string> {
+  const query = new URLSearchParams({
+    pane_id: paneId,
+    anchor_row: String(anchor.row), anchor_col: String(anchor.col),
+    cursor_row: String(cursor.row), cursor_col: String(cursor.col),
+  });
+  return (await getJson<{ text: string }>(machinePath(machineId, `pane/selection?${query.toString()}`))).text;
 }
 
 /**

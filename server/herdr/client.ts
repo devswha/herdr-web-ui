@@ -4,7 +4,7 @@ import type {
   ReadSource,
   SessionSnapshot,
 } from "../../shared/protocol.ts";
-import type { AgentManifestInfo, AgentStartParams, PaneInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
+import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
 
 const DEFAULT_SOCKET = `${process.env.HOME ?? ""}/.config/herdr/herdr.sock`;
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -216,6 +216,30 @@ export async function paneRead(options: PaneReadOptions, socketPath?: string): P
   if (lines !== undefined) params["lines"] = lines;
   const result = await herdrRpc<{ read: PaneReadResult }>("pane.read", params, socketPath);
   return result.read;
+}
+
+/** A cell in a pane's whole history: rows count from the top of the scrollback. */
+export interface PaneTextPoint { row: number; col: number }
+
+/** Where the pane's viewport sits in its scrollback; null when herdr reports none. */
+export async function paneScrollInfo(paneId: string, socketPath?: string): Promise<PaneScrollInfo | null> {
+  const result = await herdrRpc<{ pane: PaneInfo }>("pane.get", { pane_id: paneId }, socketPath);
+  return result.pane.scroll ?? null;
+}
+
+/** Scrolls the pane's viewport; herdr redraws every attached terminal. */
+export async function paneScroll(paneId: string, offsetFromBottom: number, socketPath?: string): Promise<PaneScrollInfo | null> {
+  const result = await herdrRpc<{ pane: PaneInfo }>("pane.scroll", { pane_id: paneId, offset_from_bottom: offsetFromBottom }, socketPath);
+  return result.pane.scroll ?? null;
+}
+
+/**
+ * The text between two cells of the pane's whole history, both inclusive, in either
+ * order. Rows count from the top of the scrollback; soft-wrapped lines come back joined.
+ */
+export async function paneSelectionRead(paneId: string, anchor: PaneTextPoint, cursor: PaneTextPoint, socketPath?: string): Promise<string> {
+  const result = await herdrRpc<{ text: string }>("pane.selection.read", { pane_id: paneId, anchor, cursor }, socketPath);
+  return result.text;
 }
 
 export async function paneSendText(paneId: string, text: string, socketPath?: string): Promise<void> {

@@ -56,6 +56,13 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, for the new-session dialog)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
+ *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
+ *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
+ *  POST   /api/pane/scroll { pane_id, offset_from_bottom } -> { scroll } (pane.scroll; herdr
+ *         redraws every attached terminal)
+ *  GET    /api/pane/selection?pane_id=&anchor_row=&anchor_col=&cursor_row=&cursor_col=
+ *         -> { text } (pane.selection.read: both cells inclusive, rows from the top of the
+ *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
  *  POST   /api/pane/input  { pane_id, text }   -> { ok: true }
  *  GET    /api/pane/conversation?pane_id=    -> ConversationResponse (structured agent
  *         transcript turns - claude, codex, omp or omo; source:"scrollback" when the pane has no

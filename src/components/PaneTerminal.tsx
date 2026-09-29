@@ -11,7 +11,7 @@ import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib
 import { messageQueues } from "../lib/messageQueue.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
-import { ApiError } from "../lib/api.ts";
+import { ApiError, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { paneStorageId } from "../../shared/machines.ts";
@@ -240,11 +240,32 @@ export function PaneTerminal({
     });
     // herdr reads the wheel as mouse reports. Were reporting ever off, xterm would turn
     // a wheel into arrow keys, which walk an agent's prompt history instead of scrolling.
-    term.attachCustomWheelEventHandler(() => term.modes.mouseTrackingMode !== "none");
+    // A selecting drag takes the wheel itself (see below); after one, a wheel scrolls the
+    // highlight's text away, so the highlight goes with it.
+    term.attachCustomWheelEventHandler((event) => {
+      if (drag) {
+        dragWheel(event);
+        return false;
+      }
+      if (term.hasSelection()) term.clearSelection();
+      return term.modes.mouseTrackingMode !== "none";
+    });
     termRef.current = term;
     fitRef.current = fit;
 
+    const writeClipboard = (text: string): void => {
+      void navigator.clipboard.writeText(text).then(
+        () => noteClipboard("copied to clipboard"),
+        () => noteClipboard("clipboard write blocked by the browser"),
+      );
+    };
+    /** herdr's text for the last drag, while its highlight is still the selection */
+    let copiedText: string | null = null;
     const copySelection = (): void => {
+      if (copiedText !== null && navigator.clipboard) {
+        writeClipboard(copiedText);
+        return;
+      }
       const text = term.getSelection();
       if (!text) return;
       // plain HTTP has no async clipboard; the copy command still works in a user gesture,
@@ -253,33 +274,200 @@ export function PaneTerminal({
         noteClipboard(document.execCommand("copy") ? "copied to clipboard" : "clipboard write blocked by the browser");
         return;
       }
-      void navigator.clipboard.writeText(text).then(
-        () => noteClipboard("copied to clipboard"),
-        () => noteClipboard("clipboard write blocked by the browser"),
-      );
+      writeClipboard(text);
     };
+    const selectionChange = term.onSelectionChange(() => {
+      if (!term.hasSelection()) copiedText = null;
+    });
+
     // herdr's attach stream turns mouse reporting on, so xterm hands every click to the
     // pty and selects only with Shift (Option on macOS) held. `herdr terminal attach`
     // ignores left clicks and drags - selection lives in herdr's own TUI client - so a
     // left drag here selects as if the modifier were held, and letting go copies, as the
-    // herdr TUI does. Wheel reports still reach herdr. Touch keeps its drag-to-scroll.
+    // herdr TUI does. Touch keeps its drag-to-scroll.
+    //
+    // xterm keeps no scrollback (herdr owns it), so a drag that outlives one screen is
+    // tracked in herdr's history rows: a wheel, or dragging past the top or bottom edge,
+    // scrolls the pane through the API, the highlight is repainted over the visible part,
+    // and letting go copies herdr's own text for the range, soft-wrapped lines joined.
+    // Without the API (plain HTTP, observe mode, an older remote bridge, a failed read)
+    // only the visible selection is copied, as xterm has it.
+    interface Cell { row: number; col: number }
+    interface Drag {
+      pane: string;
+      /** the pressed cell on screen */
+      anchor: Cell;
+      /** the cell under the pointer on screen, its row clamped to the screen */
+      cursor: Cell;
+      /** the history row at the top of the screen, once herdr has told us */
+      top: number | null;
+      /** the pressed cell's history row */
+      anchorRow: number;
+      offset: number;
+      maxOffset: number;
+      /** the drag left the first screen: it is painted here, not by xterm */
+      scrolled: boolean;
+      /** pointer beyond the top (-1) or bottom (1) edge, which keeps scrolling */
+      edge: -1 | 0 | 1;
+      wheelPixels: number;
+      sentOffset: number;
+      sending: boolean;
+    }
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-    let selecting = false;
+    let drag: Drag | null = null;
+    let edgeTimer: number | null = null;
+    const cellAt = (event: MouseEvent): { cell: Cell; edge: -1 | 0 | 1 } => {
+      const rect = (term.element?.querySelector(".xterm-screen") ?? host).getBoundingClientRect();
+      const col = Math.floor((event.clientX - rect.left) / (rect.width / term.cols));
+      const row = Math.floor((event.clientY - rect.top) / (rect.height / term.rows));
+      return {
+        cell: { row: Math.max(0, Math.min(term.rows - 1, row)), col: Math.max(0, Math.min(term.cols - 1, col)) },
+        edge: row < 0 ? -1 : row >= term.rows ? 1 : 0,
+      };
+    };
+    const ordered = (a: Cell, b: Cell): [Cell, Cell] =>
+      a.row < b.row || (a.row === b.row && a.col <= b.col) ? [a, b] : [b, a];
+    /** the drag's range in history rows, both ends inclusive */
+    const historyRange = (d: Drag): [Cell, Cell] =>
+      ordered({ row: d.anchorRow, col: d.anchor.col }, { row: d.top! + d.cursor.row, col: d.cursor.col });
+    const repaint = (d: Drag): void => {
+      const [start, end] = historyRange(d);
+      const first = d.top!;
+      const last = first + term.rows - 1;
+      if (end.row < first || start.row > last) {
+        term.clearSelection();
+        return;
+      }
+      const from = start.row < first ? { row: 0, col: 0 } : { row: start.row - first, col: start.col };
+      const to = end.row > last ? { row: term.rows - 1, col: term.cols - 1 } : { row: end.row - first, col: end.col };
+      term.select(from.col, from.row, to.row * term.cols + to.col + 1 - (from.row * term.cols + from.col));
+    };
+    /** one request at a time; the latest wanted offset wins */
+    const sendScroll = (d: Drag): void => {
+      if (d.sending || d.sentOffset === d.offset) return;
+      d.sending = true;
+      const target = d.offset;
+      void scrollPane(d.pane, target, machineId).catch(() => {}).finally(() => {
+        d.sending = false;
+        d.sentOffset = target;
+        sendScroll(d);
+      });
+    };
+    /** positive lines show older text */
+    const scrollDrag = (d: Drag, lines: number): void => {
+      if (d.top === null) return;
+      const offset = Math.max(0, Math.min(d.maxOffset, d.offset + lines));
+      if (offset === d.offset) return;
+      d.offset = offset;
+      d.top = d.maxOffset - offset;
+      d.scrolled = true;
+      repaint(d);
+      sendScroll(d);
+    };
+    const dragWheel = (event: WheelEvent): void => {
+      const d = drag;
+      if (!d || d.top === null) return;
+      const lineHeight = (term.element?.querySelector(".xterm-screen")?.getBoundingClientRect().height ?? term.rows) / term.rows;
+      d.wheelPixels += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * lineHeight : event.deltaY;
+      const lines = Math.trunc(d.wheelPixels / lineHeight);
+      if (lines === 0) return;
+      d.wheelPixels -= lines * lineHeight;
+      scrollDrag(d, -lines);
+    };
+    const stopEdge = (): void => {
+      if (edgeTimer !== null) window.clearInterval(edgeTimer);
+      edgeTimer = null;
+    };
     const onMouseDown = (event: MouseEvent): void => {
       if (event.button !== 0) return;
       if ((event as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities?.firesTouchEvents) return;
       if (!term.element?.contains(event.target as Node)) return;
-      // with reporting off xterm already selects on a plain drag; only the release copy is ours
+      // with reporting off xterm already selects on a plain drag; only the history tracking is ours
       if (term.modes.mouseTrackingMode !== "none") Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
-      selecting = true;
+      copiedText = null;
+      const pane = paneRef.current;
+      const { cell } = cellAt(event);
+      const d: Drag = {
+        pane: pane ?? "", anchor: cell, cursor: cell, top: null, anchorRow: 0, offset: 0, maxOffset: 0,
+        scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false,
+      };
+      drag = d;
+      if (!pane || !navigator.clipboard || observeRef.current) return;
+      void fetchPaneScroll(pane, machineId).then((scroll) => {
+        if (!scroll || d.scrolled) return;
+        d.offset = d.sentOffset = scroll.offset_from_bottom;
+        d.maxOffset = scroll.max_offset_from_bottom;
+        d.top = d.maxOffset - d.offset;
+        d.anchorRow = d.top + d.anchor.row;
+      }, () => {});
+    };
+    // capture on window: ahead of xterm's own document listener, which would repaint a
+    // scrolled drag from its stale screen anchor
+    const onMouseMove = (event: MouseEvent): void => {
+      const d = drag;
+      if (!d) return;
+      const { cell, edge } = cellAt(event);
+      // past an edge the edge row is taken whole, as xterm does
+      d.cursor = edge < 0 ? { row: 0, col: 0 } : edge > 0 ? { row: term.rows - 1, col: term.cols - 1 } : cell;
+      if (d.top === null) return;
+      if (edge !== d.edge) {
+        d.edge = edge;
+        stopEdge();
+        if (edge !== 0) edgeTimer = window.setInterval(() => scrollDrag(d, -d.edge), 60);
+      }
+      if (d.scrolled || edge !== 0) {
+        event.stopPropagation();
+        // painted here from now on, even where herdr has no further to scroll
+        d.scrolled = true;
+        repaint(d);
+      }
+    };
+    // a release outside the window never arrives: stop scrolling the shared pane
+    const onBlur = (): void => {
+      stopEdge();
+      drag = null;
     };
     const onMouseUp = (event: MouseEvent): void => {
-      if (!selecting || event.button !== 0) return;
-      selecting = false;
+      const d = drag;
+      if (!d || event.button !== 0) return;
+      drag = null;
+      stopEdge();
       // xterm settles the selection in its own mouseup listener
-      window.setTimeout(() => { if (term.hasSelection()) copySelection(); }, 0);
+      window.setTimeout(() => {
+        if (d.scrolled) repaint(d);
+        if (!term.hasSelection()) return;
+        let range: [Cell, Cell] | null = null;
+        if (d.scrolled) range = historyRange(d);
+        else if (d.top !== null) {
+          const position = term.getSelectionPosition();
+          if (position) {
+            // xterm's end column is exclusive, herdr's inclusive
+            const end = position.end.x > 0
+              ? { row: d.top + position.end.y, col: position.end.x - 1 }
+              : { row: d.top + position.end.y - 1, col: term.cols - 1 };
+            range = [{ row: d.top + position.start.y, col: position.start.x }, end];
+          }
+        }
+        if (!range) {
+          copySelection();
+          return;
+        }
+        void fetchPaneSelection(d.pane, range[0], range[1], machineId).then(
+          (text) => {
+            if (!term.hasSelection()) return;
+            copiedText = text;
+            writeClipboard(text);
+          },
+          () => {
+            if (d.scrolled) noteClipboard("could not read the selection from herdr");
+            else copySelection();
+          },
+        );
+      }, 0);
     };
     host.addEventListener("mousedown", onMouseDown, { capture: true });
+    window.addEventListener("mousemove", onMouseMove, { capture: true });
+    window.addEventListener("blur", onBlur);
     document.addEventListener("mouseup", onMouseUp);
 
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty
@@ -474,7 +662,11 @@ export function PaneTerminal({
       host.removeEventListener("touchmove", onTouchMove);
       host.removeEventListener("touchend", onTouchEnd);
       host.removeEventListener("mousedown", onMouseDown, { capture: true });
+      window.removeEventListener("mousemove", onMouseMove, { capture: true });
+      window.removeEventListener("blur", onBlur);
       document.removeEventListener("mouseup", onMouseUp);
+      stopEdge();
+      selectionChange.dispose();
       window.removeEventListener("focus", refit);
       document.removeEventListener("visibilitychange", onVisible);
       onData.dispose();

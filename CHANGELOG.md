@@ -9,8 +9,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Added
 - The desktop terminal selects with a plain drag and copies on release, like the herdr
-  TUI; Ctrl+C copies a selection instead of interrupting the pane. Selection covers the
-  visible screen, and a wrapped long line copies with line breaks.
+  TUI; Ctrl+C copies a selection instead of interrupting the pane.
+- A selecting drag can outlive one screen: the wheel, or dragging past the top or bottom
+  edge, scrolls herdr's scrollback, and the copy is herdr's own text for the whole range
+  with soft-wrapped lines joined. Plain HTTP, view-only tabs and PCs on an older bridge
+  copy the visible selection. Remote PCs use bundle v7.
 
 ### Removed
 - The todo pill at the top right of the chat is gone, with its lane beside the

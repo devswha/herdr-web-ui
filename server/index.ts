@@ -13,7 +13,7 @@ import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, tailscaleOwner } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
-import { badRequest, errorResponse, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, toolOutput } from "./conversation.ts";
@@ -28,6 +28,9 @@ import {
   herdrSocketPath,
   paneClose,
   paneRead,
+  paneScroll,
+  paneScrollInfo,
+  paneSelectionRead,
   paneRename,
   paneSendKeys,
   paneSendText,
@@ -859,6 +862,49 @@ export function createServer(
             ...(lines === undefined ? {} : { lines }),
           });
           return jsonResponse({ read });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/scroll") {
+        if (request.method === "GET") {
+          const paneId = url.searchParams.get("pane_id");
+          if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+          try {
+            return jsonResponse({ scroll: await paneScrollInfo(paneId) });
+          } catch (error) {
+            return errorResponse(error);
+          }
+        }
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use GET or POST");
+        let payload: { pane_id?: unknown; offset_from_bottom?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
+        if (!isCount(payload.offset_from_bottom)) return badRequest("invalid_offset", "offset_from_bottom must be a non-negative integer");
+        try {
+          return jsonResponse({ scroll: await paneScroll(payload.pane_id, payload.offset_from_bottom) });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/selection") {
+        const paneId = url.searchParams.get("pane_id");
+        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+        const [anchorRow, anchorCol, cursorRow, cursorCol] = ["anchor_row", "anchor_col", "cursor_row", "cursor_col"]
+          .map((name) => { const raw = url.searchParams.get(name); return raw === null || raw === "" ? NaN : Number(raw); });
+        if (![anchorRow, anchorCol, cursorRow, cursorCol].every(isCount)) {
+          return badRequest("invalid_range", "anchor_row, anchor_col, cursor_row and cursor_col must be non-negative integers");
+        }
+        try {
+          const text = await paneSelectionRead(paneId, { row: anchorRow!, col: anchorCol! }, { row: cursorRow!, col: cursorCol! });
+          return jsonResponse({ text });
         } catch (error) {
           return errorResponse(error);
         }

@@ -92,6 +92,7 @@ describe("mutation body validation", () => {
     for (const path of [
       "/api/workspace/create", "/api/workspace/rename", "/api/workspace/move", "/api/workspace/close",
       "/api/pane/rename", "/api/pane/input", "/api/pane/keys", "/api/pane/close", "/api/pane/image",
+      "/api/pane/scroll",
     ]) {
       for (const body of [null, [], "text", 42, true]) {
         const response = await fetch(`${base()}${path}`, {
@@ -233,6 +234,54 @@ describe("GET /api/session", () => {
       expect(typeof ws.label).toBe("string");
     }
     expect(body.snapshot.panes.length).toBeGreaterThan(0);
+  });
+});
+
+describe("/api/pane/scroll and /api/pane/selection", () => {
+  async function firstPane(): Promise<string> {
+    const { snapshot } = (await (await fetch(`${base()}/api/session`)).json()) as { snapshot: SessionSnapshot };
+    expect(snapshot.panes[0]).toBeDefined();
+    return snapshot.panes[0]!.pane_id;
+  }
+
+  it("reads and sets the viewport position of a real pane", async () => {
+    const paneId = await firstPane();
+    const read = await fetch(`${base()}/api/pane/scroll?pane_id=${encodeURIComponent(paneId)}`);
+    expect(read.status).toBe(200);
+    const { scroll } = (await read.json()) as { scroll: { offset_from_bottom: number; max_offset_from_bottom: number; viewport_rows: number } };
+    expect(Number.isInteger(scroll.max_offset_from_bottom)).toBe(true);
+    expect(scroll.viewport_rows).toBeGreaterThan(0);
+    const set = await fetch(`${base()}/api/pane/scroll`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pane_id: paneId, offset_from_bottom: 0 }),
+    });
+    expect(set.status).toBe(200);
+    expect(((await set.json()) as { scroll: { offset_from_bottom: number } }).scroll.offset_from_bottom).toBe(0);
+  });
+
+  it("reads a selection from the pane's history", async () => {
+    const paneId = await firstPane();
+    const query = new URLSearchParams({ pane_id: paneId, anchor_row: "0", anchor_col: "0", cursor_row: "0", cursor_col: "0" });
+    const response = await fetch(`${base()}/api/pane/selection?${query}`);
+    // an empty first cell has no text: herdr's refusal still comes back as a JSON error
+    const body = (await response.json()) as { text?: string; error?: { code: string } };
+    if (response.ok) expect(typeof body.text).toBe("string");
+    else expect(typeof body.error?.code).toBe("string");
+  });
+
+  it("rejects bad coordinates and offsets before any RPC", async () => {
+    for (const query of ["", "pane_id=w1:p1&anchor_row=0&anchor_col=0&cursor_row=0", "pane_id=w1:p1&anchor_row=-1&anchor_col=0&cursor_row=0&cursor_col=0", "pane_id=w1:p1&anchor_row=1.5&anchor_col=0&cursor_row=0&cursor_col=0"]) {
+      const response = await fetch(`${base()}/api/pane/selection?${query}`);
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as ApiError).error.code).toBe(query ? "invalid_range" : "missing_pane_id");
+    }
+    for (const offset of [-1, 1.5, "3", null]) {
+      const response = await fetch(`${base()}/api/pane/scroll`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pane_id: "w1:p1", offset_from_bottom: offset }),
+      });
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as ApiError).error.code).toBe("invalid_offset");
+    }
+    expect((await fetch(`${base()}/api/pane/scroll`)).status).toBe(400);
   });
 });
 

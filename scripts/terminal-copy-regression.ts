@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, Page } from "playwright-core";
-import { paneSendText, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
+import { herdrRpc, paneSendText, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 
 /** A plain left drag in the desktop terminal selects and copies instead of reaching herdr. */
 export async function checkTerminalCopy(browser: Browser, origin: string): Promise<void> {
@@ -88,16 +88,14 @@ setInterval(() => {}, 1000);
     assert.equal(await clipboard(page), "DRAGCOPY-first-line", "Ctrl+C on a Korean layout must copy the selection");
     assert.equal(inputs.length, beforeHangul, "Ctrl+C on a Korean layout with a selection must not send ^C");
 
-    // a line longer than the terminal is wide: report how it copies
+    // a line longer than the terminal is wide copies as herdr has it: one line
     const long = page.locator(".pane-terminal .xterm-rows > div", { hasText: "LONG-" });
     const longBox = (await long.boundingBox())!;
     const endRow = page.locator(".pane-terminal .xterm-rows > div", { hasText: "-END" });
     const endBox = (await endRow.boundingBox())!;
     await drag({ x: longBox.x + 1, y: longBox.y + longBox.height / 2 }, { x: endBox.x + 600, y: endBox.y + endBox.height / 2 });
     await page.waitForTimeout(300);
-    const copied = await clipboard(page);
-    assert.match(copied, /^LONG-x+/, "a wrapped line must copy");
-    console.log(`INFO wrapped line copied ${copied.includes("\n") ? "with line breaks" : "as one line"} (${copied.length} chars)`);
+    assert.equal(await clipboard(page), `LONG-${"x".repeat(300)}-END`, "a soft-wrapped line must copy without line breaks");
 
     // plain HTTP (no navigator.clipboard): the copy command takes over
     const insecure = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -138,10 +136,106 @@ setInterval(() => {}, 1000);
     } finally {
       await insecure.close();
     }
+
+    // a drag outlives one screen: the wheel, or the pointer past an edge, scrolls herdr
+    const numbered = join(root, "numbered.cjs");
+    writeFileSync(numbered, `
+for (let i = 0; i < 300; i++) process.stdout.write("S" + String(i).padStart(3, "0") + "\\r\\n");
+setInterval(() => {}, 1000);
+`);
+    await paneSendText(pane, `\x03`);
+    await paneSendText(pane, `clear; node ${numbered}\r`);
+    const rowWith = (text: string) => page.locator(".pane-terminal .xterm-rows > div", { hasText: new RegExp(`^${text}\\s*$`) });
+    await rowWith("S299").waitFor();
+    const topRow = (): Promise<number> => page.evaluate(() => {
+      const first = document.querySelector(".pane-terminal .xterm-rows > div")?.textContent ?? "";
+      return Number(first.trim().slice(1));
+    });
+    const lines = (text: string): number[] => text.split("\n").map((line) => Number(line.trim().slice(1)));
+    const consecutive = (numbers: number[]): boolean => numbers.every((n, i) => i === 0 || n === numbers[i - 1]! + 1);
+    /** the copy lands after herdr answers: wait for the emptied clipboard to fill */
+    const filled = async (): Promise<string> => {
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        const text = await clipboard(page);
+        if (text || Date.now() > deadline) return text;
+        await page.waitForTimeout(50);
+      }
+    };
+
+    const screen = (await page.locator(".pane-terminal .xterm-screen").boundingBox())!;
+    const lineHeight = screen.height / (await page.locator(".pane-terminal .xterm-rows > div").count());
+    // at the bottom of the history, a fast drag past the bottom edge still takes the last line
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.mouse.move(screen.x + 1, screen.y + screen.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(200);
+    await page.mouse.move(screen.x + 1, screen.y + screen.height + 20, { steps: 1 });
+    await page.mouse.up();
+    assert.equal(lines(await filled()).at(-1), 299, "a drag past the bottom edge takes the last line");
+    await page.mouse.wheel(0, lineHeight); // drops the highlight
+    await page.waitForTimeout(2600); // the copy note fades before the evidence below
+
+    const firstTop = await topRow();
+    const pressAt = { x: screen.x + 200, y: screen.y + lineHeight * 5.5 };
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.mouse.move(pressAt.x, pressAt.y);
+    await page.waitForTimeout(100);
+    const beforeWheel = inputs.length;
+    await page.mouse.down();
+    await page.waitForTimeout(200); // the viewport position arrives
+    await page.mouse.move(screen.x + 1, pressAt.y + lineHeight * 3, { steps: 3 });
+    for (let i = 0; i < 4; i++) {
+      await page.mouse.wheel(0, -lineHeight * 10);
+      await page.waitForTimeout(80);
+    }
+    await page.mouse.move(screen.x + 1, pressAt.y + lineHeight * 2, { steps: 3 });
+    if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-scroll-select.png") });
+    await page.mouse.up();
+    let copied = lines(await filled());
+    assert.ok(copied.length > 1 && consecutive(copied), `a wheel-scrolled drag copies whole consecutive lines: ${copied.slice(0, 3)}`);
+    assert.equal(copied.at(-1), firstTop + 5, `the wheel drag ends at the pressed line (${copied.slice(-2)})`);
+    assert.ok(copied[0]! < firstTop, `lines above the first screen are included (first ${copied[0]}, screen top ${firstTop})`);
+    assert.deepEqual(inputs.slice(beforeWheel), [], "a selecting drag's wheel scrolls herdr through the API, never as input");
+    assert.ok(await topRow() < firstTop, "herdr's viewport followed the drag");
+
+    // dragging past the top edge keeps scrolling
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    const edgeStartTop = await topRow();
+    const bottomAt = { x: screen.x + 200, y: screen.y + screen.height - lineHeight * 1.5 };
+    await page.mouse.move(bottomAt.x, bottomAt.y);
+    await page.mouse.down();
+    await page.waitForTimeout(200);
+    await page.mouse.move(screen.x + 1, screen.y - 20, { steps: 5 });
+    await page.waitForTimeout(600);
+    await page.mouse.move(screen.x + 1, screen.y + lineHeight / 2, { steps: 2 });
+    await page.mouse.up();
+    copied = lines(await filled());
+    const rows = await page.locator(".pane-terminal .xterm-rows > div").count();
+    assert.ok(consecutive(copied), "an edge-scrolled drag copies consecutive lines");
+    assert.equal(copied.at(-1), edgeStartTop + rows - 2, `the edge drag ends at the pressed line (${copied.slice(0, 2)}..${copied.slice(-2)}, top ${edgeStartTop}, rows ${rows})`);
+    assert.ok(copied.length > rows, `the edge scrolled past one screen (${copied.length} lines, ${rows} rows)`);
+
+    // Ctrl+C over that highlight copies herdr's text again, not the visible screen
+    const edgeText = await clipboard(page);
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    const beforeKey = inputs.length;
+    await page.keyboard.press("Control+c");
+    assert.equal(await filled(), edgeText, "Ctrl+C copies the whole scrolled range");
+    assert.deepEqual(inputs.slice(beforeKey), [], "Ctrl+C over a selection sends no ^C");
+
+    // the next wheel outside a drag drops the stale highlight
+    await page.mouse.wheel(0, lineHeight * 3);
+    await page.waitForTimeout(200);
+    assert.equal(await page.evaluate(() => document.querySelector(".pane-terminal .xterm-selection div") !== null), false, "a wheel after a copy clears the highlight");
+    await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
+
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");
+    console.log("PASS a selecting drag scrolls herdr by wheel and edge, and copies herdr's text for the whole range");
   } finally {
     await context.close();
     await workspaceClose(created.workspace.workspace_id).catch(() => {});
     rmSync(root, { recursive: true, force: true });
   }
 }
+
