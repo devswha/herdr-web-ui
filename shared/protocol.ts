@@ -54,7 +54,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         Update POSTs require X-Herdr-Update: 1, same-origin browser requests,
  *         and the usual token gate. Managed starts only; status is polled during restart.
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
- *         kinds `agent.start` accepts, for the new-session dialog)
+ *         kinds `agent.start` accepts, plus omo when it is on this server's PATH, for the
+ *         new-session dialog)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
@@ -81,7 +82,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/prompt/answer { pane_id, prompt_id, option_index?, option_indices?, custom_text? }
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
- *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given)
+ *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
+ *         omo, which herdr cannot start, is typed into the root pane's shell)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }

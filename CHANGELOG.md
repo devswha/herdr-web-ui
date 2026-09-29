@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
+  omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.
+
 ## [0.3.32] - 2026-09-29
 
 ### Added
