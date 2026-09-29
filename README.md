@@ -73,25 +73,25 @@ Four more clips of about 20 seconds, recorded live like the video at the top: th
 
 ### attach a screenshot from your phone
 
-__C__
+https://github.com/user-attachments/assets/c5a0df0c-6d86-4fc4-ad64-6af1eaffc33f
 
 <p align="center"><sub>The phone attaches a screenshot of a receipt totalling $NaN and asks Claude to fix it. The desktop shows the same message with the image. Claude fixes the bug and adds a test, and the diff opens from the chat.</sub></p>
 
 ### open what the agent made
 
-__B__
+https://github.com/user-attachments/assets/ad95f407-dca5-4a50-92e9-f9e2fe3ecb84
 
 <p align="center"><sub>Claude writes a chart as an SVG file and answers with its path. A click opens it in the file viewer, and so does a tap on the phone.</sub></p>
 
 ### browse a pane's files
 
-__D__
+https://github.com/user-attachments/assets/142e0b6f-99ea-4bd8-865a-59f9f69c3d8a
 
 <p align="center"><sub>The folder button opens the pane's folder, and the file Claude wrote opens in the viewer. On the phone, the command palette's Browse files does the same.</sub></p>
 
 ### add a PC over SSH
 
-__E__
+https://github.com/user-attachments/assets/7cfa7d25-cdfd-4e5b-bdcc-59df7b41414e
 
 <p align="center"><sub>Add PC connects to a Linux PC over SSH and installs the bridge. Its session joins the sidebar, and its terminal runs on that PC. The phone's menu lists both PCs. The remote session was staged for the video.</sub></p>
 

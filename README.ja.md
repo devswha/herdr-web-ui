@@ -77,25 +77,25 @@ herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を�
 
 ### スマートフォンからスクリーンショットを添付
 
-__C__
+https://github.com/user-attachments/assets/c5a0df0c-6d86-4fc4-ad64-6af1eaffc33f
 
 <p align="center"><sub>合計が $NaN になっているレシートのスクリーンショットをスマートフォンから添付し、Claude に修正を依頼します。パソコンにも画像付きの同じメッセージが表示されます。Claude がバグを修正してテストを追加し、差分はチャットから開けます。</sub></p>
 
 ### エージェントが作ったファイルを開く
 
-__B__
+https://github.com/user-attachments/assets/ad95f407-dca5-4a50-92e9-f9e2fe3ecb84
 
 <p align="center"><sub>Claude がグラフを SVG ファイルとして書き出し、そのパスを返答に含めます。パソコンではクリック、スマートフォンではタップで、ファイルビューアーに表示されます。</sub></p>
 
 ### ペインのファイルを見る
 
-__D__
+https://github.com/user-attachments/assets/142e0b6f-99ea-4bd8-865a-59f9f69c3d8a
 
 <p align="center"><sub>フォルダボタンでペインの作業フォルダを開き、Claude が書いたファイルをビューアーで表示します。スマートフォンでは、コマンドパレットの Browse files（ファイルを参照）から同じ操作ができます。</sub></p>
 
 ### SSH で PC を追加
 
-__E__
+https://github.com/user-attachments/assets/7cfa7d25-cdfd-4e5b-bdcc-59df7b41414e
 
 <p align="center"><sub>Add PC（PC を追加）から SSH で Linux PC に接続し、ブリッジをインストールします。その PC のセッションがサイドバーに加わり、ターミナルはその PC 上で動きます。スマートフォンのメニューには両方の PC が表示されます。リモートのセッションは撮影用に用意したものです。</sub></p>
 

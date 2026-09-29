@@ -77,25 +77,25 @@ herdr plugin install devswha/herdr-web-ui
 
 ### 从手机附加截图
 
-__C__
+https://github.com/user-attachments/assets/c5a0df0c-6d86-4fc4-ad64-6af1eaffc33f
 
 <p align="center"><sub>手机附上一张合计显示为 $NaN 的收据截图，请 Claude 修复。电脑上显示同一条带图片的消息。Claude 修复问题并补上测试，diff 可在聊天中打开。</sub></p>
 
 ### 打开智能体生成的文件
 
-__B__
+https://github.com/user-attachments/assets/ad95f407-dca5-4a50-92e9-f9e2fe3ecb84
 
 <p align="center"><sub>Claude 将图表写成 SVG 文件，并在回复中给出文件路径。在电脑上点击即可在文件查看器中打开，在手机上轻点也一样。</sub></p>
 
 ### 浏览窗格中的文件
 
-__D__
+https://github.com/user-attachments/assets/142e0b6f-99ea-4bd8-865a-59f9f69c3d8a
 
 <p align="center"><sub>文件夹按钮打开窗格所在的文件夹，Claude 写的文件在查看器中打开。在手机上，通过命令面板的 Browse files（浏览文件）完成同样的操作。</sub></p>
 
 ### 通过 SSH 添加电脑
 
-__E__
+https://github.com/user-attachments/assets/7cfa7d25-cdfd-4e5b-bdcc-59df7b41414e
 
 <p align="center"><sub>Add PC（添加电脑）通过 SSH 连接一台 Linux 电脑并安装桥接程序。它的会话加入侧边栏，终端在那台电脑上运行。手机菜单同时列出两台电脑。远程会话是为录制预先准备的。</sub></p>
 
