@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A GJC pane's chat stays on the pane's own session after GJC runs subagents. GJC points its
+  terminal breadcrumb at a subagent's transcript while the subagent runs and leaves it
+  there, so the chat switched to that subagent's conversation, and its last turn read
+  "Working…" for as long as the real session worked. A subagent's file now stands for the
+  session it belongs to.
 - Image thumbnails in a chat message keep a fixed box, so a lazy image no longer grows the
   message by about 120 px when it loads and pushes the view off the bottom. Non-square
   attachment tiles in the composer are cropped to fill instead of stretched.

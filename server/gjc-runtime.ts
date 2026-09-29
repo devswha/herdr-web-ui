@@ -115,6 +115,22 @@ export function gjcDisplayCandidates(root: string, cwd: string): { path: string;
   } catch { return []; }
 }
 
+/**
+ * The session a transcript belongs to. GJC keeps a session's subagents beside it, as
+ * `<store>/<session>/<task>.jsonl` next to `<store>/<session>.jsonl`, and they run inside the
+ * session's own process. That process points the terminal breadcrumb at a subagent's file while it
+ * runs, and leaves it there; a subagent's file can be the one it holds open. Either way the pane
+ * shows the session, so a subagent's file stands for its session's, and anything else is refused.
+ */
+export function gjcSessionFile(root: string, path: string): string | null {
+  if (!path.startsWith(`${root}/`) || !path.endsWith(".jsonl")) return null;
+  const parts = path.slice(root.length + 1).split("/");
+  if (parts.length === 2) return path;
+  if (parts.length !== 3) return null;
+  const session = join(root, parts[0]!, `${parts[1]!}.jsonl`);
+  try { return statSync(session).isFile() ? session : null; } catch { return null; }
+}
+
 /** Validate the native two-line terminal breadcrumb and reject reused-terminal leftovers. */
 export function gjcBreadcrumbPath(home: string, cwd: string, terminalId: string, startedAt: number): string | null {
   if (!/^(?:pts-\d+|tty[\w-]+|tmux-%\d+)$/.test(terminalId) || !Number.isFinite(startedAt)) return null;
@@ -125,8 +141,10 @@ export function gjcBreadcrumbPath(home: string, cwd: string, terminalId: string,
     const [savedCwd, savedPath] = readFileSync(marker, "utf8").split("\n");
     if (!savedCwd || !savedPath || realpathSync(savedCwd) !== realpathSync(cwd)) return null;
     const root = realpathSync(join(home, ".gjc", "agent", "sessions"));
-    const path = realpathSync(savedPath);
-    if (!path.startsWith(`${root}/`) || !path.endsWith(".jsonl") || !statSync(path).isFile()) return null;
+    const saved = realpathSync(savedPath);
+    if (!statSync(saved).isFile()) return null;
+    const path = gjcSessionFile(root, saved);
+    if (!path) return null;
     const headerCwd = transcriptCwd(path);
     return headerCwd && realpathSync(headerCwd) === realpathSync(cwd) ? path : null;
   } catch { return null; }
@@ -165,9 +183,9 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
     try { fds = readdirSync(`/proc/${process.pid}/fd`); } catch { /* macOS uses the native breadcrumb */ }
     for (const fd of fds) {
       try {
-        const target = realpathSync(readlinkSync(`/proc/${process.pid}/fd/${fd}`));
-        if (target.startsWith(`${root}/`) && target.endsWith(".jsonl") &&
-            statSync(target).isFile() && transcriptCwd(target) === cwd) paths.add(target);
+        const open = realpathSync(readlinkSync(`/proc/${process.pid}/fd/${fd}`));
+        const target = statSync(open).isFile() ? gjcSessionFile(root, open) : null;
+        if (target && transcriptCwd(target) === cwd) paths.add(target);
       } catch { /* closed, deleted or unreadable descriptor */ }
     }
   }
