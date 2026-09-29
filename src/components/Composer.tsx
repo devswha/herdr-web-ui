@@ -511,7 +511,10 @@ export function Composer({
       const result = onSend(text);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
-    } catch { composerDrafts.end(draftKey); }
+    } catch {
+      composerDrafts.end(draftKey);
+      if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
+    }
   }, [attachments, connected, draftKey, onSend, sending, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
@@ -526,7 +529,10 @@ export function Composer({
       const result = onSend(reply);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
-    } catch { composerDrafts.end(draftKey); }
+    } catch {
+      composerDrafts.end(draftKey);
+      if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
+    }
   }, [connected, draftKey, onSend, sending]);
 
   const onKeyDown = useCallback(

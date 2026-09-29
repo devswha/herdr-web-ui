@@ -28,6 +28,9 @@ export class ComposerDraftStore {
     try {
       const text = this.storage().getItem(key);
       if (text === this.saved.get(key)) return;
+      // another tab changed it while a send was on its way: the same rule as a local edit
+      const pending = this.pending.get(key);
+      if (pending && !(text ?? "").startsWith(pending.sent)) pending.edited = true;
       this.saved.set(key, text);
       this.drafts.set(key, { ...draft, text: text ?? "" });
       this.notify();

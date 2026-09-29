@@ -52,3 +52,11 @@ it("keeps a draft cleared and retyped while its send was on its way", () => {
   expect(store.settle("a", "x")).toEqual({ text: "y", edited: false });
   store.end("a");
 });
+it("keeps a draft another tab cleared and retyped while this tab's send was on its way", () => {
+  const { store, data } = fixture();
+  store.set("a", "sent"); store.begin("a", "sent");
+  data.delete("a"); store.refresh("a");
+  data.set("a", "sent again"); store.refresh("a");
+  expect(store.settle("a", "sent")).toEqual({ text: "sent again", edited: true });
+  store.end("a");
+});
