@@ -40,9 +40,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   responses cannot erase a newer copy.
 - Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
 - Settle sent composer drafts across pane switches and cancel all delayed completion alerts when work resumes.
+
 - Closing the selected pane with the sidebar's X no longer puts the keyboard on the pane
   selected in its place. On a phone it came up over the drawer, in the way of closing the
   next pane. A pane or lens the user picks still takes the keyboard.
+- Pane statuses and web push recover when herdr drops the app's event stream: herdr 0.9.2
+  and newer close a listener that falls behind, and herdr restarts do the same. Every
+  stream now reconnects at once, keeps trying while herdr restarts, and reads back what
+  it missed from herdr, so a
+  pane created meanwhile is no longer left without status or alerts for up to a minute,
+  and an alert for a pane that has since gone quiet is called off instead of sent.
 
 ## [0.3.33] - 2026-09-29
 

@@ -299,6 +299,8 @@ export function subscribeEvents(
   let started = false;
 
   const onData = makeLineReader((line) => {
+    // closed by the caller: frames still buffered belong to a subscription it replaced
+    if (closed) return;
     let frame: { id?: string; result?: { type?: string }; error?: { code?: string; message?: string } } & EventFrame;
     try {
       frame = JSON.parse(line) as typeof frame;

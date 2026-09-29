@@ -365,3 +365,44 @@ it("keeps a subscription made through the open LAN only while the LAN stays open
   await push.onEnded("w1:p2");
   expect(fake.received).toHaveLength(1);
 });
+
+describe("push resync after lost status events", () => {
+  it("takes a clean pane's snapshot status as its baseline and announces nothing", async () => {
+    const push = subscribed();
+    push.seed([pane("w1:p1", "working", "claude")]);
+    // it finished and started over while events were lost
+    push.resync([pane("w1:p1", "blocked", "claude")], new Set(["w1:p1"]));
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+    // measured against the resynced baseline: blocked -> blocked is no change
+    await push.onStatus("w1:p1", "blocked");
+    expect(fake.received).toHaveLength(0);
+    await push.onStatus("w1:p1", "done");
+    expect(fake.received.map((r) => r.payload.body)).toHaveLength(1);
+  });
+
+  it("calls off an alert still waiting for a pane that is at rest by the snapshot", async () => {
+    const push = createPushService({ stateDir, timing: { short: 50, long: 50, longTurn: 0 } });
+    push.subscribe(fake.subscription);
+    push.seed([pane("w1:p1", "working", "claude")]);
+    await push.onStatus("w1:p1", "blocked");
+    push.resync([pane("w1:p1", "idle", "claude")], new Set(["w1:p1"]));
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+  });
+
+  it("leaves a pane with a newer event, and done versus idle, as they are", async () => {
+    const push = subscribed();
+    push.seed([pane("w1:p1", "working", "a"), pane("w1:p2", "working", "b")]);
+    await push.onStatus("w1:p2", "done");
+    const sent = fake.received.length;
+    push.resync([pane("w1:p1", "idle", "a"), pane("w1:p2", "idle", "b")], new Set(["w1:p2"]));
+    // p1 was not clean: still working, so its finish is news
+    await push.onStatus("w1:p1", "done");
+    expect(fake.received.length).toBe(sent + 1);
+    // p2 stayed done (at rest either way): a new turn and its finish are still heard
+    await push.onStatus("w1:p2", "working");
+    await push.onStatus("w1:p2", "done");
+    expect(fake.received.length).toBe(sent + 2);
+  });
+});

@@ -78,6 +78,12 @@ export interface PushService {
   sendTest(endpoint: string): Promise<PushDelivery | null>;
   /** The collector's view of every pane: status baselines and the titles notifications use. */
   seed(panes: readonly HerdrPane[], machineId?: string, machineName?: string): void;
+  /**
+   * After status events were lost: `clean` panes (no event since this snapshot was asked
+   * for) take the snapshot's status as their baseline. Nothing is announced: a change
+   * that happened unseen is not news, and an alert it overtook is called off.
+   */
+  resync(panes: readonly HerdrPane[], clean: ReadonlySet<string>, machineId?: string): void;
   /** Schedules the alert this change is worth, and calls off the one it overtakes. */
   onStatus(paneId: string, status: AgentStatus, machineId?: string): Promise<void>;
   onEnded(paneId: string, machineId?: string): Promise<void>;
@@ -326,6 +332,23 @@ export function createPushService(options: PushServiceOptions): PushService {
         const key = paneStorageId(machineId, pane.pane_id);
         titles.set(key, `${machineName ? machineName + " · " : ""}${paneTitle(pane)}`);
         if (!lastStatus.has(key)) lastStatus.set(key, pane.agent_status);
+      }
+    },
+
+    resync(panes, clean, machineId = "local") {
+      const busy = (value: AgentStatus | undefined): boolean => value === "working" || value === "blocked";
+      for (const pane of panes) {
+        if (!clean.has(pane.pane_id)) continue;
+        const key = paneStorageId(machineId, pane.pane_id);
+        const previous = lastStatus.get(key);
+        const status = pane.agent_status;
+        // done and idle are both at rest: herdr reports a finish nobody has seen as idle
+        if (previous === status || (previous !== undefined && !busy(previous) && !busy(status))) continue;
+        lastStatus.set(key, status);
+        if (previous === undefined) continue;
+        callOff(key);
+        // a turn that began unseen has no known start, like a first sighting mid-turn
+        if (busy(status) !== busy(previous)) turnStart.delete(key);
       }
     },
 
