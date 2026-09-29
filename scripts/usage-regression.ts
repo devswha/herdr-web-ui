@@ -8,19 +8,22 @@ import type { UsageReport } from "../shared/protocol.ts";
 const at = (hours: number): string => new Date(Date.now() + hours * 3600_000).toISOString();
 const REPORT: UsageReport = {
   providers: [
-    { id: "claude", plan: "max", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [
+    { id: "claude", key: "claude:u1", account: "me@example.com", plan: "max", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [
       { kind: "session", scope: null, used_percent: 42, resets_at: at(2.2) },
       { kind: "week", scope: null, used_percent: 63.4, resets_at: at(82) },
       { kind: "week", scope: "Sonnet", used_percent: 5, resets_at: null },
     ] },
-    { id: "codex", plan: "pro", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [
+    { id: "codex", key: "codex:work", account: "me@work.example", plan: "pro", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [
       { kind: "session", scope: null, used_percent: 12, resets_at: at(0.8) },
       { kind: "week", scope: null, used_percent: 91, resets_at: at(99) },
     ] },
-    { id: "cursor", plan: "pro", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [{ kind: "month", scope: null, used_percent: 20, resets_at: at(300) }] },
-    { id: "copilot", plan: "free", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [{ kind: "month", scope: "Chat", used_percent: 0, resets_at: at(34) }] },
-    { id: "grok", plan: null, problem: "rate_limited", checked_at: "2026-09-29T11:40:00Z", windows: [{ kind: "week", scope: null, used_percent: 0, resets_at: null }] },
-    { id: "antigravity", plan: null, problem: "expired", checked_at: null, windows: [] },
+    { id: "codex", key: "codex:home", account: "me@example.com", plan: "plus", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [
+      { kind: "week", scope: null, used_percent: 30, resets_at: at(120) },
+    ] },
+    { id: "cursor", key: "cursor:c1", account: null, plan: "pro", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [{ kind: "month", scope: null, used_percent: 20, resets_at: at(300) }] },
+    { id: "copilot", key: "copilot:me", account: "me", plan: "free", problem: null, checked_at: "2026-09-29T12:00:00Z", windows: [{ kind: "month", scope: "Chat", used_percent: 0, resets_at: at(34) }] },
+    { id: "grok", key: "grok:g1", account: null, plan: null, problem: "rate_limited", checked_at: "2026-09-29T11:40:00Z", windows: [{ kind: "week", scope: null, used_percent: 0, resets_at: null }] },
+    { id: "antigravity", key: "antigravity@keychain", account: null, plan: null, problem: "expired", checked_at: null, windows: [] },
   ],
 };
 
@@ -55,10 +58,11 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await page.keyboard.press("Escape");
     await strip.waitFor();
 
-    // three chips and "+3" past four providers, the one nearest its limit first and red
+    // three chips and "+4" past four accounts, the one nearest its limit first and red; two Codex accounts apart
     assert.equal(await page.locator(".usage-chip").count(), 3);
-    assert.equal(await page.locator(".usage-more").textContent(), "+3");
-    assert.match(await strip.getAttribute("aria-label") ?? "", /^Subscription usage: Codex 91%, Claude 63%, Cursor 20%, Copilot 0%, Grok 0%, Antigravity —$/);
+    assert.equal(await page.locator(".usage-more").textContent(), "+4");
+    assert.equal(await strip.getAttribute("aria-label"),
+      "Subscription usage: Codex · me@work.example 91%, Claude · me@example.com 63%, Codex · me@example.com 30%, Cursor 20%, Copilot · me 0%, Grok 0%, Antigravity —");
     assert.equal(await page.locator(".usage-chip").first().evaluate((chip) => chip.classList.contains("is-high")), true);
     assert.equal(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth), true, "the chips fit beside Settings");
     const [settings, meters] = await Promise.all([page.locator(".sidebar-footer-row .sidebar-footer-action").boundingBox(), strip.boundingBox()]);
@@ -67,8 +71,9 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await strip.click();
     const popover = page.getByRole("dialog", { name: "Subscription usage", exact: true });
     await popover.waitFor();
-    assert.equal(await popover.locator(".usage-provider").count(), 6);
-    assert.equal(await popover.getByRole("meter").count(), 8);
+    assert.equal(await popover.locator(".usage-provider").count(), 7);
+    assert.equal(await popover.getByRole("meter").count(), 9);
+    assert.equal(await popover.locator(".usage-account").first().textContent(), "me@work.example");
     assert.equal(await popover.locator(".usage-row.is-high").count(), 1);
     assert.equal(await popover.locator(".usage-note.is-problem").count(), 1, "only the expired sign-in reads as an error");
     if (process.env.UI_EVIDENCE_DIR) {
@@ -81,6 +86,31 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await page.keyboard.press("Escape");
     await popover.waitFor({ state: "hidden" });
     assert.equal(await strip.evaluate((el) => el === document.activeElement), true, "Escape hands focus back to the strip");
+
+    // Settings: what is left instead, an account hidden from the strip, another moved up
+    const names = () => page.locator(".usage-popover .usage-provider").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
+    await settingsButton.click();
+    await page.getByRole("button", { name: "Remaining", exact: true }).click();
+    await page.getByRole("switch", { name: "Show Codex · me@work.example beside Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Move Cursor up", exact: true }).click();
+    await page.keyboard.press("Escape");
+    assert.equal(await strip.getAttribute("aria-label"),
+      "Subscription usage: Claude · me@example.com 37% left, Cursor 80% left, Codex · me@example.com 70% left, Copilot · me 100% left, Grok 100% left, Antigravity —");
+    assert.deepEqual(await page.locator(".usage-chip-value").allTextContents(), ["37%", "80%", "70%"]);
+    await strip.click();
+    assert.deepEqual((await names()).slice(0, 4), ["Codex · me@work.example", "Claude · me@example.com", "Cursor", "Codex · me@example.com"], "a hidden account stays in the popover, in its place");
+    assert.equal(await popover.locator(".usage-row-value").first().textContent(), "88% left");
+    if (process.env.UI_EVIDENCE_DIR) await page.locator(".sidebar-shell").screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-popover-left.png") });
+    await page.keyboard.press("Escape");
+    await settingsButton.click();
+    if (process.env.UI_EVIDENCE_DIR) {
+      await page.locator(".settings-section", { has: page.getByRole("heading", { name: "Subscription usage", exact: true }) }).screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-settings.png") });
+    }
+    await page.getByRole("button", { name: "Nearest limit first", exact: true }).click();
+    await page.keyboard.press("Escape");
+    assert.match(await strip.getAttribute("aria-label") ?? "", /^Subscription usage: Claude · me@example.com 37% left, Codex · me@example.com 70% left, Cursor 80% left,/);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}") as { usageHidden?: string[]; usageCount?: string });
+    assert.deepEqual([stored.usageHidden, stored.usageCount], [["codex:work"], "left"]);
 
     // turned off in Settings: gone, and no longer asked for
     await settingsButton.click();
@@ -113,5 +143,5 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
   } finally {
     await phone.close();
   }
-  console.log("PASS plan meters beside Settings: order, overflow, popover, refresh, Escape, off switch and phone fit");
+  console.log("PASS plan meters beside Settings: accounts, order, hiding, used or left, overflow, popover, refresh, Escape, off switch and phone fit");
 }

@@ -137,6 +137,14 @@ export type UsageProblem = "expired" | "rate_limited" | "failed" | "locked";
 
 export interface ProviderUsage {
   readonly id: UsageProviderId;
+  /**
+   * One account of one provider, stable across reads: the provider and its account id, or, for a
+   * sign-in that does not say whose it is, the provider and where it was found. A PC signed in to
+   * two accounts of one provider lists both.
+   */
+  readonly key: string;
+  /** whose plan this is, as its owner knows the account: an email, or a GitHub login; null when unknown */
+  readonly account: string | null;
   /** the plan's name as the provider states it ("max", "pro"), when it does */
   readonly plan: string | null;
   /** the last numbers read; kept through a later failure, which `problem` then names */
@@ -146,7 +154,7 @@ export interface ProviderUsage {
   readonly checked_at: string | null;
 }
 
-/** GET /api/usage: only providers a CLI on this PC is signed in to are listed. */
+/** GET /api/usage: only providers a CLI on this PC is signed in to are listed, once per account. */
 export interface UsageReport {
   readonly providers: readonly ProviderUsage[];
 }

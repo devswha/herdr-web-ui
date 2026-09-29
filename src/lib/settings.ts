@@ -12,6 +12,8 @@ import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
+/** what the plan meters count: the share of a limit used, or what is left of it */
+export type UsageCount = "used" | "left";
 
 export interface Settings {
   theme: ThemeSetting;
@@ -40,6 +42,11 @@ export interface Settings {
   showQuickReplies: boolean;
   /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
   showUsage: boolean;
+  usageCount: UsageCount;
+  /** the plan meters' order by ProviderUsage.key; accounts not in it follow, the one nearest a limit first */
+  usageOrder: string[];
+  /** accounts kept out of the strip beside Settings, by ProviderUsage.key; its popover still lists them */
+  usageHidden: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -57,9 +64,20 @@ export const DEFAULT_SETTINGS: Settings = {
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
   showUsage: false,
+  usageCount: "used",
+  usageOrder: [],
+  usageHidden: [],
 };
 
 export const QUICK_REPLIES_MAX = 12;
+/** accounts the usage order and hiding remember; more are a hand-edited record */
+export const USAGE_KEYS_MAX = 64;
+
+/** A list of usage keys: strings only, each once, bounded. */
+function usageKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 512))].slice(0, USAGE_KEYS_MAX);
+}
 export const QUICK_REPLY_MAX_CHARS = 200;
 
 /** The replies worth a button: what the list holds, without the blank ones still being written. */
@@ -117,6 +135,9 @@ export function sanitizeSettings(raw: unknown): Settings {
       : [...DEFAULT_SETTINGS.quickReplies],
     showQuickReplies: typeof record["showQuickReplies"] === "boolean" ? record["showQuickReplies"] : DEFAULT_SETTINGS.showQuickReplies,
     showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
+    usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
+    usageOrder: usageKeys(record["usageOrder"]),
+    usageHidden: usageKeys(record["usageHidden"]),
   };
 }
 

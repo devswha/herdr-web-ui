@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderUsage, UsageProviderId, UsageReport, UsageWindow } from "../../shared/protocol.ts";
 import { fetchUsage } from "./api.ts";
+import type { UsageCount } from "./settings.ts";
 import { t } from "./i18n.ts";
 import { usePageVisible } from "./visibility.ts";
 
@@ -37,6 +38,22 @@ export function windowLabel(window: UsageWindow): string {
   return `${kind} · ${scope}`;
 }
 
+/** A provider and, when known, whose account it is: "Codex · me@example.com". */
+export function usageName(usage: ProviderUsage): string {
+  return usage.account ? `${PROVIDER_NAME[usage.id]} · ${usage.account}` : PROVIDER_NAME[usage.id];
+}
+
+/** What a meter shows of a limit: the share used, or what is left. */
+export function meterPercent(window: UsageWindow, count: UsageCount): number {
+  return count === "left" ? Math.round((100 - window.used_percent) * 10) / 10 : window.used_percent;
+}
+
+/** A meter's value as text: "77%" used, "23% left". */
+export function meterText(window: UsageWindow, count: UsageCount): string {
+  const value = formatPercent(meterPercent(window, count));
+  return count === "left" ? t("{percent} left", { percent: value }) : value;
+}
+
 /** "2d 4h", "3h 12m", "12m" until a reset; null when it is unknown or already past. */
 export function formatResetIn(resetsAt: string | null, now: number): string | null {
   if (resetsAt === null) return null;
@@ -53,9 +70,31 @@ export function formatPercent(value: number): string {
   return value > 0 && value < 1 ? `${value.toFixed(1)}%` : `${Math.round(value)}%`;
 }
 
-/** A provider with a limit near its end comes first, then the rest in the server's order. */
-export function orderProviders(providers: readonly ProviderUsage[]): ProviderUsage[] {
-  return [...providers].sort((a, b) => (tightestWindow(b)?.used_percent ?? -1) - (tightestWindow(a)?.used_percent ?? -1));
+/**
+ * The accounts in the user's order (`order`, by key), then the rest: a limit near its end first,
+ * otherwise the server's order.
+ */
+export function orderProviders(providers: readonly ProviderUsage[], order: readonly string[] = []): ProviderUsage[] {
+  const rank = new Map(order.map((key, index) => [key, index]));
+  return [...providers].sort((a, b) => {
+    const ranked = [rank.get(a.key), rank.get(b.key)];
+    if (ranked[0] !== undefined && ranked[1] !== undefined) return ranked[0] - ranked[1];
+    if (ranked[0] !== undefined || ranked[1] !== undefined) return ranked[0] !== undefined ? -1 : 1;
+    return (tightestWindow(b)?.used_percent ?? -1) - (tightestWindow(a)?.used_percent ?? -1);
+  });
+}
+
+/**
+ * The order after moving `key` one place up or down among the accounts shown (`shown`, in their
+ * current order). Accounts remembered but not reported now keep their place after them.
+ */
+export function moveInOrder(shown: readonly string[], saved: readonly string[], key: string, by: -1 | 1): string[] {
+  const next = [...shown];
+  const from = next.indexOf(key);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= next.length) return [...shown, ...saved.filter((known) => !shown.includes(known))];
+  [next[from], next[to]] = [next[to]!, next[from]!];
+  return [...next, ...saved.filter((known) => !shown.includes(known))];
 }
 
 export function useUsage(enabled: boolean) {

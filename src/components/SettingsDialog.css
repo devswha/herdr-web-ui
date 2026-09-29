@@ -200,3 +200,40 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* Subscription usage: each account's place in the strip beside Settings, and whether it shows there */
+.usage-accounts {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usage-accounts li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.usage-accounts li.is-hidden .usage-accounts-name {
+  color: var(--text-dim);
+}
+
+.usage-accounts-name {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.usage-accounts-account {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

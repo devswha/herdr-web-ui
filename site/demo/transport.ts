@@ -141,16 +141,20 @@ function usageReport(): UsageReport {
   const at = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
   const checked = new Date(now).toISOString();
   return { providers: [
-    { id: "claude", plan: "max", problem: null, checked_at: checked, windows: [
+    { id: "claude", key: "claude:demo-claude", account: "sam@example.com", plan: "max", problem: null, checked_at: checked, windows: [
       { kind: "session", scope: null, used_percent: 38, resets_at: at(2.4) },
       { kind: "week", scope: null, used_percent: 61, resets_at: at(78) },
       { kind: "week", scope: "Sonnet", used_percent: 12, resets_at: at(78) },
     ] },
-    { id: "codex", plan: "pro", problem: null, checked_at: checked, windows: [
+    { id: "codex", key: "codex:demo-codex-work", account: "sam@work.example", plan: "pro", problem: null, checked_at: checked, windows: [
       { kind: "session", scope: null, used_percent: 22, resets_at: at(1.2) },
       { kind: "week", scope: null, used_percent: 84, resets_at: at(97) },
     ] },
-    { id: "cursor", plan: "pro", problem: null, checked_at: checked, windows: [
+    { id: "codex", key: "codex:demo-codex-home", account: "sam@example.com", plan: "plus", problem: null, checked_at: checked, windows: [
+      { kind: "session", scope: null, used_percent: 5, resets_at: at(3.1) },
+      { kind: "week", scope: null, used_percent: 31, resets_at: at(140) },
+    ] },
+    { id: "cursor", key: "cursor:demo-cursor", account: "sam@example.com", plan: "pro", problem: null, checked_at: checked, windows: [
       { kind: "month", scope: null, used_percent: 27, resets_at: at(290) },
       { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290) },
       { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290) },

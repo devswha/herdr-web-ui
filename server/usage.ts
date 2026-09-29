@@ -16,7 +16,8 @@
  */
 
 import { Database } from "bun:sqlite";
-import { closeSync, openSync, readSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, openSync, readdirSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderUsage, UsageProblem, UsageProviderId, UsageReport, UsageWindow } from "../shared/protocol.ts";
@@ -46,25 +47,43 @@ export interface UsageContext {
   now(): number;
 }
 
+/** Who a sign-in belongs to: `id` tells accounts apart, `label` is how its owner knows it (an email, a login). */
+interface Account {
+  id: string;
+  label: string | null;
+}
+
 interface SignIn {
   token: string;
   /** epoch ms; null when the sign-in does not say */
   expiresAt: number | null;
   plan?: string | null;
-  account?: string | null;
+  /** the ChatGPT workspace Codex asks for */
+  chatgptAccount?: string | null;
   /** further tokens of the same account, tried in order when the service refuses the one before */
   fallbacks?: string[];
+  /** null when the sign-in does not say whose it is */
+  account?: Account | null;
 }
+
+/**
+ * A sign-in where it was found. `source` names the place (a directory, a keychain item), stable
+ * across reads; one PC can hold several, each of its own account. `locked`: a keychain item this
+ * session cannot read.
+ */
+type Found = { source: string } & (SignIn | { locked: true; account?: Account | null });
 
 interface Reading {
   plan: string | null;
   windows: UsageWindow[];
+  /** whose numbers these are, when the answer says and the sign-in did not */
+  account?: Account | null;
 }
 
 export interface UsageProvider {
   id: UsageProviderId;
-  /** null: not signed in here. "locked": signed in, in a keychain this session cannot read. */
-  signIn(ctx: UsageContext): Promise<SignIn | "locked" | null>;
+  /** every sign-in of this provider on this PC; none when not signed in here */
+  signIns(ctx: UsageContext): Promise<Found[]>;
   /** null: signed in, but to an account without this plan */
   read(ctx: UsageContext, signIn: SignIn): Promise<Reading | null>;
 }
@@ -87,6 +106,24 @@ const number = (value: unknown): number | null => {
   return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : null;
 };
 const percent = (value: number): number => Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;
+
+/** `home`'s directories whose names start with `prefix` (".codex-work"), in name order */
+function siblingDirs(home: string, prefix: string): string[] {
+  try {
+    return readdirSync(home, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
+      .map((entry) => join(home, entry.name))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** a keychain read as found sign-ins: none, the one, or a locked item */
+function keychainFound(result: SignIn | "locked" | null, source: string, account: Account | null = null): Found[] {
+  if (result === null) return [];
+  return [result === "locked" ? { source, locked: true, account } : { ...result, account: result.account ?? account, source }];
+}
 
 function parseJson(source: string | null): unknown {
   if (source === null) return null;
@@ -198,6 +235,28 @@ async function fromKeychain(ctx: UsageContext, service: string, accounts: Array<
 
 // ---- Claude Code: keychain `Claude Code-credentials` on macOS, else ~/.claude/.credentials.json ----
 
+/** the account a Claude Code config file says is signed in: `oauthAccount` in .claude.json */
+function claudeAccount(path: string): Account | null {
+  const oauth = record(record(parseJson(readText(path)))["oauthAccount"]);
+  const id = text(oauth["accountUuid"]);
+  return id ? { id, label: text(oauth["emailAddress"]) } : null;
+}
+
+/**
+ * Where Claude Code keeps each sign-in: the default one, then one per config directory it was
+ * pointed at (CLAUDE_CONFIG_DIR, and ~/.claude-* for the usual second account). For such a
+ * directory it names the keychain item after the directory's hash, and keeps .claude.json in it.
+ */
+function claudeHomes(ctx: UsageContext): Array<{ source: string; service: string; dir: string; config: string }> {
+  const homes = [{ source: "default", service: "Claude Code-credentials", dir: join(ctx.home, ".claude"), config: join(ctx.home, ".claude.json") }];
+  const dirs = [ctx.env["CLAUDE_CONFIG_DIR"], ...siblingDirs(ctx.home, ".claude-")].filter((dir): dir is string => Boolean(dir));
+  for (const dir of new Set(dirs)) {
+    const hash = createHash("sha256").update(dir).digest("hex").slice(0, 8);
+    homes.push({ source: dir, service: `Claude Code-credentials-${hash}`, dir, config: join(dir, ".claude.json") });
+  }
+  return homes;
+}
+
 function claudeSignIn(source: string | null): SignIn | null {
   const oauth = record(record(parseJson(source))["claudeAiOauth"]);
   const token = text(oauth["accessToken"]);
@@ -212,12 +271,16 @@ function claudeWindow(value: unknown, kind: UsageWindow["kind"], scope: string |
 
 const claude: UsageProvider = {
   id: "claude",
-  async signIn(ctx) {
+  async signIns(ctx) {
     const user = ctx.env["USER"];
-    const keychain = await fromKeychain(ctx, "Claude Code-credentials", user ? [user, undefined] : [undefined], claudeSignIn);
-    if (keychain && keychain !== "locked") return keychain;
-    const file = claudeSignIn(readText(join(ctx.env["CLAUDE_CONFIG_DIR"] || join(ctx.home, ".claude"), ".credentials.json")));
-    return file ?? keychain;
+    const found = await Promise.all(claudeHomes(ctx).map(async (home) => {
+      const account = claudeAccount(home.config);
+      const keychain = await fromKeychain(ctx, home.service, user ? [user, undefined] : [undefined], claudeSignIn);
+      if (keychain && keychain !== "locked") return keychainFound(keychain, home.source, account);
+      const file = claudeSignIn(readText(join(home.dir, ".credentials.json")));
+      return file ? [{ ...file, account, source: home.source }] : keychainFound(keychain, home.source, account);
+    }));
+    return found.flat();
   },
   async read(ctx, signIn) {
     const body = await requestJson(ctx, "https://api.anthropic.com/api/oauth/usage", {
@@ -239,8 +302,14 @@ function codexSignIn(source: string | null): SignIn | null {
   const tokens = record(record(parseJson(source))["tokens"]);
   const token = text(tokens["access_token"]);
   if (!token) return null;
-  const plan = text(record(jwtClaims(token)["https://api.openai.com/auth"])["chatgpt_plan_type"]);
-  return { token, expiresAt: jwtExpiry(token), plan, account: text(tokens["account_id"]) };
+  const claims = jwtClaims(token);
+  const auth = record(claims["https://api.openai.com/auth"]);
+  const workspace = text(tokens["account_id"]) ?? text(auth["chatgpt_account_id"]);
+  const email = text(record(claims["https://api.openai.com/profile"])["email"]) ?? text(jwtClaims(text(tokens["id_token"]) ?? "")["email"]);
+  // limits are per person in a workspace: the same email in a team workspace is another plan
+  const user = text(auth["chatgpt_user_id"]) ?? text(auth["user_id"]);
+  const id = text(auth["chatgpt_account_user_id"]) ?? (user || workspace ? [user, workspace].filter(Boolean).join("__") : email);
+  return { token, expiresAt: jwtExpiry(token), plan: text(auth["chatgpt_plan_type"]), chatgptAccount: workspace, account: id ? { id, label: email } : null };
 }
 
 function codexWindow(value: unknown, now: number): UsageWindow | null {
@@ -258,19 +327,21 @@ function codexWindow(value: unknown, now: number): UsageWindow | null {
 
 const codex: UsageProvider = {
   id: "codex",
-  async signIn(ctx) {
-    const homes = [ctx.env["CODEX_HOME"], join(ctx.home, ".config", "codex"), join(ctx.home, ".codex")];
-    for (const home of homes) {
-      const signIn = home ? codexSignIn(readText(join(home, "auth.json"))) : null;
-      if (signIn) return signIn;
+  async signIns(ctx) {
+    // CODEX_HOME points Codex elsewhere; ~/.codex-* is where a second account usually lives
+    const homes = [ctx.env["CODEX_HOME"], join(ctx.home, ".config", "codex"), join(ctx.home, ".codex"), ...siblingDirs(ctx.home, ".codex-")];
+    const found: Found[] = [];
+    for (const home of new Set(homes.filter((home): home is string => Boolean(home)))) {
+      const signIn = codexSignIn(readText(join(home, "auth.json")));
+      if (signIn) found.push({ ...signIn, source: home });
     }
-    return fromKeychain(ctx, "Codex Auth", [undefined], codexSignIn);
+    return found.length ? found : keychainFound(await fromKeychain(ctx, "Codex Auth", [undefined], codexSignIn), "keychain");
   },
   async read(ctx, signIn) {
     const body = await requestJson(ctx, "https://chatgpt.com/backend-api/wham/usage", {
       headers: {
         authorization: `Bearer ${signIn.token}`, accept: "application/json", "user-agent": USER_AGENT,
-        ...(signIn.account ? { "chatgpt-account-id": signIn.account } : {}),
+        ...(signIn.chatgptAccount ? { "chatgpt-account-id": signIn.chatgptAccount } : {}),
       },
     });
     const limits = record(body["rate_limit"]);
@@ -295,7 +366,7 @@ function cursorAppSignIn(path: string): SignIn | null {
     db = new Database(path, { readonly: true });
     const value = (key: string) => text(db!.query<{ value: unknown }, [string, number]>("SELECT value FROM ItemTable WHERE key = ? AND length(value) <= ?").get(key, MAX_READ_BYTES)?.value);
     const token = value("cursorAuth/accessToken");
-    return token ? { token, expiresAt: jwtExpiry(token), plan: value("cursorAuth/stripeMembershipType") } : null;
+    return token ? { token, expiresAt: jwtExpiry(token), plan: value("cursorAuth/stripeMembershipType"), account: cursorAccount(token, value("cursorAuth/cachedEmail")) } : null;
   } catch {
     return null;
   } finally {
@@ -303,18 +374,26 @@ function cursorAppSignIn(path: string): SignIn | null {
   }
 }
 
+/** a Cursor account by its token's subject, named by the email Cursor keeps beside it */
+function cursorAccount(token: string, email: string | null): Account | null {
+  const id = text(jwtClaims(token)["sub"]);
+  return id ? { id, label: email } : null;
+}
+
 const cursor: UsageProvider = {
   id: "cursor",
-  async signIn(ctx) {
+  async signIns(ctx) {
     const app = cursorAppSignIn(cursorDatabase(ctx));
+    const cliEmail = text(record(record(parseJson(readText(join(ctx.home, ".cursor", "cli-config.json"))))["authInfo"])["email"]);
     const cli = await fromKeychain(ctx, "cursor-access-token", [undefined], (value) => {
       const token = text(value);
-      return token ? { token, expiresAt: jwtExpiry(token) } : null;
+      return token ? { token, expiresAt: jwtExpiry(token), account: cursorAccount(token, cliEmail) } : null;
     });
-    if (!app) return cli;
-    if (!cli || cli === "locked") return app;
-    // both signed in: the one that stays valid longer is the one in use
-    return (cli.expiresAt ?? 0) > (app.expiresAt ?? 0) ? { ...cli, plan: app.plan ?? null } : app;
+    if (!app) return keychainFound(cli, "cli");
+    if (!cli || cli === "locked") return [{ ...app, source: "app" }];
+    // two accounts are two plans; one account signed in to both is used through the longer-lived token
+    if (app.account?.id !== cli.account?.id) return [{ ...app, source: "app" }, { ...cli, source: "cli" }];
+    return (cli.expiresAt ?? 0) > (app.expiresAt ?? 0) ? [{ ...cli, plan: app.plan ?? null, account: app.account, source: "cli" }] : [{ ...app, source: "app" }];
   },
   async read(ctx, signIn) {
     const body = await requestJson(ctx, "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage", {
@@ -337,12 +416,35 @@ const cursor: UsageProvider = {
 
 // ---- GitHub Copilot: the editor plugin's sign-in, else the GitHub CLI's ----
 
-function copilotFileToken(source: string | null): string | null {
-  for (const [host, entry] of Object.entries(record(parseJson(source)))) {
+interface GitHubToken {
+  token: string;
+  /** the GitHub login it belongs to, when the file or the CLI says */
+  login: string | null;
+}
+
+function copilotFileTokens(source: string | null): GitHubToken[] {
+  return Object.entries(record(parseJson(source))).flatMap(([host, entry]) => {
     const token = host.startsWith("github.com") ? text(record(entry)["oauth_token"]) : null;
-    if (token) return token;
+    return token ? [{ token, login: text(record(entry)["user"]) }] : [];
+  });
+}
+
+/** every github.com account the GitHub CLI holds a working sign-in for; the active one alone on an older CLI */
+async function ghTokens(ctx: UsageContext): Promise<GitHubToken[]> {
+  const accounts = record(record(parseJson(await ctx.run(["gh", "auth", "status", "--json", "hosts"])))["hosts"])["github.com"];
+  if (!Array.isArray(accounts)) {
+    const token = text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com"]));
+    return token ? [{ token, login: null }] : [];
   }
-  return null;
+  const tokens = await Promise.all(accounts.map(async (entry): Promise<GitHubToken | null> => {
+    const account = record(entry);
+    const login = text(account["login"]);
+    // gh has already found a sign-in in error (a revoked token) refused
+    if (!login || account["state"] !== "success") return null;
+    const token = text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com", "--user", login]));
+    return token ? { token, login } : null;
+  }));
+  return tokens.filter((token): token is GitHubToken => token !== null);
 }
 
 function copilotWindow(value: unknown, scope: string, resetsAt: string | null): UsageWindow | null {
@@ -355,14 +457,24 @@ function copilotWindow(value: unknown, scope: string, resetsAt: string | null): 
 
 const copilot: UsageProvider = {
   id: "copilot",
-  async signIn(ctx) {
+  async signIns(ctx) {
     const dir = join(ctx.env["XDG_CONFIG_HOME"] || join(ctx.home, ".config"), "github-copilot");
-    // an editor sign-in can outlive its token by years: the GitHub CLI's is the next to try
-    const tokens = [...new Set([
-      copilotFileToken(readText(join(dir, "apps.json"))), copilotFileToken(readText(join(dir, "hosts.json"))),
-      text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com"])),
-    ].filter((token): token is string => token !== null))];
-    return tokens.length ? { token: tokens[0]!, expiresAt: null, fallbacks: tokens.slice(1) } : null;
+    const tokens = [...copilotFileTokens(readText(join(dir, "apps.json"))), ...copilotFileTokens(readText(join(dir, "hosts.json"))), ...await ghTokens(ctx)];
+    // One sign-in per GitHub account. An editor sign-in can outlive its token by years: the same
+    // account's next token (the GitHub CLI's) is tried after it. Tokens of no known login go together.
+    const accounts = new Map<string, { login: string | null; tokens: string[] }>();
+    const seen = new Set<string>();
+    for (const { token, login } of tokens) {
+      if (seen.has(token)) continue;
+      seen.add(token);
+      const id = login?.toLowerCase() ?? "";
+      const account = accounts.get(id) ?? { login, tokens: [] };
+      account.tokens.push(token);
+      accounts.set(id, account);
+    }
+    return [...accounts].map(([id, { login, tokens: [token, ...fallbacks] }]): Found => ({
+      source: id ? `github:${id}` : "github", token: token!, expiresAt: null, fallbacks, account: login ? { id, label: login } : null,
+    }));
   },
   async read(ctx, signIn) {
     // The tokens may belong to different GitHub accounts: the first one with Copilot answers. A 404
@@ -406,7 +518,8 @@ const copilot: UsageProvider = {
     }
     // Copilot Free reports its plan as "individual"; only the SKU tells them apart
     const plan = text(body["access_type_sku"])?.includes("free") ? "free" : text(body["copilot_plan"]);
-    return { plan, windows };
+    const login = text(body["login"]);
+    return { plan, windows, account: login ? { id: login.toLowerCase(), label: login } : null };
   },
 };
 
@@ -418,13 +531,14 @@ const PERIOD_KINDS: Record<string, UsageWindow["kind"]> = {
 
 const grok: UsageProvider = {
   id: "grok",
-  async signIn(ctx) {
-    for (const entry of Object.values(record(parseJson(readText(join(ctx.home, ".grok", "auth.json")))))) {
+  async signIns(ctx) {
+    // one entry per account signed in
+    return Object.entries(record(parseJson(readText(join(ctx.home, ".grok", "auth.json"))))).flatMap(([source, entry]): Found[] => {
       const value = record(entry);
       const token = text(value["key"]);
-      if (token) return { token, expiresAt: epochMs(value["expires_at"] ?? value["expires"]) };
-    }
-    return null;
+      const id = text(value["user_id"]) ?? text(value["principal_id"]) ?? source;
+      return token ? [{ source, token, expiresAt: epochMs(value["expires_at"] ?? value["expires"]), account: { id, label: text(value["email"]) } }] : [];
+    });
   },
   async read(ctx, signIn) {
     const body = await requestJson(ctx, "https://cli-chat-proxy.grok.com/v1/billing?format=credits", {
@@ -462,7 +576,7 @@ const ANTIGRAVITY_BUCKETS: Record<string, { kind: UsageWindow["kind"]; scope: st
 
 const antigravity: UsageProvider = {
   id: "antigravity",
-  signIn: (ctx) => fromKeychain(ctx, "gemini", ["antigravity"], antigravitySignIn),
+  signIns: async (ctx) => keychainFound(await fromKeychain(ctx, "gemini", ["antigravity"], antigravitySignIn), "keychain"),
   async read(ctx, signIn) {
     const init: RequestInit = {
       method: "POST",
@@ -549,15 +663,25 @@ export function systemUsageContext(): UsageContext {
   };
 }
 
+/** one sign-in's last reading */
 interface Entry {
-  /** null: not signed in, or signed in without this plan */
+  /** null: signed in without this plan */
   usage: ProviderUsage | null;
   readAt: number;
   nextAt: number;
 }
 
+/** when a provider's sign-ins were last looked for, and the sources found then */
+interface Search {
+  readAt: number;
+  nextAt: number;
+  sources: string[];
+}
+
 export class UsageService {
-  private readonly entries = new Map<UsageProviderId, Entry>();
+  private readonly searches = new Map<UsageProviderId, Search>();
+  /** by provider and source */
+  private readonly entries = new Map<string, Entry>();
   private pending: Promise<UsageReport> | null = null;
   private pendingRefresh = false;
 
@@ -579,33 +703,61 @@ export class UsageService {
 
   private async collect(refresh: boolean): Promise<UsageReport> {
     const now = this.ctx.now();
-    const usages = await Promise.all(this.providers.map(async (provider) => {
-      const entry = this.entries.get(provider.id);
-      const forced = refresh && entry !== undefined && now - entry.readAt >= MIN_REFRESH_MS && entry.usage?.problem !== "rate_limited";
-      if (entry && now < entry.nextAt && !forced) return entry.usage;
-      const next = await this.read(provider, entry?.usage ?? null, now);
-      this.entries.set(provider.id, next);
-      return next.usage;
-    }));
-    return { providers: usages.filter((usage): usage is ProviderUsage => usage !== null) };
+    const usages = await Promise.all(this.providers.map((provider) => this.collectProvider(provider, now, refresh)));
+    // one account found in two places is listed once: the reading without a problem, else the first
+    const byKey = new Map<string, ProviderUsage>();
+    for (const usage of usages.flat()) {
+      const held = byKey.get(usage.key);
+      if (!held || (held.problem !== null && usage.problem === null)) byKey.set(usage.key, usage);
+    }
+    return { providers: [...byKey.values()] };
   }
 
-  private async read(provider: UsageProvider, previous: ProviderUsage | null, now: number): Promise<Entry> {
+  private async collectProvider(provider: UsageProvider, now: number, refresh: boolean): Promise<ProviderUsage[]> {
+    const search = this.searches.get(provider.id);
+    // an account's readAt is never later than its provider's, so a forced search may ask each again
+    const forced = refresh && search !== undefined && now - search.readAt >= MIN_REFRESH_MS;
+    const usages = (sources: readonly string[]) => sources.map((source) => this.entries.get(source)?.usage ?? null).filter((usage): usage is ProviderUsage => usage !== null);
+    if (search && now < search.nextAt && !forced) return usages(search.sources);
+
+    let found: Found[];
+    try { found = await provider.signIns(this.ctx); } catch { found = []; }
+    // the same token in two places is one sign-in
+    const tokens = new Set<string>();
+    found = found.filter((signIn) => "locked" in signIn || (!tokens.has(signIn.token) && Boolean(tokens.add(signIn.token))));
+    const read = await Promise.all(found.map(async (signIn): Promise<[string, Entry]> => {
+      const source = `${provider.id}|${signIn.source}`;
+      const entry = this.entries.get(source);
+      const current = entry !== undefined && now < entry.nextAt && !(forced && entry.usage?.problem !== "rate_limited");
+      return [source, current ? entry : await this.read(provider, signIn, entry?.usage ?? null, now)];
+    }));
+    for (const source of search?.sources ?? []) if (!read.some(([found]) => found === source)) this.entries.delete(source);
+    for (const [source, entry] of read) this.entries.set(source, entry);
+    const sources = read.map(([source]) => source);
+    this.searches.set(provider.id, { readAt: now, nextAt: Math.min(now + FRESH_MS, ...read.map(([, entry]) => entry.nextAt)), sources });
+    return usages(sources);
+  }
+
+  private async read(provider: UsageProvider, found: Found, previous: ProviderUsage | null, now: number): Promise<Entry> {
     const settle = (usage: ProviderUsage | null, wait: number): Entry => ({ usage, readAt: now, nextAt: now + wait });
+    // an account is known by its id; one the sign-in does not name, by where it was found
+    const identity = (account: Account | null | undefined) => {
+      const known = account ?? found.account ?? null;
+      return { key: known ? `${provider.id}:${known.id}` : `${provider.id}@${found.source}`, account: known?.label ?? null };
+    };
     // the last numbers stay, named by what went wrong since
     const keep = (problem: UsageProblem, plan: string | null, wait: number) => settle({
-      id: provider.id, plan: previous?.plan ?? plan, windows: previous?.windows ?? [], problem, checked_at: previous?.checked_at ?? null,
+      id: provider.id, ...(previous ? { key: previous.key, account: previous.account } : identity(null)),
+      plan: previous?.plan ?? plan, windows: previous?.windows ?? [], problem, checked_at: previous?.checked_at ?? null,
     }, wait);
-    let signIn: SignIn | "locked" | null;
-    try { signIn = await provider.signIn(this.ctx); } catch { signIn = null; }
-    if (signIn === null) return settle(null, FRESH_MS);
-    if (signIn === "locked") return keep("locked", null, FRESH_MS);
+    if ("locked" in found) return keep("locked", null, FRESH_MS);
+    const signIn: SignIn = found;
     if (signIn.expiresAt !== null && signIn.expiresAt <= now) return keep("expired", signIn.plan ?? null, RETRY_MS);
     try {
       const reading = await provider.read(this.ctx, signIn);
       if (reading === null) return settle(null, FRESH_MS);
       return settle({
-        id: provider.id, plan: reading.plan ?? signIn.plan ?? null, windows: reading.windows, problem: null, checked_at: new Date(now).toISOString(),
+        id: provider.id, ...identity(reading.account), plan: reading.plan ?? signIn.plan ?? null, windows: reading.windows, problem: null, checked_at: new Date(now).toISOString(),
       }, FRESH_MS);
     } catch (error) {
       if (error instanceof UsageHttpError && (error.status === 401 || error.status === 403)) return keep("expired", signIn.plan ?? null, RETRY_MS);

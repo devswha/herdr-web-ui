@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
-import { formatPercent, formatResetIn, orderProviders, tightestWindow, windowLabel } from "./usage.ts";
+import { formatPercent, formatResetIn, meterPercent, meterText, moveInOrder, orderProviders, tightestWindow, usageName, windowLabel } from "./usage.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const window = (used_percent: number, kind: UsageWindow["kind"] = "week", scope: string | null = null): UsageWindow => ({ kind, scope, used_percent, resets_at: null });
-const provider = (id: ProviderUsage["id"], windows: UsageWindow[]): ProviderUsage => ({ id, plan: null, windows, problem: null, checked_at: null });
+const provider = (id: ProviderUsage["id"], windows: UsageWindow[], account: string | null = null): ProviderUsage => ({
+  id, key: account ? `${id}:${account}` : id, account, plan: null, windows, problem: null, checked_at: null,
+});
 
 describe("usage meters", () => {
   it("shows the limit closest to running out", () => {
@@ -15,6 +17,28 @@ describe("usage meters", () => {
   it("puts the provider nearest a limit first, and one without numbers last", () => {
     const order = orderProviders([provider("claude", []), provider("codex", [window(40)]), provider("copilot", [window(90, "month")])]);
     expect(order.map((usage) => usage.id)).toEqual(["copilot", "codex", "claude"]);
+  });
+
+  it("follows the user's order first, then the nearest limit", () => {
+    const providers = [provider("claude", [window(10)]), provider("codex", [window(40)], "a@x"), provider("codex", [window(90)], "b@x"), provider("grok", [window(50)])];
+    const keys = (order: string[]) => orderProviders(providers, order).map((usage) => usage.key);
+    expect(keys([])).toEqual(["codex:b@x", "grok", "codex:a@x", "claude"]);
+    expect(keys(["claude", "codex:a@x", "gone"])).toEqual(["claude", "codex:a@x", "codex:b@x", "grok"]);
+  });
+
+  it("moves an account one place and keeps accounts not reported now", () => {
+    expect(moveInOrder(["a", "b", "c"], ["x", "b"], "c", -1)).toEqual(["a", "c", "b", "x"]);
+    expect(moveInOrder(["a", "b", "c"], [], "a", -1)).toEqual(["a", "b", "c"]);
+    expect(moveInOrder(["a", "b"], [], "a", 1)).toEqual(["b", "a"]);
+  });
+
+  it("counts a meter as used or left, and names the account", () => {
+    expect(meterPercent(window(77.4), "used")).toBe(77.4);
+    expect(meterPercent(window(77.4), "left")).toBe(22.6);
+    expect(meterText(window(77), "used")).toBe("77%");
+    expect(meterText(window(77), "left")).toBe("23% left");
+    expect(usageName(provider("codex", [], "me@example.com"))).toBe("Codex · me@example.com");
+    expect(usageName(provider("grok", []))).toBe("Grok");
   });
 
   it("formats the time to a reset, and nothing for a past or unknown one", () => {
