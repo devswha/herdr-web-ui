@@ -52,6 +52,15 @@ it("binds same-cwd panes to their own files regardless of which transcript was m
   await expect(gjcTranscriptPath(first, "/different-cwd", home)).rejects.toThrow(ConversationUnavailable);
 });
 
+it("binds a pane whose session holds a subagent's file open to the session, not the subagent", async () => {
+  const session = join(dir, "parent.jsonl"), subagent = join(dir, "parent", "0-Worker.jsonl");
+  mkdirSync(join(dir, "parent"));
+  for (const path of [session, subagent]) writeFileSync(path, JSON.stringify({ type: "session", cwd: home }) + "\n");
+  expect(await gjcTranscriptPath(await pane([subagent]), home, home)).toBe(session);
+  // the session and its subagent open at once are one session, not two candidates
+  expect(await gjcTranscriptPath(await pane([session, subagent]), home, home)).toBe(session);
+});
+
 
 it("restores a directory-only runtime using its fresh terminal breadcrumb, without cwd recency", async () => {
   const a = join(dir, "breadcrumb-a.jsonl"), b = join(dir, "breadcrumb-b.jsonl");

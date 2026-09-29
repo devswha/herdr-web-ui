@@ -18,6 +18,7 @@ import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPa
 import { phaseRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, todoState, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { useSettings } from "../lib/settings.ts";
+import { statusEdgeRead } from "../lib/status.ts";
 import { usePageVisible } from "../lib/visibility.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { patchText } from "../../shared/patch.ts";
@@ -42,6 +43,8 @@ const LOAD_OLDER_PX = 400;
 export interface ChatViewProps {
   paneId: string;
   refreshKey: number;
+  /** bumped when a composer message goes out, before the transcript holds it */
+  sentKey?: number;
   connected: boolean;
   ended: boolean;
   agent: string | null;
@@ -420,7 +423,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, ended, agent, agentStatus, onMetadata, onPrompt, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onPrompt, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePrompt, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -456,6 +459,16 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
   const shownPane = useRef(paneId);
   const prepended = useRef<{ top: number; height: number } | null>(null);
   const [pollKey, setPollKey] = useState(0);
+  /**
+   * The assistant turn that was last when a message went out, with the turns it was read from.
+   * It holds only while those turns are unchanged: once the transcript moves at all, the status
+   * applies again (a slash command Claude logs as no user turn continues the very same turn).
+   */
+  const [sentOver, setSentOver] = useState<{ turn: ConversationTurn; page: ConversationTurn[] } | null>(null);
+  /** the newest page as rendered: an earlier page loaded above it does not move the transcript */
+  const heldPage = useRef<ConversationTurn[]>([]);
+  const seenSent = useRef(sentKey);
+  const seenStatus = useRef<{ pane: string; status: AgentStatus | undefined }>({ pane: paneId, status: agentStatus });
 
   const dropOlder = (): void => {
     olderGeneration.current += 1; loadingOlder.current = false;
@@ -468,7 +481,26 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
     stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null);
     dropOlder();
     lastAnswer.current = null;
+    setSentOver(null);
   }, [paneId]);
+
+  useEffect(() => {
+    if (seenSent.current === sentKey) return;
+    seenSent.current = sentKey;
+    // sent into a run (a queued message sent now): that turn is the one running, not one to finish
+    const page = heldPage.current;
+    const last = page[page.length - 1];
+    setSentOver(last?.role === "assistant" && agentStatus !== "working" && agentStatus !== "blocked" ? { turn: last, page } : null);
+  }, [sentKey, agentStatus]);
+
+  // A turn starts or ends when the status enters or leaves `working`: read now, not at the next
+  // poll. Bumping pollKey re-runs the read effect, whose cleanup cancels the loop that was
+  // running (its answer is dropped, its timer cleared) before the single new loop starts.
+  useEffect(() => {
+    const seen = seenStatus.current;
+    seenStatus.current = { pane: paneId, status: agentStatus };
+    if (seen.pane === paneId && statusEdgeRead(seen.status, agentStatus)) setPollKey((key) => key + 1);
+  }, [paneId, agentStatus]);
 
   useEffect(() => {
     if (!visible) return;
@@ -666,6 +698,8 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
     stickToBottom.current = true; setNewMessages(false); setAway(false);
   };
   const turns = useMemo(() => older.length > 0 ? [...older, ...state.turns] : state.turns, [older, state.turns]);
+  heldPage.current = state.turns;
+  const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   const todos = useMemo(() => state.source === "conversation" ? todoState(turns) : null, [state.source, turns]);
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
 
@@ -681,7 +715,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, connected, 
       {state.source === "conversation"
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
-            return <Turn key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus)} last={last} showThinking={settings.showThinking} />;
+            return <Turn key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} />;
           })
         : agent !== null
           ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>

@@ -132,6 +132,8 @@ export function PaneTerminal({
   const clipboardTimerRef = useRef<number | null>(null);
   // the composer's send bumps this so the chat lens refetches without waiting a poll beat
   const [chatRefresh, setChatRefresh] = useState(0);
+  // bumped as a composer message goes out: the chat must not title the turn before it as running
+  const [chatSent, setChatSent] = useState(0);
   const [chatMetadata, setChatMetadata] = useState<{ pane: string; value: ConversationMetadata | null } | null>(null);
   // The prompt the chat shows: while it waits, a message from the composer answers it.
   const [chatPrompt, setChatPrompt] = useState<{ pane: string; value: InteractivePrompt } | null>(null);
@@ -516,6 +518,7 @@ export function PaneTerminal({
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode));
     if (sent === null) return false;
     term.scrollToBottom();
+    setChatSent((current) => current + 1);
     return sent.then((result) => {
       if (!result.ok) return submitNote(result.code, result.message);
       // the chat lens refetches at once so the sent prompt appears without a poll beat
@@ -691,6 +694,7 @@ export function PaneTerminal({
           <ChatView
             paneId={paneId}
             refreshKey={chatRefresh}
+            sentKey={chatSent}
             connected={connected}
             ended={ended}
             agent={agent}

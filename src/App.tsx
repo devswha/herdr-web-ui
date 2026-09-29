@@ -683,7 +683,7 @@ export function App() {
       {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={() => setMachineDialog(null)} onConnected={(id) => { setMachineDialog(null); selectTarget(id, null); void load(); }} />}
       <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} updates={updates} />
       {filesOpen && selectedPane && (
-        <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
+        <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}
       {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
         <FileViewer path={viewing.path} paneId={viewing.paneId} onClose={closeFile} />

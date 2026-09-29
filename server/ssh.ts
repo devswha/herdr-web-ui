@@ -9,6 +9,17 @@ import { chunksOf } from "./remote-bundle.ts";
 /** A file streamed to a remote command's stdin, with how much of it went so far. */
 export interface StreamInput { path: string; onProgress?(done: number): void; onUploaded?(): void }
 
+/**
+ * What ssh said last, for the setup dialog: some messages ask the user to act while ssh keeps
+ * waiting (Tailscale SSH's browser check URL), and the exit error is too late for those.
+ * Control characters go (a terminal's colours and cursor moves mean nothing in a dialog).
+ */
+export function recentSshOutput(text: string, maxLines = 8, maxBytes = 2048): string {
+  const lines = text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r\n?/g, "\n").replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").split("\n").map((line) => line.trimEnd()).filter((line) => line !== "");
+  const tail = lines.slice(-maxLines).join("\n");
+  return tail.length > maxBytes ? tail.slice(-maxBytes) : tail;
+}
+
 export class SshConnection {
   private dir = mkdtempSync(join(tmpdir(), "herdr-ssh-"));
   private control = join(this.dir, "control");
@@ -20,6 +31,8 @@ export class SshConnection {
   private stderr = "";
   usedSecret = false;
   onExit: (() => void) | null = null;
+  /** ssh's recent stderr while the master connection is still being established */
+  onOutput: ((text: string) => void) | null = null;
 
   constructor(readonly target: SshTarget, readonly stateDir: string, readonly keyPath?: string, readonly keyOnly = false) {
     chmodSync(this.dir, 0o700);
@@ -64,7 +77,8 @@ export class SshConnection {
     const proc = this.master = Bun.spawn(args, { stdin: "ignore", stdout: "ignore", stderr: "pipe", env: { ...process.env, SSH_ASKPASS: helper, SSH_ASKPASS_REQUIRE: "force", DISPLAY: "herdr:0", HERDR_ASKPASS_SOCKET: askPath } });
     void (async () => {
       const reader = proc.stderr.getReader();
-      try { for (;;) { const { done, value } = await reader.read(); if (done) break; this.stderr = (this.stderr + new TextDecoder().decode(value)).slice(-8192); } } finally { reader.releaseLock(); }
+      const decoder = new TextDecoder();
+      try { for (;;) { const { done, value } = await reader.read(); if (done) break; this.stderr = (this.stderr + decoder.decode(value, { stream: true })).slice(-8192); this.onOutput?.(recentSshOutput(this.stderr)); } } finally { reader.releaseLock(); }
     })();
     void proc.exited.then(() => { if (!this.closed) this.onExit?.(); });
     const until = Date.now() + (challenge ? 300_000 : 25_000);
@@ -73,6 +87,7 @@ export class SshConnection {
       if (proc.exitCode !== null || Date.now() > until) throw new Error(this.stderr.trim() || "SSH connection timed out");
       await Bun.sleep(100);
     }
+    this.onOutput = null;
   }
   async run(script: string, input?: Uint8Array | StreamInput, timeout = 90_000): Promise<string> {
     if (this.closed) throw new Error("SSH connection closed");
