@@ -10,6 +10,7 @@ export interface AgentInfo {
   agent?: string | null;
   agent_session?: AgentSessionInfo | null;
   agent_status: AgentStatus;
+  completion_seq?: number | null;
   cwd?: string | null;
   display_agent?: string | null;
   focused: boolean;
@@ -82,6 +83,7 @@ export interface PaneInfo {
   foreground_cwd?: string | null;
   label?: string | null;
   pane_id: string;
+  restore_error?: string | null;
   revision: number;
   scroll?: PaneScrollInfo | null;
   state_labels?: Record<string, unknown>;

@@ -143,12 +143,14 @@ export class DeviceStore {
       if (pending.attempts >= CODE_ATTEMPTS) this.pending = null;
       return null;
     }
-    this.pending = null;
     const token = randomBytes(32).toString("hex");
     const device: StoredDevice = { id: randomBytes(8).toString("hex"), label, role, token_hash: hash(token), created_at: new Date(now).toISOString(), last_seen_at: null };
-    this.devices.push(device);
-    this.gateClosedAt ??= device.created_at;
-    this.save();
+    const next = [...this.devices, device];
+    const gate = this.gateClosedAt ?? device.created_at;
+    this.save(next, gate);
+    this.devices = next;
+    this.gateClosedAt = gate;
+    this.pending = null;
     return { token, device: { id: device.id, label: device.label, role: device.role } };
   }
 
@@ -159,7 +161,13 @@ export class DeviceStore {
     for (const device of this.devices) {
       if (!same(digest, device.token_hash)) continue;
       const seen = device.last_seen_at === null ? 0 : Date.parse(device.last_seen_at);
-      if (now - seen >= LAST_SEEN_WRITE_MS) { device.last_seen_at = new Date(now).toISOString(); this.save(); }
+      if (now - seen >= LAST_SEEN_WRITE_MS) {
+        try {
+          const next = this.devices.map((d) => d === device ? { ...d, last_seen_at: new Date(now).toISOString() } : d);
+          this.save(next);
+          this.devices = next;
+        } catch { /* last-seen telemetry must not deny an otherwise valid credential */ }
+      }
       return { id: device.id, label: device.label, role: device.role };
     }
     return null;
@@ -169,26 +177,29 @@ export class DeviceStore {
     this.assertWritable();
     const device = this.devices.find((d) => d.id === id);
     if (!device) return null;
-    if (patch.label !== undefined) device.label = patch.label;
-    if (patch.role !== undefined) device.role = patch.role;
-    this.save();
-    return { id: device.id, label: device.label, role: device.role, created_at: device.created_at, last_seen_at: device.last_seen_at, current: false };
+    const updated = { ...device, ...(patch.label === undefined ? {} : { label: patch.label }), ...(patch.role === undefined ? {} : { role: patch.role }) };
+    const next = this.devices.map((d) => d === device ? updated : d);
+    this.save(next);
+    this.devices = next;
+    return { id: updated.id, label: updated.label, role: updated.role, created_at: updated.created_at, last_seen_at: updated.last_seen_at, current: false };
   }
 
   revoke(id: string): boolean {
     this.assertWritable();
-    const before = this.devices.length;
-    this.devices = this.devices.filter((d) => d.id !== id);
-    if (this.devices.length === before) return false;
-    this.save();
+    const next = this.devices.filter((d) => d.id !== id);
+    if (next.length === this.devices.length) return false;
+    this.save(next);
+    this.devices = next;
     const listeners = this.revocations.get(id);
     this.revocations.delete(id);
     for (const close of listeners ?? []) close();
     return true;
   }
 
-  private save(): void {
-    try { writeJsonPrivate(this.path, { gate_closed_at: this.gateClosedAt, devices: this.devices }); } catch (error) { console.error(`could not write ${this.path}: ${error instanceof Error ? error.message : String(error)}`); }
+  has(id: string): boolean { return this.devices.some((device) => device.id === id); }
+
+  private save(devices = this.devices, gateClosedAt = this.gateClosedAt): void {
+    writeJsonPrivate(this.path, { gate_closed_at: gateClosedAt, devices });
   }
 }
 

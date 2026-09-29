@@ -111,7 +111,7 @@ herdr plugin install devswha/herdr-web-ui
 
 ## 智能体操作指南
 
-正在协助他人安装应用？请遵循 [INSTALL.md](INSTALL.md)。修改仓库时，请遵循本地 `AGENTS.md` 中的说明（如有）以及仓库中的[审查规则](.github/REVIEW.md)。
+正在协助他人安装应用？请遵循 [INSTALL.md](INSTALL.md)。修改仓库时，请遵循 [CONTRIBUTING.md](CONTRIBUTING.md) 和仓库中的[审查规则](.github/REVIEW.md)，以及本地 `AGENTS.md` 中的说明（如有）。
 
 ## 开发
 
@@ -131,7 +131,7 @@ bun test           # isolated herdr test session
 bun run test:ui    # browser regression checks
 ```
 
-测试、媒体素材和发布流程请参阅[开发文档](docs/development.md)，界面规范请参阅 [DESIGN.md](DESIGN.md)。
+提交改动请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)，测试、媒体素材和发布流程请参阅[开发文档](docs/development.md)，界面规范请参阅 [DESIGN.md](DESIGN.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 许可证
 

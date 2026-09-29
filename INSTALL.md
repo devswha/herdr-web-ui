@@ -173,7 +173,7 @@ Other PCs over SSH are added from the web UI (**Add PC**), not by an install ste
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Bind address |
 | `PORT` | `7317` | HTTP and WebSocket port |
-| `HERDR_WEB_TOKEN` | unset | Token that gates access; required for anything but loopback |
+| `HERDR_WEB_TOKEN` | unset | Token for scripts and proxies. Once set, every client that is not a paired device or the user's own Tailscale login needs it, this PC included |
 | `HERDR_SOCKET` | `~/.config/herdr/herdr.sock` | herdr socket (source installs; the plugin follows herdr) |
 | `HERDR_WEB_AUTO_UPDATE` | `0` | `1` installs new versions automatically |
 | `HERDR_WEB_STATE_DIR` | `~/.config/herdr-web-ui` | Push keys, device subscriptions, PC registrations, update builds. Keep it across reinstalls. |

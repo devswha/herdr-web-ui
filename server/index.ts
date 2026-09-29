@@ -128,6 +128,7 @@ async function paneContext(paneId: string): Promise<{ agent: string | null; cwd:
 
 interface SocketData {
   deviceId?: string;
+  readOnly?: boolean;
   revoked?: boolean;
   unwatchDevice?: () => void;
   relay?: MachineRelay;
@@ -278,6 +279,7 @@ export function createServer(
 
   function authorizeSocket(client: Client): void {
     if (client.data.revoked) throw new HerdrError("device_revoked", "this device's access was revoked");
+    if (client.data.readOnly || client.data.mode === "observe") throw new HerdrError("read_only", "this connection can only watch");
   }
 
   /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
@@ -337,6 +339,7 @@ export function createServer(
   const push = createPushService({
     stateDir: options.stateDir ?? defaultStateDir(),
     timing: options.alertTiming,
+    canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
     lookupTitle: async (paneId) => {
       const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
       return pane ? paneTitle(pane) : undefined;
@@ -363,6 +366,9 @@ export function createServer(
     const snapshot = await sessionSnapshot();
     const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
     if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
+    // herdr (0.9.3+) could not restore it after a restart: its terminal has no process
+    // and an attach would only die with "not found". The client shows the reason instead.
+    if (pane.restore_error) throw new HerdrError("pane_not_restored", pane.restore_error);
     const terminalId = (pane as HerdrPane & { terminal_id?: string }).terminal_id;
     if (!terminalId) throw new HerdrError("no_terminal", `pane ${paneId} has no terminal`);
     // the pane's grid as the operator's layout holds it: an observe connection must
@@ -573,6 +579,7 @@ export function createServer(
       push.onStatus(paneId, "idle").catch(logPushError);
     },
     onBaseline: (panes) => push.seed(panes),
+    onResync: (panes, newer) => push.resync(panes, newer),
     onPaneEnded: (paneId) => {
       completions.forget(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });
@@ -610,6 +617,21 @@ export function createServer(
         return pathname === "/ws" ? new Response("unauthorized", { status: 401 }) : unauthorizedJson(access.level === "none" ? access.reason : "token_required");
       }
 
+      const readOnly = access.level === "full" && access.role === "watch";
+      const mutating = !["GET", "HEAD", "OPTIONS"].includes(request.method);
+      if (pathname.startsWith("/api/") && mutating && !sameOrigin(request)) {
+        return jsonResponse({ error: { code: "invalid_origin", message: "Use controls from this app" } }, 403);
+      }
+      // An empty segment ("//") reads as another route to the checks below, while the PC proxy
+      // drops it before forwarding: `/api/machines/<id>//fs/file` would pass as not a file read.
+      if (pathname.startsWith("/api/") && pathname.includes("//")) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+      // Watching a terminal grants no arbitrary filesystem access: those files include credentials.
+      const fileRead = /^\/api\/(?:machines\/[^/]+\/)?fs\//.test(pathname);
+      const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe" || pathname === "/api/push/test";
+      if (readOnly && (fileRead || mutating && !ownPreferences)) {
+        return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
+      }
+
       if (pathname === "/api/bridge") {
         if (token === "" && !bridgeAuthorized) return unauthorizedJson();
         try { return jsonResponse(await bridgeIdentity()); } catch (error) { return errorResponse(error); }
@@ -639,21 +661,30 @@ export function createServer(
           if (!machines?.endpoint(machineId)) return jsonResponse({ error: { code: "machine_offline", message: "This PC is disconnected" } }, 503);
           let relay: MachineRelay | undefined;
           try {
-            relay = new MachineRelay(machines, machineId);
+            relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: "interact", output: new Map(), closing: false, relay, deviceId } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: "interact", output: new Map(), closing: false, deviceId } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
 
       if (pathname === "/api/auth") return handleAuthRequest(request, token);
-      if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) return handleDeviceRequest(request, pathname, devices, access);
+      if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
+        try {
+          const response = await handleDeviceRequest(request, pathname, devices, access);
+          if (request.method === "DELETE" && response.status === 204) {
+            // The device registry is the delivery authority even if cleaning the push file fails.
+            try { push.revokeDevice(pathname.slice("/api/devices/".length)); } catch (error) { logPushError(error); }
+          }
+          return response;
+        } catch (error) { return errorResponse(error); }
+      }
 
       if (pathname === "/api/updates" || pathname.startsWith("/api/updates/")) {
         return handleUpdateRequest(request, pathname, options.updates);
@@ -663,7 +694,11 @@ export function createServer(
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
-          const answered = await handlePushRequest(request, pathname, push);
+          // a paired device owns its alerts; the open LAN (before any pairing) owns them only while
+          // it stays open, like a subscription from before owners (undefined); a local/token/
+          // Tailscale sign-in is the owner (null)
+          const owner = access.level !== "full" ? null : access.device?.id ?? (access.via === "open" ? undefined : null);
+          const answered = await handlePushRequest(request, pathname, push, owner);
           if (answered) return answered;
         } catch (error) {
           return errorResponse(error);
@@ -1231,8 +1266,8 @@ export function createServer(
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
                 await serialize(message.pane_id, async () => {
                   const screen = await paneRead({ paneId: message.pane_id, source: "visible", format: "text" });
-                  authorizeSocket(client);
                   if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
+                  authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }
                   if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
                   // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
@@ -1273,6 +1308,7 @@ export function createServer(
                 send(client, { type: "error", code: "invalid_role", message: "mode must be interact or observe" });
                 break;
               }
+              if (client.data.readOnly) message.mode = "observe";
               client.data.mode = message.mode;
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {

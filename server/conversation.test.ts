@@ -555,3 +555,34 @@ it("incrementally reads one growing Codex task across split UTF-8, partial recor
     expect(transcriptPage("codex-transcript", path).turns).toHaveLength(1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+it("expands inherited Codex tool output without exposing output discarded by a backtrack", () => {
+  const home = mkdtempSync(join(tmpdir(), "herdr-tool-history-"));
+  try {
+    const directory = join(home, "sessions", "2026", "09", "30");
+    mkdirSync(directory, { recursive: true });
+    const thread = "11111111-1111-4111-8111-111111111111";
+    const parent = join(directory, `rollout-2026-09-30T01-00-00-${thread}.jsonl`);
+    const leaf = join(directory, `rollout-2026-09-30T01-00-01-${thread}_1.jsonl`);
+    const line = (type: string, payload: unknown) => JSON.stringify({ type, payload }) + "\n";
+    const meta = (extra = {}) => line("session_meta", { id: thread, source: "cli", thread_source: "user", ...extra });
+    const long = "inherited output ".repeat(1000);
+    const kept = meta()
+      + line("event_msg", { type: "user_message", message: "earlier request" })
+      + line("response_item", { type: "function_call", name: "exec_command", call_id: "kept", arguments: "{}" })
+      + line("response_item", { type: "function_call_output", call_id: "kept", output: long });
+    writeFileSync(parent, kept + line("response_item", { type: "function_call_output", call_id: "discarded", output: "discarded output" }));
+    writeFileSync(leaf, meta({ history_base: { thread_id: thread, end_ordinal_exclusive: 4, end_byte_offset: Buffer.byteLength(kept) } })
+      + line("response_item", { type: "function_call_output", call_id: "current", output: "current output" }));
+    const page = transcriptPage("codex-transcript", leaf, {}, home);
+    expect(page.turns.flatMap((turn) => turn.parts).some((part) => part.kind === "tool" && part.output_ref === "kept")).toBe(true);
+    expect(transcriptToolOutput("codex-transcript", leaf, "kept", home)).toBe(long);
+    expect(transcriptToolOutput("codex-transcript", leaf, "current", home)).toBe("current output");
+    expect(transcriptToolOutput("codex-transcript", leaf, "discarded", home)).toBeNull();
+    // an inherited rollout that can no longer be read costs its own output, not the leaf's
+    // (a directory in its place fails to read even for root, unlike a mode change)
+    rmSync(parent);
+    mkdirSync(parent);
+    expect(transcriptToolOutput("codex-transcript", leaf, "current", home)).toBe("current output");
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

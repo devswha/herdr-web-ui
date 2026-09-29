@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import type { AlertPrefs } from "../shared/notify-policy.ts";
 import type { AgentStatus, HerdrPane } from "../shared/protocol.ts";
-import { createPushService, parseSubscription, type PushService } from "./push.ts";
+import { createPushService, handlePushRequest, parseSubscription, type PushService } from "./push.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
@@ -264,5 +264,157 @@ describe("alert timing and each device's choice", () => {
     await restarted.onStatus("w1:p1", "blocked");
     await restarted.settled();
     expect(fake.received).toHaveLength(0);
+  });
+});
+
+it("cancels the remaining delay group after an earlier device already received its finish", async () => {
+  const slower = await startFakePushService();
+  try {
+    const push = createPushService({ stateDir, timing: { short: 0, long: 10_000, longTurn: 0 } });
+    push.subscribe(fake.subscription, { input: true, done: "always" });
+    push.subscribe(slower.subscription, { input: true, done: "long" });
+    push.seed([pane("w1:p1", "working", "claude")]);
+    await push.onStatus("w1:p1", "done");
+    await fake.waitFor((message) => message.payload.body === "work finished", "early finish", 2000);
+    await push.onStatus("w1:p1", "working");
+    await push.settled();
+    expect(slower.received).toHaveLength(0);
+  } finally { slower.stop(); }
+});
+
+it("settles only after a delivery already under way, when a later group is called off", async () => {
+  let release!: () => void;
+  let asked!: () => void;
+  const titleAsked = new Promise<void>((resolve) => { asked = resolve; });
+  const push = createPushService({
+    stateDir, timing: { short: 0, long: 10_000, longTurn: 0 },
+    lookupTitle: () => { asked(); return new Promise((resolve) => { release = () => resolve("claude"); }); },
+  });
+  const slower = await startFakePushService();
+  try {
+    push.subscribe(fake.subscription, { input: true, done: "always" });
+    push.subscribe(slower.subscription, { input: true, done: "long" });
+    push.seed([pane("w1:p1", "working", "claude")]);
+    await push.onStatus("w1:p1", "done");
+    await titleAsked;
+    await push.onStatus("w1:p1", "working");
+    let settled = false;
+    const settling = push.settled().then(() => { settled = true; });
+    await Bun.sleep(50);
+    expect(settled).toBe(false);
+    release();
+    await settling;
+    expect(fake.received).toHaveLength(1);
+    expect(slower.received).toHaveLength(0);
+  } finally { slower.stop(); }
+});
+
+
+it("persists device ownership and refuses revoked and legacy subscriptions after restart", async () => {
+  const active = new Set(["device-a"]);
+  const canDeliver = (id: string | null | undefined) => id === null || typeof id === "string" && active.has(id);
+  const push = createPushService({ stateDir, canDeliver });
+  push.subscribe(fake.subscription, undefined, "device-a");
+  expect(JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8"))[0].device_id).toBe("device-a");
+  active.clear();
+  const restarted = createPushService({ stateDir, canDeliver });
+  await restarted.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(0);
+  restarted.revokeDevice("device-a");
+  expect(await restarted.sendTest(fake.subscription.endpoint)).toBeNull();
+  // Legacy records cannot identify a revoked device; re-registration supplies an owner.
+  push.subscribe(fake.subscription);
+  const migrated = createPushService({ stateDir, canDeliver });
+  await migrated.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(0);
+  migrated.subscribe(fake.subscription, undefined, null);
+  await migrated.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(1);
+});
+
+it("keeps a pending alert across re-registration but drops it after device revocation", async () => {
+  const active = new Set(["device-a"]);
+  const push = createPushService({ stateDir, timing: { short: 20 }, canDeliver: (id) => typeof id === "string" && active.has(id) });
+  push.subscribe(fake.subscription, undefined, "device-a");
+  push.seed([pane("w1:p1", "working", "claude")]);
+  await push.onStatus("w1:p1", "blocked");
+  push.subscribe(fake.subscription, undefined, "device-a");
+  await push.settled();
+  expect(fake.received).toHaveLength(1);
+  await push.onStatus("w1:p1", "working");
+  await push.onStatus("w1:p1", "blocked");
+  active.clear();
+  // The registry still blocks delivery if push-file cleanup cannot run.
+  await push.settled();
+  expect(fake.received).toHaveLength(1);
+});
+
+it("keeps a subscription made through the open LAN only while the LAN stays open", async () => {
+  let gated = false;
+  // the server's rule (index.ts): owners null always, undefined only while ungated
+  const push = createPushService({ stateDir, canDeliver: (id) => id === null || (id === undefined ? !gated : false) });
+  const request = new Request("http://192.168.1.20:8787/api/push/subscribe", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: fake.subscription }),
+  });
+  expect((await handlePushRequest(request, "/api/push/subscribe", push, undefined))?.status).toBe(204);
+  expect(JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8"))[0]).not.toHaveProperty("device_id");
+  await push.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(1);
+  // pairing a device closes the open LAN: its earlier subscriber hears nothing more
+  gated = true;
+  await push.onEnded("w1:p2");
+  expect(fake.received).toHaveLength(1);
+});
+
+describe("push resync after lost status events", () => {
+  it("calls off the waiting alert of a pane that closed while events were lost", async () => {
+    const push = createPushService({ stateDir, timing: { short: 50, long: 50, longTurn: 0 } });
+    push.subscribe(fake.subscription);
+    push.seed([pane("w1:p1", "working", "gone"), pane("w1:p2", "working", "kept"), pane("w1:p3", "working", "new")]);
+    await push.onStatus("w1:p1", "blocked");
+    await push.onStatus("w1:p3", "blocked");
+    // p1 is gone; p3 is missing from the snapshot too, but was heard of since it was asked for
+    push.resync([pane("w1:p2", "working", "kept")], new Set(["w1:p3"]));
+    await push.settled();
+    expect(fake.received.map((r) => r.payload.title)).toEqual(["new"]);
+  });
+
+  it("takes a clean pane's snapshot status as its baseline and announces nothing", async () => {
+    const push = subscribed();
+    push.seed([pane("w1:p1", "working", "claude")]);
+    // it finished and started over while events were lost
+    push.resync([pane("w1:p1", "blocked", "claude")], new Set());
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+    // measured against the resynced baseline: blocked -> blocked is no change
+    await push.onStatus("w1:p1", "blocked");
+    expect(fake.received).toHaveLength(0);
+    await push.onStatus("w1:p1", "done");
+    expect(fake.received.map((r) => r.payload.body)).toHaveLength(1);
+  });
+
+  it("calls off an alert still waiting for a pane that is at rest by the snapshot", async () => {
+    const push = createPushService({ stateDir, timing: { short: 50, long: 50, longTurn: 0 } });
+    push.subscribe(fake.subscription);
+    push.seed([pane("w1:p1", "working", "claude")]);
+    await push.onStatus("w1:p1", "blocked");
+    push.resync([pane("w1:p1", "idle", "claude")], new Set());
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+  });
+
+  it("leaves a pane with a newer event, and done versus idle, as they are", async () => {
+    const push = subscribed();
+    push.seed([pane("w1:p1", "working", "a"), pane("w1:p2", "working", "b")]);
+    await push.onStatus("w1:p2", "done");
+    const sent = fake.received.length;
+    push.resync([pane("w1:p1", "idle", "a"), pane("w1:p2", "idle", "b")], new Set(["w1:p1"]));
+    // p1 was not clean: still working, so its finish is news
+    await push.onStatus("w1:p1", "done");
+    expect(fake.received.length).toBe(sent + 1);
+    // p2 stayed done (at rest either way): a new turn and its finish are still heard
+    await push.onStatus("w1:p2", "working");
+    await push.onStatus("w1:p2", "done");
+    expect(fake.received.length).toBe(sent + 2);
   });
 });

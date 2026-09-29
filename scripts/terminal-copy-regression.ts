@@ -15,12 +15,33 @@ export async function checkTerminalCopy(browser: Browser, origin: string): Promi
   writeFileSync(script, `
 process.stdout.write("\\x1b[2J\\x1b[H");
 process.stdout.write("DRAGCOPY-first-line\\r\\n");
+process.stdout.write("DRAGCOPY-second-line\\r\\n");
 process.stdout.write("LONG-" + "x".repeat(${300}) + "-END\\r\\n");
 setInterval(() => {}, 1000);
 `);
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   try {
-    await context.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal"), pane);
+    await context.addInitScript((id) => {
+      localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal");
+      // WebKit requires the write to start in the gesture, even when its text is
+      // fetched later. Record this boundary without granting Chromium a free pass
+      // through its persistent clipboard-write permission.
+      let releasing = false;
+      window.addEventListener("mouseup", () => {
+        releasing = true;
+        setTimeout(() => { releasing = false; }, 0);
+      }, { capture: true });
+      const state = { checking: false, writes: [] as boolean[], pending: 0 };
+      (window as any).clipboardGesture = state;
+      for (const method of ["write", "writeText"] as const) {
+        const original = navigator.clipboard[method].bind(navigator.clipboard);
+        (navigator.clipboard as any)[method] = (value: any) => {
+          if (state.checking) state.writes.push(releasing);
+          state.pending++;
+          return original(value).finally(() => { state.pending--; });
+        };
+      }
+    }, pane);
     await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
@@ -48,9 +69,11 @@ setInterval(() => {}, 1000);
       return inputs.slice(before);
     };
     const clipboard = (page: Page): Promise<string> => page.evaluate(() => navigator.clipboard.readText());
+    const settled = () => page.waitForFunction(() => (window as any).clipboardGesture.pending === 0);
 
     // plain drag: selects, copies on release, sends nothing to the pane
     await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.evaluate(() => { (window as any).clipboardGesture.checking = true; });
     const box = (await first.boundingBox())!;
     const dragged = await drag({ x: box.x + 1, y: box.y + box.height / 2 }, { x: box.x + 400, y: box.y + box.height / 2 });
     await page.locator(".terminal-banner", { hasText: "copied to clipboard" }).waitFor();
@@ -60,6 +83,9 @@ setInterval(() => {}, 1000);
     }
     assert.match(await clipboard(page), /^DRAGCOPY-first-line/, "a plain drag must copy the selected text");
     assert.deepEqual(dragged, [], "a selecting drag must not reach the pane as mouse reports");
+    assert.deepEqual(await page.evaluate(() => (window as any).clipboardGesture.writes), [true],
+      "drag copy must begin inside mouseup, before timers or server responses lose the gesture");
+    await page.evaluate(() => { (window as any).clipboardGesture.checking = false; });
 
     // Ctrl+C with a selection copies it and does not interrupt the pane
     await page.mouse.dblclick(box.x + 20, box.y + box.height / 2);
@@ -87,6 +113,70 @@ setInterval(() => {}, 1000);
     await page.waitForTimeout(300);
     assert.equal(await clipboard(page), "DRAGCOPY-first-line", "Ctrl+C on a Korean layout must copy the selection");
     assert.equal(inputs.length, beforeHangul, "Ctrl+C on a Korean layout with a selection must not send ^C");
+
+    // A Chromium site (including an installed PWA) may deny the async API while
+    // the user's native Copy gesture remains available.
+    const { targetInfo } = await cdp.send("Target.getTargetInfo");
+    await cdp.send("Browser.setPermission", {
+      origin, browserContextId: targetInfo.browserContextId,
+      permission: { name: "clipboard-write" }, setting: "denied",
+    });
+    assert.equal(await page.evaluate(async () => {
+      try { await navigator.clipboard.writeText("must be blocked"); return false; } catch { return true; }
+    }), true, "the async clipboard permission is actually denied");
+    const secondBox = (await page.locator(".pane-terminal .xterm-rows > div", { hasText: "DRAGCOPY-second-line" }).boundingBox())!;
+    await drag({ x: secondBox.x + 1, y: secondBox.y + secondBox.height / 2 }, { x: secondBox.x + 400, y: secondBox.y + secondBox.height / 2 });
+    await settled();
+    assert.match(await clipboard(page), /^DRAGCOPY-second-line/, "drag still copies when the async clipboard is denied");
+    if (process.env.UI_EVIDENCE_DIR) {
+      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-copy-permission-blocked.png") });
+    }
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+
+    // A slow response for the previous drag cannot replace the newer selection.
+    let releaseOld!: () => void;
+    const oldResponse = new Promise<void>((resolve) => { releaseOld = resolve; });
+    let held = false;
+    let delivered = false;
+    await page.route("**/api/pane/selection?*", async (route) => {
+      const response = await route.fetch();
+      if (!held) {
+        held = true;
+        await oldResponse;
+        await route.fulfill({ response });
+        delivered = true;
+      } else await route.fulfill({ response });
+    });
+    try {
+      await drag({ x: box.x + 1, y: box.y + box.height / 2 }, { x: box.x + 400, y: box.y + box.height / 2 });
+      const deadline = Date.now() + 5000;
+      while (!held && Date.now() < deadline) await page.waitForTimeout(20);
+      assert.equal(held, true, "first selection response held");
+      await drag({ x: secondBox.x + 1, y: secondBox.y + secondBox.height / 2 }, { x: secondBox.x + 400, y: secondBox.y + secondBox.height / 2 });
+      releaseOld();
+      while (!delivered && Date.now() < deadline) await page.waitForTimeout(20);
+      assert.equal(delivered, true);
+      await settled();
+      assert.match(await clipboard(page), /^DRAGCOPY-second-line/, "an old selection response never overwrites the newer copy");
+      // emptied first, so the check sees what Ctrl+C itself wrote
+      await page.evaluate(() => navigator.clipboard.writeText(""));
+      await page.keyboard.press("Control+c");
+      await settled();
+      const copyDeadline = Date.now() + 5_000;
+      while (!(await clipboard(page)) && Date.now() < copyDeadline) await page.waitForTimeout(50);
+      assert.match(await clipboard(page), /^DRAGCOPY-second-line/, "the cached selection also belongs to the newer drag");
+    } finally {
+      releaseOld();
+      await page.unroute("**/api/pane/selection?*");
+    }
+
+    // Output can erase the server range before it is read; the visible snapshot
+    // must not be replaced by an empty clipboard.
+    await page.route("**/api/pane/selection?*", (route) => route.fulfill({ json: { text: "" } }));
+    await drag({ x: box.x + 1, y: box.y + box.height / 2 }, { x: box.x + 400, y: box.y + box.height / 2 });
+    await settled();
+    assert.match(await clipboard(page), /^DRAGCOPY-first-line/, "an empty server range preserves the visible selection");
+    await page.unroute("**/api/pane/selection?*");
 
     // a line longer than the terminal is wide copies as herdr has it: one line
     const long = page.locator(".pane-terminal .xterm-rows > div", { hasText: "LONG-" });
@@ -155,6 +245,7 @@ setInterval(() => {}, 1000);
     const consecutive = (numbers: number[]): boolean => numbers.every((n, i) => i === 0 || n === numbers[i - 1]! + 1);
     /** the copy lands after herdr answers: wait for the emptied clipboard to fill */
     const filled = async (): Promise<string> => {
+      await settled();
       const deadline = Date.now() + 5_000;
       for (;;) {
         const text = await clipboard(page);
@@ -232,10 +323,10 @@ setInterval(() => {}, 1000);
 
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");
     console.log("PASS a selecting drag scrolls herdr by wheel and edge, and copies herdr's text for the whole range");
+    console.log("PASS drag copy starts in the gesture, survives denied clipboard permission, and ignores stale or empty selection responses");
   } finally {
     await context.close();
     await workspaceClose(created.workspace.workspace_id).catch(() => {});
     rmSync(root, { recursive: true, force: true });
   }
 }
-

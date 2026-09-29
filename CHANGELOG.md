@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- A pane herdr could not restore after a restart (herdr 0.9.3+, e.g. its folder was
+  removed) is marked NOT RESTORED in the sidebar, and selecting it shows herdr's reason
+  instead of a terminal that ends at once. The server no longer tries to attach it.
 - The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
   omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.
 - Subscription usage beside Settings: the plan limits of Claude, Codex, Cursor, Copilot,
@@ -21,10 +24,35 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Sign-in locations and endpoints follow OpenUsage.
 
 ### Changed
+- Tested against herdr 0.9.3: CI runs the integration and browser suites on it, and the API
+  types are generated from its schema. herdr 0.9.0 or newer is still enough.
 - The website is redesigned after herdr.dev: ink and paper modes, one large headline with the
   install line, a strip of figures, and five numbered rows for what the app does. It is built
   from the README's own media: its top video, with a tab that swaps it for the demo app, its
   four feature clips, and the installer screenshot.
+- The one-line installer installs the latest release instead of `main`, so a new install
+  runs the same version as existing ones and never picks up changes merged since.
+  `HERDR_WEB_UI_REF` still picks another branch or tag.
+
+### Fixed
+- Enforce device permissions and request origins consistently, persist device changes before reporting success, and stop alerts after device access is revoked.
+- Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
+- Dragging terminal text copies the visible selection immediately, including when an
+  installed app's asynchronous clipboard permission is blocked. Scrollback copies
+  reserve clipboard access during the release gesture; delayed or empty selection
+  responses cannot erase a newer copy.
+- Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
+- Settle sent composer drafts across pane switches and cancel all delayed completion alerts when work resumes.
+
+- Closing the selected pane with the sidebar's X no longer puts the keyboard on the pane
+  selected in its place. On a phone it came up over the drawer, in the way of closing the
+  next pane. A pane or lens the user picks still takes the keyboard.
+- Pane statuses and web push recover when herdr drops the app's event stream: herdr 0.9.2
+  and newer close a listener that falls behind, and herdr restarts do the same. Every
+  stream now reconnects at once, keeps trying while herdr restarts, and reads back what
+  it missed from herdr, so a
+  pane created meanwhile is no longer left without status or alerts for up to a minute,
+  and an alert for a pane that has since gone quiet is called off instead of sent.
 
 ## [0.3.33] - 2026-09-29
 

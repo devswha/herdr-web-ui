@@ -5,6 +5,7 @@
  *   bun run scripts/generate-protocol-types.ts            # write shared/herdr-api.generated.ts
  *   bun run scripts/generate-protocol-types.ts --check     # fail if the committed output is stale
  *   bun run scripts/generate-protocol-types.ts --refresh   # re-read the schema from `herdr api schema --json`
+ *                                                           (HERDR_WEB_HERDR_BIN picks the herdr binary)
  *
  * Shape decisions, and why:
  *
@@ -224,7 +225,9 @@ function generate(schema: Json): string {
 
 async function loadSchema(refresh: boolean): Promise<Json> {
   if (refresh) {
-    const proc = Bun.spawn(["herdr", "api", "schema", "--json"], { stdout: "pipe", stderr: "pipe" });
+    // the same binary the tests and the server use, so a schema can come from a herdr that is not installed
+    const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
+    const proc = Bun.spawn([herdr, "api", "schema", "--json"], { stdout: "pipe", stderr: "pipe" });
     const text = await new Response(proc.stdout).text();
     if ((await proc.exited) !== 0) throw new Error("herdr api schema --json failed");
     writeFileSync(SCHEMA_PATH, text);

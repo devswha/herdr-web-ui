@@ -61,6 +61,8 @@ export interface PushSubscriptionRecord {
   keys: { p256dh: string; auth: string };
   /** what this device wants alerts for; absent in a record from before there was a choice */
   alerts?: AlertPrefs;
+  /** null: local/token sign-in; absent: legacy subscription awaiting ownership. */
+  device_id?: string | null;
 }
 
 
@@ -69,12 +71,20 @@ export type PushDelivery = { ok: true } | { ok: false; status: number | null; go
 export interface PushService {
   publicKey(): string;
   /** `alerts` absent keeps what the device chose before (a re-registration on load) */
-  subscribe(subscription: PushSubscriptionRecord, alerts?: AlertPrefs): void;
+  subscribe(subscription: PushSubscriptionRecord, alerts?: AlertPrefs, deviceId?: string | null): void;
+  revokeDevice(id: string): void;
   unsubscribe(endpoint: string): void;
   /** One confirmation push to one device, so enabling alerts proves the whole path works. */
   sendTest(endpoint: string): Promise<PushDelivery | null>;
   /** The collector's view of every pane: status baselines and the titles notifications use. */
   seed(panes: readonly HerdrPane[], machineId?: string, machineName?: string): void;
+  /**
+   * After status events were lost, `panes` (every pane on the PC) are the baseline for all
+   * but the `newer` ones, which had an event since this snapshot was asked for. A pane
+   * missing from it is gone: its waiting alert is called off. Nothing is announced: a
+   * change that happened unseen is not news, and an alert it overtook is called off.
+   */
+  resync(panes: readonly HerdrPane[], newer: ReadonlySet<string>, machineId?: string): void;
   /** Schedules the alert this change is worth, and calls off the one it overtakes. */
   onStatus(paneId: string, status: AgentStatus, machineId?: string): Promise<void>;
   onEnded(paneId: string, machineId?: string): Promise<void>;
@@ -89,6 +99,7 @@ export interface PushServiceOptions {
   lookupTitle?: (paneId: string) => Promise<string | undefined>;
   timing?: Partial<AlertTiming>;
   now?: () => number;
+  canDeliver?: (deviceId: string | null | undefined) => boolean;
 }
 
 export { defaultStateDir } from "./update-state.ts";
@@ -172,7 +183,11 @@ export function createPushService(options: PushServiceOptions): PushService {
       for (const entry of stored) {
         const parsed = parseSubscription(entry);
         const alerts = (entry as { alerts?: unknown } | null)?.alerts;
-        if (parsed) subscriptions.set(parsed.endpoint, alerts === undefined ? parsed : { ...parsed, alerts: parseAlerts(alerts) });
+        if (parsed) {
+          const owner = (entry as PushSubscriptionRecord).device_id;
+          subscriptions.set(parsed.endpoint, { ...parsed, ...(alerts === undefined ? {} : { alerts: parseAlerts(alerts) }),
+            ...(owner === null || typeof owner === "string" ? { device_id: owner } : {}) });
+        }
       }
     }
     return subscriptions;
@@ -183,6 +198,7 @@ export function createPushService(options: PushServiceOptions): PushService {
   }
 
   async function deliver(subscription: PushSubscriptionRecord, message: PushPayload, urgency: "normal" | "high"): Promise<PushDelivery> {
+    if (options.canDeliver && !options.canDeliver(subscription.device_id)) return { ok: false, status: null, gone: false };
     const { publicKey, privateKey } = keys();
     const details = webpush.generateRequestDetails(subscription, JSON.stringify(message), {
       vapidDetails: { subject, publicKey, privateKey },
@@ -261,16 +277,21 @@ export function createPushService(options: PushServiceOptions): PushService {
   /** One timer per delay, each for the devices that wait that long; all called off together. */
   function schedule(key: string, groups: Map<number, PushSubscriptionRecord[]>, send: (to: PushSubscriptionRecord[]) => Promise<void>): void {
     const cancels: Array<() => void> = [];
+    let remaining = groups.size;
     for (const [delay, to] of groups) {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let fired = false;
       const done = new Promise<void>((resolve) => {
         timer = setTimeout(() => {
-          if (waiting.get(key) === cancelAll) waiting.delete(key);
+          fired = true;
+          remaining -= 1;
+          if (remaining === 0 && waiting.get(key) === cancelAll) waiting.delete(key);
           send(to).catch((error: unknown) => {
             console.error(`web push failed: ${error instanceof Error ? error.message : String(error)}`);
           }).finally(resolve);
         }, delay);
-        cancels.push(() => { clearTimeout(timer); resolve(); });
+        // a group already sending is past calling off: it settles when its delivery does
+        cancels.push(() => { if (fired) return; clearTimeout(timer); resolve(); });
       });
       inFlight.add(done);
       void done.finally(() => inFlight.delete(done));
@@ -282,9 +303,17 @@ export function createPushService(options: PushServiceOptions): PushService {
   return {
     publicKey: () => keys().publicKey,
 
-    subscribe(subscription, alerts) {
+    subscribe(subscription, alerts, deviceId) {
       const kept = alerts ?? store().get(subscription.endpoint)?.alerts;
-      store().set(subscription.endpoint, kept === undefined ? subscription : { ...subscription, alerts: kept });
+      store().set(subscription.endpoint, { ...subscription, ...(kept === undefined ? {} : { alerts: kept }),
+        ...(deviceId === undefined ? {} : { device_id: deviceId }) });
+      persist();
+    },
+
+    revokeDevice(id) {
+      for (const [endpoint, subscription] of store()) {
+        if (subscription.device_id === id || subscription.device_id === undefined) store().delete(endpoint);
+      }
       persist();
     },
 
@@ -304,6 +333,34 @@ export function createPushService(options: PushServiceOptions): PushService {
         const key = paneStorageId(machineId, pane.pane_id);
         titles.set(key, `${machineName ? machineName + " · " : ""}${paneTitle(pane)}`);
         if (!lastStatus.has(key)) lastStatus.set(key, pane.agent_status);
+      }
+    },
+
+    resync(panes, newer, machineId = "local") {
+      const busy = (value: AgentStatus | undefined): boolean => value === "working" || value === "blocked";
+      const present = new Set(panes.map((pane) => paneStorageId(machineId, pane.pane_id)));
+      const newerKeys = new Set([...newer].map((paneId) => paneStorageId(machineId, paneId)));
+      const remotePrefix = `remote:${encodeURIComponent(machineId)}:`;
+      const onThisPc = (key: string): boolean => machineId === "local" ? !key.startsWith("remote:") : key.startsWith(remotePrefix);
+      for (const key of [...lastStatus.keys()]) {
+        if (!onThisPc(key) || present.has(key) || newerKeys.has(key)) continue;
+        // closed while events were lost: no alert may still speak for it
+        callOff(key);
+        turnStart.delete(key);
+        lastStatus.delete(key);
+      }
+      for (const pane of panes) {
+        if (newer.has(pane.pane_id)) continue;
+        const key = paneStorageId(machineId, pane.pane_id);
+        const previous = lastStatus.get(key);
+        const status = pane.agent_status;
+        // done and idle are both at rest: herdr reports a finish nobody has seen as idle
+        if (previous === status || (previous !== undefined && !busy(previous) && !busy(status))) continue;
+        lastStatus.set(key, status);
+        if (previous === undefined) continue;
+        callOff(key);
+        // a turn that began unseen has no known start, like a first sighting mid-turn
+        if (busy(status) !== busy(previous)) turnStart.delete(key);
       }
     },
 
@@ -333,7 +390,10 @@ export function createPushService(options: PushServiceOptions): PushService {
       schedule(key, groups, async (to) => {
         const title = machineId === "local" ? await titleOf(paneId) : titles.get(key) ?? paneId;
         // a device that dropped out meanwhile is not written to
-        const live = to.filter((subscription) => store().has(subscription.endpoint));
+        const live = to.flatMap((subscription) => {
+          const current = store().get(subscription.endpoint);
+          return current && current.device_id === subscription.device_id ? [current] : [];
+        });
         await broadcast({ ...statusMessage(paneId, title, status), ...(machineId === "local" ? {} : { machine_id: machineId }), tag: paneNotificationTag(paneId, machineId) }, status === "blocked" ? "high" : "normal", live);
       });
     },
@@ -363,7 +423,7 @@ export function createPushService(options: PushServiceOptions): PushService {
  *   DELETE /api/push/subscribe { endpoint } -> 204
  *   POST   /api/push/test      { endpoint } -> 204 | 404 subscription_not_found | 502 push_failed
  */
-export async function handlePushRequest(request: Request, pathname: string, push: PushService): Promise<Response | null> {
+export async function handlePushRequest(request: Request, pathname: string, push: PushService, deviceId: string | null | undefined): Promise<Response | null> {
   const route = `${request.method} ${pathname}`;
   if (route === "GET /api/push") return jsonResponse({ public_key: push.publicKey() });
   if (route !== "POST /api/push/subscribe" && route !== "DELETE /api/push/subscribe" && route !== "POST /api/push/test") {
@@ -382,7 +442,7 @@ export async function handlePushRequest(request: Request, pathname: string, push
   if (route === "POST /api/push/subscribe") {
     const subscription = parseSubscription(body.subscription);
     if (!subscription) return badRequest("invalid_subscription", "subscription needs an http(s) endpoint and p256dh/auth keys");
-    push.subscribe(subscription, body.alerts === undefined ? undefined : parseAlerts(body.alerts));
+    push.subscribe(subscription, body.alerts === undefined ? undefined : parseAlerts(body.alerts), deviceId);
     return new Response(null, { status: 204 });
   }
   if (typeof body.endpoint !== "string") return badRequest("missing_endpoint", "endpoint is required");

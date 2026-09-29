@@ -1,5 +1,5 @@
 import type { AgentStatus, HerdrPane } from "../shared/protocol.ts";
-import { sessionSnapshot, subscribeEvents, type EventFrame, type Subscription } from "./herdr/client.ts";
+import { HerdrError, sessionSnapshot, subscribeEvents, type EventFrame, type Subscription } from "./herdr/client.ts";
 
 /**
  * Collects agent status for EVERY pane in the session, not just the attached ones.
@@ -15,12 +15,19 @@ import { sessionSnapshot, subscribeEvents, type EventFrame, type Subscription } 
  * - `pane.focused` subscribes globally too, and fires for a tab or workspace brought to the
  *   front as well (`{event:"pane_focused", data:{type, pane_id, workspace_id}}`).
  *
+ * - herdr (0.9.2+) closes a subscription that fell behind, after an `events_lost` error
+ *   that never arrives when the socket's buffer is full (seen on 0.9.3): every connection
+ *   here reopens itself on the close alone, and whatever it missed is read back from a
+ *   snapshot taken once the new subscription has started (herdr's documented order).
+ *
  * Status frames are flat (`{event:"pane.agent_status_changed", data:{pane_id, agent_status, ...}}`)
  * while structure frames carry a snake_case `data.type` - both shapes below parse only
  * what the live server actually sends.
  */
 
-const RECONNECT_DELAY_MS = 5_000;
+/** first retry after a subscription closed; doubles per closure that never started */
+const RECONNECT_MIN_MS = 250;
+const RECONNECT_MAX_MS = 5_000;
 const BACKSTOP_INTERVAL_MS = 60_000;
 const RECONCILE_DEBOUNCE_MS = 500;
 /** retry delay when a reconcile's snapshot call fails (herdr busy/restarting) */
@@ -35,11 +42,38 @@ export interface StatusCollectorHandlers {
    * right after a restart, the first event of a pane would otherwise have no baseline.
    */
   onBaseline: (panes: readonly HerdrPane[]) => void;
+  /**
+   * Status events were lost (the status connection closed under us, e.g. herdr's
+   * `events_lost`): this snapshot, taken after the new subscription started, is the
+   * truth for every pane but the `newer` ones, which had an event since it was asked for.
+   */
+  onResync?: (panes: readonly HerdrPane[], newer: ReadonlySet<string>) => void;
   onPaneEnded: (paneId: string) => void;
   onStructureChange: () => void;
   /** herdr's focus moved onto this pane: whoever is at its terminal has it in front */
   onFocus?: (paneId: string) => void;
 }
+
+/** What the collector talks to, and how long it waits: tests swap both. */
+export interface StatusCollectorDeps {
+  subscribe: typeof subscribeEvents;
+  snapshot: () => Promise<{ panes: HerdrPane[] }>;
+  reconnectMinMs: number;
+  reconnectMaxMs: number;
+  backstopMs: number;
+  debounceMs: number;
+  snapshotRetryMs: number;
+}
+
+const DEFAULT_DEPS: StatusCollectorDeps = {
+  subscribe: subscribeEvents,
+  snapshot: () => sessionSnapshot(),
+  reconnectMinMs: RECONNECT_MIN_MS,
+  reconnectMaxMs: RECONNECT_MAX_MS,
+  backstopMs: BACKSTOP_INTERVAL_MS,
+  debounceMs: RECONCILE_DEBOUNCE_MS,
+  snapshotRetryMs: SNAPSHOT_RETRY_MS,
+};
 
 export interface StatusCollector {
   stop: () => void;
@@ -77,7 +111,67 @@ export function parseStructureFrame(frame: EventFrame): StructureEvent | null {
   }
 }
 
-export function startStatusCollector(handlers: StatusCollectorHandlers): StatusCollector {
+/**
+ * A subscription that reopens itself when herdr closes it: at once, then backing off
+ * while it keeps closing before it starts (herdr restarting). herdr closes a subscriber
+ * that fell behind (`events_lost`, 0.9.2+) as well, and events sent meanwhile are gone:
+ * `onRestart` runs once a connection opened after the first attempt is live, including
+ * when the first never started (events since the caller's snapshot may be missed).
+ */
+function resilientSubscription(
+  deps: StatusCollectorDeps,
+  subscriptions: Parameters<typeof subscribeEvents>[0],
+  onEvent: (frame: EventFrame) => void,
+  onRestart: () => void,
+  isStopped: () => boolean,
+): { close: () => void } {
+  let subscription: Subscription | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let delay = deps.reconnectMinMs;
+  let attempted = false;
+
+  const open = (): void => {
+    retryTimer = null;
+    if (isStopped()) return;
+    const retry = attempted;
+    attempted = true;
+    subscription = deps.subscribe(subscriptions, {
+      onEvent,
+      onStarted: () => {
+        delay = deps.reconnectMinMs;
+        if (retry) onRestart();
+      },
+      onError: logSubscriptionError,
+      onClose: () => {
+        subscription = null;
+        if (isStopped()) return;
+        retryTimer = setTimeout(open, delay);
+        delay = Math.min(delay * 2, deps.reconnectMaxMs);
+      },
+    });
+  };
+  open();
+
+  return {
+    close() {
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = null;
+      const current = subscription;
+      subscription = null;
+      current?.close();
+    },
+  };
+}
+
+/** herdr unreachable is expected while it restarts; anything else is worth a line. */
+function logSubscriptionError(error: Error): void {
+  const code = error instanceof HerdrError ? error.code : "error";
+  if (code === "connect_failed" || code === "socket_error") return;
+  console.error(`herdr events: ${code}: ${error.message}`);
+}
+
+export function startStatusCollector(handlers: StatusCollectorHandlers, overrides: Partial<StatusCollectorDeps> = {}): StatusCollector {
+  const deps: StatusCollectorDeps = { ...DEFAULT_DEPS, ...overrides };
   let stopped = false;
   let statusSubscription: Subscription | null = null;
   let subscribedPaneIds = new Set<string>();
@@ -85,10 +179,17 @@ export function startStatusCollector(handlers: StatusCollectorHandlers): StatusC
   let reconcilePending = false;
   let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
   let backstopTimer: ReturnType<typeof setInterval> | null = null;
-  let lifecycleRetryTimer: ReturnType<typeof setTimeout> | null = null;
-  let lifecycleSubscription: Subscription | null = null;
-  let focusRetryTimer: ReturnType<typeof setTimeout> | null = null;
-  let focusSubscription: Subscription | null = null;
+  let lifecycleSubscription: { close: () => void } | null = null;
+  let focusSubscription: { close: () => void } | null = null;
+  /** status events were lost: the next snapshot after a new subscription starts resyncs */
+  let recovering = false;
+  /** each status subscription's number: a resync counts only for the one still open */
+  let statusGeneration = 0;
+  /** the subscription that started while recovering: the next reconcile's snapshot resyncs */
+  let resyncFor: number | null = null;
+  /** counts status events; each pane keeps the count of its latest */
+  let statusEvents = 0;
+  const lastEventOf = new Map<string, number>();
 
   const STRUCTURE_SUBSCRIPTIONS = [
     { type: "pane.created" },
@@ -105,23 +206,37 @@ export function startStatusCollector(handlers: StatusCollectorHandlers): StatusC
   function openStatusSubscription(paneIds: readonly string[]): void {
     if (stopped || paneIds.length === 0) return;
     subscribedPaneIds = new Set(paneIds);
-    statusSubscription = subscribeEvents(
+    const generation = ++statusGeneration;
+    const subscription = deps.subscribe(
       paneIds.map((paneId) => ({ type: "pane.agent_status_changed", pane_id: paneId })),
       {
         onEvent: (frame) => {
           const parsed = parseStatusFrame(frame);
-          if (parsed) handlers.onStatus(parsed.paneId, parsed.status, parsed.agent);
+          if (!parsed) return;
+          lastEventOf.set(parsed.paneId, ++statusEvents);
+          handlers.onStatus(parsed.paneId, parsed.status, parsed.agent);
         },
+        // herdr's contract: subscribe, wait until it started, then snapshot. The snapshot
+        // that chose these panes came before: one more closes the gap it leaves.
+        onStarted: () => {
+          if (statusSubscription !== subscription) return;
+          if (recovering) resyncFor = generation;
+          void reconcile();
+        },
+        onError: logSubscriptionError,
         // herdr answers a bad batch (e.g. a pane that vanished between snapshot and
-        // subscribe) with an error frame and closes the socket: the whole set must be
-        // re-subscribed from a fresh snapshot, now rather than after the debounce
+        // subscribe) with an error frame and closes the socket, and closes a subscriber
+        // that fell behind (`events_lost`): the whole set is re-subscribed from a fresh
+        // snapshot, now rather than after the debounce, and what was missed is resynced
         onClose: () => {
-          if (statusSubscription === null || stopped) return;
+          if (statusSubscription !== subscription || stopped) return;
           closeStatusSubscription();
+          recovering = true;
           void reconcile();
         },
       },
     );
+    statusSubscription = subscription;
   }
 
   async function reconcile(): Promise<void> {
@@ -133,23 +248,38 @@ export function startStatusCollector(handlers: StatusCollectorHandlers): StatusC
       return;
     }
     reconciling = true;
+    const resync = resyncFor;
+    resyncFor = null;
+    const askedAt = statusEvents;
     try {
-      const snapshot = await sessionSnapshot();
+      const snapshot = await deps.snapshot();
       if (stopped) return;
       handlers.onBaseline(snapshot.panes);
+      // a snapshot asked for a subscription that closed meanwhile may predate what the next
+      // one misses: recovery waits for that one's own snapshot
+      if (resync !== null && resync === statusGeneration && statusSubscription !== null) {
+        recovering = false;
+        const newer = new Set([...lastEventOf].filter(([, seq]) => seq > askedAt).map(([paneId]) => paneId));
+        handlers.onResync?.(snapshot.panes, newer);
+        // clients learn statuses from events, and some were lost: they fetch again
+        handlers.onStructureChange();
+      }
       const paneIds = snapshot.panes.map((pane) => pane.pane_id);
+      // gone before this snapshot; a pane heard of since may be too new for it
+      for (const [paneId, seq] of lastEventOf) if (seq <= askedAt && !paneIds.includes(paneId)) lastEventOf.delete(paneId);
       const sameSet =
         paneIds.length === subscribedPaneIds.size && paneIds.every((id) => subscribedPaneIds.has(id));
       if (sameSet) return;
       closeStatusSubscription();
       openStatusSubscription(paneIds);
     } catch {
+      if (resync !== null && resyncFor === null) resyncFor = resync;
       /* herdr unreachable or slow: retry shortly instead of waiting for the backstop */
       if (!stopped && reconcileTimer === null) {
         reconcileTimer = setTimeout(() => {
           reconcileTimer = null;
           void reconcile();
-        }, SNAPSHOT_RETRY_MS);
+        }, deps.snapshotRetryMs);
       }
     } finally {
       reconciling = false;
@@ -165,56 +295,53 @@ export function startStatusCollector(handlers: StatusCollectorHandlers): StatusC
     reconcileTimer = setTimeout(() => {
       reconcileTimer = null;
       void reconcile();
-    }, RECONCILE_DEBOUNCE_MS);
+    }, deps.debounceMs);
   }
 
-  function startLifecycle(): void {
-    if (stopped) return;
-    lifecycleSubscription = subscribeEvents([...STRUCTURE_SUBSCRIPTIONS], {
-      onEvent: (frame) => {
-        const parsed = parseStructureFrame(frame);
-        if (!parsed) return;
-        if (parsed.kind === "pane-ended") handlers.onPaneEnded(parsed.paneId);
-        else {
-          handlers.onStructureChange();
-          scheduleReconcile();
-        }
-      },
-      onClose: () => {
-        if (stopped) return;
-        lifecycleRetryTimer = setTimeout(startLifecycle, RECONNECT_DELAY_MS);
-      },
-    });
-  }
+  lifecycleSubscription = resilientSubscription(
+    deps,
+    [...STRUCTURE_SUBSCRIPTIONS],
+    (frame) => {
+      const parsed = parseStructureFrame(frame);
+      if (!parsed) return;
+      if (parsed.kind === "pane-ended") handlers.onPaneEnded(parsed.paneId);
+      else {
+        handlers.onStructureChange();
+        scheduleReconcile();
+      }
+    },
+    // panes created or closed meanwhile were not heard of: learn them from a snapshot
+    () => {
+      handlers.onStructureChange();
+      void reconcile();
+    },
+    () => stopped,
+  );
 
-  /** Its own connection: a focus type an older herdr refuses must not cost pane exits. */
-  function startFocus(): void {
-    const onFocus = handlers.onFocus;
-    if (stopped || onFocus === undefined) return;
-    focusSubscription = subscribeEvents([{ type: "pane.focused" }], {
-      onEvent: (frame) => {
+  // Its own connection: a focus type an older herdr refuses must not cost pane exits.
+  const onFocus = handlers.onFocus;
+  if (onFocus !== undefined) {
+    focusSubscription = resilientSubscription(
+      deps,
+      [{ type: "pane.focused" }],
+      (frame) => {
         const paneId = parseFocusFrame(frame);
         if (paneId !== null) onFocus(paneId);
       },
-      onClose: () => {
-        if (stopped) return;
-        focusRetryTimer = setTimeout(startFocus, RECONNECT_DELAY_MS);
-      },
-    });
+      // a focus change missed meanwhile is gone for good: the next one is heard again
+      () => {},
+      () => stopped,
+    );
   }
 
-  startLifecycle();
-  startFocus();
   void reconcile();
-  backstopTimer = setInterval(() => void reconcile(), BACKSTOP_INTERVAL_MS);
+  backstopTimer = setInterval(() => void reconcile(), deps.backstopMs);
 
   return {
     stop() {
       stopped = true;
       if (reconcileTimer !== null) clearTimeout(reconcileTimer);
       if (backstopTimer !== null) clearInterval(backstopTimer);
-      if (lifecycleRetryTimer !== null) clearTimeout(lifecycleRetryTimer);
-      if (focusRetryTimer !== null) clearTimeout(focusRetryTimer);
       lifecycleSubscription?.close();
       focusSubscription?.close();
       closeStatusSubscription();

@@ -22,8 +22,9 @@ AI review is advisory; CI and maintainer review determine whether a PR can merge
   that passed CI; never create the release tag as a prerequisite for validation.
 - External contributors' PRs get the same priority and the same bar as maintainers'
   own: review them when they arrive and consider them for the next release. Approve
-  their CI runs after checking that the diff leaves `.github/` alone and adds no
-  `pull_request_target` trigger.
+  their CI runs only after reading everything CI executes: workflows, scripts, tests,
+  `package.json` scripts and dependency changes. Workflows must keep read-only PR
+  permissions and never add a `pull_request_target` trigger.
 
-Additional local AGENTS.md instructions may exist in a developer checkout. The rules
-above are committed so remote reviewers receive the essential project constraints.
+[CONTRIBUTING.md](../CONTRIBUTING.md) is the process contributors follow. Maintainers may
+keep local AGENTS.md notes, but a PR is held only to rules committed in this repository.

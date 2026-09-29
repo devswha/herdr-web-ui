@@ -107,7 +107,7 @@ Thanks to everyone who has contributed, including [@Yoonwoo-Ha](https://github.c
 
 ## agent instructions
 
-Helping someone install the app? Follow [INSTALL.md](INSTALL.md). For repository changes, follow the local `AGENTS.md` instructions when present and the committed [review rules](.github/REVIEW.md).
+Helping someone install the app? Follow [INSTALL.md](INSTALL.md). For repository changes, follow [CONTRIBUTING.md](CONTRIBUTING.md) and the committed [review rules](.github/REVIEW.md), plus the local `AGENTS.md` instructions when present.
 
 ## development
 
@@ -127,7 +127,7 @@ bun test           # isolated herdr test session
 bun run test:ui    # browser regression checks
 ```
 
-See [development](docs/development.md) for tests, media and releases, and [DESIGN.md](DESIGN.md) for UI conventions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to send a change, [development](docs/development.md) for tests, media and releases, and [DESIGN.md](DESIGN.md) for UI conventions. Report security problems privately: [SECURITY.md](SECURITY.md).
 
 ## license
 

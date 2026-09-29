@@ -106,3 +106,26 @@ describe("labels and owner", () => {
     expect(parseTailscaleOwner("nope")).toBeNull();
   });
 });
+
+it("reports failed registry writes without committing a pair, rename or revocation in memory", () => {
+  const root = mkdtempSync(join(dir, "write-failure-"));
+  const store = new DeviceStore(root);
+  const first = store.pair(store.startPairing().code, "Original", "drive")!;
+  let closed = false;
+  store.onRevoke(first.device.id, () => { closed = true; });
+  const blocked = join(root, `devices.json.${process.pid}.tmp`);
+  mkdirSync(blocked);
+  const code = store.startPairing().code;
+  expect(() => store.pair(code, "Failed pair", "drive")).toThrow();
+  expect(() => store.update(first.device.id, { label: "Failed rename" })).toThrow();
+  expect(() => store.revoke(first.device.id)).toThrow();
+  expect(closed).toBe(false);
+  expect(store.list(null).map((d) => d.label)).toEqual(["Original"]);
+  expect(store.match(first.token)?.label).toBe("Original");
+  expect(new DeviceStore(root).match(first.token)?.label).toBe("Original");
+  rmSync(blocked, { recursive: true });
+  expect(store.pair(code, "Retry", "drive")).not.toBeNull();
+  expect(store.revoke(first.device.id)).toBe(true);
+  expect(closed).toBe(true);
+  expect(new DeviceStore(root).match(first.token)).toBeNull();
+});

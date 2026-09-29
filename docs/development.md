@@ -17,6 +17,7 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 ```bash
 bun run typecheck
 bun run build
+bun run test:unit               # no herdr needed; CI's Fast checks run it
 bun test                        # needs herdr installed; creates and removes its own workspaces
 bun run test:ui                 # browser regression against isolated test servers
 bun scripts/chat-browser-qa.ts  # chat lens end to end
@@ -131,6 +132,8 @@ Remote-PC runtime bundles are released separately: raise `REMOTE_BUNDLE_VERSION`
 
 ## Pull requests and CI
 
+Contributors: [CONTRIBUTING.md](../CONTRIBUTING.md) is the short version of this section.
+
 Use short-lived `feat/*`, `fix/*` or `chore/*` branches from `main`. Keep each PR focused
 on one change, squash merge it after required checks pass, and delete its remote branch
 after merging. Remove local branches/worktrees only when their work is finished.
@@ -140,7 +143,7 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
 
 - **Fast checks**: frozen dependency install, generated type freshness, typecheck, build,
   and `bun run test:unit`. This suite does not start herdr.
-- **Integration and browser**: checksum-pinned herdr 0.9.1, Node 22, isolated state/session,
+- **Integration and browser**: checksum-pinned herdr 0.9.3, Node 22, isolated state/session,
   `bun run test:integration`, and `scripts/ui-regression.ts` with the lockfile's Chromium.
   Missing herdr fails the integration suite. The owned session is stopped even on failure.
   Integration tests have a 15-second default timeout so their bounded process-startup
