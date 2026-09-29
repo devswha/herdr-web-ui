@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
@@ -64,6 +64,13 @@ async function connect(paneId: string, ack = true, observer = false, port = serv
   send({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" });
   await until(() => state.frames > 0, "initial terminal paint");
   return { ws, state, send, acknowledge };
+}
+
+/** Bun.spawn throws synchronously for the pty sidecar while `node` is not on PATH. */
+function breakPath(): () => void {
+  const previous = process.env["PATH"];
+  process.env["PATH"] = "/nonexistent";
+  return () => { process.env["PATH"] = previous; };
 }
 
 async function flood(paneId: string): Promise<void> {
@@ -137,6 +144,35 @@ describe("real terminal output flow control", () => {
   }, 30_000);
 });
 
+describe("a terminal attach that cannot spawn (#154)", () => {
+  it("reports the failure and leaves the pane attachable, never a record without a pty", async () => {
+    const paneId = await pane();
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    sockets.push(ws);
+    const errors: string[] = [];
+    ws.addEventListener("message", (event) => {
+      const frame = JSON.parse(String(event.data)) as ServerMessage;
+      if (frame.type === "error") errors.push(frame.code);
+    });
+    await until(() => ws.readyState === WebSocket.OPEN, "socket open");
+    const restore = breakPath();
+    try {
+      ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" } satisfies ClientMessage));
+      await until(() => errors.includes("command_failed"), "the failed spawn is reported");
+    } finally { restore(); }
+    // the next attach spawns its own pty instead of joining a dead record
+    const second = await connect(paneId);
+    second.ws.close();
+    await until(() => second.state.code !== 0, "second client closed");
+    // closing it tore the attachment down cleanly: the server still attaches the pane
+    const third = await connect(paneId);
+    try {
+      expect(third.state.errors).toEqual([]);
+      expect(third.state.exits).toBe(0);
+    } finally { third.ws.close(); ws.close(); }
+  }, 30_000);
+});
+
 describe("an attach herdr refuses over a read in progress", () => {
   /**
    * A herdr that refuses the first `refusals` attaches as herdr 0.9 refuses one racing a
@@ -156,7 +192,7 @@ describe("an attach herdr refuses over a read in progress", () => {
       "",
     ].join("\n"));
     chmodSync(path, 0o755);
-    return { path, attempts: () => Number(readFileSync(count, "utf8").trim() || 0) };
+    return { path, attempts: () => existsSync(count) ? Number(readFileSync(count, "utf8").trim() || 0) : 0 };
   }
 
   async function withHerdr<T>(path: string, run: () => Promise<T>): Promise<T> {
@@ -184,6 +220,39 @@ describe("an attach herdr refuses over a read in progress", () => {
         expect(client.state.errors).toEqual([]);
         // a refused attach's setup, teardown and message never reached the terminal
         expect(client.state.tail).not.toContain("read in progress");
+      } finally { client.ws.close(); }
+    });
+  }, 30_000);
+
+  it("ends the terminal, not the server, when a retried attach cannot spawn", async () => {
+    const paneId = await pane();
+    const herdr = refusingHerdr(1);
+    await withHerdr(herdr.path, async () => {
+      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+      sockets.push(ws);
+      const errors: string[] = [];
+      let exits = 0;
+      ws.addEventListener("message", (event) => {
+        const frame = JSON.parse(String(event.data)) as ServerMessage;
+        if (frame.type === "error") errors.push(frame.code);
+        if (frame.type === "pty-exit" && frame.pane_id === paneId) exits++;
+      });
+      await until(() => ws.readyState === WebSocket.OPEN, "socket open");
+      ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30 } satisfies ClientMessage));
+      // the refusal is running: the retry that follows its exit spawns without node
+      await until(() => herdr.attempts() === 1, "the refused attach started");
+      const restore = breakPath();
+      try {
+        await until(() => exits === 1, "pty-exit for the retry that failed to spawn");
+      } finally { restore(); }
+      expect(errors).toEqual(["command_failed"]);
+      expect(herdr.attempts()).toBe(1);
+      ws.close();
+      // the server survived and the pane attaches again for real
+      const client = await connect(paneId);
+      try {
+        expect(client.state.errors).toEqual([]);
+        expect(herdr.attempts()).toBe(2);
       } finally { client.ws.close(); }
     });
   }, 30_000);

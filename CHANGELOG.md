@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- A terminal attach whose helper process could not start (for example, `node` missing from
+  PATH) no longer leaves the pane half-open. The pane stayed blank for the next device, and
+  closing that device crashed the server. The attach now reports the error, the failure is
+  written to the server log, and the pane can be opened again (#154).
+
 ## [0.3.31] - 2026-09-29
 
 ### Added

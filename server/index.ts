@@ -480,7 +480,17 @@ export function createServer(
             held = null;
             retries += 1;
             setTimeout(() => {
-              if (attachments.get(paneId) === attachment) attachment.pty = start();
+              if (attachments.get(paneId) !== attachment) return;
+              try {
+                attachment.pty = start();
+              } catch (error) {
+                // a throw here is uncaught and takes the whole server down: end this
+                // pane's terminal instead, on the exited pty the record still holds
+                const message = spawnFailure(paneId, error);
+                broadcast(paneId, { type: "error", code: "command_failed", message });
+                broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
+                closeAttachment(paneId);
+              }
             }, Math.min(ATTACH_RETRY_MS * 2 ** (retries - 1), ATTACH_RETRY_MAX_MS));
             return;
           }
@@ -491,9 +501,25 @@ export function createServer(
         },
       });
     };
-    attachment.pty = start();
+    try {
+      attachment.pty = start();
+    } catch (error) {
+      // Bun.spawn throws synchronously (node missing from PATH, fd or process limits): the
+      // placeholder must go with it, or the next attach joins a record with no pty and
+      // its close dereferences one (#154). The waiting attaches get the error in-band.
+      attachments.delete(paneId);
+      spawnFailure(paneId, error);
+      throw error;
+    }
 
     return attachment;
+  }
+
+  /** The attaching client sees the error in-band; the log is the only record the operator gets. */
+  function spawnFailure(paneId: string, error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`terminal attach for pane ${paneId} failed to start: ${message}`);
+    return message;
   }
 
   function detach(paneId: string, client: Client): void {
