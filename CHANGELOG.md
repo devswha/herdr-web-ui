@@ -15,6 +15,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   counts the picks, and the custom-answer field is labelled.
 - Enter while an IME is composing in the prompt card's custom answer no longer sends the
   half-composed text.
+- An image attached after typed text gets its own `@path` token: a space goes in front
+  of the mention when the text before the caret does not end in whitespace, so the
+  chat shows its thumbnail and the agent reads the path.
 
 ## [0.3.29] - 2026-09-28
 
