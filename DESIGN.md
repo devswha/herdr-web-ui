@@ -282,7 +282,10 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp
   or codex question, approval or plan menu.
 - Single options submit immediately; multi-select exposes checks plus Submit; supported custom input
-  has its own field. The prompt content hash rejects a stale answer with `prompt_changed`.
+  has its own labelled field. The prompt content hash rejects a stale answer with `prompt_changed`.
+- Options are full-width rows (`.prompt-card-option`): the menu's number in mono, the label, its
+  description under it in `--text-dim`. No option is filled as a default; a checked or typed pick
+  gets `--accent-tint` + an `--accent` border. A `(Recommended)` suffix renders as a tag.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Send } from "lucide-react";
 
 import "./PromptCard.css";
@@ -67,13 +67,22 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     });
   };
 
+  const customLabelId = useId();
+  // Claude renders the menu's own pick as "Redis (Recommended)": a tag reads better than the suffix
+  const labelOf = (label: string): { text: string; recommended: boolean } => {
+    const text = label.replace(/\s*\(recommended\)$/i, "");
+    return { text, recommended: text !== label };
+  };
+  const hasChoices = prompt.options.some((_, index) => index !== prompt.custom_option_index);
+
   return (
     <section className="prompt-card" role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
       <header className="prompt-card-header">
         <span className="badge badge-blocked">{t("input needed")}</span>
         <h2>{prompt.title}</h2>
       </header>
-      <p className="prompt-card-question">{prompt.question}</p>
+      {/* a Claude approval's heading is its question too: said once */}
+      {prompt.question !== prompt.title && <p className="prompt-card-question">{prompt.question}</p>}
       {prompt.queued && (
         <p className="prompt-card-hint">
           {prompt.queued === "open"
@@ -82,37 +91,51 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
         </p>
       )}
       {prompt.body !== null && prompt.body.length > 0 && <pre className="prompt-card-body">{prompt.body}</pre>}
-      <div className="prompt-card-options">
-        {prompt.options.map((option, index) => {
-          if (index === prompt.custom_option_index) return null;
-          if (prompt.multi_select) {
-            return (
-              <label className="prompt-card-check" key={index}>
-                <input type="checkbox" checked={selected.has(index)} disabled={pending} onChange={() => toggle(index)} />
-                <span><strong><span className="prompt-card-number">{index + 1}.</span> {option.label}</strong>{option.description !== null && <small>{option.description}</small>}</span>
-              </label>
+      {hasChoices && (
+        <div className="prompt-card-options" role={prompt.multi_select ? "group" : undefined} aria-label={prompt.multi_select ? prompt.question : undefined}>
+          {prompt.options.map((option, index) => {
+            if (index === prompt.custom_option_index) return null;
+            const { text, recommended } = labelOf(option.label);
+            const content = (
+              <span className="prompt-card-option-text">
+                <span className="prompt-card-option-label">{text}{recommended && <> <span className="prompt-card-tag">{t("Recommended")}</span></>}</span>
+                {option.description !== null && <span className="prompt-card-option-description">{option.description}</span>}
+              </span>
             );
-          }
-          return (
-            <button key={index} type="button" className={`${index === 0 ? "btn btn-primary" : "btn"}${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => void answer({ option_index: index })}>
-              <span><span className="prompt-card-number">{index + 1}.</span> {option.label}</span>{option.description !== null && <small>{option.description}</small>}
-            </button>
-          );
-        })}
-      </div>
+            if (prompt.multi_select) {
+              const checked = selected.has(index);
+              return (
+                <label className={`prompt-card-option${checked ? " is-checked" : ""}`} key={index}>
+                  <input type="checkbox" checked={checked} disabled={pending} onChange={() => toggle(index)} />
+                  <span className="prompt-card-number">{index + 1}.</span> {content}
+                </label>
+              );
+            }
+            return (
+              <button key={index} type="button" className={`prompt-card-option${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => void answer({ option_index: index })}>
+                <span className="prompt-card-number">{index + 1}.</span> {content}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {prompt.multi_select && (
-        <button type="button" className="btn btn-primary prompt-card-submit" disabled={pending || selected.size === 0} onClick={() => void answer({ option_indices: [...selected].sort((a, b) => a - b) })}>
-          {t("Submit")}
+        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || selected.size === 0} onClick={() => void answer({ option_indices: [...selected].sort((a, b) => a - b) })}>
+          {selected.size > 0 ? t("Submit ({n})", { n: selected.size }) : t("Submit")}
         </button>
       )}
       {prompt.custom_option_index !== null && (
         <div className="prompt-card-custom">
-          <input className="input" value={custom} disabled={pending} placeholder={prompt.options[prompt.custom_option_index]?.label ?? t("Type an answer")} aria-label={t("Custom answer")} onChange={(event) => setCustom(event.currentTarget.value)} onKeyDown={(event) => {
-            if (event.key === "Enter" && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
-          }} />
-          <button type="button" className="btn btn-primary" disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
-            <Send aria-hidden="true" /> {t("Send")}
-          </button>
+          {hasChoices && <span className="prompt-card-custom-label" id={customLabelId}>{t("Or type your own answer")}</span>}
+          <div className="prompt-card-custom-row">
+            <input className="input" value={custom} disabled={pending} placeholder={prompt.options[prompt.custom_option_index]?.label ?? t("Type an answer")} aria-label={hasChoices ? undefined : t("Custom answer")} aria-labelledby={hasChoices ? customLabelId : undefined} onChange={(event) => setCustom(event.currentTarget.value)} onKeyDown={(event) => {
+              // an IME's Enter commits the candidate; WebKit can send it after compositionend, as key code 229
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
+            }} />
+            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
+              <Send aria-hidden="true" /> {t("Send")}
+            </button>
+          </div>
         </div>
       )}
       {typedAnswer?.option_index !== undefined && (
