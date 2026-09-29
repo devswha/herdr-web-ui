@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.32] - 2026-09-29
+
 ### Added
 - The desktop terminal selects with a plain drag and copies on release, like the herdr
   TUI; Ctrl+C copies a selection instead of interrupting the pane.
