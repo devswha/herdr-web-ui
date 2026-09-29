@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.30] - 2026-09-29
+
+### Added
+- A Japanese README (`README.ja.md`), linked from the English and Simplified Chinese
+  READMEs' language selectors.
+
 ### Fixed
 - Prompt cards list each option on its own full-width row, number, label and description
   aligned, instead of wrapping buttons of uneven width. The first option is no longer filled
@@ -638,7 +644,10 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.27...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.30...HEAD
+[0.3.30]: https://github.com/devswha/herdr-web-ui/compare/v0.3.29...v0.3.30
+[0.3.29]: https://github.com/devswha/herdr-web-ui/compare/v0.3.28...v0.3.29
+[0.3.28]: https://github.com/devswha/herdr-web-ui/compare/v0.3.27...v0.3.28
 [0.3.27]: https://github.com/devswha/herdr-web-ui/compare/v0.3.26...v0.3.27
 [0.3.26]: https://github.com/devswha/herdr-web-ui/compare/v0.3.25...v0.3.26
 [0.3.25]: https://github.com/devswha/herdr-web-ui/compare/v0.3.24...v0.3.25
