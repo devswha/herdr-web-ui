@@ -164,6 +164,29 @@ describe("providers", () => {
     });
   });
 
+  it("tries the GitHub CLI's token when an old editor sign-in is refused", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_stale", user: "me" } });
+    commands.set("gh auth token --hostname github.com", "gho_live");
+    const url = "https://api.github.com/copilot_internal/user";
+    const service = new UsageService({ ...context(), async fetch(target, init) {
+      requests.push({ url: target, init });
+      const live = (init.headers as Record<string, string>)["authorization"] === "token gho_live";
+      return new Response(JSON.stringify(live ? { copilot_plan: "individual", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 90 } } } : {}), { status: live ? 200 : 401 });
+    } }, only("copilot"));
+    const [usage] = (await service.report()).providers;
+    expect(requests.map((request) => (request.init.headers as Record<string, string>)["authorization"])).toEqual(["token gho_stale", "token gho_live"]);
+    expect(requests.every((request) => request.url === url)).toBe(true);
+    expect(usage).toMatchObject({ problem: null, windows: [{ kind: "month", scope: "Chat", used_percent: 10 }] });
+  });
+
+  it("says expired when every Copilot token is refused", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_stale" } });
+    replies.set("https://api.github.com/copilot_internal/user", { status: 401 });
+    const [usage] = (await new UsageService(context(), only("copilot")).report()).providers;
+    expect(usage!.problem).toBe("expired");
+    expect(requests).toHaveLength(1);
+  });
+
   it("leaves a GitHub account without Copilot out of the report", async () => {
     commands.set("gh auth token --hostname github.com", "gho_x");
     replies.set("https://api.github.com/copilot_internal/user", { status: 404 });

@@ -50,6 +50,8 @@ interface SignIn {
   expiresAt: number | null;
   plan?: string | null;
   account?: string | null;
+  /** further tokens of the same account, tried in order when the service refuses the one before */
+  fallbacks?: string[];
 }
 
 interface Reading {
@@ -310,24 +312,32 @@ const copilot: UsageProvider = {
   id: "copilot",
   async signIn(ctx) {
     const dir = join(ctx.env["XDG_CONFIG_HOME"] || join(ctx.home, ".config"), "github-copilot");
-    const token = copilotFileToken(readText(join(dir, "apps.json"))) ?? copilotFileToken(readText(join(dir, "hosts.json")))
-      ?? text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com"]));
-    return token ? { token, expiresAt: null } : null;
+    // an editor sign-in can outlive its token by years: the GitHub CLI's is the next to try
+    const tokens = [...new Set([
+      copilotFileToken(readText(join(dir, "apps.json"))), copilotFileToken(readText(join(dir, "hosts.json"))),
+      text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com"])),
+    ].filter((token): token is string => token !== null))];
+    return tokens.length ? { token: tokens[0]!, expiresAt: null, fallbacks: tokens.slice(1) } : null;
   },
   async read(ctx, signIn) {
-    let body: Json;
-    try {
-      body = await requestJson(ctx, "https://api.github.com/copilot_internal/user", {
-        headers: {
-          authorization: `token ${signIn.token}`, accept: "application/json", "user-agent": "GitHubCopilotChat/0.26.7",
-          "editor-version": "vscode/1.96.2", "editor-plugin-version": "copilot-chat/0.26.7", "x-github-api-version": "2025-04-01",
-        },
-      });
-    } catch (error) {
-      // a GitHub account without Copilot
-      if (error instanceof UsageHttpError && error.status === 404) return null;
-      throw error;
+    let body: Json | null = null;
+    for (const token of [signIn.token, ...signIn.fallbacks ?? []]) {
+      try {
+        body = await requestJson(ctx, "https://api.github.com/copilot_internal/user", {
+          headers: {
+            authorization: `token ${token}`, accept: "application/json", "user-agent": "GitHubCopilotChat/0.26.7",
+            "editor-version": "vscode/1.96.2", "editor-plugin-version": "copilot-chat/0.26.7", "x-github-api-version": "2025-04-01",
+          },
+        });
+        break;
+      } catch (error) {
+        // a GitHub account without Copilot
+        if (error instanceof UsageHttpError && error.status === 404) return null;
+        const refused = error instanceof UsageHttpError && (error.status === 401 || error.status === 403);
+        if (!refused || token === (signIn.fallbacks?.at(-1) ?? signIn.token)) throw error;
+      }
     }
+    if (body === null) return null;
     const resetsAt = isoTime(body["quota_reset_date"]);
     const snapshots = record(body["quota_snapshots"]);
     const windows = [
