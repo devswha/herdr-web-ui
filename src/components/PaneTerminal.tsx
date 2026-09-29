@@ -491,7 +491,9 @@ export function PaneTerminal({
       } else {
         // Native copy already captured the visible text; the full text stays
         // available for the next explicit Copy where delayed items are unsupported.
-        void text.catch(() => {});
+        void text.then(() => {
+          if (current() && d.scrolled) noteClipboard("copied the visible part; Copy or Ctrl+C copies the whole selection");
+        }, () => {});
       }
     };
     host.addEventListener("mousedown", onMouseDown, { capture: true });
