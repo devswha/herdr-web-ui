@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- The chat finds an omo pane's conversation again with current omo, which no longer keeps
+  its session file open. It now reads the session omo records as held by the pane's
+  process, so the chat works with several omo panes in one folder, on macOS, and after
+  `--continue`, `--resume` or `/new`.
+
 ## [0.3.32] - 2026-09-29
 
 ### Added
