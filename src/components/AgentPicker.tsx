@@ -140,8 +140,8 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
               key={option.kind || "shell"}
               className="menu-item"
               role="option"
-              aria-selected={index === active}
-              aria-checked={index === selectedIndex}
+              aria-selected={index === selectedIndex}
+              data-active={index === active || undefined}
               onPointerEnter={() => setActive(index)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => choose(index)}

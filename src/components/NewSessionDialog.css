@@ -96,7 +96,19 @@
   overflow-y: auto;
 }
 
-.agent-picker-menu .menu-item[aria-checked="true"] .menu-item-main {
+/* aria-selected is the chosen agent (bold); the keyboard/pointer row is data-active and carries
+   the highlight, which the shared menu gives aria-selected elsewhere */
+.agent-picker-menu .menu-item[aria-selected="true"] {
+  background: transparent;
+  color: var(--text);
+}
+
+.agent-picker-menu .menu-item[data-active] {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.agent-picker-menu .menu-item[aria-selected="true"] .menu-item-main {
   font-weight: 600;
 }
 
