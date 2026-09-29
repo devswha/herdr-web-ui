@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import { ensurePushSubscription, removePushSubscription } from "./push.ts";
+import { ensurePushSubscription, removePushSubscription, testDevicePush } from "./push.ts";
+import { ApiError } from "./api.ts";
 
 /**
  * The device-side subscription flow against a stand-in browser whose PushManager, like
@@ -108,6 +109,54 @@ describe("ensurePushSubscription", () => {
     expect(await ensurePushSubscription()).toBeNull();
     expect(issued).toBe(0);
     expect(registered).toEqual([]);
+  });
+});
+
+describe("testDevicePush", () => {
+  it("tests only this browser's current endpoint without registering it again", async () => {
+    live = standIn("https://push.example/existing", OTHER_KEY);
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    expect(await testDevicePush()).toBe("sent");
+    expect(calls.length).toBe(1);
+    expect(calls[0]![0]).toBe("/api/push/test");
+    expect(calls[0]![1]?.method).toBe("POST");
+    expect(JSON.parse(String(calls[0]![1]?.body))).toEqual({ endpoint: live.endpoint });
+    expect(issued).toBe(0);
+    expect(registered).toEqual([]);
+  });
+
+  it("reports a missing browser subscription without creating a replacement", async () => {
+    expect(await testDevicePush()).toBe("missing");
+    expect(issued).toBe(0);
+    expect(registered).toEqual([]);
+  });
+
+  it.each([[404, "subscription_not_found"], [502, "push_failed"]] as const)("preserves the server's %s %s result", async (status, code) => {
+    live = standIn("https://push.example/stale", OTHER_KEY);
+    globalThis.fetch = (async (_url: string) => Response.json({ error: { code, message: code } }, { status })) as typeof fetch;
+    try {
+      await testDevicePush();
+      throw new Error("expected the test to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe(code);
+    }
+    expect(issued).toBe(0);
+  });
+
+  it("does not ask for permission or send a push after permission is revoked", async () => {
+    Object.assign(globalThis, { Notification: { permission: "denied" } });
+    expect(await testDevicePush()).toBe("permission");
+    expect(issued).toBe(0);
+  });
+
+  it("handles a browser without push support", async () => {
+    delete (globalThis.navigator as { serviceWorker?: unknown }).serviceWorker;
+    expect(await testDevicePush()).toBe("unsupported");
   });
 });
 

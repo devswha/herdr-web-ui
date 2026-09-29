@@ -15,6 +15,7 @@ import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
 import type { HealthAuth, RemoteAccess } from "../../shared/protocol.ts";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
+import { PushTestControls } from "./PushTestControls.tsx";
 import { UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
@@ -24,6 +25,7 @@ export interface SettingsDialogProps {
   updates: UpdatesModel;
   /** how this browser got in, from the last health check */
   auth: HealthAuth | null;
+  onEnableNotifications: () => Promise<boolean>;
 }
 
 function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
@@ -34,7 +36,7 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
   );
 }
 
-export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, updates, auth, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   const t = useT();
   const installPrompt = useInstallPrompt();
@@ -153,6 +155,7 @@ export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogP
           <section className="settings-section">
             <h3>{t("Alerts")}</h3>
             <p className="settings-description">{t("For this device. An alert waits a little first, and none comes when the pane changes meanwhile, as when you answer at the PC.")}</p>
+            <PushTestControls onEnable={onEnableNotifications} />
             <div className="settings-row">
               <div><span className="settings-label">{t("Needs input")}</span><span className="settings-description">{t("An agent waits for an answer or a permission")}</span></div>
               <Toggle label={t("Needs input")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
@@ -211,6 +214,10 @@ export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogP
 
           <section className="settings-section">
             <h3>{t("Phone")}</h3>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Keep screen on")}</span><span className="settings-description">{t("While a terminal or chat pane is open. Requires HTTPS or localhost and a supported browser.")}</span></div>
+              <Toggle label={t("Keep screen on")} checked={settings.keepScreenOn} onChange={(keepScreenOn) => update({ keepScreenOn })} />
+            </div>
             <PhonePanel plan={plan} loading={access === undefined} onRefresh={loadAccess} />
           </section>
 

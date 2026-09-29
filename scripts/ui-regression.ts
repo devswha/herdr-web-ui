@@ -8,6 +8,8 @@ import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 import type { WorkspaceCreated } from "../shared/protocol.ts";
+import { checkPushSettings } from "./push-settings-regression.ts";
+import { checkWakeLock } from "./wake-lock-regression.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-"));
 const workspaces: string[] = [];
@@ -156,6 +158,9 @@ try {
   await bell.click();
   await until(async () => await bell.getAttribute("aria-pressed") === "true", "bell on again");
   console.log("PASS the bell turns alerts off and on again");
+
+  await checkPushSettings(browser, origin);
+  await checkWakeLock(browser, origin, paneA);
 
   const report = (state: string) => herdrRpc("pane.report_agent", {
     pane_id: paneA, source: "manual", agent: "claude", state,

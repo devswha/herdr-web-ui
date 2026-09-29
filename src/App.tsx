@@ -38,6 +38,7 @@ import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useFileViewer } from "./lib/useFileViewer.ts";
 import { useT } from "./lib/i18n.ts";
+import { useScreenWakeLock } from "./lib/wakeLock.ts";
 
 const APP_TITLE = "herdr web ui";
 const POLL_MS = 5000;
@@ -304,15 +305,17 @@ export function App() {
   const enableNotifications = useCallback(async () => {
     const next = notificationState() === "granted" ? "granted" : await requestNotificationPermission();
     setNotifications(next);
-    if (next !== "granted") return;
+    if (next !== "granted") return false;
     updateSettings({ alertsOn: true });
     try {
       const endpoint = await ensurePushSubscription(alertsRef.current);
       setPushOn(endpoint !== null);
       // the confirmation push proves the whole path (server -> push service -> this device)
       if (endpoint) await sendTestPush(endpoint);
+      return endpoint !== null;
     } catch (err) {
       console.warn("web push unavailable, alerts stay tab-only", err);
+      return false;
     }
   }, [updateSettings]);
 
@@ -430,6 +433,7 @@ export function App() {
   }, []);
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
+  useScreenWakeLock(settings.keepScreenOn && locked === false && selectedPane !== null);
   const selectedWorkspace = selectedPane
     ? (snapshot?.workspaces.find((workspace) => workspace.workspace_id === selectedPane.workspace_id) ?? null)
     : null;
@@ -456,7 +460,7 @@ export function App() {
     [selectedPaneId, selectedMachineId],
   );
 
-  const bell: { label: string; title: string; on: boolean; run: () => Promise<void> } =
+  const bell: { label: string; title: string; on: boolean; run: () => Promise<unknown> } =
     notifications !== "granted"
       ? { label: t("Enable notifications"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
       : !alertsOn
@@ -681,7 +685,7 @@ export function App() {
         }}
       /></MachineContext.Provider>
       {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={() => setMachineDialog(null)} onConnected={(id) => { setMachineDialog(null); selectTarget(id, null); void load(); }} />}
-      <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} updates={updates} />
+      <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} />
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}

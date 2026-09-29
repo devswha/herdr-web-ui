@@ -169,10 +169,16 @@ Only devices in your tailnet can open that address, and only yours get in withou
 2. Install the app: in Safari, choose **Share → Add to Home Screen**; in Chrome, choose **Install app**.
 3. Tap the bell to turn on alerts for that device. iPhone needs iOS 16.4+ and the home-screen app.
 
+To check alerts later, choose **Settings → Alerts → Send test**. The result tells you
+whether the test was sent or failed; a missing subscription offers **Turn alerts on again**.
+
 On a phone:
 - Agent panes open in the chat.
 - The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, arrows, Ctrl+C).
 - Dragging the terminal scrolls the real herdr pane.
+- **Settings → Phone → Keep screen on** keeps the screen awake while a terminal or chat
+  pane is open. It is off by default, releases when the app is hidden, and resumes when
+  you return. It needs HTTPS or localhost and browser support; power-saving mode may refuse it.
 
 A plain HTTP LAN address also works in the browser, but it can't install the app or receive push.
 

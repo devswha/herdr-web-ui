@@ -1,5 +1,5 @@
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import { fetchPushKey, registerPushSubscription, unregisterPushSubscription } from "./api.ts";
+import { fetchPushKey, registerPushSubscription, sendTestPush, unregisterPushSubscription } from "./api.ts";
 
 /**
  * This device's web push subscription: pane alerts that arrive with the app closed.
@@ -14,6 +14,17 @@ const WORKER_READY_TIMEOUT_MS = 10_000;
 
 export function pushSupported(): boolean {
   return typeof navigator !== "undefined" && "serviceWorker" in navigator && typeof globalThis.PushManager !== "undefined";
+}
+
+/** Test the existing subscription without repairing it first, so stale registrations stay visible. */
+export async function testDevicePush(): Promise<"sent" | "unsupported" | "permission" | "missing"> {
+  if (!pushSupported()) return "unsupported";
+  if (globalThis.Notification?.permission !== "granted") return "permission";
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return "missing";
+  await sendTestPush(subscription.endpoint);
+  return "sent";
 }
 
 function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {

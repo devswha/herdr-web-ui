@@ -2,6 +2,13 @@ import { describe, expect, it } from "bun:test";
 
 import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings } from "./settings.ts";
 
+it("keeps the screen wake lock off until this device explicitly enables it", () => {
+  expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
+  expect(sanitizeSettings({}).keepScreenOn).toBe(false);
+  expect(sanitizeSettings({ keepScreenOn: true }).keepScreenOn).toBe(true);
+  expect(sanitizeSettings({ keepScreenOn: "true" }).keepScreenOn).toBe(false);
+});
+
 describe("chat font size", () => {
   it("follows the density until one is chosen, and keeps a chosen one within bounds", () => {
     expect(chatFontSize(DEFAULT_SETTINGS)).toBe(14);
