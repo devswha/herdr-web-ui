@@ -26,7 +26,7 @@
 
 ---
 
-https://github.com/user-attachments/assets/7d30e956-df88-4513-a432-5f91e756c262
+https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>在终端窗格中运行 Claude Code，同一会话切换为聊天，再到手机上继续 · 实机录制 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒演示影片</a></sub></p>
 
@@ -77,25 +77,25 @@ herdr plugin install devswha/herdr-web-ui
 
 ### 从手机附加截图
 
-https://github.com/user-attachments/assets/c5a0df0c-6d86-4fc4-ad64-6af1eaffc33f
+https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e
 
 <p align="center"><sub>手机附上一张合计显示为 $NaN 的收据截图，请 Claude 修复。电脑上显示同一条带图片的消息。Claude 修复问题并补上测试，diff 可在聊天中打开。</sub></p>
 
 ### 打开智能体生成的文件
 
-https://github.com/user-attachments/assets/ad95f407-dca5-4a50-92e9-f9e2fe3ecb84
+https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364
 
 <p align="center"><sub>Claude 将图表写成 SVG 文件，并在回复中给出文件路径。在电脑上点击即可在文件查看器中打开，在手机上轻点也一样。</sub></p>
 
 ### 浏览窗格中的文件
 
-https://github.com/user-attachments/assets/142e0b6f-99ea-4bd8-865a-59f9f69c3d8a
+https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8
 
 <p align="center"><sub>文件夹按钮打开窗格所在的文件夹，Claude 写的文件在查看器中打开。在手机上，通过命令面板的 Browse files（浏览文件）完成同样的操作。</sub></p>
 
 ### 通过 SSH 添加电脑
 
-https://github.com/user-attachments/assets/7cfa7d25-cdfd-4e5b-bdcc-59df7b41414e
+https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610
 
 <p align="center"><sub>Add PC（添加电脑）通过 SSH 连接一台 Linux 电脑并安装桥接程序。它的会话加入侧边栏，终端在那台电脑上运行。手机菜单同时列出两台电脑。远程会话是为录制预先准备的。</sub></p>
 

@@ -26,7 +26,7 @@
 
 ---
 
-https://github.com/user-attachments/assets/7d30e956-df88-4513-a432-5f91e756c262
+https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>Claude Code in a terminal pane, the same session as a chat, then on the phone · recorded live · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ the 56-second film</a></sub></p>
 
@@ -73,25 +73,25 @@ Four more clips of about 20 seconds, recorded live like the video at the top: th
 
 ### attach a screenshot from your phone
 
-https://github.com/user-attachments/assets/c5a0df0c-6d86-4fc4-ad64-6af1eaffc33f
+https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e
 
 <p align="center"><sub>The phone attaches a screenshot of a receipt totalling $NaN and asks Claude to fix it. The desktop shows the same message with the image. Claude fixes the bug and adds a test, and the diff opens from the chat.</sub></p>
 
 ### open what the agent made
 
-https://github.com/user-attachments/assets/ad95f407-dca5-4a50-92e9-f9e2fe3ecb84
+https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364
 
 <p align="center"><sub>Claude writes a chart as an SVG file and answers with its path. A click opens it in the file viewer, and so does a tap on the phone.</sub></p>
 
 ### browse a pane's files
 
-https://github.com/user-attachments/assets/142e0b6f-99ea-4bd8-865a-59f9f69c3d8a
+https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8
 
 <p align="center"><sub>The folder button opens the pane's folder, and the file Claude wrote opens in the viewer. On the phone, the command palette's Browse files does the same.</sub></p>
 
 ### add a PC over SSH
 
-https://github.com/user-attachments/assets/7cfa7d25-cdfd-4e5b-bdcc-59df7b41414e
+https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610
 
 <p align="center"><sub>Add PC connects to a Linux PC over SSH and installs the bridge. Its session joins the sidebar, and its terminal runs on that PC. The phone's menu lists both PCs. The remote session was staged for the video.</sub></p>
 
