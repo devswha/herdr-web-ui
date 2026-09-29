@@ -158,7 +158,12 @@ setInterval(() => {}, 1000);
       assert.equal(delivered, true);
       await settled();
       assert.match(await clipboard(page), /^DRAGCOPY-second-line/, "an old selection response never overwrites the newer copy");
+      // emptied first, so the check sees what Ctrl+C itself wrote
+      await page.evaluate(() => navigator.clipboard.writeText(""));
       await page.keyboard.press("Control+c");
+      await settled();
+      const copyDeadline = Date.now() + 5_000;
+      while (!(await clipboard(page)) && Date.now() < copyDeadline) await page.waitForTimeout(50);
       assert.match(await clipboard(page), /^DRAGCOPY-second-line/, "the cached selection also belongs to the newer drag");
     } finally {
       releaseOld();

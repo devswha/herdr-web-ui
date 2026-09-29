@@ -483,7 +483,11 @@ export function PaneTerminal({
       if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
         const blob = text.then((value) => new Blob([value], { type: "text/plain" }));
         void blob.catch(() => {});
-        void navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).catch(() => {});
+        // Denied (the case native copy covers), the clipboard keeps only the visible rows of a
+        // scrolled drag: say so, since the whole text waits for an explicit Copy or Ctrl+C
+        void navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).catch(() => {
+          if (current() && d.scrolled) noteClipboard("copied the visible part; Copy or Ctrl+C copies the whole selection");
+        });
       } else {
         // Native copy already captured the visible text; the full text stays
         // available for the next explicit Copy where delayed items are unsupported.
