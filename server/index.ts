@@ -40,6 +40,7 @@ import {
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
+import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
@@ -84,7 +85,7 @@ const TYPED_SETTLE_MS = 300;
  * reaches the pane later.
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -1129,6 +1130,36 @@ export function createServer(
                 break;
               }
               await serialize(message.pane_id, () => { authorizeSocket(client); return paneSendKeys(message.pane_id, message.keys); });
+              break;
+            }
+            case "secret": {
+              // Refuse busy panes instead of retaining the secret behind another send.
+              const result = (ok: boolean, code?: string) => send(client, {
+                type: "secret-result", id: message.id, pane_id: message.pane_id, ok, ...(code ? { code } : {}),
+              });
+              try {
+                if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string"
+                  || typeof message.prompt !== "string" || secretPrompt(message.prompt) !== message.prompt || !validSecret(message.secret)) {
+                  result(false, "invalid_secret"); break;
+                }
+                if (client.data.mode === "observe") { result(false, "read_only"); break; }
+                const attachment = attachments.get(message.pane_id);
+                if (!attachment?.clients.has(client)) { result(false, "not_attached"); break; }
+                if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
+                await serialize(message.pane_id, async () => {
+                  const screen = await paneRead({ paneId: message.pane_id, source: "visible", format: "text" });
+                  authorizeSocket(client);
+                  if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
+                  if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }
+                  if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
+                  // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
+                  attachment.pty.write(`${message.secret}\r`);
+                  result(true);
+                });
+              } catch {
+                // Never forward an exception that might include submitted bytes.
+                result(false, "secret_failed");
+              } finally { message.secret = ""; }
               break;
             }
             case "submit": {

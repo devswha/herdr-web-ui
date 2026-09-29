@@ -44,6 +44,7 @@ export class HerdrSocket {
   private socket: WebSocket | null = null;
   private readonly url: string;
   private readonly handlers = new Set<Handler>();
+  private readonly disconnectHandlers = new Set<() => void>();
   private readonly attached = new Map<string, AttachState>();
   private retries = 0;
   private reconnectTimer: number | null = null;
@@ -107,6 +108,11 @@ export class HerdrSocket {
         this.submits.delete(message.id);
         settle?.(message.ok ? { ok: true } : { ok: false, code: message.code ?? "submit_failed", message: message.message ?? "the pane did not take the message" });
       }
+      if (message.type === "secret-result") {
+        const settle = this.submits.get(message.id);
+        this.submits.delete(message.id);
+        settle?.(message.ok ? { ok: true } : { ok: false, code: message.code ?? "secret_failed", message: "Secret was not sent. Check the prompt and enter it again." });
+      }
       // A terminal/parser failure is not malformed JSON and must not disappear.
       this.emit(message);
     });
@@ -114,6 +120,7 @@ export class HerdrSocket {
     socket.addEventListener("close", (event) => {
       if (this.socket !== socket) return;
       this.socket = null;
+      for (const handler of this.disconnectHandlers) handler();
       this.markSnapshot();
       this.settleSubmits(DISCONNECTED);
       if (event.code === OUTPUT_STALLED_CLOSE_CODE) {
@@ -158,6 +165,11 @@ export class HerdrSocket {
     return () => {
       this.handlers.delete(handler);
     };
+  }
+
+  onDisconnect(handler: () => void): () => void {
+    this.disconnectHandlers.add(handler);
+    return () => { this.disconnectHandlers.delete(handler); };
   }
 
   attach(paneId: string, cols: number, rows: number): void {
@@ -242,6 +254,25 @@ export class HerdrSocket {
     })();
   }
 
+  /** Send once on this connection. Only a result callback is retained, never the value. */
+  sendSecret(paneId: string, prompt: string, secret: string): Promise<SubmitResult> | null {
+    if (!this.connected || this.mode === "observe") return null;
+    if (!this.features.has("secret-input")) return Promise.resolve({ ok: false, code: "unsupported", message: "Update this PC to use masked input." });
+    const id = this.nextSubmit++;
+    const result = new Promise<SubmitResult>((resolve) => {
+      this.submits.set(id, resolve);
+      window.setTimeout(() => {
+        if (this.submits.delete(id)) resolve({ ok: false, code: "timeout", message: "Check the terminal before trying again." });
+      }, 15_000);
+    });
+    try { this.rawSend({ type: "secret", id, pane_id: paneId, prompt, secret }); }
+    catch {
+      this.submits.get(id)?.(DISCONNECTED);
+      this.submits.delete(id);
+    } finally { secret = ""; }
+    return result;
+  }
+
   private settleSubmits(result: SubmitResult): void {
     for (const settle of this.submits.values()) settle(result);
     this.submits.clear();
@@ -260,5 +291,6 @@ export class HerdrSocket {
     this.socket = null;
     this.settleSubmits(DISCONNECTED);
     this.handlers.clear();
+    this.disconnectHandlers.clear();
   }
 }

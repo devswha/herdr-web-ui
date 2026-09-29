@@ -339,9 +339,9 @@ export interface PushPayload {
  *
  *  Client -> server frames: attach {pane_id, cols, rows} | detach {pane_id} | input {pane_id, text}
  *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | role {mode}
- *    | pty-ack {pane_id, stream_id, offset}
+ *    | pty-ack {pane_id, stream_id, offset} | secret {id, pane_id, prompt, secret}
  *  Server -> client frames: snapshot | pty-data | pty-exit | pane-geometry | role-ack
- *    | pane-status | pane-exited | session-changed | error
+ *    | pane-status | pane-exited | session-changed | secret-result | error
  *
  *  attach {flow_control:"ack"} opts into per-subscription output credit.
  *  pty-data.flow carries a stream_id and cumulative UTF-8 payload offset;
@@ -353,6 +353,8 @@ export interface PushPayload {
  *  shared pty - the observer instead receives `pane-geometry` and adopts the pty's grid, so
  *  a phone watching a pane can never change the size the operator's PC sees. The client
  *  re-sends its role before the attach replay on reconnect.
+ *  secret requires the "secret-input" feature, an interact attachment, a matching fresh
+ *  prompt and an idle input queue. Its result contains only ok/code, never the value.
  */
 
 /** A connection's authority over the shared ptys: `interact` types and resizes, `observe` only watches. */
@@ -369,13 +371,16 @@ export type ClientMessage =
    * pane's bracketed-paste mode, typed when no agent is in front. `typed`: the terminal's own
    * input line, which types `payload` like the keyboard would even into an agent's open menu */
   | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean }
+  /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
+   * Never queued, retried, sent through agent.prompt, or echoed in a result. */
+  | { type: "secret"; id: number; pane_id: string; prompt: string; secret: string }
   | { type: "resize"; pane_id: string; cols: number; rows: number }
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole };
 
 /** What a server supports beyond the base protocol, listed in its first snapshot; older bridges list nothing. */
-export type ServerFeature = "submit";
+export type ServerFeature = "submit" | "secret-input";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }
@@ -387,6 +392,7 @@ export type ServerMessage =
   | { type: "role-ack"; mode: ClientRole }
   /** how a submit ended: ok once its Enter was sent; otherwise nothing, or only the text, reached the pane */
   | { type: "submit-result"; id: number; pane_id: string; ok: boolean; code?: string; message?: string }
+  | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
   | { type: "pane-status"; pane_id: string; agent_status: AgentStatus }
   /** a pane's process exited (pushed even when nobody is attached to it) */

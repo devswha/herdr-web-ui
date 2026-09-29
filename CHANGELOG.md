@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Recognized password, SSH passphrase and PIN prompts offer a masked input in both
+  lenses. Secrets go straight to the attached terminal after a fresh prompt check;
+  they are never saved in drafts or the held queue. Remote PCs use bundle v6.
 - The herdr plugin's **Phone setup** action opens a pane with the phone address, QR and
   a pairing code. It follows the active app release and shows any needed Tailscale command.
 - A **Needs you** group at the top of the sidebar gathers agents waiting for input across

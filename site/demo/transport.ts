@@ -330,7 +330,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit"] });
+      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "secret-input"] });
     }, 20);
     this.timers.add(opening);
   }
@@ -357,6 +357,9 @@ class DemoSocket extends EventTarget {
       case "detach": if (message.pane_id) this.attached.delete(message.pane_id); break;
       case "input": if (message.pane_id && message.text !== undefined) this.typed(message.pane_id, message.text); break;
       case "keys": if (message.pane_id) for (const key of message.keys ?? []) this.typed(message.pane_id, key === "Enter" ? "\r" : key === "Backspace" ? "\x7f" : key.length === 1 ? key : ""); break;
+      case "secret":
+        this.push({ type: "secret-result", id: message.id, pane_id: message.pane_id, ok: false, code: "prompt_changed" });
+        break;
       case "submit":
         if (message.pane_id && message.text !== undefined && message.id !== undefined) {
           submitToChat(message.pane_id, message.text);

@@ -10,6 +10,11 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Password or PIN": "密码或 PIN",
+  "Enter a single-line password or PIN.": "请输入不含换行的密码或 PIN。",
+  "Update this PC to use masked input.": "请更新此电脑上的应用以使用密码输入框。",
+  "Check the terminal before entering the secret again.": "重新输入前，请先检查终端状态。",
+  "Sent directly to this terminal. Never saved as a draft or queued.": "直接发送到此终端，不会存为草稿或加入待发队列。",
   // ---- settings ----
   "Settings": "设置",
   "Close settings": "关闭设置",

@@ -137,6 +137,14 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **gjc** | Native session file, from the session directory gjc keeps open | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
+When the last visible line is a familiar password, SSH passphrase or PIN request, both
+views show a **Password or PIN** field. It hides what you type and sends it directly
+to the terminal with Enter. The value is cleared on send, cancel, disconnect, pane
+change or when the page goes into the background. It never enters the message queue,
+draft storage or chat history. A changed prompt or busy pane refuses the send; check
+the terminal before entering it again. **Cancel** sends Ctrl+C. Remote PCs need bridge
+bundle v6. Detection covers a narrow list of English prompts, not every program or language.
+
 The model and reasoning effort come from what the session recorded, never from answer text. The todo list comes from Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. The panel appears only when one of these supported tools is recorded in the transcript. Plain-text plans and Claude Code `TaskCreate` / `TaskUpdate` calls are not currently reconstructed; Claude Code sessions that do not call `TodoWrite` will have no pinned plan. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
 
 ## Features

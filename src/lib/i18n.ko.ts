@@ -6,6 +6,11 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Password or PIN": "비밀번호 또는 PIN",
+  "Enter a single-line password or PIN.": "한 줄의 비밀번호 또는 PIN을 입력하세요.",
+  "Update this PC to use masked input.": "비밀번호 입력창을 사용하려면 이 PC의 앱을 업데이트하세요.",
+  "Check the terminal before entering the secret again.": "다시 입력하기 전에 터미널의 상태를 확인하세요.",
+  "Sent directly to this terminal. Never saved as a draft or queued.": "이 터미널로 바로 보냅니다. 초안이나 전송 대기열에 저장하지 않습니다.",
   // ---- settings ----
   "Settings": "설정",
   "Close settings": "설정 닫기",

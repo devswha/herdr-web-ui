@@ -8,6 +8,11 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Password or PIN": "パスワードまたは PIN",
+  "Enter a single-line password or PIN.": "改行を含まないパスワードまたは PIN を入力してください。",
+  "Update this PC to use masked input.": "伏せ字の入力欄を使うには、この PC のアプリを更新してください。",
+  "Check the terminal before entering the secret again.": "再入力する前にターミナルの状態を確認してください。",
+  "Sent directly to this terminal. Never saved as a draft or queued.": "このターミナルに直接送信します。下書きや送信待ちには保存しません。",
   // ---- settings ----
   "Settings": "設定",
   "Close settings": "設定を閉じる",

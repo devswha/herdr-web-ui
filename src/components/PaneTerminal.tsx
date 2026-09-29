@@ -17,6 +17,8 @@ import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar } from "./KeyBar.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
+import { SecretInput } from "./SecretInput.tsx";
+import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
 import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
@@ -103,6 +105,7 @@ export function PaneTerminal({
   const onServerMessageRef = useRef(onServerMessage);
   const onRoleAckRef = useRef(onRoleAck);
   const [connected, setConnected] = useState(false);
+  const [outputReady, setOutputReady] = useState(false);
   const [ended, setEnded] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
   // one-shot Control from the key bar: the ref is what onData reads, the state is what the bar shows
@@ -111,6 +114,9 @@ export function PaneTerminal({
   // observe mode: the ref is what onData and the resize listeners read mid-stream
   const observeRef = useRef(false);
   const [observing, setObserving] = useState(false);
+  const [secret, setSecret] = useState<{ pane: string; prompt: string } | null>(null);
+  const secretRef = useRef<string | null>(null);
+  const secretActive = secret?.pane === paneId;
   // a touch screen writes in the terminal's input line; typing straight into the grid is chosen
   const coarse = useCoarsePointer();
   const [directTyping, setDirectTyping] = useState(storedDirectTyping);
@@ -237,12 +243,32 @@ export function PaneTerminal({
 
     const socket = new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);
     socketRef.current = socket;
+    let outputGeneration = 0;
     const off = socket.on((message) => {
       onServerMessageRef.current?.(message);
       if (message.type === "pty-data") {
         if (message.pane_id !== paneRef.current) return;
         // raw pty bytes: append, never repaint, so xterm keeps the screen and selection
-        term.write(message.data, socket.outputAcknowledgement(message));
+        const acknowledge = socket.outputAcknowledgement(message);
+        const owner = message.pane_id;
+        const generation = outputGeneration;
+        term.write(message.data, () => {
+          acknowledge?.();
+          if (paneRef.current !== owner || generation !== outputGeneration) return;
+          setOutputReady(true);
+          const lines: string[] = [];
+          const buffer = term.buffer.active;
+          for (let row = 0; row < buffer.length; row++) {
+            const line = buffer.getLine(row);
+            const text = line?.translateToString(!buffer.getLine(row + 1)?.isWrapped) ?? "";
+            if (line?.isWrapped && lines.length) lines[lines.length - 1] += text;
+            else lines.push(text);
+          }
+          const prompt = secretPrompt(lines.join("\n"), term.cols);
+          secretRef.current = prompt;
+          term.options.disableStdin = observeRef.current || prompt !== null;
+          setSecret((previous) => previous?.pane === owner && previous.prompt === prompt ? previous : prompt ? { pane: owner, prompt } : null);
+        });
       } else if (message.type === "pty-exit") {
         if (message.pane_id === paneRef.current) setEnded(true);
       } else if (message.type === "role-ack") {
@@ -251,7 +277,7 @@ export function PaneTerminal({
         const nowObserving = message.mode === "observe";
         observeRef.current = nowObserving;
         setObserving(nowObserving);
-        term.options.disableStdin = nowObserving;
+        term.options.disableStdin = nowObserving || secretRef.current !== null;
         onRoleAckRef.current?.(message.mode);
         if (!nowObserving) {
           try {
@@ -278,13 +304,18 @@ export function PaneTerminal({
       }
       setConnected(socket.connected);
     });
+    const offDisconnect = socket.onDisconnect(() => {
+      outputGeneration++;
+      setOutputReady(false);
+      setConnected(false);
+    });
     socket.connect();
 
     const poll = window.setInterval(() => setConnected(socket.connected), 1000);
 
     const onData = term.onData((data) => {
       const current = paneRef.current;
-      if (!current || observeRef.current) return;
+      if (!current || observeRef.current || secretRef.current !== null) return;
       if (!socket.connected) {
         // policy: commands typed into a dead connection are never auto-sent on
         // reconnect - they wait in a draft the user reviews (see the banner below)
@@ -390,6 +421,7 @@ export function PaneTerminal({
       window.removeEventListener("focus", refit);
       document.removeEventListener("visibilitychange", onVisible);
       onData.dispose();
+      offDisconnect();
       osc52.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
       off();
@@ -441,7 +473,10 @@ export function PaneTerminal({
     const fit = fitRef.current;
     if (!socket || !term) return;
     setEnded(false);
+    setOutputReady(false);
     setOutputError(null);
+    secretRef.current = null;
+    setSecret(null);
     term.options.disableStdin = observeRef.current;
     draftOwner.current = null;
     let saved = EMPTY_DRAFT;
@@ -497,7 +532,7 @@ export function PaneTerminal({
   const sendDraft = useCallback(() => {
     const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!socket || !pane || draft.text.length === 0 || !socket.connected) return;
+    if (!socket || !pane || draft.text.length === 0 || !socket.connected || secretRef.current !== null) return;
     socket.sendInput(pane, draft.text);
     setDraft(EMPTY_DRAFT);
   }, [draft]);
@@ -514,7 +549,7 @@ export function PaneTerminal({
     const term = termRef.current;
     const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!term || !socket || pane === null) return false;
+    if (!term || !socket || pane === null || secretRef.current !== null) return false;
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode));
     if (sent === null) return false;
     term.scrollToBottom();
@@ -533,7 +568,7 @@ export function PaneTerminal({
     const term = termRef.current;
     const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!term || !socket || pane === null) return false;
+    if (!term || !socket || pane === null || secretRef.current !== null) return false;
     const message = composerMessage(text);
     const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
     const sent = socket.submit(pane, message, payload, true);
@@ -668,7 +703,7 @@ export function PaneTerminal({
               <span className="draft-dropped">{t(draft.droppedSpecial === 1 ? "{count} special key dropped" : "{count} special keys dropped", { count: draft.droppedSpecial })}</span>
             )}
             <span className="draft-actions">
-              <button type="button" className="draft-send" disabled={draft.text.length === 0 || observing} onClick={sendDraft}>
+              <button type="button" className="draft-send" disabled={draft.text.length === 0 || observing || secretActive} onClick={sendDraft}>
                 {t("Send")}
               </button>
               <button type="button" className="draft-discard" onClick={discardDraft}>
@@ -730,7 +765,7 @@ export function PaneTerminal({
             />
             <div className="composer-queue-actions">
               <button type="button" className="composer-queue-send"
-                disabled={!connected || queueSending !== null || queued.some((item) => queueStore.isSending(item.id)) || heldByOpenQueue || message.text.trim().length === 0}
+                disabled={!connected || secretActive || queueSending !== null || queued.some((item) => queueStore.isSending(item.id)) || heldByOpenQueue || message.text.trim().length === 0}
                 title={heldByOpenQueue ? t("Codex has a question open in the terminal: answer it above first") : undefined}
                 onClick={() => {
                   if (sendingRef.current || !queueStore.beginSend(queueOwner, message.id)) return;
@@ -755,7 +790,12 @@ export function PaneTerminal({
       )}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
-      {paneId !== null && chatView && !observing && !ended && (
+      {paneId !== null && secretActive && !observing && !ended && connected && outputReady && <SecretInput
+        key={`${paneId}:${secret.prompt}`} prompt={secret.prompt}
+        onSend={(value) => socketRef.current?.sendSecret(paneId, secret.prompt, value) ?? null}
+        onCancel={() => { if (socketRef.current?.connected) socketRef.current.sendInput(paneId, "\u0003"); }}
+      />}
+      {paneId !== null && chatView && !secretActive && !observing && !ended && (
         <Composer
           key={paneId}
           paneId={paneId}
@@ -771,8 +811,8 @@ export function PaneTerminal({
           onUploadImage={uploadImage}
         />
       )}
-      {paneId !== null && !observing && !ended && inputLine && <TerminalInput key={paneId} connected={connected} onSend={sendTerminalLine} onEnter={pressEnter} />}
-      {paneId !== null && !observing && !chatView && <KeyBar onKey={pressKey} ctrlArmed={ctrlArmed} onToggleCtrl={toggleCtrl}
+      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} connected={connected} onSend={sendTerminalLine} onEnter={pressEnter} />}
+      {paneId !== null && !secretActive && !observing && !chatView && <KeyBar onKey={pressKey} ctrlArmed={ctrlArmed} onToggleCtrl={toggleCtrl}
         {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>
   );
