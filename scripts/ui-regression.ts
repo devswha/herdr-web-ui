@@ -12,6 +12,7 @@ import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkNeedsInput } from "./needs-input-regression.ts";
 import { checkSecretInput } from "./secret-input-regression.ts";
+import { checkTerminalCopy } from "./terminal-copy-regression.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-"));
 const workspaces: string[] = [];
@@ -165,6 +166,7 @@ try {
   await checkWakeLock(browser, origin, paneA);
   await checkNeedsInput(browser, origin, paneA);
   await checkSecretInput(browser, origin);
+  await checkTerminalCopy(browser, origin);
 
   const report = (state: string) => herdrRpc("pane.report_agent", {
     pane_id: paneA, source: "manual", agent: "claude", state,

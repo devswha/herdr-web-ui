@@ -208,6 +208,8 @@ export function PaneTerminal({
       fontSize: terminalFontSize,
       fontFamily: FONT_STACK,
       theme: terminalTheme(theme),
+      // Option+drag selects on macOS, as Shift+drag does elsewhere; a plain drag is forced below
+      macOptionClickForcesSelection: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -218,14 +220,63 @@ export function PaneTerminal({
     // bracketed paste). Otherwise Ctrl+V becomes 0x16, triggering the agent's
     // image-paste shortcut against the server's clipboard and canceling text paste.
     // Returning false skips xterm's key handling without preventing browser defaults.
-    term.attachCustomKeyEventHandler((event) => !(
-      event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "v"
-    ));
+    // With text selected, Ctrl+C (and Ctrl+Shift+C) copies it instead of interrupting the pane.
+    term.attachCustomKeyEventHandler((event) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return true;
+      const key = event.key.toLowerCase();
+      if (key === "v") return false;
+      if (key === "c" && term.hasSelection()) {
+        if (event.type === "keydown") {
+          event.preventDefault();
+          copySelection();
+          term.clearSelection();
+        }
+        return false;
+      }
+      return true;
+    });
     // herdr reads the wheel as mouse reports. Were reporting ever off, xterm would turn
     // a wheel into arrow keys, which walk an agent's prompt history instead of scrolling.
     term.attachCustomWheelEventHandler(() => term.modes.mouseTrackingMode !== "none");
     termRef.current = term;
     fitRef.current = fit;
+
+    const copySelection = (): void => {
+      const text = term.getSelection();
+      if (!text) return;
+      // plain HTTP has no async clipboard; the copy command still works in a user gesture,
+      // and xterm's copy listener fills it with the selection
+      if (!navigator.clipboard) {
+        noteClipboard(document.execCommand("copy") ? "copied to clipboard" : "clipboard write blocked by the browser");
+        return;
+      }
+      void navigator.clipboard.writeText(text).then(
+        () => noteClipboard("copied to clipboard"),
+        () => noteClipboard("clipboard write blocked by the browser"),
+      );
+    };
+    // herdr's attach stream turns mouse reporting on, so xterm hands every click to the
+    // pty and selects only with Shift (Option on macOS) held. `herdr terminal attach`
+    // ignores left clicks and drags - selection lives in herdr's own TUI client - so a
+    // left drag here selects as if the modifier were held, and letting go copies, as the
+    // herdr TUI does. Wheel reports still reach herdr. Touch keeps its drag-to-scroll.
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+    let selecting = false;
+    const onMouseDown = (event: MouseEvent): void => {
+      if (event.button !== 0 || term.modes.mouseTrackingMode === "none") return;
+      if ((event as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities?.firesTouchEvents) return;
+      if (!term.element?.contains(event.target as Node)) return;
+      Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
+      selecting = true;
+    };
+    const onMouseUp = (event: MouseEvent): void => {
+      if (!selecting || event.button !== 0) return;
+      selecting = false;
+      // xterm settles the selection in its own mouseup listener
+      window.setTimeout(() => { if (term.hasSelection()) copySelection(); }, 0);
+    };
+    host.addEventListener("mousedown", onMouseDown, { capture: true });
+    document.addEventListener("mouseup", onMouseUp);
 
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty
     // cannot reach the browser clipboard, so xterm hands us the sequence and
@@ -418,6 +469,8 @@ export function PaneTerminal({
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
       host.removeEventListener("touchend", onTouchEnd);
+      host.removeEventListener("mousedown", onMouseDown, { capture: true });
+      document.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("focus", refit);
       document.removeEventListener("visibilitychange", onVisible);
       onData.dispose();
