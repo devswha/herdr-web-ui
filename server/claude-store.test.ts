@@ -74,6 +74,18 @@ describe("claudeTranscriptFile", () => {
     chmodSync(projects, 0o000);
     try { await expect(claudeTranscriptFile(dir, SESSION, [])).rejects.toThrow(); }
     finally { chmodSync(projects, 0o700); }
+    // an unreadable project beside the one holding the session: the session is still found
+    const hit = transcript(projects, "-readable");
+    mkdirSync(join(projects, "-locked"));
+    chmodSync(join(projects, "-locked"), 0o000);
+    try { expect(await claudeTranscriptFile(dir, SESSION, [])).toBe(hit); }
+    finally { chmodSync(join(projects, "-locked"), 0o700); }
+    // and without a hit, the unreadable project is reported, not called missing
+    forgetClaudeSessions();
+    rmSync(hit);
+    chmodSync(join(projects, "-locked"), 0o000);
+    try { await expect(claudeTranscriptFile(dir, SESSION, [])).rejects.toThrow(); }
+    finally { chmodSync(join(projects, "-locked"), 0o700); }
   });
 
   it("answers null without a projects store or a file for the session", async () => {

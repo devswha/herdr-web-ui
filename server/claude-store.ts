@@ -67,11 +67,15 @@ export async function claudeTranscriptFile(home: string, session: string, cwds: 
   found.delete(key);
   let entries: string[];
   try { entries = await readdir(projects); } catch (error) { if (absent(error)) return null; throw error; }
-  const hits = await Promise.all(entries.map(async (entry) => {
+  // one unreadable project must not hide the session in another: an error counts only without a hit
+  const checks = await Promise.allSettled(entries.map(async (entry) => {
     const path = join(projects, entry, file);
     return await isFile(path) ? path : null;
   }));
-  const path = hits.find((hit) => hit !== null);
-  if (path) { found.set(key, path); return path; }
+  for (const check of checks) {
+    if (check.status === "fulfilled" && check.value !== null) { found.set(key, check.value); return check.value; }
+  }
+  const failed = checks.find((check) => check.status === "rejected");
+  if (failed) throw failed.reason;
   return null;
 }
