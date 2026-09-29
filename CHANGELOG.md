@@ -17,6 +17,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   start now has a mark (Amp, Antigravity, Cline, Devin, Droid, Gemini CLI, GitHub Copilot,
   Grok, Hermes, Kilo, Kimi, Kiro, maki, Muse, pi, Qoder, Qwen) instead of a letter, in the
   sidebar and palette too.
+- The agent's todo list no longer sits in the chat. It floats at the top right of the chat
+  pane, as a one-line pill (done count and the item in progress) that opens to a card with
+  the whole list, like the WORK card in gajae-code-app. A pane wide enough keeps a lane
+  for it beside the conversation; a narrower one shows it over the conversation until it
+  is closed (Escape closes it too).
 
 ### Fixed
 - The chat finds a Claude Code pane's conversation when its folder name has a dot, an
