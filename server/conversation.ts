@@ -634,7 +634,7 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
   const session = info.agent.agent_session?.value;
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
-  const path = claudeTranscriptFile(process.env["HOME"] ?? "", session, cwds);
+  const path = await claudeTranscriptFile(process.env["HOME"] ?? "", session, cwds);
   if (!path) throw new ConversationUnavailable("transcript_missing");
   return path;
 }

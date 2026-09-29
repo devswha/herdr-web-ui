@@ -41,44 +41,44 @@ describe("claudeTranscriptFile", () => {
     return path;
   }
 
-  it("finds a session under a cwd with a dot, an underscore, a space or Korean", () => {
+  it("finds a session under a cwd with a dot, an underscore, a space or Korean", async () => {
     for (const cwd of ["/w/example.com", "/w/my_project", "/w/My Project", "/w/문서/app", "/w/.dotfiles"]) {
       const { home: dir, projects } = home();
       const path = transcript(projects, claudeProjectDir(cwd));
-      expect(claudeTranscriptFile(dir, SESSION, [cwd])).toBe(path);
+      expect(await claudeTranscriptFile(dir, SESSION, [cwd])).toBe(path);
     }
   });
 
-  it("tries each cwd in turn, then finds the session in whichever project holds it", () => {
+  it("tries each cwd in turn, then finds the session in whichever project holds it", async () => {
     const { home: dir, projects } = home();
     const started = transcript(projects, claudeProjectDir("/w/started-here"));
-    expect(claudeTranscriptFile(dir, SESSION, ["/w/moved-on", null, "/w/started-here"])).toBe(started);
+    expect(await claudeTranscriptFile(dir, SESSION, ["/w/moved-on", null, "/w/started-here"])).toBe(started);
     // neither cwd names the project (Claude started elsewhere, or named it another way)
     renameSync(join(projects, claudeProjectDir("/w/started-here")), join(projects, "-some-other-name"));
-    expect(claudeTranscriptFile(dir, SESSION, ["/w/moved-on"])).toBe(join(projects, "-some-other-name", `${SESSION}.jsonl`));
+    expect(await claudeTranscriptFile(dir, SESSION, ["/w/moved-on"])).toBe(join(projects, "-some-other-name", `${SESSION}.jsonl`));
     // a remembered file that has gone is looked up again, not answered
     rmSync(join(projects, "-some-other-name"), { recursive: true });
-    expect(claudeTranscriptFile(dir, SESSION, ["/w/moved-on"])).toBeNull();
+    expect(await claudeTranscriptFile(dir, SESSION, ["/w/moved-on"])).toBeNull();
   });
 
-  it("keeps a session found by a scan to the store it was found in", () => {
+  it("keeps a session found by a scan to the store it was found in", async () => {
     const first = home(), second = home();
     transcript(first.projects, "-elsewhere");
-    expect(claudeTranscriptFile(first.home, SESSION, ["/w/project"])).toBe(join(first.projects, "-elsewhere", `${SESSION}.jsonl`));
-    expect(claudeTranscriptFile(second.home, SESSION, ["/w/project"])).toBeNull();
+    expect(await claudeTranscriptFile(first.home, SESSION, ["/w/project"])).toBe(join(first.projects, "-elsewhere", `${SESSION}.jsonl`));
+    expect(await claudeTranscriptFile(second.home, SESSION, ["/w/project"])).toBeNull();
   });
 
-  it("reports a store it cannot read instead of calling the transcript missing", () => {
+  it("reports a store it cannot read instead of calling the transcript missing", async () => {
     if (process.getuid?.() === 0) return; // root reads anything
     const { home: dir, projects } = home();
     chmodSync(projects, 0o000);
-    try { expect(() => claudeTranscriptFile(dir, SESSION, [])).toThrow(); }
+    try { await expect(claudeTranscriptFile(dir, SESSION, [])).rejects.toThrow(); }
     finally { chmodSync(projects, 0o700); }
   });
 
-  it("answers null without a projects store or a file for the session", () => {
+  it("answers null without a projects store or a file for the session", async () => {
     const { home: dir } = home();
-    expect(claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBeNull();
-    expect(claudeTranscriptFile(join(dir, "missing"), SESSION, ["/w/project"])).toBeNull();
+    expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBeNull();
+    expect(await claudeTranscriptFile(join(dir, "missing"), SESSION, ["/w/project"])).toBeNull();
   });
 });

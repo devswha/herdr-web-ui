@@ -12,7 +12,7 @@
  * id is a UUID herdr reports, so at most one file answers to it.
  */
 
-import { readdirSync, statSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 const MAX_PROJECT_NAME = 200;
@@ -36,8 +36,8 @@ function absent(error: unknown): boolean {
   return code === "ENOENT" || code === "ENOTDIR";
 }
 
-function isFile(path: string): boolean {
-  try { return statSync(path).isFile(); } catch (error) { if (absent(error)) return false; throw error; }
+async function isFile(path: string): Promise<boolean> {
+  try { return (await stat(path)).isFile(); } catch (error) { if (absent(error)) return false; throw error; }
 }
 
 /** Store + session id → the file a project scan found it in; checked again on every use. */
@@ -50,25 +50,28 @@ export function forgetClaudeSessions(): void {
 /**
  * The transcript of `session` (a UUID, validated by the caller): under the project of each cwd
  * in turn, else in whichever project holds it. Null when no project does (a session that has not
- * written its first message yet).
+ * written its first message yet). Such a session is scanned again on every poll, so the scan
+ * stays off the event loop.
  */
-export function claudeTranscriptFile(home: string, session: string, cwds: readonly (string | null | undefined)[]): string | null {
+export async function claudeTranscriptFile(home: string, session: string, cwds: readonly (string | null | undefined)[]): Promise<string | null> {
   const projects = join(home, ".claude", "projects");
   const file = `${session}.jsonl`;
   for (const cwd of cwds) {
     if (!cwd) continue;
     const path = join(projects, claudeProjectDir(cwd), file);
-    if (isFile(path)) return path;
+    if (await isFile(path)) return path;
   }
   const key = `${projects}\0${session}`;
   const known = found.get(key);
-  if (known !== undefined && isFile(known)) return known;
+  if (known !== undefined && await isFile(known)) return known;
   found.delete(key);
   let entries: string[];
-  try { entries = readdirSync(projects); } catch (error) { if (absent(error)) return null; throw error; }
-  for (const entry of entries) {
+  try { entries = await readdir(projects); } catch (error) { if (absent(error)) return null; throw error; }
+  const hits = await Promise.all(entries.map(async (entry) => {
     const path = join(projects, entry, file);
-    if (isFile(path)) { found.set(key, path); return path; }
-  }
+    return await isFile(path) ? path : null;
+  }));
+  const path = hits.find((hit) => hit !== null);
+  if (path) { found.set(key, path); return path; }
   return null;
 }
