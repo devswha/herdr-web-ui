@@ -108,9 +108,9 @@ export function gjcDisplayCandidates(root: string, cwd: string): { path: string;
     if (paths.size > 64) return [];
     return [...paths].map(path => {
       const size = statSync(path).size;
-      const start = Math.max(0, size - 65536);
-      // readRange already drops the line the window cuts
-      return { path, text: readRange(path, start, size) };
+      // readRange drops through the first newline; starting one byte early keeps a record
+      // the 64 KiB window starts exactly on, and still drops one it cuts
+      return { path, text: readRange(path, Math.max(0, size - 65536 - 1), size) };
     });
   } catch { return []; }
 }

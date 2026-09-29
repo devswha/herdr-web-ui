@@ -36,14 +36,20 @@ it("keeps every whole record of a candidate's tail window", () => {
   try {
     mkdirSync(join(root, "project"));
     const path = join(root, "project", "session.jsonl");
-    const record = (i: number) => JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: `answer ${i} ${"x".repeat(990)}` }] } });
-    const full = [JSON.stringify({ type: "session", cwd: "/work" }), ...Array.from({ length: 100 }, (_, i) => record(i))].join("\n") + "\n";
-    writeFileSync(path, full);
-    const start = full.length - 65536;
-    expect(full[start - 1]).not.toBe("\n"); // the window cuts a record
-    const [candidate] = gjcDisplayCandidates(root, "/work");
-    // only the cut record is dropped; the first whole one after it stays
-    expect(candidate?.text).toBe(full.slice(full.indexOf("\n", start) + 1));
+    // every line is `line` bytes plus its newline: 1024 divides 64 KiB, so that window starts on a record
+    for (const [line, aligned] of [[1000, false], [1023, true]] as const) {
+      const record = (i: number) => {
+        const text = JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: `answer ${String(i).padStart(3, "0")} ` }] } });
+        return text.replace(" \"}]", ` ${"x".repeat(line - text.length)}"}]`);
+      };
+      const full = [JSON.stringify({ type: "session", cwd: "/work" }), ...Array.from({ length: 100 }, (_, i) => record(i))].join("\n") + "\n";
+      writeFileSync(path, full);
+      const start = full.length - 65536;
+      expect(full[start - 1] === "\n").toBe(aligned);
+      const [candidate] = gjcDisplayCandidates(root, "/work");
+      // only a record the window cuts is dropped; the first whole one stays
+      expect(candidate?.text).toBe(full.slice(aligned ? start : full.indexOf("\n", start) + 1));
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
