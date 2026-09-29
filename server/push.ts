@@ -61,6 +61,8 @@ export interface PushSubscriptionRecord {
   keys: { p256dh: string; auth: string };
   /** what this device wants alerts for; absent in a record from before there was a choice */
   alerts?: AlertPrefs;
+  /** null: local/token sign-in; absent: legacy subscription awaiting ownership. */
+  device_id?: string | null;
 }
 
 
@@ -69,7 +71,8 @@ export type PushDelivery = { ok: true } | { ok: false; status: number | null; go
 export interface PushService {
   publicKey(): string;
   /** `alerts` absent keeps what the device chose before (a re-registration on load) */
-  subscribe(subscription: PushSubscriptionRecord, alerts?: AlertPrefs): void;
+  subscribe(subscription: PushSubscriptionRecord, alerts?: AlertPrefs, deviceId?: string | null): void;
+  revokeDevice(id: string): void;
   unsubscribe(endpoint: string): void;
   /** One confirmation push to one device, so enabling alerts proves the whole path works. */
   sendTest(endpoint: string): Promise<PushDelivery | null>;
@@ -89,6 +92,7 @@ export interface PushServiceOptions {
   lookupTitle?: (paneId: string) => Promise<string | undefined>;
   timing?: Partial<AlertTiming>;
   now?: () => number;
+  canDeliver?: (deviceId: string | null | undefined) => boolean;
 }
 
 export { defaultStateDir } from "./update-state.ts";
@@ -172,7 +176,11 @@ export function createPushService(options: PushServiceOptions): PushService {
       for (const entry of stored) {
         const parsed = parseSubscription(entry);
         const alerts = (entry as { alerts?: unknown } | null)?.alerts;
-        if (parsed) subscriptions.set(parsed.endpoint, alerts === undefined ? parsed : { ...parsed, alerts: parseAlerts(alerts) });
+        if (parsed) {
+          const owner = (entry as PushSubscriptionRecord).device_id;
+          subscriptions.set(parsed.endpoint, { ...parsed, ...(alerts === undefined ? {} : { alerts: parseAlerts(alerts) }),
+            ...(owner === null || typeof owner === "string" ? { device_id: owner } : {}) });
+        }
       }
     }
     return subscriptions;
@@ -183,6 +191,7 @@ export function createPushService(options: PushServiceOptions): PushService {
   }
 
   async function deliver(subscription: PushSubscriptionRecord, message: PushPayload, urgency: "normal" | "high"): Promise<PushDelivery> {
+    if (options.canDeliver && !options.canDeliver(subscription.device_id)) return { ok: false, status: null, gone: true };
     const { publicKey, privateKey } = keys();
     const details = webpush.generateRequestDetails(subscription, JSON.stringify(message), {
       vapidDetails: { subject, publicKey, privateKey },
@@ -287,9 +296,17 @@ export function createPushService(options: PushServiceOptions): PushService {
   return {
     publicKey: () => keys().publicKey,
 
-    subscribe(subscription, alerts) {
+    subscribe(subscription, alerts, deviceId) {
       const kept = alerts ?? store().get(subscription.endpoint)?.alerts;
-      store().set(subscription.endpoint, kept === undefined ? subscription : { ...subscription, alerts: kept });
+      store().set(subscription.endpoint, { ...subscription, ...(kept === undefined ? {} : { alerts: kept }),
+        ...(deviceId === undefined ? {} : { device_id: deviceId }) });
+      persist();
+    },
+
+    revokeDevice(id) {
+      for (const [endpoint, subscription] of store()) {
+        if (subscription.device_id === id || subscription.device_id === undefined) store().delete(endpoint);
+      }
       persist();
     },
 
@@ -338,7 +355,10 @@ export function createPushService(options: PushServiceOptions): PushService {
       schedule(key, groups, async (to) => {
         const title = machineId === "local" ? await titleOf(paneId) : titles.get(key) ?? paneId;
         // a device that dropped out meanwhile is not written to
-        const live = to.filter((subscription) => store().has(subscription.endpoint));
+        const live = to.flatMap((subscription) => {
+          const current = store().get(subscription.endpoint);
+          return current && current.device_id === subscription.device_id ? [current] : [];
+        });
         await broadcast({ ...statusMessage(paneId, title, status), ...(machineId === "local" ? {} : { machine_id: machineId }), tag: paneNotificationTag(paneId, machineId) }, status === "blocked" ? "high" : "normal", live);
       });
     },
@@ -368,7 +388,7 @@ export function createPushService(options: PushServiceOptions): PushService {
  *   DELETE /api/push/subscribe { endpoint } -> 204
  *   POST   /api/push/test      { endpoint } -> 204 | 404 subscription_not_found | 502 push_failed
  */
-export async function handlePushRequest(request: Request, pathname: string, push: PushService): Promise<Response | null> {
+export async function handlePushRequest(request: Request, pathname: string, push: PushService, deviceId: string | null = null): Promise<Response | null> {
   const route = `${request.method} ${pathname}`;
   if (route === "GET /api/push") return jsonResponse({ public_key: push.publicKey() });
   if (route !== "POST /api/push/subscribe" && route !== "DELETE /api/push/subscribe" && route !== "POST /api/push/test") {
@@ -387,7 +407,7 @@ export async function handlePushRequest(request: Request, pathname: string, push
   if (route === "POST /api/push/subscribe") {
     const subscription = parseSubscription(body.subscription);
     if (!subscription) return badRequest("invalid_subscription", "subscription needs an http(s) endpoint and p256dh/auth keys");
-    push.subscribe(subscription, body.alerts === undefined ? undefined : parseAlerts(body.alerts));
+    push.subscribe(subscription, body.alerts === undefined ? undefined : parseAlerts(body.alerts), deviceId);
     return new Response(null, { status: 204 });
   }
   if (typeof body.endpoint !== "string") return badRequest("missing_endpoint", "endpoint is required");

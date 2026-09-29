@@ -7,6 +7,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Enforce device permissions and request origins consistently, persist device changes before reporting success, and stop alerts after device access is revoked.
+
 ### Added
 - The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
   omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.

@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated } from "../shared/protocol.ts";
 import { UsageService } from "./usage.ts";
-import { herdrRpc } from "./herdr/client.ts";
+import { herdrRpc, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
@@ -1411,4 +1411,22 @@ describe("PC management API", () => {
       expect(health.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
     } finally { gated.stop(); rmSync(stateDir, { recursive: true, force: true }); }
   });
+});
+
+it("refuses cross-origin changes while allowing same-origin and CLI requests", async () => {
+  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-origin-"));
+  const instance = createServer({ port: 0, stateDir: root, token: "", tailscaleOwner: null, machines: false });
+  const base = `http://127.0.0.1:${instance.port}`;
+  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-origin" });
+  try {
+    for (const path of ["pane/input", "pane/keys", "pane/close", "workspace/create", "push/subscribe"]) {
+      const response = await fetch(`${base}/api/${path}`, { method: "POST", headers: { origin: "http://other.example", "content-type": "text/plain" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, text: "must not type", keys: ["Enter"] }) });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: { code: "invalid_origin" } });
+    }
+    for (const headers of [{ origin: base }, {}] as Record<string, string>[]) {
+      const response = await fetch(`${base}/api/pane/rename`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, label: "allowed rename" }) });
+      expect(response.status).toBe(200);
+    }
+  } finally { instance.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
 });

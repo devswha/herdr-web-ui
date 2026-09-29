@@ -308,3 +308,43 @@ it("settles only after a delivery already under way, when a later group is calle
     expect(slower.received).toHaveLength(0);
   } finally { slower.stop(); }
 });
+
+
+it("persists device ownership and refuses revoked and legacy subscriptions after restart", async () => {
+  const active = new Set(["device-a"]);
+  const canDeliver = (id: string | null | undefined) => id === null || typeof id === "string" && active.has(id);
+  const push = createPushService({ stateDir, canDeliver });
+  push.subscribe(fake.subscription, undefined, "device-a");
+  expect(JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8"))[0].device_id).toBe("device-a");
+  active.clear();
+  const restarted = createPushService({ stateDir, canDeliver });
+  await restarted.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(0);
+  restarted.revokeDevice("device-a");
+  expect(await restarted.sendTest(fake.subscription.endpoint)).toBeNull();
+  // Legacy records cannot identify a revoked device; re-registration supplies an owner.
+  push.subscribe(fake.subscription);
+  const migrated = createPushService({ stateDir, canDeliver });
+  await migrated.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(0);
+  migrated.subscribe(fake.subscription, undefined, null);
+  await migrated.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(1);
+});
+
+it("keeps a pending alert across re-registration but drops it after device revocation", async () => {
+  const active = new Set(["device-a"]);
+  const push = createPushService({ stateDir, timing: { short: 20 }, canDeliver: (id) => typeof id === "string" && active.has(id) });
+  push.subscribe(fake.subscription, undefined, "device-a");
+  push.seed([pane("w1:p1", "working", "claude")]);
+  await push.onStatus("w1:p1", "blocked");
+  push.subscribe(fake.subscription, undefined, "device-a");
+  await push.settled();
+  expect(fake.received).toHaveLength(1);
+  await push.onStatus("w1:p1", "working");
+  await push.onStatus("w1:p1", "blocked");
+  active.clear();
+  // The registry still blocks delivery if push-file cleanup cannot run.
+  await push.settled();
+  expect(fake.received).toHaveLength(1);
+});
