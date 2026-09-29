@@ -14,8 +14,9 @@ export function NeedsInput({ machines, selectedMachineId, selectedPaneId, onSele
 }) {
   const t = useT();
   const waiting = panesNeedingInput(machines);
-  if (waiting.length === 0) return null;
-  return <section className="needs-input" aria-label={t("Needs you")}>
+  return <>
+    <p className="visually-hidden" role="status">{t("Panes waiting for input: {n}", { n: waiting.length })}</p>
+    {waiting.length > 0 && <section className="needs-input" aria-label={t("Needs you")}>
     <h2 className="needs-input-heading">{t("Needs you")} <span className="pill">{waiting.length}</span></h2>
     <ul className="pane-list">
       {waiting.map(({ machine, pane, workspace }) => {
@@ -31,5 +32,6 @@ export function NeedsInput({ machines, selectedMachineId, selectedPaneId, onSele
         </li>;
       })}
     </ul>
-  </section>;
+    </section>}
+  </>;
 }

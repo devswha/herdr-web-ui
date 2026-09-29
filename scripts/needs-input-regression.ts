@@ -34,7 +34,7 @@ export async function checkNeedsInput(browser: Browser, origin: string, paneId: 
     await group.getByRole("button", { name: /Local waiting/ }).waitFor();
     assert.equal(await group.getByRole("button").count(), 2);
     assert.equal(await page.locator(".machine-toggle[aria-expanded=false]").count(), 2);
-    assert.equal(await page.locator(".machine-list > :first-child").getAttribute("aria-label"), "Needs you");
+    assert.equal(await page.locator(".machine-list > section:first-of-type").getAttribute("aria-label"), "Needs you");
     await group.getByRole("button", { name: /Remote waiting/ }).click();
     await page.locator(".context .machine-context-name").filter({ hasText: "QA remote" }).waitFor();
     assert.equal(await group.getByRole("button", { name: /Remote waiting/ }).getAttribute("aria-current"), "true");
@@ -59,6 +59,7 @@ export async function checkNeedsInput(browser: Browser, origin: string, paneId: 
     offline = true;
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await group.waitFor({ state: "detached" });
+    assert.equal(await page.locator('.machine-list > [role="status"]').textContent(), "Panes waiting for input: 0");
     assert.deepEqual(errors, []);
     console.log("PASS Needs you: collapsed PCs, same pane IDs, selection, resume, offline and mobile drawer");
   } finally { await context.close(); }
