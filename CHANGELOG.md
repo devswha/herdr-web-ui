@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- The installed Android app picks up the auto-rotate fix from 0.3.32 a day sooner. The
+  first launch after upgrading from 0.3.31 or older still got the old, rotating web
+  manifest from the previous service worker's cache, and Chrome checks the installed app
+  against it at most once a day.
+
 ## [0.3.32] - 2026-09-29
 
 ### Added
