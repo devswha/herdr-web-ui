@@ -36,6 +36,8 @@ import { useT } from "../lib/i18n.ts";
 export interface ComposerProps {
   connected: boolean;
   paneId: string;
+  /** false: appearing must not take the keyboard (App switched to this pane on its own) */
+  autoFocus?: boolean;
   agent: string | null;
   agentStatus?: AgentStatus;
   metadata?: ConversationMetadata | null;
@@ -167,6 +169,7 @@ function ContextRing({ context }: { context: NonNullable<ConversationMetadata["c
 export function Composer({
   connected,
   paneId,
+  autoFocus = true,
   agent,
   agentStatus,
   metadata,
@@ -184,7 +187,7 @@ export function Composer({
   // the chat lens's input surface takes the keyboard when it appears (a pane switch remounts
   // it), as the grid does in the terminal lens: a pane picked from the drawer is typed into
   useEffect(() => {
-    textareaRef.current?.focus({ preventScroll: true });
+    if (autoFocus) textareaRef.current?.focus({ preventScroll: true });
   }, []);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentsRef = useRef<Attachment[]>([]);

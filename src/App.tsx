@@ -156,6 +156,9 @@ export function App() {
     if (paneFromUrl()) return paneFromUrl();
     return storedSelection()?.pane_id ?? null;
   });
+  // App picked the selected pane itself because the one selected closed: it must not raise a
+  // phone's keyboard (over the drawer the close was tapped in) until the user picks a pane or lens
+  const [autoSelected, setAutoSelected] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [view, setViewState] = useState<PaneView>("terminal");
@@ -387,7 +390,7 @@ export function App() {
     // on the same PC keeps the connected socket, which never reports again: resetting here
     // left the header on "reconnecting" after every pane switch.
     if (machineId !== selectedMachineRef.current) setConnected(false);
-    setSelectedMachineId(machineId); setSelectedPaneId(paneId); setDrawerOpen(false);
+    setSelectedMachineId(machineId); setSelectedPaneId(paneId); setAutoSelected(false); setDrawerOpen(false);
     setOutputStopped(false);
     storeSelection(machineId, paneId);
   }, []);
@@ -403,7 +406,9 @@ export function App() {
     // appears there. Confirm absence against this PC before discarding the selection.
     let cancelled = false;
     void fetchSession(selectedMachineId).then((current) => {
-      if (!cancelled && !current.panes.some((pane) => pane.pane_id === selectedPaneId)) setSelectedPaneId(fallback(current));
+      if (cancelled || current.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
+      setSelectedPaneId(fallback(current));
+      setAutoSelected(true);
     }).catch(() => { /* a failed read is not evidence that the pane disappeared */ });
     return () => { cancelled = true; };
   }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state]);
@@ -413,6 +418,7 @@ export function App() {
 
   const selectPane = useCallback((paneId: string) => {
     setSelectedPaneId(paneId);
+    setAutoSelected(false);
     setDrawerOpen(false);
   }, []);
 
@@ -450,6 +456,7 @@ export function App() {
   const setView = useCallback(
     (next: PaneView) => {
       setViewState(next);
+      setAutoSelected(false);
       if (selectedPaneId === null) return;
       try {
         window.localStorage.setItem(`herdr-web-ui:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
@@ -661,6 +668,7 @@ export function App() {
             agent={selectedAgent}
             agentStatus={selectedPane?.agent_status}
             view={view}
+            autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
             theme={resolvedTheme}
             role={role}

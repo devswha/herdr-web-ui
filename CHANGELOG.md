@@ -26,6 +26,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   runs the same version as existing ones and never picks up changes merged since.
   `HERDR_WEB_UI_REF` still picks another branch or tag.
 
+### Fixed
+- Closing the selected pane with the sidebar's X no longer puts the keyboard on the pane
+  selected in its place. On a phone it came up over the drawer, in the way of closing the
+  next pane. A pane or lens the user picks still takes the keyboard.
+
 ## [0.3.33] - 2026-09-29
 
 ### Fixed

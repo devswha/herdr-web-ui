@@ -494,12 +494,19 @@ try {
   // is automatic, so it must not offer a sign-out action that cannot lock the app.
   assert.equal(await page.getByRole("button", { name: "Sign out", exact: true }).count(), 0);
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
-  await workspaceClose(created.workspace_id);
+  // closed from the sidebar's X (arm, then confirm); its last pane takes the workspace with it
+  await page.locator(".pane-item.is-selected .pane-close").click();
+  await page.locator(".pane-item.is-selected .pane-close.is-armed").click();
   workspaces.splice(workspaces.indexOf(created.workspace_id), 1);
   await until(async () => {
     const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
     return selected?.pane_id && selected.pane_id !== created.pane_id;
   }, "closed pane selection recovered");
+  // the pane selected in its place must not take the keyboard: a phone would raise it over
+  // the drawer, in the way of closing the next pane. Its lens follows a frame later.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.evaluate(() => document.activeElement?.matches("textarea, input, [contenteditable]") ?? false), false,
+    "a pane selected after a close must not focus its input");
   await page.evaluate(() => sessionStorage.setItem("herdr-web-ui:selection", JSON.stringify({ machine_id: "local", pane_id: "obsolete-pane" })));
   await page.reload();
   await until(async () => {
