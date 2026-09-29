@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.33] - 2026-09-29
+
 ### Fixed
 - The chat finds an omo pane's conversation again with current omo, which no longer keeps
   its session file open. It now reads the session omo records as held by the pane's
