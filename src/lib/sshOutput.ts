@@ -10,7 +10,9 @@ export type SshOutputPart = { type: "text"; value: string } | { type: "link"; hr
 export function sshOutputParts(text: string): SshOutputPart[] {
   const parts: SshOutputPart[] = [];
   let offset = 0;
-  for (const match of text.matchAll(/https:\/\/[^\s<>"']+/gi)) {
+  // an address starts the text, a word or a bracket/quote: `https://` inside another URL
+  // (ftp://host/https://…) is part of that URL, and linking it would point somewhere else
+  for (const match of text.matchAll(/(?<![^\s(<\["'])https:\/\/[^\s<>"']+/gi)) {
     const index = match.index ?? 0;
     const url = trimUrl(match[0]);
     // a bare scheme ("https://") is not an address

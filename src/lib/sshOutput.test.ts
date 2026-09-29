@@ -11,7 +11,7 @@ describe("sshOutputParts", () => {
   });
 
   it("links only https addresses", () => {
-    for (const text of ["javascript:alert(1)", "http://example.com/x", "visit example.com/a", "data:text/html,https", "ftp://host/https://"]) {
+    for (const text of ["javascript:alert(1)", "http://example.com/x", "visit example.com/a", "data:text/html,https", "ftp://host/https://", "ftp://host/https://example.com", "x=https://example.com", "http://a/?next=https://example.com"]) {
       expect(sshOutputParts(text).some((part) => part.type === "link")).toBe(false);
     }
     expect(sshOutputParts("javascript:alert(1)")).toEqual([{ type: "text", value: "javascript:alert(1)" }]);

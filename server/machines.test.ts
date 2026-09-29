@@ -7,7 +7,7 @@ import type { SetupJob } from "../shared/machines.ts";
 import { paneNotificationTag } from "../shared/notify-policy.ts";
 import { machinePath, paneStorageId } from "../shared/machines.ts";
 import { canSendSecret, sameOrigin, shellQuote, validateTarget } from "./machine-security.ts";
-import { MACHINE_PROXY_PATH } from "./machine-api.ts";
+import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
 import { MachineManager } from "./machines.ts";
 import { CompletionTracker } from "./completion.ts";
 import type { PushService } from "./push.ts";
@@ -139,6 +139,10 @@ describe("SSH output during setup", () => {
     const job = await until(() => manager.job(started.id)?.ssh_output ? manager.job(started.id) : null);
     expect(job.phase).toBe("connecting");
     expect(job.ssh_output).toBe("To authenticate, visit: https://login.tailscale.com/a/check123");
+    // the dialog polls this route: the line has to be in its answer, not only on the manager
+    const response = await handleMachineRequest(new Request(`http://localhost:7317/api/machines/setup/${started.id}`, { headers: { origin: "http://localhost:7317" } }), manager);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ phase: "connecting", ssh_output: "To authenticate, visit: https://login.tailscale.com/a/check123" });
     manager.action(started.id, { action: "cancel" });
     expect(manager.job(started.id)).toMatchObject({ phase: "cancelled", ssh_output: null });
   });
