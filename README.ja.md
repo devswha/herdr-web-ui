@@ -26,7 +26,7 @@
 
 ---
 
-https://github.com/user-attachments/assets/7d30e956-df88-4513-a432-5f91e756c262
+https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>ターミナルのペインで動く Claude Code。同じセッションをチャットで、さらにスマートフォンで操作 · 実際の動作を収録 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒の紹介動画</a></sub></p>
 
@@ -68,6 +68,36 @@ herdr plugin install devswha/herdr-web-ui
 herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を開きます。ペインを選ぶか、**New session（新規セッション）** からエージェントを起動してください。スマートフォンで使う場合は、インストーラーの QR コードを読み取り、アプリをホーム画面に追加します。[クイックスタート →](docs/guide.md#quick-start)
 
 サーバーのデフォルトの待ち受けアドレスは `127.0.0.1` です。別のデバイスからアクセスする場合は、[スマートフォンの設定](docs/guide.md#on-your-phone)と[アクセスと安全性](docs/guide.md#access-and-safety)を参照してください。
+
+<a id="feature-videos"></a>
+
+## 機能ごとの動画
+
+約 20 秒の動画をさらに 4 本。冒頭の動画と同じく実際の動作を収録したもので、パソコンとスマートフォンを同時に録画し、待ち時間と進捗表示は早送りしています。
+
+### スマートフォンからスクリーンショットを添付
+
+https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e
+
+<p align="center"><sub>合計が $NaN になっているレシートのスクリーンショットをスマートフォンから添付し、Claude に修正を依頼します。パソコンにも画像付きの同じメッセージが表示されます。Claude がバグを修正してテストを追加し、差分はチャットから開けます。</sub></p>
+
+### エージェントが作ったファイルを開く
+
+https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364
+
+<p align="center"><sub>Claude がグラフを SVG ファイルとして書き出し、そのパスを返答に含めます。パソコンではクリック、スマートフォンではタップで、ファイルビューアーに表示されます。</sub></p>
+
+### ペインのファイルを見る
+
+https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8
+
+<p align="center"><sub>フォルダボタンでペインの作業フォルダを開き、Claude が書いたファイルをビューアーで表示します。スマートフォンでは、コマンドパレットの Browse files（ファイルを参照）から同じ操作ができます。</sub></p>
+
+### SSH で PC を追加
+
+https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610
+
+<p align="center"><sub>Add PC（PC を追加）から SSH で Linux PC に接続し、ブリッジをインストールします。その PC のセッションがサイドバーに加わり、ターミナルはその PC 上で動きます。スマートフォンのメニューには両方の PC が表示されます。リモートのセッションは撮影用に用意したものです。</sub></p>
 
 <a id="docs"></a>
 
