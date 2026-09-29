@@ -28,6 +28,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   labelled by its own step instead of "Restarting the bridge", and a step without byte
   progress, such as registering the app SSH key after the bundle install, shows its own
   text instead of the previous stage's label.
+- The chat no longer relabels the previous, finished turn "Working…" for a moment after you
+  send a message: the turn that was last when the message went out stays finished until the
+  transcript holds the reply to it. When the pane starts or stops working, the chat also reads
+  the conversation at once instead of at the next 2 s poll, so DONE and the answer arrive
+  together rather than the answer trailing by up to 2 s.
 - When a GJC pane is matched to its transcript by the text on screen, the oldest whole
   record in each candidate's 64 KiB tail is read too. A complete record was dropped along
   with the cut first line, or in place of it when the window started exactly on a record.

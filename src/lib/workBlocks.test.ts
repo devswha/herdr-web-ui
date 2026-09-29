@@ -75,3 +75,17 @@ it("keeps an approval-blocked assistant turn live, including with a last-activit
   expect(isLiveWorkTurn(turn, true, "idle")).toBe(false);
   expect(isLiveWorkTurn({ ...turn, role: "user" }, true, "blocked")).toBe(false);
 });
+
+it("does not title a finished turn as running after a message was sent over it", async () => {
+  const { isLiveWorkTurn } = await import("./workBlocks.ts");
+  const finished = { role: "assistant" as const, ts: "2026-09-29T00:00:00Z", parts: [], end_ts: "2026-09-29T00:00:06Z" };
+  // sent over it, status already `working`, transcript not yet holding the new message
+  expect(isLiveWorkTurn(finished, true, "working", finished.ts)).toBe(false);
+  expect(isLiveWorkTurn(finished, true, "blocked", finished.ts)).toBe(false);
+  // the turn that answers the message is a different one and is live again
+  const next = { ...finished, ts: "2026-09-29T00:01:00Z", end_ts: undefined };
+  expect(isLiveWorkTurn(next, true, "working", finished.ts)).toBe(true);
+  // nothing sent over keeps following the status
+  expect(isLiveWorkTurn(finished, true, "working", null)).toBe(true);
+  expect(isLiveWorkTurn(finished, true, "working")).toBe(true);
+});

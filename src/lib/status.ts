@@ -17,3 +17,12 @@ const KNOWN: Readonly<Record<string, KnownStatus>> = { idle: "idle", working: "w
 export function knownStatus(status?: AgentStatus): KnownStatus {
   return (status !== undefined && KNOWN[status]) || "unknown";
 }
+
+/**
+ * Whether a pushed status change should read the conversation now instead of at the next poll:
+ * a turn starts or ends when the pane enters or leaves `working`, and the chat's last block
+ * follows the status while the transcript it holds is up to POLL_MS old.
+ */
+export function statusEdgeRead(previous: AgentStatus | undefined, next: AgentStatus | undefined): boolean {
+  return previous !== next && (previous === "working" || next === "working");
+}
