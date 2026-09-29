@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { JA } from "./i18n.ja.ts";
 import { KO } from "./i18n.ko.ts";
+import { ZH } from "./i18n.zh.ts";
 import { resolveLanguage, translate } from "./i18n.ts";
 
 const root = join(import.meta.dir, "..");
@@ -14,7 +16,7 @@ const root = join(import.meta.dir, "..");
 function keysInCode(): Map<string, string[]> {
   const found = new Map<string, string[]>();
   for (const file of new Bun.Glob("**/*.{ts,tsx}").scanSync({ cwd: root })) {
-    if (file.endsWith(".test.ts") || file.endsWith("i18n.ko.ts")) continue;
+    if (file.endsWith(".test.ts") || /i18n\.\w+\.ts$/.test(file)) continue;
     const text = readFileSync(join(root, file), "utf8");
     for (const match of text.matchAll(/(?<![\w.])(?:t|tt)\(/g)) {
       const firstArg = firstArgument(text, match.index + match[0].length);
@@ -70,33 +72,35 @@ function labelMapKeys(): string[] {
   ];
 }
 
-describe("Korean dictionary", () => {
+const DICTIONARIES = { Korean: KO, Japanese: JA, Chinese: ZH };
+
+describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary) => {
   const inCode = keysInCode();
   const keys = new Set([...inCode.keys(), ...labelMapKeys()]);
 
   it("has every string the code asks for", () => {
-    const missing = [...keys].filter((key) => !(key in KO)).sort();
+    const missing = [...keys].filter((key) => !(key in dictionary)).sort();
     expect(missing).toEqual([]);
   });
 
   it("keeps no entry the code no longer uses", () => {
-    const stale = Object.keys(KO).filter((key) => !keys.has(key)).sort();
+    const stale = Object.keys(dictionary).filter((key) => !keys.has(key)).sort();
     expect(stale).toEqual([]);
   });
 
-  it("keeps every placeholder of the English in the Korean", () => {
-    const broken = Object.entries(KO).filter(([en, ko]) => {
+  it("keeps every placeholder of the English in the translation", () => {
+    const broken = Object.entries(dictionary).filter(([en, text]) => {
       const want = [...en.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
-      const have = [...ko.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+      const have = [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
       return want.join() !== have.join();
     }).map(([en]) => en);
     expect(broken).toEqual([]);
   });
 
   it("is not just the English repeated", () => {
-    // names and key caps read the same in Korean
+    // names and key caps read the same in every language
     const sameOnPurpose = new Set(["PC {name}", "Control C"]);
-    const same = Object.entries(KO).filter(([en, ko]) => en === ko && /[a-z]{3}/i.test(en) && !sameOnPurpose.has(en));
+    const same = Object.entries(dictionary).filter(([en, text]) => en === text && /[a-z]{3}/i.test(en) && !sameOnPurpose.has(en));
     expect(same.map(([en]) => en)).toEqual([]);
   });
 });
@@ -106,6 +110,8 @@ describe("translate", () => {
     expect(translate("en", "Worked for {duration}", { duration: "7s" })).toBe("Worked for 7s");
     expect(translate("ko", "Worked for {duration}", { duration: "7초" })).toBe(KO["Worked for {duration}"]!.replace("{duration}", "7초"));
     expect(translate("ko", "not a key", { x: 1 })).toBe("not a key");
+    expect(translate("ja", "Settings")).toBe(JA["Settings"]!);
+    expect(translate("zh", "Settings")).toBe(ZH["Settings"]!);
     expect(translate("en", "{a} and {b}", { a: 1 })).toBe("1 and {b}");
   });
 
@@ -116,5 +122,9 @@ describe("translate", () => {
     expect(resolveLanguage("system", [])).toBe("en");
     expect(resolveLanguage("en", ["ko-KR"])).toBe("en");
     expect(resolveLanguage("ko", ["en-US"])).toBe("ko");
+    expect(resolveLanguage("system", ["ja-JP"])).toBe("ja");
+    expect(resolveLanguage("system", ["en-US", "zh-CN", "ko"])).toBe("zh");
+    expect(resolveLanguage("system", ["zh-TW"])).toBe("zh");
+    expect(resolveLanguage("ja", ["zh-CN"])).toBe("ja");
   });
 });

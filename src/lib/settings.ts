@@ -6,7 +6,7 @@
  */
 
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
+import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 
 export type ThemeSetting = "dark" | "light" | "system";
@@ -100,7 +100,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       : DEFAULT_SETTINGS.chatFontSize,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
-    language: record["language"] === "en" || record["language"] === "ko" || record["language"] === "system" ? record["language"] : DEFAULT_SETTINGS.language,
+    language: LANGUAGE_SETTINGS.includes(record["language"] as LanguageSetting) ? record["language"] as LanguageSetting : DEFAULT_SETTINGS.language,
     alertsOn: typeof record["alertsOn"] === "boolean" ? record["alertsOn"] : DEFAULT_SETTINGS.alertsOn,
     alertInput: typeof record["alertInput"] === "boolean" ? record["alertInput"] : DEFAULT_SETTINGS.alertInput,
     alertDone: record["alertDone"] === "off" || record["alertDone"] === "long" || record["alertDone"] === "always" ? record["alertDone"] : DEFAULT_SETTINGS.alertDone,
@@ -148,7 +148,7 @@ const THEME_COLOR: Record<ResolvedTheme, string> = { dark: "#181613", light: "#f
 
 function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: Language): void {
   const root = document.documentElement;
-  root.lang = language;
+  root.lang = LOCALE_TAGS[language];
   root.dataset["theme"] = resolved;
   root.dataset["density"] = settings.density;
   // ChatView.css scales its type tokens by this: the chosen size over the density's

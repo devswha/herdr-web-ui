@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Japanese (日本語) and Simplified Chinese (简体中文) join English and Korean in Settings →
+  Language. System follows the browser's first translated language, so a Japanese or Chinese
+  browser now opens in its own language; dates and times follow it too.
 - The one-line installer ends a first install with one line asking for a GitHub star, so
   other herdr users can find the app. Reruns, such as the one for the phone address, skip it.
 

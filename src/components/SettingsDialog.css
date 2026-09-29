@@ -164,6 +164,11 @@
     justify-content: center;
   }
 
+  /* five languages outgrow a narrow phone: wrap rather than overflow the dialog */
+  .settings-row > .segmented {
+    flex-wrap: wrap;
+  }
+
   .settings-row:has(> .settings-toggle) {
     align-items: center;
     flex-direction: row;

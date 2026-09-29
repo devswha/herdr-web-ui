@@ -33,7 +33,7 @@ const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
-import { currentLanguage, useT } from "../lib/i18n.ts";
+import { currentLocale, useT } from "../lib/i18n.ts";
 
 const TRANSCRIPT_LINES = 400;
 const POLL_MS = 2000;
@@ -72,7 +72,7 @@ const EMPTY_STATE: ChatState = { source: "conversation", turns: [], messages: []
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
   const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString(currentLanguage() === "ko" ? "ko-KR" : "en-US", { hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 function plainText(markdown: string): string {

@@ -7,7 +7,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys } from "../lib/shortcuts.ts";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, useSettings } from "../lib/settings.ts";
-import { LANGUAGE_NAMES, useT, type LanguageSetting } from "../lib/i18n.ts";
+import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
@@ -109,7 +109,7 @@ export function SettingsDialog({ open, onClose, updates, auth }: SettingsDialogP
             <div className="settings-row">
               <div><span className="settings-label">{t("Language")}</span><span className="settings-description">{t("Follows the browser unless you choose one")}</span></div>
               <div className="segmented" aria-label={t("Language")}>
-                {(["system", "en", "ko"] as const satisfies readonly LanguageSetting[]).map((language) => (
+                {LANGUAGE_SETTINGS.map((language) => (
                   <button key={language} type="button" aria-pressed={settings.language === language} onClick={() => update({ language })}>
                     {language === "system" ? t("System") : LANGUAGE_NAMES[language]}
                   </button>
