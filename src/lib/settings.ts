@@ -38,7 +38,7 @@ export interface Settings {
   quickReplies: string[];
   /** whether the quick replies show above the composer at all */
   showQuickReplies: boolean;
-  /** the plan meters beside Settings in the sidebar (GET /api/usage) */
+  /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
   showUsage: boolean;
 }
 
@@ -56,7 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   alertDone: "long",
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
-  showUsage: true,
+  showUsage: false,
 };
 
 export const QUICK_REPLIES_MAX = 12;

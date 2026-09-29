@@ -556,6 +556,8 @@ export const KO: Record<string, string> = {
   "Rebuild report": "보고서 다시 만들기",
   "This report is too long to prefill. Copy or save it, then paste or attach it on GitHub.": "보고서가 길어 이슈에 바로 채울 수 없습니다. 복사하거나 파일로 저장한 뒤 GitHub에서 붙여 넣거나 첨부하세요.",
   // ---- subscription usage ----
+  "Turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.": "켜면 서버 PC의 로그인 정보를 각 provider의 사용량 엔드포인트로 보냅니다.",
+  "Cursor models": "Cursor 모델",
   "Subscription usage": "구독 사용량",
   "Show plan limits": "요금제 한도 표시",
   "Beside Settings: how much of each plan limit the AI tools signed in on the server's PC have used. Read with their own sign-in, which is never refreshed here.": "설정 옆에 서버 PC에 로그인된 AI 도구가 요금제 한도를 얼마나 썼는지 표시합니다. 각 도구의 로그인 정보로 읽기만 하며, 여기서 토큰을 갱신하지 않습니다.",

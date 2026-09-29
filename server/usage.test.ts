@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UsageReport } from "../shared/protocol.ts";
-import { FRESH_MS, handleUsageRequest, MIN_REFRESH_MS, RETRY_MS, USAGE_PROVIDERS, UsageService, type KeychainRead, type UsageContext } from "./usage.ts";
+import { FRESH_MS, handleUsageRequest, MAX_READ_BYTES, MIN_REFRESH_MS, RETRY_MS, runCommand, USAGE_PROVIDERS, UsageService, type KeychainRead, type UsageContext } from "./usage.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const HOUR = 3600_000;
@@ -136,10 +136,15 @@ describe("providers", () => {
     db.close();
     replies.set("https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage", { body: {
       billingCycleEnd: "1790812800000",
-      planUsage: { limit: 40000, remaining: 32000 },
+      planUsage: { limit: 40000, remaining: 32000, autoPercentUsed: 12.5, apiPercentUsed: 7.5 },
     } });
     const [usage] = (await new UsageService(context("linux"), only("cursor")).report()).providers;
-    expect(usage).toMatchObject({ plan: "pro", windows: [{ kind: "month", scope: null, used_percent: 20, resets_at: new Date(1790812800000).toISOString() }] });
+    const resets_at = new Date(1790812800000).toISOString();
+    expect(usage).toMatchObject({ plan: "pro", windows: [
+      { kind: "month", scope: null, used_percent: 20, resets_at },
+      { kind: "month", scope: "Cursor models", used_percent: 12.5, resets_at },
+      { kind: "month", scope: "Other models", used_percent: 7.5, resets_at },
+    ] });
     expect(requests[0]!.init.method).toBe("POST");
   });
 
@@ -179,6 +184,19 @@ describe("providers", () => {
     expect(usage).toMatchObject({ problem: null, windows: [{ kind: "month", scope: "Chat", used_percent: 10 }] });
   });
 
+  it("tries the next Copilot token after a 404, an account without Copilot", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_other_account" } });
+    commands.set("gh auth token --hostname github.com", "gho_with_copilot");
+    const service = new UsageService({ ...context(), async fetch(target, init) {
+      requests.push({ url: target, init });
+      const found = (init.headers as Record<string, string>)["authorization"] === "token gho_with_copilot";
+      return new Response(JSON.stringify(found ? { copilot_plan: "individual", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 50 } } } : {}), { status: found ? 200 : 404 });
+    } }, only("copilot"));
+    const [usage] = (await service.report()).providers;
+    expect(requests).toHaveLength(2);
+    expect(usage).toMatchObject({ problem: null, windows: [{ scope: "Chat", used_percent: 50 }] });
+  });
+
   it("says expired when every Copilot token is refused", async () => {
     write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_stale" } });
     replies.set("https://api.github.com/copilot_internal/user", { status: 401 });
@@ -216,12 +234,14 @@ describe("providers", () => {
     replies.set("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary", { body: { response: { groups: [{ buckets: [
       { bucketId: "gemini-5h", remainingFraction: 0.75, resetTime: "2026-09-29T16:00:00Z" },
       { bucketId: "3p-weekly", resetTime: "2026-10-04T00:00:00Z" },
+      { bucketId: "3p-5h", remainingFraction: 0, resetTime: "2026-09-29T15:00:00Z" },
       { bucketId: "unknown", remainingFraction: 0.5 },
     ] }] } } });
     const [usage] = (await new UsageService(context("darwin"), only("antigravity")).report()).providers;
+    // a bucket without a fraction is left out, never shown as exhausted
     expect(usage!.windows).toEqual([
       { kind: "session", scope: null, used_percent: 25, resets_at: "2026-09-29T16:00:00.000Z" },
-      { kind: "week", scope: "Other models", used_percent: 100, resets_at: "2026-10-04T00:00:00.000Z" },
+      { kind: "session", scope: "Other models", used_percent: 100, resets_at: "2026-09-29T15:00:00.000Z" },
     ]);
   });
 });
@@ -330,6 +350,29 @@ describe("the service", () => {
       replies.set(CODEX_USAGE, codexReply());
       expect((await service.report()).providers[0]!.problem).toBeNull();
     } finally { console.warn = warn; }
+  });
+});
+
+describe("bounded reads", () => {
+  it("treats a credential file over MAX_READ_BYTES as no sign-in", async () => {
+    write(join(home, ".codex", "auth.json"), JSON.stringify({ tokens: { access_token: jwt({ exp: NOW / 1000 + 3600 }) }, pad: "x".repeat(MAX_READ_BYTES) }));
+    expect((await new UsageService(context(), only("codex")).report()).providers).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it("reads an answer over MAX_READ_BYTES as a failure, not a report", async () => {
+    signInCodex();
+    replies.set(CODEX_USAGE, { body: { plan_type: "pro", pad: "x".repeat(MAX_READ_BYTES) } });
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      expect((await new UsageService(context(), only("codex")).report()).providers[0]!.problem).toBe("failed");
+    } finally { console.warn = warn; }
+  });
+
+  it("gives up on a command whose output passes MAX_READ_BYTES", async () => {
+    expect(await runCommand(["head", "-c", String(MAX_READ_BYTES + 1), "/dev/zero"])).toBeNull();
+    expect(await runCommand(["head", "-c", "3", "/dev/zero"])).toBe("\0\0\0");
   });
 });
 

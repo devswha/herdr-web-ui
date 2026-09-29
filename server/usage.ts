@@ -16,7 +16,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderUsage, UsageProblem, UsageProviderId, UsageReport, UsageWindow } from "../shared/protocol.ts";
@@ -29,6 +29,8 @@ export const RETRY_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const COMMAND_TIMEOUT_MS = 5_000;
 const USER_AGENT = "herdr-web-ui";
+/** the most a credential file, a command's output or a provider's answer may hold; more is unreadable */
+export const MAX_READ_BYTES = 1024 * 1024;
 
 export type KeychainRead = { status: "found"; value: string } | { status: "missing" } | { status: "locked" };
 
@@ -67,6 +69,9 @@ export interface UsageProvider {
   read(ctx: UsageContext, signIn: SignIn): Promise<Reading | null>;
 }
 
+/** an answer past MAX_READ_BYTES */
+class UsageTooLarge extends Error {}
+
 export class UsageHttpError extends Error {
   constructor(readonly status: number, readonly retryAfterMs: number | null) {
     super(`HTTP ${status}`);
@@ -89,7 +94,38 @@ function parseJson(source: string | null): unknown {
 }
 
 function readText(path: string): string | null {
-  try { return readFileSync(path, "utf8"); } catch { return null; }
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, "r");
+    const buffer = Buffer.alloc(MAX_READ_BYTES + 1);
+    let size = 0;
+    for (let read = 1; read > 0 && size <= MAX_READ_BYTES; size += read) read = readSync(fd, buffer, size, buffer.length - size, null);
+    return size > MAX_READ_BYTES ? null : buffer.toString("utf8", 0, size);
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** A stream's text up to MAX_READ_BYTES; null past it, the rest left unread. */
+async function readCapped(stream: ReadableStream<Uint8Array> | null): Promise<string | null> {
+  if (!stream) return "";
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_READ_BYTES) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /** ISO 8601 from an ISO string or epoch seconds or milliseconds */
@@ -137,8 +173,13 @@ function retryAfter(header: string | null): number | null {
 
 async function requestJson(ctx: UsageContext, url: string, init: RequestInit): Promise<Json> {
   const response = await ctx.fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-  if (!response.ok) throw new UsageHttpError(response.status, retryAfter(response.headers.get("retry-after")));
-  return record(await response.json());
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new UsageHttpError(response.status, retryAfter(response.headers.get("retry-after")));
+  }
+  const body = await readCapped(response.body);
+  if (body === null) throw new UsageTooLarge(`${new URL(url).host} answered more than ${MAX_READ_BYTES} bytes`);
+  return record(JSON.parse(body));
 }
 
 /** The first keychain item that yields a sign-in; "locked" when one exists but could not be read. */
@@ -252,7 +293,7 @@ function cursorAppSignIn(path: string): SignIn | null {
   let db: Database | undefined;
   try {
     db = new Database(path, { readonly: true });
-    const value = (key: string) => text(db!.query<{ value: unknown }, [string]>("SELECT value FROM ItemTable WHERE key = ?").get(key)?.value);
+    const value = (key: string) => text(db!.query<{ value: unknown }, [string, number]>("SELECT value FROM ItemTable WHERE key = ? AND length(value) <= ?").get(key, MAX_READ_BYTES)?.value);
     const token = value("cursorAuth/accessToken");
     return token ? { token, expiresAt: jwtExpiry(token), plan: value("cursorAuth/stripeMembershipType") } : null;
   } catch {
@@ -285,7 +326,11 @@ const cursor: UsageProvider = {
     const limit = number(plan["limit"]);
     const remaining = number(plan["remaining"]);
     const used = number(plan["totalPercentUsed"]) ?? (limit && remaining !== null ? (limit - remaining) / limit * 100 : null);
-    const windows: UsageWindow[] = used === null ? [] : [{ kind: "month", scope: null, used_percent: percent(used), resets_at: isoTime(body["billingCycleEnd"]) }];
+    const resetsAt = isoTime(body["billingCycleEnd"]);
+    // the plan-wide share, then the two allowances inside it: Cursor's own models (Auto) and the rest (API)
+    const windows = [[used, null], [number(plan["autoPercentUsed"]), "Cursor models"], [number(plan["apiPercentUsed"]), "Other models"]]
+      .filter((entry): entry is [number, string | null] => entry[0] !== null)
+      .map(([share, scope]): UsageWindow => ({ kind: "month", scope, used_percent: percent(share), resets_at: resetsAt }));
     return { plan: null, windows };
   },
 };
@@ -320,7 +365,10 @@ const copilot: UsageProvider = {
     return tokens.length ? { token: tokens[0]!, expiresAt: null, fallbacks: tokens.slice(1) } : null;
   },
   async read(ctx, signIn) {
+    // The tokens may belong to different GitHub accounts: the first one with Copilot answers. A 404
+    // is an account without it; only when every token says so is Copilot left out.
     let body: Json | null = null;
+    let refusal: UsageHttpError | null = null;
     for (const token of [signIn.token, ...signIn.fallbacks ?? []]) {
       try {
         body = await requestJson(ctx, "https://api.github.com/copilot_internal/user", {
@@ -331,13 +379,14 @@ const copilot: UsageProvider = {
         });
         break;
       } catch (error) {
-        // a GitHub account without Copilot
-        if (error instanceof UsageHttpError && error.status === 404) return null;
-        const refused = error instanceof UsageHttpError && (error.status === 401 || error.status === 403);
-        if (!refused || token === (signIn.fallbacks?.at(-1) ?? signIn.token)) throw error;
+        if (!(error instanceof UsageHttpError) || ![401, 403, 404].includes(error.status)) throw error;
+        if (error.status !== 404) refusal = error;
       }
     }
-    if (body === null) return null;
+    if (body === null) {
+      if (refusal) throw refusal;
+      return null;
+    }
     const resetsAt = isoTime(body["quota_reset_date"]);
     const snapshots = record(body["quota_snapshots"]);
     const windows = [
@@ -434,8 +483,9 @@ const antigravity: UsageProvider = {
       for (const bucket of Array.isArray(buckets) ? buckets : []) {
         const value = record(bucket);
         const shape = ANTIGRAVITY_BUCKETS[text(value["bucketId"]) ?? ""];
-        // proto-JSON leaves a zero out: no fraction is nothing left
-        if (shape) windows.push({ ...shape, used_percent: percent((1 - (number(value["remainingFraction"]) ?? 0)) * 100), resets_at: isoTime(value["resetTime"]) });
+        const remaining = number(value["remainingFraction"]);
+        // no fraction is left out, as OpenUsage does, rather than shown as 0% or 100% used
+        if (shape && remaining !== null) windows.push({ ...shape, used_percent: percent((1 - remaining) * 100), resets_at: isoTime(value["resetTime"]) });
       }
     }
     return { plan: null, windows };
@@ -455,7 +505,10 @@ async function readKeychain(service: string, account?: string): Promise<Keychain
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; child.kill(); }, COMMAND_TIMEOUT_MS);
   try {
-    const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+    const output = await readCapped(child.stdout);
+    if (output === null) child.kill();
+    const code = await child.exited;
+    if (output === null) return { status: "missing" };
     if (code === 0) return { status: "found", value: output.trim() };
     // 44: errSecItemNotFound. Anything else found an item it could not read (36: a locked keychain).
     if (code === 44 && !timedOut) return { status: "missing" };
@@ -468,14 +521,16 @@ async function readKeychain(service: string, account?: string): Promise<Keychain
   }
 }
 
-async function runCommand(argv: string[]): Promise<string | null> {
+export async function runCommand(argv: string[]): Promise<string | null> {
   if (!Bun.which(argv[0]!)) return null;
   try {
     const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
     const timer = setTimeout(() => child.kill(), COMMAND_TIMEOUT_MS);
     try {
-      const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-      return code === 0 ? output.trim() : null;
+      const output = await readCapped(child.stdout);
+      if (output === null) child.kill();
+      const code = await child.exited;
+      return code === 0 && output !== null ? output.trim() : null;
     } finally { clearTimeout(timer); }
   } catch {
     return null;

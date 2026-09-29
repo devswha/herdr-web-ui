@@ -33,7 +33,8 @@ export function tightestWindow(usage: ProviderUsage): UsageWindow | null {
 export function windowLabel(window: UsageWindow): string {
   const kind = t(WINDOW_LABEL[window.kind]);
   if (window.scope === null) return kind;
-  return `${kind} · ${window.scope === "Other models" ? t("Other models") : window.scope}`;
+  const scope = window.scope === "Other models" ? t("Other models") : window.scope === "Cursor models" ? t("Cursor models") : window.scope;
+  return `${kind} · ${scope}`;
 }
 
 /** "2d 4h", "3h 12m", "12m" until a reset; null when it is unknown or already past. */

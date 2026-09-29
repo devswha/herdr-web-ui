@@ -38,5 +38,6 @@ describe("usage meters", () => {
     expect(windowLabel(window(1, "session"))).toBe("Session");
     expect(windowLabel(window(1, "week", "Sonnet"))).toBe("Weekly · Sonnet");
     expect(windowLabel(window(1, "month", "Premium"))).toBe("Monthly · Premium");
+    expect(windowLabel(window(1, "month", "Cursor models"))).toBe("Monthly · Cursor models");
   });
 });

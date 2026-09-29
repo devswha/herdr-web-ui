@@ -558,6 +558,8 @@ export const JA: Record<string, string> = {
   "Rebuild report": "レポートを再作成",
   "This report is too long to prefill. Copy or save it, then paste or attach it on GitHub.": "レポートが長すぎるため自動入力できません。コピーまたは保存してから、GitHub で貼り付けるか添付してください。",
   // ---- subscription usage ----
+  "Turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.": "オンにすると、サーバー PC のサインイン情報を各プロバイダーの使用量エンドポイントに送信します。",
+  "Cursor models": "Cursor のモデル",
   "Subscription usage": "サブスクリプション使用量",
   "Show plan limits": "プランの上限を表示",
   "Beside Settings: how much of each plan limit the AI tools signed in on the server's PC have used. Read with their own sign-in, which is never refreshed here.": "設定の横に、サーバー PC でサインインしている AI ツールが各プランの上限をどれだけ使ったかを表示します。各ツール自身のサインイン情報で読み取るだけで、ここでトークンを更新することはありません。",

@@ -42,6 +42,17 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(origin);
     const strip = page.locator(".usage-strip");
+    const settingsButton = page.locator(".sidebar-footer-row .sidebar-footer-action");
+    const toggle = page.getByRole("switch", { name: "Show plan limits", exact: true });
+
+    // off until chosen: nothing is shown and no sign-in is sent anywhere
+    await settingsButton.waitFor();
+    assert.equal(await strip.count(), 0);
+    assert.deepEqual(asked, [], "no usage request before the user turns it on");
+    await settingsButton.click();
+    assert.equal(await toggle.getAttribute("aria-checked"), "false");
+    await toggle.click();
+    await page.keyboard.press("Escape");
     await strip.waitFor();
 
     // three chips and "+3" past four providers, the one nearest its limit first and red
@@ -72,8 +83,8 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     assert.equal(await strip.evaluate((el) => el === document.activeElement), true, "Escape hands focus back to the strip");
 
     // turned off in Settings: gone, and no longer asked for
-    await page.locator(".sidebar-footer-row .sidebar-footer-action").click();
-    await page.getByRole("switch", { name: "Show plan limits", exact: true }).click();
+    await settingsButton.click();
+    await toggle.click();
     await strip.waitFor({ state: "detached" });
     const before = asked.length;
     await page.reload();
@@ -88,6 +99,7 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: "en-US" });
   try {
     await staged(phone);
+    await phone.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showUsage: true })));
     const page = await phone.newPage();
     await page.goto(origin);
     await page.getByRole("button", { name: "Open workspace list", exact: true }).click();

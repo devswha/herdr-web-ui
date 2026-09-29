@@ -560,6 +560,8 @@ export const ZH: Record<string, string> = {
   "Rebuild report": "重新生成报告",
   "This report is too long to prefill. Copy or save it, then paste or attach it on GitHub.": "报告过长，无法预填。请复制或保存后，在 GitHub 上粘贴或附加。",
   // ---- subscription usage ----
+  "Turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.": "开启后，会将服务器电脑上的登录信息发送到各提供商的用量端点。",
+  "Cursor models": "Cursor 模型",
   "Subscription usage": "订阅用量",
   "Show plan limits": "显示套餐限额",
   "Beside Settings: how much of each plan limit the AI tools signed in on the server's PC have used. Read with their own sign-in, which is never refreshed here.": "在设置旁显示服务器电脑上已登录的 AI 工具用掉了各套餐限额的多少。仅用各工具自己的登录信息读取，这里从不刷新令牌。",

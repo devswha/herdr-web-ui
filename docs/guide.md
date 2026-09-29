@@ -164,18 +164,18 @@ The model and reasoning effort come from what the session recorded, never from a
 
 ## Subscription usage
 
-The strip beside **Settings** shows the plan limits of the AI tools signed in on the PC the app's server runs on: for each provider its logo and the limit closest to running out (red from 80%). Tap it for every limit (5-hour session, week, month, per model where a plan has them) and when each starts over. **Settings → Subscription usage** turns it off.
+The strip beside **Settings** shows the plan limits of the AI tools signed in on the PC the app's server runs on: for each provider its logo and the limit closest to running out (red from 80%). Tap it for every limit (5-hour session, week, month, per model where a plan has them) and when each starts over. It is off until you turn it on in **Settings → Subscription usage**: turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.
 
 | Provider | Sign-in it reads |
 | --- | --- |
 | Claude | Claude Code: the macOS keychain item `Claude Code-credentials`, else `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`) |
 | Codex | `auth.json` in `CODEX_HOME`, `~/.config/codex` or `~/.codex`, else the macOS keychain item `Codex Auth` |
-| Cursor | The Cursor app's `state.vscdb`, or the `cursor-agent` CLI's macOS keychain item |
-| Copilot | `~/.config/github-copilot/apps.json` or `hosts.json`, else `gh auth token` |
+| Cursor | The Cursor app's `state.vscdb`, or the `cursor-agent` CLI's macOS keychain item. Its monthly share, and within it Cursor's own models and the rest |
+| Copilot | `~/.config/github-copilot/apps.json` or `hosts.json`, then `gh auth token`: the first that finds a plan |
 | Grok | `~/.grok/auth.json` |
 | Antigravity | The macOS keychain item Antigravity signs in with (Gemini and other-model quota) |
 
-Only providers with a sign-in are shown; a GitHub account without Copilot is left out. Where each sign-in lives and which endpoint states its limits follows [OpenUsage](https://github.com/robinebers/openusage).
+Only providers with a sign-in are shown; a GitHub account without Copilot is left out. A credential file, a command's output or a provider's answer over 1 MiB is treated as unreadable. Where each sign-in lives and which endpoint states its limits follows [OpenUsage](https://github.com/robinebers/openusage).
 
 - **Read only.** The server never refreshes a token: Claude, Codex, Cursor and Grok rotate refresh tokens, and a refresh the tool did not make would sign it out. An expired sign-in says so; using the tool once renews it.
 - **Asked only while someone looks.** Nothing runs in the background. The server asks a provider at most every five minutes, a refresh from the popover at most every 30 seconds, and a provider that answered 429 not before it said to.
