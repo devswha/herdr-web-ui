@@ -47,6 +47,11 @@ export interface SetupJob {
   challenge: SetupChallenge | null;
   installations: string[];
   error: string | null;
+  /**
+   * ssh's latest stderr lines while the connection is being made, null otherwise. Some of them
+   * ask the user to act while ssh keeps waiting (Tailscale SSH's browser check URL).
+   */
+  ssh_output: string | null;
   target: SshTarget;
   progress?: SetupProgress | null;
 }

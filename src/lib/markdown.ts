@@ -66,7 +66,7 @@ export function markdownFileTarget(href: string): string | null {
 }
 
 /** A bare URL without the punctuation that closes the sentence around it (GFM's autolink rule). */
-function trimUrl(url: string): string {
+export function trimUrl(url: string): string {
   let end = url.length;
   for (;;) {
     const last = url[end - 1];

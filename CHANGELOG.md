@@ -33,6 +33,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   transcript holds the reply to it. When the pane starts or stops working, the chat also reads
   the conversation at once instead of at the next 2 s poll, so DONE and the answer arrive
   together rather than the answer trailing by up to 2 s.
+- The Add PC dialog shows what SSH prints while it connects, under the current step, with
+  https addresses as links. A message that needs the user but does not end SSH, such as
+  Tailscale SSH's browser check URL, no longer looks like a hang. The text is the same as the
+  failure message and disappears once the connection is up.
 - When a GJC pane is matched to its transcript by the text on screen, the oldest whole
   record in each candidate's 64 KiB tail is read too. A complete record was dropped along
   with the cut first line, or in place of it when the window started exactly on a record.

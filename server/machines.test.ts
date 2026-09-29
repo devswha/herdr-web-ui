@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeProgress } from "../src/lib/bridgeProgress.ts";
 import type { SetupJob } from "../shared/machines.ts";
-import type { CompletionTracker } from "./completion.ts";
-import type { PushService } from "./push.ts";
-import { MachineManager } from "./machines.ts";
 import { paneNotificationTag } from "../shared/notify-policy.ts";
 import { machinePath, paneStorageId } from "../shared/machines.ts";
 import { canSendSecret, sameOrigin, shellQuote, validateTarget } from "./machine-security.ts";
 import { MACHINE_PROXY_PATH } from "./machine-api.ts";
+import { MachineManager } from "./machines.ts";
+import { CompletionTracker } from "./completion.ts";
+import type { PushService } from "./push.ts";
+import { recentSshOutput } from "./ssh.ts";
 
 describe("machine boundaries", () => {
   it("separates equal pane IDs while preserving historical local storage", () => {
@@ -55,7 +56,7 @@ describe("setup job labels", () => {
     const manager = new MachineManager(dir, {} as PushService, {} as CompletionTracker);
     managers.push(manager);
     const job: TestJob = {
-      public: { id: "job", machine_id: "machine", target: { destination: "pc" }, phase, step, challenge, installations: [], error: null, progress: null },
+      public: { id: "job", machine_id: "machine", target: { destination: "pc" }, phase, step, challenge, installations: [], error: null, ssh_output: null, progress: null },
       abort: new AbortController(), timer: setTimeout(() => {}, 0), stageStartedAt: Date.now(), update: false, auto: false, finished: Promise.resolve(),
     };
     clearTimeout(job.timer);
@@ -105,5 +106,48 @@ describe("setup job labels", () => {
     drive.stage(job, "installing", "Registering the app SSH key…");
     expect(manager.job("job")?.progress).toBeNull();
     expect(describeProgress(manager.job("job")?.progress)).toBeNull();
+  });
+});
+
+describe("SSH output during setup", () => {
+  const cleanups: (() => void)[] = [];
+  afterEach(() => { while (cleanups.length) cleanups.pop()!(); });
+
+  /** A PC whose ssh prints a line and then waits for the user, like Tailscale SSH's browser check. */
+  function waitingSsh(script: string): MachineManager {
+    const root = mkdtempSync(join(tmpdir(), "herdr-ssh-output-"));
+    const bin = join(root, "bin");
+    Bun.spawnSync(["mkdir", bin]);
+    writeFileSync(join(bin, "ssh"), `#!/bin/sh\n${script}\n`);
+    chmodSync(join(bin, "ssh"), 0o755);
+    const path = process.env["PATH"];
+    process.env["PATH"] = `${bin}:${path}`;
+    const manager = new MachineManager(join(root, "state"), {} as PushService, new CompletionTracker(null));
+    // stop() cancels the job, which kills the fake ssh (it `exec`s sleep, so there is no orphan)
+    cleanups.push(() => { manager.stop(); process.env["PATH"] = path; rmSync(root, { recursive: true, force: true }); });
+    return manager;
+  }
+  async function until<T>(read: () => T | undefined | null | false): Promise<T> {
+    for (let i = 0; i < 100; i += 1) { const value = read(); if (value) return value; await Bun.sleep(50); }
+    throw new Error("timed out");
+  }
+
+  it("shows what ssh printed while it is still waiting, and drops it once the setup is cancelled", async () => {
+    const manager = waitingSsh(`echo "To authenticate, visit: https://login.tailscale.com/a/check123" >&2\nexec sleep 30`);
+    const started = manager.setup({ destination: "check-pc" });
+    expect(started.ssh_output).toBeNull();
+    const job = await until(() => manager.job(started.id)?.ssh_output ? manager.job(started.id) : null);
+    expect(job.phase).toBe("connecting");
+    expect(job.ssh_output).toBe("To authenticate, visit: https://login.tailscale.com/a/check123");
+    manager.action(started.id, { action: "cancel" });
+    expect(manager.job(started.id)).toMatchObject({ phase: "cancelled", ssh_output: null });
+  });
+
+  it("keeps only the recent lines, without terminal control characters", () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+    expect(recentSshOutput(lines).split("\n")).toEqual(["line 12", "line 13", "line 14", "line 15", "line 16", "line 17", "line 18", "line 19"]);
+    expect(recentSshOutput("\x1b[31mred\x1b[0m\r\n\n  \nspinner\rdone\x07\n")).toBe("red\nspinner\ndone");
+    expect(recentSshOutput("x".repeat(5000)).length).toBe(2048);
+    expect(recentSshOutput("")).toBe("");
   });
 });

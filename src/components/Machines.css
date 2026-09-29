@@ -178,6 +178,28 @@
   overflow-wrap: anywhere;
 }
 
+/* what ssh printed while it waits: a check URL to visit, a banner; bounded, the newest lines stay */
+.machine-ssh-output {
+  max-height: 9em;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  background: var(--bg-input);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.machine-ssh-output a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+
 .machine-install-list {
   padding-left: var(--space-5);
   line-height: 1.7;
