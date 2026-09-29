@@ -22,6 +22,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Escape in a file opened from the Files dialog closes only the viewer, so the folder you
   browsed to stays open; Escape still closes the Files dialog when no file is open.
 - The Add PC dialog focuses the SSH field when it opens, not the Close button.
+- The Add PC dialog no longer shows a step that has already passed. Approving the changes or
+  answering an SSH question moves the step on in the same response, so the question's
+  heading does not linger until the next poll. Starting a bridge on a PC that had none is
+  labelled by its own step instead of "Restarting the bridge", and a step without byte
+  progress, such as registering the app SSH key after the bundle install, shows its own
+  text instead of the previous stage's label.
 - When a GJC pane is matched to its transcript by the text on screen, the oldest whole
   record in each candidate's 64 KiB tail is read too. A complete record was dropped along
   with the cut first line, or in place of it when the window started exactly on a record.

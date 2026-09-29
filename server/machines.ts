@@ -45,6 +45,11 @@ interface JobState {
 }
 const DEFAULT_SETTINGS: MachineSettings = { auto_update_bridges: true };
 
+/** The step a job shows between an approve/answer and the next stage() the setup reaches. */
+export function actionStep(action: "approve" | "answer"): string {
+  return action === "approve" ? "Installing on this PC…" : "Connecting with SSH keys and ssh-agent…";
+}
+
 async function freePort(): Promise<number> {
   const server = tcpServer();
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
@@ -225,7 +230,9 @@ export class MachineManager {
     job.public.phase = phase; job.public.step = step; job.public.challenge = null;
     // approved: from here on the install's own timeouts apply, not the setup's 10 minutes
     if (phase === "installing") clearTimeout(job.timer);
-    if (phase === "starting") this.progress(job, "restart", 0, null);
+    // byte progress belongs to the stage that reported it: a step without its own bytes (the SSH
+    // key registration after a bundle install, a first bridge start) shows its own text instead
+    job.public.progress = null;
     this.showUpdate(job);
   }
   /** A stage's bytes so far; a new stage restarts the clock its rate is measured on. */
@@ -261,7 +268,10 @@ export class MachineManager {
     } else throw new Error("Unknown setup action");
     const pending = job.pending;
     job.pending = undefined; job.public.challenge = null;
+    // the step moves with the phase right here: the response to this request is serialized
+    // before prepare resumes, and must not still carry the question that was just answered
     job.public.phase = action.action === "approve" ? "installing" : "connecting";
+    job.public.step = actionStep(action.action);
     pending.resolve(action.action === "answer" ? action.answer : "approved");
   }
   private cancelJob(id: string): void {
@@ -335,6 +345,7 @@ export class MachineManager {
       const verified = await this.verify(ssh, descriptor, expectedSocket, true);
       if (!verified.identity.managed_remote || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
       this.stage(job, "starting", "Restarting the verified remote bridge…");
+      this.progress(job, "restart", 0, null);
       await ssh.run(`kill -TERM ${descriptor.pid}`);
       await Bun.sleep(2500);
       descriptor = undefined;
