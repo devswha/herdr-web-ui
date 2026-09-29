@@ -98,8 +98,8 @@ describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary)
   });
 
   it("is not just the English repeated", () => {
-    // names and key caps read the same in every language; Chinese UIs leave "Shell" untranslated
-    const sameOnPurpose = new Set(["PC {name}", "Control C", "Shell"]);
+    // names and key caps read the same in every language; Chinese UIs leave "Shell" and "Agent" in English
+    const sameOnPurpose = new Set(["PC {name}", "Control C", "Shell", "Agent"]);
     const same = Object.entries(dictionary).filter(([en, text]) => en === text && /[a-z]{3}/i.test(en) && !sameOnPurpose.has(en));
     expect(same.map(([en]) => en)).toEqual([]);
   });

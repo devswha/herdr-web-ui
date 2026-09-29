@@ -2,8 +2,10 @@
  * Japanese for every `t("…")` in src/. The English string is the key. Grouped by where the text
  * shows; within a group, roughly in the order it appears. Register: labels and buttons as concise
  * nouns or verbs, sentences in です・ます調. Fixed terms: ペイン, ワークスペース, エージェント,
- * ターミナル, チャット, ペアリング, デバイス, セッション, 入力欄; product names (herdr, Tailscale,
- * Codex, Claude Code, GitHub) stay as they are. Placeholders in braces keep their English names.
+ * ターミナル, チャット, ペアリング, デバイス, セッション, 入力欄, キー (SSH key; 秘密鍵 for private
+ * key), デフォルト (not 既定). Product names (herdr, Tailscale, Codex, Claude Code, GitHub), GitHub
+ * labels (Star, Issue), acronyms (SSH, CLI, HTTPS, QR) and names like Markdown, Enter, Skill ツール stay
+ * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
   // ---- settings ----
@@ -32,7 +34,7 @@ export const JA: Record<string, string> = {
   "Show thinking": "思考を表示",
   "Include the agent's reasoning blocks": "エージェントの推論ブロックも表示します",
   "Chat font size": "チャットのフォントサイズ",
-  "Messages, code and prompt cards in the chat view": "チャット画面のメッセージ、コード、プロンプトカード",
+  "Messages, code and prompt cards in the chat view": "チャット画面のメッセージ、コード、質問カード",
   "Decrease chat font size": "チャットの文字を小さく",
   "Increase chat font size": "チャットの文字を大きく",
   "Shortcuts": "ショートカット",
@@ -42,10 +44,10 @@ export const JA: Record<string, string> = {
   "Installed": "インストール済み",
   "Install app": "アプリをインストール",
   "About": "情報",
-  "Star on GitHub": "GitHub でスターを付ける",
+  "Star on GitHub": "GitHub で Star する",
   "Remote PCs": "リモート PC",
   "Update PC bridges automatically": "PC ブリッジを自動更新",
-  "When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.": "アプリの更新で新しいブリッジが必要になった場合、保存済みの鍵で接続する PC はバックグラウンドで更新されます。パスワードが必要な PC では先に確認します。",
+  "When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.": "アプリの更新で新しいブリッジが必要になった場合、保存済みのキーで接続する PC はバックグラウンドで更新されます。パスワードが必要な PC では先に確認します。",
 
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "コマンドパレット",
@@ -224,16 +226,16 @@ export const JA: Record<string, string> = {
   "Filled from the SSH address": "SSH アドレスから入力されます",
   "Advanced settings": "詳細設定",
   "SSH port": "SSH ポート",
-  "From SSH config (default 22)": "SSH 設定に従う (既定値 22)",
+  "From SSH config (default 22)": "SSH 設定に従う (デフォルト 22)",
   "Private key path on this web server": "この Web サーバー上の秘密鍵のパス",
   "herdr session name": "herdr セッション名",
-  "Default session": "既定のセッション",
+  "Default session": "デフォルトのセッション",
   "Uses the web server account’s SSH config and ssh-agent. Agent CLI tools and logins use the environment on the target PC.": "Web サーバーのアカウントの SSH 設定と ssh-agent を使用します。エージェントの CLI ツールとログインは接続先 PC の環境を使用します。",
   "You can close this; the install keeps going and the sidebar shows it.": "この画面を閉じてもインストールは続行され、進行状況はサイドバーに表示されます。",
   "Installs into your home directory. Existing herdr sessions keep running.": "ホームディレクトリにインストールします。既存の herdr セッションは実行されたままです。",
   "Compare this fingerprint with the PC before accepting it.": "承認する前に、このフィンガープリントを PC 側のものと比較してください。",
   "SSH output": "SSH 出力",
-  "Password or key passphrase": "パスワードまたは鍵のパスフレーズ",
+  "Password or key passphrase": "パスワードまたはキーのパスフレーズ",
   "Open this app over HTTPS or localhost to enter a password.": "パスワードを入力するには、このアプリを HTTPS または localhost で開いてください。",
   "Continue": "続行",
   "Cancel install": "インストールをキャンセル",
@@ -481,7 +483,7 @@ export const JA: Record<string, string> = {
   "Add reply": "返信を追加",
   "Send “{reply}”": "「{reply}」を送信",
   "Show above the message box": "入力欄の上に表示",
-  "Restore defaults": "既定値に戻す",
+  "Restore defaults": "デフォルトに戻す",
   "Context {percent}% left": "コンテキスト残り {percent}%",
   "{used} of {window} tokens": "{used} / {window} トークン",
   "failed": "失敗",
