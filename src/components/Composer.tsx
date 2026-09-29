@@ -23,6 +23,7 @@ import {
   contextLeftPercent,
   formatTokens,
   imageMention,
+  insertMention,
   MAX_COMPOSER_CHARS,
   rankSlashCommands,
 } from "../lib/compose.ts";
@@ -404,16 +405,15 @@ export function Composer({
     });
   }, []);
 
-  const insertAtCursor = useCallback(
-    (snippet: string) => {
+  const insertMentionAtCursor = useCallback(
+    (mention: string) => {
       const element = textareaRef.current;
       const currentText = textRef.current;
       const selectionIsCurrent = element?.value === currentText;
       const start = selectionIsCurrent ? (element.selectionStart ?? caretRef.current) : caretRef.current;
       const end = selectionIsCurrent ? (element.selectionEnd ?? start) : start;
-      const room = Math.max(0, MAX_COMPOSER_CHARS - currentText.length + end - start);
-      const inserted = snippet.slice(0, room);
-      setTextAndCaret(currentText.slice(0, start) + inserted + currentText.slice(end), start + inserted.length);
+      const next = insertMention(currentText, start, end, mention);
+      setTextAndCaret(next.text, next.caret);
     },
     [setTextAndCaret],
   );
@@ -464,7 +464,7 @@ export function Composer({
           setAttachments((current) =>
             current.map((item) => (item.id === attachment.id ? { ...item, path, state: "ready" } : item)),
           );
-          insertAtCursor(imageMention(path));
+          insertMentionAtCursor(imageMention(path));
         } catch (error) {
           if (!mounted.current) break;
           if (removedAttachments.current.has(attachment.id)) continue;
@@ -475,7 +475,7 @@ export function Composer({
         }
       }
     },
-    [insertAtCursor, onUploadImage],
+    [insertMentionAtCursor, onUploadImage],
   );
 
   const removeAttachment = useCallback((attachment: Attachment) => {

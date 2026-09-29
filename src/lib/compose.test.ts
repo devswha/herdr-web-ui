@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerMessage, composerPayload, composerStatusWord, contextLeftPercent, formatTokens, imageMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
+import { agentDisplayLabel, composerMessage, composerPayload, composerStatusWord, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -58,6 +58,33 @@ describe("imageMention", () => {
     expect(imageMention("/tmp/proj/.herdr-web-ui/paste-1.png")).toBe(
       "@/tmp/proj/.herdr-web-ui/paste-1.png ",
     );
+  });
+});
+
+describe("insertMention", () => {
+  const mention = imageMention("/tmp/p.png");
+
+  it("separates a mention from the word before the caret (#120)", () => {
+    expect(insertMention("test.", 5, 5, mention)).toEqual({ text: "test. @/tmp/p.png ", caret: 18 });
+  });
+
+  it("adds no space in an empty composer or after whitespace", () => {
+    expect(insertMention("", 0, 0, mention)).toEqual({ text: "@/tmp/p.png ", caret: 12 });
+    expect(insertMention("test. ", 6, 6, mention).text).toBe("test. @/tmp/p.png ");
+    expect(insertMention("test.\n", 6, 6, mention).text).toBe("test.\n@/tmp/p.png ");
+  });
+
+  it("looks at the text before the selection, and replaces the selection", () => {
+    expect(insertMention("see this here", 4, 8, mention)).toEqual({ text: "see @/tmp/p.png  here", caret: 16 });
+    expect(insertMention("ab", 1, 1, mention)).toEqual({ text: "a @/tmp/p.png b", caret: 14 });
+  });
+
+  it("cuts the insertion to what still fits", () => {
+    const full = "x".repeat(MAX_COMPOSER_CHARS - 3);
+    expect(insertMention(full, full.length, full.length, mention)).toEqual({
+      text: `${full} @/`,
+      caret: MAX_COMPOSER_CHARS,
+    });
   });
 });
 
