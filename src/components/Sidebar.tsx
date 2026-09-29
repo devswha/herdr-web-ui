@@ -33,6 +33,12 @@ export function displayPaneTitle(pane: PaneInfo): string {
   return pane.label?.trim() || stripPaneChrome(paneTitle(pane), pane.agent) || pane.pane_id;
 }
 
+/** herdr could not bring this pane back after a restart (0.9.3+ `restore_error`): its reason, on hover. */
+export function RestoreErrorBadge({ reason }: { reason: string }) {
+  const t = useT();
+  return <span className="badge badge-restore-error" title={reason}>{t("NOT RESTORED")}</span>;
+}
+
 export function StatusBadge({ status }: { status?: AgentStatus }) {
   const t = useT();
   const value = knownStatus(status);
@@ -316,7 +322,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                               )}
                             </span>
                             <span className="pane-meta">
-                              <StatusBadge status={pane.agent_status} />
+                              {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge status={pane.agent_status} />}
                               <span className="pane-subtitle">{workspace.label} · {cwdBasename(pane.cwd)}</span>
                             </span>
                           </span>

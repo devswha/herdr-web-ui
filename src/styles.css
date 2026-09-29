@@ -645,6 +645,12 @@ button {
   background: var(--status-done-tint);
 }
 
+/* a pane herdr could not restore: no status to show, and nothing runs in it */
+.badge-restore-error {
+  color: var(--danger-text);
+  background: var(--danger-tint);
+}
+
 /* unknown keeps the dim text color (contrast) and is told apart by the dashed edge */
 .badge-unknown {
   color: var(--text-dim);

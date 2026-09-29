@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- A pane herdr could not restore after a restart (herdr 0.9.3+, e.g. its folder was
+  removed) is marked NOT RESTORED in the sidebar, and selecting it shows herdr's reason
+  instead of a terminal that ends at once. The server no longer tries to attach it.
 - The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
   omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.
 - Subscription usage beside Settings: the plan limits of Claude, Codex, Cursor, Copilot,

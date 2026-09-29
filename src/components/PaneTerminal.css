@@ -82,6 +82,21 @@
   height: var(--space-6);
 }
 
+.terminal-placeholder.is-restore-error {
+  padding: 0 var(--space-4);
+  text-align: center;
+}
+
+.terminal-placeholder.is-restore-error svg {
+  color: var(--status-blocked);
+}
+
+/* herdr's own words: what failed and what to do about it */
+.terminal-placeholder-detail {
+  max-width: 36rem;
+  font-size: var(--fs-sm);
+}
+
 /* the banners stack in one top-right column: any state combination (warning XOR
    review, observe alongside either) renders without collisions, and the column lets
    clicks pass through to the pty except where the review banner re-enables them */

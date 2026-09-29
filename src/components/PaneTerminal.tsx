@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { TriangleAlert } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
@@ -37,6 +38,11 @@ const RESIZE_SETTLE_MS = 120;
 export interface PaneTerminalProps {
   /** The pane this terminal attaches to; null renders the placeholder. */
   paneId: string | null;
+  /**
+   * herdr's reason it could not restore the selected pane (0.9.3+): the pane has no
+   * terminal to attach, so App passes a null paneId and the placeholder says why.
+   */
+  restoreError?: string | null;
   /** the pane's agent name — the chat lens labels the assistant's voice with it */
   agent?: string | null;
   /** the pane's live agent status: `working` turns composer sends into the queue */
@@ -82,6 +88,7 @@ function useCoarsePointer(): boolean {
 }
 export function PaneTerminal({
   paneId,
+  restoreError = null,
   agent = null,
   agentStatus,
   view,
@@ -955,7 +962,16 @@ export function PaneTerminal({
 
   return (
     <div className={`terminal-stack${chatView ? " is-chat" : ""}`}>
-      {paneId === null && (
+      {paneId === null && restoreError !== null && (
+        <div className="terminal-placeholder is-restore-error" role="status">
+          <div className="terminal-placeholder-inner">
+            <TriangleAlert aria-hidden="true" />
+            <span>{t("herdr could not restore this pane")}</span>
+            <span className="terminal-placeholder-detail">{restoreError}</span>
+          </div>
+        </div>
+      )}
+      {paneId === null && restoreError === null && (
         <div className="terminal-placeholder">
           <div className="terminal-placeholder-inner">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

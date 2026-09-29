@@ -366,6 +366,9 @@ export function createServer(
     const snapshot = await sessionSnapshot();
     const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
     if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
+    // herdr (0.9.3+) could not restore it after a restart: its terminal has no process
+    // and an attach would only die with "not found". The client shows the reason instead.
+    if (pane.restore_error) throw new HerdrError("pane_not_restored", pane.restore_error);
     const terminalId = (pane as HerdrPane & { terminal_id?: string }).terminal_id;
     if (!terminalId) throw new HerdrError("no_terminal", `pane ${paneId} has no terminal`);
     // the pane's grid as the operator's layout holds it: an observe connection must

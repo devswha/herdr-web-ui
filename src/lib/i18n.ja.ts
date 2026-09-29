@@ -383,6 +383,8 @@ export const JA: Record<string, string> = {
   // ---- terminal ----
   "Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.": "Codex がターミナルで質問を表示しています。上で回答するか、ターミナルで閉じる (alt+↓) と Codex にメッセージを送れます。",
   "The question on screen changed; check it and answer again.": "画面上の質問が変わりました。確認してもう一度回答してください。",
+  "NOT RESTORED": "復元失敗",
+  "herdr could not restore this pane": "herdr はこのペインを復元できませんでした",
   "Select a pane to open its terminal": "ターミナルを開くペインを選択してください",
   "Reconnect": "再接続",
   "input held while disconnected:": "切断中に保持された入力:",
