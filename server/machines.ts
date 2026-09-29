@@ -45,6 +45,11 @@ interface JobState {
 }
 const DEFAULT_SETTINGS: MachineSettings = { auto_update_bridges: true };
 
+/** The step a job shows between an approve/answer and the next stage() the setup reaches. */
+export function actionStep(action: "approve" | "answer"): string {
+  return action === "approve" ? "Installing on this PC…" : "Connecting with SSH keys and ssh-agent…";
+}
+
 async function freePort(): Promise<number> {
   const server = tcpServer();
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
@@ -170,7 +175,7 @@ export class MachineManager {
     const id = randomUUID();
     const machineId = existing?.machine.id ?? randomUUID();
     const auto = options.auto === true && request.update_remote === true && !!existing;
-    const job: JobState = { update: request.update_remote === true, auto, public: { id, machine_id: machineId, target, phase: "connecting", step: "Connecting with SSH keys and ssh-agent…", challenge: null, installations: [], error: null, progress: null }, abort: new AbortController(), timer: setTimeout(() => this.cancelJob(id), 600_000), stageStartedAt: Date.now(), finished: Promise.resolve() };
+    const job: JobState = { update: request.update_remote === true, auto, public: { id, machine_id: machineId, target, phase: "connecting", step: "Connecting with SSH keys and ssh-agent…", challenge: null, installations: [], error: null, ssh_output: null, progress: null }, abort: new AbortController(), timer: setTimeout(() => this.cancelJob(id), 600_000), stageStartedAt: Date.now(), finished: Promise.resolve() };
     if (job.update && existing) job.runtime = existing;
     job.timer.unref();
     this.jobs.set(id, job);
@@ -184,6 +189,8 @@ export class MachineManager {
     runtime.abort = job.abort;
     const generation = ++runtime.generation;
     this.showUpdate(job);
+    // ssh's own words reach the dialog while it waits, not only in the error it ends with
+    ssh.onOutput = (text) => { if (job.public.phase === "connecting" || job.public.phase === "authentication") job.public.ssh_output = text || null; };
     job.finished = (async () => {
       try {
         // an automatic update never asks: a PC that needs a password says so and waits
@@ -214,7 +221,7 @@ export class MachineManager {
           this.emit();
         }
       } finally {
-        clearTimeout(job.timer); job.public.challenge = null; job.pending = undefined; job.ssh = undefined;
+        clearTimeout(job.timer); job.public.challenge = null; job.public.ssh_output = null; job.pending = undefined; job.ssh = undefined;
         if (job.runtime) { job.runtime.machine.updating = null; this.emit(); }
       }
     })();
@@ -222,10 +229,12 @@ export class MachineManager {
   }
   private stage(job: JobState, phase: SetupJob["phase"], step: string): void {
     if (job.abort.signal.aborted) throw new Error("Setup cancelled");
-    job.public.phase = phase; job.public.step = step; job.public.challenge = null;
+    job.public.phase = phase; job.public.step = step; job.public.challenge = null; job.public.ssh_output = null;
     // approved: from here on the install's own timeouts apply, not the setup's 10 minutes
     if (phase === "installing") clearTimeout(job.timer);
-    if (phase === "starting") this.progress(job, "restart", 0, null);
+    // byte progress belongs to the stage that reported it: a step without its own bytes (the SSH
+    // key registration after a bundle install, a first bridge start) shows its own text instead
+    job.public.progress = null;
     this.showUpdate(job);
   }
   /** A stage's bytes so far; a new stage restarts the clock its rate is measured on. */
@@ -261,13 +270,16 @@ export class MachineManager {
     } else throw new Error("Unknown setup action");
     const pending = job.pending;
     job.pending = undefined; job.public.challenge = null;
+    // the step moves with the phase right here: the response to this request is serialized
+    // before prepare resumes, and must not still carry the question that was just answered
     job.public.phase = action.action === "approve" ? "installing" : "connecting";
+    job.public.step = actionStep(action.action);
     pending.resolve(action.action === "answer" ? action.answer : "approved");
   }
   private cancelJob(id: string): void {
     const job = this.jobs.get(id);
     if (!job || ["connected", "failed", "cancelled"].includes(job.public.phase)) return;
-    job.public.phase = "cancelled"; job.public.step = "Cancelled"; job.public.challenge = null;
+    job.public.phase = "cancelled"; job.public.step = "Cancelled"; job.public.challenge = null; job.public.ssh_output = null;
     job.abort.abort(); job.pending?.reject(new Error("Setup cancelled")); job.pending = undefined;
     job.ssh?.close(); clearTimeout(job.timer);
   }
@@ -335,6 +347,7 @@ export class MachineManager {
       const verified = await this.verify(ssh, descriptor, expectedSocket, true);
       if (!verified.identity.managed_remote || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
       this.stage(job, "starting", "Restarting the verified remote bridge…");
+      this.progress(job, "restart", 0, null);
       await ssh.run(`kill -TERM ${descriptor.pid}`);
       await Bun.sleep(2500);
       descriptor = undefined;

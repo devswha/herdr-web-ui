@@ -8,6 +8,40 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A GJC pane's chat stays on the pane's own session after GJC runs subagents. GJC points its
+  terminal breadcrumb at a subagent's transcript while the subagent runs and leaves it
+  there, so the chat switched to that subagent's conversation, and its last turn read
+  "Working…" for as long as the real session worked. A subagent's file now stands for the
+  session it belongs to.
+- Image thumbnails in a chat message keep a fixed box, so a lazy image no longer grows the
+  message by about 120 px when it loads and pushes the view off the bottom. Non-square
+  attachment tiles in the composer are cropped to fill instead of stretched.
+- A tap on a touch screen no longer leaves the hover background on the paperclip, the
+  search button and other buttons and menu rows; hover styles now apply only where a pointer
+  can hover.
+- The folder browser shows a loading row until its first listing arrives, instead of an
+  empty list. File sizes read in bytes below 1 KB ("179 B", not "1 KB"), and an empty file
+  reads "0 B", not "0 MB".
+- On a phone, a short text file in the file viewer starts at the top instead of floating in
+  the middle of the screen; images, video, audio and PDFs stay centered.
+- Escape in a file opened from the Files dialog closes only the viewer, so the folder you
+  browsed to stays open; Escape still closes the Files dialog when no file is open.
+- The Add PC dialog focuses the SSH field when it opens, not the Close button.
+- The Add PC dialog no longer shows a step that has already passed. Approving the changes or
+  answering an SSH question moves the step on in the same response, so the question's
+  heading does not linger until the next poll. Starting a bridge on a PC that had none is
+  labelled by its own step instead of "Restarting the bridge", and a step without byte
+  progress, such as registering the app SSH key after the bundle install, shows its own
+  text instead of the previous stage's label.
+- The chat no longer relabels the previous, finished turn "Working…" for a moment after you
+  send a message: the turn that was last when the message went out stays finished until the
+  transcript holds the reply to it. When the pane starts or stops working, the chat also reads
+  the conversation at once instead of at the next 2 s poll, so DONE and the answer arrive
+  together rather than the answer trailing by up to 2 s.
+- The Add PC dialog shows what SSH prints while it connects, under the current step, with
+  https addresses as links. A message that needs the user but does not end SSH, such as
+  Tailscale SSH's browser check URL, no longer looks like a hang. The text is the same as the
+  failure message and disappears once the connection is up.
 - When a GJC pane is matched to its transcript by the text on screen, the oldest whole
   record in each candidate's 64 KiB tail is read too. A complete record was dropped along
   with the cut first line, or in place of it when the window started exactly on a record.

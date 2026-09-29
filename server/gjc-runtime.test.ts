@@ -2,7 +2,7 @@ import { expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gjcBreadcrumbPath, gjcDisplayCandidates, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
+import { gjcBreadcrumbPath, gjcDisplayCandidates, gjcSessionFile, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
 
 it("reads macOS terminal/process identity without /proc", () => {
   expect(parseGjcPs("ttys003 Mon Sep 28 10:00:00 2026\n")?.id).toBe("ttys003");
@@ -13,7 +13,8 @@ it("reads macOS terminal/process identity without /proc", () => {
 it("validates breadcrumbs against process age, canonical cwd and the native session store", () => {
   const home = mkdtempSync(join(tmpdir(), "gjc-breadcrumb-"));
   try {
-    const store = join(home, ".gjc/agent/sessions");
+    // GJC's layout: one store directory per project under sessions/
+    const store = join(home, ".gjc/agent/sessions/v2-project");
     const markers = join(home, ".gjc/agent/terminal-sessions");
     mkdirSync(store, { recursive: true }); mkdirSync(markers);
     const path = join(store, "session.jsonl"), marker = join(markers, "ttys003");
@@ -28,6 +29,29 @@ it("validates breadcrumbs against process age, canonical cwd and the native sess
     writeFileSync(outside, JSON.stringify({ type: "session", cwd: home })); symlinkSync(outside, escape);
     writeFileSync(marker, `${home}\n${escape}\n`);
     expect(gjcBreadcrumbPath(home, home, "ttys003", 0)).toBeNull();
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+it("reads a breadcrumb left on a subagent's file as the session that ran it", () => {
+  const home = mkdtempSync(join(tmpdir(), "gjc-subagent-"));
+  try {
+    const root = join(home, ".gjc/agent/sessions"), store = join(root, "v2-project");
+    const markers = join(home, ".gjc/agent/terminal-sessions");
+    mkdirSync(join(store, "2026-09-29_session"), { recursive: true }); mkdirSync(markers, { recursive: true });
+    const header = JSON.stringify({ type: "session", cwd: home }) + "\n";
+    const session = join(store, "2026-09-29_session.jsonl"), subagent = join(store, "2026-09-29_session", "2-Worker.jsonl");
+    writeFileSync(session, header); writeFileSync(subagent, header);
+    writeFileSync(join(markers, "pts-3"), `${home}\n${subagent}\n`);
+    expect(gjcBreadcrumbPath(home, home, "pts-3", 0)).toBe(session);
+    expect(gjcSessionFile(root, session)).toBe(session);
+    expect(gjcSessionFile(root, subagent)).toBe(session);
+    // a subagent whose session file is gone, or any other depth, stands for nothing
+    rmSync(session);
+    expect(gjcBreadcrumbPath(home, home, "pts-3", 0)).toBeNull();
+    expect(gjcSessionFile(root, subagent)).toBeNull();
+    expect(gjcSessionFile(root, join(root, "top.jsonl"))).toBeNull();
+    expect(gjcSessionFile(root, join(store, "a", "b", "c.jsonl"))).toBeNull();
+    expect(gjcSessionFile(root, join(store, "notes.txt"))).toBeNull();
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 

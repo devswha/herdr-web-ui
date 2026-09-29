@@ -839,10 +839,11 @@
   cursor: zoom-in;
 }
 
+/* a fixed box: a lazy thumbnail must not grow the bubble (and shift the scroll) when it loads */
 .chat-user-image img {
   display: block;
-  max-width: min(9rem, 38vw);
-  max-height: 7rem;
+  width: min(9rem, 38vw);
+  height: 7rem;
   object-fit: cover;
 }
 

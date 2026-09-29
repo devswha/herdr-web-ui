@@ -57,6 +57,8 @@ export function FileViewer({ path: asked, paneId, onClose }: FileViewerProps) {
   }, [path, paneId, fetchFileInfo, fileUrl]);
 
   useEffect(() => {
+    // the FilesDialog beneath listens on window too (and stands down while this is open); this
+    // one is the topmost overlay, so it takes the key
     const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

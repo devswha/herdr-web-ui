@@ -233,6 +233,7 @@ export const KO: Record<string, string> = {
   "You can close this; the install keeps going and the sidebar shows it.": "이 창을 닫아도 설치는 계속되고 사이드바에 진행이 보입니다.",
   "Installs into your home directory. Existing herdr sessions keep running.": "홈 디렉터리에 설치합니다. 기존 herdr 세션은 계속 돕니다.",
   "Compare this fingerprint with the PC before accepting it.": "수락하기 전에 이 지문을 PC의 것과 비교하세요.",
+  "SSH output": "SSH 출력",
   "Password or key passphrase": "비밀번호 또는 키 암호",
   "Open this app over HTTPS or localhost to enter a password.": "비밀번호를 입력하려면 이 앱을 HTTPS나 localhost로 열어야 합니다.",
   "Continue": "계속",

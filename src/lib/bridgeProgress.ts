@@ -8,8 +8,9 @@ export const STAGES: ReadonlyArray<{ stage: SetupProgress["stage"]; label: strin
   { stage: "restart", label: "Restarting the bridge" },
 ];
 
+/** Sizes of bundles (MB) and of single files (a few bytes up): the unit is the largest that fits. */
 export function formatBytes(bytes: number): string {
-  if (bytes <= 0) return "0 MB";
+  if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} B`;
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${Math.round(bytes / (1024 * 1024))} MB`;
 }

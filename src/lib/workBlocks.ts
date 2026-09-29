@@ -80,7 +80,15 @@ export function formatWorkDuration(startTs: string | null, endTs: string | null)
   return t("{h}h {m}m", { h: Math.floor(minutes / 60), m: minutes % 60 });
 }
 
-/** end_ts is the latest activity time, not proof that an approval-blocked turn finished. */
-export function isLiveWorkTurn(turn: ConversationTurn, last: boolean, status?: string): boolean {
+/**
+ * end_ts is the latest activity time, not proof that an approval-blocked turn finished.
+ *
+ * `sentOver` is the assistant turn that was last when a message was sent. The pushed status turns
+ * `working` before the transcript holds the new user message, so until it does, that finished turn
+ * is still the last one and must not be titled as if it were the one running. The turn itself, not
+ * its time: a turn may have no `ts`, and the browser's clock and the transcript's need not agree.
+ */
+export function isLiveWorkTurn(turn: ConversationTurn, last: boolean, status?: string, sentOver?: ConversationTurn | null): boolean {
+  if (turn === sentOver) return false;
   return last && turn.role === "assistant" && (status === "working" || status === "blocked");
 }
