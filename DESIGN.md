@@ -329,6 +329,12 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 - Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`.
 - Composer: Enter sends. Chat: Show thinking. Shortcuts: the complete platform-resolved table.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
+- Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
+  hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--bg-elevated` header
+  with **Nearest limit first** at its right once the user has ordered, then one 38px row per account
+  (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
+  a move that cannot happen keeps its column but is not shown). A hidden account's row fades and
+  its eye closes; it stays listed so it can be shown again.
 
 ### Terminal host, key bar and drawer
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The

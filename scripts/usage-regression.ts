@@ -141,6 +141,17 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 390, "the popover stays inside the phone's screen");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     if (process.env.UI_EVIDENCE_DIR) await page.locator(".sidebar-shell").screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-popover-phone.png") });
+
+    // Settings on the phone: every account row fits its card, controls included
+    await page.keyboard.press("Escape");
+    await page.locator(".sidebar-footer-row .sidebar-footer-action").click();
+    const accounts = page.locator(".usage-accounts");
+    await accounts.scrollIntoViewIfNeeded();
+    assert.equal(await accounts.locator(".usage-accounts-row").count(), 7);
+    assert.equal(await accounts.evaluate((card) => [...card.querySelectorAll(".usage-accounts-row")].every((row) => row.scrollWidth <= row.clientWidth)), true, "each account row fits the phone");
+    if (process.env.UI_EVIDENCE_DIR) {
+      await page.locator(".settings-section", { has: page.getByRole("heading", { name: "Subscription usage", exact: true }) }).screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-settings-phone.png") });
+    }
   } finally {
     await phone.close();
   }
