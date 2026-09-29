@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UsageReport } from "../shared/protocol.ts";
-import { FRESH_MS, handleUsageRequest, MAX_READ_BYTES, MIN_REFRESH_MS, RETRY_MS, runCommand, USAGE_PROVIDERS, UsageService, type KeychainRead, type UsageContext } from "./usage.ts";
+import { FRESH_MS, handleUsageRequest, MAX_READ_BYTES, MIN_REFRESH_MS, RETRY_MS, runCommand, USAGE_PROVIDERS, UsageHttpError, UsageService, type KeychainRead, type UsageContext, type UsageProvider } from "./usage.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const HOUR = 3600_000;
@@ -232,7 +232,7 @@ describe("providers", () => {
 
   it("reads every GitHub CLI account with its own token, trying the editor's first, and skips one gh found broken", async () => {
     write(join(home, ".config", "github-copilot", "apps.json"), { "github.com:Iv1.x": { oauth_token: "gho_editor", user: "Alice" } });
-    commands.set("gh auth status --json hosts", JSON.stringify({ hosts: { "github.com": [
+    commands.set("gh auth status --hostname github.com --json hosts", JSON.stringify({ hosts: { "github.com": [
       { state: "success", login: "alice" }, { state: "success", login: "bob" }, { state: "error", login: "carol" },
     ] } }));
     commands.set("gh auth token --hostname github.com --user alice", "gho_alice");
@@ -461,5 +461,80 @@ describe("GET /api/usage", () => {
     expect(((await response.json()) as UsageReport).providers[0]!.id).toBe("codex");
     const refused = await handleUsageRequest(new Request("http://x/api/usage", { method: "POST" }), new URL("http://x/api/usage"), service);
     expect(refused.status).toBe(405);
+  });
+});
+
+describe("accounts across reads (review fixes)", () => {
+  /** a provider whose sign-ins and answers the test sets: `found` by place, `answer` by token */
+  function fake(found: () => Array<Record<string, unknown>>, answer: (token: string) => unknown): UsageProvider {
+    return {
+      id: "codex",
+      signIns: async () => found() as never,
+      read: async (_ctx, signIn) => {
+        const reply = answer(signIn.token);
+        if (reply instanceof Error) throw reply;
+        return reply as never;
+      },
+    };
+  }
+  const window = (used: number) => ({ kind: "session" as const, scope: "5h", used_percent: used, resets_at: null });
+
+  it("does not show the previous account's numbers when the same place now holds another account's failing sign-in", async () => {
+    let signIn = { source: "/home/me/.codex", token: "alice-token", expiresAt: null, account: { id: "alice", label: "alice@example.com" } };
+    const service = new UsageService(context(), [fake(() => [signIn], (token) => token === "alice-token" ? { plan: "plus", windows: [window(40)] } : new UsageHttpError(401, null))]);
+    expect((await service.report()).providers.map((u) => [u.key, u.account])).toEqual([["codex:alice", "alice@example.com"]]);
+    signIn = { source: "/home/me/.codex", token: "bob-token", expiresAt: null, account: { id: "bob", label: "bob@example.com" } };
+    now += FRESH_MS;
+    const [usage] = (await service.report(true)).providers;
+    expect(usage).toMatchObject({ key: "codex:bob", account: "bob@example.com", problem: "expired", windows: [], plan: null });
+  });
+
+  it("keeps a 429's wait for the account when its sign-in moves to another place", async () => {
+    let place = "/home/me/.codex";
+    let asked = 0;
+    const service = new UsageService(context(), [fake(() => [{ source: place, token: "t", expiresAt: null, account: { id: "acct", label: null } }], () => {
+      asked++;
+      return new UsageHttpError(429, HOUR);
+    })]);
+    expect((await service.report()).providers[0]!.problem).toBe("rate_limited");
+    place = "/home/me/.codex-work";
+    now += MIN_REFRESH_MS;
+    expect((await service.report(true)).providers[0]!.problem).toBe("rate_limited");
+    expect(asked).toBe(1);
+  });
+
+  it("numbers sign-ins of one provider that name no account, and never shows where they were found", async () => {
+    const service = new UsageService(context(), [fake(() => [
+      { source: "/home/me/.codex-a", token: "a", expiresAt: null },
+      { source: "/home/me/.codex-b", token: "b", expiresAt: null },
+    ], () => ({ plan: null, windows: [window(10)] }))]);
+    const { providers } = await service.report();
+    expect(providers.map((u) => u.account).sort()).toEqual(["#1", "#2"]);
+    expect(JSON.stringify(providers)).not.toContain("/home/me");
+  });
+
+  it("reads a GitHub CLI sign-in that comes from GH_TOKEN without a per-user lookup", async () => {
+    const status = JSON.stringify({ hosts: { "github.com": [{ state: "success", login: "alice", tokenSource: "GH_TOKEN" }] } });
+    commands.set("gh auth status --hostname github.com --json hosts", status);
+    // what a CLI without --hostname would answer too: the account path must be the one taken
+    commands.set("gh auth status --json hosts", status);
+    commands.set("gh auth token --hostname github.com", "gho_env");
+    replies.set("https://api.github.com/copilot_internal/user", { body: { login: "alice", copilot_plan: "individual", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 50 } } } });
+    const report = await new UsageService(context(), only("copilot")).report();
+    expect(report.providers.map((u) => [u.key, u.problem])).toEqual([["copilot:alice", null]]);
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("token gho_env");
+  });
+
+  it("asks each editor token of no known login on its own", async () => {
+    write(join(home, ".config", "github-copilot", "apps.json"), {
+      "github.com:Iv1.a": { oauth_token: "gho_a" }, "github.com:Iv1.b": { oauth_token: "gho_b" },
+    });
+    const service = new UsageService({ ...context(), async fetch(target, init) {
+      requests.push({ url: target, init });
+      const login = (init.headers as Record<string, string>)["authorization"] === "token gho_a" ? "alice" : "bob";
+      return new Response(JSON.stringify({ login, copilot_plan: "individual", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 50 } } }));
+    } }, only("copilot"));
+    const keys = (await service.report()).providers.map((u) => u.key).sort();
+    expect(keys).toEqual(["copilot:alice", "copilot:bob"]);
   });
 });

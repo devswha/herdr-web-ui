@@ -431,7 +431,8 @@ function copilotFileTokens(source: string | null): GitHubToken[] {
 
 /** every github.com account the GitHub CLI holds a working sign-in for; the active one alone on an older CLI */
 async function ghTokens(ctx: UsageContext): Promise<GitHubToken[]> {
-  const accounts = record(record(parseJson(await ctx.run(["gh", "auth", "status", "--json", "hosts"])))["hosts"])["github.com"];
+  // only github.com: status checks every host it lists with that host's own credentials
+  const accounts = record(record(parseJson(await ctx.run(["gh", "auth", "status", "--hostname", "github.com", "--json", "hosts"])))["hosts"])["github.com"];
   if (!Array.isArray(accounts)) {
     const token = text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com"]));
     return token ? [{ token, login: null }] : [];
@@ -441,7 +442,9 @@ async function ghTokens(ctx: UsageContext): Promise<GitHubToken[]> {
     const login = text(account["login"]);
     // gh has already found a sign-in in error (a revoked token) refused
     if (!login || account["state"] !== "success") return null;
-    const token = text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com", "--user", login]));
+    // a GH_TOKEN/GITHUB_TOKEN sign-in has no stored token: a per-user lookup finds nothing
+    const fromEnv = ["GH_TOKEN", "GITHUB_TOKEN"].includes(text(account["tokenSource"]) ?? "");
+    const token = text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com", ...(fromEnv ? [] : ["--user", login])]));
     return token ? { token, login } : null;
   }));
   return tokens.filter((token): token is GitHubToken => token !== null);
@@ -461,19 +464,21 @@ const copilot: UsageProvider = {
     const dir = join(ctx.env["XDG_CONFIG_HOME"] || join(ctx.home, ".config"), "github-copilot");
     const tokens = [...copilotFileTokens(readText(join(dir, "apps.json"))), ...copilotFileTokens(readText(join(dir, "hosts.json"))), ...await ghTokens(ctx)];
     // One sign-in per GitHub account. An editor sign-in can outlive its token by years: the same
-    // account's next token (the GitHub CLI's) is tried after it. Tokens of no known login go together.
+    // account's next token (the GitHub CLI's) is tried after it. A token of no known login is a
+    // sign-in of its own: it may be anyone's, and the first to answer would hide the others.
     const accounts = new Map<string, { login: string | null; tokens: string[] }>();
     const seen = new Set<string>();
+    let unknown = 0;
     for (const { token, login } of tokens) {
       if (seen.has(token)) continue;
       seen.add(token);
-      const id = login?.toLowerCase() ?? "";
+      const id = login?.toLowerCase() ?? `#${++unknown}`;
       const account = accounts.get(id) ?? { login, tokens: [] };
       account.tokens.push(token);
       accounts.set(id, account);
     }
     return [...accounts].map(([id, { login, tokens: [token, ...fallbacks] }]): Found => ({
-      source: id ? `github:${id}` : "github", token: token!, expiresAt: null, fallbacks, account: login ? { id, label: login } : null,
+      source: login ? `github:${id}` : `github${id}`, token: token!, expiresAt: null, fallbacks, account: login ? { id, label: login } : null,
     }));
   },
   async read(ctx, signIn) {
@@ -682,6 +687,8 @@ export class UsageService {
   private readonly searches = new Map<UsageProviderId, Search>();
   /** by provider and source */
   private readonly entries = new Map<string, Entry>();
+  /** when each account may be asked again after a 429, wherever its sign-in is found next */
+  private readonly backoffs = new Map<string, number>();
   private pending: Promise<UsageReport> | null = null;
   private pendingRefresh = false;
 
@@ -709,6 +716,13 @@ export class UsageService {
     for (const usage of usages.flat()) {
       const held = byKey.get(usage.key);
       if (!held || (held.problem !== null && usage.problem === null)) byKey.set(usage.key, usage);
+    }
+    // two sign-ins of one provider that name no account are told apart by a number, in key order
+    const unnamed = new Map<UsageProviderId, ProviderUsage[]>();
+    for (const usage of byKey.values()) if (usage.account === null) unnamed.set(usage.id, [...unnamed.get(usage.id) ?? [], usage]);
+    for (const group of unnamed.values()) {
+      if (group.length < 2) continue;
+      group.sort((a, b) => a.key.localeCompare(b.key)).forEach((usage, i) => byKey.set(usage.key, { ...usage, account: `#${i + 1}` }));
     }
     return { providers: [...byKey.values()] };
   }
@@ -740,19 +754,28 @@ export class UsageService {
 
   private async read(provider: UsageProvider, found: Found, previous: ProviderUsage | null, now: number): Promise<Entry> {
     const settle = (usage: ProviderUsage | null, wait: number): Entry => ({ usage, readAt: now, nextAt: now + wait });
-    // an account is known by its id; one the sign-in does not name, by where it was found
+    // an account is known by its id; one the sign-in does not name, by where it was found (hashed:
+    // the key reaches the browser, the credential's path must not)
     const identity = (account: Account | null | undefined) => {
       const known = account ?? found.account ?? null;
-      return { key: known ? `${provider.id}:${known.id}` : `${provider.id}@${found.source}`, account: known?.label ?? null };
+      const place = createHash("sha256").update(found.source).digest("hex").slice(0, 12);
+      return { key: known ? `${provider.id}:${known.id}` : `${provider.id}@${place}`, account: known?.label ?? null };
     };
-    // the last numbers stay, named by what went wrong since
+    // the last numbers stay, named by what went wrong since - unless the place now holds another
+    // account's sign-in: those numbers and that name were someone else's
+    const kept = previous !== null && (!found.account || previous.key === identity(null).key) ? previous : null;
     const keep = (problem: UsageProblem, plan: string | null, wait: number) => settle({
-      id: provider.id, ...(previous ? { key: previous.key, account: previous.account } : identity(null)),
-      plan: previous?.plan ?? plan, windows: previous?.windows ?? [], problem, checked_at: previous?.checked_at ?? null,
+      id: provider.id, ...(kept ? { key: kept.key, account: kept.account } : identity(null)),
+      plan: kept?.plan ?? plan, windows: kept?.windows ?? [], problem, checked_at: kept?.checked_at ?? null,
     }, wait);
     if ("locked" in found) return keep("locked", null, FRESH_MS);
     const signIn: SignIn = found;
     if (signIn.expiresAt !== null && signIn.expiresAt <= now) return keep("expired", signIn.plan ?? null, RETRY_MS);
+    // a 429 holds for the account, not the place: a sign-in moved or copied elsewhere waits too
+    const backoff = found.account ? `${provider.id}:${found.account.id}` : `${provider.id}#${createHash("sha256").update(signIn.token).digest("hex")}`;
+    const until = this.backoffs.get(backoff);
+    if (until !== undefined && now < until) return keep("rate_limited", signIn.plan ?? null, until - now);
+    this.backoffs.delete(backoff);
     try {
       const reading = await provider.read(this.ctx, signIn);
       if (reading === null) return settle(null, FRESH_MS);
@@ -761,7 +784,11 @@ export class UsageService {
       }, FRESH_MS);
     } catch (error) {
       if (error instanceof UsageHttpError && (error.status === 401 || error.status === 403)) return keep("expired", signIn.plan ?? null, RETRY_MS);
-      if (error instanceof UsageHttpError && error.status === 429) return keep("rate_limited", signIn.plan ?? null, Math.max(RETRY_MS, error.retryAfterMs ?? FRESH_MS));
+      if (error instanceof UsageHttpError && error.status === 429) {
+        const wait = Math.max(RETRY_MS, error.retryAfterMs ?? FRESH_MS);
+        this.backoffs.set(backoff, now + wait);
+        return keep("rate_limited", signIn.plan ?? null, wait);
+      }
       console.warn(`usage: ${provider.id} could not be read: ${error instanceof Error ? error.message : String(error)}`);
       return keep("failed", signIn.plan ?? null, RETRY_MS);
     }
