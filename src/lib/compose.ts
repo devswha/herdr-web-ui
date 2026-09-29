@@ -47,6 +47,25 @@ export function imageMention(path: string): string {
   return `@${path} `;
 }
 
+/**
+ * Puts a mention over the selection [start, end) as its own token: a space goes in
+ * front when the text before it does not already end in whitespace, because the chat
+ * and the agent only read `@path` after whitespace or at the start. The insertion is
+ * cut to what still fits under MAX_COMPOSER_CHARS.
+ */
+export function insertMention(
+  text: string,
+  start: number,
+  end: number,
+  mention: string,
+): { text: string; caret: number } {
+  const before = text.slice(0, start);
+  const snippet = before.length > 0 && !/\s$/u.test(before) ? ` ${mention}` : mention;
+  const room = Math.max(0, MAX_COMPOSER_CHARS - text.length + end - start);
+  const inserted = snippet.slice(0, room);
+  return { text: before + inserted + text.slice(end), caret: start + inserted.length };
+}
+
 /** Ready states affect the held-message hint only; sending always requires a user action. */
 export const QUEUE_READY_STATUS: Readonly<Partial<Record<string, true>>> = { done: true, idle: true };
 

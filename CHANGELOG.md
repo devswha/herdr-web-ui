@@ -11,6 +11,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - In Safari and other WebKit browsers, the Enter that commits an IME candidate (Korean,
   Japanese, Chinese) no longer sends the chat message or the touch terminal's input line.
   WebKit delivers it after composition ends, as key code 229.
+- An image attached after typed text gets its own `@path` token: a space goes in front
+  of the mention when the text before the caret does not end in whitespace, so the
+  chat shows its thumbnail and the agent reads the path.
 
 ## [0.3.29] - 2026-09-28
 
