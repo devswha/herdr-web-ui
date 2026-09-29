@@ -22,6 +22,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   install line, a strip of figures, and five numbered rows for what the app does. It is built
   from the README's own media: its top video, with a tab that swaps it for the demo app, its
   four feature clips, and the installer screenshot.
+- The one-line installer installs the latest release instead of `main`, so a new install
+  runs the same version as existing ones and never picks up changes merged since.
+  `HERDR_WEB_UI_REF` still picks another branch or tag.
 
 ## [0.3.33] - 2026-09-29
 

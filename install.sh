@@ -12,7 +12,7 @@
 #    free HTTPS port) and prints the address a phone opens as a QR code (scripts/plugin.ts phone).
 #
 # Run it again at any time: what is already there is kept, and step 3 is repeated.
-#   HERDR_WEB_UI_REF=<branch or tag>   install that ref instead of the default branch
+#   HERDR_WEB_UI_REF=<branch or tag>   install that ref instead of the latest release
 set -eu
 
 REPO="devswha/herdr-web-ui"
@@ -28,6 +28,13 @@ say() { printf '%s\n' "herdr web ui: $*"; }
 link() { if [ "$terminal" = 1 ]; then printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$1" "$1"; else printf '%s' "$1"; fi; }
 fail() { printf '%s\n' "herdr web ui: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "needs '$1', which is not installed. Install it and run this again."; }
+# The highest vX.Y.Z tag, as the updater picks it: a new install gets what existing ones run,
+# never the commits merged to main since the last release.
+latest_release() {
+  git ls-remote --tags --refs "https://github.com/$REPO.git" 'v*' 2>/dev/null |
+    sed -n 's|.*refs/tags/\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p' |
+    sort -t. -k1.2,1n -k2,2n -k3,3n | tail -n 1
+}
 # at_least 1.4.0 1.10.2: is the second dotted version the first or newer
 at_least() {
   awk -v want="$1" -v have="$2" 'BEGIN { split(want, w, "."); split(have, h, ".");
@@ -140,10 +147,13 @@ main() {
   if herdr plugin list 2>/dev/null | grep -q "$PLUGIN "; then
     say "already installed as a herdr plugin; Settings → Updates keeps it current"
   else
-    say "installing the herdr plugin (herdr clones and builds it: about a minute)"
+    need git
+    ref=${HERDR_WEB_UI_REF:-$(latest_release)}
+    [ -n "$ref" ] || fail "could not look up the latest release on github.com. Check the connection and run this again."
+    say "installing the herdr plugin at $ref (herdr clones and builds it: about a minute)"
     # herdr previews the whole manifest first; on success its last word is enough, on failure all of it
     log=$(mktemp)
-    if herdr plugin install "$REPO" ${HERDR_WEB_UI_REF:+--ref "$HERDR_WEB_UI_REF"} --yes </dev/null >"$log" 2>&1; then
+    if herdr plugin install "$REPO" --ref "$ref" --yes </dev/null >"$log" 2>&1; then
       grep '^Installed ' "$log" || true
       rm -f "$log"
       new_install=1
