@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - run: bun install --frozen-lockfile
@@ -47,11 +47,11 @@ jobs:
       XDG_CONFIG_HOME: ${{ github.workspace }}/.ci-config
       HERDR_WEB_STATE_DIR: ${{ github.workspace }}/.ci-state
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Install checksum-pinned herdr 0.9.1
@@ -82,7 +82,7 @@ jobs:
           fi
       - name: Preserve failure logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: herdr-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci-config/herdr/sessions/*/test-server.log

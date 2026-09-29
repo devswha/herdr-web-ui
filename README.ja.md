@@ -115,7 +115,7 @@ herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を�
 
 ## エージェント向けの手順
 
-アプリのインストールを支援する場合は、[INSTALL.md](INSTALL.md) に従ってください。リポジトリを変更する場合は、ローカルの `AGENTS.md` があればその指示と、リポジトリ内の[レビュールール](.github/REVIEW.md)に従ってください。
+アプリのインストールを支援する場合は、[INSTALL.md](INSTALL.md) に従ってください。リポジトリを変更する場合は、[CONTRIBUTING.md](CONTRIBUTING.md) とリポジトリ内の[レビュールール](.github/REVIEW.md)に従い、ローカルの `AGENTS.md` があればその指示にも従ってください。
 
 <a id="development"></a>
 
@@ -137,7 +137,7 @@ bun test           # isolated herdr test session
 bun run test:ui    # browser regression checks
 ```
 
-テスト、メディア素材、リリースについては[開発ドキュメント](docs/development.md)、UI の規約については [DESIGN.md](DESIGN.md) を参照してください。
+変更の送り方は [CONTRIBUTING.md](CONTRIBUTING.md)、テスト、メディア素材、リリースについては[開発ドキュメント](docs/development.md)、UI の規約については [DESIGN.md](DESIGN.md) を参照してください。セキュリティの問題は [SECURITY.md](SECURITY.md) の手順で非公開で報告してください。
 
 <a id="license"></a>
 

@@ -17,6 +17,7 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 ```bash
 bun run typecheck
 bun run build
+bun run test:unit               # no herdr needed; CI's Fast checks run it
 bun test                        # needs herdr installed; creates and removes its own workspaces
 bun run test:ui                 # browser regression against isolated test servers
 bun scripts/chat-browser-qa.ts  # chat lens end to end
@@ -130,6 +131,8 @@ verify that tag's commit and repair its GitHub release rather than moving the ta
 Remote-PC runtime bundles are released separately: raise `REMOTE_BUNDLE_VERSION` in `shared/machines.ts` and push a `remote-vN` tag. See [remote PCs](remote-pcs.md).
 
 ## Pull requests and CI
+
+Contributors: [CONTRIBUTING.md](../CONTRIBUTING.md) is the short version of this section.
 
 Use short-lived `feat/*`, `fix/*` or `chore/*` branches from `main`. Keep each PR focused
 on one change, squash merge it after required checks pass, and delete its remote branch
