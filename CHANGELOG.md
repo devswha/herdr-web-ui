@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Subscription usage beside Settings: the plan limits of Claude, Codex, Cursor, Copilot,
+  Grok and Antigravity, read with the sign-in each tool keeps on the server's PC, which is
+  never refreshed. Each provider shows its limit closest to running out, red from 80%; a
+  tap lists every limit with its reset time. `GET /api/usage`; Settings turns it off.
+  Sign-in locations and endpoints follow OpenUsage.
 - The desktop terminal selects with a plain drag and copies on release, like the herdr
   TUI; Ctrl+C copies a selection instead of interrupting the pane.
 - A selecting drag can outlive one screen: the wheel, or dragging past the top or bottom

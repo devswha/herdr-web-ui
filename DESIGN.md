@@ -243,7 +243,18 @@ Comfortable values are `:root`; the final column is the complete compact overrid
   nothing more; every other state is written under the name, with the server's error clamped to
   two lines and complete in the tooltip.
 - Single-pane workspaces merge their workspace handle into the pane row.
-- Footer holds the contextual **Install app** action, Settings, product name and herdr version.
+- Footer holds the contextual **Install app** action, Settings with the plan meters beside it,
+  product name and herdr version.
+
+### Plan meters (`.usage*`)
+- Beside Settings, one button holding up to four chips (three and `+N` past that): provider mark,
+  mono `--fs-2xs` percent of the limit closest to running out, and a 2px bar on a
+  `--border-strong` track. From 80% the percent and bar take `--status-blocked`; amber stays
+  chrome. A chip whose numbers are stale or missing dims.
+- The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
+  footer and scrolling past the sidebar's top bar: per provider its mark, name and plan pill,
+  then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
+  note is dim, red for an expired sign-in or a failed request.
 
 ### New session dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to

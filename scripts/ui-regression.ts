@@ -13,6 +13,8 @@ import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkNeedsInput } from "./needs-input-regression.ts";
 import { checkSecretInput } from "./secret-input-regression.ts";
 import { checkTerminalCopy } from "./terminal-copy-regression.ts";
+import { checkUsageMeters } from "./usage-regression.ts";
+import { UsageService } from "../server/usage.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-"));
 const workspaces: string[] = [];
@@ -43,7 +45,8 @@ try {
     panes.push(result.root_pane.pane_id);
   }
   const [paneA, paneB] = panes as [string, string];
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push") });
+  // no provider is asked with the test machine's own sign-ins
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), usage: new UsageService(undefined, []) });
   const origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
@@ -167,6 +170,7 @@ try {
   await checkNeedsInput(browser, origin, paneA);
   await checkSecretInput(browser, origin);
   await checkTerminalCopy(browser, origin);
+  await checkUsageMeters(browser, origin);
 
   const report = (state: string) => herdrRpc("pane.report_agent", {
     pane_id: paneA, source: "manual", agent: "claude", state,

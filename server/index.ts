@@ -49,6 +49,7 @@ import { PtySession } from "./pty/session.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
+import { handleUsageRequest, UsageService } from "./usage.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
@@ -187,6 +188,8 @@ export function createServer(
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
     updates?: UpdateService;
+    /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
+    usage?: UsageService;
     machines?: boolean;
     registerBridge?: boolean;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
@@ -213,6 +216,7 @@ export function createServer(
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
+  const usage = options.usage ?? new UsageService();
   const ownerOf = options.tailscaleOwner !== undefined ? () => options.tailscaleOwner ?? null : tailscaleOwner;
   ownerOf();
 
@@ -652,6 +656,8 @@ export function createServer(
       if (pathname === "/api/updates" || pathname.startsWith("/api/updates/")) {
         return handleUpdateRequest(request, pathname, options.updates);
       }
+
+      if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
