@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { phaseRows, taskRows, todoRows } from "./checklist.ts";
+import { phaseRows, planRows, taskRows, todoRows } from "./checklist.ts";
 
 describe("phaseRows", () => {
   test("a phased plan becomes headings followed by their items", () => {
@@ -47,6 +47,28 @@ describe("todoRows", () => {
 
   test("entries without a string content are skipped", () => {
     expect(todoRows([{ status: "completed" }, { content: 42 }, null, { content: "kept" }])).toEqual([
+      { label: "kept", done: false, active: false },
+    ]);
+  });
+});
+
+describe("planRows", () => {
+  test("a Codex plan's steps keep their done and in-flight state", () => {
+    expect(
+      planRows([
+        { step: "Read the parser", status: "completed" },
+        { step: "Add the fallback", status: "in_progress" },
+        { step: "Run tests", status: "pending" },
+      ]),
+    ).toEqual([
+      { label: "Read the parser", done: true, active: false },
+      { label: "Add the fallback", done: false, active: true },
+      { label: "Run tests", done: false, active: false },
+    ]);
+  });
+
+  test("entries without a string step are skipped", () => {
+    expect(planRows([{ status: "completed" }, { step: 7 }, null, "loose", { step: "kept" }])).toEqual([
       { label: "kept", done: false, active: false },
     ]);
   });

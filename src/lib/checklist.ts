@@ -1,9 +1,11 @@
 /**
- * Agent checklist payloads -> uniform rows. Three tools carry a plan in three
+ * Agent checklist payloads -> uniform rows. Four tools carry a plan in four
  * different shapes and the chat lens draws them all the same way:
  * - omp `todo` init: `list: [{ phase, items: [...] }]`, phases become headings;
  * - Claude Code `TodoWrite`: `todos: [{ content, status }]`, where `status`
  *   distinguishes the done rows from the one in flight;
+ * - Codex `update_plan`: `plan: [{ step, status }]`, the same statuses; its
+ *   answer is only "Plan updated", so the input is the only list there is;
  * - `task`/`Task` fan-outs: `tasks: [...]`, named or anonymous.
  * The input is `unknown` on purpose: these are provider transcripts, not our own
  * wire types, so every field is narrowed and a malformed entry is skipped rather
@@ -41,6 +43,17 @@ export function todoRows(todos: unknown[]): ChecklistRow[] {
     if (!("content" in todo) || typeof todo.content !== "string") continue;
     const status = "status" in todo ? todo.status : undefined;
     rows.push({ label: todo.content, done: status === "completed", active: status === "in_progress" });
+  }
+  return rows;
+}
+
+export function planRows(plan: unknown[]): ChecklistRow[] {
+  const rows: ChecklistRow[] = [];
+  for (const entry of plan) {
+    if (typeof entry !== "object" || entry === null) continue;
+    if (!("step" in entry) || typeof entry.step !== "string") continue;
+    const status = "status" in entry ? entry.status : undefined;
+    rows.push({ label: entry.step, done: status === "completed", active: status === "in_progress" });
   }
   return rows;
 }
