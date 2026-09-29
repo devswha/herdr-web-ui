@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
-import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { isOmoProcess, omoTranscriptForPane, startOmo } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-omo-binding-"));
@@ -49,6 +49,20 @@ it("uses live process evidence and stops cwd inference as soon as a second omo s
   expect(await read(duplicate)).toBeNull();
 });
 
+it("starts omo through the pane's shell and waits until omo is its foreground process", async () => {
+  const shell = async () => {
+    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-omo-start" });
+    workspaces.push(created.workspace.workspace_id);
+    return created.root_pane.pane_id;
+  };
+  const started = await shell();
+  await startOmo(started, ["it's one arg"], { command: `${process.execPath} ${script}` });
+  const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: started });
+  expect(info.process_info?.foreground_processes?.find((process) => isOmoProcess(process.argv ?? []))?.argv?.slice(-1)).toEqual(["it's one arg"]);
+  // a command that never becomes omo fails at the deadline instead of reporting a start
+  await expect(startOmo(await shell(), [], { command: "true", timeoutMs: 1500 })).rejects.toThrow("omo did not start");
+});
+
 it("binds each omo pane in a shared cwd to the session its process holds", async () => {
   // omo keeps no descriptor on its session file; it publishes a holder record instead
   const hold = async (paneId: string, id: string) => {
@@ -80,7 +94,6 @@ it("binds each omo pane in a shared cwd to the session its process holds", async
     entry.pane_id === reportedBefore ? { ...entry, agent_session: { agent: "omo", kind: "path", source: "herdr:omo", value: reported } } : entry);
   expect(await omoTranscriptForPane(reportedBefore, root, panes, root)).toBe(heldSinceReport);
 });
-
 it("ignores the background task logs omo holds open outside its session store", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "herdr-omo-task-log-"));
   const store = join(cwd, ".omo", "agent", "sessions", `-${cwd.replaceAll("/", "-")}--`);

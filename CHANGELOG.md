@@ -8,14 +8,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
+  omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.
 - Subscription usage beside Settings: the plan limits of Claude, Codex, Cursor, Copilot,
   Grok and Antigravity, read with the sign-in each tool keeps on the server's PC, which is
   never refreshed. Each account shows its limit closest to running out, red from 80%; a
   tap lists every limit with its reset time. Two accounts of one provider (a second
   `~/.codex-*` or `~/.claude-*`, several GitHub CLI or Grok sign-ins) are listed apart,
   named by their email or login. Settings orders the accounts, hides any, and counts what
-  is used or what is left. Off until turned on
-  in Settings, since it sends the PC's sign-ins to each provider. `GET /api/usage`.
+  is used or what is left. Off until turned on in Settings, since it sends the PC's
+  sign-ins to each provider. `GET /api/usage`.
   Sign-in locations and endpoints follow OpenUsage.
 
 ### Changed
@@ -35,6 +37,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   first launch after upgrading from 0.3.31 or older still got the old, rotating web
   manifest from the previous service worker's cache, and Chrome checks the installed app
   against it at most once a day.
+
 ## [0.3.32] - 2026-09-29
 
 ### Added

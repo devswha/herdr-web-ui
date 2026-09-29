@@ -18,6 +18,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
+import { startOmo } from "./omo.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile } from "./file-view.ts";
 import {
@@ -98,6 +99,7 @@ const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   omp: "Oh My Pi",
+  omo: "OmO",
   pi: "pi",
   gemini: "Gemini CLI",
   cursor: "Cursor",
@@ -701,6 +703,8 @@ export function createServer(
           const kinds = new Set((await agentManifests()).manifests.map((manifest) => manifest.agent));
           kinds.add("omp");
           kinds.add("claude");
+          // not a herdr kind: offered where this server can run it (see startOmo)
+          if (Bun.which("omo")) kinds.add("omo");
           const agents: AgentKind[] = [...kinds]
             .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
@@ -765,7 +769,8 @@ export function createServer(
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: false });
           }
           try {
-            await agentStart({
+            if (payload.agent.kind === "omo") await startOmo(created.root_pane.pane_id, payload.agent.args as string[] | undefined);
+            else await agentStart({
               name: typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : payload.agent.kind as string,
               kind: payload.agent.kind as string,
               paneId: created.root_pane.pane_id,

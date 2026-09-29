@@ -73,6 +73,10 @@
       "label": "Oh My Pi"
     },
     {
+      "kind": "omo",
+      "label": "OmO"
+    },
+    {
       "kind": "opencode",
       "label": "OpenCode"
     },
