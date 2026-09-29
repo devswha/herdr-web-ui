@@ -367,11 +367,23 @@ it("keeps a subscription made through the open LAN only while the LAN stays open
 });
 
 describe("push resync after lost status events", () => {
+  it("calls off the waiting alert of a pane that closed while events were lost", async () => {
+    const push = createPushService({ stateDir, timing: { short: 50, long: 50, longTurn: 0 } });
+    push.subscribe(fake.subscription);
+    push.seed([pane("w1:p1", "working", "gone"), pane("w1:p2", "working", "kept"), pane("w1:p3", "working", "new")]);
+    await push.onStatus("w1:p1", "blocked");
+    await push.onStatus("w1:p3", "blocked");
+    // p1 is gone; p3 is missing from the snapshot too, but was heard of since it was asked for
+    push.resync([pane("w1:p2", "working", "kept")], new Set(["w1:p3"]));
+    await push.settled();
+    expect(fake.received.map((r) => r.payload.title)).toEqual(["new"]);
+  });
+
   it("takes a clean pane's snapshot status as its baseline and announces nothing", async () => {
     const push = subscribed();
     push.seed([pane("w1:p1", "working", "claude")]);
     // it finished and started over while events were lost
-    push.resync([pane("w1:p1", "blocked", "claude")], new Set(["w1:p1"]));
+    push.resync([pane("w1:p1", "blocked", "claude")], new Set());
     await push.settled();
     expect(fake.received).toHaveLength(0);
     // measured against the resynced baseline: blocked -> blocked is no change
@@ -386,7 +398,7 @@ describe("push resync after lost status events", () => {
     push.subscribe(fake.subscription);
     push.seed([pane("w1:p1", "working", "claude")]);
     await push.onStatus("w1:p1", "blocked");
-    push.resync([pane("w1:p1", "idle", "claude")], new Set(["w1:p1"]));
+    push.resync([pane("w1:p1", "idle", "claude")], new Set());
     await push.settled();
     expect(fake.received).toHaveLength(0);
   });
@@ -396,7 +408,7 @@ describe("push resync after lost status events", () => {
     push.seed([pane("w1:p1", "working", "a"), pane("w1:p2", "working", "b")]);
     await push.onStatus("w1:p2", "done");
     const sent = fake.received.length;
-    push.resync([pane("w1:p1", "idle", "a"), pane("w1:p2", "idle", "b")], new Set(["w1:p2"]));
+    push.resync([pane("w1:p1", "idle", "a"), pane("w1:p2", "idle", "b")], new Set(["w1:p1"]));
     // p1 was not clean: still working, so its finish is news
     await push.onStatus("w1:p1", "done");
     expect(fake.received.length).toBe(sent + 1);

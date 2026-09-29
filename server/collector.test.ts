@@ -131,14 +131,14 @@ const statusFrame = (pane_id: string, agent_status: string): EventFrame => ({ ev
 function recorder() {
   const log = {
     baselines: 0,
-    resyncs: [] as { panes: string[]; clean: string[] }[],
+    resyncs: [] as { panes: string[]; newer: string[] }[],
     structure: 0,
     statuses: [] as string[],
   };
   const handlers: StatusCollectorHandlers = {
     onStatus: (paneId, status) => log.statuses.push(`${paneId}:${status}`),
     onBaseline: () => { log.baselines += 1; },
-    onResync: (panes, clean) => log.resyncs.push({ panes: panes.map((p) => p.pane_id), clean: [...clean].sort() }),
+    onResync: (panes, newer) => log.resyncs.push({ panes: panes.map((p) => p.pane_id), newer: [...newer].sort() }),
     onPaneEnded: () => {},
     onStructureChange: () => { log.structure += 1; },
     onFocus: () => {},
@@ -180,7 +180,7 @@ describe("startStatusCollector recovery", () => {
     reopened.start();
     await tick();
     expect(herdr.snapshotCalls()).toBe(before + 1);
-    expect(log.resyncs).toEqual([{ panes: ["w1:p1", "w1:p2"], clean: ["w1:p1", "w1:p2"] }]);
+    expect(log.resyncs).toEqual([{ panes: ["w1:p1", "w1:p2"], newer: [] }]);
     expect(log.structure).toBe(1);
     collector.stop();
   });
@@ -202,7 +202,7 @@ describe("startStatusCollector recovery", () => {
     herdr.answerAll();
     await tick();
     expect(log.statuses).toEqual(["w1:p2:idle"]);
-    expect(log.resyncs).toEqual([{ panes: ["w1:p1", "w1:p2"], clean: ["w1:p1"] }]);
+    expect(log.resyncs).toEqual([{ panes: ["w1:p1", "w1:p2"], newer: ["w1:p2"] }]);
     collector.stop();
   });
 
@@ -251,6 +251,52 @@ describe("startStatusCollector recovery", () => {
     while (herdr.lifecycles().length === count) await tick(1);
     // back to the first delay once one started
     expect(Date.now() - dropped).toBeLessThan(100);
+    collector.stop();
+  });
+
+  it("does not let a snapshot asked for a subscription that closed meanwhile end the recovery", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.status()!.start();
+    await tick();
+    herdr.status()!.drop();
+    await tick();
+    herdr.hold();
+    const second = herdr.status()!;
+    second.start();
+    await tick();
+    // the snapshot for `second` is on its way when `second` is lost too
+    second.drop();
+    await tick();
+    herdr.setPanes([paneOf("w1:p1", "idle")]);
+    herdr.answerAll();
+    await tick(10);
+    expect(log.resyncs).toEqual([]);
+    const third = herdr.status()!;
+    expect(third).not.toBe(second);
+    third.start();
+    // answer whatever is asked, including the reconcile queued behind an earlier one
+    for (let i = 0; i < 4; i++) { await tick(5); herdr.answerAll(); }
+    await tick(10);
+    expect(log.resyncs).toEqual([{ panes: ["w1:p1"], newer: [] }]);
+    collector.stop();
+  });
+
+  it("reconciles when a lifecycle retry starts although the first attempt never did", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "idle")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+    herdr.lifecycle().drop("connect_failed");
+    await tick(10);
+    const calls = herdr.snapshotCalls();
+    herdr.lifecycle().start();
+    await tick();
+    expect(log.structure).toBe(1);
+    expect(herdr.snapshotCalls()).toBeGreaterThan(calls);
     collector.stop();
   });
 

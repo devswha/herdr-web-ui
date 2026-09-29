@@ -45,9 +45,9 @@ export interface StatusCollectorHandlers {
   /**
    * Status events were lost (the status connection closed under us, e.g. herdr's
    * `events_lost`): this snapshot, taken after the new subscription started, is the
-   * truth for the `clean` panes, those with no event since it was asked for.
+   * truth for every pane but the `newer` ones, which had an event since it was asked for.
    */
-  onResync?: (panes: readonly HerdrPane[], clean: ReadonlySet<string>) => void;
+  onResync?: (panes: readonly HerdrPane[], newer: ReadonlySet<string>) => void;
   onPaneEnded: (paneId: string) => void;
   onStructureChange: () => void;
   /** herdr's focus moved onto this pane: whoever is at its terminal has it in front */
@@ -115,7 +115,8 @@ export function parseStructureFrame(frame: EventFrame): StructureEvent | null {
  * A subscription that reopens itself when herdr closes it: at once, then backing off
  * while it keeps closing before it starts (herdr restarting). herdr closes a subscriber
  * that fell behind (`events_lost`, 0.9.2+) as well, and events sent meanwhile are gone:
- * `onRestart` runs on every start but the first, once the new one is live.
+ * `onRestart` runs once a connection opened after the first attempt is live, including
+ * when the first never started (events since the caller's snapshot may be missed).
  */
 function resilientSubscription(
   deps: StatusCollectorDeps,
@@ -127,17 +128,18 @@ function resilientSubscription(
   let subscription: Subscription | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let delay = deps.reconnectMinMs;
-  let everStarted = false;
+  let attempted = false;
 
   const open = (): void => {
     retryTimer = null;
     if (isStopped()) return;
+    const retry = attempted;
+    attempted = true;
     subscription = deps.subscribe(subscriptions, {
       onEvent,
       onStarted: () => {
         delay = deps.reconnectMinMs;
-        if (everStarted) onRestart();
-        everStarted = true;
+        if (retry) onRestart();
       },
       onError: logSubscriptionError,
       onClose: () => {
@@ -179,10 +181,12 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
   let backstopTimer: ReturnType<typeof setInterval> | null = null;
   let lifecycleSubscription: { close: () => void } | null = null;
   let focusSubscription: { close: () => void } | null = null;
-  /** status events were lost: the next snapshot after the new subscription starts resyncs */
+  /** status events were lost: the next snapshot after a new subscription starts resyncs */
   let recovering = false;
-  /** set once that subscription started: the next reconcile's snapshot is the resync */
-  let resyncDue = false;
+  /** each status subscription's number: a resync counts only for the one still open */
+  let statusGeneration = 0;
+  /** the subscription that started while recovering: the next reconcile's snapshot resyncs */
+  let resyncFor: number | null = null;
   /** counts status events; each pane keeps the count of its latest */
   let statusEvents = 0;
   const lastEventOf = new Map<string, number>();
@@ -202,6 +206,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
   function openStatusSubscription(paneIds: readonly string[]): void {
     if (stopped || paneIds.length === 0) return;
     subscribedPaneIds = new Set(paneIds);
+    const generation = ++statusGeneration;
     const subscription = deps.subscribe(
       paneIds.map((paneId) => ({ type: "pane.agent_status_changed", pane_id: paneId })),
       {
@@ -215,7 +220,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         // that chose these panes came before: one more closes the gap it leaves.
         onStarted: () => {
           if (statusSubscription !== subscription) return;
-          if (recovering) resyncDue = true;
+          if (recovering) resyncFor = generation;
           void reconcile();
         },
         onError: logSubscriptionError,
@@ -243,29 +248,32 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       return;
     }
     reconciling = true;
-    const resync = resyncDue;
-    resyncDue = false;
+    const resync = resyncFor;
+    resyncFor = null;
     const askedAt = statusEvents;
     try {
       const snapshot = await deps.snapshot();
       if (stopped) return;
       handlers.onBaseline(snapshot.panes);
-      if (resync) {
+      // a snapshot asked for a subscription that closed meanwhile may predate what the next
+      // one misses: recovery waits for that one's own snapshot
+      if (resync !== null && resync === statusGeneration && statusSubscription !== null) {
         recovering = false;
-        const clean = new Set(snapshot.panes.filter((pane) => (lastEventOf.get(pane.pane_id) ?? 0) <= askedAt).map((pane) => pane.pane_id));
-        handlers.onResync?.(snapshot.panes, clean);
+        const newer = new Set([...lastEventOf].filter(([, seq]) => seq > askedAt).map(([paneId]) => paneId));
+        handlers.onResync?.(snapshot.panes, newer);
         // clients learn statuses from events, and some were lost: they fetch again
         handlers.onStructureChange();
       }
       const paneIds = snapshot.panes.map((pane) => pane.pane_id);
-      for (const paneId of lastEventOf.keys()) if (!paneIds.includes(paneId)) lastEventOf.delete(paneId);
+      // gone before this snapshot; a pane heard of since may be too new for it
+      for (const [paneId, seq] of lastEventOf) if (seq <= askedAt && !paneIds.includes(paneId)) lastEventOf.delete(paneId);
       const sameSet =
         paneIds.length === subscribedPaneIds.size && paneIds.every((id) => subscribedPaneIds.has(id));
       if (sameSet) return;
       closeStatusSubscription();
       openStatusSubscription(paneIds);
     } catch {
-      if (resync) resyncDue = true;
+      if (resync !== null && resyncFor === null) resyncFor = resync;
       /* herdr unreachable or slow: retry shortly instead of waiting for the backstop */
       if (!stopped && reconcileTimer === null) {
         reconcileTimer = setTimeout(() => {
