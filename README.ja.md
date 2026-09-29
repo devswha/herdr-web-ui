@@ -34,14 +34,40 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 [herdr](https://github.com/herdrdev/herdr) のブラウザ・スマートフォン向けクライアントです。すでに実行中のセッションを開き、エージェントの作業を確認して、どこからでも返答できます。
 
-- **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc のネイティブな会話履歴を表示します。コマンド、編集内容、ToDo ツールの計画はターンごとに折りたたまれます。ライブターミナルに切り替えれば、全画面の TUI、直接のキー入力、herdr のスクロールバックも使えます。[対応エージェント →](docs/guide.md#supported-agents)
-- **タップで承認** — 対応エージェントの承認リクエスト、質問、計画メニューをチャット内のカードとして表示します。選択肢を選ぶと、その問いかけがまだ有効か確認してから回答を送信します。
-- **外出先からもエージェントを操作** — スマートフォンに PWA をインストールして、タッチでスクロール。キーボードの上にある Esc、Tab、Ctrl、矢印キーも使えます。Settings（設定）には Tailscale のアドレスが QR コードで表示されます。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
-- **対応が必要なときに通知** — すべてのペインの状態をリアルタイムに表示します。エージェントが入力を求めたとき、作業を完了したとき、ターミナルが終了したときには、アプリを閉じていてもプッシュ通知が届きます。
-- **すべての PC を、ひとつのサイドバーに** — SSH 経由で Linux や macOS のマシンを追加できます。リモートのワークスペース、チャット、ファイル、ターミナルが、ローカルのセッションと並んで表示されます。[リモート PC →](docs/remote-pcs.md)
-- **必要な情報を送り、結果を開く** — スラッシュコマンド、ファイルへのメンション、画像やファイルの添付、クイック返信に対応しています。エージェントの作業中には複数のメッセージを送信待ちキューに保存でき、生成されたファイルはプレビューやダウンロードが可能です。[すべての機能 →](docs/guide.md#features)
-- **いつもの作業環境をそのままに** — エージェントとターミナルは herdr が管理し、このアプリはそこに接続します。TUI とブラウザを同時に利用でき、ローカルアクセス、デバイスのペアリング、共有トークンに対応しています。[アクセスと安全性 →](docs/guide.md#access-and-safety)
-- **エージェントを止めずにアップデート** — Settings（設定）から新しいリリースをインストールできます。ヘルスチェックとロールバックにも対応しています。`HERDR_WEB_AUTO_UPDATE=1` を設定すると、自動インストールを有効にできます。[アップデート →](docs/guide.md#updates)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e"><img src="docs/media/readme/attach.webp" width="100%" alt="スマートフォンでスクリーンショットを添付して Claude にバグ修正を頼むと、パソコンにも同じメッセージが表示されます。"></a>
+      <br><b>スマートフォンから情報を送る</b>
+      <br><sub>スクリーンショットの添付、ファイルのメンション、作業中のメッセージ予約。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364"><img src="docs/media/readme/open.webp" width="100%" alt="Claude がグラフを SVG ファイルとして書き出し、クリックするとファイルビューアーで開きます。スマートフォンではタップで開きます。"></a>
+      <br><b>エージェントが作ったファイルを開く</b>
+      <br><sub>チャット内のパスから、パソコンでもスマートフォンでもファイルビューアーで開けます。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8"><img src="docs/media/readme/browse.webp" width="100%" alt="フォルダーボタンでペインのフォルダーを開き、Claude が書いたファイルをビューアーで表示します。スマートフォンではコマンドパレットから同じ操作ができます。"></a>
+      <br><b>ペインのファイルを見る</b>
+      <br><sub>ペインのフォルダーをたどり、ファイルをプレビュー・ダウンロード。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="「PC を追加」で SSH 経由で Linux PC に接続してブリッジをインストールすると、そのセッションがサイドバーに加わり、ターミナルがその PC で動きます。"></a>
+      <br><b>すべての PC を、ひとつのサイドバーに</b>
+      <br><sub>SSH で Linux や macOS のマシンを追加。<a href="docs/remote-pcs.md">リモート PC →</a></sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>どのクリップも、パソコンとスマートフォンを同時に収録した実際の動作です。クリックすると約 20 秒の動画全体を再生できます。</sub></p>
+
+- **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc のネイティブな会話履歴を表示し、ワンクリックでライブターミナルに切り替えられます。[対応エージェント →](docs/guide.md#supported-agents)
+- **タップで承認** — 承認リクエスト、質問、計画メニューがカードになり、問いかけがまだ有効か確認してから回答を送信します。
+- **対応が必要なときに通知** — すべてのペインの状態をリアルタイムに表示し、入力が必要なときや完了したときには、アプリを閉じていてもプッシュ通知が届きます。
+- **スマートフォンにインストール** — キーボードの上に Esc、Tab、Ctrl、矢印キーが並ぶ PWA。Tailscale のアドレスは QR コードで表示されます。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
+- **いつもの作業環境をそのままに** — エージェントは herdr が管理し、このアプリはそこに接続します。エージェントを止めずに Settings（設定）からアップデートできます。[すべての機能 →](docs/guide.md#features)
 
 ---
 
@@ -68,36 +94,6 @@ herdr plugin install devswha/herdr-web-ui
 herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を開きます。ペインを選ぶか、**New session（新規セッション）** からエージェントを起動してください。スマートフォンで使う場合は、インストーラーの QR コードを読み取り、アプリをホーム画面に追加します。[クイックスタート →](docs/guide.md#quick-start)
 
 サーバーのデフォルトの待ち受けアドレスは `127.0.0.1` です。別のデバイスからアクセスする場合は、[スマートフォンの設定](docs/guide.md#on-your-phone)と[アクセスと安全性](docs/guide.md#access-and-safety)を参照してください。
-
-<a id="feature-videos"></a>
-
-## 機能ごとの動画
-
-約 20 秒の動画をさらに 4 本。冒頭の動画と同じく実際の動作を収録したもので、パソコンとスマートフォンを同時に録画し、待ち時間と進捗表示は早送りしています。
-
-### スマートフォンからスクリーンショットを添付
-
-https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e
-
-<p align="center"><sub>合計が $NaN になっているレシートのスクリーンショットをスマートフォンから添付し、Claude に修正を依頼します。パソコンにも画像付きの同じメッセージが表示されます。Claude がバグを修正してテストを追加し、差分はチャットから開けます。</sub></p>
-
-### エージェントが作ったファイルを開く
-
-https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364
-
-<p align="center"><sub>Claude がグラフを SVG ファイルとして書き出し、そのパスを返答に含めます。パソコンではクリック、スマートフォンではタップで、ファイルビューアーに表示されます。</sub></p>
-
-### ペインのファイルを見る
-
-https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8
-
-<p align="center"><sub>フォルダボタンでペインの作業フォルダを開き、Claude が書いたファイルをビューアーで表示します。スマートフォンでは、コマンドパレットの Browse files（ファイルを参照）から同じ操作ができます。</sub></p>
-
-### SSH で PC を追加
-
-https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610
-
-<p align="center"><sub>Add PC（PC を追加）から SSH で Linux PC に接続し、ブリッジをインストールします。その PC のセッションがサイドバーに加わり、ターミナルはその PC 上で動きます。スマートフォンのメニューには両方の PC が表示されます。リモートのセッションは撮影用に用意したものです。</sub></p>
 
 <a id="docs"></a>
 

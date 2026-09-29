@@ -34,14 +34,40 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 [herdr](https://github.com/herdrdev/herdr) 的浏览器与手机客户端。打开已经运行的会话，查看智能体正在做什么，无论身在何处都能回复。
 
-- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo 和 gjc 的原生会话记录；每轮对话中的命令、编辑操作和待办工具生成的计划可折叠查看。切换到实时终端，即可使用全屏终端界面、直接发送按键并查看 herdr 的回滚历史。[支持的智能体 →](docs/guide.md#supported-agents)
-- **轻点即可批准** — 支持的智能体所发出的审批请求、问题和计划菜单会显示为聊天卡片。选择选项后，应用会先确认提示仍然有效，再发送你的回答。
-- **随身访问智能体** — 在手机上安装 PWA，通过触摸滚动，并使用键盘上方的 Esc、Tab、Ctrl 和方向键。Settings（设置）会将你的 Tailscale 地址显示为二维码。[手机设置 →](docs/guide.md#on-your-phone)
-- **需要你时及时提醒** — 实时显示每个窗格的状态；当智能体需要输入、完成任务或终端结束时，发送推送通知，即使应用已关闭也能收到。
-- **一个侧边栏，管理所有电脑** — 通过 SSH 添加 Linux 和 macOS 电脑。它们的工作区、聊天、文件和终端会与本地会话并列显示。[远程电脑 →](docs/remote-pcs.md)
-- **发送上下文，查看结果** — 支持斜杠命令、文件引用、图片和文件附件、快捷回复，以及在智能体工作时暂存多条待发送消息。预览或下载智能体生成的文件。[全部功能 →](docs/guide.md#features)
-- **沿用现有工作流** — 智能体和终端由 herdr 管理，本应用负责连接。终端界面与浏览器可以同时使用，并支持本地访问、设备配对或共享令牌。[访问与安全 →](docs/guide.md#access-and-safety)
-- **更新应用，无需停止智能体** — 在 Settings（设置）中安装新版本，支持健康检查和回滚。设置 `HERDR_WEB_AUTO_UPDATE=1` 可启用自动安装。[更新 →](docs/guide.md#updates)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e"><img src="docs/media/readme/attach.webp" width="100%" alt="手机附加一张截图并让 Claude 修复错误，电脑上显示同一条消息。"></a>
+      <br><b>从手机发送上下文</b>
+      <br><sub>附加截图、引用文件，在智能体工作时排队发送消息。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364"><img src="docs/media/readme/open.webp" width="100%" alt="Claude 将图表写成 SVG 文件，点击即可在文件查看器中打开，手机上轻点也一样。"></a>
+      <br><b>打开智能体生成的文件</b>
+      <br><sub>点击聊天中的路径即可在文件查看器中打开，电脑和手机都可以。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8"><img src="docs/media/readme/browse.webp" width="100%" alt="文件夹按钮打开窗格的文件夹，Claude 写入的文件在查看器中打开；手机上可通过命令面板完成同样操作。"></a>
+      <br><b>浏览窗格的文件</b>
+      <br><sub>浏览窗格所在文件夹，预览或下载任意文件。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="“添加电脑”通过 SSH 连接一台 Linux 电脑并安装 bridge，它的会话加入侧边栏，终端在那台电脑上运行。"></a>
+      <br><b>一个侧边栏，管理所有电脑</b>
+      <br><sub>通过 SSH 添加 Linux 和 macOS 电脑。<a href="docs/remote-pcs.md">远程电脑 →</a></sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>每段片段都是同时录制电脑和手机的真实操作。点击可播放约 20 秒的完整视频。</sub></p>
+
+- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo 和 gjc 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
+- **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。
+- **需要你时及时提醒** — 实时显示每个窗格的状态；智能体需要输入或完成任务时发送推送通知，即使应用已关闭也能收到。
+- **安装到手机** — PWA 在键盘上方提供 Esc、Tab、Ctrl 和方向键，Tailscale 地址以二维码显示。[手机设置 →](docs/guide.md#on-your-phone)
+- **沿用现有工作流** — 智能体由 herdr 管理，本应用负责连接；在 Settings（设置）中更新应用，无需停止智能体。[全部功能 →](docs/guide.md#features)
 
 ---
 
@@ -68,36 +94,6 @@ herdr plugin install devswha/herdr-web-ui
 在 herdr 运行时，打开 **[localhost:7317](http://localhost:7317)**。选择一个窗格，或点击 **New session（新建会话）** 启动智能体。要在手机上使用，请扫描安装程序提供的二维码，并将应用添加到主屏幕。[快速入门 →](docs/guide.md#quick-start)
 
 服务器默认监听 `127.0.0.1`。如需从其他设备访问，请参阅[手机设置](docs/guide.md#on-your-phone)和[访问与安全](docs/guide.md#access-and-safety)。
-
-<a id="feature-videos"></a>
-
-## 功能视频
-
-另外四段约 20 秒的短片，与顶部视频一样为实机录制：电脑和手机同时录制，等待和进度条部分已加速。
-
-### 从手机附加截图
-
-https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e
-
-<p align="center"><sub>手机附上一张合计显示为 $NaN 的收据截图，请 Claude 修复。电脑上显示同一条带图片的消息。Claude 修复问题并补上测试，diff 可在聊天中打开。</sub></p>
-
-### 打开智能体生成的文件
-
-https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364
-
-<p align="center"><sub>Claude 将图表写成 SVG 文件，并在回复中给出文件路径。在电脑上点击即可在文件查看器中打开，在手机上轻点也一样。</sub></p>
-
-### 浏览窗格中的文件
-
-https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8
-
-<p align="center"><sub>文件夹按钮打开窗格所在的文件夹，Claude 写的文件在查看器中打开。在手机上，通过命令面板的 Browse files（浏览文件）完成同样的操作。</sub></p>
-
-### 通过 SSH 添加电脑
-
-https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610
-
-<p align="center"><sub>Add PC（添加电脑）通过 SSH 连接一台 Linux 电脑并安装桥接程序。它的会话加入侧边栏，终端在那台电脑上运行。手机菜单同时列出两台电脑。远程会话是为录制预先准备的。</sub></p>
 
 <a id="docs"></a>
 

@@ -34,14 +34,40 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Open the sessions you already run, read what your agents are doing, and answer them from wherever you are.
 
-- **Chat and terminal, one pane** — read native Claude Code, Codex, omp, omo and gjc transcripts with commands, edits and todo-tool plans folded per turn. Switch to the live terminal for full-screen TUIs, raw keys and herdr's scrollback. [Supported agents →](docs/guide.md#supported-agents)
-- **Approve with a tap** — supported agents' approvals, questions and plan menus become cards in the chat. Pick an option; the app checks that the prompt is still current before sending your answer.
-- **Take your agents with you** — install the PWA on your phone, scroll by touch, and use Esc, Tab, Ctrl and arrows above the keyboard. Settings shows your Tailscale address as a QR code. [Phone setup →](docs/guide.md#on-your-phone)
-- **Know when you're needed** — live status for every pane, plus push alerts when an agent needs input, finishes or its terminal ends, even with the app closed.
-- **Every PC in one sidebar** — add Linux and macOS machines over SSH. Their workspaces, chats, files and terminals appear alongside your local sessions. [Remote PCs →](docs/remote-pcs.md)
-- **Send context, open results** — slash commands, file mentions, image and file attachments, quick replies and multiple queued messages while the agent works. Preview or download the files it produces. [All features →](docs/guide.md#features)
-- **Keep your existing workflow** — herdr owns the agents and terminals; this app connects to them. Use your TUI and browser together, with local access, device pairing or a shared token. [Access and safety →](docs/guide.md#access-and-safety)
-- **Update without stopping your agents** — install releases from Settings, with health checks and rollback. Opt into automatic installation with `HERDR_WEB_AUTO_UPDATE=1`. [Updates →](docs/guide.md#updates)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e"><img src="docs/media/readme/attach.webp" width="100%" alt="The phone attaches a screenshot and asks Claude to fix the bug; the desktop shows the same message."></a>
+      <br><b>Send context from your phone</b>
+      <br><sub>Attach a screenshot, mention files, queue messages while the agent works.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364"><img src="docs/media/readme/open.webp" width="100%" alt="Claude writes a chart as an SVG file; a click opens it in the file viewer, and a tap on the phone does too."></a>
+      <br><b>Open what the agent made</b>
+      <br><sub>A path in the chat opens in the file viewer, on the desktop and the phone.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8"><img src="docs/media/readme/browse.webp" width="100%" alt="The folder button opens the pane's folder and the file Claude wrote opens in the viewer; the phone does the same from the command palette."></a>
+      <br><b>Browse a pane's files</b>
+      <br><sub>Walk the pane's folder and preview or download any file.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="Add PC connects to a Linux PC over SSH, installs the bridge, and its session joins the sidebar with a terminal running on that PC."></a>
+      <br><b>Every PC in one sidebar</b>
+      <br><sub>Add Linux and macOS machines over SSH. <a href="docs/remote-pcs.md">Remote PCs →</a></sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>Each clip is a live recording of the desktop and a phone at once. Click one for the full ~20-second video.</sub></p>
+
+- **Chat and terminal, one pane** — native Claude Code, Codex, omp, omo and gjc transcripts, with the live terminal a click away. [Supported agents →](docs/guide.md#supported-agents)
+- **Approve with a tap** — approvals, questions and plan menus become cards, checked to be current before your answer is sent.
+- **Know when you're needed** — live status for every pane and push alerts when an agent needs input or finishes, even with the app closed.
+- **Install it on your phone** — a PWA with Esc, Tab, Ctrl and arrows above the keyboard, and a QR code to your Tailscale address. [Phone setup →](docs/guide.md#on-your-phone)
+- **Keep your workflow** — herdr owns the agents; this app connects to them. Update from Settings without stopping them. [All features →](docs/guide.md#features)
 
 ---
 
@@ -66,34 +92,6 @@ herdr plugin install devswha/herdr-web-ui
 With herdr running, open **[localhost:7317](http://localhost:7317)**. Pick a pane or start an agent with **New session**. To use your phone, scan the installer's QR code and add the app to your home screen. [Quick start →](docs/guide.md#quick-start)
 
 The server listens on `127.0.0.1` by default. For access from another device, see [phone setup](docs/guide.md#on-your-phone) and [access and safety](docs/guide.md#access-and-safety).
-
-## feature videos
-
-Four more clips of about 20 seconds, recorded live like the video at the top: the desktop and a phone captured at the same time, with waits and progress bars sped up.
-
-### attach a screenshot from your phone
-
-https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e
-
-<p align="center"><sub>The phone attaches a screenshot of a receipt totalling $NaN and asks Claude to fix it. The desktop shows the same message with the image. Claude fixes the bug and adds a test, and the diff opens from the chat.</sub></p>
-
-### open what the agent made
-
-https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364
-
-<p align="center"><sub>Claude writes a chart as an SVG file and answers with its path. A click opens it in the file viewer, and so does a tap on the phone.</sub></p>
-
-### browse a pane's files
-
-https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8
-
-<p align="center"><sub>The folder button opens the pane's folder, and the file Claude wrote opens in the viewer. On the phone, the command palette's Browse files does the same.</sub></p>
-
-### add a PC over SSH
-
-https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610
-
-<p align="center"><sub>Add PC connects to a Linux PC over SSH and installs the bridge. Its session joins the sidebar, and its terminal runs on that PC. The phone's menu lists both PCs. The remote session was staged for the video.</sub></p>
 
 ## docs
 
