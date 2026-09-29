@@ -2,9 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { forgetTranscriptState, HistoryChanged, parseClaudeTranscript, parseOmpTranscript, transcriptPage, transcriptToolOutput, TRANSCRIPT_WINDOW_BYTES } from "./conversation.ts";
+import { forgetTranscriptState, HistoryChanged, parseClaudeTranscript, transcriptPage, transcriptToolOutput, TRANSCRIPT_WINDOW_BYTES } from "./conversation.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
-import { isContextClear } from "./transcript-records.ts";
+import { isContextClear, parseOmpTranscript } from "./transcript-records.ts";
 
 const roots: string[] = [];
 const jsonl = (rows: unknown[]) => rows.map((row) => JSON.stringify(row)).join("\n") + "\n";

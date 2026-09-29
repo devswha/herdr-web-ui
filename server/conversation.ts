@@ -12,8 +12,9 @@
  *   between `pi` and `claude` as omo spawns model CLIs, so the pane's process
  *   tree routes it and process/session evidence selects a unique transcript
  *   under ~/.omo/agent/sessions/<cwd-slug>/. It writes omp's session shape, so
- *   parseOmpTranscript reads it.
- * - gjc: an open session file or fresh native terminal breadcrumb belonging to its process.
+ *   parseOmpTranscript (transcript-records.ts) reads it.
+ * - gjc: an open session file or fresh native terminal breadcrumb belonging to
+ *   its process (gjc-runtime.ts). It writes omp's session shape too.
  *
  * This module turns those files into the conversation the chat lens renders;
  * the pty stays the input path. Pure parsing lives in parseClaudeTranscript /
@@ -22,25 +23,22 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
-import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
+import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { gjcTerminal } from "./gjc-runtime.ts";
+import { gjcTranscriptForPane } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
 import { invokedSkill } from "./skill-activity.ts";
-import { isContextClear, piMessage, piResults } from "./transcript-records.ts";
+import { isContextClear, MAX_TURNS, parseOmpTranscript, piMessage, piResults, toolSummary } from "./transcript-records.ts";
 
 export { isOmoProcess } from "./omo.ts";
-
-/** Enough turns for a conversation. */
-export const MAX_TURNS = 100;
 
 /**
  * A transcript is read a page at a time, the newest page re-read on every append
@@ -85,12 +83,6 @@ export function unwrapPastes(text: string): string {
       return body;
     });
   return changed ? visible.replace(/^\n+|\n+$/g, "") : text;
-}
-
-/** The one-line summary a collapsed tool chip shows. */
-function toolSummary(name: string, input: Record<string, unknown>): string {
-  const first = input["command"] ?? input["file_path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
-  return typeof first === "string" ? first.slice(0, 120) : name;
 }
 
 /** A parsed JSONL line's message shape (only the fields we read). */
@@ -208,104 +200,6 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
           pending.set(String((block as { id?: unknown }).id ?? ""), part);
         }
         // unsupported transcript blocks are intentionally ignored
-      }
-    }
-  }
-
-  return turns.filter((turn) => turn.parts.length > 0).slice(-maxTurns);
-}
-
-/**
- * Splits one omp session jsonl into turns. Same shape of result as the Claude
- * parser: adjacent assistant messages merge, toolCall parts adopt the output
- * of the toolResult entry that answers them (matched by toolCallId), thinking
- * stays private to the agent.
- */
-export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): ConversationTurn[] {
-  const turns: ConversationTurn[] = [];
-  /** tool parts still waiting for their result, by toolCall id */
-  const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
-
-  const assistantTurn = (ts?: string): ConversationTurn => {
-    const last = turns[turns.length - 1];
-    if (last !== undefined && last.role === "assistant") return last;
-    const turn: ConversationTurn = { role: "assistant", ts: ts ?? null, parts: [] };
-    turns.push(turn);
-    return turn;
-  };
-
-  const contentParts = (content: unknown): { type?: string; text?: unknown }[] =>
-    Array.isArray(content) ? content.filter((part) => typeof part === "object" && part !== null) : [];
-
-  for (const line of text.split("\n")) {
-    if (line.trim().length === 0) continue;
-    let entry: unknown;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue; // a torn tail line while omp is mid-append
-    }
-    if (entry === null || typeof entry !== "object") continue;
-    if (isContextClear(entry, "omp-transcript")) { turns.length = 0; pending.clear(); continue; }
-    const message = piMessage(entry);
-    if (message === null) continue;
-    const timestamp = (entry as { timestamp?: string }).timestamp;
-    const applyResults = () => {
-      for (const result of piResults(message)) {
-        const tool = pending.get(result.id);
-        if (!tool) continue;
-        pending.delete(result.id);
-        trimOutput(tool, result.text, result.id);
-        if (result.error) tool.error = true;
-      }
-    };
-    if (message.role !== "assistant") applyResults();
-
-    if (message.role === "user") {
-      const prompt =
-        typeof message.content === "string"
-          ? message.content
-          : contentParts(message.content)
-              .map((part) => (part.type === "text" && typeof part.text === "string" ? part.text : ""))
-              .filter((part) => part.length > 0)
-              .join("\n");
-      if (prompt.length === 0) continue; // image-only user parts have no text to show
-      turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "text", text: prompt }] });
-      continue;
-    }
-
-    if (message.role === "assistant" && Array.isArray(message.content)) {
-      const turn = assistantTurn(timestamp);
-      if (timestamp) turn.end_ts = timestamp;
-      for (const block of message.content) {
-        if (typeof block !== "object" || block === null) continue;
-        const b = block as { type?: string; text?: unknown; thinking?: unknown; name?: unknown; id?: unknown; arguments?: unknown; intent?: unknown };
-        if (b.type === "text" && typeof b.text === "string" && b.text.length > 0) {
-          turn.parts.push({ kind: "text", text: b.text });
-        } else if (b.type === "thinking") {
-          const thinking = typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "";
-          if (thinking.length > 0) turn.parts.push({ kind: "thinking", text: thinking });
-        } else if (b.type === "toolCall" && typeof b.name === "string") {
-          const input = (typeof b.arguments === "object" && b.arguments !== null ? b.arguments : {}) as Record<string, unknown>;
-          const summary = typeof b.intent === "string" && b.intent.length > 0 ? b.intent : toolSummary(b.name, input);
-          const part: Extract<ConversationPart, { kind: "tool" }> = {
-            kind: "tool",
-            name: b.name,
-            summary: summary.slice(0, 120),
-            input: JSON.stringify(input, null, 2),
-            output: "",
-          };
-          turn.parts.push(part);
-          if (typeof b.id === "string") pending.set(b.id, part);
-        }
-        // unsupported transcript parts are intentionally ignored
-      }
-      // A provider can place a result beside its call in the same assistant record.
-      applyResults();
-      // a failed request (a 401, an overloaded provider) leaves an empty message: without its
-      // error the chat showed the prompt with no answer at all
-      if (message.stopReason === "error" && typeof message.errorMessage === "string" && message.errorMessage.length > 0) {
-        turn.parts.push({ kind: "text", text: `Error: ${message.errorMessage}` });
       }
     }
   }
@@ -696,143 +590,11 @@ function parseCursor(stream: TranscriptStream, cursor: string): number {
   return offset;
 }
 
-/**
- * The cwd an omo transcript names in its first line (`{"type":"session",...}`),
- * or null when the file is not one. Read bounded: only the header decides, and
- * a rejected candidate can be megabytes.
- */
-function transcriptCwd(path: string): string | null {
-  let fd: number;
-  try {
-    fd = openSync(path, "r");
-  } catch {
-    return null; // the file vanished between the listing and this read
-  }
-  try {
-    const buffer = Buffer.alloc(4096);
-    const size = readSync(fd, buffer, 0, buffer.length, 0);
-    const header = JSON.parse(buffer.subarray(0, size).toString("utf8").split("\n")[0] ?? "") as { type?: string; cwd?: unknown };
-    return header.type === "session" && typeof header.cwd === "string" ? header.cwd : null;
-  } catch {
-    return null; // not an omo transcript, or a header longer than the read
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** Unique visible transcript evidence; timestamps never choose a winner. */
-export function matchGjcTranscript(screen: string, candidates: { path: string; text: string }[]): string | null {
-  const normalize = (value: string) => value.normalize("NFKC").replace(/[^\p{L}\p{N}]/gu, "");
-  const visible = normalize(screen);
-  const matches = new Set<string>();
-  for (const file of candidates) {
-    const turns = parseOmpTranscript(file.text, Infinity).filter(turn => turn.role === "assistant").slice(-8);
-    if (turns.some(turn => turn.parts.some(part => {
-      if (part.kind !== "text") return false;
-      const anchor = normalize(part.text).slice(-160);
-      return anchor.length >= 64 && visible.includes(anchor);
-    }))) matches.add(file.path);
-  }
-  return matches.size === 1 ? [...matches][0]! : null;
-}
-
-/** Bound both directory enumeration and content reads; never match an arbitrary subset. */
-function gjcDisplayCandidates(root: string, cwd: string): { path: string; text: string }[] {
-  try {
-    const dirs = readdirSync(root, { withFileTypes: true });
-    if (dirs.length > 512) return [];
-    const paths = new Set<string>();
-    let inspected = 0;
-    for (const dir of dirs) {
-      if (!dir.isDirectory()) continue;
-      const entries = readdirSync(join(root, dir.name));
-      inspected += entries.length;
-      if (inspected > 4096) return [];
-      for (const name of entries) {
-        if (!name.endsWith(".jsonl")) continue;
-        const path = realpathSync(join(root, dir.name, name));
-        if (path.startsWith(`${root}/`) && statSync(path).isFile() && transcriptCwd(path) === cwd) paths.add(path);
-      }
-    }
-    if (paths.size > 64) return [];
-    return [...paths].map(path => {
-      const size = statSync(path).size;
-      const start = Math.max(0, size - 65536);
-      let text = readRange(path, start, size);
-      if (start > 0) text = text.slice(text.indexOf("\n") + 1);
-      return { path, text };
-    });
-  } catch { return []; }
-}
-
-/** Validate the native two-line terminal breadcrumb and reject reused-terminal leftovers. */
-export function gjcBreadcrumbPath(home: string, cwd: string, terminalId: string, startedAt: number): string | null {
-  if (!/^(?:pts-\d+|tty[\w-]+|tmux-%\d+)$/.test(terminalId) || !Number.isFinite(startedAt)) return null;
-  try {
-    const marker = join(home, ".gjc", "agent", "terminal-sessions", terminalId);
-    const stat = statSync(marker);
-    if (!stat.isFile() || stat.size > 8192 || stat.mtimeMs < startedAt - 1000) return null;
-    const [savedCwd, savedPath] = readFileSync(marker, "utf8").split("\n");
-    if (!savedCwd || !savedPath || realpathSync(savedCwd) !== realpathSync(cwd)) return null;
-    const root = realpathSync(join(home, ".gjc", "agent", "sessions"));
-    const path = realpathSync(savedPath);
-    if (!path.startsWith(`${root}/`) || !path.endsWith(".jsonl") || !statSync(path).isFile()) return null;
-    const headerCwd = transcriptCwd(path);
-    return headerCwd && realpathSync(headerCwd) === realpathSync(cwd) ? path : null;
-  } catch { return null; }
-}
-
-/**
- * A directory descriptor or cwd proves only the store, not the active session.
- * Prefer an exact open transcript, then GJC's terminal-scoped breadcrumb written
- * during this process lifetime. Never infer ownership from cwd or session recency.
- */
-export async function gjcTranscriptPath(paneId: string, cwd: string, home = process.env["HOME"] ?? ""): Promise<string> {
-  let root: string;
-  try { root = realpathSync(join(home, ".gjc", "agent", "sessions")); }
-  catch { throw new ConversationUnavailable("no_session_path"); }
-  const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown; argv?: unknown }[] } }>(
-    "pane.process_info",
-    { pane_id: paneId },
-  ).catch(() => null);
-  const paths = new Set<string>();
-  const breadcrumbs = new Set<string>();
-  let running = false;
-  for (const process of info?.process_info?.foreground_processes ?? []) {
-    const argv = Array.isArray(process.argv) ? process.argv.map(String) : [];
-    // Native gjc and interpreter-launched gjc scripts both occur in process_info.
-    const executable = /(^|\/)gjc(?:\.[cm]?js)?$/;
-    const isGjc = executable.test(argv[0] ?? "") ||
-      (/(^|\/)(?:bun|node)(?:\.exe)?$/.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
-    if (typeof process.pid !== "number" || !isGjc) continue;
-    running = true;
-    const terminal = gjcTerminal(process.pid);
-    if (terminal) {
-      const path = gjcBreadcrumbPath(home, cwd, terminal.id, terminal.startedAt);
-      if (path) breadcrumbs.add(path);
-    }
-    let fds: string[] = [];
-    try { fds = readdirSync(`/proc/${process.pid}/fd`); } catch { /* macOS uses the native breadcrumb */ }
-    for (const fd of fds) {
-      try {
-        const target = realpathSync(readlinkSync(`/proc/${process.pid}/fd/${fd}`));
-        if (target.startsWith(`${root}/`) && target.endsWith(".jsonl") &&
-            statSync(target).isFile() && transcriptCwd(target) === cwd) paths.add(target);
-      } catch { /* closed, deleted or unreadable descriptor */ }
-    }
-  }
-  const candidates = paths.size > 0 ? paths : breadcrumbs;
-  if (candidates.size === 1) return [...candidates][0]!;
-  if (candidates.size > 1 || !running) throw new ConversationUnavailable("no_session_path");
-  // Some GJC builds publish neither a file descriptor nor a terminal breadcrumb.
-  // Match substantial assistant text in this pane against every same-cwd candidate.
-  const files = gjcDisplayCandidates(root, cwd);
-  if (files.length > 0) {
-    const screen = await paneRead({ paneId, source: "visible", lines: 1000 }).catch(() => null);
-    const matched = screen ? matchGjcTranscript(screen.text, files) : null;
-    if (matched) return matched;
-  }
-  throw new ConversationUnavailable("no_session_path");
+/** gjc's resolver answers null; the chat lens reports why it fell back to scrollback. */
+export async function gjcTranscriptPath(paneId: string, cwd: string, home?: string): Promise<string> {
+  const path = await gjcTranscriptForPane(paneId, cwd, home);
+  if (!path) throw new ConversationUnavailable("no_session_path");
+  return path;
 }
 
 /**

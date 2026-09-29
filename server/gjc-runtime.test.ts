@@ -2,8 +2,7 @@ import { expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseGjcPs } from "./gjc-runtime.ts";
-import { gjcBreadcrumbPath, matchGjcTranscript } from "./conversation.ts";
+import { gjcBreadcrumbPath, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
 
 it("reads macOS terminal/process identity without /proc", () => {
   expect(parseGjcPs("ttys003 Mon Sep 28 10:00:00 2026\n")?.id).toBe("ttys003");

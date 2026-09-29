@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { forgetHistoryChains } from "./codex.ts";
-import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, MAX_TURNS, parseClaudeTranscript, parseOmpTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { MAX_TURNS, parseOmpTranscript } from "./transcript-records.ts";
 
 /** Minimal but shape-true slices of a Claude Code session jsonl. */
 const lines = [
