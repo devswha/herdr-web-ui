@@ -28,6 +28,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Fixed
 - Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
+- Dragging terminal text copies the visible selection immediately, including when an
+  installed app's asynchronous clipboard permission is blocked. Scrollback copies
+  reserve clipboard access during the release gesture; delayed or empty selection
+  responses cannot erase a newer copy.
+- Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
 - Settle sent composer drafts across pane switches and cancel all delayed completion alerts when work resumes.
 - Closing the selected pane with the sidebar's X no longer puts the keyboard on the pane
   selected in its place. On a phone it came up over the drawer, in the way of closing the

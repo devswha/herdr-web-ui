@@ -256,31 +256,41 @@ export function PaneTerminal({
     termRef.current = term;
     fitRef.current = fit;
 
-    const writeClipboard = (text: string): void => {
-      void navigator.clipboard.writeText(text).then(
-        () => noteClipboard("copied to clipboard"),
-        () => noteClipboard("clipboard write blocked by the browser"),
-      );
-    };
     /** herdr's text for the last drag, while its highlight is still the selection */
     let copiedText: string | null = null;
+    let selectionGeneration = 0;
+    let disposed = false;
+    // Run after xterm's own copy listener, including for Cmd+C and context-menu
+    // Copy. Its buffer contains only the visible part of a scrolled selection.
+    const onCopy = (event: ClipboardEvent): void => {
+      if (!term.hasSelection() || copiedText === null || !event.clipboardData) return;
+      event.clipboardData.setData("text/plain", copiedText);
+      event.preventDefault();
+    };
+    host.addEventListener("copy", onCopy);
     const copySelection = (): void => {
-      if (copiedText !== null && navigator.clipboard) {
-        writeClipboard(copiedText);
-        return;
-      }
-      const text = term.getSelection();
+      const text = copiedText ?? term.getSelection();
       if (!text) return;
-      // plain HTTP has no async clipboard; the copy command still works in a user gesture,
-      // and xterm's copy listener fills it with the selection
-      if (!navigator.clipboard) {
-        noteClipboard(document.execCommand("copy") ? "copied to clipboard" : "clipboard write blocked by the browser");
+      // Native copy still works in a user gesture when a Chromium/PWA site has
+      // denied the async clipboard permission, or plain HTTP has no clipboard API.
+      if (document.execCommand("copy")) {
+        noteClipboard("copied to clipboard");
         return;
       }
-      writeClipboard(text);
+      if (!navigator.clipboard) {
+        noteClipboard("clipboard write blocked by the browser");
+        return;
+      }
+      void navigator.clipboard.writeText(text).then(
+        () => { if (!disposed) noteClipboard("copied to clipboard"); },
+        () => { if (!disposed) noteClipboard("clipboard write blocked by the browser"); },
+      );
     };
     const selectionChange = term.onSelectionChange(() => {
-      if (!term.hasSelection()) copiedText = null;
+      if (!term.hasSelection()) {
+        copiedText = null;
+        selectionGeneration++;
+      }
     });
 
     // herdr's attach stream turns mouse reporting on, so xterm hands every click to the
@@ -388,6 +398,7 @@ export function PaneTerminal({
       // with reporting off xterm already selects on a plain drag; only the history tracking is ours
       if (term.modes.mouseTrackingMode !== "none") Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
       copiedText = null;
+      selectionGeneration++;
       const pane = paneRef.current;
       const { cell } = cellAt(event);
       const d: Drag = {
@@ -397,7 +408,7 @@ export function PaneTerminal({
       drag = d;
       if (!pane || !navigator.clipboard || observeRef.current) return;
       void fetchPaneScroll(pane, machineId).then((scroll) => {
-        if (!scroll || d.scrolled) return;
+        if (!scroll || drag !== d || d.scrolled) return;
         d.offset = d.sentOffset = scroll.offset_from_bottom;
         d.maxOffset = scroll.max_offset_from_bottom;
         d.top = d.maxOffset - d.offset;
@@ -435,43 +446,54 @@ export function PaneTerminal({
       if (!d || event.button !== 0) return;
       drag = null;
       stopEdge();
-      // xterm settles the selection in its own mouseup listener
-      window.setTimeout(() => {
-        if (d.scrolled) repaint(d);
-        if (!term.hasSelection()) return;
-        let range: [Cell, Cell] | null = null;
-        if (d.scrolled) range = historyRange(d);
-        else if (d.top !== null) {
-          const position = term.getSelectionPosition();
-          if (position) {
-            // xterm's end column is exclusive, herdr's inclusive
-            const end = position.end.x > 0
-              ? { row: d.top + position.end.y, col: position.end.x - 1 }
-              : { row: d.top + position.end.y - 1, col: term.cols - 1 };
-            range = [{ row: d.top + position.start.y, col: position.start.x }, end];
-          }
+      // Window bubble runs after xterm's document listener, still inside the
+      // release gesture. A timer here loses clipboard permission in some browsers.
+      if (d.scrolled) repaint(d);
+      if (!term.hasSelection()) return;
+      const visibleText = term.getSelection();
+      copiedText = visibleText;
+      copySelection();
+      const generation = selectionGeneration;
+      const current = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration;
+      let range: [Cell, Cell] | null = null;
+      if (d.scrolled) range = historyRange(d);
+      else if (d.top !== null) {
+        const position = term.getSelectionPosition();
+        if (position) {
+          // xterm's end column is exclusive, herdr's inclusive
+          const end = position.end.x > 0
+            ? { row: d.top + position.end.y, col: position.end.x - 1 }
+            : { row: d.top + position.end.y - 1, col: term.cols - 1 };
+          range = [{ row: d.top + position.start.y, col: position.start.x }, end];
         }
-        if (!range) {
-          copySelection();
-          return;
-        }
-        void fetchPaneSelection(d.pane, range[0], range[1], machineId).then(
-          (text) => {
-            if (!term.hasSelection()) return;
-            copiedText = text;
-            writeClipboard(text);
-          },
-          () => {
-            if (d.scrolled) noteClipboard("could not read the selection from herdr");
-            else copySelection();
-          },
-        );
-      }, 0);
+      }
+      if (!range) return;
+      const text = fetchPaneSelection(d.pane, range[0], range[1], machineId).catch(() => {
+        if (current() && d.scrolled) noteClipboard("could not read the selection from herdr");
+        return visibleText;
+      }).then((value) => {
+        if (!current()) throw new Error("selection changed");
+        // A redraw can remove the range before herdr reads it. Keep what the user
+        // actually selected instead of replacing a successful copy with nothing.
+        copiedText = value || visibleText;
+        return copiedText;
+      });
+      // Reserve the write NOW, supplying the server text when it arrives. Never
+      // start a fresh clipboard write from a delayed response or an older drag.
+      if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+        const blob = text.then((value) => new Blob([value], { type: "text/plain" }));
+        void blob.catch(() => {});
+        void navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).catch(() => {});
+      } else {
+        // Native copy already captured the visible text; the full text stays
+        // available for the next explicit Copy where delayed items are unsupported.
+        void text.catch(() => {});
+      }
     };
     host.addEventListener("mousedown", onMouseDown, { capture: true });
     window.addEventListener("mousemove", onMouseMove, { capture: true });
     window.addEventListener("blur", onBlur);
-    document.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mouseup", onMouseUp);
 
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty
     // cannot reach the browser clipboard, so xterm hands us the sequence and
@@ -658,6 +680,7 @@ export function PaneTerminal({
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      disposed = true;
       window.clearInterval(poll);
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
@@ -667,7 +690,8 @@ export function PaneTerminal({
       host.removeEventListener("mousedown", onMouseDown, { capture: true });
       window.removeEventListener("mousemove", onMouseMove, { capture: true });
       window.removeEventListener("blur", onBlur);
-      document.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mouseup", onMouseUp);
+      host.removeEventListener("copy", onCopy);
       stopEdge();
       selectionChange.dispose();
       window.removeEventListener("focus", refit);
