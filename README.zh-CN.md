@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 [herdr](https://github.com/herdrdev/herdr) 的浏览器与手机客户端。打开已经运行的会话，查看智能体正在做什么，无论身在何处都能回复。
 
-- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo 和 gjc 的原生会话记录；每轮对话中的命令和编辑操作可折叠查看，由受支持的待办工具生成的计划固定显示在下方。切换到实时终端，即可使用全屏终端界面、直接发送按键并查看 herdr 的回滚历史。[支持的智能体 →](docs/guide.md#supported-agents)
+- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo 和 gjc 的原生会话记录；每轮对话中的命令、编辑操作和待办工具生成的计划可折叠查看。切换到实时终端，即可使用全屏终端界面、直接发送按键并查看 herdr 的回滚历史。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 支持的智能体所发出的审批请求、问题和计划菜单会显示为聊天卡片。选择选项后，应用会先确认提示仍然有效，再发送你的回答。
 - **随身访问智能体** — 在手机上安装 PWA，通过触摸滚动，并使用键盘上方的 Esc、Tab、Ctrl 和方向键。Settings（设置）会将你的 Tailscale 地址显示为二维码。[手机设置 →](docs/guide.md#on-your-phone)
 - **需要你时及时提醒** — 实时显示每个窗格的状态；当智能体需要输入、完成任务或终端结束时，发送推送通知，即使应用已关闭也能收到。

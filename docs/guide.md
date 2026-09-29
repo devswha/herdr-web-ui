@@ -145,14 +145,14 @@ draft storage or chat history. A changed prompt or busy pane refuses the send; c
 the terminal before entering it again. **Cancel** sends Ctrl+C. Remote PCs need bridge
 bundle v6. Detection covers a narrow list of English prompts, not every program or language.
 
-The model and reasoning effort come from what the session recorded, never from answer text. The todo list comes from Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. The panel appears only when one of these supported tools is recorded in the transcript. Plain-text plans and Claude Code `TaskCreate` / `TaskUpdate` calls are not currently reconstructed; Claude Code sessions that do not call `TodoWrite` will have no pinned plan. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
+The model and reasoning effort come from what the session recorded, never from answer text. A todo list shows where the agent recorded it, in the turn's work block: Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. Plain-text plans and Claude Code `TaskCreate` / `TaskUpdate` calls are not currently reconstructed. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
 
 ## Features
 
 | | |
 | --- | --- |
 | **Read the conversation** | Prompts and Markdown answers (links, code blocks, tables). Each turn's commands, edits and progress are folded into one "Worked for …" block. Copy an answer as Markdown or plain text. |
-| **Follow the plan** | When the transcript contains supported todo-tool calls, the agent's todo list stays pinned to the bottom of the chat: the done count and the current item, or the whole list by phase when opened. |
+| **Follow the plan** | A supported todo-tool call folds into the turn's work block like any tool: it reads as the done count or the step it took, and opened, as the whole list by phase. |
 | **Drop into the real terminal** | xterm.js on the live pane: full-screen TUIs, raw keys and herdr's scrollback, shared with your own herdr TUI. |
 | **Answer prompts** | Approval, question and plan menus become cards. Tap an option, or type its number in the composer. The server checks that the menu is still current before answering. |
 | **Compose** | `/` commands and `@` file mentions, any file or image attached by path, a draft per pane, and multiple queued messages while the agent works. |

@@ -34,16 +34,13 @@
 
 /* the mount's own box: everything that may overlay the pty (the chat lens) is
    positioned against THIS, never against the stack — the composer and key bar
-   below keep their rows no matter which lens is on. It is the width container the chat's
-   todo lane is measured against; containment makes it the box for position: fixed too, so
-   dialogs and menus render outside it (they do: App and the composer own them) */
+   below keep their rows no matter which lens is on */
 .terminal-surface {
   position: relative;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  container: pane-surface / inline-size;
 }
 
 /* no pane selected: the mount keeps its size (the fit needs it) but never paints, so its

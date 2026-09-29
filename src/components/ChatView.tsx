@@ -1,6 +1,6 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
-  ArrowDown, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, ChevronUp, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, FilePen, FileSearch, Globe, ListChecks, Terminal, Wrench,
+  ArrowDown, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, FilePen, FileSearch, Globe, ListChecks, Terminal, Wrench,
   type LucideProps,
 } from "lucide-react";
 
@@ -16,7 +16,7 @@ import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
 import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
-import { isTodoTool, parseTodoAnswer, todoCallSummary, todoState, type TodoItem, type TodoStatus } from "../lib/todos.ts";
+import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { useSettings } from "../lib/settings.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import { usePageVisible } from "../lib/visibility.ts";
@@ -135,43 +135,6 @@ function TodoList({ items }: { items: TodoItem[] }) {
       })}</ul>
     </div>
   ))}</div>;
-}
-
-const TODO_OPEN_KEY = "herdr-web-ui:todo-open";
-
-/**
- * The agent's todo list as it stands, floating at the top right of the chat (the
- * gajae-code-app WORK card) instead of inside the transcript: one pill (done count and
- * the item in progress) that opens to a card with the whole list. On a wide pane it sits
- * in the margin beside the conversation; on a narrow one it overlays it until closed.
- * Whether it is open is remembered for every pane.
- */
-function TodoPanel({ items }: { items: TodoItem[] }) {
-  const t = useT();
-  const [open, setOpen] = useState(() => { try { return localStorage.getItem(TODO_OPEN_KEY) === "1"; } catch { return false; } });
-  const head = useRef<HTMLButtonElement>(null);
-  const toggle = (): void => {
-    setOpen(!open);
-    try { localStorage.setItem(TODO_OPEN_KEY, open ? "0" : "1"); } catch { /* private mode */ }
-  };
-  const counted = items.filter((item) => item.status !== "dropped");
-  const done = counted.filter((item) => item.status === "completed").length;
-  const now = items.find((item) => item.status === "in_progress") ?? items.find((item) => item.status === "blocked");
-  const status = counted.length > 0 && done === counted.length ? t("All done") : now ? t(now.status === "blocked" ? "Blocked: {label}" : "Now: {label}", { label: now.label }) : t("{n} to do", { n: counted.length - done });
-  return <section
-    className={`todo-panel${open ? " is-open" : ""}`}
-    aria-label={t("Todo list")}
-    onKeyDown={(event) => { if (open && event.key === "Escape" && !event.nativeEvent.isComposing) { event.stopPropagation(); toggle(); head.current?.focus(); } }}
-  >
-    <button type="button" ref={head} className="todo-panel-head" aria-expanded={open} title={open ? undefined : status} onClick={toggle}>
-      <ListChecks className="todo-panel-icon" aria-hidden="true" />
-      <span className="todo-panel-count">{done}/{counted.length}</span>
-      <span className="todo-panel-now">{status}</span>
-      {open ? <ChevronUp className="todo-panel-caret" aria-hidden="true" /> : <ChevronDown className="todo-panel-caret" aria-hidden="true" />}
-    </button>
-    {/* focusable so a click in the list keeps focus in the panel, where Escape is heard */}
-    {open && <div className="todo-panel-body" tabIndex={-1}><TodoList items={items} /></div>}
-  </section>;
 }
 
 function ompEditLineClass(line: string): string | undefined {
@@ -708,7 +671,6 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   const turns = useMemo(() => older.length > 0 ? [...older, ...state.turns] : state.turns, [older, state.turns]);
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
-  const todos = useMemo(() => state.source === "conversation" ? todoState(turns) : null, [state.source, turns]);
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
@@ -738,6 +700,5 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
       : away && <button type="button" className="btn chat-new-messages is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>}
   </div>
-  {todos !== null && todos.length > 0 && <TodoPanel items={todos} />}
   </ChatHistoryContext.Provider></ChatPaneContext.Provider>;
 });

@@ -351,11 +351,6 @@ export const ZH: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "已复制",
-  "All done": "全部完成",
-  "Blocked: {label}": "受阻：{label}",
-  "Now: {label}": "进行中：{label}",
-  "{n} to do": "剩余 {n} 项",
-  "Todo list": "待办列表",
   "Output": "输出",
   "thinking": "思考",
   "Working…": "正在工作…",

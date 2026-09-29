@@ -349,11 +349,6 @@ export const JA: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "コピーしました",
-  "All done": "すべて完了",
-  "Blocked: {label}": "ブロック中: {label}",
-  "Now: {label}": "実行中: {label}",
-  "{n} to do": "残り {n} 件",
-  "Todo list": "ToDo リスト",
   "Output": "出力",
   "thinking": "思考",
   "Working…": "作業中…",

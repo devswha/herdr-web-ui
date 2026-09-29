@@ -608,102 +608,6 @@
   .work-block.is-live .work-block-title::before { animation: none; }
 }
 
-/* the todo list as it stands: floats at the top right of the chat, beside the transcript
-   rather than in it (the gajae-code-app WORK card). A pill until opened; opened, a card
-   whose list scrolls on its own. It sits clear of the scrollbar, and on a pane wider than
-   the transcript column it lands in the margin instead of over the conversation. */
-.todo-panel {
-  position: absolute;
-  z-index: var(--z-popover);
-  top: var(--space-3);
-  right: calc(var(--space-3) + var(--space-3));
-  max-width: min(22rem, calc(100% - var(--space-3) * 4));
-  max-height: calc(100% - var(--space-3) * 2);
-  display: flex;
-  flex-direction: column;
-  border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-pop);
-  --chat-fs-2xs: calc(var(--fs-2xs) * var(--chat-scale, 1));
-  --chat-fs-xs: calc(var(--fs-xs) * var(--chat-scale, 1));
-  --chat-fs-sm: calc(var(--fs-sm) * var(--chat-scale, 1));
-}
-
-/* a pane 56rem wide or wider keeps a lane for it (the transcript steps left, still centred
-   when there is room); a narrower one gets the card over the conversation instead. The
-   breakpoint is the pane surface's own width (the container the card is placed in), not
-   the chat's padded, scrollbar-narrowed content box. */
-@container pane-surface (min-width: 56rem) {
-  .terminal-surface:has(> .todo-panel) .chat-transcript {
-    --todo-lane: calc(22rem + var(--space-3) * 2);
-    width: min(100% - var(--todo-lane), var(--content-w));
-    margin-right: max(var(--todo-lane), (100% - var(--content-w)) / 2);
-    margin-left: auto;
-  }
-}
-
-.todo-panel.is-open {
-  width: min(22rem, calc(100% - var(--space-3) * 4));
-  border-radius: var(--radius-md);
-}
-
-.todo-panel-head {
-  flex: none;
-  width: 100%;
-  min-height: var(--control-h);
-  padding: 0 var(--space-3);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  border: 0;
-  border-radius: inherit;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--chat-fs-sm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.todo-panel-icon,
-.todo-panel-caret {
-  flex: none;
-  width: var(--icon-size);
-  height: var(--icon-size);
-  color: var(--text-dim);
-}
-
-.todo-panel-count {
-  flex: none;
-  color: var(--text-strong);
-  font-family: var(--font-mono);
-  font-size: var(--chat-fs-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.todo-panel-now {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 16rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-dim);
-}
-
-.todo-panel.is-open .todo-panel-now { max-width: none; }
-
-.todo-panel-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: min(60vh, calc(var(--control-h) * 14));
-  padding: 0 var(--space-3) var(--space-2);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-top: var(--hairline) solid var(--border);
-}
-
 .todo-list ul {
   margin: 0;
   padding: 0;
@@ -755,10 +659,6 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
-}
-
-@media (pointer: coarse) {
-  .todo-panel-head { min-height: var(--touch-target); }
 }
 
 /* a file path in an answer: opens the file viewer, reads as the text or code it is */

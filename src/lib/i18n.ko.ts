@@ -347,11 +347,6 @@ export const KO: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "복사됨",
-  "All done": "모두 완료",
-  "Blocked: {label}": "막힘: {label}",
-  "Now: {label}": "진행 중: {label}",
-  "{n} to do": "남은 항목 {n}개",
-  "Todo list": "할 일 목록",
   "Output": "출력",
   "thinking": "생각",
   "Working…": "작업 중…",

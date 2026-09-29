@@ -1,14 +1,13 @@
-import type { ConversationPart, ConversationTurn } from "../../shared/protocol.ts";
+import type { ConversationPart } from "../../shared/protocol.ts";
 
 /**
- * The agent's todo list as it stands, from its todo tool calls. Each agent keeps its list
- * its own way:
+ * The agent's todo tool calls, as the chat's work block shows them. Each agent keeps its
+ * list its own way:
  * - Claude Code `TodoWrite` and Codex `update_plan` send the whole list every time;
  * - omp / omo `todo`, gjc `todo_write` (and omo's `mcp__…__todo` through Claude) send
  *   operations (init, append, start, done, drop, block, note) on one list, and answer
  *   each call with the whole list as it now stands.
- * Calls are replayed in order; an answer that lists the whole list wins over the replay,
- * so a list started before the loaded pages is still right.
+ * A call reads as a one-line summary, and opened, as the list its answer shows.
  */
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "blocked" | "dropped";
@@ -48,10 +47,6 @@ function args(part: Tool): Record<string, unknown> {
   try { return record(JSON.parse(part.input)); } catch { return {}; }
 }
 
-function statusOf(value: unknown): TodoStatus {
-  return value === "completed" || value === "in_progress" || value === "blocked" ? value : value === "cancelled" || value === "dropped" ? "dropped" : "pending";
-}
-
 /** The operations of one `todo` / `todo_write` call: `ops: [...]`, or the call itself as one. */
 function operations(input: Record<string, unknown>): Record<string, unknown>[] {
   return Array.isArray(input["ops"]) ? input["ops"].map(record) : [input];
@@ -65,56 +60,6 @@ function phases(list: unknown): TodoItem[] {
     const items = Array.isArray(phase["items"]) ? phase["items"] : [];
     return items.flatMap((item) => text(item) === null ? [] : [{ label: text(item)!, phase: name, status: "pending" as TodoStatus }]);
   });
-}
-
-function find(items: TodoItem[], label: string | null): TodoItem | undefined {
-  if (label === null) return undefined;
-  return items.find((item) => item.label === label) ?? items.find((item) => item.label.toLowerCase() === label.toLowerCase());
-}
-
-function applyOperation(items: TodoItem[], op: Record<string, unknown>): TodoItem[] {
-  const kind = text(op["op"]) ?? (Array.isArray(op["list"]) ? "init" : null);
-  const task = text(op["task"]);
-  const phase = text(op["phase"]);
-  const inPhase = (item: TodoItem) => phase !== null && item.phase === phase;
-  switch (kind) {
-    case "init":
-      return phases(op["list"]);
-    case "clear":
-      return [];
-    case "append": {
-      const added = (Array.isArray(op["items"]) ? op["items"] : []).flatMap((item) => text(item) === null ? [] : [{ label: text(item)!, phase, status: "pending" as TodoStatus }]);
-      // into its phase, after that phase's last item, as the agent lists it
-      const last = phase === null ? -1 : items.map((item) => item.phase).lastIndexOf(phase);
-      return last < 0 ? [...items, ...added] : [...items.slice(0, last + 1), ...added, ...items.slice(last + 1)];
-    }
-    case "done":
-    case "start":
-    case "drop":
-    case "block":
-    case "note": {
-      const next = items.map((item) => ({ ...item }));
-      const target = find(next, task);
-      const touched = target !== undefined ? [target] : task === null ? next.filter(inPhase) : [];
-      for (const item of touched) {
-        if (kind === "done" && item.status !== "dropped") item.status = "completed";
-        else if (kind === "start") item.status = "in_progress";
-        else if (kind === "drop" && item.status !== "completed") item.status = "dropped";
-        else if (kind === "block") { item.status = "blocked"; item.note = text(op["reason"]) ?? item.note; }
-        else if (kind === "note") item.note = text(op["text"]) ?? item.note;
-      }
-      return next;
-    }
-    default:
-      return items;
-  }
-}
-
-/** omp, omo and gjc start the next open item once none is in progress. */
-function advance(items: TodoItem[]): TodoItem[] {
-  if (items.some((item) => item.status === "in_progress")) return items;
-  const next = items.findIndex((item) => item.status === "pending");
-  return next < 0 ? items : items.map((item, index) => index === next ? { ...item, status: "in_progress" } : item);
 }
 
 const EMPTY_ANSWER = /^(?:Todo list is empty\.|Todo list cleared\.)/m;
@@ -157,39 +102,6 @@ export function parseTodoAnswer(output: string): TodoItem[] | null {
   // `Overall: 9/11 done` counts every item: a list shorter than that was cut
   const overall = /^Overall: \d+\/(\d+) done/m.exec(output);
   if (overall && Number(overall[1]) > items.length) return null;
-  return items;
-}
-
-/** The todo list after every todo call in these turns, oldest first; null when there was none. */
-export function todoState(turns: readonly ConversationTurn[]): TodoItem[] | null {
-  let items: TodoItem[] | null = null;
-  for (const turn of turns) {
-    for (const part of turn.parts) {
-      if (part.kind !== "tool") continue;
-      const kind = toolKind(part.name);
-      if (kind === null) continue;
-      const input = args(part);
-      if (kind === "whole") {
-        const todos = Array.isArray(input["todos"]) ? input["todos"] : [];
-        items = todos.flatMap((todo) => {
-          const entry = record(todo);
-          const label = text(entry["content"]);
-          return label === null ? [] : [{ label, phase: null, status: statusOf(entry["status"]) }];
-        });
-      } else if (kind === "codex-plan") {
-        const plan = Array.isArray(input["plan"]) ? input["plan"] : [];
-        items = plan.flatMap((step) => {
-          const entry = record(step);
-          const label = text(entry["step"]);
-          return label === null ? [] : [{ label, phase: null, status: statusOf(entry["status"]) }];
-        });
-      } else {
-        let next: TodoItem[] = items ?? [];
-        for (const op of operations(input)) next = applyOperation(next, op);
-        items = parseTodoAnswer(part.output) ?? advance(next);
-      }
-    }
-  }
   return items;
 }
 
