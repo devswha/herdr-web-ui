@@ -2,21 +2,22 @@
  * Assembles the website into _site/ for GitHub Pages (.github/workflows/pages.yml) and for a local
  * look (`bun run build:site`, then serve _site/ under /herdr-web-ui/).
  *
- * The page is site/index.html. Its demo videos and screenshots are published under media/ and assets/.
- * The videos are not committed (docs/development.md, "README media"), so a build uses the local
- * docs/screenshots/*.mp4 when they exist and otherwise downloads their GitHub uploads (`videos`).
- * Poster frames are cut with ffmpeg when it is installed (the workflow installs it); without it the
- * stills stay full size and posters that could not be made are dropped from the page.
+ * The page is site/index.html, built from the README's artifacts: its top video (`videos`, a GitHub
+ * upload that is downloaded, never committed; docs/development.md, "README media"), its feature clips
+ * (docs/media/readme/*.webp) and the installer still. A video's poster frame is cut with ffmpeg when it
+ * is installed (the workflow installs it); without it the still stays full size and a poster that
+ * could not be made is dropped from the page. `{{version}}` and `{{stars}}` in the page are filled in
+ * here, from package.json and the GitHub API.
  *
  * demo/ is the app itself, built by Vite with relative asset paths into demo/app/, loaded behind
  * site/demo/transport.ts (bundled to demo-transport.js and injected before the app's scripts) so it
  * runs on the fixtures in site/demo/ instead of a server; site/demo/index.html frames it with a
  * banner. Building it needs node_modules (`bun install`).
  *
- * site/assets/ (stills, logo marks, grain) and site/media/ (the film and the hero loop, with their
- * posters) are committed already optimised and copied whole, preserving the film URL linked from
- * the README. A missing film/loop poster is cut from its video when ffmpeg can; references to missing
- * film/loop files are removed if a page uses them. The homepage uses the two demo videos above.
+ * site/assets/ (logo marks and older stills) and site/media/ (the film, linked from the README and the
+ * page, and the chat loop, with their posters) are committed already optimised and copied whole. A
+ * missing film/loop poster is cut from its video when ffmpeg can; references to missing film/loop
+ * files are removed if a page uses them.
  */
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -36,23 +37,15 @@ const copies: Array<[from: string, to: string]> = [
   ["public/social-preview.png", "assets/social-preview.png"],
 ];
 
-/** README stills, scaled down for the page when ffmpeg is there (they are 2x captures of a 1512px window). */
-const stills: Array<{ file: string; width: number }> = [
-  { file: "desktop-chat.png", width: 1600 },
-  { file: "desktop-terminal.png", width: 1600 },
-  { file: "desktop-prompt.png", width: 1600 },
-  { file: "mobile-chat.png", width: 640 },
-  { file: "mobile-terminal.png", width: 640 },
-  { file: "mobile-sessions.png", width: 640 },
-];
+/** README stills, scaled down for the page when ffmpeg is there. */
+const stills: Array<{ file: string; width: number }> = [{ file: "install.png", width: 1400 }];
 
 /**
- * The homepage's two demos and their GitHub uploads (made by scripts/readme-media/capture.ts). They are
- * listed here, not read from the README, so the README can change how it presents its videos.
+ * The README's top video and its GitHub upload. It is listed here, not read from the README, so the
+ * README can change how it presents its videos; a new recording needs its link changed here as well.
  */
 const videos: Array<{ file: string; poster: string; at: string; upload: string }> = [
-  { file: "demo-desktop.mp4", poster: "demo-desktop.jpg", at: "6", upload: "https://github.com/user-attachments/assets/4ca73671-ebfc-4c18-b8f2-99331abf9fa7" },
-  { file: "demo-mobile.mp4", poster: "demo-mobile.jpg", at: "5", upload: "https://github.com/user-attachments/assets/2f030569-1004-425e-835d-9e775ec6e4c8" },
+  { file: "readme-hero.mp4", poster: "readme-hero.jpg", at: "33", upload: "https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6" },
 ];
 
 async function run(cmd: string[]): Promise<boolean> {
@@ -89,6 +82,8 @@ for (const dir of ["assets", "media"]) {
   const from = join(root, "site", dir);
   if (existsSync(from)) cpSync(from, join(out, dir), { recursive: true });
 }
+// the README's feature clips, each linking to its full upload from the page
+cpSync(join(root, "docs/media/readme"), join(out, "media/readme"), { recursive: true });
 
 const hasFfmpeg = Bun.which("ffmpeg") !== null;
 for (const still of stills) {
@@ -116,9 +111,18 @@ for (const video of videos) {
   }
 }
 
+// the page's figures: the release it is built from, and the repository's stars as of the build
+let page = readFileSync(join(out, "index.html"), "utf8");
+const version = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
+page = page.replaceAll("{{version}}", version);
+const repo = await fetch("https://api.github.com/repos/devswha/herdr-web-ui", { headers: { accept: "application/vnd.github+json" } }).catch(() => null);
+const repoBody: unknown = repo?.ok ? await repo.json() : null;
+const stars = repoBody && typeof repoBody === "object" && "stargazers_count" in repoBody && typeof repoBody.stargazers_count === "number" ? repoBody.stargazers_count : null;
+if (stars === null) console.warn(`GitHub star count unavailable (${repo ? `HTTP ${repo.status}` : "no connection"}): the page shows a dash`);
+page = page.replaceAll("{{stars}}", stars === null ? "—" : stars.toLocaleString("en-US"));
+
 // the page's own media: cut a missing poster from its video, then unlink whatever is still missing
 const pageMedia = ["herdr-web-ui-film", "chat-loop"];
-let page = readFileSync(join(out, "index.html"), "utf8");
 for (const name of pageMedia) {
   const video = join(out, "media", `${name}.mp4`);
   const poster = join(out, "media", `${name}.jpg`);
@@ -134,7 +138,7 @@ writeFileSync(join(out, "index.html"), page);
 // the demo: the real client, relative paths, the transport in front of it
 const demoApp = join(out, "demo", "app");
 if (!(await run([join(root, "node_modules/.bin/vite"), "build", "--base", "./", "--outDir", demoApp, "--emptyOutDir", "--logLevel", "warn"]))) throw new Error("vite build for the demo failed");
-const version = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
+
 const bundle = await Bun.build({
   entrypoints: [join(root, "site/demo/transport.ts")],
   outdir: demoApp,
