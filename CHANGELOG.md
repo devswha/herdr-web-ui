@@ -10,6 +10,30 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Added
 - The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
   omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.
+- Subscription usage beside Settings: the plan limits of Claude, Codex, Cursor, Copilot,
+  Grok and Antigravity, read with the sign-in each tool keeps on the server's PC, which is
+  never refreshed. Each provider shows its limit closest to running out, red from 80%; a
+  tap lists every limit with its reset time. Off until turned on in Settings, since it
+  sends the PC's sign-ins to each provider. `GET /api/usage`.
+  Sign-in locations and endpoints follow OpenUsage.
+
+### Changed
+- The website is redesigned after herdr.dev: ink and paper modes, one large headline with the
+  install line, a strip of figures, and five numbered rows for what the app does. It is built
+  from the README's own media: its top video, with a tab that swaps it for the demo app, its
+  four feature clips, and the installer screenshot.
+
+## [0.3.33] - 2026-09-29
+
+### Fixed
+- The chat finds an omo pane's conversation again with current omo, which no longer keeps
+  its session file open. It now reads the session omo records as held by the pane's
+  process, so the chat works with several omo panes in one folder, on macOS, and after
+  `--continue`, `--resume` or `/new`.
+- The installed Android app picks up the auto-rotate fix from 0.3.32 a day sooner. The
+  first launch after upgrading from 0.3.31 or older still got the old, rotating web
+  manifest from the previous service worker's cache, and Chrome checks the installed app
+  against it at most once a day.
 
 ## [0.3.32] - 2026-09-29
 

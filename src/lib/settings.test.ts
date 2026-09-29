@@ -58,5 +58,8 @@ describe("quick replies row", () => {
     expect(DEFAULT_SETTINGS.showQuickReplies).toBe(false);
     expect(sanitizeSettings({ showQuickReplies: true }).showQuickReplies).toBe(true);
     expect(sanitizeSettings({ showQuickReplies: "yes" }).showQuickReplies).toBe(false);
+    expect(DEFAULT_SETTINGS.showUsage).toBe(false);
+    expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
+    expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
   });
 });

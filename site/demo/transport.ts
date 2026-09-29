@@ -11,7 +11,7 @@
  * type; agent panes show one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentStatus, ConversationTurn, Machine, MachineEvent, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationTurn, Machine, MachineEvent, ServerMessage, SessionSnapshot, UsageReport } from "../../shared/protocol.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
@@ -135,6 +135,29 @@ async function bodyOf(init: RequestInit | undefined, input: RequestInfo | URL): 
 
 const DEMO_FILES = ["src/routes/payments.ts", "src/lib/idempotency.ts", "src/metrics.ts", "src/pages/Reports.tsx", "src/money.ts", "src/money.test.ts", "package.json", "README.md"];
 
+/** Settings → Subscription usage on the demo: plans as the workstation's CLIs might report them, resets counted from now. */
+function usageReport(): UsageReport {
+  const now = Date.now();
+  const at = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
+  const checked = new Date(now).toISOString();
+  return { providers: [
+    { id: "claude", plan: "max", problem: null, checked_at: checked, windows: [
+      { kind: "session", scope: null, used_percent: 38, resets_at: at(2.4) },
+      { kind: "week", scope: null, used_percent: 61, resets_at: at(78) },
+      { kind: "week", scope: "Sonnet", used_percent: 12, resets_at: at(78) },
+    ] },
+    { id: "codex", plan: "pro", problem: null, checked_at: checked, windows: [
+      { kind: "session", scope: null, used_percent: 22, resets_at: at(1.2) },
+      { kind: "week", scope: null, used_percent: 84, resets_at: at(97) },
+    ] },
+    { id: "cursor", plan: "pro", problem: null, checked_at: checked, windows: [
+      { kind: "month", scope: null, used_percent: 27, resets_at: at(290) },
+      { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290) },
+      { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290) },
+    ] },
+  ] };
+}
+
 async function route(url: URL, method: string, init: RequestInit | undefined, input: RequestInfo | URL): Promise<Response> {
   const path = url.pathname;
   const query = url.searchParams;
@@ -150,6 +173,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/agents") return json(agentsFixture);
   if (path === "/api/updates") return json({ managed: false, auto_update: false, phase: "idle", current_revision: null, latest_revision: null, current_version: __APP_VERSION__, latest_version: null, available: false, checked_at: null, blocked_reason: null, error: null }, 200, { "cache-control": "no-store" });
   if (path === "/api/access") return json({ port: 7317, tailscale: { state: "running", dns_name: "workstation.example.ts.net", serving_url: "https://workstation.example.ts.net", serve_command: null, serve_url: null } });
+  if (path === "/api/usage") return json(usageReport(), 200, { "cache-control": "no-store" });
   if (path === "/api/push" || path.startsWith("/api/push/")) return error("push_unavailable", "the demo sends no alerts", 404);
   if (path === "/api/machines/settings") return json({ auto_update_bridges: true });
   if (path.startsWith("/api/machines/")) return error("demo", "remote PCs need a real machine", 404);

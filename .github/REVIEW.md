@@ -20,6 +20,10 @@ AI review is advisory; CI and maintainer review determine whether a PR can merge
 - Preserve IME and native clipboard input. Use existing theme tokens for component CSS.
 - Installed updaters discover Git tags immediately. Release only the exact commit
   that passed CI; never create the release tag as a prerequisite for validation.
+- External contributors' PRs get the same priority and the same bar as maintainers'
+  own: review them when they arrive and consider them for the next release. Approve
+  their CI runs after checking that the diff leaves `.github/` alone and adds no
+  `pull_request_target` trigger.
 
 Additional local AGENTS.md instructions may exist in a developer checkout. The rules
 above are committed so remote reviewers receive the essential project constraints.

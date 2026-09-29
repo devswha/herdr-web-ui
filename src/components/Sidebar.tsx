@@ -10,6 +10,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { UsageMeters } from "./UsageMeters.tsx";
 import { useT } from "../lib/i18n.ts";
 
 const CLOSE_ARM_MS = 3000;
@@ -355,10 +356,13 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
             {t("Install app")}
           </button>
         )}
-        <button type="button" className="btn btn-ghost sidebar-footer-action" onClick={actions.openSettings}>
-          <Settings aria-hidden="true" />
-          {t("Settings")}
-        </button>
+        <div className="sidebar-footer-row">
+          <button type="button" className="btn btn-ghost sidebar-footer-action" onClick={actions.openSettings}>
+            <Settings aria-hidden="true" />
+            {t("Settings")}
+          </button>
+          <UsageMeters />
+        </div>
         <div className="sidebar-brandline">
           <span className="sidebar-app-name">herdr web ui</span>
           <span className="pill">herdr {version ?? "offline"}</span>

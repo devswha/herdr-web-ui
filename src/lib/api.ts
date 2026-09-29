@@ -14,6 +14,7 @@ import type {
   RemoteAccess,
   SessionSnapshot,
   SlashCommand,
+  UsageReport,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
@@ -23,6 +24,11 @@ import type { AlertPrefs } from "../../shared/notify-policy.ts";
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
   return getJson<RemoteAccess>("/api/access");
+}
+
+/** The sidebar's plan meters; `refresh` asks the providers again instead of the server's recent answer. */
+export function fetchUsage(refresh = false): Promise<UsageReport> {
+  return getJson<UsageReport>(refresh ? "/api/usage?refresh=1" : "/api/usage");
 }
 
 export function fetchUpdateStatus(): Promise<UpdateStatus> {

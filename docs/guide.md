@@ -159,7 +159,28 @@ The model and reasoning effort come from what the session recorded, never from a
 | **Follow every agent** | Live RUN / INPUT / DONE / READY status for all panes, and alerts when an agent needs input, finishes or its terminal ends. |
 | **Open what agents make** | A file path in an answer opens in a viewer (images, video, audio, PDF, text), or find it with **Browse files**, and download it to your phone. |
 | **Manage sessions** | Start an agent in a folder you type or pick with **Browse**, rename workspaces and panes, reorder workspaces, and jump anywhere from the command palette. |
+| **Watch your plan limits** | Beside Settings, how much of each AI subscription signed in on the PC is used: the limit closest to running out per provider, and every limit with its reset time on a tap. See [Subscription usage](#subscription-usage). |
 | **Make it yours** | English, Korean, Japanese or Simplified Chinese, following the browser or chosen in Settings. Dark, light or system theme, compact density, terminal and chat font sizes, a resizable composer, Enter behavior and thinking visibility. |
+
+## Subscription usage
+
+The strip beside **Settings** shows the plan limits of the AI tools signed in on the PC the app's server runs on: for each provider its logo and the limit closest to running out (red from 80%). Tap it for every limit (5-hour session, week, month, per model where a plan has them) and when each starts over. It is off until you turn it on in **Settings → Subscription usage**: turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.
+
+| Provider | Sign-in it reads |
+| --- | --- |
+| Claude | Claude Code: the macOS keychain item `Claude Code-credentials`, else `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`) |
+| Codex | `auth.json` in `CODEX_HOME`, `~/.config/codex` or `~/.codex`, else the macOS keychain item `Codex Auth` |
+| Cursor | The Cursor app's `state.vscdb`, or the `cursor-agent` CLI's macOS keychain item. Its monthly share, and within it Cursor's own models and the rest |
+| Copilot | `~/.config/github-copilot/apps.json` or `hosts.json`, then `gh auth token`: the first that finds a plan |
+| Grok | `~/.grok/auth.json` |
+| Antigravity | The macOS keychain item Antigravity signs in with (Gemini and other-model quota) |
+
+Only providers with a sign-in are shown; a GitHub account without Copilot is left out. A credential file, a command's output or a provider's answer over 1 MiB is treated as unreadable. Where each sign-in lives and which endpoint states its limits follows [OpenUsage](https://github.com/robinebers/openusage).
+
+- **Read only.** The server never refreshes a token: Claude, Codex, Cursor and Grok rotate refresh tokens, and a refresh the tool did not make would sign it out. An expired sign-in says so; using the tool once renews it.
+- **Asked only while someone looks.** Nothing runs in the background. The server asks a provider at most every five minutes, a refresh from the popover at most every 30 seconds, and a provider that answered 429 not before it said to.
+- **The server's PC only.** Remote PCs are not included.
+- A macOS keychain the server's session cannot open (a server started outside the logged-in desktop session, for one) shows as such instead of the numbers.
 
 ## On your phone
 

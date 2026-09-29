@@ -204,6 +204,14 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
           </section>
 
           <section className="settings-section">
+            <h3>{t("Subscription usage")}</h3>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Show plan limits")}</span><span className="settings-description">{t("Beside Settings: how much of each plan limit the AI tools signed in on the server's PC have used. Read with their own sign-in, which is never refreshed here.")}</span><span className="settings-description">{t("Turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.")}</span></div>
+              <Toggle label={t("Show plan limits")} checked={settings.showUsage} onChange={(showUsage) => update({ showUsage })} />
+            </div>
+          </section>
+
+          <section className="settings-section">
             <h3>{t("Shortcuts")}</h3>
             <table className="settings-shortcuts">
               <tbody>{SHORTCUTS.map((shortcut) => (
