@@ -26,6 +26,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   PATH) no longer leaves the pane half-open. The pane stayed blank for the next device, and
   closing that device crashed the server. The attach now reports the error, the failure is
   written to the server log, and the pane can be opened again (#154).
+- The installed app on Android follows the phone's auto-rotate setting. With rotation
+  locked it no longer turns sideways when the phone is tilted. The service worker no
+  longer serves a cached web manifest, so Chrome sees this change and updates the
+  installed app; reinstalling applies it at once.
 
 ## [0.3.31] - 2026-09-29
 
