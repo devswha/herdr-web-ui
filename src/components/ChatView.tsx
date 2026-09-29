@@ -464,8 +464,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
    * It holds only while those turns are unchanged: once the transcript moves at all, the status
    * applies again (a slash command Claude logs as no user turn continues the very same turn).
    */
-  const [sentOver, setSentOver] = useState<{ ts: string | null; turns: ConversationTurn[] } | null>(null);
-  const heldTurns = useRef<ConversationTurn[]>([]);
+  const [sentOver, setSentOver] = useState<{ turn: ConversationTurn; page: ConversationTurn[] } | null>(null);
+  /** the newest page as rendered: an earlier page loaded above it does not move the transcript */
+  const heldPage = useRef<ConversationTurn[]>([]);
   const seenSent = useRef(sentKey);
   const seenStatus = useRef<{ pane: string; status: AgentStatus | undefined }>({ pane: paneId, status: agentStatus });
 
@@ -487,8 +488,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
     if (seenSent.current === sentKey) return;
     seenSent.current = sentKey;
     // sent into a run (a queued message sent now): that turn is the one running, not one to finish
-    const last = heldTurns.current[heldTurns.current.length - 1];
-    setSentOver(last?.role === "assistant" && agentStatus !== "working" && agentStatus !== "blocked" ? { ts: last.ts, turns: heldTurns.current } : null);
+    const page = heldPage.current;
+    const last = page[page.length - 1];
+    setSentOver(last?.role === "assistant" && agentStatus !== "working" && agentStatus !== "blocked" ? { turn: last, page } : null);
   }, [sentKey, agentStatus]);
 
   // A turn starts or ends when the status enters or leaves `working`: read now, not at the next
@@ -696,8 +698,8 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
     stickToBottom.current = true; setNewMessages(false); setAway(false);
   };
   const turns = useMemo(() => older.length > 0 ? [...older, ...state.turns] : state.turns, [older, state.turns]);
-  heldTurns.current = turns;
-  const finishedBeforeSend = sentOver !== null && sentOver.turns === turns ? sentOver.ts : null;
+  heldPage.current = state.turns;
+  const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   const todos = useMemo(() => state.source === "conversation" ? todoState(turns) : null, [state.source, turns]);
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
 

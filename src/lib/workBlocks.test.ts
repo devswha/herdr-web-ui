@@ -80,11 +80,15 @@ it("does not title a finished turn as running after a message was sent over it",
   const { isLiveWorkTurn } = await import("./workBlocks.ts");
   const finished = { role: "assistant" as const, ts: "2026-09-29T00:00:00Z", parts: [], end_ts: "2026-09-29T00:00:06Z" };
   // sent over it, status already `working`, transcript not yet holding the new message
-  expect(isLiveWorkTurn(finished, true, "working", finished.ts)).toBe(false);
-  expect(isLiveWorkTurn(finished, true, "blocked", finished.ts)).toBe(false);
-  // the turn that answers the message is a different one and is live again
-  const next = { ...finished, ts: "2026-09-29T00:01:00Z", end_ts: undefined };
-  expect(isLiveWorkTurn(next, true, "working", finished.ts)).toBe(true);
+  expect(isLiveWorkTurn(finished, true, "working", finished)).toBe(false);
+  expect(isLiveWorkTurn(finished, true, "blocked", finished)).toBe(false);
+  // a turn without a recorded time is still the one sent over
+  const untimed = { ...finished, ts: null };
+  expect(isLiveWorkTurn(untimed, true, "working", untimed)).toBe(false);
+  // the turn that answers the message is a different one and is live again, even with the same time
+  const next = { ...finished, end_ts: undefined };
+  expect(isLiveWorkTurn(next, true, "working", finished)).toBe(true);
+  expect(isLiveWorkTurn({ ...untimed }, true, "working", untimed)).toBe(true);
   // nothing sent over keeps following the status
   expect(isLiveWorkTurn(finished, true, "working", null)).toBe(true);
   expect(isLiveWorkTurn(finished, true, "working")).toBe(true);
