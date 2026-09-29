@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -580,9 +580,9 @@ it("expands inherited Codex tool output without exposing output discarded by a b
     expect(transcriptToolOutput("codex-transcript", leaf, "current", home)).toBe("current output");
     expect(transcriptToolOutput("codex-transcript", leaf, "discarded", home)).toBeNull();
     // an inherited rollout that can no longer be read costs its own output, not the leaf's
-    chmodSync(parent, 0o000);
-    try {
-      expect(transcriptToolOutput("codex-transcript", leaf, "current", home)).toBe("current output");
-    } finally { chmodSync(parent, 0o644); }
+    // (a directory in its place fails to read even for root, unlike a mode change)
+    rmSync(parent);
+    mkdirSync(parent);
+    expect(transcriptToolOutput("codex-transcript", leaf, "current", home)).toBe("current output");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
