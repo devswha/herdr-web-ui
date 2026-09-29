@@ -847,12 +847,15 @@ export async function toolOutput(paneId: string, ref: string, codexHome?: string
 export function transcriptToolOutput(source: RecognizedConversation["source"], path: string, ref: string, codexHome?: string): string | null {
   if (!TOOL_REF.test(ref)) return null;
   if (source === "codex-transcript") {
-    try {
-      for (const segment of codexHistorySegments(path, codexHome)) {
-        const output = outputInText(source, readRange(segment.path, 0, segment.end), ref);
-        if (output !== null) return output;
-      }
-    } catch { /* a rollout may have been archived since resolution */ }
+    let segments: ReturnType<typeof codexHistorySegments>;
+    try { segments = codexHistorySegments(path, codexHome); } catch { return null; }
+    for (const segment of segments) {
+      let text: string;
+      // a rollout may have been archived since resolution: the others still hold theirs
+      try { text = readRange(segment.path, 0, segment.end); } catch { continue; }
+      const output = outputInText(source, text, ref);
+      if (output !== null) return output;
+    }
     return null;
   }
   let text: string;
