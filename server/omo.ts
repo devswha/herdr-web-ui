@@ -154,8 +154,9 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
     const ids = held.get(runtime.paneId) ?? [];
     const current = files.filter((file) => ids.includes(file.id)).map((file) => file.path);
     if (current.length === 0) continue;
-    // The session held now outranks a launch --session-id or herdr's id, which /new leaves behind.
-    runtime.paths.push(...current);
+    // The session held now outranks a launch --session-id and herdr's session path or id,
+    // which /new leaves behind.
+    runtime.paths = current;
     runtime.ids = [];
   }
   return selectOmoTranscript(paneId, files, runtimes);
