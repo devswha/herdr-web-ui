@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.31] - 2026-09-29
+
 ### Added
 - Recognized password, SSH passphrase and PIN prompts offer a masked input in both
   lenses. Secrets go straight to the attached terminal after a fresh prompt check;
