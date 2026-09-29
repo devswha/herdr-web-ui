@@ -10,6 +10,8 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
   const url = new URL(request.url);
   if (!sameOrigin(request)) return fail("invalid_origin", "Use PC controls from this app", 403);
   if (!["GET", "HEAD"].includes(request.method) && request.headers.get("x-herdr-machine") !== "1") return fail("invalid_machine_request", "Use PC controls from this app", 403);
+  // an empty segment is never a route: dropping it would forward `<id>//fs/file` as `fs/file`
+  if (url.pathname.includes("//")) return fail("not_found", "not found", 404);
   const parts = url.pathname.slice("/api/machines".length).split("/").filter(Boolean);
   try {
     if (!parts.length && request.method === "GET") return jsonResponse({ machines: manager.list() });

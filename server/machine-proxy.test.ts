@@ -50,3 +50,11 @@ it("forwards conversation images and complete output, while rejecting arbitrary 
   expect(await output.text()).toBe("complete remote output");
   expect((await handleMachineRequest(new Request(`${base}/unknown`), manager)).status).toBe(404);
 });
+
+it("refuses a path with an empty segment instead of forwarding it as another route", async () => {
+  const before = asked.length;
+  for (const path of ["pc1//fs/file?path=%2Fetc%2Fhostname", "pc1/fs//file?path=%2Fetc%2Fhostname", "pc1//session"]) {
+    expect((await handleMachineRequest(new Request(`http://127.0.0.1/api/machines/${path}`), manager)).status).toBe(404);
+  }
+  expect(asked.length).toBe(before);
+});

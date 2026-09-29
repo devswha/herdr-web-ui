@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import type { AlertPrefs } from "../shared/notify-policy.ts";
 import type { AgentStatus, HerdrPane } from "../shared/protocol.ts";
-import { createPushService, parseSubscription, type PushService } from "./push.ts";
+import { createPushService, handlePushRequest, parseSubscription, type PushService } from "./push.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
@@ -346,5 +346,22 @@ it("keeps a pending alert across re-registration but drops it after device revoc
   active.clear();
   // The registry still blocks delivery if push-file cleanup cannot run.
   await push.settled();
+  expect(fake.received).toHaveLength(1);
+});
+
+it("keeps a subscription made through the open LAN only while the LAN stays open", async () => {
+  let gated = false;
+  // the server's rule (index.ts): owners null always, undefined only while ungated
+  const push = createPushService({ stateDir, canDeliver: (id) => id === null || (id === undefined ? !gated : false) });
+  const request = new Request("http://192.168.1.20:8787/api/push/subscribe", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: fake.subscription }),
+  });
+  expect((await handlePushRequest(request, "/api/push/subscribe", push, undefined))?.status).toBe(204);
+  expect(JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8"))[0]).not.toHaveProperty("device_id");
+  await push.onEnded("w1:p1");
+  expect(fake.received).toHaveLength(1);
+  // pairing a device closes the open LAN: its earlier subscriber hears nothing more
+  gated = true;
+  await push.onEnded("w1:p2");
   expect(fake.received).toHaveLength(1);
 });

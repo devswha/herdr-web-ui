@@ -618,6 +618,9 @@ export function createServer(
       if (pathname.startsWith("/api/") && mutating && !sameOrigin(request)) {
         return jsonResponse({ error: { code: "invalid_origin", message: "Use controls from this app" } }, 403);
       }
+      // An empty segment ("//") reads as another route to the checks below, while the PC proxy
+      // drops it before forwarding: `/api/machines/<id>//fs/file` would pass as not a file read.
+      if (pathname.startsWith("/api/") && pathname.includes("//")) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
       // Watching a terminal grants no arbitrary filesystem access: those files include credentials.
       const fileRead = /^\/api\/(?:machines\/[^/]+\/)?fs\//.test(pathname);
       const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe" || pathname === "/api/push/test";
@@ -687,7 +690,11 @@ export function createServer(
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
-          const answered = await handlePushRequest(request, pathname, push, access.level === "full" ? access.device?.id ?? null : null);
+          // a paired device owns its alerts; the open LAN (before any pairing) owns them only while
+          // it stays open, like a subscription from before owners (undefined); a local/token/
+          // Tailscale sign-in is the owner (null)
+          const owner = access.level !== "full" ? null : access.device?.id ?? (access.via === "open" ? undefined : null);
+          const answered = await handlePushRequest(request, pathname, push, owner);
           if (answered) return answered;
         } catch (error) {
           return errorResponse(error);

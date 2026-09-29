@@ -121,6 +121,10 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
       expect((await fetch(`${base}/api/${path}`, { method: "POST", headers, body: "{}" })).status).toBe(403);
     }
     expect((await fetch(`${base}/api/fs/file?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(403);
+    // an empty segment must not turn a file read into "some other route" (the PC proxy drops it)
+    for (const path of ["api//fs/file", "api/machines/pc1//fs/file", "api/machines/pc1/fs//file"]) {
+      expect((await fetch(`${base}/${path}?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(404);
+    }
     for (const origin of [base, `http://127.0.0.1:${proxy.port}`]) {
       const client = await connect(`${origin.replace("http:", "ws:")}/ws`, cookie); sockets.push(client.socket);
       client.socket.send(JSON.stringify({ type: "role", mode: "interact" }));

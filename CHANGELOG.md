@@ -7,9 +7,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-### Fixed
-- Enforce device permissions and request origins consistently, persist device changes before reporting success, and stop alerts after device access is revoked.
-
 ### Added
 - The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
   omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.
@@ -30,6 +27,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   `HERDR_WEB_UI_REF` still picks another branch or tag.
 
 ### Fixed
+- Enforce device permissions and request origins consistently, persist device changes before reporting success, and stop alerts after device access is revoked.
 - Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
 - Dragging terminal text copies the visible selection immediately, including when an
   installed app's asynchronous clipboard permission is blocked. Scrollback copies

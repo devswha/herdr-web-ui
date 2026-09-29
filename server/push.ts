@@ -191,7 +191,7 @@ export function createPushService(options: PushServiceOptions): PushService {
   }
 
   async function deliver(subscription: PushSubscriptionRecord, message: PushPayload, urgency: "normal" | "high"): Promise<PushDelivery> {
-    if (options.canDeliver && !options.canDeliver(subscription.device_id)) return { ok: false, status: null, gone: true };
+    if (options.canDeliver && !options.canDeliver(subscription.device_id)) return { ok: false, status: null, gone: false };
     const { publicKey, privateKey } = keys();
     const details = webpush.generateRequestDetails(subscription, JSON.stringify(message), {
       vapidDetails: { subject, publicKey, privateKey },
@@ -388,7 +388,7 @@ export function createPushService(options: PushServiceOptions): PushService {
  *   DELETE /api/push/subscribe { endpoint } -> 204
  *   POST   /api/push/test      { endpoint } -> 204 | 404 subscription_not_found | 502 push_failed
  */
-export async function handlePushRequest(request: Request, pathname: string, push: PushService, deviceId: string | null = null): Promise<Response | null> {
+export async function handlePushRequest(request: Request, pathname: string, push: PushService, deviceId: string | null | undefined): Promise<Response | null> {
   const route = `${request.method} ${pathname}`;
   if (route === "GET /api/push") return jsonResponse({ public_key: push.publicKey() });
   if (route !== "POST /api/push/subscribe" && route !== "DELETE /api/push/subscribe" && route !== "POST /api/push/test") {
