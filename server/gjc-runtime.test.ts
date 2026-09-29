@@ -2,7 +2,7 @@ import { expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gjcBreadcrumbPath, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
+import { gjcBreadcrumbPath, gjcDisplayCandidates, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
 
 it("reads macOS terminal/process identity without /proc", () => {
   expect(parseGjcPs("ttys003 Mon Sep 28 10:00:00 2026\n")?.id).toBe("ttys003");
@@ -29,6 +29,22 @@ it("validates breadcrumbs against process age, canonical cwd and the native sess
     writeFileSync(marker, `${home}\n${escape}\n`);
     expect(gjcBreadcrumbPath(home, home, "ttys003", 0)).toBeNull();
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+it("keeps every whole record of a candidate's tail window", () => {
+  const root = mkdtempSync(join(tmpdir(), "gjc-candidates-"));
+  try {
+    mkdirSync(join(root, "project"));
+    const path = join(root, "project", "session.jsonl");
+    const record = (i: number) => JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: `answer ${i} ${"x".repeat(990)}` }] } });
+    const full = [JSON.stringify({ type: "session", cwd: "/work" }), ...Array.from({ length: 100 }, (_, i) => record(i))].join("\n") + "\n";
+    writeFileSync(path, full);
+    const start = full.length - 65536;
+    expect(full[start - 1]).not.toBe("\n"); // the window cuts a record
+    const [candidate] = gjcDisplayCandidates(root, "/work");
+    // only the cut record is dropped; the first whole one after it stays
+    expect(candidate?.text).toBe(full.slice(full.indexOf("\n", start) + 1));
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 it("matches only substantial assistant text and rejects shared or short text", () => {

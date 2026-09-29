@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- When a GJC pane is matched to its transcript by the text on screen, the oldest whole
+  record in each candidate's 64 KiB tail is read too. The cut first line was dropped twice,
+  losing one complete record.
+
 ## [0.3.30] - 2026-09-29
 
 ### Added
