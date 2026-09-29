@@ -102,6 +102,7 @@ main() {
 
   original_path="$PATH"
   installed_here=""
+  new_install=0
   PATH="$BIN_DIR:$HOME/.bun/bin:$NODE_DIR/bin:$PATH"
   export PATH
 
@@ -145,6 +146,7 @@ main() {
     if herdr plugin install "$REPO" ${HERDR_WEB_UI_REF:+--ref "$HERDR_WEB_UI_REF"} --yes </dev/null >"$log" 2>&1; then
       grep '^Installed ' "$log" || true
       rm -f "$log"
+      new_install=1
     else
       cat "$log" >&2
       rm -f "$log"
@@ -188,6 +190,12 @@ main() {
     else
       say "no phone address yet, and this version cannot set one up: update it in Settings → Updates, then run this again"
     fi
+  fi
+
+  # once, on the first install; a rerun for the phone address stays quiet
+  if [ "$new_install" = 1 ]; then
+    echo
+    say "if it helps you, a GitHub star helps other herdr users find it: $(link "https://github.com/$REPO")"
   fi
 
   case ":$original_path:" in

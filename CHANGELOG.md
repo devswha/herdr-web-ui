@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The one-line installer ends a first install with one line asking for a GitHub star, so
+  other herdr users can find the app. Reruns, such as the one for the phone address, skip it.
+
 ### Fixed
 - When a GJC pane is matched to its transcript by the text on screen, the oldest whole
   record in each candidate's 64 KiB tail is read too. A complete record was dropped along
