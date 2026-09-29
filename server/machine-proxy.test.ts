@@ -8,6 +8,9 @@ const asked: (string | null)[] = [];
 const remote = Bun.serve({
   port: 0,
   fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
+    if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
     const ifNoneMatch = request.headers.get("if-none-match");
     asked.push(ifNoneMatch);
     if (ifNoneMatch === "\"v1\"") return new Response(null, { status: 304, headers: { etag: "\"v1\"" } });
@@ -34,4 +37,16 @@ describe("PC proxy", () => {
     expect(await unchanged.text()).toBe("");
     expect(asked).toEqual([null, "\"v1\""]);
   });
+});
+
+it("forwards conversation images and complete output, while rejecting arbitrary nested paths", async () => {
+  const base = "http://127.0.0.1/api/machines/pc1/pane/conversation";
+  const image = await handleMachineRequest(new Request(`${base}/image?pane_id=w1:p1&ref=asset`), manager);
+  expect(image.status).toBe(200);
+  expect(image.headers.get("content-type")).toBe("image/png");
+  expect([...new Uint8Array(await image.arrayBuffer())]).toEqual([137, 80, 78, 71]);
+  const output = await handleMachineRequest(new Request(`${base}/tool-output?pane_id=w1:p1&ref=call`), manager);
+  expect(output.status).toBe(200);
+  expect(await output.text()).toBe("complete remote output");
+  expect((await handleMachineRequest(new Request(`${base}/unknown`), manager)).status).toBe(404);
 });
