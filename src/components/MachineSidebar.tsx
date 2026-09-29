@@ -7,6 +7,7 @@ import { describeProgress } from "../lib/bridgeProgress.ts";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { Sidebar } from "./Sidebar.tsx";
+import { NeedsInput } from "./NeedsInput.tsx";
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
 
@@ -34,6 +35,7 @@ export function MachineSidebar(props: Props) {
       <button className="btn btn-ghost sidebar-add-pc" onClick={props.onAdd}><Monitor aria-hidden="true" />{t("Add PC")}</button>
     </div>
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
+      <NeedsInput machines={props.machines} selectedMachineId={props.selectedMachineId} selectedPaneId={props.selectedPaneId} onSelect={props.onSelect} />
       {props.machines.map((machine) => <MachineGroup key={machine.id} {...props} machine={machine} />)}
       {!props.machines.length && <p className="tree-state" role="status">{t("Loading PCs…")}</p>}
     </div>

@@ -466,6 +466,7 @@ export const KO: Record<string, string> = {
   "Access and safety": "접근과 안전",
   "…": "…",
   "Alerts": "알림",
+  "Needs you": "내 응답 필요",
   "Keep screen on": "화면 켜짐 유지",
   "While a terminal or chat pane is open. Requires HTTPS or localhost and a supported browser.": "터미널이나 채팅 패널을 보는 동안 화면을 켜 둡니다. HTTPS 또는 localhost와 지원 브라우저가 필요합니다.",
   "Test notification": "테스트 알림",

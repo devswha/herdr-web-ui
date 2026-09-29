@@ -186,6 +186,10 @@ The running server sends the alerts. Keep it running, and keep `HERDR_WEB_STATE_
 
 ## Remote PCs over SSH
 
+Agents waiting for an answer appear in **Needs you** at the top of the sidebar, including
+those on collapsed PCs. Choose a row to open its pane on the correct PC. The shortcut
+disappears when the agent resumes or the PC disconnects; workspace order stays unchanged.
+
 Choose **Add PC** in the sidebar and enter an SSH alias or `user@host` for a Linux or macOS computer. The setup dialog walks you through the host fingerprint, the password or key passphrase, and an explicit install approval. The PC's workspaces then join the sidebar, and chat, files, terminal input and alerts all follow the PC you pick.
 
 - **SSH runs on the server**, as the web server's account, with its OpenSSH configuration and agent. The browser never opens SSH itself.

@@ -468,6 +468,7 @@ export const JA: Record<string, string> = {
   "Access and safety": "アクセスと安全性",
   "…": "…",
   "Alerts": "通知",
+  "Needs you": "応答が必要",
   "Keep screen on": "画面をオンのままにする",
   "While a terminal or chat pane is open. Requires HTTPS or localhost and a supported browser.": "ターミナルやチャットのペインを開いている間、画面をオンに保ちます。HTTPS または localhost と対応ブラウザーが必要です。",
   "Test notification": "テスト通知",
