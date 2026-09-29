@@ -840,14 +840,30 @@ export async function toolOutput(paneId: string, ref: string, codexHome?: string
   let resolved: { source: RecognizedConversation["source"]; path: string };
   try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
-  return transcriptToolOutput(resolved.source, resolved.path, ref);
+  return transcriptToolOutput(resolved.source, resolved.path, ref, codexHome);
 }
 
 /** The output a transcript file holds for one tool call id, whole (up to TOOL_OUTPUT_MAX). */
-export function transcriptToolOutput(source: RecognizedConversation["source"], path: string, ref: string): string | null {
+export function transcriptToolOutput(source: RecognizedConversation["source"], path: string, ref: string, codexHome?: string): string | null {
   if (!TOOL_REF.test(ref)) return null;
+  if (source === "codex-transcript") {
+    let segments: ReturnType<typeof codexHistorySegments>;
+    try { segments = codexHistorySegments(path, codexHome); } catch { return null; }
+    for (const segment of segments) {
+      let text: string;
+      // a rollout may have been archived since resolution: the others still hold theirs
+      try { text = readRange(segment.path, 0, segment.end); } catch { continue; }
+      const output = outputInText(source, text, ref);
+      if (output !== null) return output;
+    }
+    return null;
+  }
   let text: string;
   try { text = readFileSync(path, "utf8"); } catch { return null; }
+  return outputInText(source, text, ref);
+}
+
+function outputInText(source: RecognizedConversation["source"], text: string, ref: string): string | null {
   text = activeHistoryText(text, source);
   const needle = JSON.stringify(ref);
   for (const line of text.split("\n")) {
