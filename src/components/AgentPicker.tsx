@@ -90,13 +90,14 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
       }
       return;
     }
-    if (event.key === "Escape" || event.key === "Tab") {
-      if (event.key === "Escape") {
-        // close the list only, not the dialog around it
-        event.preventDefault();
-        event.stopPropagation();
-      }
+    if (event.key === "Escape") {
+      // cancel: close the list only, not the dialog around it
+      event.preventDefault();
+      event.stopPropagation();
       setOpen(false);
+    } else if (event.key === "Tab") {
+      // a select-only combobox takes the row it is on as focus moves on, as a native select does
+      choose(active);
     } else if (event.key === "ArrowDown") {
       event.preventDefault();
       setActive((index) => Math.min(last, index + 1));
