@@ -1,4 +1,4 @@
-import { constants, fstatSync, closeSync, openSync, readdirSync, readlinkSync, readSync, realpathSync } from "node:fs";
+import { constants, fstatSync, closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { HerdrPane } from "../shared/protocol.ts";
 import { herdrRpc } from "./herdr/client.ts";
@@ -55,10 +55,38 @@ function candidate(path: string, root: string, cwd: string): OmoCandidate | null
   finally { if (fd !== undefined) closeSync(fd); }
 }
 
+const sessionDir = (cwd: string, home: string) => join(home, ".omo", "agent", "sessions", `-${cwd.replaceAll("/", "-")}--`);
+
+// A holder's start is floored to the second (as `ps -o lstart`), ours is in clock ticks.
+const HOLDER_START_TOLERANCE_MS = 3000;
+
+/**
+ * omo keeps no descriptor on its session file, but every process with a session open
+ * publishes <session dir>/session-holders/<encoded id>/<pid>.json and removes it on
+ * release (/new, /resume, exit). A crashed process leaves its record behind, so one
+ * counts only for the live pid it names and, where our start time is readable, only
+ * if it started when that pid did: a reused pid starts later.
+ */
+export function heldSessionIds(dir: string, pid: number, startedAt: number | null): string[] {
+  const holders = join(dir, "session-holders");
+  let names: string[] = [];
+  try { names = readdirSync(holders); } catch { return []; }
+  const ids: string[] = [];
+  for (const name of names.slice(0, 4096)) {
+    try {
+      const record = JSON.parse(readFileSync(join(holders, name, `${pid}.json`), "utf8"));
+      if (record?.pid !== pid) continue;
+      if (startedAt !== null && !(typeof record.processStartedAtMs === "number" && Math.abs(record.processStartedAtMs - startedAt) <= HOLDER_START_TOLERANCE_MS)) continue;
+      ids.push(decodeURIComponent(name));
+    } catch { /* this pid holds nothing here, or the record is unreadable */ }
+  }
+  return ids;
+}
+
 /** Bounded, canonical store reads; exact descriptor paths can live outside the cwd slug. */
 export function omoCandidates(cwd: string, home: string, exactPaths: string[] = []): OmoCandidate[] {
   const root = join(home, ".omo", "agent", "sessions");
-  const dir = join(root, `-${cwd.replaceAll("/", "-")}--`);
+  const dir = sessionDir(cwd, home);
   let names: string[] = [];
   try { names = readdirSync(dir); } catch { /* only explicit evidence may remain */ }
   // Never choose a subset when the directory is too large to inspect safely.
@@ -90,6 +118,8 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
   // pane to a path no candidate matches, so the chat lost the transcript mid-session.
   let store = join(home, ".omo", "agent", "sessions");
   try { store = realpathSync(store); } catch { /* no store yet: no descriptor can be in it */ }
+  const dir = sessionDir(cwd, home);
+  const held = new Map<string, string[]>();
   await Promise.all(panes.filter((pane) => pane.cwd === cwd).map(async (pane) => {
     const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: pane.pane_id }).catch(() => null);
     if (!info?.process_info?.foreground_processes) { runtimes.push({ paneId: pane.pane_id, startedAt: null, paths: [], ids: [] }); return; }
@@ -98,6 +128,7 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
     const starts = processes.map((process) => processStartedAt(process.pid));
     const paths: string[] = [];
     const ids: string[] = [];
+    held.set(pane.pane_id, processes.flatMap((process, index) => heldSessionIds(dir, process.pid, starts[index] ?? null)));
     for (const process of processes) {
       ids.push(...resumedIds(process.argv ?? []));
       let descriptors: string[] = [];
@@ -119,5 +150,14 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
   const files = omoCandidates(cwd, home, runtimes.flatMap((runtime) => runtime.paths));
   // Match canonical candidates even when /proc names a symlink into the store.
   for (const runtime of runtimes) runtime.paths = runtime.paths.flatMap((path) => { try { return [realpathSync(path)]; } catch { return []; } });
+  for (const runtime of runtimes) {
+    const ids = held.get(runtime.paneId) ?? [];
+    const current = files.filter((file) => ids.includes(file.id)).map((file) => file.path);
+    if (current.length === 0) continue;
+    // The session held now outranks a launch --session-id and herdr's session path or id,
+    // which /new leaves behind.
+    runtime.paths = current;
+    runtime.ids = [];
+  }
   return selectOmoTranscript(paneId, files, runtimes);
 }

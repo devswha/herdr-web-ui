@@ -1,12 +1,13 @@
 // Service worker for herdr web ui. Policy: navigations are network-first (so a
 // fresh build always wins when online) falling back to the cached shell when
-// offline; static assets (hashed bundles, icons, manifest, favicons) are
-// cache-first since they are content-addressed or rarely change. API and
-// websocket traffic is never intercepted so live workspace data is always fresh.
-const CACHE_NAME = "herdr-web-ui-v2-ram";
+// offline; static assets (hashed bundles, icons, favicons) are cache-first since
+// they are content-addressed or rarely change. The web manifest is not: its URL
+// never changes and the browser rereads it to update the installed app, so a
+// cached copy would pin every install to its first manifest. API and websocket
+// traffic is never intercepted so live workspace data is always fresh.
+const CACHE_NAME = "herdr-web-ui-v3-ram";
 
 const CACHE_FIRST_PATHS = new Set([
-  "/manifest.webmanifest",
   "/favicon.png",
   "/favicon.ico",
   "/apple-touch-icon.png",

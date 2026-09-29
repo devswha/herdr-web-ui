@@ -7,6 +7,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.33] - 2026-09-29
+
+### Fixed
+- The chat finds an omo pane's conversation again with current omo, which no longer keeps
+  its session file open. It now reads the session omo records as held by the pane's
+  process, so the chat works with several omo panes in one folder, on macOS, and after
+  `--continue`, `--resume` or `/new`.
+- The installed Android app picks up the auto-rotate fix from 0.3.32 a day sooner. The
+  first launch after upgrading from 0.3.31 or older still got the old, rotating web
+  manifest from the previous service worker's cache, and Chrome checks the installed app
+  against it at most once a day.
+
+## [0.3.32] - 2026-09-29
+
 ### Added
 - Subscription usage beside Settings: the plan limits of Claude, Codex, Cursor, Copilot,
   Grok and Antigravity, read with the sign-in each tool keeps on the server's PC, which is
@@ -31,6 +45,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   PATH) no longer leaves the pane half-open. The pane stayed blank for the next device, and
   closing that device crashed the server. The attach now reports the error, the failure is
   written to the server log, and the pane can be opened again (#154).
+- The installed app on Android follows the phone's auto-rotate setting. With rotation
+  locked it no longer turns sideways when the phone is tilted. The service worker no
+  longer serves a cached web manifest, so Chrome sees this change and updates the
+  installed app; reinstalling applies it at once.
 
 ## [0.3.31] - 2026-09-29
 
