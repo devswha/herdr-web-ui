@@ -261,11 +261,13 @@ export function createPushService(options: PushServiceOptions): PushService {
   /** One timer per delay, each for the devices that wait that long; all called off together. */
   function schedule(key: string, groups: Map<number, PushSubscriptionRecord[]>, send: (to: PushSubscriptionRecord[]) => Promise<void>): void {
     const cancels: Array<() => void> = [];
+    let remaining = groups.size;
     for (const [delay, to] of groups) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const done = new Promise<void>((resolve) => {
         timer = setTimeout(() => {
-          if (waiting.get(key) === cancelAll) waiting.delete(key);
+          remaining -= 1;
+          if (remaining === 0 && waiting.get(key) === cancelAll) waiting.delete(key);
           send(to).catch((error: unknown) => {
             console.error(`web push failed: ${error instanceof Error ? error.message : String(error)}`);
           }).finally(resolve);

@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
@@ -16,6 +17,7 @@ import "./Composer.css";
 
 import type { AgentStatus, ConversationMetadata, SlashCommand } from "../../shared/protocol.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
@@ -195,10 +197,8 @@ export function Composer({
   const removedAttachments = useRef(new Set<number>());
   const fileRequest = useRef(0);
   const draftKey = `herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`;
-  const [text, setText] = useState(() => {
-    try { return window.localStorage.getItem(draftKey) ?? ""; }
-    catch { return ""; }
-  });
+  const { text, sending } = useSyncExternalStore(composerDrafts.subscribe, () => composerDrafts.read(draftKey));
+  const setText = useCallback((value: string | ((previous: string) => string)) => composerDrafts.set(draftKey, value), [draftKey]);
   const mounted = useRef(true);
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
@@ -211,7 +211,6 @@ export function Composer({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
   // shown only when chosen in Settings → Quick replies: a button beside the box was one more thing to read
   const quickOpen = settings.showQuickReplies;
   const [reporting, setReporting] = useState(false);
@@ -234,15 +233,6 @@ export function Composer({
   const placeholder = !connected
     ? t("Reconnecting… message held here, never queued")
     : answerHint ?? t("Message {agent}…", { agent: agentLabel });
-
-  useEffect(() => {
-    try {
-      if (text.length > 0) window.localStorage.setItem(draftKey, text);
-      else window.localStorage.removeItem(draftKey);
-    } catch {
-      // Private browsing can reject persistence; the in-memory draft still works.
-    }
-  }, [draftKey, text]);
 
   useEffect(() => {
     let live = true;
@@ -502,15 +492,13 @@ export function Composer({
     const sent = text;
     const sentAttachments = attachments;
     const settle = (result: boolean | string): void => {
+      const acknowledged = result === true ? composerDrafts.settle(draftKey, sent) : null;
       if (!mounted.current) return;
       if (typeof result === "string") setNote(result);
-      if (result !== true) return;
+      if (acknowledged === null) return;
       // only what was sent leaves the box: text added after it stays exactly as typed. Changed
       // inside while on its way, the whole edit stays, and the note says it was not sent
-      const current = textRef.current;
-      const edited = current !== sent && !current.startsWith(sent);
-      const rest = current === sent ? "" : edited ? current : current.slice(sent.length);
-      setText(rest);
+      const { text: rest, edited } = acknowledged;
       setCaret(rest.length);
       textRef.current = rest;
       caretRef.current = rest.length;
@@ -518,11 +506,13 @@ export function Composer({
       for (const attachment of sentAttachments) URL.revokeObjectURL(attachment.previewUrl);
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
     };
-    const result = onSend(text);
-    if (!(result instanceof Promise)) { settle(result); return; }
-    setSending(true);
-    void result.then(settle).finally(() => { if (mounted.current) setSending(false); });
-  }, [attachments, connected, onSend, sending, text, uploading]);
+    if (!composerDrafts.begin(draftKey)) return;
+    try {
+      const result = onSend(text);
+      if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
+      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
+    } catch { composerDrafts.end(draftKey); }
+  }, [attachments, connected, draftKey, onSend, sending, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
@@ -531,11 +521,13 @@ export function Composer({
     const settle = (result: boolean | string): void => {
       if (mounted.current && typeof result === "string") setNote(result);
     };
-    const result = onSend(reply);
-    if (!(result instanceof Promise)) { settle(result); return; }
-    setSending(true);
-    void result.then(settle).finally(() => { if (mounted.current) setSending(false); });
-  }, [connected, onSend, sending]);
+    if (!composerDrafts.begin(draftKey)) return;
+    try {
+      const result = onSend(reply);
+      if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
+      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
+    } catch { composerDrafts.end(draftKey); }
+  }, [connected, draftKey, onSend, sending]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {

@@ -7,9 +7,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-### Fixed
-- Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
-
 ### Added
 - The new-session dialog offers OmO when `omo` is installed on the PC. herdr cannot start
   omo itself, so the new pane's shell runs `omo` and the dialog waits until it is up.
@@ -30,6 +27,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   `HERDR_WEB_UI_REF` still picks another branch or tag.
 
 ### Fixed
+- Show remote conversation images and full tool output, including Codex output inherited from earlier rollouts.
+- Settle sent composer drafts across pane switches and cancel all delayed completion alerts when work resumes.
 - Closing the selected pane with the sidebar's X no longer puts the keyboard on the pane
   selected in its place. On a phone it came up over the drawer, in the way of closing the
   next pane. A pane or lens the user picks still takes the keyboard.

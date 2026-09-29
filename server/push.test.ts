@@ -266,3 +266,18 @@ describe("alert timing and each device's choice", () => {
     expect(fake.received).toHaveLength(0);
   });
 });
+
+it("cancels the remaining delay group after an earlier device already received its finish", async () => {
+  const slower = await startFakePushService();
+  try {
+    const push = createPushService({ stateDir, timing: { short: 0, long: 500, longTurn: 0 } });
+    push.subscribe(fake.subscription, { input: true, done: "always" });
+    push.subscribe(slower.subscription, { input: true, done: "long" });
+    push.seed([pane("w1:p1", "working", "claude")]);
+    await push.onStatus("w1:p1", "done");
+    await fake.waitFor((message) => message.payload.body === "work finished", "early finish", 2000);
+    await push.onStatus("w1:p1", "working");
+    await push.settled();
+    expect(slower.received).toHaveLength(0);
+  } finally { slower.stop(); }
+});

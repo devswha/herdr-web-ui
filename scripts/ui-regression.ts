@@ -57,6 +57,20 @@ try {
     for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
   }, panes);
   const page = await context.newPage();
+  let holdSubmitResult = false;
+  let releaseSubmitResult: (() => void) | null = null;
+  await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    const upstream = socket.connectToServer();
+    upstream.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (holdSubmitResult && message.type === "submit-result") {
+        holdSubmitResult = false;
+        const release = () => { socket.send(raw); releaseSubmitResult = null; };
+        releaseSubmitResult = release;
+        releases.push(release);
+      } else socket.send(raw);
+    });
+  });
   page.setDefaultTimeout(10_000);
   page.on("pageerror", (error) => errors.push(error.message));
   const painted = new Set<string>();
@@ -313,6 +327,27 @@ try {
   await selectPane(paneA);
   assert.equal(await composer.inputValue(), "draft for A");
   console.log("PASS drafts stay with their panes");
+
+  // A real successful send waits on its acknowledgement while its composer unmounts.
+  for (const returnBeforeAck of [false, true]) {
+    await composer.fill("# confirmed draft");
+    holdSubmitResult = true;
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await until(() => releaseSubmitResult !== null, "held submit acknowledgement");
+    await selectPane(paneB);
+    assert.equal(await composer.inputValue(), "draft for B");
+    if (returnBeforeAck) {
+      await selectPane(paneA);
+      assert.equal(await page.getByRole("button", { name: "Send message", exact: true }).isDisabled(), true);
+      await composer.fill("# confirmed draft plus unsent text");
+    }
+    releaseSubmitResult!();
+    if (!returnBeforeAck) await selectPane(paneA);
+    await until(async () => await composer.inputValue() === (returnBeforeAck ? " plus unsent text" : ""), "only acknowledged text leaves the draft");
+  }
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "composer-acknowledged-draft.png") });
+  await composer.fill("draft for A");
+  console.log("PASS successful sends settle after switching panes and preserve edits made after returning");
 
   let releaseImage!: () => void;
   const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
