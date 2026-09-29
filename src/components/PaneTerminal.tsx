@@ -755,6 +755,15 @@ export function PaneTerminal({
   }, [paneId]);
 
 
+  // the user picked the pane App had switched to on its own (the same row or lens again,
+  // which changes neither the pane nor the lens): the grid takes the keyboard now
+  const autoSelectedRef = useRef(autoSelected);
+  useEffect(() => {
+    const wasAuto = autoSelectedRef.current;
+    autoSelectedRef.current = autoSelected;
+    if (wasAuto && !autoSelected && !chatViewRef.current) termRef.current?.focus();
+  }, [autoSelected]);
+
   // key-bar taps go through xterm so the onData -> socket path above is reused
   const pressKey = useCallback((key: KeyBarKey) => {
     const term = termRef.current;

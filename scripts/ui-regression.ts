@@ -507,6 +507,10 @@ try {
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await page.evaluate(() => document.activeElement?.matches("textarea, input, [contenteditable]") ?? false), false,
     "a pane selected after a close must not focus its input");
+  // picking that same pane takes the keyboard, although neither the pane nor its lens changes
+  await page.locator(".pane-item.is-selected .pane-select").click();
+  await until(async () => await page.evaluate(() => document.activeElement?.matches("textarea, input, [contenteditable]") ?? false),
+    "picking the auto-selected pane focuses its input");
   await page.evaluate(() => sessionStorage.setItem("herdr-web-ui:selection", JSON.stringify({ machine_id: "local", pane_id: "obsolete-pane" })));
   await page.reload();
   await until(async () => {
