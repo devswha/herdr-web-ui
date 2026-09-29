@@ -54,11 +54,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Install checksum-pinned herdr 0.9.1
+      - name: Install checksum-pinned herdr 0.9.3
         run: |
           mkdir -p "$RUNNER_TEMP/herdr-bin"
-          curl --fail --location --retry 3 https://github.com/herdrdev/herdr/releases/download/v0.9.1/herdr-linux-x86_64 -o "$RUNNER_TEMP/herdr-bin/herdr"
-          echo "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7  $RUNNER_TEMP/herdr-bin/herdr" | sha256sum --check
+          curl --fail --location --retry 3 https://github.com/herdrdev/herdr/releases/download/v0.9.3/herdr-linux-x86_64 -o "$RUNNER_TEMP/herdr-bin/herdr"
+          echo "18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7  $RUNNER_TEMP/herdr-bin/herdr" | sha256sum --check
           chmod +x "$RUNNER_TEMP/herdr-bin/herdr"
           echo "$RUNNER_TEMP/herdr-bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile

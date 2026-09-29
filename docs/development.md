@@ -143,7 +143,7 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
 
 - **Fast checks**: frozen dependency install, generated type freshness, typecheck, build,
   and `bun run test:unit`. This suite does not start herdr.
-- **Integration and browser**: checksum-pinned herdr 0.9.1, Node 22, isolated state/session,
+- **Integration and browser**: checksum-pinned herdr 0.9.3, Node 22, isolated state/session,
   `bun run test:integration`, and `scripts/ui-regression.ts` with the lockfile's Chromium.
   Missing herdr fails the integration suite. The owned session is stopped even on failure.
   Integration tests have a 15-second default timeout so their bounded process-startup

@@ -18,6 +18,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Sign-in locations and endpoints follow OpenUsage.
 
 ### Changed
+- Tested against herdr 0.9.3: CI runs the integration and browser suites on it, and the API
+  types are generated from its schema. herdr 0.9.0 or newer is still enough.
 - The website is redesigned after herdr.dev: ink and paper modes, one large headline with the
   install line, a strip of figures, and five numbered rows for what the app does. It is built
   from the README's own media: its top video, with a tab that swaps it for the demo app, its

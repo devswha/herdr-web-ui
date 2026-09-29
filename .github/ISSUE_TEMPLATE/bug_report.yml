@@ -57,7 +57,7 @@ body:
     attributes:
       label: Server PC
       description: OS and CPU of the PC the app's server runs on, and `herdr --version`.
-      placeholder: Debian 13 x64, herdr 0.9.1
+      placeholder: Debian 13 x64, herdr 0.9.3
     validations:
       required: true
   - type: input
