@@ -36,17 +36,20 @@ describe("watchDrawerSwipe", () => {
   let saved: { window: unknown; document: unknown };
   let narrow: { matches: boolean };
   let modal: unknown;
+  let selection: { isCollapsed: boolean };
 
   beforeEach(() => {
     listeners = new Map();
     narrow = { matches: true };
     modal = null;
+    selection = { isCollapsed: true };
     saved = { window: (globalThis as Record<string, unknown>)["window"], document: (globalThis as Record<string, unknown>)["document"] };
     (globalThis as Record<string, unknown>)["window"] = { matchMedia: () => narrow };
     (globalThis as Record<string, unknown>)["document"] = {
       addEventListener: (type: string, handler: Handler) => listeners.set(type, handler),
       removeEventListener: (type: string) => listeners.delete(type),
       querySelector: () => modal,
+      getSelection: () => selection,
     };
   });
   afterEach(() => {
@@ -109,5 +112,28 @@ describe("watchDrawerSwipe", () => {
 
   test("a stroke that goes on after the screen turned wide leaves the drawer alone", () => {
     expect(stroke([[4, 400], [24, 400], [90, 400]], false, null, () => { narrow.matches = false; })).toEqual({ reached: 1, calls: [] });
+  });
+
+  test("a stroke on a text field edits it, the drawer open or closed", () => {
+    const input = { tagName: "TEXTAREA", scrollLeft: 0, scrollWidth: 0, clientWidth: 0, parentElement: null };
+    expect(stroke([[4, 400], [24, 400], [90, 400]], false, input)).toEqual({ reached: 2, calls: [] });
+    expect(stroke([[300, 400], [270, 400], [200, 400]], true, input)).toEqual({ reached: 2, calls: [] });
+    const block = { isContentEditable: true, tagName: "DIV", scrollLeft: 0, scrollWidth: 0, clientWidth: 0, parentElement: null };
+    const inner = { tagName: "SPAN", scrollLeft: 0, scrollWidth: 0, clientWidth: 0, parentElement: block };
+    expect(stroke([[4, 400], [24, 400], [90, 400]], false, inner)).toEqual({ reached: 2, calls: [] });
+  });
+
+  test("a stroke while text is selected drags the selection, not the drawer", () => {
+    selection = { isCollapsed: false };
+    expect(stroke([[4, 400], [24, 400], [90, 400]])).toEqual({ reached: 2, calls: [] });
+    expect(stroke([[300, 400], [270, 400], [200, 400]], true)).toEqual({ reached: 2, calls: [] });
+  });
+
+  test("a selection begun mid-stroke, before the drawer moved, hands the stroke back", () => {
+    expect(stroke([[4, 400], [24, 400], [40, 400], [90, 400]], false, null, () => { selection = { isCollapsed: false }; })).toEqual({ reached: 2, calls: [] });
+  });
+
+  test("a selection after the drawer moved leaves the stroke with it", () => {
+    expect(stroke([[4, 400], [70, 400], [90, 400], [100, 400]], false, null, () => { selection = { isCollapsed: false }; })).toEqual({ reached: 0, calls: [true] });
   });
 });

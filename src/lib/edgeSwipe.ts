@@ -38,6 +38,20 @@ function scrolledAside(target: EventTarget | null): boolean {
   return false;
 }
 
+/** A finger on a text field edits its text: a sideways stroke there moves the caret or the selection. */
+function editable(target: EventTarget | null): boolean {
+  for (let node = target as HTMLElement | null; node; node = node.parentElement) {
+    if (node.isContentEditable === true || /^(?:INPUT|TEXTAREA|SELECT)$/.test(node.tagName ?? "")) return true;
+  }
+  return false;
+}
+
+/** Text is selected (the transcript's, a long press in the gutter): a stroke drags its handles. */
+function selecting(): boolean {
+  const selection = document.getSelection?.() ?? null;
+  return selection !== null && !selection.isCollapsed;
+}
+
 /** Listens on the whole document; returns the cleanup. */
 export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean) => void): () => void {
   const narrow = window.matchMedia("(max-width: 768px)");
@@ -49,6 +63,7 @@ export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean)
     const touch = event.touches[0];
     const open = isOpen();
     start = event.touches.length === 1 && touch && narrow.matches && document.querySelector(MODAL) === null && (open || !scrolledAside(event.target))
+      && !editable(event.target) && !selecting()
       ? { x: touch.clientX, y: touch.clientY, open } : null;
     claimed = false;
     done = false;
@@ -58,6 +73,8 @@ export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean)
     if (start === null || !touch) return;
     // the screen turned wide mid-stroke: there is no drawer to swipe any more
     if (!narrow.matches) { onEnd(); return; }
+    // a selection begun mid-stroke is the finger's: until the drawer moved, the stroke goes back
+    if (!done && selecting()) { onEnd(); return; }
     const verdict = done ? "claim" : swipeVerdict(start.open, start.x, touch.clientX - start.x, touch.clientY - start.y);
     // a stroke that was already the drawer's stays so when it comes back near where it started;
     // one that never was waits for a direction. Until the drawer moves, a stroke that turns to
