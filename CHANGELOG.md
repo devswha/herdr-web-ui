@@ -13,6 +13,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   version 8: a connected PC's bridge asks for **Update bridge…** once, and herdr sessions
   keep running while it updates.
 
+### Fixed
+- Subscription usage no longer lists Copilot for everyone signed in to the GitHub CLI. GitHub
+  gives every account Copilot Free, so a Free plan found only through `gh` is left out; a
+  Copilot sign-in in an editor, or a paid plan, still shows.
+
 ## [0.3.34] - 2026-09-30
 
 ### Added
