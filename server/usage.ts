@@ -64,6 +64,10 @@ interface SignIn {
   fallbacks?: string[];
   /** null when the sign-in does not say whose it is */
   account?: Account | null;
+  /** Copilot: found only through the GitHub CLI, never signed in to Copilot in an editor */
+  cliOnly?: boolean;
+  /** Copilot: named editor accounts to match when an older CLI cannot identify its token */
+  editorAccounts?: string[];
 }
 
 /**
@@ -420,12 +424,14 @@ interface GitHubToken {
   token: string;
   /** the GitHub login it belongs to, when the file or the CLI says */
   login: string | null;
+  /** from an editor's Copilot sign-in, not the GitHub CLI */
+  editor: boolean;
 }
 
 function copilotFileTokens(source: string | null): GitHubToken[] {
   return Object.entries(record(parseJson(source))).flatMap(([host, entry]) => {
     const token = host.startsWith("github.com") ? text(record(entry)["oauth_token"]) : null;
-    return token ? [{ token, login: text(record(entry)["user"]) }] : [];
+    return token ? [{ token, login: text(record(entry)["user"]), editor: true }] : [];
   });
 }
 
@@ -435,7 +441,7 @@ async function ghTokens(ctx: UsageContext): Promise<GitHubToken[]> {
   const accounts = record(record(parseJson(await ctx.run(["gh", "auth", "status", "--hostname", "github.com", "--json", "hosts"])))["hosts"])["github.com"];
   if (!Array.isArray(accounts)) {
     const token = text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com"]));
-    return token ? [{ token, login: null }] : [];
+    return token ? [{ token, login: null, editor: false }] : [];
   }
   const tokens = await Promise.all(accounts.map(async (entry): Promise<GitHubToken | null> => {
     const account = record(entry);
@@ -445,7 +451,7 @@ async function ghTokens(ctx: UsageContext): Promise<GitHubToken[]> {
     // a GH_TOKEN/GITHUB_TOKEN sign-in has no stored token: a per-user lookup finds nothing
     const fromEnv = ["GH_TOKEN", "GITHUB_TOKEN"].includes(text(account["tokenSource"]) ?? "");
     const token = text(await ctx.run(["gh", "auth", "token", "--hostname", "github.com", ...(fromEnv ? [] : ["--user", login])]));
-    return token ? { token, login } : null;
+    return token ? { token, login, editor: false } : null;
   }));
   return tokens.filter((token): token is GitHubToken => token !== null);
 }
@@ -463,22 +469,24 @@ const copilot: UsageProvider = {
   async signIns(ctx) {
     const dir = join(ctx.env["XDG_CONFIG_HOME"] || join(ctx.home, ".config"), "github-copilot");
     const tokens = [...copilotFileTokens(readText(join(dir, "apps.json"))), ...copilotFileTokens(readText(join(dir, "hosts.json"))), ...await ghTokens(ctx)];
+    const editorAccounts = tokens.flatMap(({ login, editor }) => editor && login ? [login.toLowerCase()] : []);
     // One sign-in per GitHub account. An editor sign-in can outlive its token by years: the same
     // account's next token (the GitHub CLI's) is tried after it. A token of no known login is a
     // sign-in of its own: it may be anyone's, and the first to answer would hide the others.
-    const accounts = new Map<string, { login: string | null; tokens: string[] }>();
+    const accounts = new Map<string, { login: string | null; tokens: string[]; editor: boolean }>();
     const seen = new Set<string>();
     let unknown = 0;
-    for (const { token, login } of tokens) {
+    for (const { token, login, editor } of tokens) {
       if (seen.has(token)) continue;
       seen.add(token);
       const id = login?.toLowerCase() ?? `#${++unknown}`;
-      const account = accounts.get(id) ?? { login, tokens: [] };
+      const account = accounts.get(id) ?? { login, tokens: [], editor: false };
       account.tokens.push(token);
+      account.editor ||= editor;
       accounts.set(id, account);
     }
-    return [...accounts].map(([id, { login, tokens: [token, ...fallbacks] }]): Found => ({
-      source: login ? `github:${id}` : `github${id}`, token: token!, expiresAt: null, fallbacks, account: login ? { id, label: login } : null,
+    return [...accounts].map(([id, { login, tokens: [token, ...fallbacks], editor }]): Found => ({
+      source: login ? `github:${id}` : `github${id}`, token: token!, expiresAt: null, fallbacks, account: login ? { id, label: login } : null, cliOnly: !editor, editorAccounts,
     }));
   },
   async read(ctx, signIn) {
@@ -524,6 +532,10 @@ const copilot: UsageProvider = {
     // Copilot Free reports its plan as "individual"; only the SKU tells them apart
     const plan = text(body["access_type_sku"])?.includes("free") ? "free" : text(body["copilot_plan"]);
     const login = text(body["login"]);
+    // GitHub grants Copilot Free to every account: a GitHub CLI sign-in alone is no sign of
+    // using Copilot. An unnamed CLI token can still answer for a known editor account.
+    const editorAccount = login !== null && signIn.editorAccounts?.includes(login.toLowerCase());
+    if (plan === "free" && signIn.cliOnly && !editorAccount) return null;
     return { plan, windows, account: login ? { id: login.toLowerCase(), label: login } : null };
   },
 };

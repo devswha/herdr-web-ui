@@ -178,8 +178,8 @@ describe("providers", () => {
     expect(requests[0]!.init.method).toBe("POST");
   });
 
-  it("reads Copilot through the GitHub CLI and leaves unlimited quotas out", async () => {
-    commands.set("gh auth token --hostname github.com", "gho_x");
+  it("reads Copilot Free from an editor sign-in and leaves unlimited quotas out", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_x" } });
     replies.set("https://api.github.com/copilot_internal/user", { body: {
       copilot_plan: "individual", access_type_sku: "free_limited_copilot", quota_reset_date: "2026-10-01",
       quota_snapshots: {
@@ -248,6 +248,50 @@ describe("providers", () => {
     const report = await service.report();
     expect(report.providers.map((usage) => [usage.key, usage.account, usage.problem])).toEqual([["copilot:alice", "alice", null], ["copilot:bob", "Bob", null]]);
     expect(requests.map((request) => (request.init.headers as Record<string, string>)["authorization"])).toEqual(["token gho_editor", "token gho_bob", "token gho_alice"]);
+  });
+
+  it("leaves out Copilot Free found only through the GitHub CLI, but shows a paid plan there", async () => {
+    commands.set("gh auth token --hostname github.com", "gho_cli");
+    const free = { login: "me", copilot_plan: "individual", access_type_sku: "free_limited_copilot", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 100 } } };
+    replies.set("https://api.github.com/copilot_internal/user", { body: free });
+    expect((await new UsageService(context(), only("copilot")).report()).providers).toEqual([]);
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("token gho_cli");
+    replies.set("https://api.github.com/copilot_internal/user", { body: { ...free, access_type_sku: "plus_monthly_subscriber", copilot_plan: "individual" } });
+    const [paid] = (await new UsageService(context(), only("copilot")).report()).providers;
+    expect(paid).toMatchObject({ key: "copilot:me", plan: "individual" });
+  });
+
+  it("shows Copilot Free when the same account is also signed in to Copilot in an editor", async () => {
+    write(join(home, ".config", "github-copilot", "apps.json"), { "github.com:Iv1.x": { oauth_token: "gho_editor", user: "me" } });
+    commands.set("gh auth status --hostname github.com --json hosts", JSON.stringify({ hosts: { "github.com": [{ state: "success", login: "me" }] } }));
+    commands.set("gh auth token --hostname github.com --user me", "gho_cli");
+    replies.set("https://api.github.com/copilot_internal/user", { body: { login: "me", copilot_plan: "individual", access_type_sku: "free_limited_copilot", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 90 } } } });
+    const [usage] = (await new UsageService(context(), only("copilot")).report()).providers;
+    expect(usage).toMatchObject({ key: "copilot:me", plan: "free" });
+  });
+
+  it("keeps Copilot Free from an unnamed CLI sign-in when it answers for an expired editor account", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_stale", user: "Me" } });
+    commands.set("gh auth token --hostname github.com", "gho_cli");
+    const service = new UsageService({ ...context(), async fetch(target, init) {
+      requests.push({ url: target, init });
+      const live = (init.headers as Record<string, string>)["authorization"] === "token gho_cli";
+      return new Response(JSON.stringify(live ? { login: "me", copilot_plan: "individual", access_type_sku: "free_limited_copilot", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 90 } } } : {}), { status: live ? 200 : 401 });
+    } }, only("copilot"));
+    expect((await service.report()).providers).toMatchObject([{ key: "copilot:me", plan: "free", problem: null, windows: [{ scope: "Chat", used_percent: 10 }] }]);
+    expect(requests).toHaveLength(2);
+  });
+
+  it("still leaves out an unnamed CLI's Copilot Free when its account differs from the editor's", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_editor", user: "alice" } });
+    commands.set("gh auth token --hostname github.com", "gho_cli");
+    const service = new UsageService({ ...context(), async fetch(target, init) {
+      requests.push({ url: target, init });
+      const editor = (init.headers as Record<string, string>)["authorization"] === "token gho_editor";
+      return new Response(JSON.stringify({ login: editor ? "alice" : "bob", copilot_plan: "individual", access_type_sku: "free_limited_copilot", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 90 } } }));
+    } }, only("copilot"));
+    expect((await service.report()).providers).toMatchObject([{ key: "copilot:alice", plan: "free" }]);
+    expect(requests).toHaveLength(2);
   });
 
   it("says expired when every Copilot token is refused", async () => {
