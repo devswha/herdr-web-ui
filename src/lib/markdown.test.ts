@@ -256,6 +256,25 @@ describe("numbered lists as agents write them", () => {
     expect((list as ListBlock).items).toHaveLength(2);
   });
 
+  it("keeps an item's text after its table below the table", () => {
+    const source = "1. Before\n\n   | A | B |\n   |---|---|\n   | x | y |\n\n   After the table.\n   And more.\n\n   Another paragraph.\n\n1. Next";
+    const [list] = parseMarkdown(source);
+    expect(lists(source)).toEqual([{ start: 1, items: 2 }]);
+    const item = (list as ListBlock).items[0]!;
+    expect(item.content).toEqual([{ type: "text", value: "Before" }]);
+    expect(item.blocks).toMatchObject([
+      { type: "table" },
+      { type: "paragraph", lines: [[{ value: "After the table." }], [{ value: "And more." }]] },
+      { type: "paragraph", lines: [[{ value: "Another paragraph." }]] },
+    ]);
+    expect(render(source)).toContain("</table></div><p>");
+  });
+
+  it("ends the list at a quote after an item's table, as before tables nested", () => {
+    const blocks = parseMarkdown("1. Before\n\n   | A | B |\n   |---|---|\n   | x | y |\n\n   > Note\n\n1. Next");
+    expect(blocks.map((block) => block.type)).toEqual(["list", "blockquote", "list"]);
+  });
+
   it("keeps both of two nested lists under one item", () => {
     const [list] = parseMarkdown("- item\n  - bullet\n  1. step");
     expect((list as ListBlock).items[0]?.blocks?.map((block) => block.type === "list" && block.ordered)).toEqual([false, true]);

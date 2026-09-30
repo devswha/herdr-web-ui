@@ -190,7 +190,16 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
       }
       if (ahead < lines.length && sibling === null && indent >= baseIndent + 2 && !/^\s*```/.test(line)) {
         const item = block.items.at(-1)!;
-        item.content = [...item.content, { type: "text", value: " " }, ...parseInline(line.trim())];
+        const last = item.blocks?.at(-1);
+        if (last === undefined) {
+          item.content = [...item.content, { type: "text", value: " " }, ...parseInline(line.trim())];
+        } else {
+          // after a table or nested list the item's text goes on below it; a quote or rule
+          // there ends the list and shows as its own block, as it did before tables nested
+          if (startsBlock(lines, ahead)) break;
+          if (last.type === "paragraph" && ahead === index) last.lines.push(parseInline(line.trim()));
+          else item.blocks!.push({ type: "paragraph", lines: [parseInline(line.trim())] });
+        }
         index = ahead + 1;
         continue;
       }
