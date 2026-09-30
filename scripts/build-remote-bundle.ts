@@ -10,10 +10,10 @@ const args = process.argv.slice(2).filter((arg) => arg !== "--");
 if (args.length > 1) throw new Error("Usage: bun run build:remote [linux-x64|linux-arm64|darwin-x64|darwin-arm64]");
 const platform = args[0] ?? hostPlatform;
 const herdrPins: Record<string, [string, string]> = {
-  "linux-x64": ["herdr-linux-x86_64", "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7"],
-  "linux-arm64": ["herdr-linux-aarch64", "f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e"],
-  "darwin-x64": ["herdr-macos-x86_64", "053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94"],
-  "darwin-arm64": ["herdr-macos-aarch64", "5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de"],
+  "linux-x64": ["herdr-linux-x86_64", "18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7"],
+  "linux-arm64": ["herdr-linux-aarch64", "4de7aa3e25678812e92960de64f7c2aaa1bca1f0f80a3c5e559837e231e1f5c0"],
+  "darwin-x64": ["herdr-macos-x86_64", "db62d548ff3e832b087a96b1894a08d26be3905f1830309cd556783f215d4054"],
+  "darwin-arm64": ["herdr-macos-aarch64", "5173a3e0ae42d5d1ab7ebfa5d5e6329f7c3d23f8e1a3677c7ce3231da2884157"],
 };
 // Official release digests: oven-sh/bun bun-v1.4.2 and nodejs.org/dist/v22.23.2/SHASUMS256.txt.
 const macPins: Record<string, { bunFile: string; bunSha: string; nodeSha: string }> = {
@@ -99,13 +99,13 @@ try {
     for (const name of ["pty.node", "spawn-helper"]) verifyMachO(join(ptyPackage, name));
     chmodSync(join(ptyPackage, "spawn-helper"), 0o755);
   }
-  writeFileSync(join(stage, "bin/herdr"), await download(`https://github.com/herdrdev/herdr/releases/download/v0.9.1/${pin[0]}`, pin[1]), { mode: 0o755 });
+  writeFileSync(join(stage, "bin/herdr"), await download(`https://github.com/herdrdev/herdr/releases/download/v0.9.3/${pin[0]}`, pin[1]), { mode: 0o755 });
   for (const name of ["bun", "node", "herdr"]) {
     chmodSync(join(stage, "bin", name), 0o755);
     if (mac) verifyMachO(join(stage, "bin", name));
   }
   writeFileSync(join(stage, "package.json"), JSON.stringify({ type: "module", version: REMOTE_BUNDLE_VERSION }));
-  writeFileSync(join(stage, "bundle.json"), JSON.stringify({ version: REMOTE_BUNDLE_VERSION, platform, herdr: "0.9.1", bun: bunVersion, node: nodeVersion, native_smoke_tested: platform === hostPlatform }));
+  writeFileSync(join(stage, "bundle.json"), JSON.stringify({ version: REMOTE_BUNDLE_VERSION, platform, herdr: "0.9.3", bun: bunVersion, node: nodeVersion, native_smoke_tested: platform === hostPlatform }));
   if (platform === hostPlatform) command([join(stage, "bin/node"), join(stage, "server/pty/smoke.mjs")], stage);
   else console.log(`${platform}: verified binary architecture and checksums; PTY execution is checked on the destination before activation`);
 

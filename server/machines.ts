@@ -315,7 +315,7 @@ export class MachineManager {
     const installs: string[] = [];
     if (job?.update) installs.push("Download and verify the bridge runtime, then restart this bridge (herdr sessions keep running)");
     if (!descriptor && !hasBundle) installs.push("Private web bridge bundle (Bun, Node and node-pty; no build tools needed)");
-    if (!descriptor && !herdrPath) installs.push("Bundled herdr 0.9.1 (existing installations are preserved)");
+    if (!descriptor && !herdrPath) installs.push("Bundled herdr 0.9.3 (existing installations are preserved)");
     if (!descriptor && job) installs.push("Start the loopback bridge and, only if absent, the herdr daemon");
     if (ssh.usedSecret) installs.push("Register a dedicated SSH public key for automatic reconnection");
     if (installs.length) {

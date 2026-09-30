@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- Remote PCs without their own herdr get herdr 0.9.3 in the bundled runtime (was 0.9.1),
+  along with this release's event-stream recovery for the remote bridge. The runtime is
+  version 8: a connected PC's bridge asks for **Update bridge…** once, and herdr sessions
+  keep running while it updates.
+
 ## [0.3.34] - 2026-09-30
 
 ### Added
