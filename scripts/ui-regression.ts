@@ -244,6 +244,12 @@ try {
   assert.equal(await page.locator(".composer-quick").count(), 0);
   assert.equal(await page.locator(".composer-quick-toggle").count(), 0);
   await quickRow(true);
+  // on a wide pane the row keeps the box's column instead of running to the pane's left edge
+  const quickBox = await page.locator(".composer-quick").boundingBox();
+  const surfaceBox = await page.locator(".composer-surface").boundingBox();
+  assert.ok(quickBox && surfaceBox);
+  assert.equal(Math.round(quickBox.x), Math.round(surfaceBox.x));
+  assert.equal(Math.round(quickBox.width), Math.round(surfaceBox.width));
   await composer.fill("draft stays");
   const quickCount = inputs.length;
   await page.getByRole("group", { name: "Quick replies", exact: true }).getByRole("button", { name: "continue", exact: true }).click();
