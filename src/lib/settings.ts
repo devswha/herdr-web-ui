@@ -14,12 +14,23 @@ export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
 /** what the plan meters count: the share of a limit used, or what is left of it */
 export type UsageCount = "used" | "left";
+/** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark */
+export type Palette = "amber" | "report" | "charcoal";
+/** which picture an agent's mark shows: its provider logo, or its app's own icon */
+export type ClaudeMarkStyle = "logo" | "mascot";
+export type CodexMarkStyle = "logo" | "app";
 /** where the plan meters sit: chips beside Settings, or a panel at the top of the sidebar */
 export type UsagePlacement = "footer" | "top";
 
 export interface Settings {
   theme: ThemeSetting;
   density: Density;
+  /** the chrome color family, keyed as data-palette in src/styles.css */
+  palette: Palette;
+  /** Claude panes: the Anthropic logo, or the Claude Code mascot */
+  claudeMark: ClaudeMarkStyle;
+  /** Codex panes: the OpenAI logo, or the blue Codex app icon */
+  codexMark: CodexMarkStyle;
   /** xterm font size in px */
   terminalFontSize: number;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
@@ -55,6 +66,9 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   density: "comfortable",
+  palette: "amber",
+  claudeMark: "logo",
+  codexMark: "logo",
   terminalFontSize: 13,
   chatFontSize: null,
   enterSends: true,
@@ -122,6 +136,9 @@ export function sanitizeSettings(raw: unknown): Settings {
   return {
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
+    claudeMark: record["claudeMark"] === "mascot" ? "mascot" : DEFAULT_SETTINGS.claudeMark,
+    codexMark: record["codexMark"] === "app" ? "app" : DEFAULT_SETTINGS.codexMark,
+    palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     chatFontSize: typeof chatFont === "number" && Number.isFinite(chatFont)
       ? Math.min(CHAT_FONT_MAX, Math.max(CHAT_FONT_MIN, Math.round(chatFont)))
@@ -170,25 +187,45 @@ export function resolveTheme(setting: ThemeSetting): ResolvedTheme {
   return typeof window !== "undefined" && window.matchMedia?.(DARK_QUERY).matches === false ? "light" : "dark";
 }
 
-/** The xterm theme for a resolved theme: the `--term-*` tokens of src/styles.css, verbatim. */
-export function terminalTheme(theme: ResolvedTheme): { background: string; foreground: string; cursor: string; selectionBackground: string } {
-  return theme === "light"
-    ? { background: "#faf8f3", foreground: "#2a251f", cursor: "#8c5000", selectionBackground: "#f0d9ae" }
-    : { background: "#181613", foreground: "#d8d0c3", cursor: "#f0a830", selectionBackground: "#4a3d26" };
+type TerminalColors = { background: string; foreground: string; cursor: string; selectionBackground: string };
+
+/** The xterm theme for a resolved theme and palette: the `--term-*` tokens of src/styles.css, verbatim. */
+const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = {
+  amber: {
+    light: { background: "#faf8f3", foreground: "#2a251f", cursor: "#8c5000", selectionBackground: "#f0d9ae" },
+    dark: { background: "#181613", foreground: "#d8d0c3", cursor: "#f0a830", selectionBackground: "#4a3d26" },
+  },
+  report: {
+    light: { background: "#fafaf9", foreground: "#242424", cursor: "#1f5fcc", selectionBackground: "#cfe0fb" },
+    dark: { background: "#0f1319", foreground: "#c9d1dc", cursor: "#4c9aff", selectionBackground: "#1f3a66" },
+  },
+  charcoal: {
+    light: { background: "#fafaf9", foreground: "#242424", cursor: "#242424", selectionBackground: "#dedad3" },
+    dark: { background: "#171717", foreground: "#cbc7c0", cursor: "#cbc7c0", selectionBackground: "#49443d" },
+  },
+};
+
+export function terminalTheme(theme: ResolvedTheme, palette: Palette = "amber"): TerminalColors {
+  return TERMINAL_THEMES[palette][theme];
 }
 
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
-const THEME_COLOR: Record<ResolvedTheme, string> = { dark: "#181613", light: "#faf8f3" };
+const THEME_COLOR: Record<Palette, Record<ResolvedTheme, string>> = {
+  amber: { dark: "#181613", light: "#faf8f3" },
+  report: { dark: "#0f1319", light: "#fafaf9" },
+  charcoal: { dark: "#171717", light: "#fafaf9" },
+};
 
 function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: Language): void {
   const root = document.documentElement;
   root.lang = LOCALE_TAGS[language];
   root.dataset["theme"] = resolved;
   root.dataset["density"] = settings.density;
+  root.dataset["palette"] = settings.palette;
   // ChatView.css scales its type tokens by this: the chosen size over the density's
   root.style.setProperty("--chat-scale", String(chatFontSize(settings) / CHAT_BASE_FONT[settings.density]));
   root.style.colorScheme = resolved;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[resolved]);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[settings.palette][resolved]);
 }
 
 interface SettingsContextValue {
@@ -240,6 +277,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ settings, resolvedTheme, resolvedLanguage, update }), [settings, resolvedTheme, resolvedLanguage, update]);
   return createElement(SettingsContext.Provider, { value }, children);
+}
+
+/** The settings where a provider is mounted, else null: for leaf components also rendered standalone. */
+export function useOptionalSettings(): SettingsContextValue | null {
+  return useContext(SettingsContext);
 }
 
 export function useSettings(): SettingsContextValue {

@@ -669,6 +669,7 @@ export function App() {
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
             theme={resolvedTheme}
+            palette={settings.palette}
             role={role}
             onRoleAck={setRole}
             onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}

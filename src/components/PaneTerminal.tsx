@@ -24,7 +24,7 @@ import { ChatView } from "./ChatView.tsx";
 import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { terminalTheme, type ResolvedTheme } from "../lib/settings.ts";
+import { terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 
@@ -56,6 +56,8 @@ export interface PaneTerminalProps {
   terminalFontSize: number;
   /** the resolved UI theme: the xterm theme object mirrors it */
   theme: ResolvedTheme;
+  /** the chrome palette (settings.ts): the terminal cursor and selection follow it */
+  palette: Palette;
   /** The connection's desired role; changes are sent to the server, acks come back via onRoleAck. */
   role?: ClientRole;
   /** Fires with the server-confirmed role (the header toggle shows it). */
@@ -96,6 +98,7 @@ export function PaneTerminal({
   autoSelected = false,
   terminalFontSize,
   theme,
+  palette,
   role = "interact",
   onRoleAck,
   onConnectionChange,
@@ -230,7 +233,7 @@ export function PaneTerminal({
       allowProposedApi: true,
       fontSize: terminalFontSize,
       fontFamily: FONT_STACK,
-      theme: terminalTheme(theme),
+      theme: terminalTheme(theme, palette),
       // Option+drag selects on macOS, as Shift+drag does elsewhere; a plain drag is forced below
       macOptionClickForcesSelection: true,
     });
@@ -759,7 +762,7 @@ export function PaneTerminal({
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    term.options.theme = terminalTheme(theme);
+    term.options.theme = terminalTheme(theme, palette);
     if (term.options.fontSize !== terminalFontSize) {
       term.options.fontSize = terminalFontSize;
       if (observeRef.current) return;
@@ -771,7 +774,7 @@ export function PaneTerminal({
       const pane = paneRef.current;
       if (pane) socketRef.current?.resize(pane, term.cols, term.rows, true);
     }
-  }, [theme, terminalFontSize]);
+  }, [theme, palette, terminalFontSize]);
 
   // the grid must re-fit when the lens switches back: the chat lens covered it, and a
   // resize while covered may have been skipped by a zero-size layout
@@ -1093,7 +1096,9 @@ export function PaneTerminal({
           />
         )}
       </div>
-      {paneId !== null && !observing && !ended && queueOwner !== null && queued.length > 0 && (
+      {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
+          Codex question known (heldByOpenQueue), and Send now must not type into one */}
+      {paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
         <section className="composer-queue" aria-label={t("Queued messages")}>
           <div className="composer-queue-heading">
             <strong>{t("Queued messages ({n})", { n: queued.length })}</strong>

@@ -12,7 +12,8 @@ chrome color, amber: selection, focus, the terminal cursor and the user's own ac
 buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture.
+changing information architecture. A dark report look and a neutral charcoal one are opt-in palettes
+(Settings → Appearance → Colors); amber stays the default and the look before settings load.
 
 The signature is the amber status rail: a 3px bar on the selected pane row (whose mark box also
 takes an amber edge), the same amber on focus, the chosen lens glyph and the terminal cursor, tying
@@ -56,10 +57,30 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
 | Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
 
+### Dark report and charcoal palettes
+
+`settings.palette` (`amber` default, `report`, `charcoal`) is written as `data-palette`. The
+tables above are amber, the base blocks; the two opt-in palettes override them in
+`[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
+
+- **Dark report** is a near-black blue-grey canvas with hairlines: `--bg` `#0a0d12`, panel and
+  terminal `#0f1319`, text `#b4bdc9` / `#8792a3` / `#e8ecf2`. Primary (the user's action) is white
+  `#e8ecf2` with `#0a0d12` text; accent is electric blue `#4c9aff`, kept for small marks. Agent
+  states use meaning colors (working `#f5b544`, input `#ff6b7a`, done `#3ddc97`, idle `#8792a3`).
+  Terminal cursor `#4c9aff`, selection `#1f3a66`. It has near-square corners (`--radius-sm/md/lg/xl`
+  = `2/3/3/4px`) and no resting card shadow (`--shadow-card: none`).
+- **Charcoal** is a neutral Ghostty-style dark: `--bg` `#0f0f0f`, panel and terminal `#171717`, text
+  `#cbc7c0` / `#918c85` / `#f5f2ec`, accent and primary near-white `#e8e4dc` with `#171717` text,
+  muted states (working `#c2a2af`, input `#e0877f`, done `#a7b789`, idle `#9a958e`), terminal cursor
+  `#cbc7c0`, selection `#49443d`. It keeps amber's rounded corners and card shadow.
+- In light both use plain paper (`--bg` `#f2f2f0`, panel `#fafaf9`, text `#242424`, primary ink
+  `#242424` with `#fafaf9` text): report with a blue `#1f5fcc` accent and cursor, charcoal with an
+  ink accent and cursor `#242424`.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, so `src/lib/settings.ts` `terminalTheme()` mirrors these four
-CSS tokens verbatim for each resolved theme.
+CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` checks the match).
 
 | Role | Token | Dark | Light | xterm key |
 |------|-------|------|-------|-----------|
@@ -71,7 +92,9 @@ CSS tokens verbatim for each resolved theme.
 ### Rules
 - Amber is the one chrome color. Accent (selected, focused, informational) and primary (the user's
   action: Send, primary buttons) are both amber; in light, accent is the darker text-safe ochre and
-  primary the brighter fill carrying ink text. Agent states never use amber.
+  primary the brighter fill carrying ink text. Agent states never use amber. The report palette
+  keeps the same split, accent (blue) marks and primary (white, or ink on paper) acts, and there
+  agent states never use blue.
 - Agent state is always written as a label as well as colored. Unknown uses dim text and a dashed
   edge rather than inventing a fifth state color.
 - Tints are named tokens; components do not introduce ad hoc translucent state colors.
@@ -107,6 +130,8 @@ CSS tokens verbatim for each resolved theme.
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
+- `palette`: `amber`, `report` or `charcoal`; default `amber`.
+- `claudeMark` (`logo` or `mascot`) and `codexMark` (`logo` or `app`): the provider logo by default.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
 - Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.

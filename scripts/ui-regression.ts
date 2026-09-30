@@ -222,6 +222,12 @@ try {
   await page.locator(".conn-live").waitFor();
   await until(async () => await page.locator(".composer-queue-text").count() === 3, "queue restored");
   assert.equal(await page.locator(".composer-queue-text").nth(1).inputValue(), "# edited second message");
+  // the queue belongs to the chat lens: the terminal lens hides it and keeps it for the return
+  const lens = page.getByRole("group", { name: "Pane view", exact: true });
+  await lens.getByRole("button", { name: "Terminal", exact: true }).click();
+  await until(async () => await page.locator(".composer-queue").count() === 0, "queue hidden in the terminal lens");
+  await lens.getByRole("button", { name: "Chat", exact: true }).click();
+  await until(async () => await page.locator(".composer-queue-text").count() === 3, "queue back in the chat lens");
   await page.locator(`.pane-select[title^="${paneB} —"]`).click();
   await until(async () => await page.locator(".composer-queue-text").count() === 0, "other pane has no queue");
   await page.locator(`.pane-select[title^="${paneA} —"]`).click();
@@ -256,6 +262,12 @@ try {
   assert.equal(await page.locator(".composer-quick").count(), 0);
   assert.equal(await page.locator(".composer-quick-toggle").count(), 0);
   await quickRow(true);
+  // on a wide pane the row keeps the box's column instead of running to the pane's left edge
+  const quickBox = await page.locator(".composer-quick").boundingBox();
+  const surfaceBox = await page.locator(".composer-surface").boundingBox();
+  assert.ok(quickBox && surfaceBox);
+  assert.equal(Math.round(quickBox.x), Math.round(surfaceBox.x));
+  assert.equal(Math.round(quickBox.width), Math.round(surfaceBox.width));
   await composer.fill("draft stays");
   const quickCount = inputs.length;
   await page.getByRole("group", { name: "Quick replies", exact: true }).getByRole("button", { name: "continue", exact: true }).click();

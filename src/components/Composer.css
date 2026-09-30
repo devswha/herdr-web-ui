@@ -1,6 +1,6 @@
 /* The composer is a centered chat surface; PaneTerminal owns its placement above the mobile
-   keyboard. Its horizontal padding equals .chat-view's, so the status line, the box and the
-   transcript share one column edge. */
+   keyboard. Its horizontal padding equals .chat-view's, so the status line, the quick replies,
+   the box and the transcript share one column edge. */
 .composer {
   position: relative;
   flex: none;
@@ -16,6 +16,7 @@
 }
 
 .composer-status,
+.composer-quick,
 .composer-surface,
 .composer-note {
   width: min(100%, var(--content-w));

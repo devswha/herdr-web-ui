@@ -8,6 +8,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Settings → Appearance → Colors offers two opt-in palettes beside herdr's amber, which stays
+  the default: **Dark report** (a near-black blue-grey canvas, hairlines, near-square corners,
+  white primary actions, electric blue only on small marks, and amber / red / green agent states)
+  and a neutral Ghostty-style **Charcoal**
+  ([#188](https://github.com/devswha/herdr-web-ui/pull/188) by @Haeminway1).
+- Settings → Appearance can show Clawd, Claude Code's mascot, on Claude panes and the Codex
+  logo (a blue cloud with a prompt) on Codex panes instead of the provider logos, which stay the
+  default ([#188](https://github.com/devswha/herdr-web-ui/pull/188) by @Haeminway1).
 - The chat's message box offers the prompt Claude Code suggests next, the grey text in its
   empty input. It stands as the box's placeholder, and Tab takes it into the box; on a touch
   screen a dashed chip above the box does the same. Nothing is sent until you send it.
@@ -16,6 +24,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and when it resets. A tap opens every limit.
 
 ### Fixed
+- A table an agent indents under a list item shows as a table in the chat. It was read as the
+  item's text, so its rows ran together on one line with their pipes.
+- `stop` (herdr's Stop action, `bun scripts/plugin.ts stop`) returns once the server is gone.
+  It returned at once, while the old supervisor still held the checkout's lock, so a `start`
+  right after it found that lock and gave up: nothing ran, and it reported no answer after 20s.
 - A pane herdr reports waiting for input gets a card in the chat even when no reader knows its
   screen (Codex's collapsed question queue keeps its own handling). A numbered menu that still
   takes the answer is offered as its options, each answered by typing its number; anything
@@ -28,6 +41,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   wait twice when herdr's refusal of a retry arrives slowly (a busy PC).
 - In the terminal, **Ctrl+Shift+↑/↓** only switches panes. It no longer also types `ESC[1;6A` /
   `ESC[1;6B` into the pane it switched to ([#215](https://github.com/devswha/herdr-web-ui/pull/215)).
+- On a wide screen, the quick replies above the message box line up with the box instead of
+  starting at the chat pane's left edge ([#212](https://github.com/devswha/herdr-web-ui/pull/212)).
+- Queued messages show under the chat lens only. In the terminal lens they stay saved but
+  hidden, so their **Send now** can no longer type into a Codex question that only the chat
+  lens knows is open ([#213](https://github.com/devswha/herdr-web-ui/pull/213)).
 
 ## [0.3.35] - 2026-09-30
 
