@@ -66,6 +66,8 @@ interface SignIn {
   account?: Account | null;
   /** Copilot: found only through the GitHub CLI, never signed in to Copilot in an editor */
   cliOnly?: boolean;
+  /** Copilot: named editor accounts to match when an older CLI cannot identify its token */
+  editorAccounts?: string[];
 }
 
 /**
@@ -467,6 +469,7 @@ const copilot: UsageProvider = {
   async signIns(ctx) {
     const dir = join(ctx.env["XDG_CONFIG_HOME"] || join(ctx.home, ".config"), "github-copilot");
     const tokens = [...copilotFileTokens(readText(join(dir, "apps.json"))), ...copilotFileTokens(readText(join(dir, "hosts.json"))), ...await ghTokens(ctx)];
+    const editorAccounts = tokens.flatMap(({ login, editor }) => editor && login ? [login.toLowerCase()] : []);
     // One sign-in per GitHub account. An editor sign-in can outlive its token by years: the same
     // account's next token (the GitHub CLI's) is tried after it. A token of no known login is a
     // sign-in of its own: it may be anyone's, and the first to answer would hide the others.
@@ -483,7 +486,7 @@ const copilot: UsageProvider = {
       accounts.set(id, account);
     }
     return [...accounts].map(([id, { login, tokens: [token, ...fallbacks], editor }]): Found => ({
-      source: login ? `github:${id}` : `github${id}`, token: token!, expiresAt: null, fallbacks, account: login ? { id, label: login } : null, cliOnly: !editor,
+      source: login ? `github:${id}` : `github${id}`, token: token!, expiresAt: null, fallbacks, account: login ? { id, label: login } : null, cliOnly: !editor, editorAccounts,
     }));
   },
   async read(ctx, signIn) {
@@ -528,10 +531,11 @@ const copilot: UsageProvider = {
     }
     // Copilot Free reports its plan as "individual"; only the SKU tells them apart
     const plan = text(body["access_type_sku"])?.includes("free") ? "free" : text(body["copilot_plan"]);
-    // GitHub grants Copilot Free to every account: a GitHub CLI sign-in alone is no sign of
-    // using Copilot, and its idle allowance would show for anyone signed in to gh
-    if (plan === "free" && signIn.cliOnly) return null;
     const login = text(body["login"]);
+    // GitHub grants Copilot Free to every account: a GitHub CLI sign-in alone is no sign of
+    // using Copilot. An unnamed CLI token can still answer for a known editor account.
+    const editorAccount = login !== null && signIn.editorAccounts?.includes(login.toLowerCase());
+    if (plan === "free" && signIn.cliOnly && !editorAccount) return null;
     return { plan, windows, account: login ? { id: login.toLowerCase(), label: login } : null };
   },
 };

@@ -270,6 +270,30 @@ describe("providers", () => {
     expect(usage).toMatchObject({ key: "copilot:me", plan: "free" });
   });
 
+  it("keeps Copilot Free from an unnamed CLI sign-in when it answers for an expired editor account", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_stale", user: "Me" } });
+    commands.set("gh auth token --hostname github.com", "gho_cli");
+    const service = new UsageService({ ...context(), async fetch(target, init) {
+      requests.push({ url: target, init });
+      const live = (init.headers as Record<string, string>)["authorization"] === "token gho_cli";
+      return new Response(JSON.stringify(live ? { login: "me", copilot_plan: "individual", access_type_sku: "free_limited_copilot", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 90 } } } : {}), { status: live ? 200 : 401 });
+    } }, only("copilot"));
+    expect((await service.report()).providers).toMatchObject([{ key: "copilot:me", plan: "free", problem: null, windows: [{ scope: "Chat", used_percent: 10 }] }]);
+    expect(requests).toHaveLength(2);
+  });
+
+  it("still leaves out an unnamed CLI's Copilot Free when its account differs from the editor's", async () => {
+    write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_editor", user: "alice" } });
+    commands.set("gh auth token --hostname github.com", "gho_cli");
+    const service = new UsageService({ ...context(), async fetch(target, init) {
+      requests.push({ url: target, init });
+      const editor = (init.headers as Record<string, string>)["authorization"] === "token gho_editor";
+      return new Response(JSON.stringify({ login: editor ? "alice" : "bob", copilot_plan: "individual", access_type_sku: "free_limited_copilot", quota_snapshots: { chat: { entitlement: 50, percent_remaining: 90 } } }));
+    } }, only("copilot"));
+    expect((await service.report()).providers).toMatchObject([{ key: "copilot:alice", plan: "free" }]);
+    expect(requests).toHaveLength(2);
+  });
+
   it("says expired when every Copilot token is refused", async () => {
     write(join(home, ".config", "github-copilot", "hosts.json"), { "github.com": { oauth_token: "gho_stale" } });
     replies.set("https://api.github.com/copilot_internal/user", { status: 401 });
