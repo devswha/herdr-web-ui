@@ -16,6 +16,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and when it resets. A tap opens every limit.
 
 ### Fixed
+- A table an agent indents under a list item shows as a table in the chat. It was read as the
+  item's text, so its rows ran together on one line with their pipes.
 - `stop` (herdr's Stop action, `bun scripts/plugin.ts stop`) returns once the server is gone.
   It returned at once, while the old supervisor still held the checkout's lock, so a `start`
   right after it found that lock and gave up: nothing ran, and it reported no answer after 20s.
