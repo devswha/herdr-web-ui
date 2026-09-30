@@ -256,6 +256,11 @@ describe("numbered lists as agents write them", () => {
     expect((list as ListBlock).items).toHaveLength(2);
   });
 
+  it("keeps both of two nested lists under one item", () => {
+    const [list] = parseMarkdown("- item\n  - bullet\n  1. step");
+    expect((list as ListBlock).items[0]?.blocks?.map((block) => block.type === "list" && block.ordered)).toEqual([false, true]);
+  });
+
   it("escapes markup in a table cell inside a list item", () => {
     const html = render("- item\n\n  | <b>x</b> | y |\n  |---|---|\n  | <script>alert(1)</script> | <img src=x onerror=alert(1)> |");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
