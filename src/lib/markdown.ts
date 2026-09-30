@@ -142,11 +142,13 @@ function lineAt(lines: string[], index: number): string {
 function startsTable(lines: string[], index: number): boolean {
   return lineAt(lines, index).includes("|") && tableSeparator.test(lineAt(lines, index + 1));
 }
-function parseTable(lines: string[], start: number): { block: MarkdownBlock; next: number } {
+/** A table in a list item (`within` > 0) ends at a line outside the item or at the next item. */
+function parseTable(lines: string[], start: number, within = 0): { block: MarkdownBlock; next: number } {
   const header = cells(lineAt(lines, start)).map((cell) => parseInline(cell));
   let index = start + 2;
   const rows: InlineNode[][][] = [];
-  while (index < lines.length && lineAt(lines, index).includes("|") && lineAt(lines, index).trim() !== "") {
+  const inItem = (line: string): boolean => within === 0 || ((/^\s*/.exec(line)?.[0].length ?? 0) >= within && !listLine.test(line));
+  while (index < lines.length && lineAt(lines, index).includes("|") && lineAt(lines, index).trim() !== "" && inItem(lineAt(lines, index))) {
     rows.push(cells(lineAt(lines, index)).map((cell) => parseInline(cell)));
     index += 1;
   }
@@ -183,7 +185,7 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
       if (sibling !== null && (sibling[1] ?? "").length >= baseIndent + 2) { index = ahead; continue; }
       if (ahead < lines.length && sibling === null && indent >= baseIndent + 2 && startsTable(lines, ahead)) {
         const item = block.items.at(-1)!;
-        const table = parseTable(lines, ahead);
+        const table = parseTable(lines, ahead, baseIndent + 2);
         (item.blocks ??= []).push(table.block);
         index = table.next;
         continue;

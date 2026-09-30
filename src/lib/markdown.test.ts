@@ -275,6 +275,14 @@ describe("numbered lists as agents write them", () => {
     expect(blocks.map((block) => block.type)).toEqual(["list", "blockquote", "list"]);
   });
 
+  it("ends an item's table at the next item or a line outside the item", () => {
+    const [list] = parseMarkdown("- item\n  | A | B |\n  |---|---|\n  | x | y |\n- next | value");
+    expect((list as ListBlock).items.map((item) => item.content)).toEqual([[{ type: "text", value: "item" }], [{ type: "text", value: "next | value" }]]);
+    expect((list as ListBlock).items[0]?.blocks?.[0]).toMatchObject({ type: "table", rows: [[[{ value: "x" }], [{ value: "y" }]]] });
+    const blocks = parseMarkdown("- item\n  | A | B |\n  |---|---|\n  | x | y |\nnot | in it");
+    expect(blocks.map((block) => block.type)).toEqual(["list", "paragraph"]);
+  });
+
   it("keeps both of two nested lists under one item", () => {
     const [list] = parseMarkdown("- item\n  - bullet\n  1. step");
     expect((list as ListBlock).items[0]?.blocks?.map((block) => block.type === "list" && block.ordered)).toEqual([false, true]);
