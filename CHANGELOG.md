@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.35] - 2026-09-30
+
 ### Added
 - A Korean README (`README.ko.md`), linked from the English, Simplified Chinese and
   Japanese READMEs.
@@ -35,13 +37,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Copilot sign-in in an editor, or a paid plan, still shows.
 - A local or remote PC refresh no longer replaces a newer pane status with an older
   snapshot. Status and session changes received during a refresh queue a fresh load.
-- Keep the shell at its full dynamic viewport height until a text field takes the keyboard,
-  so an installed iPhone app's shorter idle visual viewport cannot leave a band under the
-  composer. Direct terminal typing and pointer changes update keyboard sizing too.
-- Select a notification's pane before bringing the app forward, retry after focus, and open
-  its pane URL if focus is refused. A delayed focus or opening gives the window that comes
-  forward the newest tapped PC and pane, including while the app starts; an older failure
-  cannot open a stale window.
+- The installed iPhone app no longer leaves a band under the composer. The shell keeps its
+  full height until a text field takes the keyboard, and the keyboard sizing also follows
+  direct terminal typing and pointer changes, and clears when a focused field goes away.
+- Tapping an alert opens its PC and pane, also when the tap starts the app or focusing the
+  window is refused; the newest tap wins over an older one still opening.
 - A pane whose terminal another web bridge on the same herdr has open (two installs side by
   side) now waits for it instead of ending with "Another web bridge is attached": it says so,
   keeps the chat readable, and attaches by itself as soon as the other bridge lets go.
