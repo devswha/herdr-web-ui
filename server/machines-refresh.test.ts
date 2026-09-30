@@ -101,7 +101,10 @@ type TestRuntime = {
   machine: Machine;
   endpoint?: { url: string; token: string };
   ssh?: { close(): void; onExit?: () => void };
+  generation: number;
   refreshing: boolean;
+  refreshQueued: boolean;
+  retry?: ReturnType<typeof setTimeout>;
 };
 
 async function remoteFixture() {
@@ -110,6 +113,8 @@ async function remoteFixture() {
   let observer: { send(data: string): unknown } | undefined;
   let observing = false;
   let httpStatus = 200;
+  let sshCloses = 0;
+  let terminalCloses = 0;
   const bridge = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request, server) {
@@ -126,14 +131,17 @@ async function remoteFixture() {
   cleanups.push(() => { remote.finish(); bridge.stop(true); });
   const runtime = local.drive.runtime({ id: "remote", name: "Fixture PC", kind: "ssh", enabled: true, state: "connecting", error: null, snapshot: null });
   runtime.endpoint = { url: `http://127.0.0.1:${bridge.port}`, token: "fixture-token" };
-  runtime.ssh = { close() {} };
+  runtime.ssh = { close() { sshCloses++; } };
   local.drive.machines.set(runtime.machine.id, runtime);
   await local.drive.observe(runtime);
   await until(() => observing);
+  local.manager.trackTerminal(runtime.machine.id, () => { terminalCloses++; });
   return {
     ...local, remote, runtime, endpoint: runtime.endpoint,
     send: (message: ServerMessage) => observer!.send(JSON.stringify(message)),
     setHttpStatus: (status: number) => { httpStatus = status; },
+    sshCloses: () => sshCloses,
+    terminalCloses: () => terminalCloses,
   };
 }
 
@@ -208,6 +216,143 @@ describe("machine snapshot refresh races", () => {
     remote.answer();
     await loading;
     expect(rosters).toEqual(["local:working", "remote:blocked"]);
+  });
+
+  for (const event of ["pane-status", "snapshot"] as const) {
+    it(`retries an obsolete remote error after a newer ${event} without disconnecting`, async () => {
+      const { rosters, remote, runtime, endpoint, send, setHttpStatus, sshCloses, terminalCloses } = await remoteFixture();
+      const generation = runtime.generation;
+      remote.hold();
+      setHttpStatus(503);
+      // Use the observer's actual refresh().catch(lost) path, not a direct load.
+      send({ type: "session-changed" });
+      await until(() => remote.waiting() === 1);
+      setHttpStatus(200);
+      remote.set(snapshot("blocked"));
+      send(event === "pane-status"
+        ? { type: "pane-status", pane_id: "fixture:p1", agent_status: "blocked" }
+        : { type: "snapshot", snapshot: snapshot("blocked") });
+      await until(() => runtime.machine.snapshot?.panes[0]?.agent_status === "blocked");
+      rosters.length = 0;
+      remote.answer();
+      await until(() => remote.waiting() === 1 || runtime.machine.state !== "connected");
+      expect(remote.calls()).toBe(3);
+      expect(runtime.machine.state).toBe("connected");
+      expect(runtime.machine.error).toBeNull();
+      expect(runtime.endpoint).toBe(endpoint);
+      expect(runtime.generation).toBe(generation);
+      expect(runtime.retry).toBeUndefined();
+      expect(sshCloses()).toBe(0);
+      expect(terminalCloses()).toBe(0);
+      remote.answer();
+      await until(() => !runtime.refreshing);
+      expect(remote.calls()).toBe(3);
+      expect(runtime.machine.state).toBe("connected");
+      expect(runtime.machine.error).toBeNull();
+      expect(runtime.machine.snapshot?.panes[0]?.agent_status).toBe("blocked");
+      expect(runtime.retry).toBeUndefined();
+      expect(sshCloses()).toBe(0);
+      expect(terminalCloses()).toBe(0);
+      expect(rosters).not.toContain("remote:working");
+    });
+  }
+
+  it("reconnects after a current remote error from the observer", async () => {
+    const { remote, runtime, send, setHttpStatus, sshCloses, terminalCloses } = await remoteFixture();
+    remote.hold();
+    setHttpStatus(503);
+    send({ type: "session-changed" });
+    await until(() => remote.waiting() === 1);
+    remote.answer();
+    await until(() => runtime.machine.state === "reconnecting");
+    expect(remote.calls()).toBe(2);
+    expect(runtime.machine.error).toBe("Remote herdr unavailable (503)");
+    expect(runtime.endpoint).toBeUndefined();
+    expect(runtime.retry).toBeDefined();
+    expect(sshCloses()).toBe(1);
+    expect(terminalCloses()).toBe(1);
+  });
+
+  it("does not swallow a current error after retrying an invalidated remote error", async () => {
+    const { remote, runtime, send, setHttpStatus, sshCloses, terminalCloses } = await remoteFixture();
+    remote.hold();
+    setHttpStatus(503);
+    send({ type: "session-changed" });
+    await until(() => remote.waiting() === 1);
+    send({ type: "pane-status", pane_id: "fixture:p1", agent_status: "blocked" });
+    await until(() => runtime.machine.snapshot?.panes[0]?.agent_status === "blocked");
+    remote.answer();
+    await until(() => remote.waiting() === 1 || runtime.machine.state !== "connected");
+    expect(remote.calls()).toBe(3);
+    expect(runtime.machine.state).toBe("connected");
+    expect(runtime.retry).toBeUndefined();
+    expect(sshCloses()).toBe(0);
+    expect(terminalCloses()).toBe(0);
+    remote.answer();
+    await until(() => runtime.machine.state === "reconnecting");
+    expect(remote.calls()).toBe(3);
+    expect(runtime.machine.error).toBe("Remote herdr unavailable (503)");
+    expect(runtime.retry).toBeDefined();
+    expect(sshCloses()).toBe(1);
+    expect(terminalCloses()).toBe(1);
+  });
+
+  it("ignores an obsolete observer error after stop without retrying", async () => {
+    const { manager, remote, runtime, send, setHttpStatus, sshCloses, terminalCloses } = await remoteFixture();
+    remote.hold();
+    setHttpStatus(503);
+    send({ type: "session-changed" });
+    await until(() => remote.waiting() === 1);
+    send({ type: "pane-status", pane_id: "fixture:p1", agent_status: "blocked" });
+    await until(() => runtime.machine.snapshot?.panes[0]?.agent_status === "blocked");
+    manager.stop();
+    remote.answer();
+    await until(() => !runtime.refreshing);
+    expect(remote.calls()).toBe(2);
+    expect(runtime.machine.state).toBe("disconnected");
+    expect(runtime.machine.error).toBeNull();
+    expect(runtime.machine.snapshot?.panes[0]?.agent_status).toBe("blocked");
+    expect(runtime.refreshQueued).toBe(false);
+    expect(runtime.retry).toBeUndefined();
+    expect(sshCloses()).toBe(1);
+    expect(terminalCloses()).toBe(1);
+  });
+
+  it("ignores an old observer error while loading a replacement bridge", async () => {
+    const { manager, drive, remote, runtime, endpoint, send, setHttpStatus, sshCloses, terminalCloses } = await remoteFixture();
+    remote.hold();
+    setHttpStatus(503);
+    send({ type: "session-changed" });
+    await until(() => remote.waiting() === 1);
+    send({ type: "snapshot", snapshot: snapshot("blocked") });
+    await until(() => runtime.machine.snapshot?.panes[0]?.agent_status === "blocked");
+    drive.disconnect(runtime);
+    const generation = runtime.generation;
+    let replacementSshCloses = 0;
+    let replacementTerminalCloses = 0;
+    runtime.endpoint = endpoint;
+    runtime.ssh = { close() { replacementSshCloses++; } };
+    manager.trackTerminal(runtime.machine.id, () => { replacementTerminalCloses++; });
+    setHttpStatus(200);
+    remote.set(snapshot("blocked"));
+    await drive.observe(runtime);
+    remote.answer();
+    await until(() => remote.waiting() === 1 || runtime.machine.state !== "connected");
+    expect(remote.calls()).toBe(3);
+    expect(runtime.machine.state).toBe("connected");
+    remote.answer();
+    await until(() => !runtime.refreshing);
+    expect(remote.calls()).toBe(3);
+    expect(runtime.machine.state).toBe("connected");
+    expect(runtime.machine.error).toBeNull();
+    expect(runtime.machine.snapshot?.panes[0]?.agent_status).toBe("blocked");
+    expect(runtime.generation).toBe(generation);
+    expect(runtime.endpoint).toBe(endpoint);
+    expect(runtime.retry).toBeUndefined();
+    expect(sshCloses()).toBe(1);
+    expect(terminalCloses()).toBe(1);
+    expect(replacementSshCloses).toBe(0);
+    expect(replacementTerminalCloses).toBe(0);
   });
 
   it("drops a remote refresh and its queued retry when the bridge disconnects", async () => {

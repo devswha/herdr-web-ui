@@ -436,6 +436,7 @@ export class MachineManager {
           this.emit();
         } catch (e) {
           if (generation !== runtime.generation || this.stopped) return;
+          if (revision !== runtime.snapshotRevision) { runtime.refreshQueued = true; continue; }
           throw e;
         }
       } while (runtime.refreshQueued && generation === runtime.generation && !this.stopped);
