@@ -197,7 +197,12 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
       await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-panel-phone-open.png") });
     }
     await toggle.click();
-    if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-panel-phone.png") });
+    if (process.env.UI_EVIDENCE_DIR) {
+      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-panel-phone.png") });
+      // the accounts with a problem sit at the bottom of the panel's scroll
+      await panel.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-panel-phone-problems.png") });
+    }
 
     // back beside Settings: the panel stops asking and the strip takes over
     await page.locator(".sidebar-footer-row .sidebar-footer-action").click();

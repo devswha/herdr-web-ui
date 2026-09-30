@@ -21,11 +21,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   screen a dashed chip above the box does the same. Nothing is sent until you send it.
 - Settings → Plan limits → Where puts the plan meters at the top of the sidebar instead of
   beside Settings: a row per account with its plan, the limit closest to running out, a bar
-  and when it resets. A tap opens every limit.
+  and when it resets. A tap opens every limit. An account whose numbers are old or missing (a
+  sign-in expired, a provider asking to slow down) dims them and says why in its row.
 
 ### Fixed
-- A table an agent indents under a list item shows as a table in the chat. It was read as the
-  item's text, so its rows ran together on one line with their pipes.
+- A table an agent indents under a list item shows as a table in that item in the chat. It was
+  read as the item's text, so its rows ran together on one line with their pipes. The list goes
+  on after it: items numbered `1.` throughout keep counting, and nested items stay nested.
+- On a phone, the edge swipe that opens the workspace list leaves text alone: a stroke that
+  starts on a text field, while text is selected, or that starts selecting text no longer opens
+  or closes the list.
 - `stop` (herdr's Stop action, `bun scripts/plugin.ts stop`) returns once the server is gone.
   It returned at once, while the old supervisor still held the checkout's lock, so a `start`
   right after it found that lock and gave up: nothing ran, and it reported no answer after 20s.

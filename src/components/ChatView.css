@@ -195,9 +195,13 @@
   padding-left: var(--space-5);
 }
 
-.markdown-list .markdown-list,
-.markdown-list .markdown-table-wrap {
+.markdown-list .markdown-list {
   margin: var(--space-1) 0 0;
+}
+
+/* a table in a list item: a little air above and below, as between two items */
+.markdown-list .markdown-table-wrap {
+  margin: var(--space-1) 0;
 }
 
 .markdown blockquote {
