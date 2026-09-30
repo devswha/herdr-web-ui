@@ -210,6 +210,12 @@ try {
   await page.locator(".conn-live").waitFor();
   await until(async () => await page.locator(".composer-queue-text").count() === 3, "queue restored");
   assert.equal(await page.locator(".composer-queue-text").nth(1).inputValue(), "# edited second message");
+  // the queue belongs to the chat lens: the terminal lens hides it and keeps it for the return
+  const lens = page.getByRole("group", { name: "Pane view", exact: true });
+  await lens.getByRole("button", { name: "Terminal", exact: true }).click();
+  await until(async () => await page.locator(".composer-queue").count() === 0, "queue hidden in the terminal lens");
+  await lens.getByRole("button", { name: "Chat", exact: true }).click();
+  await until(async () => await page.locator(".composer-queue-text").count() === 3, "queue back in the chat lens");
   await page.locator(`.pane-select[title^="${paneB} —"]`).click();
   await until(async () => await page.locator(".composer-queue-text").count() === 0, "other pane has no queue");
   await page.locator(`.pane-select[title^="${paneA} —"]`).click();

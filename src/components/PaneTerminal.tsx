@@ -1089,7 +1089,9 @@ export function PaneTerminal({
           />
         )}
       </div>
-      {paneId !== null && !observing && !ended && queueOwner !== null && queued.length > 0 && (
+      {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
+          Codex question known (heldByOpenQueue), and Send now must not type into one */}
+      {paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
         <section className="composer-queue" aria-label={t("Queued messages")}>
           <div className="composer-queue-heading">
             <strong>{t("Queued messages ({n})", { n: queued.length })}</strong>
