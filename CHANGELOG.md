@@ -26,6 +26,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   failing with the host shell's "'sh' is not recognized" (#189).
 - A pane waiting for another web bridge no longer frees its input for a moment and reports the
   wait twice when herdr's refusal of a retry arrives slowly (a busy PC).
+- In the terminal, **Ctrl+Shift+↑/↓** only switches panes. It no longer also types `ESC[1;6A` /
+  `ESC[1;6B` into the pane it switched to ([#215](https://github.com/devswha/herdr-web-ui/pull/215)).
 
 ## [0.3.35] - 2026-09-30
 
