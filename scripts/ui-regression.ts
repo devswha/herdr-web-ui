@@ -534,8 +534,9 @@ try {
   await page.locator('.composer-status[data-status="working"]').waitFor();
   await composer.fill("# queued before the suggestion");
   await page.getByRole("button", { name: "Queue message", exact: true }).click();
+  // idle after working reads as done: either way the queue waits for its Send now
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
-  await page.locator('.composer-status[data-status="idle"]').waitFor();
+  await page.locator('.composer-status:not([data-status="working"])').waitFor();
   await paintSuggestion(paneA, "check the diff");
   await until(async () => await composer.getAttribute("placeholder") === "check the diff", "suggestion beside a queued message");
   // every read after the send answers late: only the send itself can drop the suggestion in time
