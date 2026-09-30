@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent } from "react";
-import { RefreshCw } from "lucide-react";
+import { Clock, RefreshCw, TriangleAlert } from "lucide-react";
 
 import "./UsageMeters.css";
 
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
-import { useT } from "../lib/i18n.ts";
+import { useT, type Translate } from "../lib/i18n.ts";
 import { useSettings, type UsageCount } from "../lib/settings.ts";
 import { formatPercent, formatResetIn, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, tightestWindow, usageName, useUsage, windowLabel } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -14,6 +14,21 @@ const MAX_CHIPS = 4;
 
 function level(window: UsageWindow | null): string {
   return window !== null && window.used_percent >= HIGH_PERCENT ? " is-high" : "";
+}
+
+/** Why the numbers shown are old or missing; null while they are fresh. */
+function problemText(t: Translate, usage: ProviderUsage): string | null {
+  const name = PROVIDER_NAME[usage.id];
+  return usage.problem === "expired" ? t("Sign-in expired. Open {name} to renew it.", { name })
+    : usage.problem === "rate_limited" ? t("{name} asked to slow down. These are the last numbers.", { name })
+    : usage.problem === "failed" ? t("{name} could not be reached.", { name })
+    : usage.problem === "locked" ? t("The server cannot open the keychain holding this sign-in.")
+    : null;
+}
+
+/** An expired sign-in or an unreachable provider is an error; slowed down or locked, the last numbers stand. */
+function isError(usage: ProviderUsage): boolean {
+  return usage.problem === "expired" || usage.problem === "failed";
 }
 
 function Chip({ usage, count }: { usage: ProviderUsage; count: UsageCount }) {
@@ -30,11 +45,7 @@ function Chip({ usage, count }: { usage: ProviderUsage; count: UsageCount }) {
 function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; count: UsageCount }) {
   const t = useT();
   const name = PROVIDER_NAME[usage.id];
-  const problem = usage.problem === "expired" ? t("Sign-in expired. Open {name} to renew it.", { name })
-    : usage.problem === "rate_limited" ? t("{name} asked to slow down. These are the last numbers.", { name })
-    : usage.problem === "failed" ? t("{name} could not be reached.", { name })
-    : usage.problem === "locked" ? t("The server cannot open the keychain holding this sign-in.")
-    : null;
+  const problem = problemText(t, usage);
   return (
     <section className="usage-provider" aria-label={usageName(usage)}>
       <header className="usage-provider-head">
@@ -43,7 +54,7 @@ function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; co
         {usage.plan && <span className="usage-plan">{usage.plan}</span>}
         {usage.account && <span className="usage-account" title={usage.account}>{usage.account}</span>}
       </header>
-      {problem && <p className={`usage-note${usage.problem === "expired" || usage.problem === "failed" ? " is-problem" : ""}`}>{problem}</p>}
+      {problem && <p className={`usage-note${isError(usage) ? " is-problem" : ""}`}>{problem}</p>}
       {usage.windows.map((window, index) => {
         const reset = formatResetIn(window.resets_at, now);
         const value = meterPercent(window, count);
@@ -177,6 +188,7 @@ export function UsagePanel() {
           const window = tightestWindow(usage);
           const value = window ? meterPercent(window, count) : 0;
           const reset = window ? formatResetIn(window.resets_at, now) : null;
+          const problem = problemText(t, usage);
           return (
             <span key={usage.key} className={`usage-panel-row${level(window)}${usage.problem ? " has-problem" : ""}`}>
               <AgentMark agent={PROVIDER_MARK[usage.id]} size={16} />
@@ -189,6 +201,13 @@ export function UsagePanel() {
               <span className="usage-panel-value">{window ? meterText(window, count) : "—"}</span>
               <span className="usage-bar" aria-hidden="true"><span style={{ width: value > 0 ? `max(4px, ${value}%)` : 0 }} /></span>
               {window && <span className="usage-panel-window">{windowLabel(window)}{reset ? ` · ${t("Resets in {time}", { time: reset })}` : ""}</span>}
+              {/* the chip beside Settings only dims; the row has room to say why */}
+              {problem && (
+                <span className={`usage-panel-problem${isError(usage) ? " is-problem" : ""}`}>
+                  {isError(usage) ? <TriangleAlert aria-hidden="true" /> : <Clock aria-hidden="true" />}
+                  {problem}
+                </span>
+              )}
             </span>
           );
         })}

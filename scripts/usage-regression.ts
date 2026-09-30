@@ -176,6 +176,13 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     assert.match(await rows.nth(0).textContent() ?? "", /me@work\.example/, "two Codex accounts are told apart");
     assert.match(await rows.nth(2).textContent() ?? "", /me@example\.com/);
     assert.equal(await rows.evaluateAll((all) => all.every((row) => row.scrollWidth <= row.clientWidth)), true, "each row fits the phone");
+    // a slowed-down or signed-out account says so in its row, as the footer chip dims: not only once opened
+    assert.equal(await panel.locator(".usage-panel-row.has-problem").count(), 2);
+    assert.deepEqual(await panel.locator(".usage-panel-problem").allTextContents(),
+      ["Grok asked to slow down. These are the last numbers.", "Sign-in expired. Open Antigravity to renew it."]);
+    assert.equal(await panel.locator(".usage-panel-problem.is-problem").count(), 1, "only the expired sign-in reads as an error");
+    assert.equal(await panel.getByRole("button", { name: /Grok asked to slow down.*Sign-in expired\. Open Antigravity/ }).count(), 1, "the reasons are in the rows' accessible name");
+    assert.equal(await panel.locator(".usage-panel-row.has-problem .usage-panel-value").first().evaluate((el) => Number(getComputedStyle(el).opacity) < 1), true, "old numbers dim");
 
     const toggle = panel.locator(".usage-panel-rows");
     await toggle.click();

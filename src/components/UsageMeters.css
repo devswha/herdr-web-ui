@@ -316,6 +316,35 @@
   color: var(--status-blocked);
 }
 
+/* old or missing numbers dim as the footer chip does; the reason reads under them */
+.usage-panel-row.has-problem .usage-panel-value,
+.usage-panel-row.has-problem .usage-bar,
+.usage-panel-row.has-problem .usage-panel-window {
+  opacity: 0.55;
+}
+
+.usage-panel-problem {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-tight);
+}
+
+.usage-panel-problem.is-problem {
+  color: var(--status-blocked);
+}
+
+/* the icon keeps to the text's size, on its first line */
+.usage-panel-problem svg {
+  flex-shrink: 0;
+  width: 1.2em;
+  height: 1.2em;
+}
+
 .usage-panel-detail {
   margin-top: var(--space-2);
   border-top: var(--hairline) solid var(--border);
