@@ -26,6 +26,7 @@ import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, 
 import type { PaneView } from "../lib/actions.ts";
 import { terminalTheme, type ResolvedTheme } from "../lib/settings.ts";
 import { useT } from "../lib/i18n.ts";
+import { isAppShortcut } from "../lib/shortcuts.ts";
 
 // xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
 // must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback
@@ -245,7 +246,10 @@ export function PaneTerminal({
     // With text selected, Ctrl+C (and Ctrl+Shift+C) copies it instead of interrupting the pane.
     // A non-Latin layout (Korean, Russian...) reports its own character as the key, so the
     // physical key names the letter then; a Latin layout keeps its own (Dvorak's C is not KeyC).
+    // An app shortcut is the app's alone: xterm would still type it, and Ctrl+Shift+↓ reached the
+    // pane it had just switched to as ESC[1;6B.
     term.attachCustomKeyEventHandler((event) => {
+      if (isAppShortcut(event)) return false;
       if (!event.ctrlKey || event.altKey || event.metaKey) return true;
       const typed = event.key.toLowerCase();
       const key = /^[a-z]$/.test(typed) ? typed : /^Key([A-Z])$/.exec(event.code)?.[1]?.toLowerCase() ?? typed;

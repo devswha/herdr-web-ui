@@ -156,6 +156,18 @@ try {
     await until(() => inputs.length > beforeCancel, "terminal Ctrl+C");
     assert.equal(inputs.at(-1)?.text, "\x03", "other terminal control keys must still work");
   }
+  // a pane shortcut switches panes and types nothing: xterm used to send ESC[1;6B / ESC[1;6A too
+  const selectedTitle = () => page.locator(".pane-item.is-selected .pane-select").getAttribute("title");
+  for (const key of ["Control+Shift+ArrowDown", "Control+Shift+ArrowUp"]) {
+    await terminalInput.focus();
+    const beforeSwitch = inputs.length;
+    await page.keyboard.press(key);
+    await until(async () => !(await selectedTitle())?.startsWith(`${paneA} —`), `${key} leaves the pane`);
+    await page.waitForTimeout(NO_SEND_WAIT_MS);
+    assert.deepEqual(inputs.slice(beforeSwitch), [], `${key} must not reach a pane`);
+    await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+    await until(async () => (await selectedTitle())?.startsWith(`${paneA} —`) === true, "back on the first pane");
+  }
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await composer.waitFor();
   console.log("PASS terminal clipboard paste sends text once and preserves Ctrl+C");

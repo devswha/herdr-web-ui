@@ -41,6 +41,14 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean):
   return KEY_TO_ID[event.key.length === 1 ? event.key.toLowerCase() : event.key] ?? null;
 }
 
+/**
+ * The capture listener below only prevents the browser's default, so xterm would still encode an
+ * app shortcut for the pane: its key handler asks this first.
+ */
+export function isAppShortcut(event: ShortcutEventLike): boolean {
+  return matchShortcut(event, isMacPlatform()) !== null;
+}
+
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
