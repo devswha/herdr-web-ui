@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- A Korean README (`README.ko.md`), linked from the English, Simplified Chinese and
+  Japanese READMEs.
+
 ### Changed
 - Remote PCs without their own herdr get herdr 0.9.3 in the bundled runtime (was 0.9.1),
   along with this release's event-stream recovery for the remote bridge. The runtime is
