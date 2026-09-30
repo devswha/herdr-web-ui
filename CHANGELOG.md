@@ -17,6 +17,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   version 8: a connected PC's bridge asks for **Update bridge…** once, and herdr sessions
   keep running while it updates.
 
+### Fixed
+- A local or remote PC refresh no longer replaces a newer pane status with an older
+  snapshot. Status and session changes received during a refresh queue a fresh load.
+
 ## [0.3.34] - 2026-09-30
 
 ### Added
