@@ -9,7 +9,8 @@ export type InlineNode =
 
 export interface ListItem {
   content: InlineNode[];
-  children?: ListBlock;
+  /** what is indented under the item's text, in order: a nested list, a table */
+  blocks?: MarkdownBlock[];
 }
 
 export interface ListBlock {
@@ -141,6 +142,16 @@ function lineAt(lines: string[], index: number): string {
 function startsTable(lines: string[], index: number): boolean {
   return lineAt(lines, index).includes("|") && tableSeparator.test(lineAt(lines, index + 1));
 }
+function parseTable(lines: string[], start: number): { block: MarkdownBlock; next: number } {
+  const header = cells(lineAt(lines, start)).map((cell) => parseInline(cell));
+  let index = start + 2;
+  const rows: InlineNode[][][] = [];
+  while (index < lines.length && lineAt(lines, index).includes("|") && lineAt(lines, index).trim() !== "") {
+    rows.push(cells(lineAt(lines, index)).map((cell) => parseInline(cell)));
+    index += 1;
+  }
+  return { block: { type: "table", header, rows }, next: index };
+}
 
 
 function startsBlock(lines: string[], index: number): boolean {
@@ -159,8 +170,8 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
   let index = start;
   while (index < lines.length) {
     // between items: blank lines (a loose list, as agents often write one) and an item's own
-    // indented lines, which read on as its text; anything else ends the list, and so does an
-    // indented fence or table, which shows as its own block
+    // indented lines, which read on as its text, or make a table in it; anything else ends
+    // the list, and so does an indented fence, which shows as its own block
     if (block.items.length > 0 && !listLine.test(lineAt(lines, index))) {
       let ahead = index;
       while (ahead < lines.length && lineAt(lines, ahead).trim() === "") ahead += 1;
@@ -168,7 +179,16 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
       const indent = /^\s*/.exec(line)?.[0].length ?? 0;
       const sibling = listLine.exec(line);
       if (sibling !== null && (sibling[1] ?? "").length === baseIndent && /\d/.test(sibling[2] ?? "") === ordered) { index = ahead; continue; }
-      if (ahead < lines.length && sibling === null && indent >= baseIndent + 2 && !/^\s*```/.test(line) && !startsTable(lines, ahead)) {
+      // a list indented under the last item after a blank line (or after its table) nests in it
+      if (sibling !== null && (sibling[1] ?? "").length >= baseIndent + 2) { index = ahead; continue; }
+      if (ahead < lines.length && sibling === null && indent >= baseIndent + 2 && startsTable(lines, ahead)) {
+        const item = block.items.at(-1)!;
+        const table = parseTable(lines, ahead);
+        (item.blocks ??= []).push(table.block);
+        index = table.next;
+        continue;
+      }
+      if (ahead < lines.length && sibling === null && indent >= baseIndent + 2 && !/^\s*```/.test(line)) {
         const item = block.items.at(-1)!;
         item.content = [...item.content, { type: "text", value: " " }, ...parseInline(line.trim())];
         index = ahead + 1;
@@ -182,7 +202,7 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
       const parent = block.items.at(-1);
       if (parent === undefined) break;
       const nested = parseList(lines, index);
-      parent.children = nested.block;
+      (parent.blocks ??= []).push(nested.block);
       index = nested.next;
       continue;
     }
@@ -279,14 +299,9 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
     }
 
     if (startsTable(lines, index)) {
-      const header = cells(line).map((cell) => parseInline(cell));
-      index += 2;
-      const rows: InlineNode[][][] = [];
-      while (index < lines.length && lineAt(lines, index).includes("|") && lineAt(lines, index).trim() !== "") {
-        rows.push(cells(lineAt(lines, index)).map((cell) => parseInline(cell)));
-        index += 1;
-      }
-      blocks.push({ type: "table", header, rows });
+      const table = parseTable(lines, index);
+      blocks.push(table.block);
+      index = table.next;
       continue;
     }
 

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "../components/Markdown.tsx";
 import { SettingsProvider } from "./settings.ts";
-import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, parseInline, parseMarkdown, safeMarkdownHref, type InlineNode } from "./markdown.ts";
+import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, parseInline, parseMarkdown, safeMarkdownHref, type InlineNode, type ListBlock } from "./markdown.ts";
 
 describe("parseMarkdown", () => {
   it("renders inline and display math while leaving fenced code untouched", () => {
@@ -28,7 +28,7 @@ describe("parseMarkdown", () => {
     expect(blocks[0]).toMatchObject({
       type: "list",
       ordered: false,
-      items: [{ children: { type: "list", ordered: false, items: [{ content: [{ type: "text", value: "nested" }] }] } }, {}],
+      items: [{ blocks: [{ type: "list", ordered: false, items: [{ content: [{ type: "text", value: "nested" }] }] }] }, {}],
     });
     expect(blocks[1]).toMatchObject({ type: "list", ordered: true, items: [{}, {}] });
   });
@@ -201,6 +201,16 @@ describe("foldCode", () => {
 });
 
 describe("numbered lists as agents write them", () => {
+  const render = (source: string): string => {
+    const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
+    Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
+    try {
+      return renderToStaticMarkup(createElement(SettingsProvider, { children: createElement(Markdown, { children: source }) }));
+    } finally {
+      if (languages) Object.defineProperty(navigator, "languages", languages);
+      else Reflect.deleteProperty(navigator, "languages");
+    }
+  };
   const lists = (source: string) => parseMarkdown(source).map((block) => block.type === "list" ? { start: block.start ?? 1, items: block.items.length } : block.type);
 
   it("keeps one list across blank lines between its items", () => {
@@ -222,12 +232,36 @@ describe("numbered lists as agents write them", () => {
     expect(fenced[1]).toEqual({ type: "code", language: "sh", value: "bun test" });
   });
 
-  it("shows a table indented under an item as a table, not as the item's text", () => {
+  it("shows a table indented under an item as a table in that item, not as the item's text", () => {
     const blocks = parseMarkdown("1. **Two ways**\n   - Example:\n\n     | Way | Box |\n     |---|---|\n     | a | `[0,1]` |\n     | b | `[2,3]` |\n\n   - after it\n\n2. second");
-    expect(blocks.map((block) => block.type)).toEqual(["list", "table", "list", "list"]);
-    const item = (blocks[0] as Extract<ReturnType<typeof parseMarkdown>[number], { type: "list" }>).items[0]!;
-    expect(item.children?.items[0]?.content).toEqual([{ type: "text", value: "Example:" }]);
-    expect(blocks[1]).toMatchObject({ type: "table", header: [[{ value: "Way" }], [{ value: "Box" }]], rows: [[[{ value: "a" }], [{ type: "code", value: "[0,1]" }]], [[{ value: "b" }], [{ type: "code", value: "[2,3]" }]]] });
-    expect(blocks[3]).toMatchObject({ type: "list", ordered: true, start: 2 });
+    expect(lists("1. **Two ways**\n   - Example:\n\n     | Way | Box |\n     |---|---|\n     | a | `[0,1]` |\n\n   - after it\n\n2. second")).toEqual([{ start: 1, items: 2 }]);
+    const item = (blocks[0] as ListBlock).items[0]!;
+    const nested = item.blocks?.[0] as ListBlock;
+    // the sibling after the table stays nested, in the same list as the item the table is under
+    expect(nested.items.map((entry) => entry.content)).toEqual([[{ type: "text", value: "Example:" }], [{ type: "text", value: "after it" }]]);
+    expect(nested.items[0]?.blocks?.[0]).toMatchObject({ type: "table", header: [[{ value: "Way" }], [{ value: "Box" }]], rows: [[[{ value: "a" }], [{ type: "code", value: "[0,1]" }]], [[{ value: "b" }], [{ type: "code", value: "[2,3]" }]]] });
+  });
+
+  it("goes on counting after a table in an item, the way agents number every item 1.", () => {
+    const source = "1. first\n\n   | a | b |\n   |---|---|\n   | 1 | 2 |\n\n1. second\n1. third";
+    expect(lists(source)).toEqual([{ start: 1, items: 3 }]);
+    const html = render(source);
+    expect(html).toContain('<ol class="markdown-list"><li><span>first</span><div class="markdown-table-wrap"><table>');
+    expect(html.match(/<ol/g)).toHaveLength(1);
+  });
+
+  it("keeps a table and a nested list under one item in the order they were written", () => {
+    const [list] = parseMarkdown("- item\n  - sub\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n\n  - more\n- next");
+    expect((list as ListBlock).items[0]?.blocks?.map((block) => block.type)).toEqual(["list", "table", "list"]);
+    expect((list as ListBlock).items).toHaveLength(2);
+  });
+
+  it("escapes markup in a table cell inside a list item", () => {
+    const html = render("- item\n\n  | <b>x</b> | y |\n  |---|---|\n  | <script>alert(1)</script> | <img src=x onerror=alert(1)> |");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<b>");
   });
 });

@@ -62,7 +62,7 @@ function List({ block }: { block: ListBlock }) {
       {block.items.map((item, index) => (
         <li key={index}>
           <Inline nodes={item.content} />
-          {item.children !== undefined && <List block={item.children} />}
+          {item.blocks !== undefined && <Blocks blocks={item.blocks} />}
         </li>
       ))}
     </Tag>
