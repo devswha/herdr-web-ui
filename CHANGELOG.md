@@ -12,7 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   failing with the host shell's "'sh' is not recognized" (#189).
 - Queued messages show under the chat lens only. In the terminal lens they stay saved but
   hidden, so their **Send now** can no longer type into a Codex question that only the chat
-  lens knows is open.
+  lens knows is open ([#213](https://github.com/devswha/herdr-web-ui/pull/213)).
 
 ## [0.3.35] - 2026-09-30
 
