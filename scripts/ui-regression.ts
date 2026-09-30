@@ -528,6 +528,29 @@ try {
   await herdrRpc("pane.send_keys", { pane_id: paneA, keys: ["Enter"] });
   console.log("PASS Claude's suggestion fills the composer with Tab, returns after a send, and stays with its pane");
 
+  // "Send now" on a queued message is a send too: the suggestion goes at once, not at the next read
+  await selectPane(paneA);
+  await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "working" });
+  await page.locator('.composer-status[data-status="working"]').waitFor();
+  await composer.fill("# queued before the suggestion");
+  await page.getByRole("button", { name: "Queue message", exact: true }).click();
+  await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
+  await page.locator('.composer-status[data-status="idle"]').waitFor();
+  await paintSuggestion(paneA, "check the diff");
+  await until(async () => await composer.getAttribute("placeholder") === "check the diff", "suggestion beside a queued message");
+  // every read after the send answers late: only the send itself can drop the suggestion in time
+  await page.route(`**/api/pane/prompt?pane_id=${encodeURIComponent(paneA)}`, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await route.continue().catch(() => {});
+  });
+  const sentAt = Date.now();
+  await page.getByRole("button", { name: "Send now", exact: true }).click();
+  await until(async () => await composer.getAttribute("placeholder") !== "check the diff", "Send now drops the suggestion");
+  assert.ok(Date.now() - sentAt < 2500, "the suggestion goes with the Send now, not with a later read");
+  await page.locator(".composer-queue-text").waitFor({ state: "hidden" });
+  await page.unroute(`**/api/pane/prompt?pane_id=${encodeURIComponent(paneA)}`);
+  console.log("PASS Send now on a queued message drops Claude's suggestion");
+
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await mobile.addInitScript(() => {
     Storage.prototype.getItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };

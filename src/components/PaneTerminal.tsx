@@ -889,13 +889,15 @@ export function PaneTerminal({
     if (sent === null) return false;
     term.scrollToBottom();
     setChatSent((current) => current + 1);
+    // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
+    onChatSuggestion(pane, null);
     return sent.then((result) => {
       if (!result.ok) return submitNote(result.code, result.message);
       // the chat lens refetches at once so the sent prompt appears without a poll beat
       setChatRefresh((current) => current + 1);
       return true;
     });
-  }, []);
+  }, [onChatSuggestion]);
 
   // the terminal's input line: the text typed like the keyboard would, into an agent's open
   // menu too, then Enter after the server's gap; several lines go as one paste
@@ -989,11 +991,9 @@ export function PaneTerminal({
         queueStore.add(paneStorageId(machineId, pane), text);
         return true; // the composer may clear its box: the text lives in the queue card
       }
-      // a message went out: the agent's suggestion was for the turn before it
-      if (pane !== null) onChatSuggestion(pane, null);
       return sendComposerText(text);
     },
-    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, onChatSuggestion, sendComposerText, queueStore, machineId],
+    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, queueStore, machineId],
   );
 
 
