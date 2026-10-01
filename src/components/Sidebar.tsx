@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { Download, GripVertical, Pencil, Plus, Settings, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, GripVertical, Pencil, Plus, Settings, Terminal, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -15,6 +15,16 @@ import { useT } from "../lib/i18n.ts";
 
 const CLOSE_ARM_MS = 3000;
 const ERROR_NOTE_MS = 5000;
+
+/** Folded workspaces are remembered per PC and workspace, like `herdr-web-ui:pc-collapsed:<machine>`. */
+const collapsedKey = (machineId: string, workspaceId: string) => `herdr-web-ui:workspace-collapsed:${machineId}:${workspaceId}`;
+function storedCollapsed(machineId: string, workspaceIds: string[]): Set<string> {
+  const collapsed = new Set<string>();
+  try {
+    for (const id of workspaceIds) if (localStorage.getItem(collapsedKey(machineId, id)) === "1") collapsed.add(id);
+  } catch { /* storage denied: nothing is folded */ }
+  return collapsed;
+}
 
 /** shell prompt titles: `user@host:` is chrome, the path after it is the information */
 const SHELL_PREFIX = /^[^:@\s]+@[^:@\s]+:/;
@@ -80,8 +90,23 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
   const [workspaceOrder, setWorkspaceOrder] = useState<string[]>([]);
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<InlineError | null>(null);
+  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot?.workspaces.map((workspace) => workspace.workspace_id) ?? []));
   const armTimer = useRef<number | null>(null);
+  const unfoldedFor = useRef<string | null>(null);
   const { canInstall, install } = useInstallPrompt();
+
+  const setWorkspaceCollapsed = (workspaceId: string, collapsed: boolean): void => {
+    setCollapsedWorkspaces((current) => {
+      if (current.has(workspaceId) === collapsed) return current;
+      const next = new Set(current);
+      if (collapsed) next.add(workspaceId); else next.delete(workspaceId);
+      return next;
+    });
+    try {
+      if (collapsed) localStorage.setItem(collapsedKey(machineId, workspaceId), "1");
+      else localStorage.removeItem(collapsedKey(machineId, workspaceId));
+    } catch {}
+  };
 
   useEffect(() => () => {
     if (armTimer.current !== null) window.clearTimeout(armTimer.current);
@@ -100,7 +125,27 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     }
     const serverOrder = snapshot.workspaces.map((workspace) => workspace.workspace_id);
     setWorkspaceOrder((current) => current.join("\u0000") === serverOrder.join("\u0000") ? current : serverOrder);
-  }, [snapshot]);
+    // workspaces that appeared since mount (a reconnect, a new session) bring their stored fold state
+    setCollapsedWorkspaces((current) => {
+      const stored = storedCollapsed(machineId, serverOrder.filter((id) => !current.has(id)));
+      return stored.size === 0 ? current : new Set([...current, ...stored]);
+    });
+  }, [snapshot, machineId]);
+
+  // a pane opened from the palette, Needs you or an alert link unfolds the workspace that holds it.
+  // Once per opened pane: a later snapshot must not undo a fold of the selected pane's workspace.
+  useEffect(() => {
+    if (!selectedPaneId || !snapshot) return;
+    const opened = `${machineId}:${selectedPaneId}`;
+    if (unfoldedFor.current === opened) return;
+    // an initial selection (`?pane=`, stored) waits here until the snapshot holds its pane
+    const workspaceId = snapshot.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
+    if (!workspaceId) return;
+    unfoldedFor.current = opened;
+    // not guarded by collapsedWorkspaces: a fold the effect above just restored from storage
+    // is not in this render's set yet, and the updater leaves an open workspace as it is
+    setWorkspaceCollapsed(workspaceId, false);
+  }, [selectedPaneId, snapshot, machineId]);
 
   const panes = snapshot?.panes ?? [];
   const orderedWorkspaces = useMemo(() => {
@@ -230,9 +275,11 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
           // A single pane already names its workspace in the subtitle. Keep the
           // separate workspace heading only when it groups several panes.
           const merged = visiblePanes.length === 1;
+          // a lone pane row already stands for its workspace: nothing to fold
+          const collapsed = !merged && collapsedWorkspaces.has(workspace.workspace_id);
           return (
             <section
-              className={`workspace${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}`}
+              className={`workspace${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`}
               key={workspace.workspace_id}
               onDragOver={(event) => {
                 event.preventDefault();
@@ -248,6 +295,16 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                   onDragEnd={() => setDragWorkspaceId(null)}
                 >
                   {dragHandle(workspace, false)}
+                  <button
+                    type="button"
+                    className="workspace-toggle"
+                    aria-expanded={!collapsed}
+                    aria-label={collapsed ? t("Expand workspace {name}", { name: workspace.label }) : t("Collapse workspace {name}", { name: workspace.label })}
+                    title={collapsed ? t("Show panes") : t("Hide panes")}
+                    onClick={(event) => { event.stopPropagation(); setWorkspaceCollapsed(workspace.workspace_id, !collapsed); }}
+                  >
+                    {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+                  </button>
                   <span className="workspace-number">{workspace.number}</span>
                   {editingWorkspaceId === workspace.workspace_id ? (
                     <input
@@ -274,7 +331,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                 </header>
               )}
 
-              <ul className="pane-list">
+              {!collapsed && <ul className="pane-list">
                 {visiblePanes.map((pane) => {
                   const fullTitle = paneTitle(pane);
                   const displayTitle = displayPaneTitle(pane);
@@ -346,7 +403,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                     </li>
                   );
                 })}
-              </ul>
+              </ul>}
             </section>
           );
         })}

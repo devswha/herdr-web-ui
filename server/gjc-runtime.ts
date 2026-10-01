@@ -15,6 +15,13 @@ import { parseOmpTranscript } from "./transcript-records.ts";
 
 export interface GjcTerminal { id: string; startedAt: number }
 
+/** Native gjc and interpreter-launched gjc scripts both occur in process_info. */
+export function isGjcProcess(argv: readonly string[]): boolean {
+  const executable = /(^|\/)gjc(?:\.[cm]?js)?$/;
+  return executable.test(argv[0] ?? "") ||
+    (/(^|\/)(?:bun|node)(?:\.exe)?$/.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
+}
+
 /** GJC's native terminal-sessions key, not the most recently written cwd session. */
 export function gjcTerminal(pid: number): GjcTerminal | null {
   if (!Number.isSafeInteger(pid) || pid <= 0) return null;
@@ -168,11 +175,7 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
   let running = false;
   for (const process of info?.process_info?.foreground_processes ?? []) {
     const argv = Array.isArray(process.argv) ? process.argv.map(String) : [];
-    // Native gjc and interpreter-launched gjc scripts both occur in process_info.
-    const executable = /(^|\/)gjc(?:\.[cm]?js)?$/;
-    const isGjc = executable.test(argv[0] ?? "") ||
-      (/(^|\/)(?:bun|node)(?:\.exe)?$/.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
-    if (typeof process.pid !== "number" || !isGjc) continue;
+    if (typeof process.pid !== "number" || !isGjcProcess(argv)) continue;
     running = true;
     const terminal = gjcTerminal(process.pid);
     if (terminal) {

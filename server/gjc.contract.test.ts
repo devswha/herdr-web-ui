@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { herdrRpc, workspaceClose, workspaceCreate, paneRead } from "./herdr/client.ts";
 import { ConversationUnavailable, gjcTranscriptPath, transcriptPage } from "./conversation.ts";
 
-import { gjcTerminal } from "./gjc-runtime.ts";
+import { gjcTerminal, isGjcProcess } from "./gjc-runtime.ts";
+import { startShellAgent } from "./shell-agent.ts";
 
 const home = mkdtempSync(join(tmpdir(), "herdr-gjc-binding-"));
 const dir = join(home, ".gjc", "agent", "sessions", "v2-shared");
@@ -112,4 +113,29 @@ it("restores a directory-only runtime by unique visible assistant text, never ne
   expect(await gjcTranscriptPath(second, home, home)).toBe(b);
   writeFileSync(join(dir, "duplicate.jsonl"), record(answer));
   await expect(gjcTranscriptPath(first, home, home)).rejects.toThrow(ConversationUnavailable);
+});
+
+it("starts the gjc this server found on its PATH, by absolute path, and waits until it runs in the pane", async () => {
+  const shell = async () => {
+    const created = await workspaceCreate({ cwd: home, label: "herdr-web-ui-test-gjc-start" });
+    workspaces.push(created.workspace.workspace_id);
+    return created.root_pane.pane_id;
+  };
+  // a `gjc` executable in a directory with a space, on this process's PATH only: the pane shell never sees that PATH
+  const bin = join(home, "agent bin");
+  mkdirSync(bin);
+  const exe = join(bin, "gjc");
+  writeFileSync(exe, `#!/bin/sh\nexec ${process.execPath} ${script} "$@"\n`, { mode: 0o755 });
+  const path = process.env["PATH"];
+  try {
+    process.env["PATH"] = `${bin}:${path}`;
+    const id = await shell();
+    await startShellAgent("gjc", id, [dir]);
+    const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: id });
+    expect(info.process_info?.foreground_processes?.find((process) => isGjcProcess(process.argv ?? []))?.argv?.slice(-1)).toEqual([dir]);
+    process.env["PATH"] = "/nonexistent";
+    const bare = await shell();
+    await expect(startShellAgent("gjc", bare, [], { timeoutMs: 1500 })).rejects.toThrow("not on this server's PATH");
+    expect((await paneRead({ paneId: bare })).text).not.toContain("gjc");
+  } finally { process.env["PATH"] = path; }
 });

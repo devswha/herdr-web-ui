@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- A workspace with several panes gets a chevron in its sidebar header that folds its pane rows
+  away. The fold is remembered per PC and workspace, the header keeps its status badge, Needs you
+  still lists agents inside it, and opening one of its panes (palette, Needs you, an alert link)
+  unfolds it ([#222](https://github.com/devswha/herdr-web-ui/pull/222)).
 - **Add PC** connects a Windows PC (x64, OpenSSH Server, herdr 0.9+). Setup asks it in
   PowerShell when `sh` is not there, installs a Bun-only `win32-x64` bundle under
   `%LOCALAPPDATA%\herdr-web-ui`, runs herdr's own installer when the PC has no herdr, registers
@@ -21,6 +25,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#227](https://github.com/devswha/herdr-web-ui/pull/227)).
 
 ### Fixed
+- A gjc chat no longer folds hours of work into one turn. gjc wakes its agent with a
+  background job's result in the user's seat; the chat skipped that record, so the answer before
+  it sank into the work block and only the last status line showed as the reply. The result now
+  ends the turn, as a quiet "Background result delivered" divider with the text on request, like
+  a compaction ([#225](https://github.com/devswha/herdr-web-ui/pull/225)).
+- **New session** offers **Gajae Code** when `gjc` is on the server's PATH. herdr's `agent.start`
+  has no gjc kind, so like omo it is typed into the new pane's shell and the pane counts as
+  started once gjc is its foreground process
+  ([#220](https://github.com/devswha/herdr-web-ui/pull/220)).
+- OmO panes show their agent mark in the sidebar even when herdr reports no agent kind,
+  including panes started with OmO in the new-session dialog. Detection uses the pane's
+  foreground processes, not its title, so ordinary shells remain shells
+  ([#224](https://github.com/devswha/herdr-web-ui/pull/224) by @beomq).
 - A bridge that died without withdrawing its registration (a crash or a reboot) no longer
   makes the reconnect verify the dead one before the new bridge has registered
   ([#227](https://github.com/devswha/herdr-web-ui/pull/227)).

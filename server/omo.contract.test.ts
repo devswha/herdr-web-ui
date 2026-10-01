@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
-import { isOmoProcess, omoTranscriptForPane, startOmo } from "./omo.ts";
+import { labelOmoPanes } from "./conversation.ts";
+import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { startShellAgent } from "./shell-agent.ts";
 import { processStartedAt } from "./process-start.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-omo-binding-"));
@@ -36,6 +38,40 @@ const session = (id: string, timestamp = new Date().toISOString()) => {
   return path;
 };
 
+it("labels a running omo pane when herdr supplies no agent kind", async () => {
+  const paneId = await pane();
+  const snapshot = await sessionSnapshot();
+  try {
+    expect(snapshot.panes.find((entry) => entry.pane_id === paneId)?.agent).toBeUndefined();
+
+    const labelled = await labelOmoPanes(snapshot);
+
+    expect(labelled.panes.find((entry) => entry.pane_id === paneId)?.agent).toBe("omo");
+    expect(snapshot.panes.find((entry) => entry.pane_id === paneId)?.agent).toBeUndefined();
+  } finally {
+    const workspaceId = workspaces.pop();
+    if (workspaceId) await workspaceClose(workspaceId);
+  }
+});
+
+it("leaves a shell labelled OmO DAG without an agent kind", async () => {
+  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-omo-shell" });
+  workspaces.push(created.workspace.workspace_id);
+  const paneId = created.root_pane.pane_id;
+  const snapshot = await sessionSnapshot();
+  const titled = { ...snapshot, panes: snapshot.panes.map((entry) =>
+    entry.pane_id === paneId ? { ...entry, terminal_title: "OmO DAG" } : entry) };
+
+  try {
+    const labelled = await labelOmoPanes(titled);
+
+    expect(labelled.panes.find((entry) => entry.pane_id === paneId)?.agent).toBeUndefined();
+  } finally {
+    workspaces.pop();
+    await workspaceClose(created.workspace.workspace_id);
+  }
+});
+
 it("uses live process evidence and stops cwd inference as soon as a second omo shares it", async () => {
   const first = await pane();
   const fresh = session("fresh-session");
@@ -56,11 +92,11 @@ it("starts omo through the pane's shell and waits until omo is its foreground pr
     return created.root_pane.pane_id;
   };
   const started = await shell();
-  await startOmo(started, ["it's one arg"], { command: `${process.execPath} ${script}` });
+  await startShellAgent("omo", started, ["it's one arg"], { command: `${process.execPath} ${script}` });
   const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: started });
   expect(info.process_info?.foreground_processes?.find((process) => isOmoProcess(process.argv ?? []))?.argv?.slice(-1)).toEqual(["it's one arg"]);
   // a command that never becomes omo fails at the deadline instead of reporting a start
-  await expect(startOmo(await shell(), [], { command: "true", timeoutMs: 1500 })).rejects.toThrow("omo did not start");
+  await expect(startShellAgent("omo", await shell(), [], { command: "true", timeoutMs: 1500 })).rejects.toThrow("omo did not start");
 });
 
 it("binds each omo pane in a shared cwd to the session its process holds", async () => {

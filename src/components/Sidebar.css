@@ -87,6 +87,38 @@
   background: var(--bg-hover);
 }
 
+/* the fold caret: the same quiet 16px chevron the PC header uses, inside a control-sized hit box */
+.workspace-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--control-h);
+  height: var(--control-h);
+  margin-left: calc(-1 * var(--space-2));
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.workspace-toggle:hover,
+.workspace-toggle:focus-visible {
+  color: var(--text-strong);
+}
+
+.workspace-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* a folded workspace is just its header row: no room reserved for the pane rows */
+.workspace.is-collapsed {
+  margin-bottom: var(--space-1);
+}
+
 .workspace-number {
   display: inline-flex;
   align-items: center;

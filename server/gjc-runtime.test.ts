@@ -2,7 +2,18 @@ import { expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gjcBreadcrumbPath, gjcDisplayCandidates, gjcSessionFile, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
+import { gjcBreadcrumbPath, gjcDisplayCandidates, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
+
+it("recognizes native and interpreter-launched gjc, not look-alikes", () => {
+  expect(isGjcProcess(["/home/u/.local/bin/gjc", "--resume"])).toBe(true);
+  expect(isGjcProcess(["gjc"])).toBe(true);
+  expect(isGjcProcess(["/usr/bin/node", "/opt/gjc/dist/gjc.mjs"])).toBe(true);
+  expect(isGjcProcess(["bun", "./gjc.js"])).toBe(true);
+  expect(isGjcProcess(["/bin/zsh"])).toBe(false);
+  expect(isGjcProcess(["gjc-helper"])).toBe(false);
+  expect(isGjcProcess(["node", "/tmp/gjc/server.js"])).toBe(false);
+  expect(isGjcProcess([])).toBe(false);
+});
 
 it("reads macOS terminal/process identity without /proc", () => {
   expect(parseGjcPs("ttys003 Mon Sep 28 10:00:00 2026\n")?.id).toBe("ttys003");

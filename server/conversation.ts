@@ -615,10 +615,10 @@ async function paneRunsOmo(paneId: string): Promise<boolean> {
  * herdr labels an omo pane `pi` while it waits and `claude` while omo's claude-sdk child
  * runs, so the sidebar showed another agent's mark, and one that changed as omo worked.
  * The snapshots the browser gets name such a pane `omo`, decided by its process tree
- * (paneRunsOmo), checked for those two labels only.
+ * (paneRunsOmo), including panes herdr has not recognized as an agent.
  */
 export async function labelOmoPanes(snapshot: SessionSnapshot): Promise<SessionSnapshot> {
-  const candidates = snapshot.panes.filter((pane) => pane.agent === "pi" || pane.agent === "claude");
+  const candidates = snapshot.panes.filter((pane) => !pane.agent || pane.agent === "pi" || pane.agent === "claude");
   const omo = new Set<string>();
   await Promise.all(candidates.map(async (pane) => { if (await paneRunsOmo(pane.pane_id)) omo.add(pane.pane_id); }));
   if (omo.size === 0) return snapshot;

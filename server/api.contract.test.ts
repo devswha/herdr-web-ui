@@ -161,6 +161,23 @@ describe("workspace and discovery endpoints", () => {
     expect(agents.map((agent) => agent.label)).toEqual([...agents.map((agent) => agent.label)].sort((a, b) => a.localeCompare(b)));
   });
 
+  it("offers omo and gjc, which herdr cannot start, exactly when they are on PATH", async () => {
+    const bin = mkdtempSync(join(tmpdir(), "herdr-web-ui-shell-agents-"));
+    const path = process.env["PATH"];
+    const kinds = async () => ((await (await fetch(`${base()}/api/agents`)).json()) as { agents: AgentKind[] }).agents;
+    try {
+      process.env["PATH"] = bin;
+      expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
+      for (const name of ["omo", "gjc"]) writeFileSync(join(bin, name), "#!/bin/sh\n", { mode: 0o755 });
+      const offered = await kinds();
+      expect(offered).toContainEqual({ kind: "omo", label: "OmO" });
+      expect(offered).toContainEqual({ kind: "gjc", label: "Gajae Code" });
+    } finally {
+      process.env["PATH"] = path;
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a workspace cwd that is not an existing directory", async () => {
     const res = await fetch(`${base()}/api/workspace/create`, {
       method: "POST",
