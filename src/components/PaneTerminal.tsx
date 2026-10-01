@@ -36,6 +36,16 @@ const FONT_STACK =
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
 
+/** Mouse reports sent per wheel notch; localStorage "herdr-web-ui:wheel-multiplier" overrides it. */
+const WHEEL_MULTIPLIER = 3;
+const wheelMultiplier = (): number => {
+  try {
+    const stored = Number(localStorage.getItem("herdr-web-ui:wheel-multiplier"));
+    if (Number.isInteger(stored) && stored >= 1 && stored <= 20) return stored;
+  } catch {}
+  return WHEEL_MULTIPLIER;
+};
+
 export interface PaneTerminalProps {
   /** The pane this terminal attaches to; null renders the placeholder. */
   paneId: string | null;
@@ -275,6 +285,9 @@ export function PaneTerminal({
     // a wheel into arrow keys, which walk an agent's prompt history instead of scrolling.
     // A selecting drag takes the wheel itself (see below); after one, a wheel scrolls the
     // highlight's text away, so the highlight goes with it.
+    // xterm sends one mouse report per wheel event whatever its delta, so herdr scrolls
+    // the same few lines per notch: a real wheel is replayed to send wheelMultiplier()
+    // reports. The replays and the touch translation below are untrusted, so neither repeats.
     term.attachCustomWheelEventHandler((event) => {
       if (drag) {
         dragWheel(event);
@@ -283,7 +296,16 @@ export function PaneTerminal({
       // an adopted grid sends herdr nothing: the wheel is the browser's, and pans the mount
       if (adopted()) return false;
       if (term.hasSelection()) term.clearSelection();
-      return term.modes.mouseTrackingMode !== "none";
+      const reporting = term.modes.mouseTrackingMode !== "none";
+      if (reporting && event.isTrusted && event.target) {
+        for (let i = 1; i < wheelMultiplier(); i++) {
+          event.target.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true, cancelable: true, deltaY: event.deltaY, deltaMode: event.deltaMode,
+            clientX: event.clientX, clientY: event.clientY,
+          }));
+        }
+      }
+      return reporting;
     });
     termRef.current = term;
     fitRef.current = fit;

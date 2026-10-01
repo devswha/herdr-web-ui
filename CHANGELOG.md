@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- A mouse wheel over the terminal scrolls three times as far per notch, since xterm sent
+  herdr one wheel report per event whatever its size. The localStorage key
+  `herdr-web-ui:wheel-multiplier` (1-20) sets another factor. Touch scrolling is unchanged.
+
 ### Fixed
 - Several lines pasted into the terminal of a Windows PC stay in an agent's message box until
   you send them. Gajae Code took the first line break for Enter and sent the first line alone.
