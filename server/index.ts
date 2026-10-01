@@ -223,15 +223,17 @@ export function createServer(
     attachRetryForMs?: number;
     /** ATTACH_HELD_RETRY_MS; tests shorten it */
     attachHeldRetryMs?: number;
-    /** whether herdr can `terminal attach`; unset, its ping says. Tests give a Windows herdr's answer. */
-    terminalAttach?: boolean;
+    /** whether herdr can `terminal attach`; unset, its ping says. Tests give a Windows herdr's answer, at once or as late as a ping's. */
+    terminalAttach?: boolean | (() => Promise<boolean>);
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
   /** whether this herdr can `terminal attach`: asked once, the answer never changes while it runs */
-  let terminalAttachKnown: boolean | null = options.terminalAttach ?? null;
+  let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
   const terminalAttach = async (): Promise<boolean> => {
-    if (terminalAttachKnown === null) terminalAttachKnown = (await ping()).terminal_attach !== false;
+    if (terminalAttachKnown === null) {
+      terminalAttachKnown = typeof options.terminalAttach === "function" ? await options.terminalAttach() : (await ping()).terminal_attach !== false;
+    }
     return terminalAttachKnown;
   };
   const retryFor = options.attachRetryForMs ?? ATTACH_RETRY_FOR_MS;
@@ -1316,10 +1318,16 @@ export function createServer(
               // typing reaches an attached pane only, queued or not
               const attachment = attachments.get(message.pane_id);
               // without a terminal (Windows) the key bar's Enter, Stop and arrows still have to
-              // land: herdr delivers the bytes itself, each in its turn behind a message in flight
-              if (!attachment && !(terminalAttachKnown ?? await terminalAttach())) {
+              // land: herdr delivers the bytes itself, each in its turn behind a message in flight.
+              // The turn is taken before herdr is asked what it can do: a message sent while
+              // that answer is on its way must not overtake the typing.
+              if (!attachment && terminalAttachKnown !== true) {
                 const text = message.text;
-                void serialize(message.pane_id, () => {
+                void serialize(message.pane_id, async () => {
+                  // a herdr that attaches: typing reaches an attached pane only
+                  if (await terminalAttach()) return;
+                  // nothing typed outlives its connection
+                  if (!clients.has(client)) return;
                   authorizeSocket(client);
                   return paneSendText(message.pane_id, text);
                 }).catch(() => undefined);
