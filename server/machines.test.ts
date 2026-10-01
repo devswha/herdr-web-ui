@@ -213,6 +213,9 @@ describe("host detection", () => {
   });
   it("quotes for PowerShell with doubled single quotes only", () => {
     expect(psQuote("C:\\Users\\o'brien\\x")).toBe("'C:\\Users\\o''brien\\x'");
+    // PowerShell ends a single-quoted literal at a curly quote too
+    expect(psQuote("a\u2019; Write-Output injected; #")).toBe("'a\u2019\u2019; Write-Output injected; #'");
+    expect(psQuote("\u2018\u201A\u201B")).toBe("'\u2018\u2018\u201A\u201A\u201B\u201B'");
     expect(() => psQuote("a\nb")).toThrow();
   });
 });

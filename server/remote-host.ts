@@ -17,6 +17,7 @@ import type { BridgeDescriptor } from "./bridge.ts";
 import { shellQuote } from "./machine-security.ts";
 import { bundleFile, type InstallStage } from "./remote-bundle.ts";
 import type { SshConnection } from "./ssh.ts";
+import { psQuote } from "./powershell.ts";
 
 export const REMOTE_PATH = 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
 export const BUNDLE_DIR = `.local/share/herdr-web-ui/remote-v${REMOTE_BUNDLE_VERSION}`;
@@ -112,11 +113,7 @@ export const posixHost: RemoteHost = {
   },
 };
 
-/** A PowerShell single-quoted literal: the only escape inside is a doubled quote. */
-export function psQuote(value: string): string {
-  if (/[\r\n\0]/.test(value)) throw new Error("Invalid characters for a remote path");
-  return `'${value.replaceAll("'", "''")}'`;
-}
+export { psQuote };
 /** A cmd.exe `set "NAME=value"` cannot hold a quote; nothing legitimate here has one. */
 function cmdValue(value: string): string {
   if (/["\r\n\0%!]/.test(value)) throw new Error("Invalid characters for a remote path");
@@ -179,8 +176,11 @@ export const windowsHost: RemoteHost = {
       // sshd reads an administrator's keys from one shared file with a fixed ACL; SIDs, since the group's name is localized
       "if ($admin) { $file = \"$env:ProgramData\\ssh\\administrators_authorized_keys\" } else { New-Item -ItemType Directory -Force \"$env:USERPROFILE\\.ssh\" | Out-Null; $file = \"$env:USERPROFILE\\.ssh\\authorized_keys\" }",
       "if (-not (Test-Path $file)) { New-Item -ItemType File $file | Out-Null }",
-      "if (@(Get-Content $file) -notcontains $key) { Add-Content -Path $file -Value $key -Encoding ascii }",
-      "if ($admin) { icacls $file /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null }",
+      // a last line without its newline would take the key onto itself (Add-Content only ends what it adds)
+      "if (@(Get-Content $file) -notcontains $key) { $raw = [IO.File]::ReadAllText($file); if ($raw.Length -gt 0 -and -not $raw.EndsWith(\"`n\")) { Add-Content -Path $file -Value '' -Encoding ascii }; Add-Content -Path $file -Value $key -Encoding ascii }",
+      // sshd refuses the file while anyone but Administrators and SYSTEM may write it: a grant
+      // to Users, Authenticated Users or Everyone that the file already had goes too
+      "if ($admin) { icacls $file /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' /remove:g '*S-1-5-32-545' '*S-1-5-11' '*S-1-1-0' | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Could not set the permissions of administrators_authorized_keys' } }",
     ].join("\n"));
   },
   async installBundle(ssh, platform, signal, options = {}) {
@@ -261,6 +261,8 @@ export const windowsHost: RemoteHost = {
     // quoting the WMI command line would have to survive
     const launcher = [
       "@echo off",
+      // the paths below are UTF-8: a profile such as C:\Users\홍길동 is lost in an ANSI batch file
+      "chcp 65001 >nul",
       `set "HERDR_REMOTE_SESSION=${cmdValue(session ?? "")}"`,
       `set "HERDR_WEB_HERDR_BIN=${cmdValue(herdrPath)}"`,
       `"${cmdValue(`${inspection.runtimeDir}\\bin\\bun.exe`)}" "${cmdValue(`${inspection.runtimeDir}\\server\\remote-entry.ts`)}" >> "${cmdValue(`${inspection.registryDir}\\${files.log}`)}" 2>&1`,
@@ -269,7 +271,7 @@ export const windowsHost: RemoteHost = {
       "$ErrorActionPreference = 'Stop'",
       `$dir = "${WINDOWS_REGISTRY}"; New-Item -ItemType Directory -Force $dir | Out-Null`,
       // one literal per line: WriteAllLines ends each with the CRLF cmd expects
-      `[IO.File]::WriteAllLines("$dir\\${files.launcher}", [string[]]@(${launcher.map(psQuote).join(", ")}), [Text.Encoding]::ASCII)`,
+      `[IO.File]::WriteAllLines("$dir\\${files.launcher}", [string[]]@(${launcher.map(psQuote).join(", ")}), (New-Object Text.UTF8Encoding $false))`,
       // not Start-Process: that child belongs to the SSH session's job and dies with it
       `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "cmd.exe /d /c \`"$dir\\${files.launcher}\`""; CurrentDirectory = $env:USERPROFILE }`,
       "if ($r.ReturnValue -ne 0) { throw \"Could not start the bridge (Win32_Process.Create returned $($r.ReturnValue))\" }",
