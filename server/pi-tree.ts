@@ -193,33 +193,52 @@ export function piAbandonedTurns(path: string, size: number): { count: number; b
     live.add(next.id);
     next = next.parent === null ? undefined : byId.get(next.parent);
   }
-  let count = 0;
-  let branches = 0;
   let summary: string | null = null;
   // a branch is a place the pointer was moved away from: a live entry with a child left behind, so
   // an abandoned path attached to the path still in play. Attached is the word — pi's session header
   // is a root no entry ever links to, orphaned from the moment it is written, and counting heads of
   // abandoned paths instead would report it as a navigation in every session there has ever been
+  const heads: PiEntry[] = [];
   for (const id of live) {
     // ids deduped the way piBranchSegments dedupes them: an entry appended twice (never pi, never
     // trusted) is still one place navigated away from
-    const left = new Set<string>();
-    for (const child of index.children.get(id) ?? []) if (!live.has(child.id)) left.add(child.id);
-    branches += left.size;
+    const left = new Map<string, PiEntry>();
+    for (const child of index.children.get(id) ?? []) if (!live.has(child.id) && !left.has(child.id)) left.set(child.id, child);
+    heads.push(...left.values());
+  }
+  const branches = heads.length;
+  // The turns are counted INSIDE these subtrees, never over the whole file. A turn whose chain of
+  // parents does not lead to a counted head — its parent id never appears, the damage
+  // piBranchSegments calls "not invented" — belongs to no branch, and counting it would let the
+  // label name a branch for turns no branch holds. That is the invariant, true by construction
+  // rather than checked afterwards: count > 0 only ever with a branch behind it. It also answers a
+  // file with no links at all, where every entry is parentless: nothing is owned, so the journal
+  // reads as zero turns on zero branches instead of abandoning its whole history to a leaf that is
+  // only the last line written.
+  let count = 0;
+  if (branches > 0) {
+    // children link to parents, so a subtree's entries were appended after its head: one forward
+    // pass marks each entry owned by the branch it falls under, and only owned turns count. Counted
+    // by id, as everywhere else in this reader — an entry appended twice (never pi, never trusted)
+    // is one turn, not two
+    const owned = new Set<string>();
+    const counted = new Set<string>();
+    for (const entry of index.entries) {
+      if (heads.some((head) => head.id === entry.id) || (entry.parent !== null && owned.has(entry.parent))) owned.add(entry.id);
+      else continue;
+      if (entry.type !== "message" || counted.has(entry.id)) continue;
+      // a tool call and its result are one step of the turn that asked for them, counted with it
+      if (entry.role !== "user" && entry.role !== "assistant") continue;
+      counted.add(entry.id);
+      count += 1;
+    }
   }
   for (const entry of index.entries) {
     // pi's summary of an abandoned path sits on the branch that replaced it, so only one on the
     // live path describes what the chat is hiding here; the newest wins, as a later /tree
-    // supersedes an earlier answer
-    if (entry.type === "branch_summary") {
-      if (!live.has(entry.id)) continue;
-      if (entry.summary !== null && entry.summary.trim().length > 0) summary = entry.summary;
-      continue;
-    }
-    if (live.has(entry.id) || entry.type !== "message") continue;
-    // a tool call and its result are one step of the turn that asked for them, counted with it
-    if (entry.role !== "user" && entry.role !== "assistant") continue;
-    count += 1;
+    // supersedes an earlier answer. The turns themselves are counted above, inside the branches
+    if (entry.type !== "branch_summary" || !live.has(entry.id)) continue;
+    if (entry.summary !== null && entry.summary.trim().length > 0) summary = entry.summary;
   }
   return { count, branches, summary };
 }

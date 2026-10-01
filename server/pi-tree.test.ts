@@ -260,6 +260,47 @@ describe("pi's abandoned paths", () => {
     expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 2, branches: 1, summary: null });
   });
 
+  it("never counts turns without a branch to count them on", () => {
+    // the label names a branch whenever it holds turns, so a count with no branch behind it would
+    // say "a branch" while the reader counted none. A path whose parent id never appears is damaged
+    // rather than branched: piBranchSegments calls a walk it cannot complete "not invented", and
+    // the same reader stays quiet about turns it cannot place on a path instead of naming one
+    const orphaned = file([
+      entry("s", null, { type: "session", version: 3, cwd: root }),
+      user("u1", "MISSING", "the question"), // its parent never appears in the file
+      assistant("a-gone", "u1", "the abandoned answer"),
+      user("u2", "s", "the retried question"),
+      assistant("a-live", "u2", "the answer in play"),
+    ]);
+    expect(piAbandonedTurns(orphaned, statSync(orphaned).size)).toEqual({ count: 0, branches: 0, summary: null });
+    // a real branch beside a detached one is still reported, and only its own turns are counted
+    const both = file([
+      entry("s", null, { type: "session", version: 3, cwd: root }),
+      user("u1", "MISSING", "detached question"),
+      assistant("a-detached", "u1", "detached answer"),
+      user("u2", "s", "the question"),
+      assistant("a-gone", "u2", "the abandoned answer"),
+      user("u3", "s", "the retried question"),
+      assistant("a-live", "u3", "the answer in play"),
+    ]);
+    expect(piAbandonedTurns(both, statSync(both).size)).toEqual({ count: 2, branches: 1, summary: null });
+  });
+
+  it("counts no branch in a file with no links to walk", () => {
+    // an append-only journal of the same record shape — every entry parentless — has no branch in it
+    // to have navigated away from. Treating its last line as the leaf would call every earlier turn
+    // abandoned: three turns on a branch the file never had, the exact false sentence this reader
+    // exists not to say. Zeros, not null: the tree walked fine, it simply holds no branches
+    const journal = file([
+      entry("s", null, { type: "session", version: 3, cwd: root }),
+      user("u1", null, "one"),
+      assistant("a1", null, "two"),
+      user("u2", null, "three"),
+      assistant("a2", null, "four"),
+    ]);
+    expect(piAbandonedTurns(journal, statSync(journal).size)).toEqual({ count: 0, branches: 0, summary: null });
+  });
+
   it("counts a turn once however many branches it was abandoned into", () => {
     // three moves away from the same prompt: the head they share is not counted three times
     const path = file([
