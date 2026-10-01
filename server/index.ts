@@ -1387,6 +1387,8 @@ export function createServer(
                 void serialize(message.pane_id, () => {
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
                   if (attachments.get(message.pane_id)?.held) return;
+                  // nothing typed outlives its connection
+                  if (!clients.has(client)) return;
                   authorizeSocket(client);
                   return paneSendText(message.pane_id, text);
                 }).catch(() => undefined);
@@ -1427,6 +1429,8 @@ export function createServer(
                   send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                   return;
                 }
+                // a key pressed by a connection that has gone since is not pressed
+                if (!clients.has(client)) return;
                 authorizeSocket(client);
                 return paneSendKeys(message.pane_id, message.keys);
               });

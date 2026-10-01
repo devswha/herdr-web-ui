@@ -298,6 +298,29 @@ describe("WebSocket submit", () => {
     expect(typed(shell, from)).toBe("gone\r");
   }, 30_000);
 
+  it("sends nothing typed or keyed by a connection that closed while it waited behind a message", async () => {
+    const gone = await Socket.connect();
+    const socket = await Socket.connect();
+    try {
+      gone.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
+      await gone.waitFor((message) => message.type === "pty-data" && message.pane_id === shell.pane);
+      const from = chunks(shell).length;
+      // the message is finished for a sender that left; the Stop and the Enter behind it are not
+      gone.send({ type: "submit", id: 30, pane_id: shell.pane, text: "one", payload: "one" });
+      gone.send({ type: "input", pane_id: shell.pane, text: "\u001b" });
+      gone.send({ type: "keys", pane_id: shell.pane, keys: ["Enter"] });
+      gone.close();
+      await received(shell, from, 1);
+      socket.send({ type: "submit", id: 31, pane_id: shell.pane, text: "two", payload: "two" });
+      await socket.result(31);
+      await received(shell, from, 2);
+      expect(typed(shell, from)).toBe("one\rtwo\r");
+    } finally {
+      gone.close();
+      socket.close();
+    }
+  }, 30_000);
+
   it("answers a submit from an observe connection with read_only, typing nothing", async () => {
     const socket = await Socket.connect();
     try {
