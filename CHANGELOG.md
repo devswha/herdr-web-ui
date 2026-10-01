@@ -18,11 +18,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   so a Windows PC's panes open in the chat lens, the Terminal button carries a **soon** pill,
   and `/api/health` and the PC list carry `terminal_attach` so the lens turns on by itself once
   herdr reports it. Remote bundle `remote-v9`
-  ([#189](https://github.com/devswha/herdr-web-ui/issues/189)).
+  ([#227](https://github.com/devswha/herdr-web-ui/pull/227)).
 
 ### Fixed
 - A bridge that died without withdrawing its registration (a crash or a reboot) no longer
-  makes the reconnect verify the dead one before the new bridge has registered.
+  makes the reconnect verify the dead one before the new bridge has registered
+  ([#227](https://github.com/devswha/herdr-web-ui/pull/227)).
 
 ## [0.3.37] - 2026-10-01
 
