@@ -92,6 +92,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
   const [inlineError, setInlineError] = useState<InlineError | null>(null);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot?.workspaces.map((workspace) => workspace.workspace_id) ?? []));
   const armTimer = useRef<number | null>(null);
+  const unfoldedFor = useRef<string | null>(null);
   const { canInstall, install } = useInstallPrompt();
 
   const setWorkspaceCollapsed = (workspaceId: string, collapsed: boolean): void => {
@@ -131,12 +132,18 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     });
   }, [snapshot, machineId]);
 
-  // a pane opened from the palette, Needs you or an alert link unfolds the workspace that holds it
+  // a pane opened from the palette, Needs you or an alert link unfolds the workspace that holds it.
+  // Once per opened pane: a later snapshot must not undo a fold of the selected pane's workspace.
   useEffect(() => {
     if (!selectedPaneId || !snapshot) return;
+    const opened = `${machineId}:${selectedPaneId}`;
+    if (unfoldedFor.current === opened) return;
+    // an initial selection (`?pane=`, stored) waits here until the snapshot holds its pane
     const workspaceId = snapshot.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
-    if (workspaceId && collapsedWorkspaces.has(workspaceId)) setWorkspaceCollapsed(workspaceId, false);
-  }, [selectedPaneId, snapshot]);
+    if (!workspaceId) return;
+    unfoldedFor.current = opened;
+    if (collapsedWorkspaces.has(workspaceId)) setWorkspaceCollapsed(workspaceId, false);
+  }, [selectedPaneId, snapshot, machineId]);
 
   const panes = snapshot?.panes ?? [];
   const orderedWorkspaces = useMemo(() => {
