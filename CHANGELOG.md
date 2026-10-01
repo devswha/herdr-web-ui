@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- Several lines pasted into the terminal of a Windows PC stay in an agent's message box until
+  you send them. Gajae Code took the first line break for Enter and sent the first line alone.
+  PowerShell and cmd still run a pasted block line by line. Enter, Ctrl+C, Esc, Tab and the
+  arrows were checked on a real PC and already worked.
 - A password entered from the secret prompt on a mirrored terminal (a PC whose herdr cannot
   attach, as on Windows) is reported as entered only after herdr took it, and a send herdr
   refused is reported as failed instead of as done. Enter is now pressed as a key after the
