@@ -10,7 +10,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - **New session** offers **Gajae Code** when `gjc` is on the server's PATH. herdr's `agent.start`
   has no gjc kind, so like omo it is typed into the new pane's shell and the pane counts as
-  started once gjc is its foreground process ([#220](https://github.com/devswha/herdr-web-ui/pull/220)).
+  started once gjc is its foreground process
+  ([#220](https://github.com/devswha/herdr-web-ui/pull/220)).
 
 ## [0.3.37] - 2026-10-01
 
