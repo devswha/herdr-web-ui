@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.39] - 2026-10-01
+
 ### Fixed
 - A password or PIN sent right after a reconnect is no longer refused with "Update this PC to
   use masked input". The terminal's output could arrive before the server had said what it
@@ -174,7 +176,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   herdr reported the pane INPUT, but no card appeared. An answer presses Enter only once the
   cursor is on the row it answers; a menu whose rows cannot be told apart gets no card.
 - The iPhone home-screen app starts below the status bar instead of drawing beneath it, so the
-  header text is no longer blurred on iOS 27 (#164). iOS reads this when the app is added, so an
+  header text is no longer blurred on iOS 27 ([#199](https://github.com/devswha/herdr-web-ui/pull/199) by @Yoonwoo-Ha). iOS reads this when the app is added, so an
   existing install keeps the blur until it is removed from the Home Screen and added again; send
   or copy unsent drafts and queued messages first. See [the testing guide](docs/ios-home-screen-testing.md).
 - A Codex pane no longer reads RUN for good after its first turn. herdr reports Codex as
@@ -280,7 +282,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A terminal attach whose helper process could not start (for example, `node` missing from
   PATH) no longer leaves the pane half-open. The pane stayed blank for the next device, and
   closing that device crashed the server. The attach now reports the error, the failure is
-  written to the server log, and the pane can be opened again (#154).
+  written to the server log, and the pane can be opened again ([#155](https://github.com/devswha/herdr-web-ui/pull/155)).
 - The installed app on Android follows the phone's auto-rotate setting. With rotation
   locked it no longer turns sideways when the phone is tilted. The service worker no
   longer serves a cached web manifest, so Chrome sees this change and updates the
@@ -775,7 +777,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   retry. On an idle Codex pane, the transcript match's 400-line read makes herdr scroll the
   history back, which takes about a second or more. The attach is now retried for as long as
   such a read can last, and a refused attach no longer prints herdr's message into the terminal.
-  (#45, by @Yoonwoo-Ha)
+  ([#45](https://github.com/devswha/herdr-web-ui/pull/45) by @Yoonwoo-Ha)
 - An omo or gjc pane that finishes while you are not looking at it reads **DONE** (and alerts),
   not READY, and reads RUN while it works. herdr recognises these agents from their screen and
   processes; omo's label turns from `pi` to `claude` mid-turn, so herdr reported the whole turn
@@ -787,10 +789,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Added
 - Answer an agent's waiting prompt from the chat's message box: type an option's number or your
   own answer. A pick for an approval, a plan or a menu waits in the prompt card for **Confirm**,
-  and the options are numbered to match. (#6, by @Yoonwoo-Ha)
+  and the options are numbered to match ([#6](https://github.com/devswha/herdr-web-ui/pull/6) by @Yoonwoo-Ha).
 - Codex's queued questions (the collapsed "? N questions" block) show as a card and are answered
   from the chat; the queue closes again afterwards, so messages still reach Codex. Prompts of
-  Claude Code 2.1 and Codex 0.156 are recognised. (#6)
+  Claude Code 2.1 and Codex 0.156 are recognised ([#6](https://github.com/devswha/herdr-web-ui/pull/6) by @Yoonwoo-Ha).
 - **Browse** beside the directory field of a new session: pick the folder from a list instead of
   typing its path. It lists one folder at a time on the PC the session starts on, hidden folders
   on request. A remote PC offers it once its bridge is updated; until then, type the path.
@@ -998,7 +1000,16 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.30...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.39...HEAD
+[0.3.39]: https://github.com/devswha/herdr-web-ui/compare/v0.3.38...v0.3.39
+[0.3.38]: https://github.com/devswha/herdr-web-ui/compare/v0.3.37...v0.3.38
+[0.3.37]: https://github.com/devswha/herdr-web-ui/compare/v0.3.36...v0.3.37
+[0.3.36]: https://github.com/devswha/herdr-web-ui/compare/v0.3.35...v0.3.36
+[0.3.35]: https://github.com/devswha/herdr-web-ui/compare/v0.3.34...v0.3.35
+[0.3.34]: https://github.com/devswha/herdr-web-ui/compare/v0.3.33...v0.3.34
+[0.3.33]: https://github.com/devswha/herdr-web-ui/compare/v0.3.32...v0.3.33
+[0.3.32]: https://github.com/devswha/herdr-web-ui/compare/v0.3.31...v0.3.32
+[0.3.31]: https://github.com/devswha/herdr-web-ui/compare/v0.3.30...v0.3.31
 [0.3.30]: https://github.com/devswha/herdr-web-ui/compare/v0.3.29...v0.3.30
 [0.3.29]: https://github.com/devswha/herdr-web-ui/compare/v0.3.28...v0.3.29
 [0.3.28]: https://github.com/devswha/herdr-web-ui/compare/v0.3.27...v0.3.28
