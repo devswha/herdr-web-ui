@@ -518,6 +518,7 @@ export const KO: Record<string, string> = {
   "Open image": "이미지 열기",
   "Attached image": "첨부한 이미지",
   "Conversation compacted": "대화가 압축됨",
+  "Background result delivered": "백그라운드 결과 도착",
   "Skill activity": "스킬 활동",
   "Skill requested": "호출 요청",
   "Skill invoked": "호출됨",

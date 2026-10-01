@@ -232,6 +232,25 @@ describe("gjc sessions", () => {
     ].join("\n");
     expect(parseOmpTranscript(text).at(-1)?.parts).toEqual([{ kind: "text", text: "Error: 401 Authentication Failed" }]);
   });
+
+  it("ends a turn at a background result gjc delivers, so the answer before it stays the answer", () => {
+    const assistant = (ts: string, text: string) => JSON.stringify({ type: "message", timestamp: ts, message: { role: "assistant", content: [{ type: "text", text }] } });
+    const text = [
+      JSON.stringify({ type: "message", timestamp: "2026-10-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "run it in the background" }] } }),
+      assistant("2026-10-01T00:00:01.000Z", "Started; here is the summary."),
+      JSON.stringify({ type: "custom_message", customType: "async-result", display: true, timestamp: "2026-10-01T00:05:00.000Z", content: "<system-notice>\nBackground job bg_1 has completed.\nPASS all\n</system-notice>" }),
+      assistant("2026-10-01T00:05:02.000Z", "CI is green."),
+      JSON.stringify({ type: "custom_message", customType: "async-result", display: false, timestamp: "2026-10-01T00:06:00.000Z", content: "<system-notice>hidden</system-notice>" }),
+      JSON.stringify({ type: "custom", customType: "workflow-intent-diff", data: { route: "direct" } }),
+      assistant("2026-10-01T00:06:01.000Z", "Still green."),
+    ].join("\n");
+    expect(parseOmpTranscript(text)).toEqual([
+      { role: "user", ts: "2026-10-01T00:00:00.000Z", parts: [{ kind: "text", text: "run it in the background" }] },
+      { role: "assistant", ts: "2026-10-01T00:00:01.000Z", end_ts: "2026-10-01T00:00:01.000Z", parts: [{ kind: "text", text: "Started; here is the summary." }] },
+      { role: "user", ts: "2026-10-01T00:05:00.000Z", parts: [{ kind: "notice", text: "Background job bg_1 has completed.\nPASS all" }] },
+      { role: "assistant", ts: "2026-10-01T00:05:02.000Z", end_ts: "2026-10-01T00:06:01.000Z", parts: [{ kind: "text", text: "CI is green." }, { kind: "text", text: "Still green." }] },
+    ]);
+  });
 });
 
 describe("transcript pages", () => {

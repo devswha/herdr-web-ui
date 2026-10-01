@@ -520,6 +520,7 @@ export const JA: Record<string, string> = {
   "Open image": "画像を開く",
   "Attached image": "添付画像",
   "Conversation compacted": "会話を圧縮しました",
+  "Background result delivered": "バックグラウンドの結果が届きました",
   "Skill activity": "スキルのアクティビティ",
   "Skill requested": "呼び出しを要求",
   "Skill invoked": "呼び出し済み",

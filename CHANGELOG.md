@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- A gjc chat no longer folds hours of work into one turn. gjc wakes its agent with a
+  background job's result in the user's seat; the chat skipped that record, so the answer before
+  it sank into the work block and only the last status line showed as the reply. The result now
+  ends the turn, as a quiet "Background result delivered" divider with the text on request, like
+  a compaction.
+
 ## [0.3.37] - 2026-10-01
 
 ### Changed
@@ -22,7 +29,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   prompt is now off until Settings → Composer → **Suggestion chip** turns it on. The suggestion
   still stands as the box's placeholder, and Tab still takes it with a keyboard
   ([#223](https://github.com/devswha/herdr-web-ui/pull/223)).
-
 ## [0.3.36] - 2026-10-01
 
 ### Added
