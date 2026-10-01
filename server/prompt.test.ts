@@ -1423,7 +1423,26 @@ describe("pi's dialogs", () => {
     expect(prompt.custom_option_index).toBe(0);
     // the `>` line already owns the input: an Enter typed before the answer submits the dialog
     // empty, and the answer is left behind to be typed into pi's own prompt
-    expect(answerKeys(prompt, { custom_text: "feat/x" })).toEqual([{ text: "feat/x" }, { keys: ["enter"] }]);
+    // the line is emptied first: text typed into it in the terminal would stay around the answer
+    expect(answerKeys(prompt, { custom_text: "feat/x" })).toEqual([{ keys: ["ctrl+k"] }, { keys: ["ctrl+u"] }, { text: "feat/x" }, { keys: ["enter"] }]);
+  });
+
+  // The wrap as pi 0.87.1 draws it in a pane 46 columns wide: a row three columns in, its rest one.
+  test("reads an option a narrow pane wrapped as one option, so a tap lands on the row it names", () => {
+    const narrow = piScreen(" Where should this change go next?\n\n → Keep it on the staging environment for now\n and wait for review\n   Deploy to production\n   Cancel\n\n ↑↓ navigate  enter select  escape/ctrl+c\n cancel\n");
+    const prompt = parseInteractivePrompt("pi", narrow)!;
+    expect(prompt.options.map((option) => option.label)).toEqual(['Keep it on the staging environment for now and wait for review', "Deploy to production", "Cancel"]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    // an option that is not the cursor's wraps the same way
+    const second = piScreen(" Pick one\n\n → Cancel\n   Keep it on the staging environment for now\n and wait for review\n   Deploy to production\n\n ↑↓ navigate  enter select  escape/ctrl+c\n cancel\n");
+    expect(parseInteractivePrompt("pi", second)!.options.map((option) => option.label)).toEqual(["Cancel", "Keep it on the staging environment for now and wait for review", "Deploy to production"]);
+  });
+
+  test("reads a confirm's wrapped message whole, under the dialog's own title", () => {
+    const prompt = parseInteractivePrompt("pi", piScreen(" Delete the branch?\n This removes the local branch and its remote\n counterpart for good.\n\n → Yes\n   No\n\n ↑↓ navigate  enter select  escape/ctrl+c\n cancel\n"))!;
+    expect(prompt.kind).toBe("approval");
+    expect(prompt.title).toBe("Delete the branch?");
+    expect(prompt.question).toBe("This removes the local branch and its remote counterpart for good.");
   });
 
   test("offers nothing once the dialog is answered, moved through, or never opened", () => {

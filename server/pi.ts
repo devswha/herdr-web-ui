@@ -1,16 +1,18 @@
 import { constants, closeSync, fstatSync, openSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 
 import { herdrRpc } from "./herdr/client.ts";
+import { piAgentDir } from "./pi-models.ts";
 
 /**
  * pi's session store. `PI_CODING_AGENT_SESSION_DIR` moves it, exactly as CODEX_HOME
- * moves Codex's; pi's `--session-dir` flag and its `sessionDir` setting move it too,
- * but this process cannot see either, so a pane started that way keeps the terminal.
+ * moves Codex's, and `PI_CODING_AGENT_DIR` moves the agent directory it sits in (seen on
+ * pi 0.87.1: the store is `<agent dir>/sessions`); pi's `--session-dir` flag and its
+ * `sessionDir` setting move it too, but this process cannot see either, so a pane started
+ * that way keeps the terminal.
  */
 export const defaultPiSessionDir = (): string =>
-  process.env["PI_CODING_AGENT_SESSION_DIR"] || join(homedir(), ".pi", "agent", "sessions");
+  process.env["PI_CODING_AGENT_SESSION_DIR"] || join(piAgentDir(), "sessions");
 
 /**
  * The canonical file inside the store, or null. pi names an absolute path itself, so

@@ -1236,21 +1236,42 @@ const PI_MODEL_DEFAULT_RE = /\s*\u00b7\s*default$/;
  * hint is what its arrow keys move through, and what sits above the blank over it is what the
  * dialog asks. The rule over the dialog is no use for this: it stands over the whole thing,
  * title included, and a confirm indents its message level with its own options.
+ *
+ * A pane narrower than an option wraps it, and the rest of the label lands on a line of its own.
+ * pi sets a row three columns in (` → ` on the cursor's, three spaces on the others) and the
+ * wrapped rest one column in, which is all that tells them apart: read as a row of its own, the
+ * rest became one more option, and tapping it pressed Down once more than pi has rows, onto the
+ * option after it (measured on pi 0.87.1 at 46 columns). The title and a confirm's message wrap
+ * the same way, so they are read as one run of lines, the title first.
  */
+const PI_WRAPPED_REST_RE = /^ (?![\u2192\u276f\u279c])\S/;
 function piDialogRows(lines: string[], hintIndex: number): { rows: { line: string; cursor: boolean }[]; title: string[] } {
   const rows: { line: string; cursor: boolean }[] = [];
   let index = hintIndex - 1;
   while (index >= 0 && !cleanLine(lines[index]!)) index -= 1;
+  // read upwards, so the wrapped rest of a row is met before the row it belongs to
+  let rest: string[] = [];
   for (; index >= 0; index -= 1) {
-    const line = cleanLine(lines[index]!);
+    const raw = lines[index]!.replace(ANSI_RE, "");
+    const line = cleanLine(raw);
     if (!line || isDivider(line)) break;
-    rows.unshift({ line, cursor: /^[\u2192\u276f\u279c]\s*\S/.test(line) });
+    if (PI_WRAPPED_REST_RE.test(raw)) { rest.unshift(line); continue; }
+    rows.unshift({ line: [line, ...rest].join(" "), cursor: /^[\u2192\u276f\u279c]\s*\S/.test(line) });
+    rest = [];
   }
+  // lines one column in with no row over them are not a wrapped option: they stand as they are,
+  // for the caller to refuse (the slash palette's own first line, for one)
+  rows.unshift(...rest.map((line) => ({ line, cursor: false })));
   const title: string[] = [];
-  for (; index >= 0 && title.length < 2; index -= 1) {
+  // the run of lines right over the rows' blank: past the next blank is whatever the pane showed before
+  for (; index >= 0 && title.length < 8; index -= 1) {
     if (isDivider(lines[index]!)) break;
     const line = cleanLine(lines[index]!);
-    if (line) title.unshift(line);
+    if (!line) {
+      if (title.length > 0) break;
+      continue;
+    }
+    title.unshift(line);
   }
   return { rows, title };
 }
@@ -1353,7 +1374,9 @@ function parsePiDialog(screen: string): ParsedPrompt | null {
   if (hintIndex < 0) return null;
   const block = piDialogRows(lines, hintIndex);
   if (block.rows.length === 0) return null;
-  const [title, body] = block.title;
+  // the first line is the dialog's own; what follows is a confirm's message, or more of a wrapped line
+  const title = block.title[0];
+  const body = block.title.length > 1 ? block.title.slice(1).join(" ") : undefined;
   // pi wants text on a `>` line: there is nothing to pick, and the answer is typed into it
   if (PI_INPUT_HINT_RE.test(wrapped(lines, hintIndex))) {
     if (!block.rows.every((row) => PI_INPUT_LINE_RE.test(row.line))) return null;
@@ -1377,7 +1400,8 @@ function parsePiDialog(screen: string): ParsedPrompt | null {
   return finishPrompt("pi", {
     kind: confirming ? "approval" : "question",
     title: confirming ? (title ?? "") : "",
-    question: confirming ? (body ?? title ?? "") : (body ?? title ?? ""),
+    // a select has a title alone: a second line is the rest of it, wrapped
+    question: confirming ? (body ?? title ?? "") : block.title.join(" "),
     body: null,
     options: labels.map((label) => ({ label, description: null })),
     multi_select: false,
@@ -1468,6 +1492,9 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
     // be typed into the agent's own prompt.
     if (!["claude-question", "claude-plan", "codex-question", "codex-async-question", "pi-input"].includes(parsed.responder)) navigation.push(KEY.enter);
     if (parsed.responder === "codex-question") navigation.push(KEY.tab);
+    // what was typed into pi's line in the terminal would stay around the answer: the line is
+    // emptied first, after the cursor and before it (pi's editor keys, measured on 0.87.1)
+    if (parsed.responder === "pi-input") navigation.push("ctrl+k", "ctrl+u");
     return [
       ...keySteps(navigation),
       { text },
@@ -1916,6 +1943,18 @@ async function cursorSettled(paneId: string, id: string, index: number): Promise
   return false;
 }
 
+/** Before the Enter on pi's `/model`: its catalogue still open, with the cursor on the model the card named. */
+async function modelCursorSettled(paneId: string, label: string | undefined): Promise<boolean> {
+  if (label === undefined) return false;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const { prompt } = await readPrompt(paneId);
+    const parsed = prompt ? parsedByPublicPrompt.get(prompt) : undefined;
+    if (prompt && parsed?.responder === "pi-model" && prompt.options[parsed.selectedIndex]?.label === label) return true;
+    await Bun.sleep(50);
+  }
+  return false;
+}
+
 /**
  * After an answer to a form of several questions (omo): back once the pane shows its next step
  * (the next question, the review, or no form when it was submitted), so the card's read right
@@ -2006,7 +2045,15 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const verifyCursor = responder === "claude-confirm" || responder === "pi-model";
         for (let index = 0; index < steps.length; index += 1) {
           const step = steps[index]!;
-          if (verifyCursor && body.option_index !== undefined && index === steps.length - 1 && !await cursorSettled(body.pane_id, target.id, body.option_index)) return promptChanged();
+          if (verifyCursor && body.option_index !== undefined && index === steps.length - 1) {
+            // pi's catalogue shows ten rows of a longer list and scrolls under the cursor, so the
+            // rows on screen, and with them the card's id, change on the way down: what must
+            // hold is the model under the cursor, by name
+            const settled = responder === "pi-model"
+              ? await modelCursorSettled(body.pane_id, target.options[body.option_index]?.label)
+              : await cursorSettled(body.pane_id, target.id, body.option_index);
+            if (!settled) return promptChanged();
+          }
           if (step.keys) await paneSendKeys(body.pane_id, step.keys);
           else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
           if (index < steps.length - 1) await Bun.sleep(30);

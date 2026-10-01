@@ -16,7 +16,7 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, toolOutput } from "./conversation.ts";
+import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
@@ -1039,7 +1039,11 @@ export function createServer(
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
         try {
           const context = await paneContext(paneId);
-          if (pathname === "/api/pane/commands") return jsonResponse({ commands: paneCommands(context.agent, context.cwd) });
+          if (pathname === "/api/pane/commands") {
+            // herdr names an omo pane `pi` while omo waits: pi's commands and templates are not omo's
+            const agent = context.agent === "pi" && await paneRunsOmo(paneId) ? "omo" : context.agent;
+            return jsonResponse({ commands: paneCommands(agent, context.cwd) });
+          }
           const limitRaw = url.searchParams.get("limit");
           const limit = limitRaw === null ? 20 : Number(limitRaw);
           if (!Number.isInteger(limit) || limit < 1) return badRequest("invalid_limit", "limit must be a positive integer");

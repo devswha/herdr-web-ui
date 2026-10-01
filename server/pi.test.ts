@@ -57,6 +57,16 @@ describe("pi's session store holds the transcript a pane reads", () => {
       else process.env["PI_CODING_AGENT_SESSION_DIR"] = previous;
     }
   });
+
+  it("looks under the agent directory PI_CODING_AGENT_DIR names, where pi keeps its sessions", () => {
+    const before = { dir: process.env["PI_CODING_AGENT_DIR"], sessions: process.env["PI_CODING_AGENT_SESSION_DIR"] };
+    process.env["PI_CODING_AGENT_DIR"] = root;
+    delete process.env["PI_CODING_AGENT_SESSION_DIR"];
+    try { expect(defaultPiSessionDir()).toBe(store); } finally {
+      if (before.dir === undefined) delete process.env["PI_CODING_AGENT_DIR"]; else process.env["PI_CODING_AGENT_DIR"] = before.dir;
+      if (before.sessions !== undefined) process.env["PI_CODING_AGENT_SESSION_DIR"] = before.sessions;
+    }
+  });
 });
 
 // pi's own record shapes: a system prompt that stays hidden, a prompt, an assistant

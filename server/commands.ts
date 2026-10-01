@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { piAgentDir } from "./pi-models.ts";
 import { join, relative, sep } from "node:path";
 
 import type { SlashCommand } from "../shared/protocol.ts";
@@ -156,8 +157,10 @@ export function paneCommands(agent: string | null | undefined, cwd: string | nul
     // project root of its own choosing, and offering a command the agent will not run is worse
     // than offering one fewer command. Neither are pi's packages and extension commands, which
     // no file scan can know: they are in the terminal's own `/` menu either way.
-    commands.push(...piTemplates(join(home, ".pi", "agent", "prompts"), "user"));
-    commands.push(...skills(join(home, ".pi", "agent", "skills"), "skill", { prefix: "skill" }));
+    // PI_CODING_AGENT_DIR moves the agent directory, as it does for pi's sessions and models
+    const agentDir = process.env["PI_CODING_AGENT_DIR"] ? piAgentDir() : join(home, ".pi", "agent");
+    commands.push(...piTemplates(join(agentDir, "prompts"), "user"));
+    commands.push(...skills(join(agentDir, "skills"), "skill", { prefix: "skill" }));
     commands.push(...skills(join(home, ".agents", "skills"), "skill", { prefix: "skill" }));
   }
   if (agent === "codex") {

@@ -657,7 +657,7 @@ export async function gjcTranscriptPath(paneId: string, cwd: string, home?: stri
  * failure answers "no": the caller then reports why the labelled store failed,
  * which is the more useful error.
  */
-async function paneRunsOmo(paneId: string): Promise<boolean> {
+export async function paneRunsOmo(paneId: string): Promise<boolean> {
   // pane.process_info wants `pane_id`; given `target` herdr answers for the
   // FOCUSED pane instead of erroring (live-verified 2026-09-21).
   const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: unknown }[] } }>(

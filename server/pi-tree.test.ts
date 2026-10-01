@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -421,5 +421,30 @@ describe("the abandoned count on the page", () => {
     // omp reads the same shape of file but has no /tree: no count is offered for its transcript
     const omp = transcriptPage("omp-transcript" as never, path);
     expect(omp.abandoned).toBeUndefined();
+  });
+});
+
+describe("pi's entry index on awkward files", () => {
+  const session = entry("s", null, { type: "session", version: 3, id: "s", cwd: root });
+
+  it("indexes the entries around a record longer than several read chunks", () => {
+    // a picture a tool read sits in its record as base64: one line of many megabytes
+    const picture = entry("t1", "u1", { type: "message", message: { role: "toolResult", content: [{ type: "text", text: "x".repeat(9 * 1024 * 1024) }] } });
+    const path = file([session, user("u1", "s", "first"), picture, assistant("a1", "t1", "after the picture")]);
+    const index = piEntryIndex(path)!;
+    expect(index.entries.map((item) => item.id)).toEqual(["s", "u1", "t1", "a1"]);
+    expect(index.entries[2]!.end - index.entries[2]!.start).toBeGreaterThan(9 * 1024 * 1024);
+    expect(index.entries[3]!.start).toBe(index.entries[2]!.end);
+    expect(index.entries[3]!.end).toBe(statSync(path).size);
+  });
+
+  it("starts over when another file takes the path, even one of the same size that ends the same", () => {
+    const path = file([session, user("u1", "s", "one"), assistant("a1", "u1", "the same closing answer, longer than the bytes the tail check reads")]);
+    expect(piEntryIndex(path)!.entries.map((item) => item.id)).toEqual(["s", "u1", "a1"]);
+    // an import or a restore: other entries, the same length, the same last bytes
+    const replacement = file([session, user("u2", "s", "two"), assistant("a1", "u1", "the same closing answer, longer than the bytes the tail check reads")]);
+    expect(statSync(replacement).size).toBe(statSync(path).size);
+    renameSync(replacement, path);
+    expect(piEntryIndex(path)!.entries.map((item) => item.id)).toEqual(["s", "u2", "a1"]);
   });
 });

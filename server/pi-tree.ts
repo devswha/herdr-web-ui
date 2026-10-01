@@ -24,6 +24,8 @@ export interface TranscriptSegment { start: number; end: number }
 
 interface PiEntry { id: string; parent: string | null; start: number; end: number; type: string; role: string; summary: string | null }
 interface PiIndex {
+  /** the file the index was built from (device and inode): another file at the same path starts over */
+  file: string;
   /** the tree's children in append order; entries without an id (the session header) are not nodes */
   entries: PiEntry[];
   children: Map<string, PiEntry[]>;
@@ -56,8 +58,8 @@ function indexEntry(line: string, start: number, end: number): PiEntry | null {
   };
 }
 
-function buildIndex(path: string, size: number): PiIndex {
-  const index: PiIndex = { entries: [], children: new Map(), scanned: 0, tail: "" };
+function buildIndex(path: string, size: number, file: string): PiIndex {
+  const index: PiIndex = { file, entries: [], children: new Map(), scanned: 0, tail: "" };
   extendIndex(index, path, size);
   return index;
 }
@@ -74,13 +76,24 @@ function extendIndex(index: PiIndex, path: string, size: number): void {
   try {
     let end = index.scanned; // absolute offset just past the bytes held in `bytes`
     let carry = Buffer.alloc(0);
+    // the chunks of a line still without its newline: a record holding a picture runs to many
+    // megabytes, and joining it to each next chunk copied it once per chunk
+    let open: Buffer[] = [];
     while (end < size) {
       const want = Math.min(INDEX_CHUNK_BYTES, size - end);
       const chunk = Buffer.alloc(want);
       const got = readSync(fd, chunk, 0, want, end);
       if (got <= 0) break;
-      const bytes = Buffer.concat([carry, chunk.subarray(0, got)]);
-      const base = end - carry.length; // absolute offset of bytes[0]
+      const read = chunk.subarray(0, got);
+      if (!read.includes(0x0a)) {
+        open.push(read);
+        end += got;
+        continue;
+      }
+      const held = open.reduce((sum, part) => sum + part.length, 0);
+      const bytes = Buffer.concat([carry, ...open, read]);
+      open = [];
+      const base = end - held - carry.length; // absolute offset of bytes[0]
       let offset = 0;
       for (let newline = bytes.indexOf(0x0a); newline !== -1; newline = bytes.indexOf(0x0a, offset)) {
         const entry = indexEntry(bytes.subarray(offset, newline).toString("utf8"), base + offset, base + newline + 1);
@@ -90,7 +103,7 @@ function extendIndex(index: PiIndex, path: string, size: number): void {
       carry = bytes.subarray(offset);
       end += got;
     }
-    index.scanned = end - carry.length;
+    index.scanned = end - carry.length - open.reduce((sum, part) => sum + part.length, 0);
   } finally { closeSync(fd); }
   index.tail = readBefore(path, index.scanned, 64);
 }
@@ -116,15 +129,18 @@ function addEntry(index: PiIndex, entry: PiEntry): void {
 /** The tree as it stands, or null when the file cannot be read at all. */
 export function piEntryIndex(path: string): PiIndex | null {
   let size: number;
-  try { size = statSync(path).size; } catch { return null; }
+  let file: string;
+  try { const stat = statSync(path); size = stat.size; file = `${stat.dev}:${stat.ino}`; } catch { return null; }
   const cached = piIndexes.get(path);
   // an append cannot disturb what was scanned — parents precede children — but a rewrite,
-  // a truncation or an in-place replacement can, and only the tail check tells them apart
-  if (cached && cached.scanned <= size && readBefore(path, cached.scanned, 64) === cached.tail) {
+  // a truncation or an in-place replacement can, and only the tail check tells them apart;
+  // a file put in the old one's place (an import, a restore) is another file even where its
+  // tail reads the same
+  if (cached && cached.file === file && cached.scanned <= size && readBefore(path, cached.scanned, 64) === cached.tail) {
     extendIndex(cached, path, size);
     return cached;
   }
-  const fresh = buildIndex(path, size);
+  const fresh = buildIndex(path, size, file);
   piIndexes.set(path, fresh);
   if (piIndexes.size > 32) piIndexes.delete(piIndexes.keys().next().value!);
   return fresh;
