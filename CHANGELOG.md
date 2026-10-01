@@ -97,6 +97,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   pasted into the pane or printed by a command can still look like another conversation's
   answers and show that conversation instead.
   ([#284](https://github.com/devswha/herdr-web-ui/pull/284))
+- The chat of a Gajae Code pane on a Windows PC follows `/new` and `/resume`. It stayed on the
+  previous conversation until an answer of the new one was long enough to recognise, which a
+  one-word answer never is. It now goes by the session title gjc shows in its status line: when
+  that names one session of the folder, the chat shows that one, and when two sessions share
+  the title it shows none rather than the wrong one. A later gjc that Windows gave the same
+  process number no longer inherits the old session, and a process list that could not be read
+  keeps the chat as it was instead of dropping it.
+  ([#285](https://github.com/devswha/herdr-web-ui/pull/285))
 - An OmO pane reads RUN while OmO works and DONE when it finishes. herdr reports nothing for such
   a pane (it read READY or DONE whatever OmO did), so a message sent meanwhile was not held, Stop
   was not offered, and no done alert came, in the browser or by web push. The status is now read

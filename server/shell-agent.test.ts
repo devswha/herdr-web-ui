@@ -48,6 +48,8 @@ it("finds what runs under a pane's shell in the process table", () => {
   expect(descendantArgv(table, 26540).length).toBe(3);
   expect(descendantArgv(table, 4242)).toEqual([]);
   expect(parseProcessTable("not json")).toEqual([]);
+  // the process's start, as the table script reads it (ms since 1970), comes along when present
+  expect(parseProcessTable(JSON.stringify({ ProcessId: 2, ParentProcessId: 1, ExecutablePath: null, CommandLine: "x", Started: 1790886000123 }))).toEqual([{ pid: 2, parent: 1, path: null, commandLine: "x", started: 1790886000123 }]);
   expect(windowsArgv('"C:\\a b\\x.exe" one "two three"')).toEqual(["C:\\a b\\x.exe", "one", "two three"]);
 });
 

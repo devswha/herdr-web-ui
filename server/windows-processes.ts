@@ -5,7 +5,11 @@
  * foreground process group to ask. It does give `shell_pid`, and the bridge runs on that
  * PC, so the process table answers instead.
  */
-export interface ProcessRow { pid: number; parent: number; path: string | null; commandLine: string | null }
+export interface ProcessRow {
+  pid: number; parent: number; path: string | null; commandLine: string | null;
+  /** when the process started, in ms since 1970: Windows hands a finished process's number to the next one */
+  started?: number;
+}
 
 /** A Windows command line as argv: double quotes group, nothing else is special here. */
 export function windowsArgv(commandLine: string): string[] {
@@ -42,11 +46,15 @@ export function parseProcessTable(json: string): ProcessRow[] {
     const row = entry as Record<string, unknown>;
     const pid = row["ProcessId"], parent = row["ParentProcessId"];
     if (typeof pid !== "number" || typeof parent !== "number") return [];
-    return [{ pid, parent, path: typeof row["ExecutablePath"] === "string" ? row["ExecutablePath"] : null, commandLine: typeof row["CommandLine"] === "string" ? row["CommandLine"] : null }];
+    const started = row["Started"];
+    return [{
+      pid, parent, path: typeof row["ExecutablePath"] === "string" ? row["ExecutablePath"] : null, commandLine: typeof row["CommandLine"] === "string" ? row["CommandLine"] : null,
+      ...(typeof started === "number" ? { started } : {}),
+    }];
   });
 }
 
-const TABLE_SCRIPT = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine | ConvertTo-Json -Compress";
+const TABLE_SCRIPT = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine, @{n='Started';e={([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds()}} | ConvertTo-Json -Compress";
 
 /**
  * The process table of this PC, or nothing when it cannot be read. A query that stalls is
