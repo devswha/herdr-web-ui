@@ -28,7 +28,8 @@ export type VoiceEngine = "server" | "browser";
 export type VoiceError = "insecure" | "permission" | "no_mic" | "not_configured" | "provider_auth" | "provider" | "network" | "too_large" | "no_speech";
 /** why the mic button is off: the setting, no https, or neither a server key nor browser speech */
 export type VoiceUnavailable = "disabled" | "insecure" | "not_configured" | "unsupported";
-export interface VoiceText { text: string; phase: "raw" | "polished" }
+/** `take` numbers each press-to-text run, so a late answer never lands on another run's words */
+export interface VoiceText { text: string; phase: "raw" | "polished"; take: number }
 
 /** a press held this long is push-to-talk (release finishes); a shorter tap toggles */
 export const HOLD_MS = 300;
@@ -196,18 +197,57 @@ export function replaceIfUnchanged(value: string, range: { start: number; end: n
   return { value: value.slice(0, range.start) + replacement + value.slice(range.end), end: range.start + replacement.length };
 }
 
+/** Where a take's raw words sit in the box, until its polished form replaces them. */
+export interface InsertedSpan { start: number; end: number; text: string }
+
+/** spans past an edit move with it; one the edit overlapped is forgotten, so its polish is dropped */
+function shiftSpans(spans: Map<number, InsertedSpan>, from: number, to: number, delta: number): void {
+  for (const [take, span] of spans) {
+    if (span.start >= to) { span.start += delta; span.end += delta; }
+    else if (span.end > from) spans.delete(take);
+  }
+}
+
+const SPANS_KEPT = 8;
+
+/**
+ * One VoiceText applied to the box: raw text goes in at the selection and its span is kept under
+ * its take; a polished text replaces only its own take's span, and only while the user has not
+ * edited it. Null: nothing to change. `spans` is updated in place.
+ */
+export function applyDictation(value: string, selection: { start: number; end: number }, spans: Map<number, InsertedSpan>, result: VoiceText): { value: string; caret: number } | null {
+  if (result.phase === "raw") {
+    const next = insertAtCaret(value, selection.start, selection.end, result.text);
+    if (next.value === value) return null;
+    shiftSpans(spans, Math.min(selection.start, selection.end), Math.max(selection.start, selection.end), next.value.length - value.length);
+    spans.set(result.take, { start: next.start, end: next.end, text: next.value.slice(next.start, next.end) });
+    for (const take of spans.keys()) if (spans.size > SPANS_KEPT) spans.delete(take);
+    return { value: next.value, caret: next.end };
+  }
+  const span = spans.get(result.take);
+  spans.delete(result.take);
+  if (!span) return null;
+  const next = replaceIfUnchanged(value, span, span.text, result.text);
+  if (!next) return null;
+  shiftSpans(spans, span.start, span.end, next.value.length - value.length);
+  // the caret follows the swap only if it was in or after the replaced span
+  const caret = selection.start >= span.end ? selection.start + next.end - span.end : selection.start > span.start ? next.end : selection.start;
+  return { value: next.value, caret };
+}
+
 /** SpeechRecognition.lang for the UI language. */
 export function speechLang(language: Language): string {
   return LOCALE_TAGS[language];
 }
 
-/** What the transcribe route accepts: trimmed, capped in length and count, no blanks or repeats. */
+/** What the transcribe route accepts: trimmed, at most VOICE_KEYWORDS_MAX, none longer than VOICE_KEYWORD_MAX_CHARS, no blanks or repeats. */
 export function voiceKeywords(words: readonly string[]): string[] {
   const kept = new Set<string>();
   for (const word of words) {
     if (kept.size >= VOICE_KEYWORDS_MAX) break;
-    const keyword = word.trim().slice(0, VOICE_KEYWORD_MAX_CHARS).trim();
-    if (keyword !== "") kept.add(keyword);
+    // an overlong term is dropped, as the server does: half a path would steer the transcript wrong
+    const keyword = word.trim();
+    if (keyword !== "" && keyword.length <= VOICE_KEYWORD_MAX_CHARS) kept.add(keyword);
   }
   return [...kept];
 }
@@ -344,6 +384,7 @@ interface EngineIO {
 
 /** One press-to-text run while it records; it becomes "pending" work once finished. */
 interface Take {
+  id: number;
   engine: VoiceEngine;
   /** nothing more is delivered from it */
   discard: boolean;
@@ -369,6 +410,7 @@ interface Take {
 function createVoiceEngine(io: EngineIO) {
   let phase: VoiceState = "idle";
   let take: Take | null = null;
+  let lastTakeId = 0;
   let pressedAt: number | null = null;
   /** finished takes still transcribing; cancel aborts them */
   const pending = new Set<AbortController>();
@@ -578,7 +620,7 @@ function createVoiceEngine(io: EngineIO) {
         else interim += text;
       }
       current.finalText = final;
-      if (!current.discard) io.options().onPartial?.(tidy(final + interim));
+      if (!current.discard && current.id === lastTakeId) io.options().onPartial?.(tidy(final + interim));
     };
     recognition.onerror = (event) => {
       const reason = speechErrorReason(event.error);
@@ -587,7 +629,7 @@ function createVoiceEngine(io: EngineIO) {
     recognition.onend = () => {
       if (take === current) take = null;
       const text = tidy(current.finalText);
-      if (!current.discard && text !== "") io.options().onText({ text, phase: "raw" });
+      if (!current.discard && text !== "") io.options().onText({ text, phase: "raw", take: current.id });
       if (current.closing) pending.delete(current.closing);
       settle();
     };
@@ -611,7 +653,7 @@ function createVoiceEngine(io: EngineIO) {
     current.recognition?.abort();
   }
 
-  async function transcribe(blob: Blob, extension: string, durationMs: number, signal: AbortSignal): Promise<void> {
+  async function transcribe(id: number, blob: Blob, extension: string, durationMs: number, signal: AbortSignal): Promise<void> {
     const options = io.options();
     const form = new FormData();
     form.append(VOICE_FORM.audio, blob, `voice.${extension}`);
@@ -631,9 +673,10 @@ function createVoiceEngine(io: EngineIO) {
       let partial = "";
       for await (const event of readVoiceEvents(response.body)) {
         if (signal.aborted) return;
-        if (event.type === "delta") { partial += event.text; io.options().onPartial?.(tidy(partial)); }
+        // an earlier take still answering must not overwrite the preview of the one being spoken
+        if (event.type === "delta") { partial += event.text; if (id === lastTakeId) io.options().onPartial?.(tidy(partial)); }
         else if (event.type === "error") io.setError(voiceErrorFromCode(event.code));
-        else if (event.text.trim() !== "") io.options().onText({ text: event.text.trim(), phase: event.type === "done" ? "raw" : "polished" });
+        else if (event.text.trim() !== "") io.options().onText({ text: event.text.trim(), phase: event.type === "done" ? "raw" : "polished", take: id });
       }
     } catch (error) {
       if (signal.aborted) return;
@@ -648,7 +691,7 @@ function createVoiceEngine(io: EngineIO) {
       const blob = new Blob(current.chunks, { type: current.recorder?.mimeType || mime.mimeType });
       if (blob.size === 0) return;
       if (blob.size > VOICE_MAX_AUDIO_BYTES) { io.setError("too_large"); return; }
-      await transcribe(blob, mime.extension, durationMs, controller.signal);
+      await transcribe(current.id, blob, mime.extension, durationMs, controller.signal);
     } finally {
       pending.delete(controller);
       settle();
@@ -730,7 +773,7 @@ function createVoiceEngine(io: EngineIO) {
     io.setElapsed(0);
     io.setSilent(false);
     meter.silent = false;
-    const current: Take = { engine, discard: false, releaseMic: false, closing: null, recorder: null, recorderAt: null, gate: null, keptMs: 0, keptFrom: null, chunks: [], heard: false, startedAt: null, recognition: null, finalText: "" };
+    const current: Take = { id: ++lastTakeId, engine, discard: false, releaseMic: false, closing: null, recorder: null, recorderAt: null, gate: null, keptMs: 0, keptFrom: null, chunks: [], heard: false, startedAt: null, recognition: null, finalText: "" };
     take = current;
     pressedAt = performance.now();
     // the pill shows on this very frame; the mic catches up

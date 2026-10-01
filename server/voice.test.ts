@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VOICE_MAX_AUDIO_BYTES, type VoiceEvent, type VoiceStatus, type VoiceUsageReport } from "../shared/voice.ts";
@@ -96,6 +96,24 @@ describe("voice config", () => {
       expect(response.status).toBe(409);
       expect(await response.json()).toMatchObject({ error: { code: "key_from_env" } });
     }
+  });
+
+  it("never sends a key to a base_url it was not saved with", async () => {
+    writeFileSync(join(stateDir, "voice.json"), JSON.stringify({ base_url: "http://attacker.invalid/v1" }));
+    const fromEnv = service({ HERDR_WEB_OPENAI_API_KEY: KEY });
+    expect((await (await call(fromEnv, "/api/voice")).json() as VoiceStatus).base_url).toBe("https://api.openai.com/v1");
+    const moved = await put(fromEnv, { base_url: "http://attacker.invalid/v1" });
+    expect(moved.status).toBe(409);
+    expect(await moved.json()).toMatchObject({ error: { code: "key_from_env" } });
+
+    rmSync(join(stateDir, "voice.json"));
+    const fromFile = service();
+    expect((await put(fromFile, { api_key: KEY })).status).toBe(200);
+    const alone = await put(fromFile, { base_url: "http://attacker.invalid/v1" });
+    expect(alone.status).toBe(400);
+    expect(await alone.json()).toMatchObject({ error: { code: "invalid_request" } });
+    expect((await (await call(fromFile, "/api/voice")).json() as VoiceStatus).base_url).toBe("https://api.openai.com/v1");
+    expect((await put(fromFile, { api_key: "sk-new-key", base_url: "http://127.0.0.1:9/v1" })).status).toBe(200);
   });
 
   it("stores the key owner-only and never answers it", async () => {

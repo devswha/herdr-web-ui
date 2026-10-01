@@ -316,9 +316,12 @@ export class VoiceService {
 
   private settings(file: VoiceFile) {
     const envBase = text(this.env[ENV_BASE_URL]);
+    const envKey = text(this.env[ENV_KEY]);
+    // an env key goes only where the env (or the default) says: a stored base_url never receives it
+    const storedBase = envKey ? undefined : file.base_url;
     return {
-      key: text(this.env[ENV_KEY]) ?? file.api_key ?? null,
-      base: envBase ? envBase.replace(/\/+$/, "") : file.base_url ?? VOICE_DEFAULTS.base_url,
+      key: envKey ?? file.api_key ?? null,
+      base: envBase ? envBase.replace(/\/+$/, "") : storedBase ?? VOICE_DEFAULTS.base_url,
       transcribeModel: file.transcribe_model ?? VOICE_DEFAULTS.transcribe_model,
       polishModel: file.polish_model ?? VOICE_DEFAULTS.polish_model,
     };
@@ -342,6 +345,12 @@ export class VoiceService {
     const extra = Object.keys(change).find((field) => !(FIELDS as readonly string[]).includes(field));
     if (extra !== undefined) throw invalid(`Unknown field ${extra}`);
     const next = this.read();
+    // A saved key is only ever sent where it was saved for: moving it to another server takes the
+    // key again, so a client that can write settings cannot send someone's key elsewhere.
+    if (change["base_url"] !== undefined) {
+      if (text(this.env[ENV_KEY])) throw new VoiceError("key_from_env", 409, `${ENV_KEY} sets the key; its server is set by ${ENV_BASE_URL}`);
+      if (next.api_key && typeof change["api_key"] !== "string") throw invalid("Send api_key with base_url: a saved key is not sent to another server");
+    }
     for (const field of FIELDS) {
       const value = change[field];
       if (value === undefined) continue;

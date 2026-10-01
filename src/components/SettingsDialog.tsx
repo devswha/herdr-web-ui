@@ -14,6 +14,7 @@ import { fetchRemoteAccess, fetchVoiceStatus, fetchVoiceUsage, machineRequest, s
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
 import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
 import type { VoiceStatus, VoiceUsageReport } from "../../shared/voice.ts";
+import { VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
@@ -137,13 +138,16 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
   const changeVoiceKey = async (api_key: string | null) => {
     setVoiceBusy(true);
     try {
-      await saveVoiceConfig({ api_key });
+      // the save answers the new status itself: no second request that could fail after it
+      const saved = await saveVoiceConfig({ api_key });
       setVoiceKey("");
       setVoiceError(null);
-      setVoice(await fetchVoiceStatus());
-      window.dispatchEvent(new Event("herdr:voice-config"));
+      setVoice(saved);
+      window.dispatchEvent(new Event(VOICE_CONFIG_EVENT));
     } catch (e) { setVoiceError(e instanceof Error ? e.message : String(e)); }
     finally { setVoiceBusy(false); }
+    // the card shows when a key is set or anything was used, so it follows the key too
+    fetchVoiceUsage().then(setVoiceUsage, () => setVoiceUsage(null));
   };
 
   const updatePcSettings = async (patch: Partial<MachineSettings>) => {

@@ -18,7 +18,11 @@ export interface VoiceStatus {
   polish_model: string;
 }
 
-/** PUT /api/voice/config. A missing field is left as it is; `api_key: null` removes the key. */
+/**
+ * PUT /api/voice/config. A missing field is left as it is; `api_key: null` removes the key.
+ * `base_url` changes only together with `api_key` while a key is saved, and never while the env
+ * sets the key: a key is not sent to a server other than the one it was saved for.
+ */
 export interface VoiceConfigUpdate {
   api_key?: string | null;
   base_url?: string | null;
@@ -40,7 +44,7 @@ export type VoiceEvent =
 
 export type VoiceErrorCode =
   | "voice_not_configured" // 409: no key on the server
-  | "key_from_env" // 409: PUT tried to change a key HERDR_WEB_OPENAI_API_KEY sets
+  | "key_from_env" // 409: PUT tried to change the key or base_url while HERDR_WEB_OPENAI_API_KEY sets the key
   | "audio_too_large" // 413
   | "invalid_audio" // 400: no audio part, empty, or not audio/*
   | "invalid_request" // 400: bad mode / keywords / config body

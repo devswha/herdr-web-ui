@@ -10,7 +10,7 @@ import "./VoiceInput.css";
 import { useT, type Translate } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
 import { isMacPlatform, isVoiceShortcut } from "../lib/shortcuts.ts";
-import { insertAtCaret, replaceIfUnchanged, useVoiceInput, type VoiceError, type VoiceInput, type VoiceText, type VoiceUnavailable } from "../lib/voice.ts";
+import { applyDictation, useVoiceInput, type InsertedSpan, type VoiceError, type VoiceInput, type VoiceText, type VoiceUnavailable } from "../lib/voice.ts";
 import { VOICE_MAX_SECONDS, type VoiceMode } from "../../shared/voice.ts";
 
 // literal t() calls, so the i18n test finds every key
@@ -119,27 +119,17 @@ export function useDictation(options: DictationOptions): Dictation {
   const [partial, setPartial] = useState("");
   const latest = useRef(options);
   latest.current = options;
-  const inserted = useRef<{ start: number; end: number; text: string } | null>(null);
+  // per take: a slow polish of an earlier dictation must not land on a later one's words
+  const spans = useRef(new Map<number, InsertedSpan>());
 
-  const onText = useCallback(({ text, phase }: VoiceText): void => {
+  const onText = useCallback((result: VoiceText): void => {
     const { box, read, write } = latest.current;
     const value = read();
     const element = box.current;
     const live = element !== null && element.value === value;
-    if (phase === "raw") {
-      const next = insertAtCaret(value, live ? element.selectionStart : value.length, live ? element.selectionEnd : value.length, text);
-      inserted.current = { start: next.start, end: next.end, text: next.value.slice(next.start, next.end) };
-      write(next.value, next.end);
-      return;
-    }
-    const range = inserted.current;
-    if (!range) return;
-    const next = replaceIfUnchanged(value, range, range.text, text);
-    if (!next) return;
-    inserted.current = { start: range.start, end: next.end, text };
-    // the caret follows the swap only if it was in or after the replaced span
-    const caret = live ? element.selectionStart : range.end;
-    write(next.value, caret >= range.end ? caret + next.end - range.end : caret > range.start ? next.end : caret);
+    const selection = live ? { start: element.selectionStart, end: element.selectionEnd } : { start: value.length, end: value.length };
+    const next = applyDictation(value, selection, spans.current, result);
+    if (next) write(next.value, next.caret);
   }, []);
 
   const voice = useVoiceInput({

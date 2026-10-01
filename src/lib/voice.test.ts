@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { VoiceEvent } from "../../shared/voice.ts";
+import type { InsertedSpan } from "./voice.ts";
 import {
+  applyDictation,
   barScales,
   classifyRelease,
   createSpeechGate,
@@ -200,10 +202,10 @@ describe("error reasons and keywords", () => {
     expect(speechErrorReason("network")).toBe("network");
   });
 
-  it("trims, dedupes and caps keywords", () => {
+  it("trims, dedupes, caps the count and drops overlong keywords instead of cutting them", () => {
     expect(voiceKeywords([" git ", "", "git", "bun test"])).toEqual(["git", "bun test"]);
     expect(voiceKeywords(Array.from({ length: 80 }, (_, index) => `k${index}`))).toHaveLength(50);
-    expect(voiceKeywords(["x".repeat(200)])[0]).toHaveLength(80);
+    expect(voiceKeywords(["x".repeat(200), "y".repeat(80), "z".repeat(81)])).toEqual(["y".repeat(80)]);
   });
 });
 
@@ -247,5 +249,36 @@ describe("createSpeechGate", () => {
   it("never shuts on a long loud sentence", () => {
     const gate = createSpeechGate();
     expect(run(gate, 0.1, 0, 30_000)).toEqual([[0, "open"]]);
+  });
+});
+
+describe("applyDictation", () => {
+  const end = (value: string) => ({ start: value.length, end: value.length });
+
+  it("puts each take's polish on its own words, even when a later take finished first", () => {
+    const spans = new Map<number, InsertedSpan>();
+    let box = applyDictation("", end(""), spans, { take: 1, phase: "raw", text: "음 git status 봐줘" })!.value;
+    box = applyDictation(box, end(box), spans, { take: 2, phase: "raw", text: "그리고 커밋" })!.value;
+    expect(box).toBe("음 git status 봐줘 그리고 커밋");
+    box = applyDictation(box, end(box), spans, { take: 1, phase: "polished", text: "git status 봐 줘." })!.value;
+    expect(box).toBe("git status 봐 줘. 그리고 커밋");
+    box = applyDictation(box, end(box), spans, { take: 2, phase: "polished", text: "그리고 커밋해 줘." })!.value;
+    expect(box).toBe("git status 봐 줘. 그리고 커밋해 줘.");
+  });
+
+  it("drops a polish whose take never inserted text or whose words were edited", () => {
+    const spans = new Map<number, InsertedSpan>();
+    expect(applyDictation("hi", end("hi"), spans, { take: 7, phase: "polished", text: "Hi." })).toBeNull();
+    const box = applyDictation("", end(""), spans, { take: 1, phase: "raw", text: "음 안녕" })!.value;
+    expect(applyDictation(`${box}하세요`.replace("음", "응"), end(box), spans, { take: 1, phase: "polished", text: "안녕." })).toBeNull();
+  });
+
+  it("forgets a take whose words were overwritten by the next one", () => {
+    const spans = new Map<number, InsertedSpan>();
+    const first = applyDictation("", end(""), spans, { take: 1, phase: "raw", text: "음 첫째" })!.value;
+    const second = applyDictation(first, { start: 0, end: first.length }, spans, { take: 2, phase: "raw", text: "둘째" })!.value;
+    expect(second).toBe("둘째");
+    expect(applyDictation(second, end(second), spans, { take: 1, phase: "polished", text: "첫째." })).toBeNull();
+    expect(applyDictation(second, end(second), spans, { take: 2, phase: "polished", text: "둘째." })!.value).toBe("둘째.");
   });
 });
