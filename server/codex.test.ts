@@ -392,6 +392,38 @@ describe("Codex rollout resolution", () => {
     expect(read("The tests have passed.", "Tests passed. The tests have passed.", "Ha, the tests passed; these have passed.")).toBeNull();
   });
 
+  // the second review of #284
+  const inspect = "I'll inspect the file and run the tests.";
+  it("does not read short answers another rollout said inside longer ones", () => {
+    const candidates = [
+      { path: "wrong", text: answered(inspect, changed) },
+      { path: "real", text: answered(`Sure. ${inspect}`, `Sure. ${changed}`, "Done.", "Done.") },
+    ];
+    expect(matchShortCodexAnswers(bullets(`Sure. ${inspect}`, `Sure. ${changed}`, "Done.", "Done."), candidates)).toBeNull();
+  });
+
+  it("does not take a fork for its parent however many turns ago it inherited the answers", () => {
+    const later = Array.from({ length: 51 }, () => [message("user", "continue"), message("assistant", "Done.")]).flat();
+    const candidates = [
+      { path: "parent", text: answered(inspect, changed) },
+      { path: "fork", text: jsonl(message("assistant", inspect), message("assistant", changed), ...later) },
+    ];
+    const screen = [bullets(inspect, changed), ...Array.from({ length: 51 }, () => "› continue\n• Done.")].join("\n");
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    // and a rollout read only from its end may have said them before: no answer then
+    expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done."), cut: true }])).toBeNull();
+    expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done.") }])).toBe("parent");
+  });
+
+  it("reads short answers in bounded time however many unclosed links the answers hold", () => {
+    const many = answered(...Array.from({ length: 450 }, () => "](".repeat(1000)));
+    const candidates = Array.from({ length: 32 }, (_, index) => ({ path: `unclosed-${index}`, text: many }));
+    const screen = Array.from({ length: 400 }, () => "q".repeat(120)).join("\n");
+    const started = performance.now();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("reads short answers in bounded time however many links a large answer has", () => {
     const huge = answered("[abcdefghijklmnop](/a)".repeat(40_000));
     const candidates = Array.from({ length: 32 }, (_, index) => ({ path: `large-${index}`, text: huge }));

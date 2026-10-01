@@ -187,9 +187,23 @@ it("reads a thread whose answers are all short by its newest answers on screen, 
     await floodedAway(bound, answers.matched);
     await onScreen(bound, shortAnswers[1]!);
     expect(lastAnswer(await read(bound))).toBe(answers.matched);
+    // 32 threads updated since push the pane's own out of the ones looked at, and one of them
+    // ends with the same short lines: the chat cannot tell, rather than show that one
+    const db = new Database(join(codexHome, "state_5.sqlite"));
+    for (let index = 0; index < 32; index++) {
+      const id = `01a0c7a1-56d9-7e20-9f08-f7a2d973c${String(index).padStart(3, "0")}`;
+      const later = join(codexHome, "sessions", `rollout-2026-09-25T00-00-00-${id}.jsonl`);
+      writeFileSync(later, [
+        { type: "session_meta", payload: { id, cwd: root } },
+        ...(index === 0 ? shortAnswers : [`Unrelated answer number ${index}.`]).map((text) => ({ type: "response_item", timestamp: "2026-09-25T00:00:05Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] } })),
+      ].map((entry) => JSON.stringify(entry)).join("\n"));
+      db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, 9999999999, 'cli', 'later')").run(id, later, root);
+    }
+    db.close();
+    expect((await read(shortPane)).source).toBe("scrollback");
   } finally {
     const db = new Database(join(codexHome, "state_5.sqlite"));
-    db.query("DELETE FROM threads WHERE id = ?").run(threads.short);
+    db.query("DELETE FROM threads WHERE id = ? OR first_user_message = 'later'").run(threads.short);
     db.close();
     // the claim check looks at 8 other Codex panes in the cwd: leave the later tests theirs
     for (const id of workspaces.splice(opened)) await workspaceClose(id);
