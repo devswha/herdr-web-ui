@@ -10,7 +10,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Changed
 - On a touch screen, the chip above the message box that takes Claude Code's suggested next
   prompt is now off until Settings → Composer → **Suggestion chip** turns it on. The suggestion
-  still stands as the box's placeholder, and Tab still takes it with a keyboard.
+  still stands as the box's placeholder, and Tab still takes it with a keyboard
+  ([#223](https://github.com/devswha/herdr-web-ui/pull/223)).
 
 ## [0.3.36] - 2026-10-01
 
