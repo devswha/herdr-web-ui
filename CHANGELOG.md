@@ -8,6 +8,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- Korean, Japanese and Chinese in the terminal no longer look spread apart on an iPhone. iOS has
+  no font that draws Hangul as wide as two terminal cells, so every syllable sat at the left of
+  its cells with a 4px gap after it. A character narrower than its cells is now drawn larger
+  (up to 1.2×) and centered in them. Vietnamese written with separate accent marks, as in a
+  file name from a Mac, now shows every mark on iPhone; Safari drew only the first one. The ⏺
+  before every Claude Code message is drawn as a symbol in its cell on iPhone, no longer as a
+  blue emoji over the next character
+  ([#272](https://github.com/devswha/herdr-web-ui/pull/272)).
 - Several lines pasted into the terminal of a Windows PC stay in an agent's message box until
   you send them. Gajae Code took the first line break for Enter and sent the first line alone.
   PowerShell and cmd still run a pasted block line by line. Enter, Ctrl+C, Esc, Tab and the
