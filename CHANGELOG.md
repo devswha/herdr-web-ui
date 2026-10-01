@@ -12,7 +12,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   shell wants it and ended with a newline, which PowerShell takes for a line break, so it never
   ran; and herdr names only the pane's shell on Windows, so the start was never seen. The
   command is now written for the pane's shell (PowerShell or cmd), run with the Enter key, and
-  found among the shell's child processes. OmO is not offered on a Windows PC for now (PRLINK).
+  found among the shell's child processes. OmO is not offered on a Windows PC for now
+  ([#251](https://github.com/devswha/herdr-web-ui/pull/251)).
 
 ## [0.3.39] - 2026-10-01
 
