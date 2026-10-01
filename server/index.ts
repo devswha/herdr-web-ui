@@ -18,7 +18,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
-import { SHELL_AGENTS, isShellAgentKind, startShellAgent } from "./shell-agent.ts";
+import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile } from "./file-view.ts";
 import {
@@ -822,8 +822,7 @@ export function createServer(
           kinds.add("omp");
           kinds.add("claude");
           // not herdr kinds: offered where this server can run them (see shell-agent.ts)
-          // the pane's shell inherits this process's PATH, so that is where the command must resolve
-          for (const kind of Object.keys(SHELL_AGENTS)) if (Bun.which(kind, { PATH: process.env["PATH"] ?? "" })) kinds.add(kind);
+          for (const kind of Object.keys(SHELL_AGENTS)) if (shellAgentExecutable(kind)) kinds.add(kind);
           const agents: AgentKind[] = [...kinds]
             .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
