@@ -299,7 +299,8 @@ export function PaneTerminal({
       if (adopted()) return false;
       if (term.hasSelection()) term.clearSelection();
       const reporting = term.modes.mouseTrackingMode !== "none";
-      if (reporting && event.isTrusted && event.target) {
+      // a trackpad pinch arrives as a wheel with Ctrl down: it is not scrolling, and goes once as before
+      if (reporting && event.isTrusted && event.target && !event.ctrlKey) {
         for (let sent = 1; sent < wheelSpeedRef.current; sent += 1) {
           event.target.dispatchEvent(new WheelEvent("wheel", {
             bubbles: true, cancelable: true, deltaX: event.deltaX, deltaY: event.deltaY, deltaMode: event.deltaMode,
