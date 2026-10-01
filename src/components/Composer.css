@@ -374,6 +374,11 @@
    squeezed the command itself to nothing — at 390px wide `/export` measured 0px. */
 .composer-menu .menu-item-main {
   flex: 0 0 auto;
+  /* but it may not outgrow the row. A prompt template is named after its file, and a long name
+     measured 15px past the row on a 390px phone (2097px with a pathological one), its tail under
+     whatever sits beside the menu. Capped at the row, the ellipsis the rule above already asks for
+     is finally reached, and the description still takes the line below it on a phone */
+  max-width: 100%;
 }
 
 .composer-menu .menu-item-hint {

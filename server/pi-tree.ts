@@ -13,9 +13,9 @@ import { closeSync, openSync, readSync, statSync } from "node:fs";
  * A branch longer than this is not returned at all. The caller treats that as a transcript it
  * cannot read (`branch_unreadable`) and the chat falls back to the pane's terminal output, so an
  * oversized session shows scrollback rather than a projection built by holding that many bytes of
- * paths in memory. The largest branch across 147 real session files here is 23.9 MiB, so the cap
- * sits about 3x above what pi has been seen to write — close enough that a long-lived pane could
- * reach it, which is why it degrades to the fallback instead of throwing.
+ * paths in memory. The largest branch across 147 real session files here is 23.3 MiB (24,451,068
+ * bytes), so the cap sits 2.7x above what pi has been seen to write — close enough that a long-lived
+ * pane could reach it, which is why it degrades to the fallback instead of throwing.
  */
 export const MAX_BRANCH_BYTES = 64 * 1024 * 1024;
 
