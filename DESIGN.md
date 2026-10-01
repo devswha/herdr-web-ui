@@ -131,7 +131,6 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
 - `palette`: `amber`, `report` or `charcoal`; default `amber`.
-- `claudeMark` (`logo` or `mascot`) and `codexMark` (`logo` or `app`): the provider logo by default.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
 - Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.

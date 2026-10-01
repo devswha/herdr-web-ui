@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- Settings → Appearance no longer offers Clawd and the Codex app icon in place of the
+  provider logos. Claude and Codex panes show their provider logos again, also where one of
+  the icons was chosen in 0.3.36. The color palettes stay
+  ([#219](https://github.com/devswha/herdr-web-ui/pull/219)).
 - The chat's status line no longer has **Report a problem**, and on a phone no **Hide keyboard**
   while typing. A tap on the transcript or a drag down it still puts the keyboard away. Problems
   go to [GitHub issues](https://github.com/devswha/herdr-web-ui/issues/new/choose)
