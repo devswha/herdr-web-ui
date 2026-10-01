@@ -189,11 +189,17 @@ export function gjcSessionTitle(path: string, budget: { bytes: number } = { byte
  * session that can be the one running: one carrying the status line's title, or, while no file
  * carries it yet, one without a title.
  */
-export function gjcTitles(paths: readonly string[], title: string | null | undefined, titleOf: (path: string, budget: { bytes: number }) => string | null | undefined = gjcSessionTitle): Pick<GjcScreen, "titled" | "titledCount" | "titles"> & { among: string[] } {
+export function gjcTitles(
+  paths: readonly string[], title: string | null | undefined,
+  titleOf: (path: string, budget: { bytes: number }) => string | null | undefined = gjcSessionTitle,
+  sizeOf: (path: string) => number = fileSize,
+): Pick<GjcScreen, "titled" | "titledCount" | "titles"> & { among: string[] } {
   const titles = new Map<string, string | null | undefined>();
   if (typeof title !== "string" && title !== null) return { titled: null, titledCount: 0, titles, among: [...paths] };
   const budget = { bytes: TITLE_BUDGET_BYTES };
-  for (const path of paths) titles.set(path, titleOf(path, budget));
+  // the small ones first: one long history must not use up the look before a short session is read
+  const sizes = new Map(paths.map((path) => [path, sizeOf(path)]));
+  for (const path of [...paths].sort((a, b) => sizes.get(a)! - sizes.get(b)!)) titles.set(path, titleOf(path, budget));
   // a file not read to its end may carry any title: it is no untitled session to match an answer in
   const untitled = paths.filter((path) => titles.get(path) === null);
   if (title === null) return { titled: null, titledCount: 0, titles, among: untitled };
@@ -206,6 +212,10 @@ export function gjcTitles(paths: readonly string[], title: string | null | undef
     titles,
     among: carrying.length > 0 ? carrying : untitled,
   };
+}
+
+function fileSize(path: string): number {
+  try { return statSync(path).size; } catch { return 0; }
 }
 
 /** The start time decides only when both reads have it: a column that failed once is not another process. */

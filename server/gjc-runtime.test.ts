@@ -176,6 +176,12 @@ it("reads which sessions of the folder can be the one on screen", () => {
   expect(gjcTitles(["a", "d", "big"], null, titleOf)).toMatchObject({ among: ["d"] });
   // no title in the status line: a titled session is not the one running
   expect(gjcTitles(["a", "d"], null, titleOf)).toMatchObject({ titledCount: 0, among: ["d"] });
+  // a long history listed first does not use up the look before a short session is read
+  const sizes: Record<string, number> = { archive: 130 * 1024 * 1024, target: 3000 };
+  const read: string[] = [];
+  const within = (path: string, budget: { bytes: number }) => { read.push(path); if (budget.bytes <= 0) return undefined; budget.bytes -= Math.min(budget.bytes, sizes[path]!); return path === "target" ? "Target" : undefined; };
+  expect(gjcTitles(["archive", "target"], "Target", within, (path) => sizes[path]!)).toMatchObject({ among: ["target"], titledCount: -1 });
+  expect(read).toEqual(["target", "archive"]);
   // no status line: every file is asked, and none is read for a title
   expect(gjcTitles(["a", "d"], undefined, () => { throw new Error("read"); })).toMatchObject({ among: ["a", "d"] });
 });
