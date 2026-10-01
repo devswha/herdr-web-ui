@@ -24,18 +24,73 @@ export function isGjcProcess(argv: readonly string[]): boolean {
     (/(^|[\\/])(?:bun|node)(?:\.exe)?$/i.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
 }
 
+const PROCESS_TABLE_MS = 5000;
+let processTable: { at: number; rows: Promise<ProcessRow[]> } | null = null;
+
 /**
- * Whether gjc runs below a pane's shell on a Windows PC. herdr names only the shell there
- * (windows-processes.ts), so the PC's process table answers; elsewhere herdr's foreground
- * processes are the answer and the table is never asked.
+ * The Windows process table, read at most once per PROCESS_TABLE_MS. The chat polls a pane
+ * every 2 s and each read starts a PowerShell (about 1.3 s on a real PC), so the polls of a
+ * few seconds share one; a gjc that left its pane can still count as running for that long.
  */
-export async function gjcRunsUnderShell(
+export function recentProcessTable(read: () => Promise<ProcessRow[]> = windowsProcessTable, now = Date.now()): Promise<ProcessRow[]> {
+  if (processTable && now - processTable.at < PROCESS_TABLE_MS) return processTable.rows;
+  const entry = { at: now, rows: read() };
+  processTable = entry;
+  // an empty table is a read that failed: the next poll asks again
+  void entry.rows.then((rows) => { if (rows.length === 0 && processTable === entry) processTable = null; });
+  return entry.rows;
+}
+
+/**
+ * The gjc process below a pane's shell on a Windows PC, or null. herdr names only the shell
+ * there (windows-processes.ts), so the PC's process table answers; elsewhere herdr's
+ * foreground processes are the answer and the table is never asked.
+ */
+export async function gjcPidUnderShell(
   shellPid: unknown,
   platform: string = process.platform,
-  table: () => Promise<ProcessRow[]> = windowsProcessTable,
-): Promise<boolean> {
-  if (platform !== "win32" || typeof shellPid !== "number") return false;
-  return descendantArgv(await table(), shellPid).some(isGjcProcess);
+  table: () => Promise<ProcessRow[]> = recentProcessTable,
+): Promise<number | null> {
+  if (platform !== "win32" || typeof shellPid !== "number") return null;
+  const rows = await table();
+  const seen = new Set<number>([shellPid]);
+  let level = [shellPid];
+  while (level.length > 0) {
+    const next: number[] = [];
+    for (const row of rows) {
+      if (!level.includes(row.parent) || seen.has(row.pid)) continue;
+      // nearest first: the session's own process, not the helper gjc starts below itself
+      if (descendantArgv([row], row.parent).some(isGjcProcess)) return row.pid;
+      seen.add(row.pid);
+      next.push(row.pid);
+    }
+    level = next;
+  }
+  return null;
+}
+
+const windowsBindings = new Map<string, { pid: number; path: string }>();
+
+/**
+ * A Windows pane's session. The screen is the only evidence there, and it is gone whenever no
+ * recent answer's tail is visible (a long list, tool output; live-verified: the lens fell back
+ * for the whole of such an answer). So what the screen once showed is kept for the pane while
+ * the same gjc process runs in it. The screen still wins when it shows another session, and a
+ * pane is never bound without it.
+ */
+export async function boundGjcTranscript(paneId: string, gjcPid: number | null, match: () => Promise<string | null>): Promise<string | null> {
+  const bound = windowsBindings.get(paneId);
+  if (gjcPid === null || bound && bound.pid !== gjcPid) windowsBindings.delete(paneId);
+  if (gjcPid === null) return null;
+  const path = await match();
+  if (path) windowsBindings.set(paneId, { pid: gjcPid, path });
+  return path ?? (bound?.pid === gjcPid ? bound.path : null);
+}
+
+/** Forget the bindings and the process table kept between polls. */
+export function forgetGjcState(): void {
+  windowsBindings.clear();
+  processTable = null;
 }
 
 /**
@@ -224,15 +279,15 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
   const candidates = paths.size > 0 ? paths : breadcrumbs;
   if (candidates.size === 1) return [...candidates][0]!;
   if (candidates.size > 1) return null;
-  // a Windows pane has neither descriptors nor a breadcrumb to read: gjc under its shell, then the screen
-  if (!running && !(await gjcRunsUnderShell(info?.process_info?.shell_pid))) return null;
   // Some GJC builds publish neither a file descriptor nor a terminal breadcrumb.
   // Match substantial assistant text in this pane against every same-cwd candidate.
-  const files = gjcDisplayCandidates(root, cwd);
-  if (files.length > 0) {
+  const onScreen = async () => {
+    const files = gjcDisplayCandidates(root, cwd);
+    if (files.length === 0) return null;
     const screen = await paneRead({ paneId, source: "visible", lines: 1000 }).catch(() => null);
-    const matched = screen ? matchGjcTranscript(screen.text, files) : null;
-    if (matched) return matched;
-  }
-  return null;
+    return screen ? matchGjcTranscript(screen.text, files) : null;
+  };
+  if (running) return onScreen();
+  // a Windows pane has neither descriptors nor a breadcrumb to read: gjc under its shell, then the screen
+  return boundGjcTranscript(paneId, await gjcPidUnderShell(info?.process_info?.shell_pid), onScreen);
 }

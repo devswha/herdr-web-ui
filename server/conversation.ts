@@ -31,7 +31,7 @@ import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
-import { gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
+import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
@@ -567,6 +567,7 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
 export function forgetTranscriptState(): void {
   cache.clear();
   forgetClaudeSessions();
+  forgetGjcState();
   liveScans.clear();
   settledTurns.clear();
   codexTurns.clear();
