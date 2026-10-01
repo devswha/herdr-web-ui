@@ -26,6 +26,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   for word; without the session it is read off the screen, with wrapped Korean words joined back.
   While an answer is typed in omo's own field, the card offers to save or discard it
   ([#237](https://github.com/devswha/herdr-web-ui/pull/237) by @nahwan-kim).
+- A pane that waits for another web bridge to let go of its terminal is no longer shown as
+  connected for a moment, and then told again that it is held, when herdr answers a retry slowly.
+  The first bytes `herdr terminal attach` writes before herdr has answered no longer count as
+  the attach having taken ([#243](https://github.com/devswha/herdr-web-ui/pull/243)).
+- A new shell is no longer taken for OmO while its startup files run. A startup command that
+  printed a `PATH` containing omo-ai's directory matched the OmO process check, so the pane could
+  get the OmO mark for a moment and **New session** could report OmO started before it had
+  ([#243](https://github.com/devswha/herdr-web-ui/pull/243)).
 
 ## [0.3.38] - 2026-10-01
 

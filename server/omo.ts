@@ -5,7 +5,12 @@ import { herdrRpc } from "./herdr/client.ts";
 import { processStartedAt } from "./process-start.ts";
 
 const OMO_PROCESS = /(^|\/)omo(\.js)?$|\/omo-ai\//;
-export function isOmoProcess(argv: readonly string[]): boolean { return argv.some((word) => OMO_PROCESS.test(word)); }
+/**
+ * A word counts only as one path: a PATH list that names omo-ai's bin directory is an argument
+ * of the shell's startup (`printf %s\n $PATH` in an rc file), not omo, and it made a fresh
+ * shell pass for omo for a moment.
+ */
+export function isOmoProcess(argv: readonly string[]): boolean { return argv.some((word) => !word.includes(":") && OMO_PROCESS.test(word)); }
 
 export interface OmoCandidate { path: string; id: string; createdAt: number | null }
 export interface OmoRuntime {

@@ -220,6 +220,28 @@ describe("an attach classified as held", () => {
     });
   }, 30_000);
 
+  it("is not resumed by the attach's own setup bytes when herdr's refusal comes after them", async () => {
+    const paneId = await pane();
+    // herdr refuses, then a busy herdr answers late: the attach's own mode setup (mouse
+    // reporting off, the alternate screen on), a gap longer than the hold, the refusal; then
+    // the real attach
+    const late = `printf '\\033[?1006l\\033[?1000l'; sleep 0.2; printf '\\033[?1049h\\033[?1006l\\033[?2031l\\033[?7h'; sleep 0.4; printf '\\033[?1049l\\033[?25h\\033[0 q'; ${HELD}`;
+    const herdr = scriptedHerdr([HELD, late, "real"]);
+    await withHerdr(herdr.path, async () => {
+      const client = connect(third.port, paneId);
+      try {
+        await client.open;
+        client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+        await until(() => herdr.attempts() === 3, "the real attach starts", 5_000);
+        await until(() => client.state.frames > 0, "the real attach paints", 5_000);
+        // the late refusal neither resumed the pane nor held it a second time
+        expect(client.state.resumed).toBe(1);
+        expect(client.state.errors).toEqual(["attach_held"]);
+        expect(client.state.exits).toBe(0);
+      } finally { client.ws.close(); }
+    });
+  }, 30_000);
+
   it("keeps the pane held when a refusal's exit is overdue, and tries again instead of resuming", async () => {
     const paneId = await pane();
     // herdr refuses, then refuses without its exit ever coming, refuses once more, then attaches

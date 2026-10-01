@@ -203,6 +203,9 @@ describe("omo transcript resolution", () => {
     expect(isOmoProcess(["/home/u/.local/bin/claude"])).toBeFalse();
     expect(isOmoProcess(["omp"])).toBeFalse();
     expect(isOmoProcess(["node", "/home/u/omo-tools/watch.js"])).toBeFalse();
+    // a shell rc file printing a PATH that has omo-ai's bin directory in it
+    expect(isOmoProcess(["printf", "%s\\n", "/home/u/.local/bin:/home/u/lib/node_modules/omo-ai/node_modules/.bin:/usr/bin"])).toBeFalse();
+    expect(isOmoProcess(["printf", "%s\\n", "/usr/bin:/home/u/.nvm/versions/node/v24.18.0/bin/omo"])).toBeFalse();
   });
 });
 

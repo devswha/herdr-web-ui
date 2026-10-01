@@ -26,7 +26,8 @@ async function pane(id?: string): Promise<string> {
   await herdrRpc("pane.send_text", { pane_id: paneId, text: `${process.execPath} ${script}${id ? ` --session-id ${id}` : ""}\n` });
   for (let attempt = 0; attempt < 100; attempt++) {
     const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: paneId });
-    if (info.process_info?.foreground_processes?.some((process) => isOmoProcess(process.argv ?? []))) return paneId;
+    // the stand-in itself, by its path: the shell's own startup processes come and go before it
+    if (info.process_info?.foreground_processes?.some((process) => process.argv?.includes(script))) return paneId;
     await Bun.sleep(50);
   }
   throw new Error("test omo process did not start");

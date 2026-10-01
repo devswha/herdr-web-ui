@@ -80,6 +80,14 @@ const ATTACH_RETRY_MS = 50;
 const ATTACH_RETRY_MAX_MS = 500;
 /** a refused attach says so within milliseconds of its first bytes: those are held this long */
 const ATTACH_HOLD_MS = 100;
+/**
+ * What `herdr terminal attach` writes itself before herdr has answered: terminal modes set and
+ * reset only (mouse reporting off, the alternate screen on; the last one maybe cut short). The
+ * answer can come any time after them, later than the hold on a busy PC, so they say nothing
+ * about whether the attach took and do not start the hold. A refusal and a screen both begin
+ * with something else.
+ */
+const ATTACH_PREAMBLE_RE = /^(?:\x1b\[\?[\d;]+[hl])*(?:\x1b(?:\[(?:\?[\d;]*)?)?)?$/;
 /** how often a terminal another web bridge holds is tried again, while clients here still want it */
 const ATTACH_HELD_RETRY_MS = 3_000;
 /**
@@ -536,6 +544,7 @@ export function createServer(
       // is dropped then, never painted into the clients' terminal
       let held: string | null = "";
       let heldSince = 0;
+      let holding = false;
       let holdTimer: ReturnType<typeof setTimeout> | undefined;
       /** ended before its exit came: what it still prints is no attach's */
       let retired = false;
@@ -637,11 +646,12 @@ export function createServer(
           if (retired || attachments.get(paneId) !== attachment) return;
           output = (output + data).slice(-1024);
           if (held === null) return forward(data);
-          if (held === "") {
+          held += data;
+          if (!holding && !ATTACH_PREAMBLE_RE.test(held)) {
+            holding = true;
             heldSince = Date.now();
             holdTimer = setTimeout(took, ATTACH_HOLD_MS);
           }
-          held += data;
         },
         onExit: ended,
       });
