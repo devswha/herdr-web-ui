@@ -637,6 +637,15 @@ export function matchShortCodexAnswers(screen: string, candidates: { path: strin
     if (index === only) continue;
     const said = normalizeDisplay(other.join("\n"));
     if (shown.some((answer) => said.includes(answer))) return null;
+    // an answer of the other with links shows as its text around them, the targets Codex's own
+    // way: when that text is all in a shown answer, in order, the screen may be showing the other
+    for (const text of other.slice(-200)) {
+      const pieces = cutAtLinkTargets(text);
+      if (pieces.length < 2 || pieces.length > 16) continue;
+      const around = pieces.map((piece) => normalizeDisplay(piece.text)).filter((piece) => piece !== "");
+      if (around.join("").length < 16) continue;
+      if (shown.some((answer) => { let from = 0; return around.every((piece) => { const at = answer.indexOf(piece, from); from = at + piece.length; return at >= 0; }); })) return null;
+    }
   }
   return candidates[only]!.path;
 }

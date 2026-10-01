@@ -85,8 +85,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   (herdr names no session, Codex was not resumed, and no long answer found the conversation
   before), the newest two or more answers of a conversation, shown one after another on the
   screen, now count together. That is weaker evidence than one long answer, so it is used only
-  when exactly one of the folder's conversations shows that way, no other one ever said those
-  answers, every one of them was read whole (none missing its file, forked from or continuing
+  when exactly one of the folder's conversations shows that way, no other one said those answers
+  as far as its text tells, every one of them was read whole (none missing its file, forked from or continuing
   another, or too long to read at once), and the folder has no more than 32. An answer with a
   link in it does not count, since the screen shows a link its own way. It is never
   remembered: once the answers scroll away the chat is empty again until a long one shows. Text

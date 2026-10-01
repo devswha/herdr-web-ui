@@ -429,6 +429,18 @@ describe("Codex rollout resolution", () => {
     expect(matchShortCodexAnswers(bullets(report[0]!, report[1]!, "Here is the image (out/merged.png)."), [{ path: "report", text: answered(...report) }])).toBe("report");
   });
 
+  it("reads no short answers that another rollout's linked answers show as", () => {
+    // the pane's own rollout says them with links, which Codex shows as "label (path)": the screen
+    // reads exactly like an older rollout's plain answers
+    const live = ["The [build results](/repo/reports/build.md) are ready for review.", "All [feature checks](/repo/reports/check.md) passed verification."];
+    const older = ["The build results (reports/build.md) are ready for review.", "All feature checks (reports/check.md) passed verification."];
+    const screen = bullets(...older);
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }])).toBe("older");
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "live", text: answered(...live) }])).toBeNull();
+    // a linked answer of another rollout that says something else vetoes nothing
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "else", text: answered("See [the notes](docs/notes.md) for the migration plan.") }])).toBe("older");
+  });
+
   it("reads no short answers when a rollout was not read whole, the one that shows them included", () => {
     const texts = ["The build finished without errors this time.", "All checks on the feature branch pass again."];
     const screen = bullets(...texts);
