@@ -11,7 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A Stop, an Enter or anything typed right after a message no longer reaches the pane once the
   connection that sent it has closed. It waited behind the message and was sent afterwards, with
   nobody watching. The message itself is still finished for a phone that locks
-  (PRLINK).
+  ([#235](https://github.com/devswha/herdr-web-ui/pull/235)).
 
 ## [0.3.38] - 2026-10-01
 
