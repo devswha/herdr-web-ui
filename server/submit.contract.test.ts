@@ -372,6 +372,50 @@ describe("a herdr without terminal attach (Windows)", () => {
   }, 30_000);
 });
 
+describe("typing without terminal attach, at the edges", () => {
+  it("takes its turn before herdr has said what it can do: a message sent meanwhile does not overtake it", async () => {
+    let answer!: (attach: boolean) => void;
+    const asked = new Promise<boolean>((resolve) => { answer = resolve; });
+    const unsure = createServer({ port: 0, stateDir: join(root, "push-unsure"), terminalAttach: () => asked });
+    const socket = await Socket.connect(unsure.port);
+    try {
+      const from = chunks(shell).length;
+      socket.send({ type: "submit", id: 23, pane_id: shell.pane, text: "one", payload: "one" });
+      socket.send({ type: "input", pane_id: shell.pane, text: "\u001b" });
+      socket.send({ type: "submit", id: 24, pane_id: shell.pane, text: "two", payload: "two" });
+      await socket.result(23);
+      answer(false);
+      await socket.result(24);
+      await received(shell, from, 2);
+      expect(typed(shell, from)).toBe("one\r\u001btwo\r");
+    } finally {
+      answer(false);
+      socket.close();
+      unsure.stop();
+    }
+  }, 30_000);
+
+  it("sends nothing typed by a connection that closed while it waited its turn", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "push-gone"), terminalAttach: false });
+    const gone = await Socket.connect(bare.port);
+    const socket = await Socket.connect(bare.port);
+    try {
+      const from = chunks(shell).length;
+      gone.send({ type: "submit", id: 25, pane_id: shell.pane, text: "one", payload: "one" });
+      gone.send({ type: "input", pane_id: shell.pane, text: "\u001b" });
+      gone.close();
+      await received(shell, from, 1);
+      socket.send({ type: "submit", id: 26, pane_id: shell.pane, text: "two", payload: "two" });
+      await socket.result(26);
+      await received(shell, from, 2);
+      expect(typed(shell, from)).toBe("one\rtwo\r");
+    } finally {
+      socket.close();
+      bare.stop();
+    }
+  }, 30_000);
+});
+
 describe("herdr unreachable when a terminal is asked for", () => {
   it("answers the attach with an in-band error and attaches once herdr is back", async () => {
     const asking = createServer({ port: 0, stateDir: join(root, "push-asking") });
