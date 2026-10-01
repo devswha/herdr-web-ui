@@ -2,13 +2,36 @@ import { expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { heldSessionIds, omoCandidates, selectOmoTranscript, type OmoRuntime } from "./omo.ts";
+import { heldSessionIds, isOmoProcess, omoCandidates, selectOmoTranscript, type OmoRuntime } from "./omo.ts";
 
 const runtime = (paneId: string, startedAt: number | null = 10_000, paths: string[] = [], ids: string[] = []): OmoRuntime => ({ paneId, startedAt, paths, ids });
 const files = [
   { path: "/old.jsonl", id: "old-session", createdAt: 100 },
   { path: "/fresh.jsonl", id: "fresh-session", createdAt: 10_000 },
 ];
+
+const OMO_AI = "/home/u/.nvm/versions/node/v24.18.0/lib/node_modules/omo-ai";
+
+it("takes omo from the program a process runs: its own binary, or the script of node or bun", () => {
+  // argv as herdr 0.9.0's pane.process_info reported them for omo 5.1.7 and its MCP child
+  expect(isOmoProcess(["/home/u/.bun/bin/bun", `${OMO_AI}/node_modules/@code-yeongyu/senpi/dist/bundle/cli.js`, "--extension", `${OMO_AI}/plugin`])).toBeTrue();
+  expect(isOmoProcess(["/home/u/.bun/bin/bun", `${OMO_AI}/plugin/runtime/ast-grep-mcp/cli.js`, "mcp"])).toBeTrue();
+  expect(isOmoProcess(["node", "/home/u/.nvm/versions/node/v24.18.0/bin/omo"])).toBeTrue();
+  expect(isOmoProcess(["node", "--enable-source-maps", `${OMO_AI}/bin/omo.js`, "--session-id", "abcdefgh"])).toBeTrue();
+  expect(isOmoProcess(["omo"])).toBeTrue();
+  expect(isOmoProcess(["/home/u/.local/bin/omo", "--session-id", "abcdefgh"])).toBeTrue();
+  expect(isOmoProcess([`${OMO_AI}/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`, "--output-format", "stream-json"])).toBeTrue();
+});
+
+it("does not take an omo path given to another program for omo", () => {
+  expect(isOmoProcess(["grep", "-q", `${OMO_AI}/x`])).toBeFalse();
+  expect(isOmoProcess(["cat", "/home/u/.nvm/versions/node/v24.18.0/bin/omo"])).toBeFalse();
+  expect(isOmoProcess(["ls", "omo"])).toBeFalse();
+  expect(isOmoProcess(["node", "/home/u/tools/watch.js", `${OMO_AI}/plugin`])).toBeFalse();
+  expect(isOmoProcess(["bun", "--version"])).toBeFalse();
+  expect(isOmoProcess(["/home/u/omo-ai-tools/bun", "/home/u/x.js"])).toBeFalse();
+  expect(isOmoProcess([])).toBeFalse();
+});
 
 it("uses only a unique session created during the sole runtime, never cwd recency", () => {
   expect(selectOmoTranscript("a", files, [runtime("a")], 20_000)).toBe("/fresh.jsonl");

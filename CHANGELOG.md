@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A pane running a command that is only given an omo path (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is
+  no longer shown as OmO or counted as a second OmO in its folder. Only the program a pane runs
+  counts, or the script that node or bun runs
+  ([#249](https://github.com/devswha/herdr-web-ui/pull/249)).
 - A reverse proxy on the same PC that keeps the browser's `Host` but sends no
   `X-Forwarded-For` no longer makes every visitor count as this computer. A request from this
   PC with a `Host` that is not `localhost` or `127.0.0.1`, or with any forwarding header, is
