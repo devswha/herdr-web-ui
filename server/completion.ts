@@ -99,7 +99,11 @@ export class CompletionTracker {
       if (!state.has(paneId)) continue;
       const was = state.get(paneId) ?? null;
       if (was === null || was === agent || from.includes(was)) state.set(paneId, agent);
-      else state.delete(paneId);
+      else {
+        state.delete(paneId);
+        // nor is what that agent was last reported as: the pane's status is settled anew
+        this.reported.delete(paneId);
+      }
     }
     this.save();
   }

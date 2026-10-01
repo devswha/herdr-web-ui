@@ -7,7 +7,7 @@ import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol
 import { CompletionTracker } from "./completion.ts";
 import { paneAfterStatus } from "./machines.ts";
 import { holderStartedAt } from "./omo.ts";
-import { noTurn, omoBackgroundTasks, omoSessionId, OmoStatus, omoTurnAfter, omoTurnStatus, readLines, type OmoLine, type OmoPane } from "./omo-status.ts";
+import { noTurn, OMO_ALIASES, omoBackgroundTasks, omoSessionId, OmoStatus, omoTurnAfter, omoTurnStatus, readLines, type OmoLine, type OmoPane } from "./omo-status.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-omo-status-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -175,6 +175,17 @@ describe("OmO panes' status in place of herdr's", () => {
     state.clock += 10_000;
     await omo.refresh(herdr().panes);
     expect(told).toEqual([["omo", "working", 0, true], ["omo", "idle", 0, true]]);
+    // nor is it lost when only the session could not be told for a while
+    append(message("user"));
+    omo.poll();
+    state.discovered.set("omo", { path: null, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    append(message("assistant", "stop"));
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(told.slice(2)).toEqual([["omo", "working", 0, true], ["omo", "idle", 0, true]]);
     // the file is rewritten whole, a turn running in it: read again from its start, not from where the old one was read to
     replace(message("user"), message("assistant", "stop"), message("user"), message("assistant", "toolUse"));
     omo.poll();
@@ -205,8 +216,9 @@ describe("OmO panes' status in place of herdr's", () => {
     // what Codex finished in a pane before OmO was started there is not OmO's finish
     completions.observe("lost", "working", "codex");
     expect(completions.observe("lost", "unknown", "codex")).toBe("done");
-    for (const paneId of found) completions.adopt(paneId, "omo", ["claude", "pi"]);
+    for (const paneId of found) completions.adopt(paneId, "omo", OMO_ALIASES);
     expect(found.sort()).toEqual(["lost", "omo"]);
+    expect(completions.current("lost")).toBeUndefined();
     expect(completions.observe("lost", "idle", "omo")).toBe("idle");
     expect(told).toEqual([["omo", "working", 0, true]]);
     expect(statuses(completions.present(omo.apply(raw)))["omo"]).toBe("omo/working");
@@ -229,10 +241,33 @@ describe("OmO panes' status in place of herdr's", () => {
     await omo.refresh(raw.panes);
     expect(statuses(omo.apply(raw))["omo"]).toBe("omo/idle");
     expect(told).toEqual([]);
+    // nor does a lookup that misses the pane lose it
+    state.discovered.delete("omo");
+    state.clock += 10_000;
+    await omo.refresh(raw.panes);
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(raw.panes);
+    expect(statuses(omo.apply(raw))["omo"]).toBe("omo/idle");
+    expect(told).toEqual([]);
     // a prompt to the new process is a turn
     append(message("user", undefined, "2026-10-02T00:06:00.000Z"));
     omo.poll();
     expect(told).toEqual([["omo", "working", 0, true]]);
+  });
+
+  it("lets go of a pane at once when herdr names another agent in it", async () => {
+    const { omo, state } = setup();
+    await omo.refresh(herdr().panes);
+    // herdr's names for OmO itself change nothing
+    for (const name of [null, "claude", "pi", "omo"]) omo.named("omo", name);
+    expect(omo.tracks("omo")).toBe(true);
+    // Codex started in the pane: its events are no longer swallowed, and the panes are looked up again
+    omo.named("omo", "codex");
+    expect([omo.tracks("omo"), omo.runs("omo")]).toEqual([false, false]);
+    state.discovered.delete("omo");
+    await omo.refresh(herdr().panes);
+    expect(state.lookups).toBe(2);
   });
 
   it("tells a change in background tasks as that, not as a turn", async () => {

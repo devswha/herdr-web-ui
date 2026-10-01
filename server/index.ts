@@ -18,7 +18,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { omoPanes } from "./omo.ts";
-import { OmoStatus } from "./omo-status.ts";
+import { OMO_ALIASES, OmoStatus } from "./omo-status.ts";
 import { CompletionTracker } from "./completion.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
@@ -413,7 +413,7 @@ export function createServer(
     snapshot: sessionSnapshot,
     onChange: (paneId, derived, background, turn) => omoChanged(paneId, derived, background, turn),
     // herdr called it `claude` or `pi` until now: what it finished under that name is its own
-    onFound: (paneId) => completions.adopt(paneId, "omo", ["claude", "pi"]),
+    onFound: (paneId) => completions.adopt(paneId, "omo", OMO_ALIASES),
   });
   /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
   const rawSnapshot = async (): Promise<SessionSnapshot> => {
@@ -750,6 +750,7 @@ export function createServer(
 
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent) => {
+      omo.named(paneId, agent);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
       // an agent herdr lost on the way still works and finishes as such (server/completion.ts);

@@ -35,6 +35,9 @@ const TURN_STARTS = new Set([
   "senpi-codemode:notification", "senpi.todo-owed", "omo-init-deep-advisor:run", "omo-onboarding:bootstrap", "ttsr-injection",
 ]);
 
+/** what herdr has called an OmO pane: by its engine, or by the claude child it runs */
+export const OMO_ALIASES: readonly string[] = ["claude", "pi"];
+
 export interface OmoTurn {
   status: "working" | "idle" | null;
   /** when the entry that decided the status was written */
@@ -214,7 +217,7 @@ export class OmoStatus {
   /** every pane that runs OmO; those whose session is known carry a status */
   private readonly panes = new Map<string, Tracked>();
   /** what a pane read when its OmO was last told from it, while the pane itself is still there: found again, it goes on from that */
-  private readonly last = new Map<string, { status: "working" | "idle"; background: number }>();
+  private readonly last = new Map<string, { status: "working" | "idle"; background: number; path: string; startedAt: number | null }>();
   private refreshedAt = -Infinity;
   private refreshedFor = "";
   private refreshing: Promise<void> | null = null;
@@ -276,7 +279,7 @@ export class OmoStatus {
       const cwds = new Map(panes.map((pane) => [pane.pane_id, pane.cwd ?? ""]));
       for (const [paneId, gone] of this.panes) {
         if (found.has(paneId)) continue;
-        if (gone.path !== null) this.last.set(paneId, { status: gone.status, background: gone.background });
+        this.remember(paneId, gone);
         this.panes.delete(paneId);
       }
       for (const paneId of [...this.last.keys()]) if (!cwds.has(paneId)) this.last.delete(paneId);
@@ -287,17 +290,37 @@ export class OmoStatus {
         // A start that cannot be read this time is the one read before
         if (before && before.path === pane.path) before.startedAt = pane.startedAt ?? before.startedAt;
         else {
-          // another session, or the pane's OmO found again: a turn that ended meanwhile is told against what it read before
-          const prior = before?.path != null ? before : this.last.get(paneId);
-          this.panes.set(paneId, { ...pane, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", turn: noTurn(), status: prior?.status ?? "idle", background: prior?.background ?? 0 });
+          // another session, or the pane's OmO or its session found again: a turn that ended
+          // meanwhile is told against what the pane read before, and the same session's process
+          // started when it was last known to
+          if (before) this.remember(paneId, before);
+          const prior = this.last.get(paneId);
+          const startedAt = pane.startedAt ?? (prior?.path === pane.path ? prior.startedAt : null);
+          this.panes.set(paneId, { ...pane, startedAt, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", turn: noTurn(), status: prior?.status ?? "idle", background: prior?.background ?? 0 });
         }
-        this.last.delete(paneId);
+        if (pane.path !== null) this.last.delete(paneId);
       }
       this.refreshedFor = key;
       this.refreshedAt = this.now();
       this.poll();
     })().finally(() => { this.refreshing = null; });
     return this.refreshing;
+  }
+
+  private remember(paneId: string, tracked: Tracked): void {
+    if (tracked.path !== null) this.last.set(paneId, { status: tracked.status, background: tracked.background, path: tracked.path, startedAt: tracked.startedAt });
+  }
+
+  /**
+   * herdr named the pane's agent in a status event. Another agent than the names it gives OmO
+   * (Codex started where OmO ran) ends OmO's hold on the pane at once, not at the next lookup:
+   * that agent's events are its own, a question it asks among them.
+   */
+  named(paneId: string, agent: string | null): void {
+    if (agent === null || agent === "omo" || OMO_ALIASES.includes(agent) || !this.panes.has(paneId)) return;
+    this.panes.delete(paneId);
+    this.last.delete(paneId);
+    this.refreshedFor = "";
   }
 
   /**
