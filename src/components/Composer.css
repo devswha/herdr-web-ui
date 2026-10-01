@@ -349,6 +349,12 @@
   overflow-y: auto;
 }
 
+/* The menu is a column flex container, which shrinks every row to make forty of them fit the
+   height, and a shrunk row spills its own text over the next one. */
+.composer-menu .menu-item {
+  flex-shrink: 0;
+}
+
 .composer-menu-group {
   display: contents;
 }
@@ -364,8 +370,16 @@
   white-space: nowrap;
 }
 
+/* What the command is stays readable and what it does gives way: a hint that never shrinks
+   squeezed the command itself to nothing — at 390px wide `/export` measured 0px. */
+.composer-menu .menu-item-main {
+  flex: 0 0 auto;
+}
+
 .composer-menu .menu-item-hint {
   margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -448,6 +462,22 @@
   .composer-status-separator,
   .composer-status-hint {
     display: none;
+  }
+
+  /* A phone fits neither half of a pi command's row, and pi writes explanations twice as long as
+     the line is wide, so the description takes a line to itself and wraps onto more. */
+  .composer-menu .menu-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 0;
+  }
+
+  .composer-menu .menu-item-hint {
+    flex: 1 1 100%;
+    margin-left: 0;
+    white-space: normal;
+    text-overflow: clip;
+    line-height: 1.35;
   }
 }
 
