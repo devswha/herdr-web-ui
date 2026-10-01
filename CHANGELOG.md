@@ -9,9 +9,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Added
 - Settings → Appearance has a wheel scroll speed for the terminal, from 1× (as it was) to 10×.
-  xterm sends herdr one wheel report per wheel event however far the wheel turned, so a long
-  history took a lot of turning; a higher speed sends that many reports for each. A trackpad
-  is scaled the same way, and touch scrolling is unchanged.
+  xterm sends herdr at most one wheel report per wheel event however far the wheel turned, so a
+  long history took a lot of turning; at 3× the same turn scrolls three times as far. A trackpad
+  is scaled the same way; a pinch and touch scrolling are unchanged.
   ([#274](https://github.com/devswha/herdr-web-ui/pull/274) by @taehwan08)
 - A pi or omp pane says so when you type `/tree` into the chat. The command runs, in the terminal,
   and opens a tree the chat cannot show — so the composer says that while you are typing it, and
