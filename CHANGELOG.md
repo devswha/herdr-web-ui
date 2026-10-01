@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
+  Tailscale user". A tagged node has no person's login, and the server took the node's own name
+  for one, which no device could match. Such a PC now asks every device to pair, yours included,
+  and `HERDR_WEB_TAILSCALE_OWNER` names the login that gets in without pairing.
+  ([#280](https://github.com/devswha/herdr-web-ui/pull/280))
 - Several lines sent to an agent from the terminal's input line on a phone stay in its message
   box until sent, on a Windows PC too. The mirrored terminal there never learns the agent's paste
   mode, so the lines went as typed and the agent sent the first one alone. They now go as one
@@ -24,6 +29,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   …/omo-ai/plugin`, and 0.3.40 no longer took it for OmO: the chat found no conversation and
   New session did not see OmO start. That engine counts as OmO again when omo-ai's plugin is one
   of its extensions.
+- Claude usage on a Mac no longer shows `expired` while Claude Code is signed in. Claude Code
+  started outside the desktop session (over SSH, or by a background service) cannot write its
+  keychain item, so it refreshes only `~/.claude/.credentials.json` and the item keeps a token
+  that expired hours ago. The app took the keychain item whenever it could read it; it now
+  takes whichever of the two expires later, the way it already does for Cursor. Both are still
+  only read.
+- Claude's subscription usage no longer shows a locked keychain on a Mac whose server was
+  started outside the desktop session (over SSH, or by a detached multiplexer), where
+  `security` cannot open the login keychain. The item is read through a one-shot launchd job
+  in the desktop session instead.
 
 ## [0.3.40] - 2026-10-01
 
