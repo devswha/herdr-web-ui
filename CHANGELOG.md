@@ -7,7 +7,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-### Removed
+### Changed
 - On a phone, the chat's status line no longer shows **Report a problem**, nor **Hide keyboard**
   while typing. A tap on the transcript or a drag down it still puts the keyboard away, and
   Report a problem stays on wider screens
