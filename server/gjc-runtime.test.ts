@@ -252,6 +252,10 @@ it("follows gjc's own session title across /new and /resume on a Windows pane", 
   expect(await bind(first, "Binding Check", [first, fresh, big])).toBe(first);
   expect(await bind(first, undefined, [first, fresh, big])).toBe(first);
   expect(await bind(null, "New Session", [first, fresh, big])).toBeNull();
+  // bound to a parent, then /resume into its fork, which shares title and answer and is not read
+  // yet: the answer on screen is not the parent's alone, so the parent is let go
+  expect(await bind(first, "Binding Check", [first, fresh, big])).toBe(first);
+  expect(await boundGjcTranscript("w1:p1", gjc, async () => ({ path: null, shared: true, title: "Binding Check", titled: null, titledCount: -1, titles: new Map([[first, "Binding Check"], [big, undefined]]) }))).toBeNull();
   // a session bound before gjc titled it stays when the title appears, written to its file or not yet
   expect(await bind(untitled, null, [first, untitled])).toBe(untitled);
   expect(await bind(null, "Not Written Yet", [first, untitled])).toBe(untitled);
@@ -378,9 +382,11 @@ it("matches only substantial assistant text and rejects shared or short text", (
   // a fork holds its parent's answer; while its own title is still unread it is not left out of
   // the match (the parent would pass for the only one), and it is not chosen either
   const parent = file("parent", "assistant", answer), fork = file("fork", "assistant", answer);
-  expect(gjcAnswerAmong(answer, [parent, fork], ["parent"], ["fork"])).toBeNull();
-  expect(gjcAnswerAmong(answer, [parent, fork], ["parent"], [])).toBe("parent");
-  expect(gjcAnswerAmong(answer, [fork], [], ["fork"])).toBeNull();
+  expect(gjcAnswerAmong(answer, [parent, fork], ["parent"], ["fork"])).toEqual({ path: null, shared: true });
+  expect(gjcAnswerAmong(answer, [parent, fork], ["parent"], [])).toEqual({ path: "parent", shared: false });
+  expect(gjcAnswerAmong(answer, [fork], [], ["fork"])).toEqual({ path: null, shared: true });
+  expect(gjcAnswerAmong(answer, [parent, fork], ["parent", "fork"], [])).toEqual({ path: null, shared: true });
+  expect(gjcAnswerAmong("nothing of theirs", [parent, fork], ["parent"], ["fork"])).toEqual({ path: null, shared: false });
   expect(matchGjcTranscript(answer, [file("a", "assistant", answer), file("b", "assistant", answer)])).toBeNull();
   expect(matchGjcTranscript(answer, [file("a", "user", answer)])).toBeNull();
   expect(matchGjcTranscript("Done", [file("a", "assistant", "Done")])).toBeNull();

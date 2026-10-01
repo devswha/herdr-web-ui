@@ -84,7 +84,11 @@ const windowsBindings = new Map<string, { process: GjcProcess; path: string; tit
  * folder (undefined: not read to its end yet), how many carry the screen's title (-1 while one
  * is still unread) and, when it is one, that file.
  */
-export type GjcScreen = { path: string | null; title: string | null | undefined; titled: string | null; titledCount: number; titles: ReadonlyMap<string, string | null | undefined> };
+export type GjcScreen = {
+  path: string | null; title: string | null | undefined; titled: string | null; titledCount: number; titles: ReadonlyMap<string, string | null | undefined>;
+  /** an answer on screen is of more than one session that may be running, or of one not read yet: it names none, and the one bound may not be it */
+  shared?: boolean;
+};
 
 /**
  * The title in gjc's status line (gjc 0.16.4 on a Windows PC):
@@ -258,8 +262,9 @@ export async function boundGjcTranscript(paneId: string, gjc: GjcProcess | null 
   }
   if (!bound) return null;
   const own = typeof bound.title === "string" ? bound.title : known(bound.path);
-  const other = title === null ? typeof own === "string"
-    : typeof title === "string" && (screen!.titledCount > 1 || typeof own === "string" && own !== title);
+  // an answer on screen that several sessions hold, the one bound perhaps among them, tells it is not known which runs
+  const other = screen?.shared === true || (title === null ? typeof own === "string"
+    : typeof title === "string" && (screen!.titledCount > 1 || typeof own === "string" && own !== title));
   if (other) {
     windowsBindings.delete(paneId);
     return null;
@@ -366,10 +371,10 @@ export function matchGjcTranscript(screen: string, candidates: { path: string; t
  * is matched too, so that an answer it shares with another (a fork holds its parent's) is
  * nobody's; alone it is not chosen.
  */
-export function gjcAnswerAmong(screen: string, files: { path: string; text: string }[], among: readonly string[], unread: readonly string[]): string | null {
-  const pool = files.filter((file) => among.includes(file.path) || unread.includes(file.path));
-  const matched = pool.length === 0 ? null : matchGjcTranscript(screen, pool);
-  return matched !== null && among.includes(matched) ? matched : null;
+export function gjcAnswerAmong(screen: string, files: { path: string; text: string }[], among: readonly string[], unread: readonly string[]): { path: string | null; shared: boolean } {
+  const hits = files.filter((file) => (among.includes(file.path) || unread.includes(file.path)) && matchGjcTranscript(screen, [file]) === file.path).map((file) => file.path);
+  const only = hits.length === 1 && among.includes(hits[0]!) ? hits[0]! : null;
+  return { path: only, shared: hits.length > 0 && only === null };
 }
 
 /** Bound both directory enumeration and content reads; never match an arbitrary subset. */
@@ -481,7 +486,7 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
     if (!screen) return null;
     const title = gjcStatusTitle(screen.text);
     const { among, unread, ...titles } = gjcTitles(files.map((file) => file.path), title);
-    return { path: gjcAnswerAmong(screen.text, files, among, unread), title, ...titles };
+    return { ...gjcAnswerAmong(screen.text, files, among, unread), title, ...titles };
   };
   if (running) return (await look())?.path ?? null;
   // a Windows pane has neither descriptors nor a breadcrumb to read: gjc under its shell, then the screen
