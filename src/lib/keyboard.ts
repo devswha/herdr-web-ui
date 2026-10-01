@@ -1,8 +1,8 @@
 /*
  * Putting a phone's soft keyboard away to read the chat. iOS gives a textarea's keyboard
- * no dismiss key, so the chat offers three ways, as messaging apps do: a tap on the
- * transcript, a drag down on it, and the composer's Hide keyboard button. Each only
- * blurs the field: the draft stays in the composer.
+ * no dismiss key, so the chat offers two ways, as messaging apps do: a tap on the
+ * transcript and a drag down on it. Each only blurs the field: the draft stays in the
+ * composer.
  */
 
 /** How far a finger must travel down the transcript before the keyboard goes away. */
@@ -13,7 +13,7 @@ export function keyboardUp(): boolean {
   return typeof document !== "undefined" && document.documentElement.hasAttribute("data-keyboard");
 }
 
-export function dismissKeyboard(): void {
+function dismissKeyboard(): void {
   const active = document.activeElement;
   if (active instanceof HTMLElement) active.blur();
 }

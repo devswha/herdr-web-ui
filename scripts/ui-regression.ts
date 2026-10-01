@@ -567,23 +567,11 @@ try {
   await mobilePage.locator(".chat-terminal-fallback").waitFor();
   assert.equal(await mobilePage.locator(".chat-terminal-fallback").getAttribute("open"), null, "missing native history is labeled, not presented as broken chat");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  const mobileReportButton = mobilePage.getByRole("button", { name: "Report a problem", exact: true });
-  assert.equal(await mobileReportButton.innerText(), "Report a problem");
-  const reportButtonBox = await mobileReportButton.boundingBox();
-  assert.ok(reportButtonBox && reportButtonBox.height >= 44 && reportButtonBox.width >= 44, "report action has a touch-sized target");
-  if (process.env.UI_EVIDENCE_DIR) await mobilePage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "report-mobile-button.png") });
-  await mobileReportButton.click();
-  const mobileReport = mobilePage.getByRole("dialog", { name: "Report a problem" });
-  await mobileReport.getByRole("link", { name: "Open a GitHub issue" }).waitFor();
-  await mobileReport.getByRole("textbox", { name: "Report", exact: true }).fill("한글 보고서 😀".repeat(1000));
-  for (const theme of ["light", "dark"]) {
-    await mobilePage.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
-    const action = await mobileReport.getByRole("link", { name: "Open a GitHub issue" }).boundingBox();
-    assert.ok(action && action.y >= 0 && action.y + action.height <= 844, "mobile issue action fits viewport");
-    assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    if (process.env.UI_EVIDENCE_DIR) await mobilePage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `report-mobile-${theme}.png`) });
-  }
-  await mobileReport.getByRole("button", { name: "Close", exact: true }).click();
+  // a phone's status line holds the agent and its state: no report action, and no keyboard button while typing
+  await mobilePage.evaluate(() => document.documentElement.setAttribute("data-keyboard", ""));
+  assert.equal(await mobilePage.getByRole("button", { name: "Report a problem", exact: true }).count(), 0, "no report action on a phone");
+  assert.equal(await mobilePage.getByRole("button", { name: "Hide keyboard", exact: true }).count(), 0, "no keyboard button on a phone");
+  await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 
