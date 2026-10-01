@@ -34,6 +34,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   refused is reported as failed instead of as done. Enter is now pressed as a key after the
   text, not sent as a carriage return inside it
   ([#263](https://github.com/devswha/herdr-web-ui/pull/263)).
+- A pi dialog shows on a phone. A phone leaves pi a pane barely wide enough for its own hint, so
+  the hint wraps, and pi keeps its footer underneath: the wrapped hint then sat further from the
+  bottom than the window that tells a live dialog from an answered one reached, so no card came up
+  at all. `/model` failed twice over — the hint itself wrapping, and a model's own name wrapping so
+  that the provider's bracket, which is what tells a row from pi's notes, fell onto a line of its
+  own among them. The wrap is joined back before the screen is read, and a row still missing its
+  provider voids the whole reading, because a name cut in half would switch pi to a model that
+  does not exist
 - A pane running a command that is only given an omo path (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is
   no longer shown as OmO or counted as a second OmO in its folder. Only the program a pane runs
   counts, or the script that node or bun runs

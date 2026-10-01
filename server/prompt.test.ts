@@ -1487,25 +1487,107 @@ ${MODEL_HINT}
     expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
   });
 
+  // Captured from pi 0.87.1 running /model in a 46-column pane, the width a phone leaves it:
+  // the hint splits across two lines, and so does a model's own name, which drops the provider's
+  // bracket — the one mark that tells a row from pi's notes — onto a line of its own at column
+  // zero, where it looks exactly like a note. Every check here is read off that capture.
+  const narrow = `──────────────────────────────
+
+Only showing models from configured providers.
+Use /login to add providers.
+>
+
+→ ✓ vllm-flash/Qwen3.8-Flash-Next
+[lwsa-platform] · default
+    vllm/Qwen/Qwen3.8-27B [lwsa-platform]
+
+  Model Name: qwen-3-8-flash
+
+  Refreshing model catalogs…
+
+  Enter to select · Ctrl+S to set as default ·
+Escape/Ctrl+C to cancel
+──────────────────────────────
+/tmp/pn
+0.0%/215k (auto)  vllm-flash/Qwen3.8-Flash-Nex
+`;
+
+  test("reads the catalogue off a phone's pane, joining the rows pi wrapped", () => {
+    const prompt = parseInteractivePrompt("pi", narrow)!;
+    expect(prompt).not.toBeNull();
+    expect(prompt.options.map((option) => option.label)).toEqual([
+      "vllm-flash/Qwen3.8-Flash-Next [lwsa-platform] · default",
+      "vllm/Qwen/Qwen3.8-27B [lwsa-platform]",
+    ]);
+    expect(prompt.question).toBe("Select model (currently vllm-flash/Qwen3.8-Flash-Next [lwsa-platform])");
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("stops the catalogue at pi's notes, which the narrow pane indents like a row", () => {
+    // `Model Name:` and `Refreshing model catalogs…` sit two spaces in, the same indentation a
+    // wrapped row's tail carries, and neither is a model pi can be switched to
+    const prompt = parseInteractivePrompt("pi", narrow)!;
+    expect(prompt.options.some((option) => /Model Name|Refreshing/i.test(option.label))).toBe(false);
+  });
+
+  test("goes stale on a phone's pane once the wrapped hint is buried", () => {
+    expect(parseInteractivePrompt("pi", narrow)).not.toBeNull();
+    expect(parseInteractivePrompt("pi", `${narrow}Some later output\nand more\n`)).toBeNull();
+  });
+
   test("says nothing rather than offer a model that is only half a name", () => {
-    // at 46 columns a row wraps: the provider's bracket, which is what tells a row from a note,
-    // is the first thing the wrap cuts, so a partial reading could name `default` a model
-    const narrow = `────────────────────────
+    // a bracket cut mid-word is not a provider: joining it back would invent `lwsa- platform`
+    const cut = `────────────────────────
 
 >
 
 → ✓ vllm/Qwen/Qwen3.8-27B [lwsa-
-platform] · default
     vllm-flash/Qwen3.8-Flash-Next
-[lwsa-platform]
 ${MODEL_HINT}
 ────────────────────────${FOOTER}`;
-    expect(parseInteractivePrompt("pi", narrow)).toBeNull();
+    expect(parseInteractivePrompt("pi", cut)).toBeNull();
     // filtering the list down to one model leaves nothing to choose between
     const one = wide.replace("    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]\n", "");
     expect(parseInteractivePrompt("pi", one)).toBeNull();
     // and with the cursor on no row at all, an answer would navigate from nowhere
     expect(parseInteractivePrompt("pi", wide.replace("→ ✓ vllm/Qwen", "  ✓ vllm/Qwen"))).toBeNull();
+  });
+
+  // Captured from pi 0.87.1 running /login in a 46-column pane. `↑↓ navigate` carries no `·`, so
+  // pi keeps its footer under this dialog as it does everywhere else, and the hint's own wrap puts
+  // it four lines from the bottom — further than a three-line window reaches. A phone leaves pi
+  // exactly this wide, so every dialog it can be asked had no card at that width.
+  const login = `──────────────────────────────
+
+ Login
+
+ Choose how to sign in.
+
+ → Sign in with an account
+   Sign in with an API key
+
+ ↑↓ navigate  enter select  escape/ctrl+c
+ cancel
+──────────────────────────────
+/tmp/pr
+0.0%/215k (auto)  vllm-flash/Qwen3.8-Flash-Nex
+`;
+
+  test("reads a dialog whose wrapped hint sits over pi's footer", () => {
+    const prompt = parseInteractivePrompt("pi", login)!;
+    expect(prompt).not.toBeNull();
+    expect(prompt.options.map((option) => option.label)).toEqual([
+      "Sign in with an account",
+      "Sign in with an API key",
+    ]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("goes stale on a phone's pane once a wrapped dialog hint is buried", () => {
+    expect(parseInteractivePrompt("pi", login)).not.toBeNull();
+    // pi keeps the answered dialog on screen; what comes after buries the hint, and a card still
+    // open then would press keys into whatever the pane shows by then
+    expect(parseInteractivePrompt("pi", `${login}Some later output\nand more\n`)).toBeNull();
   });
 
   test("goes stale once the list is answered and buried", () => {

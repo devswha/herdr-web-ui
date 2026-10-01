@@ -1155,11 +1155,10 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   // pi keeps its footer under every dialog — the pane's folder, then its context meter — so the
   // hint sits near the end without being it. A dialog already answered leaves its hint far
   // above whatever came after, which is what keeps this window narrow.
-  // `/model` keeps pi's footer under it too, so its hint is near the end without being it
-  if (prompt.responder === "pi-model") return PI_MODEL_HINT_RE.test(shown.slice(-3).join(" "));
+  if (prompt.responder === "pi-model") return hintAtEnd(shown, PI_MODEL_HINT_AT_END_RE, PI_FOOTER_LINES);
   if (prompt.responder === "pi-question" || prompt.responder === "pi-confirm" || prompt.responder === "pi-input") {
-    const tail = shown.slice(-3).join(" ");
-    return PI_MENU_HINT_RE.test(tail) || PI_INPUT_HINT_RE.test(tail);
+    return hintAtEnd(shown, PI_MENU_HINT_AT_END_RE, PI_FOOTER_LINES, 4)
+      || hintAtEnd(shown, PI_INPUT_HINT_AT_END_RE, PI_FOOTER_LINES, 4);
   }
   return ends(/ctrl\+g to edit|shift\+tab to approve with this feedback/i);
 }
@@ -1177,6 +1176,15 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
  */
 const PI_MENU_HINT_RE = /\u2191\u2193 navigate\s+enter select\s+escape\/ctrl\+c cancel/i;
 const PI_INPUT_HINT_RE = /enter submit\s+escape\/ctrl\+c cancel/i;
+/**
+ * The same two hints told from the end of the window. A phone leaves pi a pane barely wide enough
+ * for its hint, which wraps it, and pi keeps its footer underneath: the wrapped hint then sits
+ * further from the bottom than a three-line window reaches, while a wider pane still has it as the
+ * last thing. Anchored, because the footer's own lines complete a join that merely starts with the
+ * hint's words, which would keep an answered dialog offering to press keys into the pane.
+ */
+const PI_MENU_HINT_AT_END_RE = new RegExp(`${PI_MENU_HINT_RE.source}$`, "i");
+const PI_INPUT_HINT_AT_END_RE = new RegExp(`${PI_INPUT_HINT_RE.source}$`, "i");
 /** the line pi types an answer into */
 const PI_INPUT_LINE_RE = /^[\u203a>\u276f]+\s*(.*)$/;
 /** a menu row: pi's cursor, an optional tick marking the current choice, then the label */
@@ -1190,6 +1198,32 @@ const PI_ROW_RE = /^([\u2192\u276f\u279c])?\s*(?:[\u2713\u2714]\s+)?(\S.*)$/;
  * row once another one is current, so the position is read rather than assumed.
  */
 const PI_MODEL_HINT_RE = /enter to select\s*·\s*ctrl\+s to set as default\s*·\s*escape\/ctrl\+c to cancel/i;
+/** The same hint told from the end, so lines that follow it cannot complete a match of their own. */
+const PI_MODEL_HINT_AT_END_RE = new RegExp(`${PI_MODEL_HINT_RE.source}$`, "i");
+/**
+ * pi's own footer, under `/model` and under every dialog alike: the pane's folder, then its
+ * context meter. A hint is allowed this many lines of it before the bottom of the screen.
+ */
+const PI_FOOTER_LINES = 2;
+
+/**
+ * Whether a hint is the last thing before an agent's footer, allowing for a phone's pane being
+ * too narrow to hold it on one line: a TUI hard-wraps, so the hint arrives split over two or
+ * three lines with nothing marking the break. Anchored to the end of the joined window, because
+ * a hint's words also match a join that merely starts with them — the footer's own lines read as
+ * a hint that way, which would keep an answered, buried list offering a switch into whatever the
+ * pane shows by then.
+ */
+function hintAtEnd(shown: string[], atEnd: RegExp, footerLines: number, span = 3): boolean {
+  for (let end = shown.length - 1; end >= Math.max(0, shown.length - 1 - footerLines); end -= 1) {
+    for (let size = 1; size <= span; size += 1) {
+      const from = end - size + 1;
+      if (from < 0) break;
+      if (atEnd.test(shown.slice(from, end + 1).join(" "))) return true;
+    }
+  }
+  return false;
+}
 /** `/model` types a filter into this line, then lists what is left under it */
 const PI_MODEL_FILTER_RE = /^[\u203a>\u276f]\s*$/;
 /** pi ticks the model answering now, and marks the one it starts on with `· default` */
@@ -1223,30 +1257,52 @@ function piDialogRows(lines: string[], hintIndex: number): { rows: { line: strin
 
 /** a catalogue row names the provider serving the model, in brackets */
 const PI_MODEL_PROVIDER_RE = /\[[^\]]+\]/;
+/** the tail of a model's name a narrow pane wrapped onto its own line: only the provider's bracket */
+const PI_MODEL_TAIL_RE = /^\[[^\]]+\](\s*\u00b7\s*default)?$/;
 
 /**
  * The catalogue `/model` lists under its filter line: every row names its provider in brackets,
  * which is what tells it from pi's own notes, since `Model Name: qwen-3-8` sits indented among
  * the rows and `Could not refresh llama.cpp; showing cached models.` under them. The run ends at
- * the first line that is not a row. In a pane narrower than a model's name the row wraps to a
- * second line at column zero and the run ends short of two rows, so a narrow pane gets no card:
- * reading the wrap as a second model would offer one pi cannot be switched to.
+ * the first line that is not a row. In a pane narrower than a model's name the row wraps: the
+ * wrap is joined back first, and a row that still ends without its provider voids the reading,
+ * because offering half a name would switch pi to a model that does not exist.
  */
 function piModelRows(lines: string[], startIndex: number): { label: string; cursor: boolean; current: boolean }[] | null {
   const rows: { label: string; cursor: boolean; current: boolean }[] = [];
   // pi leaves a blank between its filter line and what still matches it
   let start = startIndex;
   while (start < lines.length && !cleanLine(lines[start]!)) start += 1;
+  // A phone leaves pi a pane barely wider than a model's name, which wraps it and drops the
+  // provider's bracket — the one mark that tells a row from a note — onto the next line at column
+  // zero, where it reads exactly like a note. Join such a tail back onto the line it wrapped from
+  // before reading any row, so the row keeps the name pi would answer with and the bracket that
+  // proves it, and the rules below see the same rows a wide pane shows. A blank between the two
+  // rules the tail out: pi separates what it means as its own line with a blank.
+  const block: string[] = [];
   for (let index = start; index < lines.length; index += 1) {
     const raw = lines[index]!.replace(ANSI_RE, "");
+    const line = cleanLine(raw);
+    const previous = block.at(-1);
+    if (previous !== undefined && cleanLine(previous) && !PI_MODEL_PROVIDER_RE.test(cleanLine(previous))
+      && /^ {0,1}\S/.test(raw) && PI_MODEL_TAIL_RE.test(line)) {
+      block[block.length - 1] = `${previous} ${line}`;
+      continue;
+    }
+    block.push(raw);
+  }
+  for (const raw of block) {
     const line = cleanLine(raw);
     if (!line || isDivider(line) || PI_MODEL_HINT_RE.test(line)) break;
     const cursor = /^[\u2192\u276f\u279c]\s*\S/.test(line);
     if (!cursor && !/^ {2,}/.test(raw)) break;
     const label = line.match(PI_ROW_RE)?.[2]?.trim();
     if (!label || !PI_MODEL_PROVIDER_RE.test(label) || /\s{2,}/.test(label)) break;
-    rows.push({ label, cursor, current: PI_MODEL_CURRENT_RE.test(line) });
+    rows.push({ label, cursor, current: PI_MODEL_CURRENT_RE.test(raw) });
   }
+  // A name wrapped in the middle of its bracket is not a model pi can be switched to, and joining
+  // what is left would invent one, so any row still missing its provider voids the whole reading.
+  if (!rows.every((row) => PI_MODEL_PROVIDER_RE.test(row.label))) return null;
   return rows.length >= 2 && rows.some((row) => row.cursor) ? rows : null;
 }
 
