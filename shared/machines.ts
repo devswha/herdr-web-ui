@@ -31,7 +31,13 @@ export interface Machine {
  * `terminal attach` there yet (herdrdev/herdr#4821), so its panes have a chat lens and
  * input but no live terminal. Absent on older bridges, which are never Windows.
  */
-export interface HerdrIdentity { version: string; protocol: number; terminal_attach?: boolean }
+export interface HerdrIdentity {
+  version: string;
+  protocol: number;
+  terminal_attach?: boolean;
+  /** without attach, the terminal lens shows the pane's screen repainted a few times a second (server/mirror.ts) */
+  terminal_mirror?: boolean;
+}
 export type MachineAction = "update_bridge" | "setup";
 export interface MachineUpdate { job_id: string; step: string; progress: SetupProgress | null }
 /**

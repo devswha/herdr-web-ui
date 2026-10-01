@@ -447,7 +447,8 @@ export function App() {
   const selectedTitle = selectedPane ? displayPaneTitle(selectedPane) : null;
   const selectedAgent = selectedPane?.agent ?? null;
   // unknown herdr (offline, or a server that predates the flag) counts as attach-capable
-  const terminalAttach = targetHerdr?.terminal_attach !== false;
+  // a server that repaints the pane's screen instead (terminal_mirror) has a terminal lens too
+  const terminalAttach = targetHerdr?.terminal_attach !== false || targetHerdr?.terminal_mirror === true;
 
   // the lens follows the selected pane: each pane remembers its own
   useEffect(() => {

@@ -1,5 +1,5 @@
 /** Manual QA against a real Windows PC over SSH: the Add PC flow with a password, the chat-side
- * APIs through the bridge, and the terminal lens's refusal. Needs remote-bundles/manifest-win32-x64.json
+ * APIs through the bridge, and the terminal lens's mirrored screen. Needs remote-bundles/manifest-win32-x64.json
  * (bun run scripts/build-remote-bundle.ts win32-x64) and a herdr-free or herdr-bearing Windows host.
  *
  *   WINDOWS_QA_HOST=user@pc WINDOWS_QA_PASSWORD=... bun scripts/windows-host-qa.ts
@@ -79,12 +79,12 @@ try {
 
   const { ws, frames } = await connectWs(machineId);
   ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 80, rows: 24, flow_control: "ack" }));
-  const refusal = await until(async () => frames, (list) => list.some((m) => m.type === "error" && m.code === "terminal_unsupported"), "terminal refusal");
-  console.log("attach ->", JSON.stringify(refusal.find((m) => m.type === "error")));
-  assert.ok(!frames.some((m) => m.type === "pty-data"), "no pty stream on a Windows PC");
+  const grid = (await until(async () => frames, (list) => list.some((m) => m.type === "pane-geometry" && m.pane_id === paneId), "the pane's grid")).find((m) => m.type === "pane-geometry");
+  console.log("attach ->", JSON.stringify(grid));
+  assert.ok(grid?.type === "pane-geometry" && grid.fixed === true, "a mirrored pane keeps its own grid");
   ws.send(JSON.stringify({ type: "input", pane_id: paneId, text: "echo ws-input-ok\r" }));
-  await until(async () => api<{ read: { text: string } }>(path + `/pane/read?pane_id=${encodeURIComponent(paneId)}&source=recent&format=text`), (r) => r.read.text.includes("ws-input-ok"), "WS input falls back to send_text");
-  console.log("PASS attach refused with terminal_unsupported; WS input still reaches the pane");
+  await until(async () => frames, (list) => list.some((m) => m.type === "pty-data" && m.data.includes("ws-input-ok")), "typing shows in the mirrored terminal");
+  console.log("PASS the terminal lens mirrors the Windows pane's screen, typing included");
 
   await api(path, "PATCH", { enabled: false });
   await api(path, "PATCH", { enabled: true });

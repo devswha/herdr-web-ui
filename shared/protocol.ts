@@ -44,7 +44,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
 
 /** HTTP API
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
- *                                          Windows herdr, whose attach is refused with code terminal_unsupported), auth: HealthAuth,
+ *                                          Windows herdr; terminal_mirror: its terminal lens is the pane's screen, repainted), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
@@ -445,13 +445,13 @@ export type ServerFeature = "submit" | "secret-input";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }
-  /** raw PTY bytes: append to the terminal, never repaint over it */
+  /** raw PTY bytes: append to the terminal, never repaint over it. A mirrored pane (HerdrIdentity.terminal_mirror) sends whole screens the same way. */
   | { type: "pty-data"; pane_id: string; data: string; flow?: { stream_id: string; offset: number } }
   | { type: "pty-exit"; pane_id: string; code: number | null }
   /** a pane that waited for another web bridge to let go of its terminal (error `attach_held`) is attached again */
   | { type: "attach-resumed"; pane_id: string }
-  /** the shared pty's grid changed: observe clients adopt it, interact clients drive it */
-  | { type: "pane-geometry"; pane_id: string; cols: number; rows: number }
+  /** the shared pty's grid changed: observe clients adopt it, interact clients drive it. `fixed`: the grid is the pane's own in herdr (a mirrored pane), so every client adopts it and none resizes */
+  | { type: "pane-geometry"; pane_id: string; cols: number; rows: number; fixed?: boolean }
   | { type: "role-ack"; mode: ClientRole }
   /** how a submit ended: ok once its Enter was sent; otherwise nothing, or only the text, reached the pane */
   | { type: "submit-result"; id: number; pane_id: string; ok: boolean; code?: string; message?: string }

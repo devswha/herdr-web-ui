@@ -319,15 +319,38 @@ describe("a herdr without terminal attach (Windows)", () => {
   beforeAll(() => { bare = createServer({ port: 0, stateDir: join(root, "push-bare"), terminalAttach: false }); });
   afterAll(() => bare?.stop());
 
-  it("refuses an attach in-band and keeps the connection", async () => {
+  it("mirrors the pane's screen: the pane's own grid first, then each changed screen, until the pane ends", async () => {
+    const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+      "workspace.create", { label: "herdr-web-ui-test-submit-mirror", cwd: root, focus: false },
+    );
+    workspaces.push(created.workspace.workspace_id);
+    const pane = created.root_pane.pane_id;
     const socket = await Socket.connect(bare.port);
     try {
-      socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
-      expect(await socket.waitFor((message) => message.type === "error")).toMatchObject({ code: "terminal_unsupported", pane_id: shell.pane });
-      const from = chunks(shell).length;
-      socket.send({ type: "submit", id: 20, pane_id: shell.pane, text: "still here", payload: "still here" });
-      expect(await socket.result(20)).toMatchObject({ ok: true });
-      await received(shell, from, 1);
+      socket.send({ type: "attach", pane_id: pane, cols: 33, rows: 7, flow_control: "ack" });
+      const geometry = await socket.waitFor((message) => message.type === "pane-geometry" && message.pane_id === pane);
+      // the grid is herdr's, not the 33x7 this client asked for
+      expect(geometry.fixed).toBe(true);
+      expect([geometry.cols, geometry.rows]).not.toEqual([33, 7]);
+      const first = await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === pane);
+      expect(socket.seen.indexOf(geometry)).toBeLessThan(socket.seen.indexOf(first));
+      expect(first.data.startsWith("\u001b[?25l\u001b[0m\u001b[H\u001b[2J")).toBe(true);
+      // typing goes through herdr, and what the shell prints comes back as a new screen
+      socket.send({ type: "resize", pane_id: pane, cols: 33, rows: 7 });
+      socket.send({ type: "input", pane_id: pane, text: "echo mirror-$((40+2))\r" });
+      await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === pane && message.data.includes("mirror-42"));
+      expect(socket.seen.filter((message) => message.type === "pane-geometry" && message.cols === 33)).toEqual([]);
+      // a second viewer gets the grid, then the current screen at once
+      const late = await Socket.connect(bare.port);
+      try {
+        late.send({ type: "attach", pane_id: pane, cols: 80, rows: 24 });
+        const screen = await late.waitFor((message) => message.type === "pty-data" && message.pane_id === pane);
+        expect(screen.data).toContain("mirror-42");
+      } finally {
+        late.close();
+      }
+      await herdrRpc("workspace.close", { workspace_id: created.workspace.workspace_id });
+      await socket.waitFor((message) => message.type === "pty-exit" && message.pane_id === pane);
     } finally {
       socket.close();
     }

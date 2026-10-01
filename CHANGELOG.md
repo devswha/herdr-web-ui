@@ -15,10 +15,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   `administrators_authorized_keys`), and starts the bridge and the daemon through WMI so they
   outlive the SSH session and each other. The bridge talks to herdr over its named pipe. herdr
   has no terminal attach on Windows yet ([herdrdev/herdr#4821](https://github.com/herdrdev/herdr/issues/4821)),
-  so a Windows PC's panes open in the chat lens, the Terminal button carries a **soon** pill,
-  and `/api/health` and the PC list carry `terminal_attach` so the lens turns on by itself once
-  herdr reports it. Remote bundle `remote-v9`
+  so `/api/health` and the PC list carry `terminal_attach`, and the real terminal turns on by itself
+  once herdr reports it. Remote bundle `remote-v9`
   ([#227](https://github.com/devswha/herdr-web-ui/pull/227)).
+- A PC whose herdr cannot attach a terminal (a Windows PC for now) has a terminal lens all the
+  same. The bridge reads the pane's screen a few times a second and repaints it, so output and
+  colours show and typing works. It is a stopgap until herdr can attach there: the cursor is not
+  shown, and the grid is the pane's own size on that PC, not the browser's.
 
 ### Fixed
 - A bridge that died without withdrawing its registration (a crash or a reboot) no longer

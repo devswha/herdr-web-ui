@@ -47,6 +47,7 @@ import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
+import { MirrorSession } from "./mirror.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
@@ -106,7 +107,6 @@ const TYPED_SETTLE_MS = 300;
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
 const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input"];
-export const TERMINAL_UNSUPPORTED_MESSAGE = "Live terminal is not available on Windows PCs yet: herdr has no terminal attach there (herdrdev/herdr#4821). Chat, status and input work.";
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -165,7 +165,9 @@ type Client = ServerWebSocket<SocketData>;
  * keeps screen state and selection, while herdr owns scrollback.
  */
 interface PaneAttachment {
-  pty: PtySession;
+  pty: PtySession | MirrorSession;
+  /** set when herdr cannot attach here: `pty` repaints the pane's screen (server/mirror.ts), on the pane's own grid */
+  mirror?: MirrorSession;
   clients: Set<Client>;
   /** the pty's current grid: interact clients set it, observe clients adopt it */
   cols: number;
@@ -436,7 +438,8 @@ export function createServer(
 
   function resizePty(paneId: string, cols: number, rows: number): void {
     const attachment = attachments.get(paneId);
-    if (!attachment || (attachment.cols === cols && attachment.rows === rows)) return;
+    // a mirrored pane's grid is herdr's own: no browser resizes it
+    if (!attachment || attachment.mirror || (attachment.cols === cols && attachment.rows === rows)) return;
     attachment.cols = cols;
     attachment.rows = rows;
     attachment.pty.resize(cols, rows);
@@ -459,12 +462,13 @@ export function createServer(
 
   async function spawnAttachment(paneId: string, cols: number, rows: number, forObserver: boolean): Promise<PaneAttachment> {
     await retiringAttachments.get(paneId);
+    const mirrored = !(await terminalAttach());
     const { terminalId, rect } = await terminalInfoFor(paneId);
     // an observer-first attachment spawns at the pane's own grid (fallback 80x24 when
     // the layout has no rect for it): the attach must not seed the shared pty with a
     // watching phone's viewport
-    const spawnCols = forObserver ? (rect?.width ?? 80) : cols;
-    const spawnRows = forObserver ? (rect?.height ?? 24) : rows;
+    const spawnCols = forObserver || mirrored ? (rect?.width ?? 80) : cols;
+    const spawnRows = forObserver || mirrored ? (rect?.height ?? 24) : rows;
     const attachment: PaneAttachment = {
       pty: undefined as unknown as PtySession,
       clients: new Set<Client>(),
@@ -474,6 +478,29 @@ export function createServer(
       stalled: new Map(),
     };
     attachments.set(paneId, attachment);
+
+    if (mirrored) {
+      const mirror = new MirrorSession({
+        read: async () => (await paneRead({ paneId, source: "visible", format: "ansi" })).text,
+        write: (data) => paneSendText(paneId, data),
+        onData: (frame) => {
+          if (attachments.get(paneId) !== attachment) return;
+          // every frame is a whole screen: a late joiner needs the latest one only
+          attachment.replay = new ReplayBuffer(MAX_REPLAY_BYTES);
+          attachment.replay.append(frame);
+          for (const client of attachment.clients) sendOutput(client, paneId, frame);
+          reconcileOutput(paneId);
+        },
+        onExit: (code) => {
+          if (attachments.get(paneId) !== attachment) return;
+          broadcast(paneId, { type: "pty-exit", pane_id: paneId, code });
+          closeAttachment(paneId);
+        },
+      });
+      attachment.pty = mirror;
+      attachment.mirror = mirror;
+      return attachment;
+    }
 
     // No --takeover: another web bridge may own the exclusive attach slot.
     // Report that conflict without displacing it or the user's own TUI.
@@ -621,6 +648,19 @@ export function createServer(
     return attachment;
   }
 
+  /** A mirrored pane's grid follows herdr's layout: the clients adopt the new size, then get the screen again. */
+  async function refreshMirrorGeometry(): Promise<void> {
+    for (const [paneId, attachment] of attachments) {
+      if (!attachment.mirror) continue;
+      const rect = await terminalInfoFor(paneId).then((info) => info.rect, () => null);
+      if (!rect || attachments.get(paneId) !== attachment || (rect.width === attachment.cols && rect.height === attachment.rows)) continue;
+      attachment.cols = rect.width;
+      attachment.rows = rect.height;
+      broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols: rect.width, rows: rect.height, fixed: true });
+      attachment.mirror.repaint();
+    }
+  }
+
   /** The attaching client sees the error in-band; the log is the only record the operator gets. */
   function spawnFailure(paneId: string, error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
@@ -676,7 +716,10 @@ export function createServer(
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);
     },
-    onStructureChange: () => broadcastAll({ type: "session-changed" }),
+    onStructureChange: () => {
+      broadcastAll({ type: "session-changed" });
+      void refreshMirrorGeometry();
+    },
   });
 
   const envPort = process.env["PORT"];
@@ -803,7 +846,9 @@ export function createServer(
         if (url.searchParams.get("scope") === "bridge") return jsonResponse({ ok: true, auth, bridge_protocol: BRIDGE_PROTOCOL });
         try {
           const info = await ping();
-          return jsonResponse({ ok: true, herdr: info, auth,
+          // a forced answer (tests) is told the way a Windows herdr's own would be
+          const herdr = options.terminalAttach === false ? { ...info, terminal_attach: false, terminal_mirror: true } : info;
+          return jsonResponse({ ok: true, herdr, auth,
             web_ui: { boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
         } catch (error) {
           return errorResponse(error);
@@ -1244,12 +1289,6 @@ export function createServer(
                 send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
                 break;
               }
-              // a Windows herdr has no `terminal attach` (herdrdev/herdr#4821): the pane keeps
-              // its chat, status and input, and the client is told why the grid stays empty
-              if (!(await terminalAttach())) {
-                send(client, { type: "error", code: "terminal_unsupported", message: TERMINAL_UNSUPPORTED_MESSAGE, pane_id: message.pane_id });
-                break;
-              }
               // record the pane before the await: a detach (switching panes) or a close
               // that lands while the terminal is looked up must cancel this attach, and
               // neither can see a client that only joins the attachment afterwards
@@ -1269,6 +1308,9 @@ export function createServer(
               const alreadyAttached = attachment.clients.has(client);
               attachment.clients.add(client);
               if (!alreadyAttached && message.flow_control === "ack") client.data.output.set(message.pane_id, new OutputWindow());
+              // a mirrored screen is drawn for the pane's own grid: the client takes that size
+              // before the screen, or the rows would wrap in a grid of another width
+              if (attachment.mirror) send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
               // hand the newcomer the current screen it would otherwise have missed
               const replay = attachment.replay.text();
               if (!alreadyAttached && replay) sendOutput(client, message.pane_id, replay);
@@ -1276,6 +1318,7 @@ export function createServer(
               if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
               reconcileOutput(message.pane_id);
               if (client.data.closing) break;
+              if (attachment.mirror) break;
               if (client.data.mode === "interact") {
                 // an operator's viewport owns the shared grid
                 resizePty(message.pane_id, geometry.cols, geometry.rows);
@@ -1315,9 +1358,9 @@ export function createServer(
               // the pty holds a lone ESC ~150ms and a Stop would overtake nothing
               // typing reaches an attached pane only, queued or not
               const attachment = attachments.get(message.pane_id);
-              // without a terminal (Windows) the key bar's Enter, Stop and arrows still have to
-              // land: herdr delivers the bytes itself, each in its turn behind a message in flight
-              if (!attachment && !(terminalAttachKnown ?? await terminalAttach())) {
+              // without a pty (Windows: no terminal, or a mirrored one) typing, the key bar's Enter,
+              // Stop and arrows go through herdr itself, each in its turn behind a message in flight
+              if (!(terminalAttachKnown ?? await terminalAttach())) {
                 const text = message.text;
                 void serialize(message.pane_id, () => {
                   authorizeSocket(client);

@@ -153,7 +153,9 @@ export async function herdrRpc<T = unknown>(
 
 export async function ping(socketPath?: string): Promise<HerdrIdentity> {
   const result = await herdrRpc<{ version: string; protocol: number; capabilities?: Record<string, unknown> }>("ping", {}, socketPath);
-  return { version: result.version, protocol: result.protocol, terminal_attach: terminalAttachSupported(result.capabilities) };
+  const attach = terminalAttachSupported(result.capabilities);
+  // without attach the web server repaints the pane's screen instead (server/mirror.ts)
+  return { version: result.version, protocol: result.protocol, terminal_attach: attach, ...(attach ? {} : { terminal_mirror: true }) };
 }
 
 export async function sessionSnapshot(socketPath?: string): Promise<SessionSnapshot> {

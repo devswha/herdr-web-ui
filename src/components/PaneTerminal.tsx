@@ -134,6 +134,8 @@ export function PaneTerminal({
   const [ctrlArmed, setCtrlArmed] = useState(false);
   // observe mode: the ref is what onData and the resize listeners read mid-stream
   const observeRef = useRef(false);
+  // a mirrored pane (no terminal attach on its PC): the grid is the pane's own in herdr, adopted like an observer's
+  const fixedGridRef = useRef(false);
   const [observing, setObserving] = useState(false);
   const [secret, setSecret] = useState<{ pane: string; prompt: string } | null>(null);
   const secretRef = useRef<string | null>(null);
@@ -586,7 +588,7 @@ export function PaneTerminal({
         setObserving(nowObserving);
         term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
         onRoleAckRef.current?.(message.mode);
-        if (!nowObserving) {
+        if (!nowObserving && !fixedGridRef.current) {
           try {
             fit.fit();
           } catch {
@@ -596,8 +598,11 @@ export function PaneTerminal({
           if (pane) socket.resize(pane, term.cols, term.rows, true);
         }
       } else if (message.type === "pane-geometry") {
-        // observe clients adopt the pty's grid; interact clients drive it and ignore this
-        if (!observeRef.current || message.pane_id !== paneRef.current) return;
+        // observe clients adopt the pty's grid; interact clients drive it and ignore this,
+        // unless the grid is fixed: then nobody here drives it
+        if (message.pane_id !== paneRef.current) return;
+        if (message.fixed) fixedGridRef.current = true;
+        if (!observeRef.current && !fixedGridRef.current) return;
         if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
       } else if (message.type === "error") {
         if (message.code === "attach_held") {
@@ -670,7 +675,7 @@ export function PaneTerminal({
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         resizeTimer = null;
-        if (observeRef.current) return; // the grid belongs to the pty while observing
+        if (observeRef.current || fixedGridRef.current) return; // the grid belongs to the pty while observing, and to herdr when fixed
         try {
           fit.fit();
         } catch {
@@ -723,7 +728,7 @@ export function PaneTerminal({
     // connections never do this: they own no geometry to re-assert.
     const refit = (): void => {
       const current = paneRef.current;
-      if (!current || observeRef.current) return;
+      if (!current || observeRef.current || fixedGridRef.current) return;
       try {
         fit.fit();
       } catch {
@@ -774,7 +779,7 @@ export function PaneTerminal({
     term.options.theme = terminalTheme(theme, palette);
     if (term.options.fontSize !== terminalFontSize) {
       term.options.fontSize = terminalFontSize;
-      if (observeRef.current) return;
+      if (observeRef.current || fixedGridRef.current) return;
       try {
         fitRef.current?.fit();
       } catch {
@@ -788,7 +793,7 @@ export function PaneTerminal({
   // the grid must re-fit when the lens switches back: the chat lens covered it, and a
   // resize while covered may have been skipped by a zero-size layout
   useEffect(() => {
-    if (chatView || observeRef.current) return;
+    if (chatView || observeRef.current || fixedGridRef.current) return;
     const term = termRef.current;
     try {
       fitRef.current?.fit();
@@ -811,6 +816,7 @@ export function PaneTerminal({
     setOutputError(null);
     setHeld(false);
     setUnsupported(false);
+    fixedGridRef.current = false;
     secretRef.current = null;
     setSecret(null);
     term.options.disableStdin = observeRef.current;
