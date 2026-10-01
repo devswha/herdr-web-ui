@@ -198,6 +198,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   while it waits on a dialog, never blocked, so the card comes from its screen. A session
   directory chosen with `--session-dir` or the `sessionDir` setting is not found;
   `PI_CODING_AGENT_SESSION_DIR` is.
+- A pi pane's message box lists pi's own slash commands as you type `/`, the way it does for
+  Claude Code, Codex and omp: pi's built-ins in pi's words, the templates in `~/.pi/agent/prompts`
+  and the skills under `~/.pi/agent/skills` and `~/.agents/skills`. A project's own skills and
+  prompt templates stay out of the list, because pi loads those only once you have trusted the
+  folder, and a command the agent will not run is worse than one missing from the menu.
 - The browser demo runs a pi pane, backfilled into the recorded snapshot when the fixtures
   predate it: `site/demo/fixtures.ts` is the only file a new demo agent needs.
 

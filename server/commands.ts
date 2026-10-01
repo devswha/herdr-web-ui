@@ -7,6 +7,23 @@ const BUILTINS: Record<string, readonly string[]> = {
   claude: ["clear", "compact", "config", "cost", "help", "init", "memory", "model", "permissions", "review", "status", "doctor", "login", "logout", "pr-comments", "release-notes", "terminal-setup", "vim"],
   omp: ["help", "clear", "compact", "model", "new", "sessions", "exit"],
   codex: ["clear", "compact", "diff", "help", "model", "new", "quit", "review", "status"],
+  // pi 0.87.1, as its own palette lists them
+  pi: ["settings", "model", "thinking", "scoped-models", "login", "logout", "llama", "new", "resume", "name", "session", "tree", "fork", "clone", "compact", "import", "copy", "export", "share", "bug", "trust", "reload", "hotkeys", "changelog", "quit"],
+};
+
+/** pi states what each command opens or does, in its own words, read off its palette. */
+const PI_DESCRIPTIONS: Record<string, string> = {
+  settings: "Open settings menu", model: "<provider/model> — Select model", thinking: "<level> — Set thinking level",
+  "scoped-models": "Enable/disable models for Ctrl+P cycling", login: "<provider> — Configure provider authentication",
+  logout: "Remove provider authentication", llama: "[t] Manage llama.cpp router models", new: "Start a new session",
+  resume: "Resume a different session", name: "Set session display name", session: "Show session info and stats",
+  tree: "Navigate session tree (switch branches)", fork: "Create a new fork from a previous user message",
+  clone: "Duplicate the current session at the current position", compact: "Manually compact the session context",
+  import: "Import and resume a session from a JSONL file", copy: "Copy last agent message to clipboard",
+  export: "Export session (HTML default, or specify path: .html/.jsonl)", share: "Share session as a secret GitHub gist",
+  bug: "<description> — Report a bug to the Pi developers", trust: "Save project trust decision for future sessions",
+  reload: "Reload keybindings, extensions, skills, prompts, themes, and context files", hotkeys: "Show all keyboard shortcuts",
+  changelog: "Show changelog entries", quit: "Quit pi",
 };
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -72,8 +89,7 @@ function pluginCommands(home: string): SlashCommand[] {
   return result;
 }
 
-function customCommands(root: string, source: SlashCommand["source"]): SlashCommand[] {
-  if (!existsSync(root)) return [];
+function customCommands(root: string, source: SlashCommand["source"]): SlashCommand[] {  if (!existsSync(root)) return [];
   const result: SlashCommand[] = [];
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -89,15 +105,42 @@ function customCommands(root: string, source: SlashCommand["source"]): SlashComm
   return result;
 }
 
+/**
+ * Templates are commands. A conventional prompt directory holds direct `.md` children only —
+ * pi reads no deeper there, so recursing would offer commands pi never loads.
+ */
+function piTemplates(root: string, source: SlashCommand["source"]): SlashCommand[] {
+  if (!existsSync(root)) return [];
+  const result: SlashCommand[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    let markdown: string;
+    try { markdown = readFileSync(join(root, entry.name), "utf8"); } catch { continue; }
+    result.push({ name: entry.name.slice(0, -3), description: description(markdown), source });
+  }
+  return result;
+}
+
 export function paneCommands(agent: string | null | undefined, cwd: string | null | undefined, home = process.env.HOME ?? ""): SlashCommand[] {
   if (!agent || !(agent in BUILTINS)) return [];
-  const commands: SlashCommand[] = (BUILTINS[agent] ?? []).map((name) => ({ name, description: DESCRIPTIONS[name] ?? `Run /${name}`, source: "builtin" }));
+  const commands: SlashCommand[] = (BUILTINS[agent] ?? []).map((name) => ({ name, description: (agent === "pi" ? PI_DESCRIPTIONS[name] : undefined) ?? DESCRIPTIONS[name] ?? `Run /${name}`, source: "builtin" }));
   if (agent === "claude") {
     commands.push(...customCommands(join(home, ".claude", "commands"), "user"));
     if (cwd) commands.push(...customCommands(join(cwd, ".claude", "commands"), "project"));
     commands.push(...skills(join(home, ".claude", "skills"), "skill"));
     if (cwd) commands.push(...skills(join(cwd, ".claude", "skills"), "skill"));
     commands.push(...pluginCommands(home));
+  }
+  if (agent === "pi") {
+    // Only what pi loads from the person's own folders, which it loads whether or not the
+    // folder's project is trusted: the agent directory and ~/.agents. A project's own skills
+    // and prompts are left out on purpose — pi gates them behind a trust decision and a
+    // project root of its own choosing, and offering a command the agent will not run is worse
+    // than offering one fewer command. Neither are pi's packages and extension commands, which
+    // no file scan can know: they are in the terminal's own `/` menu either way.
+    commands.push(...piTemplates(join(home, ".pi", "agent", "prompts"), "user"));
+    commands.push(...skills(join(home, ".pi", "agent", "skills"), "skill", { prefix: "skill" }));
+    commands.push(...skills(join(home, ".agents", "skills"), "skill", { prefix: "skill" }));
   }
   if (agent === "codex") {
     // Codex's saved prompts run as /prompts:<name>; its skills are named with `$`

@@ -75,3 +75,64 @@ describe("skills and plugins", () => {
     ]);
   });
 });
+
+// Measured against pi 0.87.1: its `/` palette (the built-ins and their wording), and what a
+// headless `get_commands` reports for resources planted in each folder pi reads.
+describe("pi's slash commands", () => {
+  const put = (path: string, text: string) => { mkdirSync(join(path, ".."), { recursive: true }); writeFileSync(path, text); };
+  const skill = (root: string, name: string, description: string) => put(join(root, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`);
+
+  it("offers pi's own built-ins, in pi's words", () => {
+    const commands = paneCommands("pi", null, temp("pi-empty-home-"));
+    expect(commands.map((command) => command.name)).toContain("compact");
+    expect(commands).toContainEqual({ name: "tree", description: "Navigate session tree (switch branches)", source: "builtin" });
+    // its own verbs, not the omp/codex wording shared by the rest
+    expect(commands).toContainEqual({ name: "quit", description: "Quit pi", source: "builtin" });
+    expect(commands.map((command) => command.name)).not.toContain("sessions");
+    expect(commands.every((command) => command.source === "builtin")).toBeTrue();
+  });
+
+  it("offers the templates and skills pi loads from the person's own folders", () => {
+    const home = temp("pi-home-");
+    put(join(home, ".pi", "agent", "prompts", "review.md"), "---\ndescription: Review staged git changes\n---\nbody\n");
+    put(join(home, ".pi", "agent", "prompts", "plain.md"), "First line wins when there is no frontmatter\n");
+    skill(join(home, ".pi", "agent", "skills"), "pdf-tools", "Extract text from PDFs");
+    skill(join(home, ".agents", "skills"), "from-agents", "Found under ~/.agents");
+
+    const extra = paneCommands("pi", null, home).filter((command) => command.source !== "builtin");
+    expect(extra).toEqual([
+      { name: "plain", description: "First line wins when there is no frontmatter", source: "user" },
+      { name: "review", description: "Review staged git changes", source: "user" },
+      // a skill is a command under skill:, which is how pi names it and how it must be typed
+      { name: "skill:from-agents", description: "Found under ~/.agents", source: "skill" },
+      { name: "skill:pdf-tools", description: "Extract text from PDFs", source: "skill" },
+    ]);
+  });
+
+  it("reads no deeper than pi does in a prompt directory", () => {
+    const home = temp("pi-home-");
+    put(join(home, ".pi", "agent", "prompts", "top.md"), "---\ndescription: a direct child\n---\n");
+    // pi loads direct .md children of a conventional prompt directory and nothing below one
+    put(join(home, ".pi", "agent", "prompts", "sub", "deep.md"), "---\ndescription: a nested one\n---\n");
+    const names = paneCommands("pi", null, home).filter((command) => command.source === "user").map((command) => command.name);
+    expect(names).toEqual(["top"]);
+  });
+
+  it("holds a project's own commands back, since pi gates them behind trust", () => {
+    const home = temp("pi-home-");
+    const cwd = temp("pi-project-");
+    put(join(cwd, ".pi", "prompts", "proj-template.md"), "---\ndescription: a project template\n---\n");
+    skill(join(cwd, ".pi", "skills"), "proj-skill", "A project skill");
+    // offered only where pi would run them, and which folder pi calls the project is its own
+    // decision behind ~/.pi/agent/trust.json: a listed command the agent refuses is worse than
+    // one missing from the menu, so a project's resources stay in the terminal's menu
+    const commands = paneCommands("pi", cwd, home);
+    expect(commands.some((command) => command.source === "project")).toBeFalse();
+    expect(commands.map((command) => command.name)).not.toContain("proj-template");
+    expect(commands.map((command) => command.name)).not.toContain("skill:proj-skill");
+  });
+
+  it("leaves a folder with no pi resources at its built-ins", () => {
+    expect(paneCommands("pi", temp("pi-cwd-"), temp("pi-home-")).every((command) => command.source === "builtin")).toBeTrue();
+  });
+});
