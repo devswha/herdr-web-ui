@@ -301,6 +301,22 @@ describe("pi's abandoned paths", () => {
     expect(piAbandonedTurns(journal, statSync(journal).size)).toEqual({ count: 0, branches: 0, summary: null });
   });
 
+  it("counts a path abandoned at the root itself", () => {
+    // pi keeps its leaf id separate from the file's start, and navigating the tree to the very
+    // first entry clears it (resetLeaf), so the next entry is written with no parent and starts a
+    // second path beside the first. Excluding every parentless entry, to keep pi's session header
+    // out, threw this case away with it: the abandoned path and its turns both vanished, and a
+    // reader who had navigated to the root was told nothing about what they left behind
+    const atRoot = file([
+      entry("s", null, { type: "session", version: 3, cwd: root }),
+      user("u1", null, "the first question"), // a path that begins at the root
+      assistant("a-gone", "u1", "the abandoned answer"),
+      user("u2", null, "the question asked from the root"), // pi's leaf was cleared to null
+      assistant("a-live", "u2", "the answer in play"),
+    ]);
+    expect(piAbandonedTurns(atRoot, statSync(atRoot).size)).toEqual({ count: 2, branches: 1, summary: null });
+  });
+
   it("counts a turn once however many branches it was abandoned into", () => {
     // three moves away from the same prompt: the head they share is not counted three times
     const path = file([

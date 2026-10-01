@@ -9,7 +9,14 @@
  */
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 
-/** A branch longer than this reads the file whole instead; a session that large predates paging. */
+/**
+ * A branch longer than this is not returned at all. The caller treats that as a transcript it
+ * cannot read (`branch_unreadable`) and the chat falls back to the pane's terminal output, so an
+ * oversized session shows scrollback rather than a projection built by holding that many bytes of
+ * paths in memory. The largest branch across 147 real session files here is 23.9 MiB, so the cap
+ * sits about 3x above what pi has been seen to write — close enough that a long-lived pane could
+ * reach it, which is why it degrades to the fallback instead of throwing.
+ */
 export const MAX_BRANCH_BYTES = 64 * 1024 * 1024;
 
 /** One range of the transcript file, in the order it should be read. */
@@ -127,7 +134,8 @@ export function piEntryIndex(path: string): PiIndex | null {
  * The active branch: the last entry written back to its root, oldest first, as byte
  * ranges of the file. Adjacent entries merge into one range, so a session no /tree
  * touched reads as the single prefix it is. An id repeated (never pi, but never
- * trusted) keeps its last append; a branch over MAX_BRANCH_BYTES reads whole instead
+ * trusted) keeps its last append; a branch over MAX_BRANCH_BYTES is refused, and the chat falls
+ * back to terminal output
  * of projected. Null when the tree cannot be read, or holds no entry at all.
  */
 export function piBranchSegments(path: string, size: number): TranscriptSegment[] | null {
@@ -199,6 +207,16 @@ export function piAbandonedTurns(path: string, size: number): { count: number; b
   // is a root no entry ever links to, orphaned from the moment it is written, and counting heads of
   // abandoned paths instead would report it as a navigation in every session there has ever been
   const heads: PiEntry[] = [];
+  const isHead = (entry: PiEntry) => {
+    // a parentless entry other than pi's header, off the live path, with something left under it:
+    // pi's leaf cleared to null (navigating the tree to its very first entry) starts a path at the
+    // root, and abandoning that path is the same navigation as abandoning one mid-tree. The child
+    // is what makes it a path rather than a stray line, and it is also what keeps an append-only
+    // journal — every entry parentless, none linked — down at zero branches instead of calling its
+    // whole history abandoned
+    if (entry.parent !== null || entry.type === "session" || live.has(entry.id)) return false;
+    return (index.children.get(entry.id) ?? []).some((child) => !live.has(child.id));
+  };
   for (const id of live) {
     // ids deduped the way piBranchSegments dedupes them: an entry appended twice (never pi, never
     // trusted) is still one place navigated away from
@@ -206,6 +224,7 @@ export function piAbandonedTurns(path: string, size: number): { count: number; b
     for (const child of index.children.get(id) ?? []) if (!live.has(child.id) && !left.has(child.id)) left.set(child.id, child);
     heads.push(...left.values());
   }
+  for (const entry of index.entries) if (isHead(entry) && !heads.some((head) => head.id === entry.id)) heads.push(entry);
   const branches = heads.length;
   // The turns are counted INSIDE these subtrees, never over the whole file. A turn whose chain of
   // parents does not lead to a counted head — its parent id never appears, the damage
