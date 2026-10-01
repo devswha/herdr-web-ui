@@ -191,9 +191,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   so prompts, thinking, tool calls with their results, the model and the reasoning level show
   the way they do for omp. `/new`, `/resume`, `/fork` and `/clone` move the chat to the session
   that replaced the old one, and after a `/tree` it shows the branch in play: the paths pi
-  navigated away from stay in the file, unread, as they do in pi. Answering a prompt from the
-  chat is not there yet, so use Terminal for that. A session directory chosen with
-  `--session-dir` or the `sessionDir` setting is not found; `PI_CODING_AGENT_SESSION_DIR` is.
+  navigated away from stay in the file, unread, as they do in pi. Where pi folded old context
+  into a summary — on `/compact`, or by itself — the chat says so and opens the summary. A pi
+  dialog answers from the chat too: an extension's question, a Yes/No, and one that wants text
+  typed, though not `/tree` itself, which would move the session's branch. pi calls itself idle
+  while it waits on a dialog, never blocked, so the card comes from its screen. A session
+  directory chosen with `--session-dir` or the `sessionDir` setting is not found;
+  `PI_CODING_AGENT_SESSION_DIR` is.
+- The browser demo runs a pi pane, backfilled into the recorded snapshot when the fixtures
+  predate it: `site/demo/fixtures.ts` is the only file a new demo agent needs.
 
 ### Fixed
 - A table an agent indents under a list item shows as a table in that item in the chat. It was
