@@ -21,7 +21,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A PC whose herdr cannot attach a terminal (a Windows PC for now) has a terminal lens all the
   same. The bridge reads the pane's screen a few times a second and repaints it, so output and
   colours show and typing works. It is a stopgap until herdr can attach there: the cursor is not
-  shown, and the grid is the pane's own size on that PC, not the browser's.
+  shown, and the grid is the pane's own size on that PC, not the browser's
+  ([#228](https://github.com/devswha/herdr-web-ui/pull/228)).
 
 ### Fixed
 - A bridge that died without withdrawing its registration (a crash or a reboot) no longer
