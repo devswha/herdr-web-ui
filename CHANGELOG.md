@@ -8,6 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A bridge that cannot run the PTY sidecar (no Node, or no `@lydell/node-pty`, as in the Windows
+  bundle) keeps mirroring its panes even when herdr reports terminal attach. It used to leave
+  the working mirror for an attach it could not start, and the terminal ended at once.
+  `/api/health` and the PC list say `terminal_attach: false` and `terminal_mirror: true` there.
+  The real terminal on Windows therefore needs a bundle that ships the sidecar, not only a
+  herdr that attaches.
 - A pane running a command that is only given an omo path (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is
   no longer shown as OmO or counted as a second OmO in its folder. Only the program a pane runs
   counts, or the script that node or bun runs

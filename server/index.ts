@@ -47,6 +47,7 @@ import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
+import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
@@ -234,16 +235,16 @@ export function createServer(
     attachRetryForMs?: number;
     /** ATTACH_HELD_RETRY_MS; tests shorten it */
     attachHeldRetryMs?: number;
-    /** whether herdr can `terminal attach`; unset, its ping says. Tests give a Windows herdr's answer, at once or as late as a ping's. */
+    /** whether herdr can `terminal attach`; unset, its ping says, and this runtime's PTY sidecar has to be runnable. Tests give a Windows herdr's answer, at once or as late as a ping's. */
     terminalAttach?: boolean | (() => Promise<boolean>);
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
-  /** whether this herdr can `terminal attach`: asked once, the answer never changes while it runs */
+  /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
   let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
   const terminalAttach = async (): Promise<boolean> => {
     if (terminalAttachKnown === null) {
-      terminalAttachKnown = typeof options.terminalAttach === "function" ? await options.terminalAttach() : (await ping()).terminal_attach !== false;
+      terminalAttachKnown = typeof options.terminalAttach === "function" ? await options.terminalAttach() : attachableIdentity(await ping(), sidecarAvailable()).terminal_attach !== false;
     }
     return terminalAttachKnown;
   };
@@ -853,8 +854,8 @@ export function createServer(
         if (url.searchParams.get("scope") === "bridge") return jsonResponse({ ok: true, auth, bridge_protocol: BRIDGE_PROTOCOL });
         try {
           const info = await ping();
-          // a forced answer (tests) is told the way a Windows herdr's own would be
-          const herdr = options.terminalAttach === false ? { ...info, terminal_attach: false, terminal_mirror: true } : info;
+          // a forced answer (tests) and a runtime without the PTY sidecar are told the way a Windows herdr's own would be
+          const herdr = attachableIdentity(info, options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
           return jsonResponse({ ok: true, herdr, auth,
             web_ui: { boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
         } catch (error) {

@@ -94,7 +94,7 @@ try {
     writeFileSync(bunArchive, await download("https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-windows-x64.zip", WINDOWS_BUN_SHA));
     command(["unzip", "-qo", bunArchive, "-d", downloads]);
     cpSync(join(downloads, "bun-windows-x64", "bun.exe"), join(stage, "bin/bun.exe"));
-    // nothing native: the PTY sidecar is never spawned on Windows (the server refuses attach there)
+    // nothing native: without Node and node-pty the server finds no PTY sidecar and mirrors panes (server/pty/sidecar.ts)
     rmSync(join(stage, "node_modules/@lydell"), { recursive: true, force: true });
     // package-manager symlinks: an account without the symlink privilege cannot extract them, and nothing runs them
     rmSync(join(stage, "node_modules/.bin"), { recursive: true, force: true });
