@@ -69,8 +69,8 @@ class Socket {
     this.ws = new WebSocket(url);
     this.ws.addEventListener("message", (event) => this.seen.push(JSON.parse(String((event as MessageEvent).data))));
   }
-  static async connect(): Promise<Socket> {
-    const socket = new Socket(`ws://localhost:${server.port}/ws`);
+  static async connect(port = server.port): Promise<Socket> {
+    const socket = new Socket(`ws://localhost:${port}/ws`);
     await new Promise<void>((resolve) => socket.ws.addEventListener("open", () => resolve()));
     await socket.waitFor((message) => message.type === "snapshot");
     return socket;
@@ -310,6 +310,62 @@ describe("WebSocket submit", () => {
       expect(chunks(shell).slice(from)).toEqual([]);
     } finally {
       socket.close();
+    }
+  }, 30_000);
+});
+
+describe("a herdr without terminal attach (Windows)", () => {
+  let bare: { port: number; stop: () => void };
+  beforeAll(() => { bare = createServer({ port: 0, stateDir: join(root, "push-bare"), terminalAttach: false }); });
+  afterAll(() => bare?.stop());
+
+  it("refuses an attach in-band and keeps the connection", async () => {
+    const socket = await Socket.connect(bare.port);
+    try {
+      socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
+      expect(await socket.waitFor((message) => message.type === "error")).toMatchObject({ code: "terminal_unsupported", pane_id: shell.pane });
+      const from = chunks(shell).length;
+      socket.send({ type: "submit", id: 20, pane_id: shell.pane, text: "still here", payload: "still here" });
+      expect(await socket.result(20)).toMatchObject({ ok: true });
+      await received(shell, from, 1);
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
+  it("keeps unattached typing behind a message in flight: a Stop right after Send lands after its Enter", async () => {
+    const socket = await Socket.connect(bare.port);
+    try {
+      const from = chunks(shell).length;
+      socket.send({ type: "submit", id: 21, pane_id: shell.pane, text: "one", payload: "one" });
+      socket.send({ type: "input", pane_id: shell.pane, text: "\u001b" });
+      socket.send({ type: "submit", id: 22, pane_id: shell.pane, text: "two", payload: "two" });
+      await socket.result(22);
+      await received(shell, from, 2);
+      expect(typed(shell, from)).toBe("one\r\u001btwo\r");
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+});
+
+describe("herdr unreachable when a terminal is asked for", () => {
+  it("answers the attach with an in-band error and attaches once herdr is back", async () => {
+    const asking = createServer({ port: 0, stateDir: join(root, "push-asking") });
+    const socket = await Socket.connect(asking.port);
+    const reachable = process.env["HERDR_SOCKET"];
+    try {
+      process.env["HERDR_SOCKET"] = join(root, "no-herdr-here.sock");
+      socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
+      const refused = await socket.waitFor((message) => message.type === "error");
+      expect(refused.code).toBe("connect_failed");
+      process.env["HERDR_SOCKET"] = reachable;
+      socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
+      await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === shell.pane);
+    } finally {
+      process.env["HERDR_SOCKET"] = reachable;
+      socket.close();
+      asking.stop();
     }
   }, 30_000);
 });

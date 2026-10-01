@@ -45,6 +45,10 @@ try {
   Bun.spawnSync([herdr, "--session", "smoke", "server", "stop"], { env });
   // Windows keeps the directory busy for a moment after the daemon lets go of its files
   for (let i = 0; ; i++) {
-    try { rmSync(root, { recursive: true, force: true }); break; } catch (error) { if (i === 20) throw error; await Bun.sleep(500); }
+    try { rmSync(root, { recursive: true, force: true }); break; } catch (error) {
+      // a throw here would replace the assertion that failed above with a cleanup error
+      if (i === 20) { console.error(`could not remove ${root}: ${error instanceof Error ? error.message : String(error)}`); break; }
+      await Bun.sleep(500);
+    }
   }
 }

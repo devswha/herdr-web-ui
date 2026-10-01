@@ -2,6 +2,7 @@
 // herdr owns the terminal processes and no disconnect should terminate their work.
 import { createServer } from "./index.ts";
 import { bridgeIdentity, descriptorPath, registerBridge } from "./bridge.ts";
+import { staleMarker, tasklistImage } from "./herdr-marker.ts";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -20,9 +21,13 @@ const session = process.env["HERDR_REMOTE_SESSION"];
 const herdrConfig = windows ? join(process.env["APPDATA"] || join(homedir(), "AppData", "Roaming"), "herdr") : join(process.env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr");
 process.env["HERDR_SOCKET"] = session ? join(herdrConfig, "sessions", session, "herdr.sock") : join(herdrConfig, "herdr.sock");
 function staleWindowsMarker(path: string): boolean {
-  const pid = Number(readFileSync(path, "utf8").split(":")[0]);
-  if (!Number.isInteger(pid) || pid < 1) return false;
-  try { process.kill(pid, 0); return false; } catch (e) { return (e as NodeJS.ErrnoException).code === "ESRCH"; }
+  return staleMarker(readFileSync(path, "utf8"), (pid) => {
+    try {
+      const listed = Bun.spawnSync(["tasklist", "/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { stdin: "ignore", stderr: "ignore" });
+      if (listed.exitCode === 0) return tasklistImage(listed.stdout.toString());
+    } catch { /* no tasklist: the pid alone has to do */ }
+    try { process.kill(pid, 0); return "herdr"; } catch (e) { return (e as NodeJS.ErrnoException).code === "ESRCH" ? null : "herdr"; }
+  });
 }
 
 /**
