@@ -35,7 +35,8 @@ const quote = (word: string) => `'${word.replaceAll("'", `'\\''`)}'`;
 /** cmd.exe has no escape for a quote inside quotes, and expands %NAME%. */
 function cmdQuote(word: string): string {
   if (/["%\r\n]/.test(word)) throw new Error("this argument cannot be typed into cmd.exe");
-  return `"${word}"`;
+  // a backslash right before the closing quote would escape it for the program's own parser
+  return `"${word.replace(/\\+$/, (run) => run + run)}"`;
 }
 
 export type PaneShell = "posix" | "powershell" | "cmd";
@@ -86,7 +87,8 @@ export async function startShellAgent(kind: string, paneId: string, args: string
     const info = await processInfo(paneId);
     if (info?.process_info?.foreground_processes?.some((process) => isProcess(process.argv ?? []))) return;
     const shellPid = info?.process_info?.shell_pid;
-    if (windows && typeof shellPid === "number" && descendantArgv(await windowsProcessTable(), shellPid).some(isProcess)) return;
+    // the table query never outlasts what is left of the start's own time
+    if (windows && typeof shellPid === "number" && descendantArgv(await windowsProcessTable(Math.max(500, Math.min(10_000, deadline - Date.now()))), shellPid).some(isProcess)) return;
     await Bun.sleep(250);
   }
   throw new Error(`${kind} did not start in the pane`);

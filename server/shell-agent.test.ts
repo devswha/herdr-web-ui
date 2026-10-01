@@ -1,7 +1,7 @@
 import { expect, it } from "bun:test";
 import { isGjcProcess } from "./gjc-runtime.ts";
 import { paneShell, shellAgentExecutable, shellCommandLine } from "./shell-agent.ts";
-import { descendantArgv, parseProcessTable, windowsArgv } from "./windows-processes.ts";
+import { descendantArgv, parseProcessTable, windowsArgv, windowsProcessTable } from "./windows-processes.ts";
 
 it("tells a pane's shell from the program herdr reports in front", () => {
   expect(paneShell("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe")).toBe("powershell");
@@ -15,6 +15,8 @@ it("writes the line each shell runs as a command, not as a string", () => {
   expect(shellCommandLine("powershell", exe, ["--resume", "a b"])).toBe("& 'C:\\Users\\o''brien\\AppData\\Local\\gjc\\gjc.exe' '--resume' 'a b'");
   expect(shellCommandLine("cmd", "C:\\gjc\\gjc.exe", ["a b"])).toBe('"C:\\gjc\\gjc.exe" "a b"');
   expect(shellCommandLine("posix", "/usr/local/bin/gjc", ["it's"])).toBe("'/usr/local/bin/gjc' 'it'\\''s'");
+  // a trailing backslash must not escape the closing quote for the program that parses it
+  expect(shellCommandLine("cmd", "C:\\gjc\\gjc.exe", ["C:\\work\\", "--resume"])).toBe('"C:\\gjc\\gjc.exe" "C:\\work\\\\" "--resume"');
   // cmd cannot carry these inside quotes
   expect(() => shellCommandLine("cmd", "C:\\gjc\\gjc.exe", ["%PATH%"])).toThrow();
   expect(() => shellCommandLine("cmd", "C:\\gjc\\gjc.exe", ['say "hi"'])).toThrow();
@@ -47,6 +49,14 @@ it("finds what runs under a pane's shell in the process table", () => {
   expect(descendantArgv(table, 4242)).toEqual([]);
   expect(parseProcessTable("not json")).toEqual([]);
   expect(windowsArgv('"C:\\a b\\x.exe" one "two three"')).toEqual(["C:\\a b\\x.exe", "one", "two three"]);
+});
+
+it("gives up on a process-table query that stalls, and kills it", async () => {
+  const started = Date.now();
+  expect(await windowsProcessTable(200, ["sleep", "30"])).toEqual([]);
+  expect(Date.now() - started).toBeLessThan(5000);
+  // a query that answers is read
+  expect(await windowsProcessTable(5000, ["printf", '[{"ProcessId":2,"ParentProcessId":1,"ExecutablePath":null,"CommandLine":"x"}]'])).toEqual([{ pid: 2, parent: 1, path: null, commandLine: "x" }]);
 });
 
 it("offers on Windows only the shell-started agents known to start there", () => {
