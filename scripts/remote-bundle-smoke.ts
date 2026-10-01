@@ -8,12 +8,13 @@ const root = realpathSync(mkdtempSync(join(process.platform === "darwin" ? "/tmp
 const bundle = join(root, "runtime");
 const home = join(root, "home");
 // herdr follows XDG_CONFIG_HOME; a value apart from ~/.config proves the bridge follows it too.
-// On Windows it follows APPDATA instead, and the bundle carries no herdr: HERDR_WEB_HERDR_BIN names one.
+// On Windows it follows APPDATA instead, and the bundle carries no herdr: the one herdr's own
+// installer left (the stable alias under %LOCALAPPDATA%), or HERDR_WEB_HERDR_BIN.
 const xdg = join(home, "xdg");
 mkdirSync(bundle); mkdirSync(home);
 const bun = join(bundle, windows ? "bin/bun.exe" : "bin/bun");
-const herdr = windows ? process.env["HERDR_WEB_HERDR_BIN"] : join(bundle, "bin/herdr");
-assert.ok(herdr, "HERDR_WEB_HERDR_BIN must name an installed herdr on Windows");
+const herdr = windows ? process.env["HERDR_WEB_HERDR_BIN"] || join(process.env["LOCALAPPDATA"] ?? "", "Programs/Herdr/bin/herdr.exe") : join(bundle, "bin/herdr");
+if (windows) assert.ok(existsSync(herdr), `herdr is not installed at ${herdr}`);
 const env = { ...process.env, HOME: home, USERPROFILE: home, APPDATA: xdg, XDG_CONFIG_HOME: xdg, HERDR_REMOTE_SESSION: "smoke", HERDR_WEB_HERDR_BIN: herdr };
 let child: ReturnType<typeof Bun.spawn> | undefined;
 try {

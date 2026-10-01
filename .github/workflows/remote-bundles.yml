@@ -77,8 +77,6 @@ jobs:
         run: curl.exe -fsSLo install.cmd https://herdr.dev/install.cmd && install.cmd && del install.cmd
       - run: bun run scripts/remote-bundle-smoke.ts
         shell: pwsh
-        env:
-          HERDR_WEB_HERDR_BIN: ${{ env.LOCALAPPDATA }}\Programs\Herdr\bin\herdr.exe
   ssh:
     timeout-minutes: 20
     runs-on: ubuntu-24.04
