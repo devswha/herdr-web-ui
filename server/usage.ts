@@ -17,8 +17,9 @@
 
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { closeSync, openSync, readdirSync, readSync } from "node:fs";
-import { homedir } from "node:os";
+import { closeSync, mkdtempSync, openSync, readdirSync, readSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { open, type FileHandle } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProviderUsage, UsageProblem, UsageProviderId, UsageReport, UsageWindow } from "../shared/protocol.ts";
 import { jsonResponse } from "./http.ts";
@@ -280,8 +281,13 @@ const claude: UsageProvider = {
     const found = await Promise.all(claudeHomes(ctx).map(async (home) => {
       const account = claudeAccount(home.config);
       const keychain = await fromKeychain(ctx, home.service, user ? [user, undefined] : [undefined], claudeSignIn);
-      if (keychain && keychain !== "locked") return keychainFound(keychain, home.source, account);
       const file = claudeSignIn(readText(join(home.dir, ".credentials.json")));
+      // Claude Code refreshes the file alone when it cannot write the keychain (started outside the
+      // desktop session), so the item can hold a token that expired hours ago: the later one wins.
+      // An item that names no expiry is not known to be older, and stays.
+      const item = keychain && keychain !== "locked" ? keychain : null;
+      const fileIsLater = file != null && item != null && file.expiresAt != null && item.expiresAt != null && file.expiresAt > item.expiresAt;
+      if (item && !fileIsLater) return keychainFound(item, home.source, account);
       return file ? [{ ...file, account, source: home.source }] : keychainFound(keychain, home.source, account);
     }));
     return found.flat();
@@ -639,16 +645,93 @@ async function readKeychain(service: string, account?: string): Promise<Keychain
     const output = await readCapped(child.stdout);
     if (output === null) child.kill();
     const code = await child.exited;
+    // the command is over: its timer must not fire during the login-session read below and pass for a prompt
+    clearTimeout(timer);
     if (output === null) return { status: "missing" };
     if (code === 0) return { status: "found", value: output.trim() };
     // 44: errSecItemNotFound. Anything else found an item it could not read (36: a locked keychain).
     if (code === 44 && !timedOut) return { status: "missing" };
+    // 36 without a prompt: this server runs outside the login (Aqua) session - started over SSH or by a
+    // detached multiplexer - where the login keychain refuses any read. Ask from the login session instead.
+    if (code === 36 && !timedOut) {
+      const gui = await readKeychainInLoginSession(service, account);
+      if (gui !== null) return { status: "found", value: gui };
+    }
     if (timedOut) promptedServices.add(service);
     return { status: "locked" };
   } catch {
     return { status: "missing" };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+const xml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** launchd labels must be unique per call: concurrent reads for different config dirs can start in the same millisecond. */
+let loginSessionJobs = 0;
+
+/** `launchctl <args>`'s exit code, killed after COMMAND_TIMEOUT_MS so a stalled launchctl cannot hold up the caller. */
+async function launchctl(args: string[]): Promise<number> {
+  const child = Bun.spawn(["launchctl", ...args], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  const timer = setTimeout(() => child.kill(), COMMAND_TIMEOUT_MS);
+  try { return await child.exited; } finally { clearTimeout(timer); }
+}
+
+/**
+ * Reads a keychain item through a one-shot launchd job in the user's gui/<uid> domain, which runs in the
+ * login session where the keychain is unlocked. The value comes back through a FIFO, never a file on disk.
+ * null when not on macOS, the job cannot be loaded, or nothing came back in time.
+ *
+ * The FIFO is opened for reading and writing: that open never waits for the job, and since a FIFO read
+ * cannot be cancelled, a newline of our own ends one the job never answers. `security -w` ends the
+ * value with a newline, so the first line is the value.
+ */
+async function readKeychainInLoginSession(service: string, account?: string): Promise<string | null> {
+  if (process.platform !== "darwin" || typeof process.getuid !== "function") return null;
+  const args = ["/usr/bin/security", "find-generic-password", "-s", service, ...(account ? ["-a", account] : []), "-w"];
+  const domain = `gui/${process.getuid()}`;
+  const label = `dev.herdr-web-ui.keychain.${process.pid}.${Date.now()}.${++loginSessionJobs}`;
+  const dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-keychain-"));
+  const fifo = join(dir, "out");
+  const plist = join(dir, "job.plist");
+  let pipe: FileHandle | undefined;
+  try {
+    if (Bun.spawnSync(["mkfifo", "-m", "600", fifo]).exitCode !== 0) return null;
+    writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>Label</key><string>${xml(label)}</string><key>ProgramArguments</key><array>${args.map((a) => `<string>${xml(a)}</string>`).join("")}</array><key>StandardOutPath</key><string>${xml(fifo)}</string><key>StandardErrorPath</key><string>/dev/null</string><key>RunAtLoad</key><true/></dict></plist>
+`, { mode: 0o600 });
+    const handle = pipe = await open(fifo, "r+");
+    let gaveUp = false;
+    const giveUp = () => {
+      gaveUp = true;
+      try { writeSync(handle.fd, "\n"); } catch { /* nothing reads any more */ }
+    };
+    const reading = (async () => {
+      const buffer = Buffer.alloc(MAX_READ_BYTES + 1);
+      let size = 0;
+      let line = -1;
+      while (line === -1 && size <= MAX_READ_BYTES) {
+        const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
+        if (bytesRead === 0) break;
+        size += bytesRead;
+        line = buffer.subarray(0, size).indexOf(0x0a);
+      }
+      return line === -1 ? null : buffer.toString("utf8", 0, line).trim();
+    })().catch(() => null);
+    const timer = setTimeout(giveUp, COMMAND_TIMEOUT_MS);
+    try {
+      if (await launchctl(["bootstrap", domain, plist]).catch(() => -1) !== 0) giveUp();
+      const value = await reading;
+      return gaveUp || !value ? null : value;
+    } finally { clearTimeout(timer); }
+  } catch {
+    return null;
+  } finally {
+    await launchctl(["bootout", `${domain}/${label}`]).catch(() => undefined);
+    await pipe?.close().catch(() => undefined);
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 

@@ -347,13 +347,17 @@ function readStream(stream: TranscriptStream, from: number, to: number): Buffer 
 }
 
 /** Reset markers are small native control records. Scan each appended byte once,
- * in bounded chunks; retain offsets, never a session-sized string. */
-const clearScans = new Map<string, { id: string; scanned: number; floor: number; tail: string }>();
+ * in bounded chunks; retain offsets, never a session-sized string.
+ * The same pass keeps an omp-family transcript's latest model and thinking-level
+ * records (small lines): a change between the metadata head and the newest page
+ * is otherwise never read, and the chat showed the level the session started at. */
+const SETTING_TYPES = ['"model_change"', '"thinking_level_change"'];
+const clearScans = new Map<string, { id: string; scanned: number; floor: number; tail: string; settings: Partial<Record<"model_change" | "thinking_level_change", { offset: number; end: number; line: string }>> }>();
 function applyHistoryBoundary(path: string, stream: TranscriptStream, source: RecognizedConversation["source"]): void {
   if (source === "codex-transcript") return;
   let scan = clearScans.get(path);
   if (!scan || scan.id !== stream.id || scan.scanned > stream.length || bytesBefore(stream, scan.scanned) !== scan.tail) {
-    scan = { id: stream.id, scanned: 0, floor: 0, tail: "" };
+    scan = { id: stream.id, scanned: 0, floor: 0, tail: "", settings: {} };
   }
   let position = scan.scanned;
   let carry = Buffer.alloc(0);
@@ -368,7 +372,14 @@ function applyHistoryBoundary(path: string, stream: TranscriptStream, source: Re
     const base = position - carry.length;
     let offset = 0;
     for (let newline = bytes.indexOf(0x0a); newline !== -1; newline = bytes.indexOf(0x0a, offset)) {
-      if (!skipping && isClear(bytes.subarray(offset, newline))) scan.floor = base + offset;
+      const line = bytes.subarray(offset, newline);
+      if (!skipping && isClear(line)) scan.floor = base + offset;
+      else if (!skipping && source !== "claude-transcript" && SETTING_TYPES.some((type) => line.includes(type))) {
+        try {
+          const type: unknown = JSON.parse(line.toString("utf8"))?.type;
+          if (type === "model_change" || type === "thinking_level_change") scan.settings[type] = { offset: base + offset, end: base + newline, line: line.toString("utf8") };
+        } catch { /* not a record */ }
+      }
       skipping = false;
       offset = newline + 1;
       scan.scanned = base + offset;
@@ -570,10 +581,17 @@ function codexLiveTurn(path: string, stream: TranscriptStream, start: number, be
   return { turns: cached.parser.snapshot(tail), metadata: parseConversationMetadata(tail, "codex-transcript", cached.metadata) };
 }
 
-/** Codex settings belong to the live rollout; native clears bound other stores. */
+/** Codex settings belong to the live rollout; native clears bound other stores. A model or
+ * thinking-level change after the head and before the page follows the head, in order. */
 function metadataHead(path: string, stream: TranscriptStream, source: RecognizedConversation["source"], start: number): string {
-  return source === "codex-transcript" ? readRange(path, 0, METADATA_HEAD_BYTES)
-    : readStream(stream, stream.floor, Math.min(start, stream.floor + METADATA_HEAD_BYTES)).toString("utf8");
+  if (source === "codex-transcript") return readRange(path, 0, METADATA_HEAD_BYTES);
+  const end = Math.min(start, stream.floor + METADATA_HEAD_BYTES);
+  const later = Object.values(clearScans.get(path)?.settings ?? {})
+    // a record the head cuts in two is read whole here
+    .filter((setting) => setting.end > end && setting.offset < start)
+    .sort((a, b) => a.offset - b.offset)
+    .map((setting) => setting.line);
+  return [readStream(stream, stream.floor, end).toString("utf8"), ...later].join("\n");
 }
 
 /**

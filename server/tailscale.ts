@@ -20,7 +20,7 @@ export interface TailscaleOutput {
   serve: string | null;
 }
 
-interface StatusJson { BackendState?: string; Self?: { DNSName?: string; UserID?: number | string; TailscaleIPs?: string[] }; User?: Record<string, { LoginName?: string }> }
+interface StatusJson { BackendState?: string; Self?: { DNSName?: string; UserID?: number | string; TailscaleIPs?: string[]; Tags?: string[] }; User?: Record<string, { LoginName?: string }> }
 interface ServeJson {
   TCP?: Record<string, { HTTPS?: boolean; HTTP?: boolean }>;
   /** "host:port" -> handlers by path */
@@ -102,11 +102,16 @@ export async function remoteAccess(port: number): Promise<RemoteAccess> {
   return { port, tailscale: parseTailscale(await readTailscale(), port) };
 }
 
-/** The login this PC's Tailscale node belongs to, from `tailscale status --json`; null when it does not say. */
+/** A tagged node belongs to no person: its `User` entry is the node itself, named by its MagicDNS name. */
+export function isTaggedNode(status: string | null): boolean {
+  return (parseJson<StatusJson>(status)?.Self?.Tags?.length ?? 0) > 0;
+}
+
+/** The login this PC's Tailscale node belongs to, from `tailscale status --json`; null when it does not say, or the node is tagged. */
 export function parseTailscaleOwner(status: string | null): string | null {
   const parsed = parseJson<StatusJson>(status);
   const id = parsed?.Self?.UserID;
-  if (id === undefined || id === null) return null;
+  if (id === undefined || id === null || isTaggedNode(status)) return null;
   return parsed?.User?.[String(id)]?.LoginName || null;
 }
 
@@ -116,22 +121,26 @@ export function parseTailscaleIp(status: string | null): string | null {
 }
 
 const OWNER_TTL_MS = 5 * 60_000;
-let ownerCache: { login: string | null; at: number } | null = null;
+let ownerCache: { owner: string | null; tagged: boolean; at: number } | null = null;
 let ownerRefresh: Promise<void> | null = null;
 
 /**
- * The PC's own Tailscale login, cached five minutes. A stale value is answered at once and
- * refreshed in the background, so a request never waits on the tailscale CLI; the first
- * lookup is what `createServer` starts, so the answer is usually there before any request.
+ * The PC's own Tailscale login, or that its node is tagged and has none, cached five minutes.
+ * A stale value is answered at once and refreshed in the background, so a request never waits
+ * on the tailscale CLI; the first lookup is what `createServer` starts, so the answer is
+ * usually there before any request.
  */
-export function tailscaleOwner(): string | null {
+export function tailscaleIdentity(): { owner: string | null; tagged: boolean } {
   const now = Date.now();
   if ((ownerCache === null || now - ownerCache.at >= OWNER_TTL_MS) && ownerRefresh === null) {
     ownerRefresh = (async () => {
       const binary = tailscaleBinary();
       const status = binary === null ? null : await run(binary, ["status", "--json"]);
-      ownerCache = { login: parseTailscaleOwner(status), at: Date.now() };
+      // a CLI that failed this once says nothing new: what it last said stands, so the owner is not
+      // taken for a stranger, nor a stranger let in, for the five minutes until it is asked again
+      ownerCache = binary !== null && status === null && ownerCache !== null ? { ...ownerCache, at: Date.now() }
+        : { owner: parseTailscaleOwner(status), tagged: isTaggedNode(status), at: Date.now() };
     })().finally(() => { ownerRefresh = null; });
   }
-  return ownerCache?.login ?? null;
+  return { owner: ownerCache?.owner ?? null, tagged: ownerCache?.tagged ?? false };
 }

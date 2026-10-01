@@ -109,6 +109,31 @@ test("reset scanning crosses chunk boundaries, excludes pre-clear full outputs a
   expect(parseClaudeTranscript(claude)).toEqual([]);
 });
 
+for (const source of ["omp-transcript", "omo-transcript", "gjc-transcript"] as const) {
+  test(`${source}: a thinking-level change between the metadata head and the newest page sets the reasoning shown`, () => {
+    const level = (thinkingLevel: string) => ({ type: "thinking_level_change", thinkingLevel });
+    const padding = { type: "padding", text: "x".repeat(70 * 1024) }; // past the 64 KiB metadata head
+    const path = fixture(jsonl([
+      { type: "model_change", modelId: "first" }, level("high"), message("user", "start"), padding,
+      { type: "model_change", modelId: "second" }, level("medium"),
+      ...Array.from({ length: 130 }, (_, i) => message("user", `turn ${i}`)),
+    ]));
+    const page = transcriptPage(source, path);
+    expect(page.cursor).toBeString(); // the newest page starts after both changes
+    expect(page.metadata).toEqual({ model: "second", reasoning_effort: "medium" });
+    forgetTranscriptState();
+    expect(transcriptPage(source, path).metadata).toEqual({ model: "second", reasoning_effort: "medium" });
+    // a change inside the page still wins
+    appendFileSync(path, jsonl([level("low")]));
+    expect(transcriptPage(source, path).metadata.reasoning_effort).toBe("low");
+    // a clear forgets them all, also once the newest page starts past the cleared head
+    appendFileSync(path, jsonl([clear, padding, ...Array.from({ length: 130 }, (_, i) => message("user", `after clear ${i}`))]));
+    const cleared = transcriptPage(source, path);
+    expect(cleared.cursor).toBeString();
+    expect(cleared.metadata).toEqual({ model: null, reasoning_effort: null });
+  });
+}
+
 test("metadata clears old context and ignores hidden assistant usage", () => {
   const text = jsonl([{ type: "model_change", modelId: "old" }, message("assistant", "answer", { model: "old", usage: { input: 123 } }), clear]);
   expect(parseConversationMetadata(text, "omp-transcript")).toEqual({ model: null, reasoning_effort: null });

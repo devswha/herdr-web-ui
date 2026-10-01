@@ -51,6 +51,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The browser demo runs a pi pane, backfilled into the recorded snapshot when the fixtures
   predate it: `site/demo/fixtures.ts` is the only file a new demo agent needs.
 
+### Changed
+- Remote PCs use the `remote-v10` runtime, which carries the server-side fixes since `remote-v9`
+  to them, Windows PCs included: New session with Gajae Code, the chat of a Gajae Code or omp
+  pane, pasted and sent lines that stay in an agent's message box, typing that no longer outlives
+  its connection, and OmO detection. A PC connected with the `remote-v9` bridge updates as it did
+  for earlier runtimes. ([#282](https://github.com/devswha/herdr-web-ui/pull/282))
 
 ### Removed
 - `/tree` is no longer suggested in a pi pane's chat. pi offers it, and typing it works, but the
@@ -60,8 +66,38 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   list the same way. What the chat does say is where a `/tree` left the conversation: the marker
   above the turns names how many it holds back and across how many branches
 
-
 ### Fixed
+- On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
+  Tailscale user". A tagged node has no person's login, and the server took the node's own name
+  for one, which no device could match. Such a PC now asks every device to pair, yours included,
+  and `HERDR_WEB_TAILSCALE_OWNER` names the login that gets in without pairing.
+  ([#280](https://github.com/devswha/herdr-web-ui/pull/280))
+- Several lines sent to an agent from the terminal's input line on a phone stay in its message
+  box until sent, on a Windows PC too. The mirrored terminal there never learns the agent's paste
+  mode, so the lines went as typed and the agent sent the first one alone. They now go as one
+  paste, as the same lines pasted into that terminal do since 0.3.40.
+  ([#281](https://github.com/devswha/herdr-web-ui/pull/281))
+- The chat of an OmO, omp or Gajae Code session shows the reasoning level the session runs at
+  now. It read the level from the first 64 KB of the transcript and the newest page, so a level
+  changed in between (`/thinking`, or a model switch) was never seen: a session started at
+  `high` and switched to `medium` still showed `high`. A model or thinking-level change between
+  them now counts, in order, without reading more of the file.
+- The chat shows the conversation of OmO installed with `bun add -g omo-ai` again, and the
+  sidebar marks its pane as OmO. A global bun install puts OmO's engine next to omo-ai rather
+  than inside it, so the pane runs `bun …/@code-yeongyu/senpi/dist/bundle/cli.js --extension
+  …/omo-ai/plugin`, and 0.3.40 no longer took it for OmO: the chat found no conversation and
+  New session did not see OmO start. That engine counts as OmO again when omo-ai's plugin is one
+  of its extensions.
+- Claude usage on a Mac no longer shows `expired` while Claude Code is signed in. Claude Code
+  started outside the desktop session (over SSH, or by a background service) cannot write its
+  keychain item, so it refreshes only `~/.claude/.credentials.json` and the item keeps a token
+  that expired hours ago. The app took the keychain item whenever it could read it; it now
+  takes whichever of the two expires later, the way it already does for Cursor. Both are still
+  only read.
+- Claude's subscription usage no longer shows a locked keychain on a Mac whose server was
+  started outside the desktop session (over SSH, or by a detached multiplexer), where
+  `security` cannot open the login keychain. The item is read through a one-shot launchd job
+  in the desktop session instead.
 - A pi pane no longer shows a context window pi never used, and now shows the one it does. A
   provider that states `contextWindow` beside a model that names none reported that number as the
   model's denominator; pi does not inherit it, and runs the model at its own default instead, so the

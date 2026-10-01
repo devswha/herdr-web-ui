@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describeProgress } from "../src/lib/bridgeProgress.ts";
 import type { SetupJob } from "../shared/machines.ts";
 import { paneNotificationTag } from "../shared/notify-policy.ts";
-import { machinePath, paneStorageId } from "../shared/machines.ts";
+import { machinePath, paneStorageId, REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
 import { canSendSecret, sameOrigin, shellQuote, validateTarget } from "./machine-security.ts";
 import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
 import { MachineManager } from "./machines.ts";
@@ -226,7 +226,7 @@ describe("host detection", () => {
       expect(inspection).toMatchObject({
         platform: "win32-x64", home: "C:\\Users\\u", herdrPath: "C:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe",
         expectedSocket: "C:\\Users\\u\\AppData\\Roaming\\herdr\\sessions\\qa\\herdr.sock",
-        runtimeDir: "C:\\Users\\u\\AppData\\Local\\herdr-web-ui\\remote-v9", bundleReady: false,
+        runtimeDir: `C:\\Users\\u\\AppData\\Local\\herdr-web-ui\\remote-v${REMOTE_BUNDLE_VERSION}`, bundleReady: false,
       });
     }
   });
