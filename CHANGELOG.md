@@ -8,9 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
-- On a phone, the chat's status line no longer shows **Report a problem**, nor **Hide keyboard**
-  while typing. A tap on the transcript or a drag down it still puts the keyboard away, and
-  Report a problem stays on wider screens
+- The chat's status line no longer has **Report a problem**, and on a phone no **Hide keyboard**
+  while typing. A tap on the transcript or a drag down it still puts the keyboard away. Problems
+  go to [GitHub issues](https://github.com/devswha/herdr-web-ui/issues/new/choose)
   ([#221](https://github.com/devswha/herdr-web-ui/pull/221)).
 
 ## [0.3.36] - 2026-10-01

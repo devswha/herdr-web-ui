@@ -300,49 +300,8 @@ try {
   await composer.fill("");
   console.log("PASS the composer keeps an IME's committing Enter");
 
-  // a problem report gathers the pane's pieces, sends nothing on its own, and files a prefilled issue
-  await page.getByRole("button", { name: "Report a problem", exact: true }).click();
-  const reportDialog = page.getByRole("dialog", { name: "Report a problem" });
-  const reportText = reportDialog.getByRole("textbox", { name: "Report", exact: true });
-  await until(async () => (await reportText.inputValue()).includes("## Environment"), "report gathered");
-  await reportDialog.getByRole("textbox", { name: "What went wrong?" }).fill("list numbers read 1. 1. 1.");
-  await reportDialog.getByLabel("Terminal screen").check();
-  await until(async () => (await reportText.inputValue()).includes("## Terminal screen"), "screen included");
-  assert.match(await reportText.inputValue(), /## What went wrong\n\nlist numbers read 1\. 1\. 1\./);
-  const redacted = "한글 보고서 😀\n".repeat(1000);
-  await reportText.fill(redacted);
-  await reportDialog.getByLabel("Terminal screen").uncheck();
-  await report("working");
-  await Bun.sleep(300);
-  assert.equal(await reportText.inputValue(), redacted, "manual redactions survive live updates and option changes");
-  assert.ok((await reportDialog.getByRole("link", { name: "Open a GitHub issue" }).getAttribute("href"))!.length <= 2000);
-  const download = page.waitForEvent("download");
-  await reportDialog.getByRole("button", { name: "Save as file", exact: true }).click();
-  const savedReport = await download;
-  assert.match(savedReport.suggestedFilename(), /^herdr-report-.+\.md$/);
-  assert.equal(await Bun.file((await savedReport.path())!).text(), redacted, "saved report is complete");
-  // the issue page itself is GitHub's: the address asked for is what is checked, and never loaded
-  let issueRequested = "";
-  await page.context().route(/^https:\/\/github\.com\//, async (route) => {
-    issueRequested ||= route.request().url();
-    await route.fulfill({ status: 200, contentType: "text/plain", body: "stub" });
-  });
-  const popup = page.waitForEvent("popup");
-  await reportDialog.getByRole("link", { name: "Open a GitHub issue", exact: true }).click();
-  const issue = await popup;
-  await until(() => issueRequested !== "", "issue address requested");
-  const issueAddress = new URL(issueRequested);
-  assert.equal(`${issueAddress.origin}${issueAddress.pathname}`, "https://github.com/devswha/herdr-web-ui/issues/new");
-  assert.equal(issueAddress.searchParams.get("title"), "[claude] list numbers read 1. 1. 1.");
-  assert.ok(issueRequested.length <= 2000);
-  assert.match(issueAddress.searchParams.get("body")!, /Please paste the full report/);
-  await issue.close();
-  await reportDialog.getByRole("button", { name: "Rebuild report" }).click();
-  assert.match(await reportText.inputValue(), /## Environment/);
-  await report("idle");
-  await reportDialog.getByRole("button", { name: "Close", exact: true }).click();
-  await reportDialog.waitFor({ state: "hidden" });
-  console.log("PASS a problem report gathers the pane, saves a file, and opens a prefilled issue");
+  // the status line holds the agent and its state: no report action
+  assert.equal(await page.getByRole("button", { name: "Report a problem", exact: true }).count(), 0, "no report action");
 
   const selectPane = async (paneId: string) => {
     await page.locator(`.pane-select[title^="${paneId} —"]`).click();

@@ -99,34 +99,6 @@
   color: var(--status-blocked);
 }
 
-/* A labeled report action stays discoverable beside the chat status. */
-.composer-report {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  width: auto;
-  height: var(--control-h);
-  padding-inline: var(--space-2);
-  font-size: var(--fs-xs);
-  margin-left: auto;
-  color: var(--text-dim);
-}
-
-@media (pointer: coarse) {
-  .composer-report { min-height: calc(var(--touch-target) + var(--space-1)); }
-}
-
-/* the phone layout (the drawer's width) keeps its status line to the agent and its state */
-@media (max-width: 768px) {
-  .composer-report { display: none; }
-}
-
-.composer-report svg {
-  width: 14px;
-  height: 14px;
-}
-
 .composer-status .agent-mark {
   display: inline-flex;
   flex: none;
