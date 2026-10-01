@@ -65,7 +65,7 @@ async function confirmed(target: Menu): Promise<string[]> {
   return chosen(target);
 }
 
-async function card(target: Menu): Promise<{ id: string; options: { label: string }[] }> {
+async function card(target: Menu): Promise<{ id: string; kind: string; title: string; question: string; options: { label: string }[] }> {
   for (let i = 0; i < 100; i++) {
     const { prompt } = await (await fetch(`${base()}/api/pane/prompt?pane_id=${encodeURIComponent(target.pane)}`)).json() as { prompt: any };
     if (prompt) return prompt;
@@ -124,5 +124,79 @@ describe("answers to Claude's unnumbered menus", () => {
     expect(response.status).toBe(409);
     await Bun.sleep(300);
     expect(chosen(drifting)).toEqual([]);
+  });
+});
+
+/**
+ * pi's dialogs against the real server. A pane runs a menu drawn the way pi draws it, reported
+ * as `pi`, and — as measured on pi itself — reported **idle** while it waits: pi never calls
+ * itself blocked for a dialog. So this is the case where the card has to come from the reader
+ * rather than from the status badge, which is how the other agents' cards are gated.
+ */
+const PI_MENU = `
+const { appendFileSync, writeFileSync } = require("node:fs");
+const [out, spec] = process.argv.slice(2);
+const { title, rows } = JSON.parse(spec);
+let cursor = 0;
+const draw = () => process.stdout.write("\\u001b[2J\\u001b[H" + [
+  ...Array.from({ length: 10 }, (_, i) => "earlier line " + i), "",
+  " " + title, "",
+  ...rows.map((row, index) => (index === cursor ? " \\u2192 " : "   ") + row), "",
+  " \\u2191\\u2193 navigate  enter select  escape/ctrl+c cancel",
+  "\\u2500".repeat(40), "/tmp/app", "0.0%/215k (auto)                                   some-model \\u2022 medium",
+].join("\\r\\n"));
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => {
+  const data = chunk.toString("utf8");
+  if (/\\u001b\\[\\[?B/.test(data)) cursor = Math.min(rows.length - 1, cursor + 1);
+  if (/\\u001b\\[\\[?A/.test(data)) cursor = Math.max(0, cursor - 1);
+  if (data.includes("\\r")) appendFileSync(out, rows[cursor] + "\\n");
+  draw();
+});
+draw();
+writeFileSync(out, "");
+`;
+
+async function piMenu(label: string, title: string, rows: string[]): Promise<Menu> {
+  const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+    "workspace.create", { label: `herdr-web-ui-test-prompt-${label}`, cwd: root, focus: false },
+  );
+  workspaces.push(created.workspace.workspace_id);
+  const log = join(root, `${label}.log`);
+  await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "pi")}' '${join(root, "pi-menu.js")}' '${log}' '${JSON.stringify({ title, rows })}'\n` });
+  for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
+  expect(existsSync(log)).toBe(true);
+  // pi reports idle while one of its dialogs is open, and the card still has to be offered
+  await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "pi", state: "idle" });
+  return { pane: created.root_pane.pane_id, log };
+}
+
+describe("answers to pi's dialogs", () => {
+  let select: Menu;
+  let confirm: Menu;
+
+  beforeAll(async () => {
+    writeFileSync(join(root, "pi-menu.js"), PI_MENU);
+    copyFileSync(process.execPath, join(root, "pi"));
+    chmodSync(join(root, "pi"), 0o755);
+    select = await piMenu("pi-select", "Allow dangerous command?", ["Allow once", "Always allow", "Block"]);
+    confirm = await piMenu("pi-confirm", "Clear session?", ["Yes", "No"]);
+  }, 30_000);
+
+  it("offers the card while pi reports the pane idle, and answers the row it showed", async () => {
+    const prompt = await card(select);
+    expect(prompt.question).toBe("Allow dangerous command?");
+    expect(prompt.options.map((option) => option.label)).toEqual(["Allow once", "Always allow", "Block"]);
+    expect((await answer(select, prompt.id, 2)).status).toBe(200);
+    expect(await confirmed(select)).toEqual(["Block"]);
+  });
+
+  it("presses No on a confirmation rather than cancelling it", async () => {
+    const prompt = await card(confirm);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Yes", "No"]);
+    expect((await answer(confirm, prompt.id, 1)).status).toBe(200);
+    // pi's own Yes/No: pressing the row answers the question false, where Escape leaves it open
+    expect(await confirmed(confirm)).toEqual(["No"]);
   });
 });

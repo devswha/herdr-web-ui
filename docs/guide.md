@@ -135,7 +135,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **omp** | Native session file | ✓ |
 | **omo** | Native session file, found through the pane's process tree | — use Terminal |
 | **gjc** | Native session file, from the session directory gjc keeps open | — use Terminal |
-| **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | — use Terminal |
+| **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
 | **Anything else** | The terminal's text | — use Terminal |
 
 When the last visible line is a familiar password, SSH passphrase or PIN request, both

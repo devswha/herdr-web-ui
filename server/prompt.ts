@@ -79,6 +79,9 @@ type Responder =
   | "omo-question"
   | "omo-review"
   | "omo-typing"
+  | "pi-question"
+  | "pi-confirm"
+  | "pi-input"
   | "fallback-menu"
   | "fallback-keys";
 
@@ -1148,7 +1151,102 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
     }
     return rules === 1;
   }
+  // pi keeps its footer under every dialog — the pane's folder, then its context meter — so the
+  // hint sits near the end without being it. A dialog already answered leaves its hint far
+  // above whatever came after, which is what keeps this window narrow.
+  if (prompt.responder === "pi-question" || prompt.responder === "pi-confirm" || prompt.responder === "pi-input") {
+    const tail = shown.slice(-3).join(" ");
+    return PI_MENU_HINT_RE.test(tail) || PI_INPUT_HINT_RE.test(tail);
+  }
   return ends(/ctrl\+g to edit|shift\+tab to approve with this feedback/i);
+}
+
+/**
+ * pi draws one menu widget for its dialogs — an extension's `ctx.ui.select`, `confirm` and
+ * `input`, and the selectors `/login` and `/scoped-models` open — and names what it takes in a
+ * hint line at the dialog's end: `↑↓ navigate  enter select  escape/ctrl+c cancel`, or
+ * `enter submit  escape/ctrl+c cancel` while it wants text. Read off that hint, not off
+ * indentation: a confirm's message sits indented beside its options, so a row is told from
+ * prose only by the hint that follows it. `/tree` is left alone on purpose: its hint says
+ * `↑/↓ move`, and answering it from the chat would move the session's branch, which the chat
+ * has no way to undo by clicking. pi never reports itself blocked for a dialog — it stays idle
+ * while one waits — so the card can only come from the screen, as it does for the other agents.
+ */
+const PI_MENU_HINT_RE = /\u2191\u2193 navigate\s+enter select\s+escape\/ctrl\+c cancel/i;
+const PI_INPUT_HINT_RE = /enter submit\s+escape\/ctrl\+c cancel/i;
+/** the line pi types an answer into */
+const PI_INPUT_LINE_RE = /^[\u203a>\u276f]+\s*(.*)$/;
+/** a menu row: pi's cursor, an optional tick marking the current choice, then the label */
+const PI_ROW_RE = /^([\u2192\u276f\u279c])?\s*(?:[\u2713\u2714]\s+)?(\S.*)$/;
+
+/**
+ * The rows a dialog takes its answer from, and its own words over them. pi separates the two
+ * with a blank line and ends the block with its hint, so the run of lines directly above the
+ * hint is what its arrow keys move through, and what sits above the blank over it is what the
+ * dialog asks. The rule over the dialog is no use for this: it stands over the whole thing,
+ * title included, and a confirm indents its message level with its own options.
+ */
+function piDialogRows(lines: string[], hintIndex: number): { rows: { line: string; cursor: boolean }[]; title: string[] } {
+  const rows: { line: string; cursor: boolean }[] = [];
+  let index = hintIndex - 1;
+  while (index >= 0 && !cleanLine(lines[index]!)) index -= 1;
+  for (; index >= 0; index -= 1) {
+    const line = cleanLine(lines[index]!);
+    if (!line || isDivider(line)) break;
+    rows.unshift({ line, cursor: /^[\u2192\u276f\u279c]\s*\S/.test(line) });
+  }
+  const title: string[] = [];
+  for (; index >= 0 && title.length < 2; index -= 1) {
+    if (isDivider(lines[index]!)) break;
+    const line = cleanLine(lines[index]!);
+    if (line) title.unshift(line);
+  }
+  return { rows, title };
+}
+
+function parsePiDialog(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(lines, (_, index) => PI_MENU_HINT_RE.test(wrapped(lines, index)) || PI_INPUT_HINT_RE.test(wrapped(lines, index)));
+  if (hintIndex < 0) return null;
+  const block = piDialogRows(lines, hintIndex);
+  if (block.rows.length === 0) return null;
+  const [title, body] = block.title;
+  // pi wants text on a `>` line: there is nothing to pick, and the answer is typed into it
+  if (PI_INPUT_HINT_RE.test(wrapped(lines, hintIndex))) {
+    if (!block.rows.every((row) => PI_INPUT_LINE_RE.test(row.line))) return null;
+    return finishPrompt("pi", {
+      kind: "question", title: body ?? "", question: title ?? "", body: null,
+      options: [{ label: "Type your answer", description: null }], multi_select: false, custom_option_index: 0,
+    }, { responder: "pi-input", menuLabels: [], selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: 0, rejectWithEscapeIndex: null });
+  }
+  // every line of the block must be a row, and a row must be a single label: pi sets its
+  // command palette out in two columns, and offering those as options would run a slash
+  // command on a click. The palette ends in a row count of its own, not this hint.
+  const rows = block.rows.map((row) => row.line.match(PI_ROW_RE)).filter((row): row is RegExpMatchArray => row !== null && row[2] !== undefined);
+  if (rows.length !== block.rows.length || rows.length < 2) return null;
+  if (rows.some((row) => /\s{2,}/.test(row[2]!))) return null;
+  // a dialog moved through by hand sits wherever its last key left the cursor, and the chat
+  // would then navigate from a position it cannot see
+  if (block.rows.findIndex((row) => row.cursor) !== 0) return null;
+  // Yes/No reads as a confirmation; anything else is a question asked among its options
+  const labels = rows.map((row) => row[2]!.trim());
+  const confirming = labels.length === 2 && /^yes\b/i.test(labels[0]!) && /^no\b/i.test(labels[1]!);
+  return finishPrompt("pi", {
+    kind: confirming ? "approval" : "question",
+    title: confirming ? (title ?? "") : "",
+    question: confirming ? (body ?? title ?? "") : (body ?? title ?? ""),
+    body: null,
+    options: labels.map((label) => ({ label, description: null })),
+    multi_select: false,
+    custom_option_index: null,
+  }, {
+    responder: confirming ? "pi-confirm" : "pi-question",
+    menuLabels: block.rows.map((row) => row.line),
+    selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: null,
+    // "No" is pressed, not cancelled: pi's own Yes/No answers the question false, which is
+    // what a confirmation means, where Escape would leave it unanswered
+    rejectWithEscapeIndex: null,
+  });
 }
 
 function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true): ParsedPrompt | null {
@@ -1158,11 +1256,15 @@ function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null
     : agent === "omp"
       ? [parseOmpQuestion(screen), parseOmpApproval(screen)]
       // herdr names an omo pane `pi` while omo waits (or no agent at all, as it can for an omo
-      // started in the pane's shell), `claude` while its claude-sdk child runs
-      : agent === "omo" || agent === "pi" || agent === ""
-        ? omo()
-        : agent === "claude"
-          ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), ...omo()]
+      // started in the pane's shell), `claude` while its claude-sdk child runs. A pane named
+      // `pi` reads pi's own dialogs first: pi's hint is its own, so an omo form never matches
+      // it and falls through to omo()'s parsers.
+      : agent === "claude"
+        ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), ...omo()]
+        : agent === "pi"
+          ? [parsePiDialog(screen), ...omo()]
+        : agent === "omo" || agent === ""
+          ? omo()
           : [];
   return candidates.find((candidate): candidate is ParsedPrompt => candidate !== null && promptTailIsActive(candidate, screen)) ?? null;
 }
@@ -1217,8 +1319,11 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
     if (!text || parsed.customMenuIndex === null || parsed.multi_select) throw new InvalidAnswer("This prompt does not accept a custom answer.");
     if (parsed.customSteps) return parsed.customSteps(text);
     const navigation = navigationKeys(parsed.customMenuIndex - parsed.selectedIndex);
-    // Codex's queue types into its last row once it is selected: no enter first
-    if (!["claude-question", "claude-plan", "codex-question", "codex-async-question"].includes(parsed.responder)) navigation.push(KEY.enter);
+    // Codex's queue types into its last row once it is selected: no enter first. pi's text
+    // dialog is the same but for a worse reason: its `>` line already owns the input, so an
+    // enter typed before the answer submits the dialog empty and leaves the answer behind to
+    // be typed into the agent's own prompt.
+    if (!["claude-question", "claude-plan", "codex-question", "codex-async-question", "pi-input"].includes(parsed.responder)) navigation.push(KEY.enter);
     if (parsed.responder === "codex-question") navigation.push(KEY.tab);
     return [
       ...keySteps(navigation),

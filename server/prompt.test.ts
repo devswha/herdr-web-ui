@@ -1387,3 +1387,64 @@ describe("Claude's suggestion on a prompt poll", () => {
     });
   }, 4_000);
 });
+
+// Captured from pi 0.87.1 driving its own dialogs: the pane's footer stays under the dialog,
+// so the hint is near the end of the screen without being it.
+describe("pi's dialogs", () => {
+  const FOOTER = "\n────────────────────────────────────────\n/tmp/app\n0.0%/215k (auto)                                        some-model • medium\n";
+  const piScreen = (body: string) => `────────────────────────────────────────\n\n${body}\n────────────────────────────────────────${FOOTER}`;
+  const MENU_HINT = " ↑↓ navigate  enter select  escape/ctrl+c cancel";
+  const select = piScreen(" Allow dangerous command?\n\n → Allow once\n   Always allow\n   Block\n" + MENU_HINT);
+
+  test("reads an extension's select as its options, in pi's own order", () => {
+    const prompt = parseInteractivePrompt("pi", select)!;
+    expect(prompt.kind).toBe("question");
+    expect(prompt.question).toBe("Allow dangerous command?");
+    expect(prompt.options.map((option) => option.label)).toEqual(["Allow once", "Always allow", "Block"]);
+    // the cursor sits on the first row, so one option is one key step per row above it
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    expect(answerKeys(prompt, { option_index: 2 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("reads a confirm as an approval, and declines it by pressing No", () => {
+    const prompt = parseInteractivePrompt("pi", piScreen(" Clear session?\n All messages will be lost.\n\n → Yes\n   No\n" + MENU_HINT))!;
+    expect(prompt.kind).toBe("approval");
+    expect(prompt.title).toBe("Clear session?");
+    expect(prompt.question).toBe("All messages will be lost.");
+    expect(prompt.options.map((option) => option.label)).toEqual(["Yes", "No"]);
+    // measured on pi: pressing "No" answers the confirmation false, where Escape would leave
+    // it unanswered, so the card's decline presses the row it shows
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("lets the chat type an answer to a dialog that wants text", () => {
+    const prompt = parseInteractivePrompt("pi", piScreen(" Branch name?\n\n>\n enter submit  escape/ctrl+c cancel"))!;
+    expect(prompt.question).toBe("Branch name?");
+    expect(prompt.custom_option_index).toBe(0);
+    // the `>` line already owns the input: an Enter typed before the answer submits the dialog
+    // empty, and the answer is left behind to be typed into pi's own prompt
+    expect(answerKeys(prompt, { custom_text: "feat/x" })).toEqual([{ text: "feat/x" }, { keys: ["enter"] }]);
+  });
+
+  test("offers nothing once the dialog is answered, moved through, or never opened", () => {
+    expect(parseInteractivePrompt("pi", select.replace("→ Allow once", "  Allow once").replace("   Always allow", " → Always allow"))).toBeNull();
+    // an answered dialog leaves its hint on screen while pi carries on under it: the hint is
+    // no longer near the end, so the card that was offered is withdrawn rather than reoffered
+    expect(parseInteractivePrompt("pi", piScreen(" select -> Always allow\n" + MENU_HINT + "\n\n thinking\n more of the answer\n and yet more\n\n>" ))).toBeNull();
+    // pi's own main prompt, and its slash palette: the palette ends in a row count rather than
+    // this hint, and its rows are set out in two columns, which are commands, not answers
+    expect(parseInteractivePrompt("pi", piScreen(""))).toBeNull();
+    const palette = piScreen(" /model\n → settings                        Open settings menu\n   model                           Select model\n   tree                            Navigate session tree\n   (1/51)\n" + MENU_HINT);
+    expect(parseInteractivePrompt("pi", palette)).toBeNull();
+    // /tree navigates the session's branch, which the chat cannot undo: its hint says "↑/↓ move"
+    expect(parseInteractivePrompt("pi", piScreen("   Session Tree\n  ↑/↓ move · ←/→ page · ctrl+←/→ branch · ctrl+x copy\n  Type to search:\n────────────────────────────────────────\n  an entry\n  (0/1)"))).toBeNull();
+  });
+
+  test("tells a dialog apart from another of the same shape", () => {
+    const other = select.replace("Block", "Block and say why");
+    expect(parseInteractivePrompt("pi", select)!.id).not.toBe(parseInteractivePrompt("pi", other)!.id);
+    // the id is the card's own content: what the chat polls keeps its answer open while pi
+    // redraws around the dialog, and turns stale only when the dialog itself changes
+    expect(parseInteractivePrompt("pi", select.replace("0.0%/215k (auto)", "12.3%/215k (auto)"))!.id).toBe(parseInteractivePrompt("pi", select)!.id);
+  });
+});
