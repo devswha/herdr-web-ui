@@ -7,8 +7,12 @@ const BUILTINS: Record<string, readonly string[]> = {
   claude: ["clear", "compact", "config", "cost", "help", "init", "memory", "model", "permissions", "review", "status", "doctor", "login", "logout", "pr-comments", "release-notes", "terminal-setup", "vim"],
   omp: ["help", "clear", "compact", "model", "new", "sessions", "exit"],
   codex: ["clear", "compact", "diff", "help", "model", "new", "quit", "review", "status"],
-  // pi 0.87.1, as its own palette lists them
-  pi: ["settings", "model", "thinking", "scoped-models", "login", "logout", "llama", "new", "resume", "name", "session", "tree", "fork", "clone", "compact", "import", "copy", "export", "share", "bug", "trust", "reload", "hotkeys", "changelog", "quit"],
+  // pi 0.87.1, as its own palette lists them, less /tree — the way omp's list curates its own
+  // commands. The chat reads pi's tree browser as nothing at all: no card, and the pane still looks
+  // idle while the terminal waits for arrow keys. Offering the one command that opens it from the
+  // chat would walk a reader into a state only the terminal lens can leave. Navigating stays in the
+  // terminal; the chat's place is the abandoned-turns marker, which says where a /tree left off
+  pi: ["settings", "model", "thinking", "scoped-models", "login", "logout", "llama", "new", "resume", "name", "session", "fork", "clone", "compact", "import", "copy", "export", "share", "bug", "trust", "reload", "hotkeys", "changelog", "quit"],
 };
 
 /** pi states what each command opens or does, in its own words, read off its palette. */
@@ -17,7 +21,7 @@ const PI_DESCRIPTIONS: Record<string, string> = {
   "scoped-models": "Enable/disable models for Ctrl+P cycling", login: "<provider> — Configure provider authentication",
   logout: "Remove provider authentication", llama: "[t] Manage llama.cpp router models", new: "Start a new session",
   resume: "Resume a different session", name: "Set session display name", session: "Show session info and stats",
-  tree: "Navigate session tree (switch branches)", fork: "Create a new fork from a previous user message",
+  fork: "Create a new fork from a previous user message",
   clone: "Duplicate the current session at the current position", compact: "Manually compact the session context",
   import: "Import and resume a session from a JSONL file", copy: "Copy last agent message to clipboard",
   export: "Export session (HTML default, or specify path: .html/.jsonl)", share: "Share session as a secret GitHub gist",

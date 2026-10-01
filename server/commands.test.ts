@@ -85,7 +85,10 @@ describe("pi's slash commands", () => {
   it("offers pi's own built-ins, in pi's words", () => {
     const commands = paneCommands("pi", null, temp("pi-empty-home-"));
     expect(commands.map((command) => command.name)).toContain("compact");
-    expect(commands).toContainEqual({ name: "tree", description: "Navigate session tree (switch branches)", source: "builtin" });
+    // /tree is offered by pi itself but not by the chat, the way omp's list omits it: the command
+    // opens pi's tree browser, which the chat reads as nothing at all — no card, pane looks idle —
+    // so offering it invites a reader into a state only the terminal lens can leave
+    expect(commands.map((command) => command.name)).not.toContain("tree");
     // its own verbs, not the omp/codex wording shared by the rest
     expect(commands).toContainEqual({ name: "quit", description: "Quit pi", source: "builtin" });
     expect(commands.map((command) => command.name)).not.toContain("sessions");
