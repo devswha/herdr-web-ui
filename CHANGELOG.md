@@ -8,6 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A bridge that cannot run the PTY sidecar (no Node, or no `@lydell/node-pty`, as in the Windows
+  bundle) keeps mirroring its panes even when herdr reports terminal attach. It used to leave
+  the working mirror for an attach it could not start, and the terminal ended at once.
+  `/api/health` and the PC list say `terminal_attach: false` and `terminal_mirror: true` there.
+  The real terminal on Windows therefore needs a bundle that ships the sidecar, not only a
+  herdr that attaches ([#265](https://github.com/devswha/herdr-web-ui/pull/265)).
 - A password entered from the secret prompt on a mirrored terminal (a PC whose herdr cannot
   attach, as on Windows) is reported as entered only after herdr took it, and a send herdr
   refused is reported as failed instead of as done. Enter is now pressed as a key after the

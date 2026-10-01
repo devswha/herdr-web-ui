@@ -91,8 +91,9 @@ function storeSelection(machineId: string, paneId: string | null): void {
  * conversation better than a TUI sized for a desktop. Until the snapshot says whether the
  * pane has an agent (null), a touch screen guesses chat: most panes opened there are agents,
  * and guessing terminal flashed it for the seconds before the snapshot arrived. A PC whose
- * herdr has no terminal attach (Windows, herdrdev/herdr#4821) always opens its chat: its
- * terminal lens is only a notice, so a remembered choice there is not worth keeping.
+ * herdr has no terminal attach and no mirror either (an older Windows bridge) always opens
+ * its chat: its terminal lens is only a notice, so a remembered choice there is not worth
+ * keeping. A mirrored PC counts as having a terminal.
  */
 function storedView(paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean): PaneView {
   if (!terminalAttach) return "chat";
