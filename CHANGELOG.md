@@ -73,6 +73,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the right one as soon as an answer of it is on screen. A later gjc that Windows gave the same
   process number no longer inherits the old session either, and a process list that could not be
   read keeps the chat as it was instead of dropping it.
+  ([#285](https://github.com/devswha/herdr-web-ui/pull/285))
 - On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
   Tailscale user". A tagged node has no person's login, and the server took the node's own name
   for one, which no device could match. Such a PC now asks every device to pair, yours included,
