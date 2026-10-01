@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, appendFileSync, rmSync, symlinkSync, writeFileS
 import { join } from "node:path";
 
 import { defaultPiSessionDir, piTranscriptInStore } from "./pi.ts";
-import { transcriptPage } from "./conversation.ts";
+import { transcriptPage, piTranscriptImage } from "./conversation.ts";
 import type { ConversationTurn } from "../shared/protocol.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-pi-store-"));
@@ -162,5 +162,92 @@ describe("pi transcripts render as chat", () => {
       { type: "compaction", id: "c1", parentId: "u1", timestamp: "2026-09-30T00:00:02.000Z", summary: "", firstKeptEntryId: "u1" },
     ]);
     expect(transcriptPage("pi-transcript", path).turns).toHaveLength(1);
+  });
+});
+
+// pi reads a picture into the tool result as base64 beside the text it returns, so a
+// screenshot a `read` opened was in the file and invisible. The page carries only the
+// address; the bytes are fetched with the row. `mimeType` and `data` are pi's own spellings.
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const withImage = (toolCallId: string, extra: unknown[] = []) => ({
+  type: "message", id: `r-${toolCallId}`, parentId: "a1", timestamp: "2026-09-30T00:00:04.000Z",
+  message: { role: "toolResult", toolCallId, toolName: "read", content: [
+    { type: "text", text: "read 1 image" },
+    { type: "image", mimeType: "image/png", data: PNG.toString("base64") },
+    ...extra,
+  ] },
+});
+const callingRead = (id: string) => ({
+  type: "message", id: "a1", parentId: "u1", timestamp: "2026-09-30T00:00:03.000Z", message: {
+    role: "assistant", model: "qwen-test", provider: "test", stopReason: "toolUse", usage: { input: 10, output: 1 },
+    content: [{ type: "toolCall", id, name: "read", arguments: { path: "shot.png" } }],
+  }
+});
+const asked = { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:02.000Z", message: { role: "user", content: "what is in this screenshot?" } };
+
+describe("a pi tool result's images reach the chat", () => {
+  const imageOf = (part: unknown) => (part as Extract<ConversationTurn["parts"][number], { kind: "tool" }>).images;
+
+  it("addresses the image a call returned, and decodes it on request", () => {
+    const path = session("image-result", [asked, callingRead("c1"), withImage("c1")]);
+    const tool = transcriptPage("pi-transcript", path).turns[1]!.parts[0]!;
+    expect(imageOf(tool)).toEqual([{ media_type: "image/png", ref: "pi:c1:0" }]);
+    // the text answer is unchanged: the image is beside it, not instead of it
+    expect((tool as Extract<typeof tool, { kind: "tool" }>).output).toBe("read 1 image");
+    const image = piTranscriptImage(path, "pi:c1:0");
+    expect(image?.mediaType).toBe("image/png");
+    expect(Buffer.from(image!.bytes).equals(PNG)).toBe(true);
+  });
+
+  it("numbers several images of one result, and skips types a chat cannot show", () => {
+    const path = session("image-many", [asked, callingRead("c1"), withImage("c1", [
+      { type: "image", mimeType: "image/svg+xml", data: "PHN2Zz4=" },
+      { type: "image", mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" },
+    ])]);
+    expect(imageOf(transcriptPage("pi-transcript", path).turns[1]!.parts[0]!)).toEqual([
+      { media_type: "image/png", ref: "pi:c1:0" },
+      // the svg took no number: a ref counts the images shown, so it can never point aside
+      { media_type: "image/jpeg", ref: "pi:c1:1" },
+    ]);
+    expect(piTranscriptImage(path, "pi:c1:2")).toBeNull();
+    expect(piTranscriptImage(path, "pi:c1:9")).toBeNull();
+    expect(piTranscriptImage(path, "c1:0")).toBeNull();
+    expect(piTranscriptImage(path, "pi:c9:0")).toBeNull();
+    expect(piTranscriptImage(join(root, "nowhere.jsonl"), "pi:c1:0")).toBeNull();
+  });
+
+  it("finds an image on a result the assistant record carried itself", () => {
+    // a provider may answer beside its call; the entry then holds several results, and an
+    // entry id could not say which one an image belonged to
+    const path = session("image-nested", [{ ...asked, parentId: null }, {
+      type: "message", id: "a1", parentId: "u1", timestamp: "2026-09-30T00:00:03.000Z", message: {
+        role: "assistant", model: "qwen-test", provider: "test", stopReason: "toolUse", usage: { input: 10, output: 1 },
+        content: [
+          { type: "toolCall", id: "c1", name: "read", arguments: {} },
+          { type: "toolResult", toolCallId: "c1", toolName: "read", content: [{ type: "image", mimeType: "image/png", data: PNG.toString("base64") }] },
+        ],
+      } },
+    ]);
+    const tool = transcriptPage("pi-transcript", path).turns[1]!.parts[0]!;
+    expect(imageOf(tool)).toEqual([{ media_type: "image/png", ref: "pi:c1:0" }]);
+    expect(Buffer.from(piTranscriptImage(path, "pi:c1:0")!.bytes).equals(PNG)).toBe(true);
+  });
+
+  it("keeps an image a /tree navigated away from out of the chat and out of reach", () => {
+    const path = session("image-off-branch", [asked, callingRead("c1"), withImage("c1")]);
+    expect(imageOf(transcriptPage("pi-transcript", path).turns[1]!.parts[0]!)).toHaveLength(1);
+    // /tree back to the prompt and off in a new direction: the result is no longer in play
+    appendFileSync(path, JSON.stringify({
+      type: "message", id: "a9", parentId: "u1", timestamp: "2026-09-30T00:20:00.000Z",
+      message: { role: "assistant", model: "qwen-test", provider: "test", stopReason: "stop", usage: { input: 5, output: 1 }, content: [{ type: "text", text: "another answer entirely" }] },
+    }) + "\n");
+    const page = transcriptPage("pi-transcript", path);
+    expect(page.turns.flatMap((turn) => turn.parts).some((part) => part.kind === "tool" && imageOf(part) !== undefined)).toBe(false);
+    expect(piTranscriptImage(path, "pi:c1:0")).toBeNull();
+  });
+
+  it("offers no image to a pane whose store is not pi's", () => {
+    // a claude ref is a uuid and index; a pi ref names a tool call. Neither reads the other's file.
+    expect(piTranscriptImage(session("claude-shaped", [asked]), "pi:c1:0")).toBeNull();
   });
 });

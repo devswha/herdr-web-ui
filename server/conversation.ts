@@ -44,7 +44,7 @@ import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
 import { invokedSkill } from "./skill-activity.ts";
-import { isContextClear, MAX_TURNS, parseOmpTranscript, piMessage, piResults, toolSummary } from "./transcript-records.ts";
+import { isContextClear, MAX_TURNS, parseOmpTranscript, piImageBlock, piMessage, piResults, toolSummary } from "./transcript-records.ts";
 
 export { isOmoProcess } from "./omo.ts";
 
@@ -520,7 +520,10 @@ function newestPage(path: string, stream: TranscriptStream, source: RecognizedCo
 
 function parseTurns(source: RecognizedConversation["source"], text: string): ConversationTurn[] {
   return source === "codex-transcript" ? parseCodexTranscript(text, Infinity)
-    : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity) : parseOmpTranscript(text, Infinity);
+    // only pi keeps a tool's images in the entry as base64; omp, omo and gjc are read the same
+    // way but would carry image refs nothing can answer, so the option stays with pi alone
+    : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity)
+      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript" });
 }
 
 interface LiveCodexTurn {
@@ -838,7 +841,7 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
  * image. Codex uses a hash of the native attachment and searches only the bound history.
  */
 export async function conversationImage(paneId: string, ref: string, codexHome?: string): Promise<{ mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null> {
-  if (!IMAGE_REF.test(ref) && !CODEX_IMAGE_REF.test(ref)) return null;
+  if (!IMAGE_REF.test(ref) && !CODEX_IMAGE_REF.test(ref) && !PI_IMAGE_REF.test(ref)) return null;
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
@@ -846,6 +849,7 @@ export async function conversationImage(paneId: string, ref: string, codexHome?:
   try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   if (resolved.source === "codex-transcript") return codexTranscriptImage(codexHistorySegments(resolved.path, codexHome), ref, pane.cwd);
+  if (resolved.source === "pi-transcript") return piTranscriptImage(resolved.path, ref);
   return resolved.source === "claude-transcript" ? transcriptImage(resolved.path, ref) : null;
 }
 
@@ -932,6 +936,40 @@ function piToolOutput(path: string, ref: string): string | null {
   } finally { closeSync(fd); }
   return null;
 }
+
+/**
+ * The image a pi tool call returned, by the ref the page gave it (`pi:<call id>:<nth image>`).
+ * Like the output, it is read on the active branch only: an image from a branch a /tree
+ * abandoned is one the chat never showed, so it is not offered.
+ */
+export function piTranscriptImage(path: string, ref: string): { mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null {
+  const match = PI_IMAGE_REF.exec(ref);
+  if (match === null || match[1] === undefined || match[2] === undefined) return null;
+  const [, callId, nth] = match;
+  let size: number;
+  let branch: ReturnType<typeof piBranchSegments>;
+  try { size = statSync(path).size; branch = piBranchSegments(path, size); } catch { return null; }
+  if (branch === null) return null;
+  const fd = openSync(path, "r");
+  try {
+    for (const segment of branch) {
+      const buffer = Buffer.alloc(segment.end - segment.start);
+      if (readSync(fd, buffer, 0, buffer.length, segment.start) !== buffer.length) continue;
+      for (const line of buffer.toString("utf8").split("\n")) {
+        if (!line.includes(callId)) continue;
+        let entry: unknown;
+        try { entry = JSON.parse(line); } catch { continue; }
+        const message = piMessage(entry);
+        if (message === null) continue;
+        const image = piImageBlock(message, callId, Number(nth));
+        if (image !== null) return { mediaType: image.media_type, bytes: new Uint8Array(Buffer.from(image.data, "base64")) };
+      }
+    }
+  } finally { closeSync(fd); }
+  return null;
+}
+
+const PI_IMAGE_REF = /^pi:([A-Za-z0-9_:.\-]{1,128}):(\d{1,3})$/;
 
 function outputInText(source: RecognizedConversation["source"], text: string, ref: string): string | null {
   text = activeHistoryText(text, source);

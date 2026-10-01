@@ -78,7 +78,40 @@ it("serves a pi pane's native transcript over HTTP", async () => {
   const first = await read();
   expect(first.source).toBe("pi-transcript");  expect(first.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
   expect(first.turns[0]!.parts).toEqual([{ kind: "text", text: "Check chat" }]);
+  // the figure pi's own footer shows: input + output + both cache tiers
   expect(first.metadata).toEqual({ model: "pi-contract-model", reasoning_effort: null, context: { used: 30, window: null } });
+});
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+it("offers a tool's own picture over the image endpoint", async () => {
+  writeFileSync(transcript, page([
+    { type: "model_change", id: "m1", parentId: null, timestamp: "2026-09-30T00:00:00Z", provider: "test", modelId: "pi-contract-model" },
+    { type: "message", id: "u1", parentId: "m1", timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "open shot.png" } },
+    { type: "message", id: "a1", parentId: "u1", timestamp: "2026-09-30T00:00:02Z", message: {
+      role: "assistant", model: "pi-contract-model", provider: "test", stopReason: "toolUse", usage: { input: 4, output: 1 },
+      content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "shot.png" } }],
+    } },
+    { type: "message", id: "r1", parentId: "a1", timestamp: "2026-09-30T00:00:03Z", message: {
+      role: "toolResult", toolCallId: "call-1", toolName: "read",
+      content: [{ type: "text", text: "read 1 image" }, { type: "image", mimeType: "image/png", data: PNG.toString("base64") }],
+    } },
+  ]));
+  // the tests after this one read the session this file first held, so put it back
+  try {
+    const conversation = await read();
+    const tool = conversation.turns.flatMap((turn) => turn.parts).find((part) => part.kind === "tool");
+    expect(tool !== undefined && tool.kind === "tool" && tool.images).toEqual([{ media_type: "image/png", ref: "pi:call-1:0" }]);
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation/image?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent("pi:call-1:0")}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await response.arrayBuffer()).equals(PNG)).toBe(true);
+    // a ref naming no image, and one that is no pi ref at all
+      const miss = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation/image?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent("pi:call-9:0")}`);
+      expect(miss.status).toBe(404);
+  } finally {
+    writeFileSync(transcript, turns("Check chat", "Answer one"));
+  }
 });
 
 it("follows the pane to a new session file when /new or /resume replaces it", async () => {  const before = await read();

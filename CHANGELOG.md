@@ -198,6 +198,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   while it waits on a dialog, never blocked, so the card comes from its screen. A session
   directory chosen with `--session-dir` or the `sessionDir` setting is not found;
   `PI_CODING_AGENT_SESSION_DIR` is.
+- A picture a pi tool opened shows in the chat. pi keeps the image a `read` returned in the
+  session file beside the text it answers with, so a screenshot the agent looked at was in the
+  transcript and invisible here; it now shows inside that tool's row, and opens full size on a
+  tap. Only the address travels in the conversation, so the bytes arrive when the row is opened
+  and not on every poll, and an image left behind by a `/tree` stays out of reach, the way its
+  output does.
 - A pi pane's message box lists pi's own slash commands as you type `/`, the way it does for
   Claude Code, Codex and omp: pi's built-ins in pi's words, the templates in `~/.pi/agent/prompts`
   and the skills under `~/.pi/agent/skills` and `~/.agents/skills`. A project's own skills and
