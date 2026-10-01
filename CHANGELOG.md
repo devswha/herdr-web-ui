@@ -69,10 +69,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - A Codex pane whose answers are all short shows its chat. The chat finds a Codex conversation by
   an answer it can see on the pane's screen, and only one of 64 letters or more counted, so a
-  session of one-line answers stayed empty until a longer answer came. Several short answers of
-  the same conversation showing one after another now count together. One short line alone still
-  does not, and neither do lines two conversations share: the chat stays empty rather than show
-  another pane's conversation. ([#284](https://github.com/devswha/herdr-web-ui/pull/284))
+  session of one-line answers stayed empty until a longer answer came. When nothing else tells,
+  the newest answers of a conversation showing one after another on the screen now count
+  together. That is weaker evidence than one long answer: it never replaces a conversation a long
+  answer found, one short line alone does not count, and answers another conversation has too
+  (a fork, the same stock replies) leave the chat empty. Text pasted or printed on the screen
+  can still look like answers, so a stray match is possible until a long answer shows.
+  ([#284](https://github.com/devswha/herdr-web-ui/pull/284))
 - On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
   Tailscale user". A tagged node has no person's login, and the server took the node's own name
   for one, which no device could match. Such a PC now asks every device to pair, yours included,

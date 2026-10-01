@@ -17,7 +17,10 @@ const threads = {
   other: "01a0c7a1-56d9-7e20-9f08-f7a2d973bc03",
   fresh: "01a0c7a1-56d9-7e20-9f08-f7a2d973bc04",
   hinted: "01a0c7a1-56d9-7e20-9f08-f7a2d973bc05",
+  short: "01a0c7a1-56d9-7e20-9f08-f7a2d973bc06",
 };
+// a session whose answers are all short (#283): none is an anchor alone
+const shortAnswers = ["세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen 스킬을 사용할게요.", "세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요."];
 const answers = {
   resumed: "The resumed thread answers from its own rollout, found by the id on the command line without any screen match.",
   matched: "The matched thread was recognised on screen once, and stays bound while tool output scrolls its answer away.",
@@ -28,7 +31,7 @@ const answers = {
 const workspaces: string[] = [];
 let server: ReturnType<typeof createServer>;
 
-const rollout = (name: keyof typeof threads) => {
+const rollout = (name: keyof typeof answers) => {
   const path = join(codexHome, "sessions", `rollout-2026-09-24T00-00-00-${threads[name]}.jsonl`);
   writeFileSync(path, [
     { type: "session_meta", payload: { id: threads[name], cwd: root } },
@@ -114,10 +117,12 @@ beforeAll(() => {
   writeFileSync(join(root, "bin", "matched.txt"), `${answers.matched}\n`);
   writeFileSync(join(root, "bin", "other.txt"), `${answers.other}\n`);
   writeFileSync(join(root, "bin", "fresh.txt"), `${answers.fresh}\n`);
+  writeFileSync(join(root, "bin", "short.txt"), `${shortAnswers.join("\n")}\n`);
   const script = join(root, "bin", "codex");
   // `--say NAME` shows the question typed and its answer; `--quote NAME` only the answer, as
-  // pasted; `--both NAME` the question and answer of NAME and the matched thread's answer too
-  writeFileSync(script, `#!/bin/sh\nname="\${2:-matched}"\n[ "$1" = --say ] || [ "$1" = --both ] && echo "› question for $name"\n[ "$1" = --say ] || [ "$1" = --quote ] || [ "$1" = --both ] && cat "$(dirname "$0")/$name.txt"\n[ "$1" = --both ] && cat "$(dirname "$0")/matched.txt"\nsleep "\${FLOOD_AFTER:-600}"\nseq 1 600\nsleep 600\n`);
+  // pasted; `--both NAME` the question and answer of NAME and the matched thread's answer too;
+  // THEN=NAME shows NAME's answers after the flood
+  writeFileSync(script, `#!/bin/sh\nname="\${2:-matched}"\n[ "$1" = --say ] || [ "$1" = --both ] && echo "› question for $name"\n[ "$1" = --say ] || [ "$1" = --quote ] || [ "$1" = --both ] && cat "$(dirname "$0")/$name.txt"\n[ "$1" = --both ] && cat "$(dirname "$0")/matched.txt"\nsleep "\${FLOOD_AFTER:-600}"\nseq 1 600\n[ -n "$THEN" ] && cat "$(dirname "$0")/$THEN.txt"\nsleep 600\n`);
   chmodSync(script, 0o755);
   server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), codexHome });
 });
@@ -157,6 +162,39 @@ it("keeps a matched rollout while tool output scrolls the answer away, and drops
   await codexRunning(paneId, first);
   expect((await read(paneId)).source).toBe("scrollback");
 }, 20_000);
+
+it("reads a thread whose answers are all short by its newest answers on screen, and never rebinds a matched pane by them", async () => {
+  const path = join(codexHome, "sessions", `rollout-2026-09-24T00-00-00-${threads.short}.jsonl`);
+  writeFileSync(path, [
+    { type: "session_meta", payload: { id: threads.short, cwd: root } },
+    { type: "response_item", timestamp: "2026-09-24T00:00:00Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "question for short" }] } },
+    ...shortAnswers.map((text) => ({ type: "response_item", timestamp: "2026-09-24T00:00:05Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] } })),
+  ].map((entry) => JSON.stringify(entry)).join("\n"));
+  // an old thread: begun before any match, so no pane takes it for a /new
+  const db = new Database(join(codexHome, "state_5.sqlite"));
+  db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, 1, 'cli', ?)").run(threads.short, path, root, "question for short");
+  db.close();
+  const opened = workspaces.length;
+  try {
+    const shortPane = await pane("short", `${join(root, "bin", "codex")} --quote short`);
+    await onScreen(shortPane, shortAnswers[1]!);
+    // both answers are one turn's
+    expect(lastAnswer(await read(shortPane))).toBe(shortAnswers.join(""));
+    // a pane a long answer bound keeps that rollout when another thread's short answers show later
+    const bound = await pane("bound-short", `FLOOD_AFTER=3 THEN=short ${join(root, "bin", "codex")} --say`);
+    for (let attempt = 0; attempt < 30 && lastAnswer(await read(bound)) !== answers.matched; attempt++) await Bun.sleep(100);
+    expect(lastAnswer(await read(bound))).toBe(answers.matched);
+    await floodedAway(bound, answers.matched);
+    await onScreen(bound, shortAnswers[1]!);
+    expect(lastAnswer(await read(bound))).toBe(answers.matched);
+  } finally {
+    const db = new Database(join(codexHome, "state_5.sqlite"));
+    db.query("DELETE FROM threads WHERE id = ?").run(threads.short);
+    db.close();
+    // the claim check looks at 8 other Codex panes in the cwd: leave the later tests theirs
+    for (const id of workspaces.splice(opened)) await workspaceClose(id);
+  }
+}, 30_000);
 
 it("drops a matched rollout once a newer interactive thread begins in its cwd, as /new does, not for a subagent or codex exec", async () => {
   const paneId = await pane("renewed", `FLOOD_AFTER=3 ${join(root, "bin", "codex")} --say`);

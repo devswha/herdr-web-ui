@@ -537,34 +537,8 @@ function answerAnchor(text: string): string | null {
   return null;
 }
 
-/** A piece below this says too little to count toward a match made of several ("Done", "Fixed it."). */
-const SHORT_PIECE_MIN = 16;
-
-/**
- * Whether a rollout whose answers are each too short to be an anchor shows on screen as a
- * whole: its recent answers found there one after another, in the rollout's order, and long
- * enough together. A conversation of one-line answers never produces a 64-character anchor, yet
- * several of its lines in a row say as much as one long answer does. Read from the bottom up,
- * so an answer not rendered yet or one scrolled away is skipped, and text shown twice counts
- * only as often as it shows.
- */
-function shortAnswersShown(display: string, answers: string[]): boolean {
-  let before = display.length;
-  let shown = "";
-  for (const piece of answers.flatMap((text) => text.split(/\]\([^)\s]*\)/)).reverse()) {
-    const fragment = normalizeDisplay(piece).slice(-160);
-    if (fragment.length < SHORT_PIECE_MIN || fragment.length > before) continue;
-    const at = display.lastIndexOf(fragment, before - fragment.length);
-    if (at < 0) continue;
-    before = at;
-    shown += fragment;
-  }
-  return shown.length >= 64 && new Set(shown).size >= 12;
-}
-
 /** Shared app-server TUIs do not hold rollout descriptors. For read-only display,
- * require a unique substantial assistant-message match in this pane's output: one answer
- * long enough, or several short ones together (shortAnswersShown).
+ * require a unique substantial assistant-message match in this pane's output.
  * Directory recency alone is never evidence: multiple panes can share a cwd. */
 export function matchCodexTranscript(screen: string, candidates: { path: string; text: string }[]): string | null {
   const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
@@ -576,9 +550,61 @@ export function matchCodexTranscript(screen: string, candidates: { path: string;
     if (prose.some((part) => {
       const anchor = answerAnchor(part.text);
       return anchor !== null && display.includes(anchor);
-    }) || shortAnswersShown(display, prose.map((part) => part.text))) matching.add(candidate.path);
+    })) matching.add(candidate.path);
   }
   return matching.size === 1 ? [...matching][0]! : null;
+}
+
+/** An answer as the screen shows it, for matchShortCodexAnswers: links as their label alone, its last 160 letters and digits. */
+const shownAnswer = (text: string): string => normalizeDisplay(text.slice(-2000).replace(/\]\([^)\s]*\)/g, "")).slice(-160);
+
+/**
+ * A rollout's newest answers on screen, newest lowest: whole answers taken from the end of the
+ * rollout one after another (the very newest may be skipped, it may not be rendered yet), each
+ * at least 16 letters and digits, found bottom-up in order, until at least two of them hold 64
+ * with 12 distinct. The answers that did, or null. A gap ends the run: an answer of the rollout
+ * not on screen means the screen is not showing this rollout's end.
+ */
+function newestAnswersShown(display: string, answers: string[]): string[] | null {
+  const newest = answers.slice(-5).reverse();
+  for (const skip of [0, 1]) {
+    let before = display.length;
+    const shown: string[] = [];
+    for (const answer of newest.slice(skip, skip + 4)) {
+      const at = answer.length < 16 || answer.length > before ? -1 : display.lastIndexOf(answer, before - answer.length);
+      if (at < 0) break;
+      before = at;
+      shown.push(answer);
+      const joined = shown.join("");
+      if (shown.length >= 2 && joined.length >= 64 && new Set(joined).size >= 12) return shown;
+    }
+  }
+  return null;
+}
+
+/**
+ * The last resort for a pane nothing else ties to a rollout (codexTranscriptPath): a session
+ * whose answers are all short never has an anchor for matchCodexTranscript, yet its newest
+ * answers on screen together say as much as one long one (#283). Weaker evidence, so only one
+ * candidate may show that way, and none of the answers it showed may be among another
+ * candidate's answers: a fork, or a session that says the same stock lines, is not told apart.
+ */
+export function matchShortCodexAnswers(screen: string, candidates: { path: string; text: string }[]): string | null {
+  const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
+  const display = normalizeDisplay(lastHeader >= 0 ? screen.slice(lastHeader) : screen);
+  const answers = candidates.map((candidate) => parseCodexTranscript(candidate.text).filter((turn) => turn.role === "assistant")
+    .flatMap((turn) => turn.parts).flatMap((part) => part.kind === "text" ? [shownAnswer(part.text)] : []));
+  let found: { index: number; shown: string[] } | null = null;
+  for (const [index, own] of answers.entries()) {
+    const shown = newestAnswersShown(display, own);
+    if (shown === null) continue;
+    if (found !== null) return null;
+    found = { index, shown };
+  }
+  if (found === null) return null;
+  const { index: only, shown } = found;
+  if (answers.some((other, index) => index !== only && shown.some((answer) => other.includes(answer)))) return null;
+  return candidates[only]!.path;
 }
 
 /** `codex resume <thread>`: the thread a TUI was started on, straight from its command line. */
@@ -841,5 +867,11 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     return boundHere.path;
   }
   if (reported !== null) return reported;
-  return resumedNewer.length === 0 ? resumedPath : null;
+  if (resumed !== null) return resumedNewer.length === 0 ? resumedPath : null;
+  // Nothing ties this pane to a rollout at all: no session herdr names, no resume, no match by a
+  // long answer for this process, and so no /new to be unsure about. Short answers on screen may
+  // tell (#283). Never remembered as a binding: what it shows is read again each time, and only a
+  // long answer binds the pane for when its screen no longer tells.
+  if (screen === null || session?.value || boundHere !== undefined) return null;
+  return matchShortCodexAnswers(screen.text, candidates);
 }
