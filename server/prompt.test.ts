@@ -1387,3 +1387,251 @@ describe("Claude's suggestion on a prompt poll", () => {
     });
   }, 4_000);
 });
+
+// Captured from pi 0.87.1 driving its own dialogs: the pane's footer stays under the dialog,
+// so the hint is near the end of the screen without being it.
+describe("pi's dialogs", () => {
+  const FOOTER = "\n────────────────────────────────────────\n/tmp/app\n0.0%/215k (auto)                                        some-model • medium\n";
+  const piScreen = (body: string) => `────────────────────────────────────────\n\n${body}\n────────────────────────────────────────${FOOTER}`;
+  const MENU_HINT = " ↑↓ navigate  enter select  escape/ctrl+c cancel";
+  const select = piScreen(" Allow dangerous command?\n\n → Allow once\n   Always allow\n   Block\n" + MENU_HINT);
+
+  test("reads an extension's select as its options, in pi's own order", () => {
+    const prompt = parseInteractivePrompt("pi", select)!;
+    expect(prompt.kind).toBe("question");
+    expect(prompt.question).toBe("Allow dangerous command?");
+    expect(prompt.options.map((option) => option.label)).toEqual(["Allow once", "Always allow", "Block"]);
+    // the cursor sits on the first row, so one option is one key step per row above it
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    expect(answerKeys(prompt, { option_index: 2 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("reads a confirm as an approval, and declines it by pressing No", () => {
+    const prompt = parseInteractivePrompt("pi", piScreen(" Clear session?\n All messages will be lost.\n\n → Yes\n   No\n" + MENU_HINT))!;
+    expect(prompt.kind).toBe("approval");
+    expect(prompt.title).toBe("Clear session?");
+    expect(prompt.question).toBe("All messages will be lost.");
+    expect(prompt.options.map((option) => option.label)).toEqual(["Yes", "No"]);
+    // measured on pi: pressing "No" answers the confirmation false, where Escape would leave
+    // it unanswered, so the card's decline presses the row it shows
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("lets the chat type an answer to a dialog that wants text", () => {
+    const prompt = parseInteractivePrompt("pi", piScreen(" Branch name?\n\n>\n enter submit  escape/ctrl+c cancel"))!;
+    expect(prompt.question).toBe("Branch name?");
+    expect(prompt.custom_option_index).toBe(0);
+    // the `>` line already owns the input: an Enter typed before the answer submits the dialog
+    // empty, and the answer is left behind to be typed into pi's own prompt
+    // the line is emptied first: text typed into it in the terminal would stay around the answer
+    expect(answerKeys(prompt, { custom_text: "feat/x" })).toEqual([{ keys: ["ctrl+k"] }, { keys: ["ctrl+u"] }, { text: "feat/x" }, { keys: ["enter"] }]);
+  });
+
+  // The wrap as pi 0.87.1 draws it in a pane 46 columns wide: a row three columns in, its rest one.
+  test("reads an option a narrow pane wrapped as one option, so a tap lands on the row it names", () => {
+    const narrow = piScreen(" Where should this change go next?\n\n → Keep it on the staging environment for now\n and wait for review\n   Deploy to production\n   Cancel\n\n ↑↓ navigate  enter select  escape/ctrl+c\n cancel\n");
+    const prompt = parseInteractivePrompt("pi", narrow)!;
+    expect(prompt.options.map((option) => option.label)).toEqual(['Keep it on the staging environment for now and wait for review', "Deploy to production", "Cancel"]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    // an option that is not the cursor's wraps the same way
+    const second = piScreen(" Pick one\n\n → Cancel\n   Keep it on the staging environment for now\n and wait for review\n   Deploy to production\n\n ↑↓ navigate  enter select  escape/ctrl+c\n cancel\n");
+    expect(parseInteractivePrompt("pi", second)!.options.map((option) => option.label)).toEqual(["Cancel", "Keep it on the staging environment for now and wait for review", "Deploy to production"]);
+  });
+
+  test("reads a confirm's wrapped message whole, under the dialog's own title", () => {
+    const prompt = parseInteractivePrompt("pi", piScreen(" Delete the branch?\n This removes the local branch and its remote\n counterpart for good.\n\n → Yes\n   No\n\n ↑↓ navigate  enter select  escape/ctrl+c\n cancel\n"))!;
+    expect(prompt.kind).toBe("approval");
+    expect(prompt.title).toBe("Delete the branch?");
+    expect(prompt.question).toBe("This removes the local branch and its remote counterpart for good.");
+  });
+
+  test("offers nothing once the dialog is answered, moved through, or never opened", () => {
+    expect(parseInteractivePrompt("pi", select.replace("→ Allow once", "  Allow once").replace("   Always allow", " → Always allow"))).toBeNull();
+    // an answered dialog leaves its hint on screen while pi carries on under it: the hint is
+    // no longer near the end, so the card that was offered is withdrawn rather than reoffered
+    expect(parseInteractivePrompt("pi", piScreen(" select -> Always allow\n" + MENU_HINT + "\n\n thinking\n more of the answer\n and yet more\n\n>" ))).toBeNull();
+    // pi's own main prompt, and its slash palette: the palette ends in a row count rather than
+    // this hint, and its rows are set out in two columns, which are commands, not answers
+    expect(parseInteractivePrompt("pi", piScreen(""))).toBeNull();
+    const palette = piScreen(" /model\n → settings                        Open settings menu\n   model                           Select model\n   tree                            Navigate session tree\n   (1/51)\n" + MENU_HINT);
+    expect(parseInteractivePrompt("pi", palette)).toBeNull();
+    // /tree navigates the session's branch, which the chat cannot undo: its hint says "↑/↓ move"
+    expect(parseInteractivePrompt("pi", piScreen("   Session Tree\n  ↑/↓ move · ←/→ page · ctrl+←/→ branch · ctrl+x copy\n  Type to search:\n────────────────────────────────────────\n  an entry\n  (0/1)"))).toBeNull();
+  });
+
+  test("tells a dialog apart from another of the same shape", () => {
+    const other = select.replace("Block", "Block and say why");
+    expect(parseInteractivePrompt("pi", select)!.id).not.toBe(parseInteractivePrompt("pi", other)!.id);
+    // the id is the card's own content: what the chat polls keeps its answer open while pi
+    // redraws around the dialog, and turns stale only when the dialog itself changes
+    expect(parseInteractivePrompt("pi", select.replace("0.0%/215k (auto)", "12.3%/215k (auto)"))!.id).toBe(parseInteractivePrompt("pi", select)!.id);
+  });
+});
+
+// Both screens captured from pi 0.87.1 running /model in a pane of its own, at 140 columns and
+// at 46, with the catalogue already settled.
+describe("pi's model list", () => {
+  const FOOTER = "\n────────────────────────────────────────\n/tmp/app\n0.0%/215k (auto)                                        some-model • medium\n";
+  const MODEL_HINT = " Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel";
+  const wide = `────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+>
+
+→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default
+    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]
+Could not refresh llama.cpp; showing cached models.
+${MODEL_HINT}
+────────────────────────────────────────${FOOTER}`;
+
+  test("reads the catalogue, naming the model answering now", () => {
+    const prompt = parseInteractivePrompt("pi", wide)!;
+    expect(prompt.kind).toBe("question");
+    expect(prompt.question).toBe("Select model (currently vllm/Qwen/Qwen3.8-27B [lwsa-platform])");
+    expect(prompt.options.map((option) => option.label)).toEqual([
+      "vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default",
+      "vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]",
+    ]);
+    // pi's own notes sit among the rows — the refresh failure at column zero, `Model Name:`
+    // indented — and none of them is a model pi can be switched to
+    expect(prompt.options.length).toBe(2);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("navigates from where pi drew the cursor, which is the model in use", () => {
+    const moved = wide.replace("→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default\n    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]",
+      "  ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default\n→ vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]");
+    const prompt = parseInteractivePrompt("pi", moved)!;
+    expect(prompt.question).toBe("Select model (currently vllm/Qwen/Qwen3.8-27B [lwsa-platform])");
+    expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
+  test("voids a catalogue whose rows run out mid-name rather than offering the ones before it", () => {
+    // a screen redrawn while pi is still writing it ends a row in the middle of its provider
+    // bracket. Stopping there is right, but the rows before it were already collected, and
+    // offering them is a catalogue pi never drew: the reader would count down into a list whose
+    // rest does not exist, and the count the card shows would not be the list pi has. This is the
+    // same call the wrapped-name check makes — a row that cannot be read voids the reading
+    const cut = `────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+>
+
+→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default
+    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]
+    another-model [provider-
+${MODEL_HINT}
+────────────────────────────────────────${FOOTER}`;
+    expect(parseInteractivePrompt("pi", cut)).toBeNull();
+  });
+
+  // Captured from pi 0.87.1 running /model in a 46-column pane, the width a phone leaves it:
+  // the hint splits across two lines, and so does a model's own name, which drops the provider's
+  // bracket — the one mark that tells a row from pi's notes — onto a line of its own at column
+  // zero, where it looks exactly like a note. Every check here is read off that capture.
+  const narrow = `──────────────────────────────
+
+Only showing models from configured providers.
+Use /login to add providers.
+>
+
+→ ✓ vllm-flash/Qwen3.8-Flash-Next
+[lwsa-platform] · default
+    vllm/Qwen/Qwen3.8-27B [lwsa-platform]
+
+  Model Name: qwen-3-8-flash
+
+  Refreshing model catalogs…
+
+  Enter to select · Ctrl+S to set as default ·
+Escape/Ctrl+C to cancel
+──────────────────────────────
+/tmp/pn
+0.0%/215k (auto)  vllm-flash/Qwen3.8-Flash-Nex
+`;
+
+  test("reads the catalogue off a phone's pane, joining the rows pi wrapped", () => {
+    const prompt = parseInteractivePrompt("pi", narrow)!;
+    expect(prompt).not.toBeNull();
+    expect(prompt.options.map((option) => option.label)).toEqual([
+      "vllm-flash/Qwen3.8-Flash-Next [lwsa-platform] · default",
+      "vllm/Qwen/Qwen3.8-27B [lwsa-platform]",
+    ]);
+    expect(prompt.question).toBe("Select model (currently vllm-flash/Qwen3.8-Flash-Next [lwsa-platform])");
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("stops the catalogue at pi's notes, which the narrow pane indents like a row", () => {
+    // `Model Name:` and `Refreshing model catalogs…` sit two spaces in, the same indentation a
+    // wrapped row's tail carries, and neither is a model pi can be switched to
+    const prompt = parseInteractivePrompt("pi", narrow)!;
+    expect(prompt.options.some((option) => /Model Name|Refreshing/i.test(option.label))).toBe(false);
+  });
+
+  test("goes stale on a phone's pane once the wrapped hint is buried", () => {
+    expect(parseInteractivePrompt("pi", narrow)).not.toBeNull();
+    expect(parseInteractivePrompt("pi", `${narrow}Some later output\nand more\n`)).toBeNull();
+  });
+
+  test("says nothing rather than offer a model that is only half a name", () => {
+    // a bracket cut mid-word is not a provider: joining it back would invent `lwsa- platform`
+    const cut = `────────────────────────
+
+>
+
+→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-
+    vllm-flash/Qwen3.8-Flash-Next
+${MODEL_HINT}
+────────────────────────${FOOTER}`;
+    expect(parseInteractivePrompt("pi", cut)).toBeNull();
+    // filtering the list down to one model leaves nothing to choose between
+    const one = wide.replace("    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]\n", "");
+    expect(parseInteractivePrompt("pi", one)).toBeNull();
+    // and with the cursor on no row at all, an answer would navigate from nowhere
+    expect(parseInteractivePrompt("pi", wide.replace("→ ✓ vllm/Qwen", "  ✓ vllm/Qwen"))).toBeNull();
+  });
+
+  // Captured from pi 0.87.1 running /login in a 46-column pane. `↑↓ navigate` carries no `·`, so
+  // pi keeps its footer under this dialog as it does everywhere else, and the hint's own wrap puts
+  // it four lines from the bottom — further than a three-line window reaches. A phone leaves pi
+  // exactly this wide, so every dialog it can be asked had no card at that width.
+  const login = `──────────────────────────────
+
+ Login
+
+ Choose how to sign in.
+
+ → Sign in with an account
+   Sign in with an API key
+
+ ↑↓ navigate  enter select  escape/ctrl+c
+ cancel
+──────────────────────────────
+/tmp/pr
+0.0%/215k (auto)  vllm-flash/Qwen3.8-Flash-Nex
+`;
+
+  test("reads a dialog whose wrapped hint sits over pi's footer", () => {
+    const prompt = parseInteractivePrompt("pi", login)!;
+    expect(prompt).not.toBeNull();
+    expect(prompt.options.map((option) => option.label)).toEqual([
+      "Sign in with an account",
+      "Sign in with an API key",
+    ]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("goes stale on a phone's pane once a wrapped dialog hint is buried", () => {
+    expect(parseInteractivePrompt("pi", login)).not.toBeNull();
+    // pi keeps the answered dialog on screen; what comes after buries the hint, and a card still
+    // open then would press keys into whatever the pane shows by then
+    expect(parseInteractivePrompt("pi", `${login}Some later output\nand more\n`)).toBeNull();
+  });
+
+  test("goes stale once the list is answered and buried", () => {
+    expect(parseInteractivePrompt("pi", wide)).not.toBeNull();
+    // pi keeps the answered list on screen; the next request's output buries the hint under it,
+    // and the card must not stay open offering a switch into whatever the pane shows by then
+    expect(parseInteractivePrompt("pi", `${wide}\nSome later output\nand more`)).toBeNull();
+  });
+});

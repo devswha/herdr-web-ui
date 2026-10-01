@@ -10,6 +10,8 @@
  * let in as it always was, except through a proxy
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
  * node (tailscale serve states no person for it), and a tailnet can hold many of those.
+ * A PC whose own node is tagged has no login to compare with: its proxied requests pair, the
+ * owner's included, unless HERDR_WEB_TAILSCALE_OWNER names the login to let in.
  *
  * A proxy on this PC connects from loopback like a local client does, so it is known only by
  * what it sends: a forwarding header, or a Host that is not a name for this machine. A proxy
@@ -34,6 +36,8 @@ export interface AccessInput {
   device: DeviceMatch | null;
   /** the PC's own Tailscale login, when known */
   owner: string | null;
+  /** this PC's Tailscale node is tagged: Tailscale runs here, and names no person as its owner */
+  tagged: boolean;
   tokenConfigured: boolean;
   /** a device has been paired at some point: the gate is closed to strangers (server/devices.ts) */
   gated: boolean;
@@ -47,8 +51,8 @@ export function isLoopbackAddress(address: string): boolean {
   return address === "::1" || address.startsWith("127.") || address.startsWith("::ffff:127.");
 }
 
-/** Headers a proxy adds and a browser or CLI on this PC has no reason to send. */
-const PROXY_HEADERS = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "via"];
+/** Headers a proxy adds and a browser or CLI on this PC has no reason to send; a Tailscale login is stated by a proxy too. */
+const PROXY_HEADERS = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "via", "tailscale-user-login"];
 
 /**
  * Is this Host header a name for this machine itself? It is read as a bare authority, a name
@@ -85,7 +89,7 @@ export function decideAccess(input: AccessInput): Access {
   }
   if (input.tokenConfigured) return { level: "none", reason: "token_required" };
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
-  if (input.loopback && input.forwarded && input.owner !== null) return { level: "none", reason: "pairing_required" };
+  if (input.loopback && input.forwarded && (input.owner !== null || input.tagged)) return { level: "none", reason: "pairing_required" };
   // the public internet is never "open", whatever is paired
   if (!input.gated && !input.funnel) return { level: "full", via: "open", role: "drive" };
   return { level: "none", reason: "pairing_required" };

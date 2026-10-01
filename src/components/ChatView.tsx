@@ -241,8 +241,19 @@ function useWholeOutput(ref: string | undefined): { text: string | null; state: 
   return useScopedOutput(url, history);
 }
 
+/** Images a tool returned (pi reads a picture into the result); opened with the row. */
+function ToolImages({ paneId, part }: { paneId: string; part: ToolPartType }) {
+  const t = useT();
+  const machineId = useMachineId();
+  if (part.images === undefined || part.images.length === 0) return null;
+  return <div className="chat-tool-images">{part.images.map((image) => {
+    const src = machinePath(machineId, `pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: image.ref }).toString()}`);
+    return <a key={image.ref} className="chat-user-image" href={src} target="_blank" rel="noopener noreferrer" title={t("Open image")}><img src={src} alt={t("Attached image")} loading="lazy" /></a>;
+  })}</div>;
+}
+
 /** One row of a work block: `▸ name  summary`, expanding to the call's input and output. */
-function WorkRow({ part }: { part: ToolPartType }) {
+function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const whole = useWholeOutput(part.output_ref);
@@ -258,7 +269,7 @@ function WorkRow({ part }: { part: ToolPartType }) {
       {part.error && <span className="work-row-failed">{t("failed")}</span>}
       {summary.length > 0 && summary !== part.name && <><span className="work-row-sep" aria-hidden="true">/</span><span className="work-row-summary">{summary}</span></>}
     </button>
-    {open && <div className="work-row-detail"><ToolInputView part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className={`chat-tool-io${whole.text !== null ? " is-whole" : ""}`}>{output}</pre>
+    {open && <div className="work-row-detail"><ToolInputView part={part} /><ToolImages paneId={paneId} part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className={`chat-tool-io${whole.text !== null ? " is-whole" : ""}`}>{output}</pre>
       {part.output_ref !== undefined && whole.text === null && <button type="button" className="btn btn-ghost chat-tool-more" disabled={whole.state === "loading"} onClick={whole.load}>
         {t(whole.state === "loading" ? "Loading the whole output…" : whole.state === "failed" ? "Couldn't load the whole output — retry" : "Show the whole output ({size} characters)", { size: formatTokens(part.output_size ?? 0) })}
       </button>}</section>}</div>}
@@ -283,7 +294,7 @@ function ThinkingRow({ text }: { text: string }) {
  * between them — under one header ("Worked for 7s · 1 edit"). Rows stay one line
  * each until opened; the narration reads as dim prose between them.
  */
-function WorkBlockView({ parts, duration, live, defaultOpen, showThinking }: { parts: ConversationPart[]; duration: string | null; live: boolean; defaultOpen: boolean; showThinking: boolean }) {
+function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinking }: { paneId: string; parts: ConversationPart[]; duration: string | null; live: boolean; defaultOpen: boolean; showThinking: boolean }) {
   const t = useT();
   const [chosenOpen, setOpen] = useState<boolean | null>(null);
   const open = chosenOpen ?? defaultOpen;
@@ -300,7 +311,7 @@ function WorkBlockView({ parts, duration, live, defaultOpen, showThinking }: { p
     {open && <div className="work-block-rows">{visible.map((part, index) =>
       part.kind === "thinking" ? <ThinkingRow key={index} text={part.text} />
         : part.kind === "text" ? <div key={index} className="work-narration"><Markdown>{part.text}</Markdown></div>
-          : part.kind === "tool" ? <WorkRow key={index} part={part} /> : null)}</div>}
+          : part.kind === "tool" ? <WorkRow key={index} paneId={paneId} part={part} /> : null)}</div>}
   </section>;
 }
 
@@ -388,7 +399,7 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
   const answerText = answer.map((part) => part.text).join("\n\n");
   return <article className="chat-turn chat-turn-agent">
     <SkillActivityList parts={turn.parts} />
-    {work.length > 0 && <WorkBlockView parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={last} showThinking={showThinking} />}
+    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={last} showThinking={showThinking} />}
     {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
       <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")}>MD</CopyButton>
@@ -422,6 +433,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   /** the first answer for this pane arrived (or failed): until then an empty chat is only loading */
   const [loaded, setLoaded] = useState(false);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
+  // turns the transcript holds on a path /tree walked away from: no page can reach them, so the
+  // only way to say they exist is to be told, and to say it where the reader would look for them
+  const [abandoned, setAbandoned] = useState<{ count: number; branches: number; summary: string | null } | null>(null);
   // the suggestion is handed up from each read, with the pane that read it: never kept here,
   // where a pane switch or a send upstream could leave it stale
   const onSuggestionRef = useRef(onSuggestion);
@@ -467,7 +481,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   useEffect(() => {
     shownPane.current = paneId;
     history.current = undefined; setHistoryId(undefined);
-    stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null);
+    stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null); setAbandoned(null);
     dropOlder();
     lastAnswer.current = null;
     setSentOver(null);
@@ -549,6 +563,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
         if (moved.length > 0) setOlder((turns) => [...turns, ...moved]);
         if (heldFrom.current === null) setOlderCursor(conversation.source === "scrollback" ? undefined : conversation.cursor);
         onMetadata?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
+        setAbandoned(conversation.abandoned ?? null);
         let next: ChatState;
         if (conversation.source !== "scrollback") next = { source: "conversation", turns: conversation.turns, messages: [], truncated: false };
         else {
@@ -708,6 +723,20 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
+      {/* the conversation below is not all the file holds: a /tree left these behind, and pi moved
+          its leaf without writing anything, so nothing here could say they were ever there. First
+          in the transcript, because paging back would otherwise drop them under their own heading */}
+      {state.source === "conversation" && abandoned !== null && abandoned.count > 0 && (
+        <details className="chat-compact chat-abandoned">
+          <summary>{t(abandoned.branches > 1
+            ? abandoned.count === 1 ? "{n} earlier turn on {b} branches you navigated away from" : "{n} earlier turns on {b} branches you navigated away from"
+            : abandoned.count === 1 ? "{n} earlier turn on a branch you navigated away from" : "{n} earlier turns on a branch you navigated away from",
+            { n: abandoned.count, b: abandoned.branches })}</summary>
+          {abandoned.summary !== null
+            ? <div className="chat-compact-text"><Markdown>{abandoned.summary}</Markdown></div>
+            : <p className="chat-abandoned-note">{t("pi kept them in the session file but answers from the branch you chose. Use /tree in the terminal to go back.")}</p>}
+        </details>
+      )}
       {/* one button in every state: swapping it for a status line of another height would shift the reader */}
       {state.source === "conversation" && typeof olderCursor === "string" && (
         <button type="button" className="btn btn-ghost chat-older" disabled={olderState === "loading"} onClick={() => void loadOlder()}>

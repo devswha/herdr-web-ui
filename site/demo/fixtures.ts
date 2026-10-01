@@ -20,6 +20,7 @@ export const SPECS: DemoSpec[] = [
   { key: "web", label: "web-dashboard", title: "Guard the export button", agent: "codex", state: "blocked" },
   { key: "infra", label: "infra", title: "Why did the backup fail?", agent: "gjc", state: "idle" },
   { key: "docs", label: "docs-site", title: "Proofread the guide", agent: "omo", state: "idle" },
+  { key: "cli", label: "cli-tools", title: "Ship the retry flag", agent: "pi", state: "idle" },
   { key: "shell", label: "release", title: "Tag v1.4.0", agent: null },
 ];
 
@@ -75,6 +76,29 @@ export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { mode
     turns: [
       { role: "user" as const, ts: t(0), parts: [{ kind: "text" as const, text: "Proofread the getting-started guide." }] },
       { role: "assistant" as const, ts: t(0, 5), parts: [{ kind: "text" as const, text: "Fixed 6 typos and one broken link; the install command now matches the current CLI." }] },
+    ],
+  },
+  // pi reads its own session file, which is an entry tree rather than a log: a `/tree` move
+  // shows only the branch in play, and a `/compact` leaves a summary where it folded the rest.
+  cli: {
+    metadata: { model: "anthropic/claude-opus-5-5", reasoning_effort: "high" },
+    turns: [
+      { role: "user" as const, ts: t(11), parts: [{ kind: "text" as const, text: "`release publish` dies on a flaky upload. Retry it, but never on a 4xx." }] },
+      { role: "assistant" as const, ts: t(11, 4), end_ts: t(13, 12), parts: [
+        { kind: "thinking" as const, text: "A 4xx means the request itself is wrong, so retrying only wastes another upload. The retry belongs around the transport error, not around the call." },
+        { kind: "text" as const, text: "I'll find where the upload is issued before wrapping anything." },
+        tool("bash", "rg -n upload src/publish", { command: "rg -n upload src/publish" }, "src/publish.ts:41:  const res = await upload(archive);"),
+        tool("edit", "src/publish.ts", { path: "src/publish.ts" }, "Updated src/publish.ts"),
+        tool("bash", "bun test publish", { command: "bun test publish" }, " 11 pass\n 0 fail\nRan 11 tests across 1 file. [286ms]"),
+        { kind: "text" as const, text: "`upload` now retries a transport failure three times with backoff, and a 4xx fails on the first answer. Added `--retries`, defaulting to 3." },
+      ] },
+      { role: "user" as const, ts: t(20), parts: [{ kind: "compact" as const, text: "## Session Goal\n- Add bounded retries to `release publish` without retrying a 4xx\n\n## Files And Changes\n- `src/publish.ts` — `upload(archive, { retries })`, transport errors only\n- `src/publish.test.ts` — 11 tests, one per status family\n\n## User Preferences\n- Never retry a request the server rejected on purpose" }] },
+      { role: "user" as const, ts: t(21), parts: [{ kind: "text" as const, text: "Now expose it as `RELEASE_RETRIES`." }] },
+      { role: "assistant" as const, ts: t(21, 3), end_ts: t(22, 40), parts: [
+        tool("read", "src/config.ts", { path: "src/config.ts" }, "export interface PublishOptions { … }"),
+        tool("edit", "src/config.ts", { path: "src/config.ts" }, "Updated src/config.ts"),
+        { kind: "text" as const, text: "`RELEASE_RETRIES` sets the default, and `--retries` still wins over it. The README's environment table lists it." },
+      ] },
     ],
   },
 };

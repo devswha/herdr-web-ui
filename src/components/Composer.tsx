@@ -28,6 +28,7 @@ import {
   insertMention,
   MAX_COMPOSER_CHARS,
   rankSlashCommands,
+  terminalOnlyCommand,
 } from "../lib/compose.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
@@ -229,6 +230,8 @@ export function Composer({
   caretRef.current = caret;
   // Codex names its skills with `$`: only there does a `$` open a menu
   const trigger = useMemo(() => activeTrigger(text, caret, { skills: agent === "codex" }), [agent, caret, text]);
+  /** a command the agent runs but the chat cannot finish, while it is what the box holds */
+  const terminalOnly = useMemo(() => terminalOnlyCommand(agent, text), [agent, text]);
   const uploading = attachments.some((attachment) => attachment.state === "uploading");
   const agentLabel = agentDisplayLabel(agent);
   // the agent's suggestion stands in the empty box as it does in its own input, until anything is typed
@@ -842,6 +845,12 @@ export function Composer({
         </div>
       </div>
       {note && <div className="composer-note" role="alert">{note}</div>}
+      {/* said while typing, before the send: after it the browser is already open and the reader is
+          already in the state the words describe. Not a block — the text still goes, and pi runs the
+          command in the terminal the way its own palette would */}
+      {!note && terminalOnly !== null && (
+        <div className="composer-hint">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerMessage, composerPayload, composerStatusWord, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
+import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerStatusWord, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -130,5 +130,37 @@ describe("context left", () => {
     expect(contextLeftPercent({ used: 67_723, window: 258_400 })).toBe(74);
     expect(contextLeftPercent({ used: 300_000, window: 258_400 })).toBe(0);
     expect(contextLeftPercent({ used: 67_723, window: null })).toBeNull();
+  });
+});
+
+// /tree moves the session's branch and opens the agent's tree browser, which the chat reads as
+// nothing at all: no card, and the pane still looks done while the terminal waits for arrow keys.
+// The composer says so before the send, because after it the browser is already open and the reader
+// is already in the state the note describes
+describe("commands the chat cannot finish", () => {
+  it("names /tree where the agent has it", () => {
+    expect(terminalOnlyCommand("pi", "/tree")).toBe("tree");
+    expect(terminalOnlyCommand("pi", "  /TREE  ")).toBe("tree");
+    expect(terminalOnlyCommand("pi", "/tree w13:p2")).toBe("tree"); // takes no argument, but a stray
+    // one is still the same command typed and the reader still needs telling
+    // omp's own docs describe the same command, the same navigator and the same three branch-summary
+    // choices, so the chat cannot show its browser either
+    expect(terminalOnlyCommand("omp", "/tree")).toBe("tree");
+  });
+
+  it("stays quiet about everything else", () => {
+    expect(terminalOnlyCommand("pi", "/fork")).toBeNull();
+    expect(terminalOnlyCommand("pi", "/compact")).toBeNull();
+    // a message that merely mentions or begins like it: /treemap is not /tree, and prose that only
+    // names the command is not a command
+    expect(terminalOnlyCommand("pi", "/treemap")).toBeNull();
+    expect(terminalOnlyCommand("pi", "use /tree to switch branches")).toBeNull();
+    expect(terminalOnlyCommand("pi", "tree")).toBeNull();
+    expect(terminalOnlyCommand("pi", "//tree")).toBeNull();
+    // an agent with no evidence of the command gets no note: telling a Claude reader about a tree
+    // browser Claude does not have is its own kind of wrong
+    expect(terminalOnlyCommand("claude", "/tree")).toBeNull();
+    expect(terminalOnlyCommand("codex", "/tree")).toBeNull();
+    expect(terminalOnlyCommand(null, "/tree")).toBeNull();
   });
 });

@@ -63,7 +63,7 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Open 
 
 <p align="center"><sub>Each clip is a live recording of the desktop and a phone at once. Click one for the full ~20-second video.</sub></p>
 
-- **Chat and terminal, one pane** — native Claude Code, Codex, omp, omo and gjc transcripts, with the live terminal a click away. [Supported agents →](docs/guide.md#supported-agents)
+- **Chat and terminal, one pane** — native Claude Code, Codex, omp, omo, gjc and pi transcripts, with the live terminal a click away. [Supported agents →](docs/guide.md#supported-agents)
 - **Approve with a tap** — approvals, questions and plan menus become cards, checked to be current before your answer is sent.
 - **Know when you're needed** — live status for every pane and push alerts when an agent needs input or finishes, even with the app closed.
 - **Install it on your phone** — a PWA with Esc, Tab, Ctrl and arrows above the keyboard, and a QR code to your Tailscale address. [Phone setup →](docs/guide.md#on-your-phone)

@@ -349,6 +349,12 @@
   overflow-y: auto;
 }
 
+/* The menu is a column flex container, which shrinks every row to make forty of them fit the
+   height, and a shrunk row spills its own text over the next one. */
+.composer-menu .menu-item {
+  flex-shrink: 0;
+}
+
 .composer-menu-group {
   display: contents;
 }
@@ -364,8 +370,21 @@
   white-space: nowrap;
 }
 
+/* What the command is stays readable and what it does gives way: a hint that never shrinks
+   squeezed the command itself to nothing — at 390px wide `/export` measured 0px. */
+.composer-menu .menu-item-main {
+  flex: 0 0 auto;
+  /* but it may not outgrow the row. A prompt template is named after its file, and a long name
+     measured 15px past the row on a 390px phone (2097px with a pathological one), its tail under
+     whatever sits beside the menu. Capped at the row, the ellipsis the rule above already asks for
+     is finally reached, and the description still takes the line below it on a phone */
+  max-width: 100%;
+}
+
 .composer-menu .menu-item-hint {
   margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -448,6 +467,22 @@
   .composer-status-separator,
   .composer-status-hint {
     display: none;
+  }
+
+  /* A phone fits neither half of a pi command's row, and pi writes explanations twice as long as
+     the line is wide, so the description takes a line to itself and wraps onto more. */
+  .composer-menu .menu-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 0;
+  }
+
+  .composer-menu .menu-item-hint {
+    flex: 1 1 100%;
+    margin-left: 0;
+    white-space: normal;
+    text-overflow: clip;
+    line-height: 1.35;
   }
 }
 
@@ -643,3 +678,12 @@
 .composer-queue-item { display: grid; gap: var(--space-1); padding: var(--space-2) 0; }
 .composer-queue-item + .composer-queue-item { border-top: var(--hairline) solid var(--border); }
 .composer-queue-error { margin: 0; color: var(--text); font-size: var(--fs-xs); }
+
+/* A command the agent runs but the chat cannot finish. Advice, not a failure: it reads quieter than
+   .composer-note, which means the message did not go */
+.composer-hint {
+  margin-top: var(--space-1);
+  padding: 0 var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}

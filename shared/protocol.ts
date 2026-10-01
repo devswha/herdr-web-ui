@@ -68,7 +68,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
  *  POST   /api/pane/input  { pane_id, text }   -> { ok: true }
  *  GET    /api/pane/conversation?pane_id=    -> ConversationResponse (structured agent
- *         transcript turns - claude, codex, omp or omo; source:"scrollback" when the pane has no
+ *         transcript turns - claude, codex, omp, omo, gjc or pi; source:"scrollback" when the pane has no
  *         recognized store)
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
@@ -250,6 +250,8 @@ export type ConversationPart =
     skill?: SkillActivity;
     /** set when `output` was cut: the call's id, for GET /api/pane/conversation/tool-output, and the whole output's length */
     output_ref?: string; output_size?: number;
+    /** images the call returned (pi reads a picture into the result); same fetch as a user image */
+    images?: { media_type: string; ref: string }[];
   }
   /** A native Claude/Codex user image, addressed by an opaque ref and fetched on demand: GET /api/pane/conversation/image?pane_id=…&ref=… */
   | { kind: "image"; media_type: string; ref: string }
@@ -274,7 +276,7 @@ export interface ConversationMetadata {
 export interface ConversationResponse {
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "codex-transcript" | "scrollback";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**
@@ -287,6 +289,18 @@ export interface ConversationResponse {
    * `history_changed`.
    */
   cursor?: string | null;
+  /**
+   * Turns the transcript holds on paths a `/tree` walked away from, which no page of this
+   * conversation can reach. pi moves its leaf pointer without writing an entry, so those turns
+   * would otherwise leave the chat with no sign they were ever there. `summary` is pi's own account
+   * of the abandoned path, kept when the user answered `/tree`'s "Summarize branch?" with one.
+   * `branches` is how many separate paths were left behind — the places a live entry was given a
+   * child that is not live — because the count alone reads the same for one abandoned path of four
+   * turns and two of two, and the reader pluralizes on it. A session no `/tree` touched answers
+   * zeroes — drawn as nothing — since zero and "unknown" are different answers. Absent for every
+   * agent that keeps no entry tree.
+   */
+  abandoned?: { count: number; branches: number; summary: string | null };
 }
 
 /** GET /api/agents: one agent kind herdr can start (`agent.start` kind), with a display label. */

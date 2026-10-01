@@ -15,6 +15,11 @@
  *   parseOmpTranscript (transcript-records.ts) reads it.
  * - gjc: an open session file or fresh native terminal breadcrumb belonging to
  *   its process (gjc-runtime.ts). It writes omp's session shape too.
+ * - pi: herdr's agent.get names the session jsonl outright under
+ *   ~/.pi/agent/sessions/<cwd-slug>/ (pi.ts). Its records are the session shape
+ *   parseOmpTranscript reads, but its file is an entry tree, not a log: /tree
+ *   moves the leaf and appends beside the path it left (pi-tree.ts), so the
+ *   stream is projected onto the branch the leaf stands on before it is read.
  *
  * This module turns those files into the conversation the chat lens renders;
  * the pty stays the input path. Pure parsing lives in parseClaudeTranscript /
@@ -33,11 +38,13 @@ import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { piTranscriptPath } from "./pi.ts";
+import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
 import { invokedSkill } from "./skill-activity.ts";
-import { isContextClear, MAX_TURNS, parseOmpTranscript, piMessage, piResults, toolSummary } from "./transcript-records.ts";
+import { isContextClear, MAX_TURNS, parseOmpTranscript, piImageBlock, piMessage, piResults, toolSummary } from "./transcript-records.ts";
 
 export { isOmoProcess } from "./omo.ts";
 
@@ -204,7 +211,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
 }
 
 /** Re-parse on file changes, including replacement and same-size rewrites. */
-const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null }>();
+const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; abandoned?: { count: number; branches: number; summary: string | null } }>();
 
 export class ConversationUnavailable extends Error {
   constructor(reason: string) {
@@ -223,11 +230,17 @@ export class HistoryChanged extends Error {
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "codex-transcript";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript";
   turns: ConversationTurn[];
   metadata: ConversationMetadata;
   /** the first turn's position, for the page before it; null at the conversation's beginning */
   cursor: string | null;
+  /**
+   * Turns the file holds on paths a `/tree` walked away from, which no page of this conversation
+   * can reach; absent for every agent that keeps no entry tree. pi moves its leaf without writing
+   * anything, so the chat would otherwise drop those turns with no sign they were ever there.
+   */
+  abandoned?: { count: number; branches: number; summary: string | null };
   history_id: string;
   /** changes whenever the answer could: the route's ETag, so an unchanged poll costs no body */
   version: string;
@@ -255,7 +268,8 @@ export type ConversationPage = { before?: string; since?: string; from?: string 
 interface TranscriptStream {
   /** the live file's identity: cursors from any other file are refused */
   id: string;
-  files: { path: string; start: number; length: number }[];
+  /** `offset` is where the segment starts in its file: equal to `start` for a whole prefix */
+  files: { path: string; start: number; length: number; offset: number }[];
   length: number;
   floor: number;
 }
@@ -274,25 +288,45 @@ function transcriptGeneration(path: string, stat: { dev: number; ino: number; si
 }
 
 function transcriptStream(source: RecognizedConversation["source"], path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }, codexHome: string): TranscriptStream {
-  // (a chain whose parent was archived since comes back shorter: codexHistorySegments)
-  const segments = source === "codex-transcript" ? codexHistorySegments(path, codexHome) : [{ path, end: stat.size }];
+  // (a chain whose parent was archived since comes back shorter: codexHistorySegments;
+  // a pi branch skips the side paths a /tree left behind: piBranchSegments)
+  const branch = source === "pi-transcript" ? piBranchSegments(path, stat.size) : null;
+  if (source === "pi-transcript" && branch === null) throw new ConversationUnavailable("branch_unreadable");
+  const segments: { path: string; start: number; end: number }[] = source === "codex-transcript"
+    ? codexHistorySegments(path, codexHome).map((segment) => ({ path: segment.path, start: 0, end: segment.end }))
+    : branch !== null ? branch.map((segment) => ({ path, start: segment.start, end: segment.end }))
+    : [{ path, start: 0, end: stat.size }];
   const files: TranscriptStream["files"] = [];
-  let start = 0;
+  let stream = 0;
   for (const segment of segments) {
     // the live file is read to the size it had when it was identified
-    const length = segment.path === path ? Math.min(segment.end, stat.size) : segment.end;
-    files.push({ path: segment.path, start, length });
-    start += length;
+    const end = segment.path === path ? Math.min(segment.end, stat.size) : segment.end;
+    const length = end - segment.start;
+    if (length <= 0) continue;
+    files.push({ path: segment.path, start: stream, length, offset: segment.start });
+    stream += length;
   }
   // Positions count from the start of the whole chain: a cursor names the live file AND
   // the rollouts before it, so one read against another chain (an earlier rollout found
   // later, a parent since archived) answers 409 instead of pointing at other turns.
-  const earlier = files.slice(0, -1).map((file) => {
-    const identity = statSync(file.path, { throwIfNoEntry: false });
-    return `${file.path}\0${file.length}\0${identity ? `${identity.dev}:${identity.ino}` : "-"}`;
-  });
-  const chain = earlier.length === 0 ? "" : `-${createHash("sha256").update(earlier.join("\n")).digest("base64url").slice(0, 10)}`;
-  return { id: `${stat.dev.toString(36)}-${stat.ino.toString(36)}${chain}${transcriptGeneration(path, stat)}`, files, length: start, floor: 0 };
+  // A pi branch is laid out from one file, so its layout stands in for that chain: /tree
+  // moves the conversation to other bytes while the file, its inode and its size all stay
+  // put. Every range counts by where it starts, and by where it ends too except the last:
+  // the last one grows with every append, and history_id must stay stable across appends.
+  // Two /tree moves away from the same entry share their head ranges and differ only
+  // where their tails begin, so the last range's start is what tells them apart.
+  let chain = "";
+  if (branch !== null) {
+    const layout = files.map((file, at) => (at === files.length - 1 ? `${file.offset}` : `${file.offset}\0${file.length}`)).join("\n");
+    chain = `-${createHash("sha256").update(layout).digest("base64url").slice(0, 10)}`;
+  } else if (source === "codex-transcript") {
+    const earlier = files.slice(0, -1).map((file) => {
+      const identity = statSync(file.path, { throwIfNoEntry: false });
+      return `${file.path}\0${file.length}\0${identity ? `${identity.dev}:${identity.ino}` : "-"}`;
+    });
+    chain = earlier.length === 0 ? "" : `-${createHash("sha256").update(earlier.join("\n")).digest("base64url").slice(0, 10)}`;
+  }
+  return { id: `${stat.dev.toString(36)}-${stat.ino.toString(36)}${chain}${transcriptGeneration(path, stat)}`, files, length: stream, floor: 0 };
 }
 
 function readStream(stream: TranscriptStream, from: number, to: number): Buffer {
@@ -304,7 +338,7 @@ function readStream(stream: TranscriptStream, from: number, to: number): Buffer 
     const fd = openSync(file.path, "r");
     try {
       const buffer = Buffer.alloc(high - low);
-      chunks.push(buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, low - file.start)));
+      chunks.push(buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, file.offset + (low - file.start))));
     } finally {
       closeSync(fd);
     }
@@ -313,13 +347,17 @@ function readStream(stream: TranscriptStream, from: number, to: number): Buffer 
 }
 
 /** Reset markers are small native control records. Scan each appended byte once,
- * in bounded chunks; retain offsets, never a session-sized string. */
-const clearScans = new Map<string, { id: string; scanned: number; floor: number; tail: string }>();
+ * in bounded chunks; retain offsets, never a session-sized string.
+ * The same pass keeps an omp-family transcript's latest model and thinking-level
+ * records (small lines): a change between the metadata head and the newest page
+ * is otherwise never read, and the chat showed the level the session started at. */
+const SETTING_TYPES = ['"model_change"', '"thinking_level_change"'];
+const clearScans = new Map<string, { id: string; scanned: number; floor: number; tail: string; settings: Partial<Record<"model_change" | "thinking_level_change", { offset: number; end: number; line: string }>> }>();
 function applyHistoryBoundary(path: string, stream: TranscriptStream, source: RecognizedConversation["source"]): void {
   if (source === "codex-transcript") return;
   let scan = clearScans.get(path);
   if (!scan || scan.id !== stream.id || scan.scanned > stream.length || bytesBefore(stream, scan.scanned) !== scan.tail) {
-    scan = { id: stream.id, scanned: 0, floor: 0, tail: "" };
+    scan = { id: stream.id, scanned: 0, floor: 0, tail: "", settings: {} };
   }
   let position = scan.scanned;
   let carry = Buffer.alloc(0);
@@ -334,7 +372,14 @@ function applyHistoryBoundary(path: string, stream: TranscriptStream, source: Re
     const base = position - carry.length;
     let offset = 0;
     for (let newline = bytes.indexOf(0x0a); newline !== -1; newline = bytes.indexOf(0x0a, offset)) {
-      if (!skipping && isClear(bytes.subarray(offset, newline))) scan.floor = base + offset;
+      const line = bytes.subarray(offset, newline);
+      if (!skipping && isClear(line)) scan.floor = base + offset;
+      else if (!skipping && source !== "claude-transcript" && SETTING_TYPES.some((type) => line.includes(type))) {
+        try {
+          const type: unknown = JSON.parse(line.toString("utf8"))?.type;
+          if (type === "model_change" || type === "thinking_level_change") scan.settings[type] = { offset: base + offset, end: base + newline, line: line.toString("utf8") };
+        } catch { /* not a record */ }
+      }
       skipping = false;
       offset = newline + 1;
       scan.scanned = base + offset;
@@ -358,12 +403,14 @@ const TURN_MARK: Record<RecognizedConversation["source"], Buffer> = {
   "omp-transcript": Buffer.from('"user"'),
   "omo-transcript": Buffer.from('"user"'),
   "gjc-transcript": Buffer.from('"user"'),
+  "pi-transcript": Buffer.from('"user"'),
 };
 
 /**
  * Does this line open a turn? Pages start at such lines, so a page never splits
  * a turn: a Codex task (its prompt, duplicate records and tool calls all follow
- * task_started), a Claude or omp prompt (tool results answer the turn before it).
+ * task_started), a Claude or omp prompt (tool results answer the turn before it),
+ * and the same for pi, whose prompts are `message` records with a user role.
  */
 function opensTurn(source: RecognizedConversation["source"], line: string): boolean {
   let entry: { type?: unknown; isMeta?: unknown; isCompactSummary?: unknown; payload?: { type?: unknown }; message?: { role?: unknown; content?: unknown } };
@@ -490,7 +537,10 @@ function newestPage(path: string, stream: TranscriptStream, source: RecognizedCo
 
 function parseTurns(source: RecognizedConversation["source"], text: string): ConversationTurn[] {
   return source === "codex-transcript" ? parseCodexTranscript(text, Infinity)
-    : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity) : parseOmpTranscript(text, Infinity);
+    // only pi keeps a tool's images in the entry as base64; omp, omo and gjc are read the same
+    // way but would carry image refs nothing can answer, so the option stays with pi alone
+    : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity)
+      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript" });
 }
 
 interface LiveCodexTurn {
@@ -531,10 +581,17 @@ function codexLiveTurn(path: string, stream: TranscriptStream, start: number, be
   return { turns: cached.parser.snapshot(tail), metadata: parseConversationMetadata(tail, "codex-transcript", cached.metadata) };
 }
 
-/** Codex settings belong to the live rollout; native clears bound other stores. */
+/** Codex settings belong to the live rollout; native clears bound other stores. A model or
+ * thinking-level change after the head and before the page follows the head, in order. */
 function metadataHead(path: string, stream: TranscriptStream, source: RecognizedConversation["source"], start: number): string {
-  return source === "codex-transcript" ? readRange(path, 0, METADATA_HEAD_BYTES)
-    : readStream(stream, stream.floor, Math.min(start, stream.floor + METADATA_HEAD_BYTES)).toString("utf8");
+  if (source === "codex-transcript") return readRange(path, 0, METADATA_HEAD_BYTES);
+  const end = Math.min(start, stream.floor + METADATA_HEAD_BYTES);
+  const later = Object.values(clearScans.get(path)?.settings ?? {})
+    // a record the head cuts in two is read whole here
+    .filter((setting) => setting.end > end && setting.offset < start)
+    .sort((a, b) => a.offset - b.offset)
+    .map((setting) => setting.line);
+  return [readStream(stream, stream.floor, end).toString("utf8"), ...later].join("\n");
 }
 
 /**
@@ -600,7 +657,7 @@ export async function gjcTranscriptPath(paneId: string, cwd: string, home?: stri
  * failure answers "no": the caller then reports why the labelled store failed,
  * which is the more useful error.
  */
-async function paneRunsOmo(paneId: string): Promise<boolean> {
+export async function paneRunsOmo(paneId: string): Promise<boolean> {
   // pane.process_info wants `pane_id`; given `target` herdr answers for the
   // FOCUSED pane instead of erroring (live-verified 2026-09-21).
   const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: unknown }[] } }>(
@@ -685,6 +742,12 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]) };
     if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId) };
     if (agent === "gjc") return { source: "gjc-transcript", path: await gjcTranscriptPath(paneId, cwd) };
+    // pi's own label only routes pi: an omo pane was taken above, by its process tree.
+    if (agent === "pi") {
+      const path = await piTranscriptPath(paneId);
+      if (!path) throw new ConversationUnavailable("no_session_path");
+      return { source: "pi-transcript", path };
+    }
     throw new ConversationUnavailable("no_recognized_transcript");
   } catch (error) {
     if (!(error instanceof ConversationUnavailable) || !(await paneRunsOmo(paneId))) throw error;
@@ -729,7 +792,10 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
   try {
     stream = transcriptStream(source, path, stat, codexHome ?? defaultCodexHome());
     applyHistoryBoundary(path, stream, source);
-  } catch {
+  } catch (error) {
+    // a branch that cannot be walked says so; a file that went unreadable mid-read has
+    // one answer, and an unreadable branch has its own
+    if (error instanceof ConversationUnavailable) throw error;
     throw new ConversationUnavailable("transcript_missing");
   }
   // an older page never changes while its file and the rollouts before it stay the same
@@ -739,7 +805,9 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
   const cached = cache.get(key);
   // the answer is a function of the page asked for and the file's state, so they name it
   const version = answerVersion(key, signature);
-  if (cached?.signature === signature) return { source, turns: cached.turns, metadata: cached.metadata, cursor: cached.cursor, history_id: stream.id, version };
+  if (cached?.signature === signature) {
+    return { source, turns: cached.turns, metadata: cached.metadata, cursor: cached.cursor, abandoned: cached.abandoned, history_id: stream.id, version };
+  }
 
   let start: number;
   let text: string;
@@ -787,9 +855,12 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
   // Record the stat from BEFORE the read: an append during parsing must cause
   // another read on the next poll, not permanently cache a torn tail.
   cache.delete(key);
-  cache.set(key, { signature, turns, metadata, cursor });
+  // the abandoned turns live outside the branch's byte ranges, so the page cannot see them: a
+  // straight line answers { count: 0 }, which is most sessions and costs the client nothing
+  const abandoned = source === "pi-transcript" ? piAbandonedTurns(path, stat.size) ?? undefined : undefined;
+  cache.set(key, { signature, turns, metadata, cursor, abandoned });
   if (cache.size > 32) cache.delete(cache.keys().next().value!);
-  return { source, turns, metadata, cursor, history_id: stream.id, version };
+  return { source, turns, metadata, cursor, abandoned, history_id: stream.id, version };
 }
 
 /**
@@ -799,7 +870,7 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
  * image. Codex uses a hash of the native attachment and searches only the bound history.
  */
 export async function conversationImage(paneId: string, ref: string, codexHome?: string): Promise<{ mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null> {
-  if (!IMAGE_REF.test(ref) && !CODEX_IMAGE_REF.test(ref)) return null;
+  if (!IMAGE_REF.test(ref) && !CODEX_IMAGE_REF.test(ref) && !PI_IMAGE_REF.test(ref)) return null;
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
@@ -807,6 +878,7 @@ export async function conversationImage(paneId: string, ref: string, codexHome?:
   try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   if (resolved.source === "codex-transcript") return codexTranscriptImage(codexHistorySegments(resolved.path, codexHome), ref, pane.cwd);
+  if (resolved.source === "pi-transcript") return piTranscriptImage(resolved.path, ref);
   return resolved.source === "claude-transcript" ? transcriptImage(resolved.path, ref) : null;
 }
 
@@ -866,10 +938,67 @@ export function transcriptToolOutput(source: RecognizedConversation["source"], p
     }
     return null;
   }
+  if (source === "pi-transcript") return piToolOutput(path, ref);
   let text: string;
   try { text = readFileSync(path, "utf8"); } catch { return null; }
   return outputInText(source, text, ref);
 }
+
+/**
+ * One whole tool output by ref. A pi output lives on the active branch only: reading the
+ * file whole would answer a ref from a branch a /tree abandoned, whose output the chat
+ * never showed, so the branch is read the way the conversation is.
+ */
+function piToolOutput(path: string, ref: string): string | null {
+  let size: number;
+  let branch: ReturnType<typeof piBranchSegments>;
+  try { size = statSync(path).size; branch = piBranchSegments(path, size); } catch { return null; }
+  if (branch === null) return null;
+  const fd = openSync(path, "r");
+  try {
+    for (const segment of branch) {
+      const buffer = Buffer.alloc(segment.end - segment.start);
+      if (readSync(fd, buffer, 0, buffer.length, segment.start) !== buffer.length) continue;
+      const output = outputInText("pi-transcript", buffer.toString("utf8"), ref);
+      if (output !== null) return output;
+    }
+  } finally { closeSync(fd); }
+  return null;
+}
+
+/**
+ * The image a pi tool call returned, by the ref the page gave it (`pi:<call id>:<nth image>`).
+ * Like the output, it is read on the active branch only: an image from a branch a /tree
+ * abandoned is one the chat never showed, so it is not offered.
+ */
+export function piTranscriptImage(path: string, ref: string): { mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null {
+  const match = PI_IMAGE_REF.exec(ref);
+  if (match === null || match[1] === undefined || match[2] === undefined) return null;
+  const [, callId, nth] = match;
+  let size: number;
+  let branch: ReturnType<typeof piBranchSegments>;
+  try { size = statSync(path).size; branch = piBranchSegments(path, size); } catch { return null; }
+  if (branch === null) return null;
+  const fd = openSync(path, "r");
+  try {
+    for (const segment of branch) {
+      const buffer = Buffer.alloc(segment.end - segment.start);
+      if (readSync(fd, buffer, 0, buffer.length, segment.start) !== buffer.length) continue;
+      for (const line of buffer.toString("utf8").split("\n")) {
+        if (!line.includes(callId)) continue;
+        let entry: unknown;
+        try { entry = JSON.parse(line); } catch { continue; }
+        const message = piMessage(entry);
+        if (message === null) continue;
+        const image = piImageBlock(message, callId, Number(nth));
+        if (image !== null) return { mediaType: image.media_type, bytes: new Uint8Array(Buffer.from(image.data, "base64")) };
+      }
+    }
+  } finally { closeSync(fd); }
+  return null;
+}
+
+const PI_IMAGE_REF = /^pi:([A-Za-z0-9_:.\-]{1,128}):(\d{1,3})$/;
 
 function outputInText(source: RecognizedConversation["source"], text: string, ref: string): string | null {
   text = activeHistoryText(text, source);

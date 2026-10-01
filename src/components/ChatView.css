@@ -489,6 +489,16 @@
 .chat-tool-io pre,
 .chat-tool-io p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-tool-io > :not(:first-child) { margin-top: var(--space-2); }
+
+/* a tool's own pictures (pi reads a file into the result): left-aligned, unlike a user's
+   attachments, and only fetched when the row is opened, so the bytes are not on the page */
+.chat-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 .chat-tool-file { color: var(--text-strong); }
 .chat-tool-io-meta { color: var(--text-dim); font-size: var(--fs-2xs); }
 .chat-diff { display: block; white-space: pre; overflow-x: auto; }
@@ -873,3 +883,10 @@
 .chat-skill-detail p { margin: 0 0 var(--space-1); color: var(--text-dim); }
 
 .chat-skill[open] .chat-skill-caret { transform: rotate(180deg); }
+
+/* pi moved its leaf and wrote nothing: the turns above are not all the file holds, and this is
+   the only place that can say so. Read-only, so it is quieter than a compaction, which changed
+   what the agent answers from. */
+.chat-abandoned { margin: var(--space-2) 0; }
+.chat-abandoned > summary { font-style: italic; }
+.chat-abandoned-note { margin: var(--space-2) 0 0; color: var(--text-dim); }

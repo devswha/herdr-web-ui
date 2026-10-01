@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackHost, type AccessInput } from "./access.ts";
 
 const device = { id: "d1", label: "Phone", role: "drive" as const };
-const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, owner: null, tokenConfigured: false, gated: false };
+const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, owner: null, tagged: false, tokenConfigured: false, gated: false };
 const via = (input: Partial<AccessInput>) => { const a = decideAccess({ ...base, ...input }); return a.level === "full" ? a.via : `refused:${a.reason}`; };
 
 describe("decideAccess", () => {
@@ -34,6 +34,19 @@ describe("decideAccess", () => {
     expect(via({ forwarded: true, owner: "me@example.com", device })).toBe("device");
     // no owner known yet: the header decides nothing either way
     expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: null })).toBe("open");
+  });
+
+  it("asks a tagged PC's visitors to pair, its owner included, and never calls them another user", () => {
+    // the node names no person: there is no login to match, and none to be a stranger to
+    expect(via({ forwarded: true, tagged: true, tailscaleLogin: "me@example.com" })).toBe("refused:pairing_required");
+    expect(via({ forwarded: true, tagged: true })).toBe("refused:pairing_required");
+    expect(via({ forwarded: true, tagged: true, tailscaleLogin: "me@example.com", tokenConfigured: true })).toBe("refused:token_required");
+    expect(via({ forwarded: true, tagged: true, tailscaleLogin: "me@example.com", device })).toBe("device");
+    expect(via({ tagged: true })).toBe("local");
+    // a login header alone marks a proxy: with no owner to refuse it against, it must not pass for this PC
+    expect(cameThroughProxy(new Headers({ host: "localhost:7317", "tailscale-user-login": "them@example.com" }))).toBe(true);
+    // a login named for the PC lets that person in as on any other node
+    expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("tailscale");
   });
 
   it("a configured token gates everything, this PC included, and still admits identity and devices", () => {

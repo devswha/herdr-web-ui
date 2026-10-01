@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeviceStore, normalizeLabel } from "./devices.ts";
-import { parseTailscaleOwner } from "./tailscale.ts";
+import { isTaggedNode, parseTailscaleOwner } from "./tailscale.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "herdr-devices-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -104,6 +104,12 @@ describe("labels and owner", () => {
     expect(parseTailscaleOwner(JSON.stringify({ Self: { UserID: 99 }, User: {} }))).toBeNull();
     expect(parseTailscaleOwner(null)).toBeNull();
     expect(parseTailscaleOwner("nope")).toBeNull();
+    expect(isTaggedNode(status)).toBeFalse();
+    // a tagged node's user entry is the node itself: no person's login
+    const tagged = JSON.stringify({ Self: { UserID: 7, Tags: ["tag:server"] }, User: { "7": { LoginName: "pc.tailnet.ts.net" } } });
+    expect(parseTailscaleOwner(tagged)).toBeNull();
+    expect(isTaggedNode(tagged)).toBeTrue();
+    expect(isTaggedNode(null)).toBeFalse();
   });
 });
 

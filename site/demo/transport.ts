@@ -53,6 +53,33 @@ let promptOpen = true;
 let promptId = PROMPT.id;
 let nextWorkspace = 100;
 
+/**
+ * A pane the fixtures predate. `fixtures/panes.json` and `fixtures/machines.json` are recorded
+ * together by `bun scripts/demo-fixtures.ts`, which drives a live herdr and renumbers every pane,
+ * so a fixture is rarely re-cut for one pane's sake. A SPECS entry with no recorded pane gets one
+ * here instead, which keeps adding an agent to the demo to a change in `fixtures.ts` alone. Panes
+ * the fixtures do record are left exactly as they were recorded.
+ */
+function backfillPanes(): void {
+  const snap = snapshot();
+  const recorded = new Set<string>(keyOfPane.values());
+  const template = snap.workspaces[0];
+  const paneTemplate = snap.panes[0];
+  if (!template || !paneTemplate) return;
+  for (const spec of SPECS) {
+    if (recorded.has(spec.key)) continue;
+    const id = `w${(nextWorkspace++).toString(36)}`;
+    const pane: Pane = { ...structuredClone(paneTemplate), pane_id: `${id}:p1`, tab_id: `${id}:t1`, terminal_id: `${id}:term`, workspace_id: id, label: spec.title, title: spec.title, agent: spec.agent, agent_status: spec.agent ? spec.state ?? "idle" : "unknown", cwd: `/home/demo/${spec.label}`, foreground_cwd: `/home/demo/${spec.label}` };
+    snap.panes.push(pane);
+    snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: `${id}:t1`, workspace_id: id, label: spec.label, number: 1, agent_status: pane.agent_status, focused: false, pane_count: 1 });
+    snap.workspaces.push({ ...structuredClone(template), workspace_id: id, label: spec.label, number: snap.workspaces.length + 1, active_tab_id: `${id}:t1`, agent_status: pane.agent_status, focused: false, pane_count: 1, tab_count: 1 });
+    keyOfPane.set(pane.pane_id, spec.key);
+  }
+  // the fixture's own order is kept; a backfilled pane joins at the end of the list
+  snap.workspaces.forEach((workspace, index) => { workspace.number = index + 1; });
+}
+backfillPanes();
+
 const sseListeners = new Set<SseListener>();
 const sockets = new Set<DemoSocket>();
 
@@ -187,7 +214,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const chat = key ? chats.get(key) : undefined;
     const agent = agentOf(paneId);
     if (!chat) return json({ source: "scrollback", turns: [] });
-    const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : "omp-transcript";
+    const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : "omp-transcript";
     return json({ source, turns: chat.turns, metadata: chat.metadata, cursor: null });
   }
   if (path === "/api/pane/prompt") return json({ prompt: keyOfPane.get(paneId) === "web" && promptOpen ? { ...PROMPT, id: promptId } : null });

@@ -33,12 +33,44 @@ export function piMessage(value: unknown): Row | null {
   return { ...message, toolCallId: string(message.toolCallId, message.callId), content };
 }
 
-export function piResults(message: Row): { id: string; text: string; error: boolean }[] {
+/**
+ * One entry's tool results, with the images each carries. pi reads a picture into a tool
+ * result as inline base64 beside the text it returns, so only the position is carried in the
+ * page: the bytes stay in the file and are fetched when the row is opened, the same way a
+ * user-pasted image is. `index` counts the images of that one result, which is what the
+ * page's ref quotes, so a fetch never has to agree with the parse about anything else.
+ */
+export function piResults(message: Row): { id: string; text: string; error: boolean; images: string[] }[] {
   const blocks = message.role === "toolResult" ? [message] : Array.isArray(message.content) ? message.content.filter((block) => record(block).type === "toolResult") : [];
   return blocks.flatMap((value) => {
     const block = record(value);
-    return typeof block.toolCallId === "string" ? [{ id: block.toolCallId, text: resultText(block.content), error: block.isError === true }] : [];
+    if (typeof block.toolCallId !== "string") return [];
+    const images = (Array.isArray(block.content) ? block.content : []).map(piImageOf).filter((image): image is { media_type: string; data: string } => image !== null).map((image) => image.media_type);
+    return [{ id: block.toolCallId, text: resultText(block.content), error: block.isError === true, images }];
   });
+}
+
+/** The image types a chat shows; pi names the type `mimeType` where Claude names it `media_type`. */
+const PI_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+function piImageOf(value: unknown): { media_type: string; data: string } | null {
+  const image = record(value);
+  if (image.type !== "image") return null;
+  const type = typeof image.mimeType === "string" ? image.mimeType : typeof image.media_type === "string" ? image.media_type : null;
+  if (type === null || !PI_IMAGE_TYPES.has(type) || typeof image.data !== "string") return null;
+  return { media_type: type, data: image.data };
+}
+
+/**
+ * The `index`th image of the tool result answering `toolCallId`, decoded. `message` must
+ * come from piMessage: pi-family providers spell the content field differently, and the
+ * page's ref was built from the normalised one, so reading a raw entry could answer with
+ * the wrong block.
+ */
+export function piImageBlock(message: Row, toolCallId: string, index: number): { media_type: string; data: string } | null {
+  if (piResults(message).every((result) => result.id !== toolCallId)) return null;
+  const blocks = message.role === "toolResult" ? [message] : (Array.isArray(message.content) ? message.content : []).filter((block) => record(block).type === "toolResult" && record(block).toolCallId === toolCallId);
+  const images = blocks.flatMap((value) => { const block = record(value); return (Array.isArray(block.content) ? block.content : []).map(piImageOf); }).filter((image): image is { media_type: string; data: string } => image !== null);
+  return index >= 0 ? images[index] ?? null : null;
 }
 
 /** Enough turns for a conversation. */
@@ -58,7 +90,8 @@ export function piNotice(value: unknown): string | null {
 
 /** The one-line summary a collapsed tool chip shows. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
-  const first = input["command"] ?? input["file_path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
+  // pi names a file `path` where Claude names it `file_path`; both are worth showing.
+  const first = input["command"] ?? input["file_path"] ?? input["path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
   return typeof first === "string" ? first.slice(0, 120) : name;
 }
 
@@ -68,7 +101,7 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
  * of the toolResult entry that answers them (matched by toolCallId), thinking
  * stays private to the agent.
  */
-export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): ConversationTurn[] {
+export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: { toolImages?: boolean } = {}): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   /** tool parts still waiting for their result, by toolCall id */
   const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
@@ -100,6 +133,17 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): Conversa
       turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "notice", text: notice }] });
       continue;
     }
+    // pi folds old context into a summary of its own accord and on /compact. The entry is a
+    // tree entry, not a message, so it reaches the chat only through this branch: the card
+    // says where the conversation was cut, and pi keeps answering from the summary onward.
+    // piNotice above only claims `custom_message`, so a compaction entry always reaches here.
+    if ((entry as { type?: unknown }).type === "compaction") {
+      const summary = (entry as { summary?: unknown }).summary;
+      if (typeof summary === "string" && summary.trim().length > 0) {
+        turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "compact", text: summary }] });
+      }
+      continue;
+    }
     const message = piMessage(entry);
     if (message === null) continue;
     const applyResults = () => {
@@ -109,6 +153,11 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): Conversa
         pending.delete(result.id);
         trimOutput(tool, result.text, result.id);
         if (result.error) tool.error = true;
+        if (options.toolImages === true && result.images.length > 0) {
+          // addressed by the call it answers: a nested result shares its entry with other
+          // blocks, so the entry id alone could not say which one an image came from
+          tool.images = result.images.map((media_type, index) => ({ media_type, ref: `pi:${result.id}:${index}` }));
+        }
       }
     };
     if (message.role !== "assistant") applyResults();

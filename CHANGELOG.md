@@ -7,12 +7,141 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Settings → Appearance has a wheel scroll speed for the terminal, from 1× (as it was) to 10×.
+  xterm sends herdr one wheel report per wheel event however far the wheel turned, so a long
+  history took a lot of turning; a higher speed sends that many reports for each. A trackpad
+  is scaled the same way, and touch scrolling is unchanged.
+  ([#274](https://github.com/devswha/herdr-web-ui/pull/274) by @taehwan08)
+- A pi or omp pane says so when you type `/tree` into the chat. The command runs, in the terminal,
+  and opens a tree the chat cannot show — so the composer says that while you are typing it, and
+  where to go instead. Wording checked at 390 wide: the lens switch is an icon there (its word is
+  hidden below 560px, and a `title` is a tooltip a phone never shows), so the hint names where the
+  button is rather than a word no phone displays
+- A pi pane says when the conversation is bigger than what the chat shows. `/tree` moves pi's leaf
+  pointer and writes nothing, so the turns a `/tree` left behind simply disappeared from the chat
+  with no sign they had been there. The chat now names how many it holds back and across how many
+  branches, and where pi summarized the abandoned path — answering `/tree`'s **Summarize branch?**
+  — it shows that summary. Going back to those turns still means `/tree` in the terminal: the chat
+  reads them but cannot move pi's pointer, and a chat that could would offer to undo a branch by a tap
+- A pi pane is a chat. Its own session file under `~/.pi/agent/sessions` is read through herdr,
+  so prompts, thinking, tool calls with their results, the model and the reasoning level show
+  the way they do for omp. `/new`, `/resume`, `/fork` and `/clone` move the chat to the session
+  that replaced the old one, and after a `/tree` it shows the branch in play: the paths pi
+  navigated away from stay in the file, unread, as they do in pi. Where pi folded old context
+  into a summary — on `/compact`, or by itself — the chat says so and opens the summary. A pi
+  dialog answers from the chat too: an extension's question, a Yes/No, and one that wants text
+  typed, though not `/tree` itself, which would move the session's branch. pi calls itself idle
+  while it waits on a dialog, never blocked, so the card comes from its screen. A session
+  directory chosen with `--session-dir` or the `sessionDir` setting is not found;
+  `PI_CODING_AGENT_SESSION_DIR` is.
+- A picture a pi tool opened shows in the chat. pi keeps the image a `read` returned in the
+  session file beside the text it answers with, so a screenshot the agent looked at was in the
+  transcript and invisible here; it now shows inside that tool's row, and opens full size on a
+  tap. Only the address travels in the conversation, so the bytes arrive when the row is opened
+  and not on every poll, and an image left behind by a `/tree` stays out of reach, the way its
+  output does.
+- A pi pane's context ring shows. What a request filled was already recorded; the window it
+  filled was not, so the ring had nothing to divide by and stayed hidden. It now reads the
+  window from the same `~/.pi/agent/models.json` pi reads its own providers from, and the
+  figure matches what pi's own footer says. A model that file does not state keeps no ring:
+  pi answers those from its built-in catalogue or from a running llama.cpp server, neither of
+  which a reader of the transcript can ask, and a window invented would show a percentage no
+  different from the real one.
+- A pi pane's message box lists pi's own slash commands as you type `/`, the way it does for
+  Claude Code, Codex and omp: pi's built-ins in pi's words, the templates in `~/.pi/agent/prompts`
+  and the skills under `~/.pi/agent/skills` and `~/.agents/skills`. A project's own skills and
+  prompt templates stay out of the list, because pi loads those only once you have trusted the
+  folder, and a command the agent will not run is worse than one missing from the menu.
+- The browser demo runs a pi pane, backfilled into the recorded snapshot when the fixtures
+  predate it: `site/demo/fixtures.ts` is the only file a new demo agent needs.
+
 ### Changed
-- A mouse wheel over the terminal scrolls three times as far per notch, since xterm sent
-  herdr one wheel report per event whatever its size. The localStorage key
-  `herdr-web-ui:wheel-multiplier` (1-20) sets another factor. Touch scrolling is unchanged.
+- Remote PCs use the `remote-v10` runtime, which carries the server-side fixes since `remote-v9`
+  to them, Windows PCs included: New session with Gajae Code, the chat of a Gajae Code or omp
+  pane, pasted and sent lines that stay in an agent's message box, typing that no longer outlives
+  its connection, and OmO detection. A PC connected with the `remote-v9` bridge updates as it did
+  for earlier runtimes. ([#282](https://github.com/devswha/herdr-web-ui/pull/282))
+
+### Removed
+- `/tree` is no longer suggested in a pi pane's chat. pi offers it, and typing it works, but the
+  chat reads the tree browser it opens as nothing at all — no card, and the pane still looks idle
+  while the terminal waits for arrow keys — so a reader who picked it from the menu landed in a
+  state only the terminal lens can leave. Navigating was never the chat's to do; omp curates its own
+  list the same way. What the chat does say is where a `/tree` left the conversation: the marker
+  above the turns names how many it holds back and across how many branches
 
 ### Fixed
+- On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
+  Tailscale user". A tagged node has no person's login, and the server took the node's own name
+  for one, which no device could match. Such a PC now asks every device to pair, yours included,
+  and `HERDR_WEB_TAILSCALE_OWNER` names the login that gets in without pairing.
+  ([#280](https://github.com/devswha/herdr-web-ui/pull/280))
+- Several lines sent to an agent from the terminal's input line on a phone stay in its message
+  box until sent, on a Windows PC too. The mirrored terminal there never learns the agent's paste
+  mode, so the lines went as typed and the agent sent the first one alone. They now go as one
+  paste, as the same lines pasted into that terminal do since 0.3.40.
+  ([#281](https://github.com/devswha/herdr-web-ui/pull/281))
+- The chat of an OmO, omp or Gajae Code session shows the reasoning level the session runs at
+  now. It read the level from the first 64 KB of the transcript and the newest page, so a level
+  changed in between (`/thinking`, or a model switch) was never seen: a session started at
+  `high` and switched to `medium` still showed `high`. A model or thinking-level change between
+  them now counts, in order, without reading more of the file.
+- The chat shows the conversation of OmO installed with `bun add -g omo-ai` again, and the
+  sidebar marks its pane as OmO. A global bun install puts OmO's engine next to omo-ai rather
+  than inside it, so the pane runs `bun …/@code-yeongyu/senpi/dist/bundle/cli.js --extension
+  …/omo-ai/plugin`, and 0.3.40 no longer took it for OmO: the chat found no conversation and
+  New session did not see OmO start. That engine counts as OmO again when omo-ai's plugin is one
+  of its extensions.
+- Claude usage on a Mac no longer shows `expired` while Claude Code is signed in. Claude Code
+  started outside the desktop session (over SSH, or by a background service) cannot write its
+  keychain item, so it refreshes only `~/.claude/.credentials.json` and the item keeps a token
+  that expired hours ago. The app took the keychain item whenever it could read it; it now
+  takes whichever of the two expires later, the way it already does for Cursor. Both are still
+  only read.
+- Claude's subscription usage no longer shows a locked keychain on a Mac whose server was
+  started outside the desktop session (over SSH, or by a detached multiplexer), where
+  `security` cannot open the login keychain. The item is read through a one-shot launchd job
+  in the desktop session instead.
+- A pi pane no longer shows a context window pi never used, and now shows the one it does. A
+  provider that states `contextWindow` beside a model that names none reported that number as the
+  model's denominator; pi does not inherit it, and runs the model at its own default instead, so the
+  ring is now quiet there rather than showing a figure pi never had. And `modelOverrides` is applied
+  the way pi applies it — an override that raises a model to 256k was read at 128k, which drew twice
+  the utilisation pi shows. Both checked against pi 0.87.1 by pointing `PI_CODING_AGENT_DIR` at a
+  crafted `models.json` and reading `pi --list-models`.
+- A malformed entry in `~/.pi/agent/models.json` no longer takes the chat down with it. One model
+  that was not an object — a stray `null` from a hand edit — threw while the window was being read.
+- A prompt template reached through a symbolic link is offered again. A `.md` linked from a dotfiles
+  repo into the prompt directory was hidden from the menu while pi loaded it and ran it.
+- A command name longer than the menu no longer runs out from under it, on a phone or a desktop. A
+  template is named after its file, and the name kept its full width past the row's edge.
+- A model list caught mid-redraw is refused instead of offered in part. A screen written while pi is
+  still drawing it ends a row inside its provider bracket; the rows above it were kept and offered
+  as a catalogue, so counting down walked into models pi had not drawn.
+- A path abandoned at the very root of a pi session is counted. Navigating pi's tree to its first
+  entry clears where the next entry attaches, and starting a second path beside the first was read
+  as no navigation at all, hiding what was left behind.
+- A pi dialog shows on a phone. A phone leaves pi a pane barely wide enough for its own hint, so
+  the hint wraps, and pi keeps its footer underneath: the wrapped hint then sat further from the
+  bottom than the window that tells a live dialog from an answered one reached, so no card came up
+  at all. `/model` failed twice over — the wrapped hint, and a model's own name wrapping so that
+  the provider's bracket, which is what tells a row from pi's notes, fell onto a line of its own
+  among them. The wrap is joined back before the screen is read, and a row still missing its
+  provider voids the whole reading, because a name cut in half would switch pi to a model that
+  does not exist
+
+## [0.3.40] - 2026-10-01
+
+### Fixed
+- Korean, Japanese and Chinese in the terminal no longer look spread apart on an iPhone. iOS has
+  no font that draws Hangul as wide as two terminal cells, so every syllable sat at the left of
+  its cells with a 4px gap after it. A character narrower than its cells is now drawn larger
+  (up to 1.2×) and centered in them. Vietnamese written with separate accent marks, as in a
+  file name from a Mac, now shows every mark on iPhone; Safari drew only the first one. The ⏺
+  before every Claude Code message is drawn as a symbol in its cell on iPhone, no longer as a
+  blue emoji over the next character
+  ([#272](https://github.com/devswha/herdr-web-ui/pull/272)).
 - Several lines pasted into the terminal of a Windows PC stay in an agent's message box until
   you send them. Gajae Code took the first line break for Enter and sent the first line alone.
   PowerShell and cmd still run a pasted block line by line. Enter, Ctrl+C, Esc, Tab and the
@@ -56,6 +185,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   instead of on every poll. A path that leaves the store through `..` is
   refused on every platform. A Windows PC gets this with the next remote bundle
   ([#264](https://github.com/devswha/herdr-web-ui/pull/264)).
+- Emoji in the terminal take as many cells as herdr gives them, so a line with emoji no longer
+  shifts: the browser counted most emoji, and the ⚠️ kind with a selector, as one cell, and an
+  emoji sequence such as 👨‍👩‍👧 as one cell per emoji. The next letter overlapped the emoji, parts
+  of the sequence were overwritten, and stray characters stayed behind. Thai and Indic vowel
+  signs and invisible characters such as a zero-width space are counted as herdr counts them too
+  ([#273](https://github.com/devswha/herdr-web-ui/pull/273)).
 
 ## [0.3.39] - 2026-10-01
 
@@ -1050,7 +1185,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.39...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.40...HEAD
+[0.3.40]: https://github.com/devswha/herdr-web-ui/compare/v0.3.39...v0.3.40
 [0.3.39]: https://github.com/devswha/herdr-web-ui/compare/v0.3.38...v0.3.39
 [0.3.38]: https://github.com/devswha/herdr-web-ui/compare/v0.3.37...v0.3.38
 [0.3.37]: https://github.com/devswha/herdr-web-ui/compare/v0.3.36...v0.3.37

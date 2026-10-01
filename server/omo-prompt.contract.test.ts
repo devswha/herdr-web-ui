@@ -127,3 +127,33 @@ describe("answers to omo's form of several questions", () => {
     expect(logged()).toEqual(["표시 위치=사이드바", "월 한도=한도 없음", "submitted"]);
   });
 });
+
+describe("slash commands of a pane herdr names pi", () => {
+  const opened: string[] = [];
+  afterAll(async () => {
+    for (const id of opened) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
+  });
+
+  /** a pane herdr names `pi`, running a program of the given name that only waits */
+  async function waiting(program: string): Promise<string> {
+    const ready = join(root, `${program}.ready`);
+    writeFileSync(join(root, "wait.js"), "require('node:fs').writeFileSync(process.argv[2], ''); setInterval(() => {}, 1000);");
+    copyFileSync(process.execPath, join(root, program));
+    chmodSync(join(root, program), 0o755);
+    const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+      "workspace.create", { label: `herdr-web-ui-test-commands-${program}`, cwd: root, focus: false },
+    );
+    opened.push(created.workspace.workspace_id);
+    await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, program)}' '${join(root, "wait.js")}' '${ready}'\n` });
+    for (let i = 0; i < 200 && !existsSync(ready); i++) await Bun.sleep(50);
+    expect(existsSync(ready)).toBe(true);
+    await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "pi", state: "idle" });
+    return created.root_pane.pane_id;
+  }
+  const names = async (paneId: string) => ((await (await fetch(`${base()}/api/pane/commands?pane_id=${encodeURIComponent(paneId)}`)).json()) as { commands: { name: string }[] }).commands.map((command) => command.name);
+
+  it("offers pi's commands to pi, and none of them to an omo pane that waits under pi's name", async () => {
+    expect(await names(await waiting("pi"))).toContain("scoped-models");
+    expect(await names(await waiting("omo"))).toEqual([]);
+  }, 30_000);
+});

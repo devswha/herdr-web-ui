@@ -69,6 +69,38 @@ export function insertMention(
 /** Ready states affect the held-message hint only; sending always requires a user action. */
 export const QUEUE_READY_STATUS: Readonly<Partial<Record<string, true>>> = { done: true, idle: true };
 
+/**
+ * Commands an agent runs that the chat can start but cannot finish, by the agents that have them.
+ *
+ * `/tree` opens pi's tree browser, and omp documents the same command, the same navigator and the
+ * same three branch-summary choices — it moves the session's branch, and no entry names where the
+ * leaf was left, so the browser that opens reads as nothing at all through the chat: no card (its
+ * hint says "up/down move", not the hint a live dialog is read from), and the pane still reports
+ * itself done while the terminal waits for arrow keys a phone cannot send. The chat keeps its half
+ * honest — it says where a /tree left the conversation — and leaves navigating to the terminal.
+ *
+ * Deliberately not a block: the composer sends text as written and nothing filters it, so typing
+ * these still reaches the agent. The point is that the chat no longer points at them and says why
+ * when they are typed anyway. claude and codex are absent because there is no evidence they have
+ * the command, and telling a reader about a browser their agent does not have is its own wrong; omo
+ * and gjc are absent for the same reason, unverified rather than found wanting.
+ */
+const TERMINAL_ONLY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
+  tree: ["pi", "omp"],
+};
+
+/** The command `text` types, if it is one of those: its name, or null. Case and arguments aside,
+ * a message only has to *be* the command — prose that merely mentions it, or a word that only
+ * begins like it (`/treemap`), is not one. */
+export function terminalOnlyCommand(agent: string | null, text: string): string | null {
+  if (agent === null) return null;
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  const [word] = trimmed.slice(1).toLowerCase().split(/\s+/);
+  const agents = TERMINAL_ONLY_COMMANDS[word ?? ""];
+  return agents !== undefined && agents.includes(agent) ? (word ?? null) : null;
+}
+
 /** The composer's status word: the shared vocabulary, with a blank state reading as READY (a shell is always ready). */
 export function composerStatusWord(status?: AgentStatus): string {
   const known = knownStatus(status);

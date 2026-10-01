@@ -10,13 +10,13 @@ import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
-import { remoteAccess, tailscaleOwner } from "./tailscale.ts";
+import { remoteAccess, tailscaleIdentity } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, toolOutput } from "./conversation.ts";
+import { conversationImage, ConversationUnavailable, HistoryChanged, labelOmoPanes, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
@@ -270,8 +270,10 @@ export function createServer(
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
   const usage = options.usage ?? new UsageService();
-  const ownerOf = options.tailscaleOwner !== undefined ? () => options.tailscaleOwner ?? null : tailscaleOwner;
-  ownerOf();
+  /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
+  const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
+  const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
+  identityOf();
 
   /**
    * Runs `task` after everything queued for the pane. While a composer message is in
@@ -321,7 +323,12 @@ export function createServer(
       if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
     }
     inTime();
-    await paneSendText(paneId, payload);
+    // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
+    // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
+    // asked only for such a block, so a one-line message never waits on it.
+    const shaped = await mirrorInput(payload, process.platform === "win32", async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
+    inTime();
+    await paneSendText(paneId, shaped);
     await Bun.sleep(SUBMIT_DELAY_MS);
     authorize();
     await paneSendKeys(paneId, ["Enter"]);
@@ -753,7 +760,7 @@ export function createServer(
         tailscaleLogin: request.headers.get("tailscale-user-login"),
         tokenMatched: token !== "" && isAuthenticated(request, token),
         device: devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE)),
-        owner: ownerOf(),
+        ...identityOf(),
         tokenConfigured: token !== "",
         gated: devices.gated,
       });
@@ -1032,7 +1039,11 @@ export function createServer(
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
         try {
           const context = await paneContext(paneId);
-          if (pathname === "/api/pane/commands") return jsonResponse({ commands: paneCommands(context.agent, context.cwd) });
+          if (pathname === "/api/pane/commands") {
+            // herdr names an omo pane `pi` while omo waits: pi's commands and templates are not omo's
+            const agent = context.agent === "pi" && await paneRunsOmo(paneId) ? "omo" : context.agent;
+            return jsonResponse({ commands: paneCommands(agent, context.cwd) });
+          }
           const limitRaw = url.searchParams.get("limit");
           const limit = limitRaw === null ? 20 : Number(limitRaw);
           if (!Number.isInteger(limit) || limit < 1) return badRequest("invalid_limit", "limit must be a positive integer");
