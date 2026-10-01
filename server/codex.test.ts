@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexCallFailed, codexHistoryTail, codexRolloutPath, forgetHistoryChains, matchCodexTranscript, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
+import { codexCallFailed, codexHistoryTail, codexRolloutPath, forgetHistoryChains, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
 const ts = "2026-09-22T01:00:00.000Z";
@@ -311,6 +311,174 @@ describe("Codex rollout resolution", () => {
     const middle = `See [the report](/home/user/repo/REPORT.md) for the numbers. ${answer}`;
     expect(matchCodexTranscript(`• See the report (REPORT.md) for the numbers. ${answer}`, [{ path: "middle", text: jsonl(message("assistant", middle)) }])).toBe("middle");
     expect(matchCodexTranscript("• The report (output/test/REPORT.md)", candidates)).toBeNull();
+  });
+
+  // issue #283: no answer of this session reaches 64 letters and digits (40, 29 and 38)
+  const short = [
+    "세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen 스킬을 사용할게요.",
+    "세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요.",
+    "imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n[합친 이미지 다운로드](/home/user/repo/.herdr-web-ui/combined-20261002.png)",
+  ];
+  const shortRollout = jsonl(
+    message("user", "이거 세개 사진 합처서 하나의 이미지로 만들어줘."),
+    message("assistant", short[0]!, "commentary"), message("assistant", short[1]!, "commentary"), message("assistant", short[2]!, "final_answer"),
+  );
+  const shortScreen = [
+    "› 이거 세개 사진 합처서 하나의 이미지로 만들어줘.",
+    "• 세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen\n  스킬을 사용할게요.",
+    "• 세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요.",
+    "• imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n  합친 이미지 다운로드 (.herdr-web-ui/combined-20261002.png)",
+  ];
+  const answered = (...texts: string[]) => jsonl(...texts.map((text) => message("assistant", text)));
+  const bullets = (...texts: string[]) => texts.map((text) => `• ${text}`).join("\n");
+
+  it("reads a session whose answers are all short by its newest answers shown together, in order", () => {
+    const candidates = [
+      { path: "short", text: shortRollout },
+      { path: "other", text: jsonl(message("assistant", answer, "final_answer")) },
+    ];
+    // the long-answer match alone, as every caller but the last resort uses it, still says nothing
+    expect(matchCodexTranscript(shortScreen.join("\n\n"), candidates)).toBeNull();
+    expect(matchShortCodexAnswers(shortScreen.join("\n\n"), candidates)).toBe("short");
+    // the newest answer not rendered yet: the two before it are enough together
+    expect(matchShortCodexAnswers(shortScreen.slice(0, 3).join("\n\n"), candidates)).toBe("short");
+    // one short answer alone is too little, and so are the same lines out of order
+    expect(matchShortCodexAnswers(shortScreen[2]!, candidates)).toBeNull();
+    expect(matchShortCodexAnswers([shortScreen[3], shortScreen[2], shortScreen[1]].join("\n\n"), candidates)).toBeNull();
+    // older answers with the newest two missing from the screen are not this rollout's end
+    expect(matchShortCodexAnswers(shortScreen.slice(0, 2).join("\n\n"), candidates)).toBeNull();
+  });
+
+  it("does not read short answers that two rollouts share, or ones above the welcome card", () => {
+    const shared = [{ path: "one", text: shortRollout }, { path: "two", text: jsonl(message("user", "다시 해줘"), ...short.map((text) => message("assistant", text))) }];
+    expect(matchShortCodexAnswers(shortScreen.join("\n\n"), shared)).toBeNull();
+    expect(matchShortCodexAnswers(`${shortScreen.join("\n\n")}\nOpenAI Codex (v1.0)\nNew session`, [shared[0]!])).toBeNull();
+  });
+
+  // the review of #284: each case once bound the wrong rollout, or lost the right one
+  const looked = "I'll look at the file and run the tests.";
+  const changed = "I'll make the change and verify the result.";
+  it("does not take a fork's inherited answers for its parent", () => {
+    const fixes = Array.from({ length: 8 }, (_, index) => `Fixed test ${index}.`);
+    const candidates = [{ path: "parent", text: answered(looked, changed) }, { path: "fork", text: answered(looked, changed, ...fixes) }];
+    const screen = bullets(looked, changed, ...fixes);
+    expect(matchCodexTranscript(screen, candidates)).toBeNull();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+  });
+
+  it("does not count the links of one answer as several answers, wherever they point", () => {
+    const linked = "[Open the project report](/other/0.md)\n[Download the updated image](/other/1.md)\n[Review the verification results](/other/2.md)";
+    const candidates = [{ path: "linked", text: answered(linked) }];
+    const screen = "• Open the project report (my/0.md)\n  Download the updated image (my/1.md)\n  Review the verification results (my/2.md)";
+    expect(matchCodexTranscript(screen, candidates)).toBeNull();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+  });
+
+  it("keeps a unique long-answer match when another rollout shares its short answers", () => {
+    const candidates = [{ path: "real", text: answered(looked, changed, answer) }, { path: "unrelated", text: answered(looked, changed) }];
+    expect(matchCodexTranscript(bullets(looked, changed, answer), candidates)).toBe("real");
+  });
+
+  const migrated = "The migration script now rewrites every legacy record in place.";
+  it("needs 64 letters and digits together, 16 in each answer and 12 distinct", () => {
+    const read = (...texts: string[]) => matchShortCodexAnswers(bullets(...texts), [{ path: "short", text: answered(...texts) }]);
+    // 29 + 34 = 63, and 29 + 36 = 65
+    expect(read("The build finished without errors.", "All checks on the feature branch pass now.")).toBeNull();
+    expect(read("The build finished without errors.", "All checks on the feature branch pass again.")).toBe("short");
+    // 14 + 53 = 67 with an answer below 16, and the same with one of 16
+    expect(read("Updated the docs", migrated)).toBeNull();
+    expect(read("Updated the README", migrated)).toBe("short");
+    // 18 + 29 + 31 = 78 from 10 distinct letters
+    expect(read("The tests have passed.", "Tests passed. The tests have passed.", "Ha, the tests passed; these have passed.")).toBeNull();
+  });
+
+  // the second review of #284
+  const inspect = "I'll inspect the file and run the tests.";
+  it("does not read short answers another rollout said inside longer ones", () => {
+    const candidates = [
+      { path: "wrong", text: answered(inspect, changed) },
+      { path: "real", text: answered(`Sure. ${inspect}`, `Sure. ${changed}`, "Done.", "Done.") },
+    ];
+    expect(matchShortCodexAnswers(bullets(`Sure. ${inspect}`, `Sure. ${changed}`, "Done.", "Done."), candidates)).toBeNull();
+  });
+
+  it("does not take a fork for its parent however many turns ago it inherited the answers", () => {
+    const later = Array.from({ length: 51 }, () => [message("user", "continue"), message("assistant", "Done.")]).flat();
+    const candidates = [
+      { path: "parent", text: answered(inspect, changed) },
+      { path: "fork", text: jsonl(message("assistant", inspect), message("assistant", changed), ...later) },
+    ];
+    const screen = [bullets(inspect, changed), ...Array.from({ length: 51 }, () => "› continue\n• Done.")].join("\n");
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    // and a rollout read only from its end may have said them before: no answer then
+    expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done."), cut: true }])).toBeNull();
+    expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done.") }])).toBe("parent");
+  });
+
+  // the third review of #284
+  it("takes no answer with a link for evidence: the screen shows its target its own way", () => {
+    const linked = ["The [build results](reports/build-results.md) are ready for review.", "All [feature branch checks](reports/check-results.md) passed the verification."];
+    // the pane's own conversation said the words after the links, as answers of its own, and
+    // the user's prompts hold the labels: the linked rollout's pieces add up on that screen
+    const own = ["are ready for review.", "passed the verification.", "Done.", "Done."];
+    const screen = "› The build results?\n• are ready for review.\n› All feature branch checks?\n• passed the verification.\n› next\n• Done.\n› next\n• Done.";
+    expect(matchShortCodexAnswers(screen, [{ path: "linked", text: answered(...linked) }, { path: "own", text: answered(...own) }])).toBeNull();
+    expect(matchShortCodexAnswers("• The build results (reports/build-results.md) are ready for review.\n• All feature branch checks (reports/check-results.md) passed the verification.", [{ path: "linked", text: answered(...linked) }])).toBeNull();
+    // the newest answer may hold one: the two before it still tell (the report's own case ends in a download link)
+    const report = ["The build finished without errors this time.", "All checks on the feature branch pass again.", "Here is [the image](out/merged.png)."];
+    expect(matchShortCodexAnswers(bullets(report[0]!, report[1]!, "Here is the image (out/merged.png)."), [{ path: "report", text: answered(...report) }])).toBe("report");
+  });
+
+  it("reads no short answers that another rollout's linked answers show as", () => {
+    // the pane's own rollout says them with links, which Codex shows as "label (path)": the screen
+    // reads exactly like an older rollout's plain answers
+    const live = ["The [build results](/repo/reports/build.md) are ready for review.", "All [feature checks](/repo/reports/check.md) passed verification."];
+    const older = ["The build results (reports/build.md) are ready for review.", "All feature checks (reports/check.md) passed verification."];
+    const screen = bullets(...older);
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }])).toBe("older");
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "live", text: answered(...live) }])).toBeNull();
+    // also with labels of a few letters, after many later answers, and with many links in one answer
+    const terse = ["[Build](/repo/reports/feature-branch-build-results.md)", "[Checks](/repo/reports/feature-branch-check-results.md)"];
+    const shownTerse = ["Build (reports/feature-branch-build-results.md)", "Checks (reports/feature-branch-check-results.md)"];
+    expect(matchShortCodexAnswers(bullets(...shownTerse), [{ path: "older", text: answered(...shownTerse) }, { path: "live", text: answered(...terse) }])).toBeNull();
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "live", text: answered(...live, ...Array.from({ length: 220 }, () => "Done.")) }])).toBeNull();
+    // a linked answer of another rollout that says something else vetoes nothing
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "else", text: answered("See [the notes](docs/notes.md) for the migration plan.") }])).toBe("older");
+  });
+
+  it("reads no short answers when a rollout was not read whole, the one that shows them included", () => {
+    const texts = ["The build finished without errors this time.", "All checks on the feature branch pass again."];
+    const screen = bullets(...texts);
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts) }])).toBe("only");
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts), cut: true }])).toBeNull();
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts) }, { path: "other", text: answered("Done."), cut: true }])).toBeNull();
+  });
+
+  it("does not read short answers when two rollouts show that way, sharing nothing", () => {
+    const first = ["The build finished without errors.", "All checks on the feature branch pass again."];
+    const second = ["Updated the README", migrated];
+    const candidates = [{ path: "first", text: answered(...first) }, { path: "second", text: answered(...second) }];
+    // the second's answers below, and the first's between them: each is found bottom-up
+    expect(matchShortCodexAnswers(bullets(first[0]!, second[0]!, first[1]!, second[1]!), candidates)).toBeNull();
+    expect(matchShortCodexAnswers(bullets(second[0]!, second[1]!), candidates)).toBe("second");
+  });
+
+  it("reads short answers in bounded time however many unclosed links the answers hold", () => {
+    const many = answered(...Array.from({ length: 450 }, () => "](".repeat(1000)));
+    const candidates = Array.from({ length: 32 }, (_, index) => ({ path: `unclosed-${index}`, text: many }));
+    const screen = Array.from({ length: 400 }, () => "q".repeat(120)).join("\n");
+    const started = performance.now();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it("reads short answers in bounded time however many links a large answer has", () => {
+    const huge = answered("[abcdefghijklmnop](/a)".repeat(40_000));
+    const candidates = Array.from({ length: 32 }, (_, index) => ({ path: `large-${index}`, text: huge }));
+    const screen = Array.from({ length: 400 }, () => "q".repeat(120)).join("\n");
+    const started = performance.now();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 
   it("does not bind using user context, tool output or a previous session above the welcome card", () => {

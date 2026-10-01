@@ -83,6 +83,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   above the turns names how many it holds back and across how many branches
 
 ### Fixed
+- A Codex pane whose answers are all short shows its chat. The chat finds a Codex conversation by
+  an answer it can see on the pane's screen, and only one of 64 letters or more counted, so a
+  session of one-line answers stayed empty until a longer answer came. When nothing else tells
+  (herdr names no session, Codex was not resumed, and no long answer found the conversation
+  before), the newest two or more answers of a conversation, shown one after another on the
+  screen, now count together. That is weaker evidence than one long answer, so it is used only
+  when exactly one of the folder's conversations shows that way, no other one said those answers
+  as far as its text tells, every one of them was read whole (none missing its file, forked from or continuing
+  another, or too long to read at once), and the folder has no more than 32. An answer with a
+  link in it does not count, since the screen shows a link its own way. It is never
+  remembered: once the answers scroll away the chat is empty again until a long one shows. Text
+  pasted into the pane or printed by a command can still look like another conversation's
+  answers and show that conversation instead.
+  ([#284](https://github.com/devswha/herdr-web-ui/pull/284))
 - An OmO pane reads RUN while OmO works and DONE when it finishes. herdr reports nothing for such
   a pane (it read READY or DONE whatever OmO did), so a message sent meanwhile was not held, Stop
   was not offered, and no done alert came, in the browser or by web push. The status is now read

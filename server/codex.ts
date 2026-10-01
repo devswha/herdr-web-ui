@@ -555,6 +555,103 @@ export function matchCodexTranscript(screen: string, candidates: { path: string;
   return matching.size === 1 ? [...matching][0]! : null;
 }
 
+/**
+ * A text cut at its markdown link targets: each stretch of text with the target that follows it
+ * ("" after the last). A scan, not a split at /\]\([^)\s]*\)/: that rescans to the end of the
+ * text from every "](" no ")" closes, quadratic in a text full of them.
+ */
+function cutAtLinkTargets(text: string): { text: string; target: string }[] {
+  const pieces: { text: string; target: string }[] = [];
+  let start = 0;
+  let search = 0;
+  for (let at = text.indexOf("](", search); at >= 0; at = text.indexOf("](", search)) {
+    let end = at + 2;
+    while (end < text.length && text[end] !== ")" && !/\s/.test(text[end]!)) end++;
+    // unclosed: no "](" before `end` is closed either, so all of it stays text
+    if (text[end] !== ")") { search = end; continue; }
+    pieces.push({ text: text.slice(start, at), target: text.slice(at + 2, end) });
+    start = search = end + 1;
+  }
+  pieces.push({ text: text.slice(start), target: "" });
+  return pieces;
+}
+
+/**
+ * An answer as the screen shows it, for matchShortCodexAnswers: its last 160 letters and digits.
+ * null for one with a link: Codex shows `[label](target)` as "label (target)" with the target its
+ * own way, so the answer is not one run of text there, and its pieces alone are short common words.
+ */
+function shownAnswer(text: string): string | null {
+  return cutAtLinkTargets(text).length > 1 ? null : normalizeDisplay(text).slice(-160);
+}
+
+/**
+ * A rollout's newest answers on screen, newest lowest: whole answers taken from the end of the
+ * rollout one after another (the very newest may be skipped: it may not be rendered yet, or hold
+ * a link), each at least 16 letters and digits, found bottom-up in order, until at least two of
+ * them hold 64 with 12 distinct. The answers that did, or null. A gap ends the run: an answer of
+ * the rollout not on screen means the screen is not showing this rollout's end.
+ */
+function newestAnswersShown(display: string, answers: string[]): string[] | null {
+  const newest = answers.slice(-5).map(shownAnswer).reverse();
+  for (const skip of [0, 1]) {
+    let before = display.length;
+    const shown: string[] = [];
+    for (const answer of newest.slice(skip, skip + 4)) {
+      const at = answer === null || answer.length < 16 || answer.length > before ? -1 : display.lastIndexOf(answer, before - answer.length);
+      if (at < 0) break;
+      before = at;
+      shown.push(answer!);
+      const joined = shown.join("");
+      if (shown.length >= 2 && joined.length >= 64 && new Set(joined).size >= 12) return shown;
+    }
+  }
+  return null;
+}
+
+/**
+ * The last resort for a pane nothing else ties to a rollout (codexTranscriptPath): a session
+ * whose answers are all short never has an anchor for matchCodexTranscript, yet its newest
+ * answers on screen together say as much as one long one (#283). Weaker evidence, so it gives
+ * up readily: every candidate must have been read whole (none `cut`: past the read budget, or
+ * continuing another rollout, whose answers it shares), only one may show that way, and no other
+ * may have said any of the answers it showed, alone or inside a longer one.
+ */
+export function matchShortCodexAnswers(screen: string, candidates: { path: string; text: string; cut?: boolean }[]): string | null {
+  if (candidates.some((candidate) => candidate.cut)) return null;
+  const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
+  const display = normalizeDisplay(lastHeader >= 0 ? screen.slice(lastHeader) : screen);
+  // every turn of what was read, not the newest 100: an answer said long ago is said
+  const answers = candidates.map((candidate) => parseCodexTranscript(candidate.text, Infinity).filter((turn) => turn.role === "assistant")
+    .flatMap((turn) => turn.parts).flatMap((part) => part.kind === "text" ? [part.text] : []));
+  let found: { index: number; shown: string[] } | null = null;
+  for (const [index, own] of answers.entries()) {
+    const shown = newestAnswersShown(display, own);
+    if (shown === null) continue;
+    if (found !== null) return null;
+    found = { index, shown };
+  }
+  if (found === null) return null;
+  const { index: only, shown } = found;
+  for (const [index, other] of answers.entries()) {
+    if (index === only) continue;
+    const said = normalizeDisplay(other.join("\n"));
+    if (shown.some((answer) => said.includes(answer))) return null;
+    // an answer of the other with links shows as its text around them, the targets Codex's own
+    // way: when that text is all in a shown answer, in order, the screen may be showing the other
+    // every such answer of what was read, however short its text or many its links: one left
+    // unchecked is one the screen may be showing
+    for (const text of other) {
+      const pieces = cutAtLinkTargets(text);
+      if (pieces.length < 2) continue;
+      const around = pieces.map((piece) => normalizeDisplay(piece.text)).filter((piece) => piece !== "");
+      if (around.length === 0) continue;
+      if (shown.some((answer) => { let from = 0; return around.every((piece) => { const at = answer.indexOf(piece, from); from = at + piece.length; return at >= 0; }); })) return null;
+    }
+  }
+  return candidates[only]!.path;
+}
+
 /** `codex resume <thread>`: the thread a TUI was started on, straight from its command line. */
 export function resumedThread(argvs: readonly (readonly string[])[]): string | null {
   for (const argv of argvs) {
@@ -746,6 +843,8 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   let boundNewer: string[] = [];
   /** the rollout of the thread herdr has for this pane */
   let reported: string | null = null;
+  /** whether every interactive thread in this cwd is among the candidates */
+  let listed = false;
   try {
     db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
     if (session?.value && UUID.test(session.value)) {
@@ -773,12 +872,12 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     if (boundHere !== undefined) boundNewer = newerThreads(db, cwd, Math.floor(boundHere.at / 1000), null, paneId, home, firsts);
     const rows = db.query<{ rollout_path: string }, [string]>(
       // a burst of `codex exec` runs must not push the pane's own thread out of the 32
-      `SELECT rollout_path FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 32`,
+      `SELECT rollout_path FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
     ).all(cwd);
-    paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rows.flatMap((row) => {
-      const path = codexRolloutPath(row.rollout_path, home);
-      return path ? [path] : [];
-    })])];
+    const rollouts = rows.slice(0, 32).map((row) => codexRolloutPath(row.rollout_path, home));
+    // a thread whose rollout is gone or outside the store is still a conversation of this cwd
+    listed = rows.length <= 32 && !rollouts.includes(null);
+    paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rollouts.filter((path): path is string => path !== null)])];
   } catch { /* Older installations can still resolve their open descriptors. */ }
   finally { db?.close(); }
   const screen = paths.length ? await paneRead({ paneId, source: "recent", lines: 400, stripAnsi: true }) : null;
@@ -815,5 +914,20 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     return boundHere.path;
   }
   if (reported !== null) return reported;
-  return resumedNewer.length === 0 ? resumedPath : null;
+  if (resumed !== null) return resumedNewer.length === 0 ? resumedPath : null;
+  // Nothing ties this pane to a rollout at all: no session herdr names, no resume, no match by a
+  // long answer for this process, and so no /new to be unsure about. Short answers on screen may
+  // tell (#283). Never remembered as a binding: what it shows is read again each time, and only a
+  // long answer binds the pane for when its screen no longer tells.
+  if (screen === null || session?.value || boundHere !== undefined) return null;
+  // and only against every conversation this pane may be running, read whole: one left out of
+  // the 32 or one whose rollout is gone may be what said the same short lines
+  if (!listed || candidates.length !== paths.length) return null;
+  // read from each rollout itself, nothing remembered: one that continues another (a fork, a
+  // backtrack) shares that one's answers, and one past the budget was not read whole
+  let cut: boolean[];
+  try {
+    cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
+  } catch { return null; }
+  return matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
 }
