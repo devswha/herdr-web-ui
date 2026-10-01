@@ -498,15 +498,6 @@ function liveChain(path: string, home: string): HistorySegment[] {
   return historyChain(path, home);
 }
 
-/**
- * Whether all of a Codex conversation's history was found. Not when a rollout it continues is
- * missing: historyChain stops there and the conversation reads shorter than it is.
- */
-export function codexHistoryComplete(path: string, home = defaultCodexHome()): boolean {
-  liveChain(path, home);
-  return historyChains.get(path)?.complete === true;
-}
-
 /** A Codex conversation's files oldest first, each with how many of its bytes belong to it. */
 export function codexHistorySegments(path: string, home = defaultCodexHome()): HistorySegment[] {
   return [...liveChain(path, home)].reverse().concat({ path, end: statSync(path).size });
@@ -585,63 +576,33 @@ function cutAtLinkTargets(text: string): { text: string; target: string }[] {
   return pieces;
 }
 
-/** One stretch of an answer between link targets, and how many letters and digits the target after it may show as. */
-type AnswerFragment = { text: string; gap: number };
-
 /**
- * An answer as the screen shows it, for matchShortCodexAnswers. Codex shows `[label](target)`
- * as "label (target)" with the target relative to the cwd, so the answer is not one run of text
- * there: it is the stretches around its targets, in order, each target taking no more room than
- * it has in the rollout. The last 160 letters and digits, in at most 4 stretches.
+ * An answer as the screen shows it, for matchShortCodexAnswers: its last 160 letters and digits.
+ * null for one with a link: Codex shows `[label](target)` as "label (target)" with the target its
+ * own way, so the answer is not one run of text there, and its pieces alone are short common words.
  */
-function shownAnswer(text: string): AnswerFragment[] {
-  const pieces = cutAtLinkTargets(text);
-  const fragments: AnswerFragment[] = [];
-  let length = 0;
-  let gap = 0;
-  for (let index = pieces.length - 1; index >= 0 && length < 160 && fragments.length < 4; index--) {
-    gap += normalizeDisplay(pieces[index]!.target).length;
-    const fragment = normalizeDisplay(pieces[index]!.text).slice(length - 160);
-    if (fragment === "") continue;
-    fragments.unshift({ text: fragment, gap });
-    length += fragment.length;
-    gap = 0;
-  }
-  return fragments;
-}
-
-/** Where an answer shows above `before`: its stretches bottom-up, each link target between two no longer than in the rollout. -1 when it does not. */
-function answerShownAt(display: string, fragments: AnswerFragment[], before: number): number {
-  let at = before;
-  for (let index = fragments.length - 1; index >= 0; index--) {
-    const { text, gap } = fragments[index]!;
-    const found = text.length > at ? -1 : display.lastIndexOf(text, at - text.length);
-    if (found < 0 || (index < fragments.length - 1 && at - found - text.length > gap)) return -1;
-    at = found;
-  }
-  return at;
+function shownAnswer(text: string): string | null {
+  return cutAtLinkTargets(text).length > 1 ? null : normalizeDisplay(text).slice(-160);
 }
 
 /**
  * A rollout's newest answers on screen, newest lowest: whole answers taken from the end of the
- * rollout one after another (the very newest may be skipped, it may not be rendered yet), each
- * at least 16 letters and digits, found bottom-up in order, until at least two of them hold 64
- * with 12 distinct. The answers that did, or null. A gap ends the run: an answer of the rollout
- * not on screen means the screen is not showing this rollout's end. An answer with links is one
- * answer, however many stretches it shows as.
+ * rollout one after another (the very newest may be skipped: it may not be rendered yet, or hold
+ * a link), each at least 16 letters and digits, found bottom-up in order, until at least two of
+ * them hold 64 with 12 distinct. The answers that did, or null. A gap ends the run: an answer of
+ * the rollout not on screen means the screen is not showing this rollout's end.
  */
-function newestAnswersShown(display: string, answers: string[]): string[][] | null {
+function newestAnswersShown(display: string, answers: string[]): string[] | null {
   const newest = answers.slice(-5).map(shownAnswer).reverse();
   for (const skip of [0, 1]) {
     let before = display.length;
-    const shown: string[][] = [];
+    const shown: string[] = [];
     for (const answer of newest.slice(skip, skip + 4)) {
-      const texts = answer.map((fragment) => fragment.text);
-      const at = texts.join("").length < 16 ? -1 : answerShownAt(display, answer, before);
+      const at = answer === null || answer.length < 16 || answer.length > before ? -1 : display.lastIndexOf(answer, before - answer.length);
       if (at < 0) break;
       before = at;
-      shown.push(texts);
-      const joined = shown.flat().join("");
+      shown.push(answer!);
+      const joined = shown.join("");
       if (shown.length >= 2 && joined.length >= 64 && new Set(joined).size >= 12) return shown;
     }
   }
@@ -651,20 +612,19 @@ function newestAnswersShown(display: string, answers: string[]): string[][] | nu
 /**
  * The last resort for a pane nothing else ties to a rollout (codexTranscriptPath): a session
  * whose answers are all short never has an anchor for matchCodexTranscript, yet its newest
- * answers on screen together say as much as one long one (#283). Weaker evidence, so only one
- * candidate may show that way, and no other may have said any of the answers it showed, alone or
- * inside a longer answer, anywhere in its history: that one may be the pane's own (a fork holds
- * its parent's answers, a session can say the same stock lines). A candidate whose history was
- * `cut` (at the read budget, or continuing a rollout that was not found) may have said them in
- * what was not read, so one of those gives up too.
+ * answers on screen together say as much as one long one (#283). Weaker evidence, so it gives
+ * up readily: every candidate must have been read whole (none `cut`: past the read budget, or
+ * continuing another rollout, whose answers it shares), only one may show that way, and no other
+ * may have said any of the answers it showed, alone or inside a longer one.
  */
 export function matchShortCodexAnswers(screen: string, candidates: { path: string; text: string; cut?: boolean }[]): string | null {
+  if (candidates.some((candidate) => candidate.cut)) return null;
   const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
   const display = normalizeDisplay(lastHeader >= 0 ? screen.slice(lastHeader) : screen);
-  // every turn of what was read, not the newest 100: an inherited answer is old
+  // every turn of what was read, not the newest 100: an answer said long ago is said
   const answers = candidates.map((candidate) => parseCodexTranscript(candidate.text, Infinity).filter((turn) => turn.role === "assistant")
     .flatMap((turn) => turn.parts).flatMap((part) => part.kind === "text" ? [part.text] : []));
-  let found: { index: number; shown: string[][] } | null = null;
+  let found: { index: number; shown: string[] } | null = null;
   for (const [index, own] of answers.entries()) {
     const shown = newestAnswersShown(display, own);
     if (shown === null) continue;
@@ -675,9 +635,8 @@ export function matchShortCodexAnswers(screen: string, candidates: { path: strin
   const { index: only, shown } = found;
   for (const [index, other] of answers.entries()) {
     if (index === only) continue;
-    if (candidates[index]!.cut) return null;
-    const said = normalizeDisplay(cutAtLinkTargets(other.join("\n")).map((piece) => piece.text).join(""));
-    if (shown.some((answer) => answer.every((fragment) => said.includes(fragment)))) return null;
+    const said = normalizeDisplay(other.join("\n"));
+    if (shown.some((answer) => said.includes(answer))) return null;
   }
   return candidates[only]!.path;
 }
@@ -951,13 +910,13 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   // long answer binds the pane for when its screen no longer tells.
   if (screen === null || session?.value || boundHere !== undefined) return null;
   // and only against every conversation this pane may be running, read whole: one left out of
-  // the 32, one whose rollout is gone, or the unread part of one (past the budget, or in a rollout
-  // it continues that was not found) may be what said the same short lines
+  // the 32 or one whose rollout is gone may be what said the same short lines
   if (!listed || candidates.length !== paths.length) return null;
+  // read from each rollout itself, nothing remembered: one that continues another (a fork, a
+  // backtrack) shares that one's answers, and one past the budget was not read whole
   let cut: boolean[];
   try {
-    cut = candidates.map((candidate) => !codexHistoryComplete(candidate.path, home)
-      || codexHistorySegments(candidate.path, home).reduce((bytes, segment) => bytes + segment.end, 0) > 1024 * 1024);
+    cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
   } catch { return null; }
   return matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
 }

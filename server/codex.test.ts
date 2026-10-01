@@ -416,13 +416,25 @@ describe("Codex rollout resolution", () => {
   });
 
   // the third review of #284
-  it("reads an answer with a link as the screen shows it, the target between its label and the rest", () => {
-    const texts = ["The [build results](reports/build.md) are ready to review.", "All checks on the feature branch pass again."];
-    const candidates = [{ path: "linked", text: answered(...texts) }];
-    const pass = "• All checks on the feature branch pass again.";
-    expect(matchShortCodexAnswers(`• The build results (reports/build.md) are ready to review.\n${pass}`, candidates)).toBe("linked");
-    // more between the label and the rest than the target holds is not that answer
-    expect(matchShortCodexAnswers(`• The build results\n• Some other line that says more than a link target would.\n• are ready to review.\n${pass}`, candidates)).toBeNull();
+  it("takes no answer with a link for evidence: the screen shows its target its own way", () => {
+    const linked = ["The [build results](reports/build-results.md) are ready for review.", "All [feature branch checks](reports/check-results.md) passed the verification."];
+    // the pane's own conversation said the words after the links, as answers of its own, and
+    // the user's prompts hold the labels: the linked rollout's pieces add up on that screen
+    const own = ["are ready for review.", "passed the verification.", "Done.", "Done."];
+    const screen = "› The build results?\n• are ready for review.\n› All feature branch checks?\n• passed the verification.\n› next\n• Done.\n› next\n• Done.";
+    expect(matchShortCodexAnswers(screen, [{ path: "linked", text: answered(...linked) }, { path: "own", text: answered(...own) }])).toBeNull();
+    expect(matchShortCodexAnswers("• The build results (reports/build-results.md) are ready for review.\n• All feature branch checks (reports/check-results.md) passed the verification.", [{ path: "linked", text: answered(...linked) }])).toBeNull();
+    // the newest answer may hold one: the two before it still tell (the report's own case ends in a download link)
+    const report = ["The build finished without errors this time.", "All checks on the feature branch pass again.", "Here is [the image](out/merged.png)."];
+    expect(matchShortCodexAnswers(bullets(report[0]!, report[1]!, "Here is the image (out/merged.png)."), [{ path: "report", text: answered(...report) }])).toBe("report");
+  });
+
+  it("reads no short answers when a rollout was not read whole, the one that shows them included", () => {
+    const texts = ["The build finished without errors this time.", "All checks on the feature branch pass again."];
+    const screen = bullets(...texts);
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts) }])).toBe("only");
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts), cut: true }])).toBeNull();
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts) }, { path: "other", text: answered("Done."), cut: true }])).toBeNull();
   });
 
   it("does not read short answers when two rollouts show that way, sharing nothing", () => {

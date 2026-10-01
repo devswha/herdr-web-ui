@@ -86,8 +86,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   before), the newest two or more answers of a conversation, shown one after another on the
   screen, now count together. That is weaker evidence than one long answer, so it is used only
   when exactly one of the folder's conversations shows that way, no other one ever said those
-  answers, every one of them could be read whole (none missing its file or the conversation it
-  continues), and the folder has no more than 32. It is never
+  answers, every one of them was read whole (none missing its file, forked from or continuing
+  another, or too long to read at once), and the folder has no more than 32. An answer with a
+  link in it does not count, since the screen shows a link its own way. It is never
   remembered: once the answers scroll away the chat is empty again until a long one shows. Text
   pasted into the pane or printed by a command can still look like another conversation's
   answers and show that conversation instead.
