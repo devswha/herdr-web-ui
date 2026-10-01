@@ -27,9 +27,11 @@ export interface Machine {
   herdr?: HerdrIdentity;
 }
 /**
- * The herdr behind a PC. terminal_attach is false on a Windows host: herdr has no
- * `terminal attach` there yet (herdrdev/herdr#4821), so its panes have a chat lens and
- * input but no live terminal. Absent on older bridges, which are never Windows.
+ * The herdr behind a PC, as its bridge can serve it. terminal_attach is false on a Windows
+ * host: herdr has no `terminal attach` there yet (herdrdev/herdr#4821), and it is false on
+ * any bridge whose runtime cannot run the PTY sidecar (the win32 bundle ships none). Such a
+ * PC's panes have the chat lens and a mirrored terminal (terminal_mirror). Absent on older
+ * bridges, which are never Windows.
  */
 export interface HerdrIdentity {
   version: string;

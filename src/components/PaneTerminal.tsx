@@ -122,7 +122,7 @@ export function PaneTerminal({
   const [outputReady, setOutputReady] = useState(false);
   const [ended, setEnded] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
-  // this PC's herdr has no terminal attach (Windows): the lens is a notice, the chat still works
+  // the server answered terminal_unsupported (a bridge too old to mirror): the lens is a notice, the chat still works
   const [unsupported, setUnsupported] = useState(false);
   // another web bridge has this pane's terminal: the server waits for it and says attach-resumed
   const [held, setHeldState] = useState(false);

@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated } from "../shared/protocol.ts";
 import { UsageService } from "./usage.ts";
-import { herdrRpc, workspaceCreate, workspaceClose } from "./herdr/client.ts";
+import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
@@ -1528,6 +1528,37 @@ describe("PC management API", () => {
       const health = await fetch(`http://localhost:${gated.port}/api/health?scope=bridge`).then((r) => r.json()) as { auth: HealthAuth };
       expect(health.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
     } finally { gated.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+  });
+});
+
+describe("terminal lens of a bridge without the PTY sidecar", () => {
+  const TOKEN = "sidecar-test-secret";
+  /** what /api/health and /api/bridge tell of herdr, from a bridge whose runtime has the sidecar or lacks it */
+  const told = async (sidecar: boolean) => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-sidecar-"));
+    const bridge = createServer({ port: 0, stateDir: dir, token: TOKEN, machines: false, sidecar });
+    try {
+      const get = async (path: string) => {
+        const response = await fetch(`http://localhost:${bridge.port}${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+        expect(response.status).toBe(200);
+        return (await response.json()) as { herdr: unknown };
+      };
+      return { health: (await get("/api/health")).herdr, bridge: (await get("/api/bridge")).herdr };
+    } finally { bridge.stop(); rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  it("reports a mirror from /api/health and /api/bridge though herdr itself can attach", async () => {
+    const herdr = await ping();
+    // the case only means something against a herdr that can attach
+    expect(herdr.terminal_attach).toBe(true);
+    const mirrored = { ...herdr, terminal_attach: false, terminal_mirror: true };
+    expect(await told(false)).toEqual({ health: mirrored, bridge: mirrored });
+  });
+
+  it("passes herdr's own answer through where the sidecar runs", async () => {
+    const herdr = await ping();
+    expect(herdr).not.toHaveProperty("terminal_mirror");
+    expect(await told(true)).toEqual({ health: herdr, bridge: herdr });
   });
 });
 

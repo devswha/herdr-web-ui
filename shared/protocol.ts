@@ -44,7 +44,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
 
 /** HTTP API
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
- *                                          Windows herdr; terminal_mirror: its terminal lens is the pane's screen, repainted), auth: HealthAuth,
+ *                                          Windows herdr and on a bridge that cannot run the PTY sidecar; terminal_mirror: its
+ *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
