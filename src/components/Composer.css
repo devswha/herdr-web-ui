@@ -673,3 +673,12 @@
 .composer-queue-item { display: grid; gap: var(--space-1); padding: var(--space-2) 0; }
 .composer-queue-item + .composer-queue-item { border-top: var(--hairline) solid var(--border); }
 .composer-queue-error { margin: 0; color: var(--text); font-size: var(--fs-xs); }
+
+/* A command the agent runs but the chat cannot finish. Advice, not a failure: it reads quieter than
+   .composer-note, which means the message did not go */
+.composer-hint {
+  margin-top: var(--space-1);
+  padding: 0 var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}

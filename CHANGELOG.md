@@ -9,14 +9,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [0.3.40] - 2026-10-01
 
-### Removed
-- `/tree` is no longer suggested in a pi pane's chat. pi offers it, and typing it works, but the
-  chat reads the tree browser it opens as nothing at all — no card, and the pane still looks idle
-  while the terminal waits for arrow keys — so a reader who picked it from the menu landed in a
-  state only the terminal lens can leave. Navigating was never the chat's to do; omp curates its own
-  list the same way. What the chat does say is where a `/tree` left the conversation: the marker
-  above the turns names how many it holds back and across how many branches
-
 ### Fixed
 - Korean, Japanese and Chinese in the terminal no longer look spread apart on an iPhone. iOS has
   no font that draws Hangul as wide as two terminal cells, so every syllable sat at the left of
