@@ -1448,3 +1448,70 @@ describe("pi's dialogs", () => {
     expect(parseInteractivePrompt("pi", select.replace("0.0%/215k (auto)", "12.3%/215k (auto)"))!.id).toBe(parseInteractivePrompt("pi", select)!.id);
   });
 });
+
+// Both screens captured from pi 0.87.1 running /model in a pane of its own, at 140 columns and
+// at 46, with the catalogue already settled.
+describe("pi's model list", () => {
+  const FOOTER = "\n────────────────────────────────────────\n/tmp/app\n0.0%/215k (auto)                                        some-model • medium\n";
+  const MODEL_HINT = " Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel";
+  const wide = `────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+>
+
+→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default
+    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]
+Could not refresh llama.cpp; showing cached models.
+${MODEL_HINT}
+────────────────────────────────────────${FOOTER}`;
+
+  test("reads the catalogue, naming the model answering now", () => {
+    const prompt = parseInteractivePrompt("pi", wide)!;
+    expect(prompt.kind).toBe("question");
+    expect(prompt.question).toBe("Select model (currently vllm/Qwen/Qwen3.8-27B [lwsa-platform])");
+    expect(prompt.options.map((option) => option.label)).toEqual([
+      "vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default",
+      "vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]",
+    ]);
+    // pi's own notes sit among the rows — the refresh failure at column zero, `Model Name:`
+    // indented — and none of them is a model pi can be switched to
+    expect(prompt.options.length).toBe(2);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("navigates from where pi drew the cursor, which is the model in use", () => {
+    const moved = wide.replace("→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default\n    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]",
+      "  ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default\n→ vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]");
+    const prompt = parseInteractivePrompt("pi", moved)!;
+    expect(prompt.question).toBe("Select model (currently vllm/Qwen/Qwen3.8-27B [lwsa-platform])");
+    expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
+  test("says nothing rather than offer a model that is only half a name", () => {
+    // at 46 columns a row wraps: the provider's bracket, which is what tells a row from a note,
+    // is the first thing the wrap cuts, so a partial reading could name `default` a model
+    const narrow = `────────────────────────
+
+>
+
+→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-
+platform] · default
+    vllm-flash/Qwen3.8-Flash-Next
+[lwsa-platform]
+${MODEL_HINT}
+────────────────────────${FOOTER}`;
+    expect(parseInteractivePrompt("pi", narrow)).toBeNull();
+    // filtering the list down to one model leaves nothing to choose between
+    const one = wide.replace("    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]\n", "");
+    expect(parseInteractivePrompt("pi", one)).toBeNull();
+    // and with the cursor on no row at all, an answer would navigate from nowhere
+    expect(parseInteractivePrompt("pi", wide.replace("→ ✓ vllm/Qwen", "  ✓ vllm/Qwen"))).toBeNull();
+  });
+
+  test("goes stale once the list is answered and buried", () => {
+    expect(parseInteractivePrompt("pi", wide)).not.toBeNull();
+    // pi keeps the answered list on screen; the next request's output buries the hint under it,
+    // and the card must not stay open offering a switch into whatever the pane shows by then
+    expect(parseInteractivePrompt("pi", `${wide}\nSome later output\nand more`)).toBeNull();
+  });
+});

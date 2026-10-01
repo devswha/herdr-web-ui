@@ -82,6 +82,7 @@ type Responder =
   | "pi-question"
   | "pi-confirm"
   | "pi-input"
+  | "pi-model"
   | "fallback-menu"
   | "fallback-keys";
 
@@ -1154,6 +1155,8 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   // pi keeps its footer under every dialog — the pane's folder, then its context meter — so the
   // hint sits near the end without being it. A dialog already answered leaves its hint far
   // above whatever came after, which is what keeps this window narrow.
+  // `/model` keeps pi's footer under it too, so its hint is near the end without being it
+  if (prompt.responder === "pi-model") return PI_MODEL_HINT_RE.test(shown.slice(-3).join(" "));
   if (prompt.responder === "pi-question" || prompt.responder === "pi-confirm" || prompt.responder === "pi-input") {
     const tail = shown.slice(-3).join(" ");
     return PI_MENU_HINT_RE.test(tail) || PI_INPUT_HINT_RE.test(tail);
@@ -1180,6 +1183,20 @@ const PI_INPUT_LINE_RE = /^[\u203a>\u276f]+\s*(.*)$/;
 const PI_ROW_RE = /^([\u2192\u276f\u279c])?\s*(?:[\u2713\u2714]\s+)?(\S.*)$/;
 
 /**
+ * `/model` draws a widget of its own, not the one above: `Enter to select · Ctrl+S to set as
+ * default · Escape/Ctrl+C to cancel`. It carries no `↑↓ navigate`, so the menu reader cannot
+ * see it, and its list is the provider catalogue — every model pi can answer with, each with
+ * the provider that serves it. The cursor starts on the model in use, which is not the first
+ * row once another one is current, so the position is read rather than assumed.
+ */
+const PI_MODEL_HINT_RE = /enter to select\s*·\s*ctrl\+s to set as default\s*·\s*escape\/ctrl\+c to cancel/i;
+/** `/model` types a filter into this line, then lists what is left under it */
+const PI_MODEL_FILTER_RE = /^[\u203a>\u276f]\s*$/;
+/** pi ticks the model answering now, and marks the one it starts on with `· default` */
+const PI_MODEL_CURRENT_RE = /[\u2713\u2714]/;
+const PI_MODEL_DEFAULT_RE = /\s*\u00b7\s*default$/;
+
+/**
  * The rows a dialog takes its answer from, and its own words over them. pi separates the two
  * with a blank line and ends the block with its hint, so the run of lines directly above the
  * hint is what its arrow keys move through, and what sits above the blank over it is what the
@@ -1202,6 +1219,67 @@ function piDialogRows(lines: string[], hintIndex: number): { rows: { line: strin
     if (line) title.unshift(line);
   }
   return { rows, title };
+}
+
+/** a catalogue row names the provider serving the model, in brackets */
+const PI_MODEL_PROVIDER_RE = /\[[^\]]+\]/;
+
+/**
+ * The catalogue `/model` lists under its filter line: every row names its provider in brackets,
+ * which is what tells it from pi's own notes, since `Model Name: qwen-3-8` sits indented among
+ * the rows and `Could not refresh llama.cpp; showing cached models.` under them. The run ends at
+ * the first line that is not a row. In a pane narrower than a model's name the row wraps to a
+ * second line at column zero and the run ends short of two rows, so a narrow pane gets no card:
+ * reading the wrap as a second model would offer one pi cannot be switched to.
+ */
+function piModelRows(lines: string[], startIndex: number): { label: string; cursor: boolean; current: boolean }[] | null {
+  const rows: { label: string; cursor: boolean; current: boolean }[] = [];
+  // pi leaves a blank between its filter line and what still matches it
+  let start = startIndex;
+  while (start < lines.length && !cleanLine(lines[start]!)) start += 1;
+  for (let index = start; index < lines.length; index += 1) {
+    const raw = lines[index]!.replace(ANSI_RE, "");
+    const line = cleanLine(raw);
+    if (!line || isDivider(line) || PI_MODEL_HINT_RE.test(line)) break;
+    const cursor = /^[\u2192\u276f\u279c]\s*\S/.test(line);
+    if (!cursor && !/^ {2,}/.test(raw)) break;
+    const label = line.match(PI_ROW_RE)?.[2]?.trim();
+    if (!label || !PI_MODEL_PROVIDER_RE.test(label) || /\s{2,}/.test(label)) break;
+    rows.push({ label, cursor, current: PI_MODEL_CURRENT_RE.test(line) });
+  }
+  return rows.length >= 2 && rows.some((row) => row.cursor) ? rows : null;
+}
+
+function parsePiModel(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(lines, (_, index) => PI_MODEL_HINT_RE.test(wrapped(lines, index)));
+  if (hintIndex < 0) return null;
+  // the filter line is the anchor: the catalogue is what sits under it, and anything above
+  // belongs to whatever the pane showed before `/model` was typed
+  const filterIndex = findLastIndex(lines.slice(0, hintIndex), (line) => PI_MODEL_FILTER_RE.test(cleanLine(line)));
+  if (filterIndex < 0) return null;
+  const rows = piModelRows(lines, filterIndex + 1);
+  if (rows === null) return null;
+  const selectedIndex = rows.findIndex((row) => row.cursor);
+  const labels = rows.map((row) => row.label);
+  // the card names the model answering now, because the answer switches it and whoever taps
+  // should know what they are switching from; pi's tick is the only mark that says so
+  const current = rows.find((row) => row.current);
+  const question = current
+    ? `Select model (currently ${current.label.replace(PI_MODEL_DEFAULT_RE, "")})`
+    : "Select model";
+  return finishPrompt("pi", {
+    kind: "question",
+    title: "",
+    question,
+    body: null,
+    options: labels.map((label) => ({ label, description: null })),
+    multi_select: false,
+    custom_option_index: null,
+  }, {
+    responder: "pi-model", menuLabels: labels, selectedIndex, checkedOptionIndices: [], customMenuIndex: null,
+    rejectWithEscapeIndex: null,
+  });
 }
 
 function parsePiDialog(screen: string): ParsedPrompt | null {
@@ -1262,7 +1340,7 @@ function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null
       : agent === "claude"
         ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), ...omo()]
         : agent === "pi"
-          ? [parsePiDialog(screen), ...omo()]
+          ? [parsePiModel(screen), parsePiDialog(screen), ...omo()]
         : agent === "omo" || agent === ""
           ? omo()
           : [];
@@ -1855,10 +1933,15 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       try {
         // the keys for the question as it shows in the open queue
         if (target !== prompt) steps = answerKeys(target, body);
-        const confirm = parsedByPublicPrompt.get(target)?.responder === "claude-confirm";
+        // A navigation answer is only as good as the cursor it navigates from. Both of these
+        // read their rows from the screen with no number to aim at, so an arrow key typed in the
+        // terminal after the card was built would send this answer to the wrong row — and a
+        // wrong model, unlike a wrong menu entry, answers every later turn silently.
+        const responder = parsedByPublicPrompt.get(target)?.responder;
+        const verifyCursor = responder === "claude-confirm" || responder === "pi-model";
         for (let index = 0; index < steps.length; index += 1) {
           const step = steps[index]!;
-          if (confirm && index === steps.length - 1 && !await cursorSettled(body.pane_id, target.id, body.option_index!)) return promptChanged();
+          if (verifyCursor && body.option_index !== undefined && index === steps.length - 1 && !await cursorSettled(body.pane_id, target.id, body.option_index)) return promptChanged();
           if (step.keys) await paneSendKeys(body.pane_id, step.keys);
           else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
           if (index < steps.length - 1) await Bun.sleep(30);
