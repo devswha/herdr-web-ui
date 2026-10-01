@@ -12,7 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   to them, Windows PCs included: New session with Gajae Code, the chat of a Gajae Code or omp
   pane, pasted and sent lines that stay in an agent's message box, typing that no longer outlives
   its connection, and OmO detection. A PC connected with the `remote-v9` bridge updates as it did
-  for earlier runtimes.
+  for earlier runtimes. ([#282](https://github.com/devswha/herdr-web-ui/pull/282))
 
 ### Fixed
 - On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
