@@ -72,7 +72,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   session of one-line answers stayed empty until a longer answer came. Several short answers of
   the same conversation showing one after another now count together. One short line alone still
   does not, and neither do lines two conversations share: the chat stays empty rather than show
-  another pane's conversation.
+  another pane's conversation. ([#284](https://github.com/devswha/herdr-web-ui/pull/284))
 - On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
   Tailscale user". A tagged node has no person's login, and the server took the node's own name
   for one, which no device could match. Such a PC now asks every device to pair, yours included,
