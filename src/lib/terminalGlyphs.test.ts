@@ -40,8 +40,15 @@ describe("textPresentation", () => {
     expect(textPresentation("⏺ ✔")).toBe("⏺\ufe0e ✔\ufe0e");
   });
 
-  it("leaves emoji, chosen presentations and plain text alone", () => {
-    expect(textPresentation("😀⚠️⏺\ufe0e#1 ●")).toBe("😀⚠️⏺\ufe0e#1 ●");
+  it("leaves a span alone when it already chooses a presentation anywhere", () => {
+    // xterm measured ⏺️ as the emoji it asks to be; respacing it as text would shift X
+    expect(textPresentation("⏺\ufe0fX")).toBeNull();
+    expect(textPresentation("⏺⏺\ufe0f")).toBeNull();
+    expect(textPresentation("⏺\ufe0e")).toBeNull();
+  });
+
+  it("leaves emoji and plain text alone", () => {
+    expect(textPresentation("😀#1 ●")).toBeNull();
   });
 });
 

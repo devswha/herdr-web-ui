@@ -39,8 +39,9 @@ const MAX_SCALE = 1.2;
 
 /** Combining marks, and the Hangul vowel and final jamo a decomposed syllable continues with. */
 const DECOMPOSED = /[\p{M}\u1160-\u11ff]/u;
-/** A pictograph that is text by default; one followed by a presentation selector is already decided. */
-const TEXT_DEFAULT_PICTOGRAPH = /(?!\p{Emoji_Presentation})\p{Extended_Pictographic}(?![\ufe0e\ufe0f])/gu;
+/** A pictograph that is text by default. */
+const TEXT_DEFAULT_PICTOGRAPH = /(?!\p{Emoji_Presentation})\p{Extended_Pictographic}/gu;
+const PRESENTATION_SELECTOR = /[\ufe0e\ufe0f]/u;
 const TEXT_PRESENTATION = "\ufe0e";
 
 export interface GlyphFit {
@@ -68,9 +69,15 @@ export function displayText(text: string): string {
   return DECOMPOSED.test(text) ? text.normalize("NFC") : text;
 }
 
-/** `text` with every text-default pictograph asking for its text form. */
-export function textPresentation(text: string): string {
-  return text.replace(TEXT_DEFAULT_PICTOGRAPH, `$&${TEXT_PRESENTATION}`);
+/**
+ * `text` with every text-default pictograph asking for its text form, or null when there is
+ * none or the text already chooses a presentation somewhere. A span is fitted as a whole, so
+ * its glyphs either all switch to text or all stay as xterm measured them.
+ */
+export function textPresentation(text: string): string | null {
+  if (PRESENTATION_SELECTOR.test(text)) return null;
+  const textForm = text.replace(TEXT_DEFAULT_PICTOGRAPH, `$&${TEXT_PRESENTATION}`);
+  return textForm === text ? null : textForm;
 }
 
 /**
@@ -121,9 +128,11 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
       const first = String.fromCodePoint(shown.codePointAt(0) ?? 0x20);
       let glyphWidth = widthOf(first);
       let spacing = xtermSpacing;
-      if (spacing < 0 && textPresentation(first) !== first) {
+      // the spacing is re-measured from the first glyph, so that glyph must be one that switches
+      const textForm = spacing < 0 ? textPresentation(shown) : null;
+      if (textForm?.startsWith(first + TEXT_PRESENTATION)) {
         const slot = glyphWidth + spacing;
-        shown = textPresentation(shown);
+        shown = textForm;
         glyphWidth = widthOf(first + TEXT_PRESENTATION);
         spacing = slot - glyphWidth;
       }
