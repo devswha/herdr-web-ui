@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, appendFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { defaultPiSessionDir, piTranscriptInStore } from "./pi.ts";
@@ -120,5 +120,47 @@ describe("pi transcripts render as chat", () => {
     expect(after.turns).toHaveLength(1);
     // a cursor into the abandoned file cannot page the new one
     expect(() => transcriptPage("pi-transcript", join(slug, "second.jsonl"), { before: before.cursor! })).toThrow();
+  });
+
+  // pi folds old context into a summary of its own accord and on /compact. The entry is a
+  // tree entry rather than a message, so without a branch of its own it showed as nothing:
+  // the chat ran from a prompt straight to an answer with the middle quietly gone.
+  it("marks where /compact folded the conversation, with its summary", () => {
+    const path = session("compacted", [
+      { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:01.000Z", message: { role: "user", content: "the first question" } },
+      { type: "compaction", id: "c1", parentId: "u1", timestamp: "2026-09-30T00:00:02.000Z", summary: "## Session Goal\n- fold the older turns", firstKeptEntryId: "u1", tokensBefore: 178366 },
+      { type: "message", id: "u2", parentId: "c1", timestamp: "2026-09-30T00:00:03.000Z", message: { role: "user", content: "and now the next one" } },
+    ]);
+    const page = transcriptPage("pi-transcript", path);
+    expect(page.turns.map((turn) => turn.parts.map((part) => part.kind)))
+      .toEqual([["text"], ["compact"], ["text"]]);
+    const card = page.turns[1]!.parts[0]!;
+    expect(card).toEqual({ kind: "compact", text: "## Session Goal\n- fold the older turns" });
+    expect(page.turns[1]!.role).toBe("user");
+  });
+
+  it("keeps a compaction a /tree navigated away from out of the chat", () => {
+    const body = [
+      { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:01.000Z", message: { role: "user", content: "the first question" } },
+      { type: "compaction", id: "c1", parentId: "u1", timestamp: "2026-09-30T00:00:02.000Z", summary: "the fold on the branch left behind" },
+      { type: "message", id: "u2", parentId: "c1", timestamp: "2026-09-30T00:00:03.000Z", message: { role: "user", content: "a turn on that branch" } },
+    ];
+    const path = session("compacted-then-navigated", body);
+    expect(transcriptPage("pi-transcript", path).turns.filter((turn) => turn.parts.some((part) => part.kind === "compact"))).toHaveLength(1);
+    // /tree back to the first prompt: the fold sits above the new answer's branch, unread
+    appendFileSync(path, JSON.stringify({
+      type: "message", id: "a2", parentId: "u1", timestamp: "2026-09-30T00:10:00.000Z",
+      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "the answer in play" }] },
+    }) + "\n");
+    const page = transcriptPage("pi-transcript", path);
+    expect(page.turns.map((turn) => turn.parts.map((part) => part.kind))).toEqual([["text"], ["text"]]);
+  });
+
+  it("shows nothing for a compaction whose summary was never written", () => {
+    const path = session("compaction-empty", [
+      { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:01.000Z", message: { role: "user", content: "hello" } },
+      { type: "compaction", id: "c1", parentId: "u1", timestamp: "2026-09-30T00:00:02.000Z", summary: "", firstKeptEntryId: "u1" },
+    ]);
+    expect(transcriptPage("pi-transcript", path).turns).toHaveLength(1);
   });
 });

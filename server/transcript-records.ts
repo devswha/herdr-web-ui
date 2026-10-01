@@ -101,6 +101,17 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): Conversa
       turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "notice", text: notice }] });
       continue;
     }
+    // pi folds old context into a summary of its own accord and on /compact. The entry is a
+    // tree entry, not a message, so it reaches the chat only through this branch: the card
+    // says where the conversation was cut, and pi keeps answering from the summary onward.
+    // piNotice above only claims `custom_message`, so a compaction entry always reaches here.
+    if ((entry as { type?: unknown }).type === "compaction") {
+      const summary = (entry as { summary?: unknown }).summary;
+      if (typeof summary === "string" && summary.trim().length > 0) {
+        turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "compact", text: summary }] });
+      }
+      continue;
+    }
     const message = piMessage(entry);
     if (message === null) continue;
     const applyResults = () => {
