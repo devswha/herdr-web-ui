@@ -54,7 +54,8 @@ async function connectWs(machineId: string): Promise<{ ws: WebSocket; frames: Se
 }
 
 try {
-  const job = await setup({ destination, session: "web-qa", name: "Windows QA" });
+  // WINDOWS_QA_UPDATE=1 installs this checkout's bundle over one the PC already has under the same version
+  const job = await setup({ destination, session: "web-qa", name: "Windows QA", ...(process.env["WINDOWS_QA_UPDATE"] === "1" ? { update_remote: true } : {}) });
   assert.equal(job.phase, "connected", job.error ?? "");
   const machineId = job.machine_id;
   const machine = (await api<{ machines: Machine[] }>("/api/machines")).machines.find((m) => m.id === machineId);

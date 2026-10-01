@@ -80,7 +80,8 @@ try {
     const herdr = process.env["HERDR_WEB_HERDR_BIN"] || join(bundle, "bin/herdr");
     if (windows && !existsSync(herdr)) throw new Error(`herdr is not installed at ${herdr}; install it with herdr.dev/install.cmd`);
     const args = session ? ["--session", session, "server"] : ["server"];
-    const log = join(dirname(descriptor), "herdr.log");
+    // one log per session on Windows: cmd holds the file a running daemon's output goes to
+    const log = join(dirname(descriptor), windows && session ? `herdr-${session}.log` : "herdr.log");
     if (windows) await spawnDetachedWindows(herdr, args, log);
     else Bun.spawn([herdr, ...args], { stdin: "ignore", stdout: Bun.file(log), stderr: Bun.file(log) }).unref();
     let ready = false;

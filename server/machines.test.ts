@@ -9,7 +9,7 @@ import { machinePath, paneStorageId } from "../shared/machines.ts";
 import { canSendSecret, sameOrigin, shellQuote, validateTarget } from "./machine-security.ts";
 import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
 import { MachineManager } from "./machines.ts";
-import { detectHost, psQuote, UNSUPPORTED_HOST } from "./remote-host.ts";
+import { detectHost, psQuote, UNSUPPORTED_HOST, windowsBridgeFiles } from "./remote-host.ts";
 import { decodeClixml, type SshConnection } from "./ssh.ts";
 import { terminalAttachSupported } from "./herdr/client.ts";
 import { CompletionTracker } from "./completion.ts";
@@ -206,6 +206,10 @@ describe("host detection", () => {
     const stderr = '#< CLIXML\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><MS><PR N="Record"><AV>처음 사용하기 위해 모듈을 준비하는 중입니다.</AV></PR></MS></Obj><S S="Error">Another installation is in progress; retry shortly_x000D__x000A_</S><S S="Error">At line:4 char:1 &lt;x&gt;_x000D__x000A_</S></Objs>';
     expect(decodeClixml(stderr)).toBe("Another installation is in progress; retry shortly\nAt line:4 char:1 <x>");
     expect(decodeClixml("#< CLIXML\n<Objs><Obj S=\"progress\"/></Objs>")).toBe("PowerShell failed");
+  });
+  it("gives each herdr session its own bridge log and launcher on Windows", () => {
+    expect(windowsBridgeFiles()).toEqual({ log: "bridge.log", launcher: "start-bridge.cmd" });
+    expect(windowsBridgeFiles("web-qa")).toEqual({ log: "bridge-web-qa.log", launcher: "start-bridge-web-qa.cmd" });
   });
   it("quotes for PowerShell with doubled single quotes only", () => {
     expect(psQuote("C:\\Users\\o'brien\\x")).toBe("'C:\\Users\\o''brien\\x'");
