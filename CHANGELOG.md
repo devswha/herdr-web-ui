@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   box until sent, on a Windows PC too. The mirrored terminal there never learns the agent's paste
   mode, so the lines went as typed and the agent sent the first one alone. They now go as one
   paste, as the same lines pasted into that terminal do since 0.3.40.
+  ([#281](https://github.com/devswha/herdr-web-ui/pull/281))
 - The chat of an OmO, omp or Gajae Code session shows the reasoning level the session runs at
   now. It read the level from the first 64 KB of the transcript and the newest page, so a level
   changed in between (`/thinking`, or a model switch) was never seen: a session started at
