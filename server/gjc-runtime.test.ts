@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSy
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { forgetTranscriptState } from "./conversation.ts";
-import { boundGjcTranscript, gjcSessionTitle, gjcStatusTitle, gjcTitles, gjcBreadcrumbPath, gjcDisplayCandidates, gjcPidUnderShell, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs, recentProcessTable, storeRelative } from "./gjc-runtime.ts";
+import { boundGjcTranscript, gjcAnswerAmong, gjcSessionTitle, gjcStatusTitle, gjcTitles, gjcBreadcrumbPath, gjcDisplayCandidates, gjcPidUnderShell, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs, recentProcessTable, storeRelative } from "./gjc-runtime.ts";
 
 // Session paths come back canonical and the store root is passed in canonical; macOS's tmpdir is a symlink into /private.
 const tempDir = (prefix: string) => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -169,7 +169,7 @@ it("reads which sessions of the folder can be the one on screen", () => {
   // none carries it yet: only a session without a title can be the one
   expect(gjcTitles(["c", "d"], "Fresh", titleOf)).toMatchObject({ titled: null, titledCount: 0, among: ["d"] });
   // a history not read to its end yet: nothing is decided by counting one, but two that carry it are two
-  expect(gjcTitles(["a", "big"], "Ship", titleOf)).toMatchObject({ titled: null, titledCount: -1, among: ["a"] });
+  expect(gjcTitles(["a", "big"], "Ship", titleOf)).toMatchObject({ titled: null, titledCount: -1, among: ["a"], unread: ["big"] });
   expect(gjcTitles(["a", "b", "big"], "Ship", titleOf)).toMatchObject({ titled: null, titledCount: 2, among: ["a", "b"] });
   // and an unread one is no untitled session: an answer is not matched in it
   expect(gjcTitles(["c", "d", "big"], "Fresh", titleOf)).toMatchObject({ titledCount: -1, among: ["d"] });
@@ -375,6 +375,12 @@ it("matches only substantial assistant text and rejects shared or short text", (
   const answer = "A unique assistant response with enough concrete details to identify this conversation across terminal line wrapping and punctuation changes.";
   const file = (path: string, role: string, text: string) => ({ path, text: JSON.stringify({ type: "message", message: { role, content: [{ type: "text", text }] } }) });
   expect(matchGjcTranscript(answer.replaceAll(" ", "\n"), [file("a", "assistant", answer)])).toBe("a");
+  // a fork holds its parent's answer; while its own title is still unread it is not left out of
+  // the match (the parent would pass for the only one), and it is not chosen either
+  const parent = file("parent", "assistant", answer), fork = file("fork", "assistant", answer);
+  expect(gjcAnswerAmong(answer, [parent, fork], ["parent"], ["fork"])).toBeNull();
+  expect(gjcAnswerAmong(answer, [parent, fork], ["parent"], [])).toBe("parent");
+  expect(gjcAnswerAmong(answer, [fork], [], ["fork"])).toBeNull();
   expect(matchGjcTranscript(answer, [file("a", "assistant", answer), file("b", "assistant", answer)])).toBeNull();
   expect(matchGjcTranscript(answer, [file("a", "user", answer)])).toBeNull();
   expect(matchGjcTranscript("Done", [file("a", "assistant", "Done")])).toBeNull();

@@ -193,24 +193,26 @@ export function gjcTitles(
   paths: readonly string[], title: string | null | undefined,
   titleOf: (path: string, budget: { bytes: number }) => string | null | undefined = gjcSessionTitle,
   sizeOf: (path: string) => number = fileSize,
-): Pick<GjcScreen, "titled" | "titledCount" | "titles"> & { among: string[] } {
+): Pick<GjcScreen, "titled" | "titledCount" | "titles"> & { among: string[]; unread: string[] } {
   const titles = new Map<string, string | null | undefined>();
-  if (typeof title !== "string" && title !== null) return { titled: null, titledCount: 0, titles, among: [...paths] };
+  if (typeof title !== "string" && title !== null) return { titled: null, titledCount: 0, titles, among: [...paths], unread: [] };
   const budget = { bytes: TITLE_BUDGET_BYTES };
   // the small ones first: one long history must not use up the look before a short session is read
   const sizes = new Map(paths.map((path) => [path, sizeOf(path)]));
   for (const path of [...paths].sort((a, b) => sizes.get(a)! - sizes.get(b)!)) titles.set(path, titleOf(path, budget));
   // a file not read to its end may carry any title: it is no untitled session to match an answer in
   const untitled = paths.filter((path) => titles.get(path) === null);
-  if (title === null) return { titled: null, titledCount: 0, titles, among: untitled };
+  // and it cannot be chosen by an answer either, yet an answer it shares is not one session's alone
+  const unread = paths.filter((path) => titles.get(path) === undefined);
+  if (title === null) return { titled: null, titledCount: 0, titles, among: untitled, unread };
   const carrying = paths.filter((path) => titles.get(path) === title);
-  const unread = [...titles.values()].includes(undefined);
   return {
-    titled: carrying.length === 1 && !unread ? carrying[0]! : null,
+    titled: carrying.length === 1 && unread.length === 0 ? carrying[0]! : null,
     // two that carry it are two, whatever the unread ones turn out to carry
-    titledCount: carrying.length > 1 ? carrying.length : unread ? -1 : carrying.length,
+    titledCount: carrying.length > 1 ? carrying.length : unread.length > 0 ? -1 : carrying.length,
     titles,
     among: carrying.length > 0 ? carrying : untitled,
+    unread,
   };
 }
 
@@ -359,6 +361,17 @@ export function matchGjcTranscript(screen: string, candidates: { path: string; t
   return matches.size === 1 ? [...matches][0]! : null;
 }
 
+/**
+ * The one session among `among` an answer on screen is of. A file whose title is not read yet
+ * is matched too, so that an answer it shares with another (a fork holds its parent's) is
+ * nobody's; alone it is not chosen.
+ */
+export function gjcAnswerAmong(screen: string, files: { path: string; text: string }[], among: readonly string[], unread: readonly string[]): string | null {
+  const pool = files.filter((file) => among.includes(file.path) || unread.includes(file.path));
+  const matched = pool.length === 0 ? null : matchGjcTranscript(screen, pool);
+  return matched !== null && among.includes(matched) ? matched : null;
+}
+
 /** Bound both directory enumeration and content reads; never match an arbitrary subset. */
 export function gjcDisplayCandidates(root: string, cwd: string): { path: string; text: string }[] {
   try {
@@ -467,9 +480,8 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
     const screen = await paneRead({ paneId, source: "visible", lines: 1000 }).catch(() => null);
     if (!screen) return null;
     const title = gjcStatusTitle(screen.text);
-    const { among, ...titles } = gjcTitles(files.map((file) => file.path), title);
-    const pool = files.filter((file) => among.includes(file.path));
-    return { path: pool.length === 0 ? null : matchGjcTranscript(screen.text, pool), title, ...titles };
+    const { among, unread, ...titles } = gjcTitles(files.map((file) => file.path), title);
+    return { path: gjcAnswerAmong(screen.text, files, among, unread), title, ...titles };
   };
   if (running) return (await look())?.path ?? null;
   // a Windows pane has neither descriptors nor a breadcrumb to read: gjc under its shell, then the screen
