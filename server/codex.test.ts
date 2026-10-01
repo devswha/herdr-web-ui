@@ -437,6 +437,11 @@ describe("Codex rollout resolution", () => {
     const screen = bullets(...older);
     expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }])).toBe("older");
     expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "live", text: answered(...live) }])).toBeNull();
+    // also with labels of a few letters, after many later answers, and with many links in one answer
+    const terse = ["[Build](/repo/reports/feature-branch-build-results.md)", "[Checks](/repo/reports/feature-branch-check-results.md)"];
+    const shownTerse = ["Build (reports/feature-branch-build-results.md)", "Checks (reports/feature-branch-check-results.md)"];
+    expect(matchShortCodexAnswers(bullets(...shownTerse), [{ path: "older", text: answered(...shownTerse) }, { path: "live", text: answered(...terse) }])).toBeNull();
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "live", text: answered(...live, ...Array.from({ length: 220 }, () => "Done.")) }])).toBeNull();
     // a linked answer of another rollout that says something else vetoes nothing
     expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "else", text: answered("See [the notes](docs/notes.md) for the migration plan.") }])).toBe("older");
   });
