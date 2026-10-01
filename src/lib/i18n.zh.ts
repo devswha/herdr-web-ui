@@ -78,6 +78,7 @@ export const ZH: Record<string, string> = {
   // ---- agent status words (lib/status.ts) ----
   "READY": "就绪",
   "RUN": "运行",
+  "Background tasks running: {count}": "正在运行的后台任务：{count}",
   "INPUT": "输入",
   "DONE": "完成",
   "—": "—",

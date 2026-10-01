@@ -358,6 +358,18 @@
   padding: 0 var(--space-1);
 }
 
+/* background tasks still running: quieter than the state word beside it, and a number, not a word */
+.badge-background {
+  color: var(--text-dim);
+  border-color: var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge-background svg {
+  width: 10px;
+  height: 10px;
+}
+
 .pane-subtitle {
   min-width: 0;
   overflow: hidden;

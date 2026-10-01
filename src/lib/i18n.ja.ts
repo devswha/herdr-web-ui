@@ -76,6 +76,7 @@ export const JA: Record<string, string> = {
   // ---- agent status words (lib/status.ts) ----
   "READY": "待機",
   "RUN": "実行中",
+  "Background tasks running: {count}": "実行中のバックグラウンドタスク: {count}",
   "INPUT": "入力待ち",
   "DONE": "完了",
   "—": "—",

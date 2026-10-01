@@ -74,6 +74,7 @@ export const KO: Record<string, string> = {
   // ---- agent status words (lib/status.ts) ----
   "READY": "대기",
   "RUN": "실행",
+  "Background tasks running: {count}": "실행 중인 백그라운드 작업: {count}",
   "INPUT": "입력",
   "DONE": "완료",
   "—": "—",

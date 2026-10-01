@@ -27,7 +27,8 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } f
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
 export type HerdrTab = TabInfo;
-export type HerdrPane = PaneInfo;
+/** `background_tasks`: an OmO pane's `task` children still running, counted by the server; absent when none */
+export type HerdrPane = PaneInfo & { background_tasks?: number };
 
 export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
 
@@ -483,7 +484,7 @@ export type ServerMessage =
   | { type: "submit-result"; id: number; pane_id: string; ok: boolean; code?: string; message?: string }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
-  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus }
+  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** an OmO pane's running background tasks, when the frame is about one */ background_tasks?: number }
   /** a pane's process exited (pushed even when nobody is attached to it) */
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */

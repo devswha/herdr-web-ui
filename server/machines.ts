@@ -85,7 +85,7 @@ export class MachineManager {
   private autoQueued = new Set<string>();
   private emitTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(readonly stateDir: string, private push: PushService, private completions: CompletionTracker) {
+  constructor(readonly stateDir: string, private push: PushService, private completions: CompletionTracker, private readLocal: () => Promise<SessionSnapshot> = () => this.completions.readSnapshot(sessionSnapshot, labelOmoPanes)) {
     this.statePath = join(stateDir, "machines.json");
     this.sshDir = join(stateDir, "ssh");
     this.settingsPath = join(stateDir, "machine-settings.json");
@@ -139,7 +139,7 @@ export class MachineManager {
         this.localRefreshQueued = false;
         const revision = this.localRevision;
         try {
-          const snapshot = await this.completions.readSnapshot(sessionSnapshot, labelOmoPanes);
+          const snapshot = await this.readLocal();
           if (this.stopped) break;
           // A newer event already patched the roster. Never publish this older load.
           if (revision !== this.localRevision) { this.localRefreshQueued = true; continue; }
