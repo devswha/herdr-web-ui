@@ -957,6 +957,51 @@ ${"─".repeat(40)}
     expect(parseInteractivePrompt("pi", later)).toBeNull();
   });
 
+  // The form's text on a screen that is not omo's live form: printed in a shell, or quoted in
+  // Claude's transcript. A card there would type its answer into that program. Each is tried as
+  // the form alone and with the rule and footer omo drew under it.
+  const printed = [first.replace(footer, ""), first];
+  const claudeBox = `\n${rule}\n❯ \n${rule}\n  ? for shortcuts\n`;
+  const agents = ["", "pi", "omo", "claude"];
+
+  test("is no card for the form's text printed in a shell, its prompt below", () => {
+    for (const text of printed) {
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text}user@host:~/project$ `)).toBeNull();
+    }
+  });
+
+  test("is no card for the form's text in a shell with output after it", () => {
+    for (const text of printed) {
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text} M server/prompt.ts\n M CHANGELOG.md\n 2 files changed\n`)).toBeNull();
+    }
+  });
+
+  test("is no card for the form's text in Claude's transcript, over Claude's input box", () => {
+    for (const text of printed) {
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text}${claudeBox}`)).toBeNull();
+    }
+  });
+
+  test("is no card for the form's text quoted (indented) in Claude's transcript", () => {
+    for (const text of printed) {
+      const quoted = text.split("\n").map((line) => line ? `  ${line}` : line).join("\n");
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${quoted}${claudeBox}`)).toBeNull();
+    }
+  });
+
+  test("needs the session's matching call when the pane is not known to wait on the user", () => {
+    // what the server asks for a pane herdr names claude, or not at all, that is not blocked
+    expect(parseInteractivePrompt("", first, null, false)).toBeNull();
+    expect(parseInteractivePrompt("claude", first, null, false)).toBeNull();
+    const ask = { questions: ["표시 위치", "월 한도"].map((header) => ({
+      header, question: "q", multiSelect: false, options: [{ label: "a", description: null }, { label: "b", description: null }],
+    })) };
+    expect(parseInteractivePrompt("", first, ask, false)).toMatchObject({ title: "Question 1 of 2" });
+    // another form's call is no evidence
+    ask.questions[1]!.header = "다른 질문";
+    expect(parseInteractivePrompt("claude", first, ask, false)).toBeNull();
+  });
+
   // omo's session file for the form below: the ask_user_question call, then (once answered) its result
   const call = {
     questions: [
