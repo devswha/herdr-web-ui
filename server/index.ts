@@ -321,7 +321,12 @@ export function createServer(
       if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
     }
     inTime();
-    await paneSendText(paneId, payload);
+    // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
+    // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
+    // asked only for such a block, so a one-line message never waits on it.
+    const shaped = await mirrorInput(payload, process.platform === "win32", async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
+    inTime();
+    await paneSendText(paneId, shaped);
     await Bun.sleep(SUBMIT_DELAY_MS);
     authorize();
     await paneSendKeys(paneId, ["Enter"]);
