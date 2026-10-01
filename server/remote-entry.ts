@@ -2,7 +2,8 @@
 // herdr owns the terminal processes and no disconnect should terminate their work.
 import { createServer } from "./index.ts";
 import { bridgeIdentity, descriptorPath, registerBridge } from "./bridge.ts";
-import { staleMarker, tasklistImage } from "./herdr-marker.ts";
+import { parseProcessLine, staleMarker } from "./herdr-marker.ts";
+import { psQuote } from "./powershell.ts";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -23,10 +24,10 @@ process.env["HERDR_SOCKET"] = session ? join(herdrConfig, "sessions", session, "
 function staleWindowsMarker(path: string): boolean {
   return staleMarker(readFileSync(path, "utf8"), (pid) => {
     try {
-      const listed = Bun.spawnSync(["tasklist", "/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { stdin: "ignore", stderr: "ignore" });
-      if (listed.exitCode === 0) return tasklistImage(listed.stdout.toString());
-    } catch { /* no tasklist: the pid alone has to do */ }
-    try { process.kill(pid, 0); return "herdr"; } catch (e) { return (e as NodeJS.ErrnoException).code === "ESRCH" ? null : "herdr"; }
+      const probe = Bun.spawnSync(["powershell", "-NoProfile", "-NonInteractive", "-Command", `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + '|' + ([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds() }`], { stdin: "ignore", stderr: "ignore" });
+      if (probe.exitCode === 0) return parseProcessLine(probe.stdout.toString());
+    } catch { /* no PowerShell: the pid alone has to do */ }
+    try { process.kill(pid, 0); return { name: "herdr", startedMs: null }; } catch (e) { return (e as NodeJS.ErrnoException).code === "ESRCH" ? null : { name: "herdr", startedMs: null }; }
   });
 }
 
@@ -38,7 +39,7 @@ function staleWindowsMarker(path: string): boolean {
  */
 async function spawnDetachedWindows(exe: string, args: string[], log: string): Promise<void> {
   for (const value of [exe, ...args, log]) if (/["\r\n\0]/.test(value)) throw new Error(`Invalid characters in ${value}`);
-  const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  const quote = psQuote;
   const line = `cmd.exe /d /c ""${exe}" ${args.join(" ")} >> "${log}" 2>&1"`;
   const environment = Object.entries(process.env).filter(([name, value]) => value !== undefined && !/[\r\n\0=]/.test(name) && !/[\r\n\0]/.test(value)).map(([name, value]) => quote(`${name}=${value}`));
   const script = [

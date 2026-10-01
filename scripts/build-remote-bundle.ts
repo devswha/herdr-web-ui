@@ -96,6 +96,8 @@ try {
     cpSync(join(downloads, "bun-windows-x64", "bun.exe"), join(stage, "bin/bun.exe"));
     // nothing native: the PTY sidecar is never spawned on Windows (the server refuses attach there)
     rmSync(join(stage, "node_modules/@lydell"), { recursive: true, force: true });
+    // package-manager symlinks: an account without the symlink privilege cannot extract them, and nothing runs them
+    rmSync(join(stage, "node_modules/.bin"), { recursive: true, force: true });
     writeFileSync(join(stage, "package.json"), JSON.stringify({ type: "module", version: REMOTE_BUNDLE_VERSION }));
     writeFileSync(join(stage, "bundle.json"), JSON.stringify({ version: REMOTE_BUNDLE_VERSION, platform, herdr: null, bun: "1.4.2", node: null, native_smoke_tested: false }));
   } else {
