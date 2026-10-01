@@ -413,7 +413,7 @@ export function createServer(
     snapshot: sessionSnapshot,
     onChange: (paneId, derived, background, turn) => omoChanged(paneId, derived, background, turn),
     // herdr called it `claude` or `pi` until now: what it finished under that name is its own
-    onFound: (paneId) => completions.adopt(paneId, "omo"),
+    onFound: (paneId) => completions.adopt(paneId, "omo", ["claude", "pi"]),
   });
   /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
   const rawSnapshot = async (): Promise<SessionSnapshot> => {

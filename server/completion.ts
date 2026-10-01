@@ -91,11 +91,16 @@ export class CompletionTracker {
   /**
    * The pane's agent is now known under another name (an OmO pane herdr called `claude` or
    * `pi`): what it worked on and finished stays its own. A finish is matched by identity, and
-   * would otherwise be dropped as another agent's.
+   * would otherwise be dropped as another agent's. What another agent did in the pane before
+   * (Codex, then OmO started in its place) is not OmO's: that is dropped.
    */
-  adopt(paneId: string, agent: string): void {
-    if (this.finished.has(paneId)) this.finished.set(paneId, agent);
-    if (this.worked.has(paneId)) this.worked.set(paneId, agent);
+  adopt(paneId: string, agent: string, from: readonly string[]): void {
+    for (const state of [this.finished, this.worked]) {
+      if (!state.has(paneId)) continue;
+      const was = state.get(paneId) ?? null;
+      if (was === null || was === agent || from.includes(was)) state.set(paneId, agent);
+      else state.delete(paneId);
+    }
     this.save();
   }
 

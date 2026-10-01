@@ -12,10 +12,12 @@
  * background task, a monitor, a goal continuation); it is over after an assistant message that
  * stopped for good. Measured over 40 session files: each of 492 such runtime messages written at
  * rest was followed by an assistant message, a median of 5 s later, so the message itself is the
- * start. An answer that ended in an error is not the end by itself: OmO retries (the next
- * answer followed 2, 4, 8 and 16 s later), and writes `senpi.hooks.stop-state` when it gives up
- * (475 of 510 errors seen), so the turn runs until that or the next message. Nothing of OmO's
- * or Claude's is installed or changed for this: files are read.
+ * start. An answer that ended in an error ends the turn like any other: OmO may retry (the next
+ * answer followed 2, 4, 8 and 16 s later), but nothing it writes tells a retry from giving up.
+ * Its `senpi.hooks.stop-state` record follows 2 ms after an error either way (350 of them were
+ * followed by a retry), and is held back while a background task runs, so waiting for it kept a
+ * pane at RUN for good. A retry that gets an answer shows as RUN again from that answer. Nothing
+ * of OmO's or Claude's is installed or changed for this: files are read.
  *
  * The status replaces herdr's for the pane before CompletionTracker sees it, in status events and
  * in snapshots alike, under the one identity `omo`: herdr has named such a pane `pi` and `claude`
@@ -30,18 +32,16 @@ import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol
 /** runtime messages that start a turn nobody typed; one not named here shows as RUN from its first answer on */
 const TURN_STARTS = new Set([
   "goal-continuation", "omo-senpi:wake", "senpi-monitor:notification", "senpi-terminal:notification",
-  "senpi-codemode:notification", "senpi.todo-owed", "omo-init-deep-advisor:run",
+  "senpi-codemode:notification", "senpi.todo-owed", "omo-init-deep-advisor:run", "omo-onboarding:bootstrap", "ttsr-injection",
 ]);
 
 export interface OmoTurn {
   status: "working" | "idle" | null;
-  /** the last answer ended in an error: OmO may be retrying, until it says it stopped */
-  retrying: boolean;
   /** when the entry that decided the status was written */
   at: number | null;
 }
 
-export const noTurn = (): OmoTurn => ({ status: null, retrying: false, at: null });
+export const noTurn = (): OmoTurn => ({ status: null, at: null });
 
 /** A record too long to hold is read by its ends: its role and time are in the first bytes, its stop reason in the last. */
 export type OmoLine = { text: string } | { head: string; tail: string };
@@ -49,9 +49,6 @@ export type OmoLine = { text: string } | { head: string; tail: string };
 /** One session record, applied to the turn so far. */
 export function omoTurnAfter(turn: OmoTurn, line: OmoLine): OmoTurn {
   const head = "text" in line ? line.text : line.head;
-  if (head.startsWith('{"type":"custom"')) {
-    return turn.retrying && /"customType":"senpi\.hooks\.stop-state"/.test(head.slice(0, 200)) ? { ...turn, status: "idle", retrying: false } : turn;
-  }
   const custom = head.startsWith('{"type":"custom_message"');
   if (!custom && !head.startsWith('{"type":"message"')) return turn;
   let role: unknown, stopReason: unknown, customType: unknown, timestamp: unknown;
@@ -70,13 +67,9 @@ export function omoTurnAfter(turn: OmoTurn, line: OmoLine): OmoTurn {
   }
   const parsed = typeof timestamp === "string" ? Date.parse(timestamp) : NaN;
   const at = Number.isFinite(parsed) ? parsed : turn.at;
-  if (custom) return typeof customType === "string" && TURN_STARTS.has(customType) ? { status: "working", retrying: false, at } : turn;
-  if (role === "assistant") {
-    if (stopReason === "toolUse") return { status: "working", retrying: false, at };
-    if (stopReason === "error") return { status: "working", retrying: true, at };
-    return { status: "idle", retrying: false, at };
-  }
-  return role === "user" || role === "toolResult" ? { status: "working", retrying: false, at } : turn;
+  if (custom) return typeof customType === "string" && TURN_STARTS.has(customType) ? { status: "working", at } : turn;
+  if (role === "assistant") return { status: stopReason === "toolUse" ? "working" : "idle", at };
+  return role === "user" || role === "toolResult" ? { status: "working", at } : turn;
 }
 
 /** The turn at the end of a session text. */
@@ -181,7 +174,8 @@ function processAlive(pid: number): boolean {
 export interface OmoPane { path: string | null; startedAt: number | null }
 
 export interface OmoFile {
-  size: (path: string) => number | null;
+  /** its size, and what tells the file from one put in its place (a session file can be rewritten whole) */
+  stat: (path: string) => { size: number; id: string } | null;
   /** the lines from `from` to `size`, and the offset read to */
   lines: (path: string, from: number, size: number, each: (line: OmoLine) => void) => number;
 }
@@ -202,10 +196,10 @@ export interface OmoStatusDeps {
   now?: () => number;
 }
 
-interface Tracked extends OmoPane { cwd: string; offset: number; size: number; turn: OmoTurn; status: "working" | "idle"; background: number }
+interface Tracked extends OmoPane { cwd: string; offset: number; size: number; id: string; turn: OmoTurn; status: "working" | "idle"; background: number }
 
 const FILES: OmoFile = {
-  size: (path) => { try { const fd = openSync(path, "r"); try { return fstatSync(fd).size; } finally { closeSync(fd); } } catch { return null; } },
+  stat: (path) => { try { const fd = openSync(path, "r"); try { const stat = fstatSync(fd); return { size: stat.size, id: `${stat.dev}:${stat.ino}` }; } finally { closeSync(fd); } } catch { return null; } },
   lines: (path, from, size, each) => {
     let fd: number;
     try { fd = openSync(path, "r"); } catch { return from; }
@@ -219,6 +213,8 @@ const STALE_TURN_MS = 2000;
 export class OmoStatus {
   /** every pane that runs OmO; those whose session is known carry a status */
   private readonly panes = new Map<string, Tracked>();
+  /** what a pane read when its OmO was last told from it, while the pane itself is still there: found again, it goes on from that */
+  private readonly last = new Map<string, { status: "working" | "idle"; background: number }>();
   private refreshedAt = -Infinity;
   private refreshedFor = "";
   private refreshing: Promise<void> | null = null;
@@ -278,13 +274,24 @@ export class OmoStatus {
     this.refreshing = (async () => {
       const found = await this.deps.discover(panes);
       const cwds = new Map(panes.map((pane) => [pane.pane_id, pane.cwd ?? ""]));
-      for (const paneId of [...this.panes.keys()]) if (!found.has(paneId)) this.panes.delete(paneId);
+      for (const [paneId, gone] of this.panes) {
+        if (found.has(paneId)) continue;
+        if (gone.path !== null) this.last.set(paneId, { status: gone.status, background: gone.background });
+        this.panes.delete(paneId);
+      }
+      for (const paneId of [...this.last.keys()]) if (!cwds.has(paneId)) this.last.delete(paneId);
       for (const [paneId, pane] of found) {
         const before = this.panes.get(paneId);
         if (!before) this.deps.onFound?.(paneId);
-        // the same session goes on being read from where it was: what happened meanwhile is told
-        if (before && before.path === pane.path) before.startedAt = pane.startedAt;
-        else this.panes.set(paneId, { ...pane, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, turn: noTurn(), status: "idle", background: 0 });
+        // the same session goes on being read from where it was: what happened meanwhile is told.
+        // A start that cannot be read this time is the one read before
+        if (before && before.path === pane.path) before.startedAt = pane.startedAt ?? before.startedAt;
+        else {
+          // another session, or the pane's OmO found again: a turn that ended meanwhile is told against what it read before
+          const prior = before?.path != null ? before : this.last.get(paneId);
+          this.panes.set(paneId, { ...pane, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", turn: noTurn(), status: prior?.status ?? "idle", background: prior?.background ?? 0 });
+        }
+        this.last.delete(paneId);
       }
       this.refreshedFor = key;
       this.refreshedAt = this.now();
@@ -294,19 +301,20 @@ export class OmoStatus {
   }
 
   /**
-   * Reads what the session files gained; a turn that started or ended is told. A pane read for
-   * the first time tells nobody: the snapshot that found it carries its status.
+   * Reads what the session files gained; a turn that started or ended is told. A pane found at
+   * rest tells nobody; one found in a turn tells it, so that its end is a finish.
    */
   poll(): void {
     const counts = new Map<string, Map<string, number>>();
     for (const [paneId, tracked] of this.panes) {
       if (tracked.path === null) continue;
-      const size = this.file.size(tracked.path);
-      if (size === null) continue;
-      const first = tracked.offset === -1;
-      if (first || size < tracked.offset) this.readFrom(tracked, tracked.path, size, Math.max(0, size - FIRST_READ_BYTES));
+      const stat = this.file.stat(tracked.path);
+      if (stat === null) continue;
+      const { size } = stat;
+      if (tracked.offset === -1 || size < tracked.offset || stat.id !== tracked.id) this.readFrom(tracked, tracked.path, size, Math.max(0, size - FIRST_READ_BYTES));
       else if (size !== tracked.size) tracked.offset = this.file.lines(tracked.path, tracked.offset, size, (line) => { tracked.turn = omoTurnAfter(tracked.turn, line); });
       tracked.size = size;
+      tracked.id = stat.id;
       const stale = tracked.turn.status === "working" && tracked.turn.at !== null && tracked.startedAt !== null && tracked.turn.at < tracked.startedAt - STALE_TURN_MS;
       const status = tracked.turn.status === "working" && !stale ? "working" : "idle";
       const sessionId = omoSessionId(tracked.path);
@@ -316,7 +324,7 @@ export class OmoStatus {
       const changed = turn || background !== tracked.background;
       tracked.status = status;
       tracked.background = background;
-      if (changed && !first) this.deps.onChange(paneId, status, background, turn);
+      if (changed) this.deps.onChange(paneId, status, background, turn);
     }
   }
 

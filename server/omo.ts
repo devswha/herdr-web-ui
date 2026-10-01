@@ -109,6 +109,20 @@ export function heldSessionIds(dir: string, pid: number, startedAt: number | nul
   return ids;
 }
 
+/** When the process that holds a session here started, by its own record: where the system does not tell (macOS). */
+export function holderStartedAt(dir: string, pid: number): number | null {
+  const holders = join(dir, "session-holders");
+  let names: string[] = [];
+  try { names = readdirSync(holders); } catch { return null; }
+  for (const name of names.slice(0, 4096)) {
+    try {
+      const record = JSON.parse(readFileSync(join(holders, name, `${pid}.json`), "utf8"));
+      if (record?.pid === pid && typeof record.processStartedAtMs === "number") return record.processStartedAtMs;
+    } catch { /* this pid holds nothing here */ }
+  }
+  return null;
+}
+
 /** Bounded, canonical store reads; exact descriptor paths can live outside the cwd slug. */
 export function omoCandidates(cwd: string, home: string, exactPaths: string[] = []): OmoCandidate[] {
   const root = join(home, ".omo", "agent", "sessions");
@@ -152,6 +166,8 @@ function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: ReadonlyMap
   try { store = realpathSync(store); } catch { /* no store yet: no descriptor can be in it */ }
   const dir = sessionDir(cwd, home);
   const held = new Map<string, string[]>();
+  /** for the status only: the choice of session keeps to starts the system itself told */
+  const since = new Map<string, number | null>();
   for (const pane of panes.filter((candidate) => candidate.cwd === cwd)) {
     const info = infos.get(pane.pane_id) ?? null;
     if (!info?.process_info?.foreground_processes) { runtimes.push({ paneId: pane.pane_id, startedAt: null, paths: [], ids: [] }); continue; }
@@ -160,6 +176,8 @@ function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: ReadonlyMap
     const starts = processes.map((process) => processStartedAt(process.pid));
     const paths: string[] = [];
     const ids: string[] = [];
+    const told = processes.map((process, index) => starts[index] ?? holderStartedAt(dir, process.pid));
+    since.set(pane.pane_id, told.every((start) => start !== null) ? Math.min(...(told as number[])) : null);
     held.set(pane.pane_id, processes.flatMap((process, index) => heldSessionIds(dir, process.pid, starts[index] ?? null)));
     for (const process of processes) {
       ids.push(...resumedIds(process.argv ?? []));
@@ -191,7 +209,7 @@ function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: ReadonlyMap
     runtime.paths = current;
     runtime.ids = [];
   }
-  return new Map(runtimes.map((runtime) => [runtime.paneId, { path: selectOmoTranscript(runtime.paneId, files, runtimes), startedAt: runtime.startedAt }]));
+  return new Map(runtimes.map((runtime) => [runtime.paneId, { path: selectOmoTranscript(runtime.paneId, files, runtimes), startedAt: runtime.startedAt ?? since.get(runtime.paneId) ?? null }]));
 }
 
 export async function omoTranscriptForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<string | null> {

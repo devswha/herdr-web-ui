@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { CompletionTracker } from "./completion.ts";
+import { paneAfterStatus } from "./machines.ts";
+import { holderStartedAt } from "./omo.ts";
 import { noTurn, omoBackgroundTasks, omoSessionId, OmoStatus, omoTurnAfter, omoTurnStatus, readLines, type OmoLine, type OmoPane } from "./omo-status.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-omo-status-"));
@@ -25,21 +27,19 @@ describe("an OmO turn, read from its session file", () => {
     expect(omoTurnStatus(lines(message("user"), message("assistant", "aborted")))).toBe("idle");
   });
 
-  it("goes on through an error OmO retries, until OmO says it stopped", () => {
-    // seen in real files: an error, then the next answer 2 to 16 s later with nothing in between
-    expect(omoTurnStatus(lines(message("user"), message("assistant", "error")))).toBe("working");
-    expect(omoTurnStatus(lines(message("user"), message("assistant", "error"), message("assistant", "error")))).toBe("working");
-    expect(omoTurnStatus(lines(message("user"), message("assistant", "error"), message("assistant", "stop")))).toBe("idle");
-    // it gave up: its stop record ends the turn
-    expect(omoTurnStatus(lines(message("user"), message("assistant", "error"), bookkeeping("senpi.hooks.stop-state")))).toBe("idle");
+  it("is over at an answer that ended in an error, and runs again when a retry answers", () => {
+    // seen in real files: an error, OmO's stop record 2 ms later, then a retry 2 to 16 s later all the same
+    expect(omoTurnStatus(lines(message("user"), message("assistant", "error")))).toBe("idle");
+    expect(omoTurnStatus(lines(message("user"), message("assistant", "error"), bookkeeping("senpi.hooks.stop-state"), message("assistant", "error")))).toBe("idle");
+    expect(omoTurnStatus(lines(message("user"), message("assistant", "error"), message("assistant", "toolUse")))).toBe("working");
     expect(omoTurnStatus(lines(message("user"), message("assistant", "error"), bookkeeping("senpi.hooks.stop-state"), runtime("goal-continuation")))).toBe("working");
-    // the same record after a finished answer, or while a tool runs, changes nothing
+    // OmO's stop record says nothing of the turn: it is held back while a background task runs
     expect(omoTurnStatus(lines(message("user"), message("assistant", "toolUse"), bookkeeping("senpi.hooks.stop-state")))).toBe("working");
   });
 
   it("starts with one of the runtime's own messages, nobody typing", () => {
     const rested = [message("user"), message("assistant", "stop"), bookkeeping("senpi.hooks.stop-state")];
-    for (const start of ["omo-senpi:wake", "senpi-monitor:notification", "senpi-terminal:notification", "goal-continuation", "senpi.todo-owed", "senpi-codemode:notification", "omo-init-deep-advisor:run"]) {
+    for (const start of ["omo-senpi:wake", "senpi-monitor:notification", "senpi-terminal:notification", "goal-continuation", "senpi.todo-owed", "senpi-codemode:notification", "omo-init-deep-advisor:run", "omo-onboarding:bootstrap", "ttsr-injection"]) {
       expect(omoTurnStatus(lines(...rested, runtime(start)))).toBe("working");
     }
     // what OmO notes down after a finished answer starts nothing
@@ -99,6 +99,7 @@ describe("OmO panes' status in place of herdr's", () => {
 
   function setup(initial = lines(message("user"), message("assistant", "stop"))) {
     const files: Record<string, string> = { [FILE]: initial };
+    const ids: Record<string, string> = {};
     const told: [string, AgentStatus, number, boolean][] = [];
     const found: string[] = [];
     const state = { background: 0, discovered: new Map<string, OmoPane>([["omo", { path: FILE, startedAt: null }], ["lost", { path: null, startedAt: null }]]), lookups: 0, clock: 0, during: () => {} };
@@ -109,14 +110,16 @@ describe("OmO panes' status in place of herdr's", () => {
       onChange: (id, status, count, turn) => told.push([id, status, count, turn]),
       onFound: (id) => found.push(id),
       file: {
-        size: (path) => path in files ? Buffer.byteLength(files[path]!) : null,
+        stat: (path) => path in files ? { size: Buffer.byteLength(files[path]!), id: ids[path] ?? "1" } : null,
         lines: (path, from, size, each) => { const text = Buffer.from(files[path]!).subarray(from, size).toString("utf8"); const whole = text.slice(0, text.lastIndexOf("\n") + 1); for (const line of whole.split("\n").slice(0, -1)) each({ text: line }); return from + Buffer.byteLength(whole); },
       },
       background: () => new Map([["01a0f88b-481c-7139-8125-c9cd453b9e17", state.background]]),
       now: () => state.clock,
     });
     const append = (...entries: string[]) => { files[FILE] += lines(...entries); };
-    return { omo, told, found, append, state };
+    /** the file put anew in place of the old one, as a rewrite does */
+    const replace = (...entries: string[]) => { files[FILE] = lines(...entries); ids[FILE] = `${Number(ids[FILE] ?? 1) + 1}`; };
+    return { omo, told, found, append, replace, state };
   }
   const statuses = (snapshot: SessionSnapshot) => Object.fromEntries(snapshot.panes.map((p) => [p.pane_id, `${p.agent}/${p.agent_status}`]));
 
@@ -152,12 +155,43 @@ describe("OmO panes' status in place of herdr's", () => {
   it("tells a turn that ended while the panes were being looked up again", async () => {
     const { omo, told, append, state } = setup(lines(message("user")));
     await omo.refresh(herdr().panes);
-    expect(told).toEqual([]);
+    expect(told).toEqual([["omo", "working", 0, true]]);
     // the answer lands during the lookup of the next refresh: it is told, not swallowed
     state.clock += 10_000;
     state.during = () => append(message("assistant", "stop"));
     await omo.refresh(herdr().panes);
-    expect(told).toEqual([["omo", "idle", 0, true]]);
+    expect(told.slice(1)).toEqual([["omo", "idle", 0, true]]);
+  });
+
+  it("tells a turn that ended while the pane's OmO could not be told, or in another session", async () => {
+    const { omo, told, append, replace, state } = setup(lines(message("user")));
+    await omo.refresh(herdr().panes);
+    // one lookup misses the pane (its process list could not be read); the answer lands meanwhile
+    state.discovered.delete("omo");
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    append(message("assistant", "stop"));
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(told).toEqual([["omo", "working", 0, true], ["omo", "idle", 0, true]]);
+    // the file is rewritten whole, a turn running in it: read again from its start, not from where the old one was read to
+    replace(message("user"), message("assistant", "stop"), message("user"), message("assistant", "toolUse"));
+    omo.poll();
+    expect(told.at(-1)).toEqual(["omo", "working", 0, true]);
+    replace(message("user"), message("assistant", "stop"), message("user"), message("assistant", "toolUse"), message("toolResult"), message("assistant", "stop"));
+    omo.poll();
+    expect(told.at(-1)).toEqual(["omo", "idle", 0, true]);
+  });
+
+  it("makes a finish of a turn found running by the watch alone, no snapshot served", async () => {
+    const { omo, told, append } = setup(lines(message("user")));
+    const completions = new CompletionTracker(null);
+    const settled = () => told.map(([id, status]) => completions.observe(id, status, "omo"));
+    await omo.refresh(herdr().panes);
+    append(message("assistant", "stop"));
+    omo.poll();
+    expect(settled()).toEqual(["working", "done"]);
   });
 
   it("finds a turn already running when the server starts, and takes over what herdr's name finished", async () => {
@@ -168,9 +202,13 @@ describe("OmO panes' status in place of herdr's", () => {
     expect(completions.observe("omo", "idle", "claude")).toBe("done");
     const raw = herdr();
     await omo.refresh(raw.panes);
-    for (const paneId of found) completions.adopt(paneId, "omo");
+    // what Codex finished in a pane before OmO was started there is not OmO's finish
+    completions.observe("lost", "working", "codex");
+    expect(completions.observe("lost", "unknown", "codex")).toBe("done");
+    for (const paneId of found) completions.adopt(paneId, "omo", ["claude", "pi"]);
     expect(found.sort()).toEqual(["lost", "omo"]);
-    expect(told).toEqual([]);
+    expect(completions.observe("lost", "idle", "omo")).toBe("idle");
+    expect(told).toEqual([["omo", "working", 0, true]]);
     expect(statuses(completions.present(omo.apply(raw)))["omo"]).toBe("omo/working");
     // a pane whose session is lost and found again keeps its DONE: its identity never changed
     completions.observe("lost", "working", "omo");
@@ -185,6 +223,12 @@ describe("OmO panes' status in place of herdr's", () => {
     const raw = herdr();
     await omo.refresh(raw.panes);
     expect(statuses(omo.apply(raw))["omo"]).toBe("omo/idle");
+    // a later lookup that cannot read the start keeps the one read before
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(raw.panes);
+    expect(statuses(omo.apply(raw))["omo"]).toBe("omo/idle");
+    expect(told).toEqual([]);
     // a prompt to the new process is a turn
     append(message("user", undefined, "2026-10-02T00:06:00.000Z"));
     omo.poll();
@@ -201,6 +245,23 @@ describe("OmO panes' status in place of herdr's", () => {
     state.background = 0;
     omo.poll();
     expect(told.at(-1)).toEqual(["omo", "idle", 0, false]);
+  });
+
+  it("reads a process's start from the record OmO keeps of it, where the system tells none", () => {
+    const dir = join(root, "sessions");
+    mkdirSync(join(dir, "session-holders", "01a0f88b"), { recursive: true });
+    writeFileSync(join(dir, "session-holders", "01a0f88b", "4242.json"), JSON.stringify({ pid: 4242, processStartedAtMs: 1_790_000_000_000 }));
+    expect(holderStartedAt(dir, 4242)).toBe(1_790_000_000_000);
+    expect(holderStartedAt(dir, 4243)).toBeNull();
+    expect(holderStartedAt(join(root, "nowhere"), 4242)).toBeNull();
+  });
+
+  it("keeps a remote PC's count of background tasks as its frames say", () => {
+    const frame = (background_tasks?: number) => ({ type: "pane-status" as const, pane_id: "omo", agent_status: "working" as const, ...(background_tasks === undefined ? {} : { background_tasks }) });
+    const two = paneAfterStatus(pane("omo", "omo", "idle"), frame(2));
+    expect(two).toMatchObject({ agent_status: "working", background_tasks: 2 });
+    expect(paneAfterStatus(two, frame())).toMatchObject({ background_tasks: 2 });
+    expect("background_tasks" in paneAfterStatus(two, frame(0))).toBe(false);
   });
 
   it("looks the panes up once per refresh, and not again while nothing changed", async () => {
