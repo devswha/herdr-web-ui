@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- **New session** with Gajae Code starts on a Windows PC. The command was typed the way a POSIX
+  shell wants it and ended with a newline, which PowerShell takes for a line break, so it never
+  ran; and herdr names only the pane's shell on Windows, so the start was never seen. The
+  command is now written for the pane's shell (PowerShell or cmd), run with the Enter key, and
+  found among the shell's child processes. OmO is not offered on a Windows PC for now (PRLINK).
+
 ## [0.3.39] - 2026-10-01
 
 ### Fixed

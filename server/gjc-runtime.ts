@@ -17,9 +17,10 @@ export interface GjcTerminal { id: string; startedAt: number }
 
 /** Native gjc and interpreter-launched gjc scripts both occur in process_info. */
 export function isGjcProcess(argv: readonly string[]): boolean {
-  const executable = /(^|\/)gjc(?:\.[cm]?js)?$/;
+  // a Windows process comes with backslashes and `.exe`
+  const executable = /(^|[\\/])gjc(?:\.exe|\.[cm]?js)?$/i;
   return executable.test(argv[0] ?? "") ||
-    (/(^|\/)(?:bun|node)(?:\.exe)?$/.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
+    (/(^|[\\/])(?:bun|node)(?:\.exe)?$/i.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
 }
 
 /** GJC's native terminal-sessions key, not the most recently written cwd session. */
