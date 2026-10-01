@@ -24,14 +24,14 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
-import { join } from "node:path";
+import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
-import { gjcTranscriptForPane } from "./gjc-runtime.ts";
+import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
@@ -567,6 +567,7 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
 export function forgetTranscriptState(): void {
   cache.clear();
   forgetClaudeSessions();
+  forgetGjcState();
   liveScans.clear();
   settledTurns.clear();
   codexTurns.clear();
@@ -639,16 +640,23 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
   return path;
 }
 
+/**
+ * The path herdr reports for an omp session, or null unless it is a transcript inside the
+ * user's own store. A Windows PC reports it in its own form (drive letter, backslashes).
+ */
+export function ompSessionPath(value: unknown, home: string, paths: PlatformPath = nodePath): string | null {
+  if (typeof value !== "string" || !value.endsWith(".jsonl") || !paths.isAbsolute(value) || !paths.isAbsolute(home)) return null;
+  return storeRelative(paths.join(home, ".omp", "agent", "sessions"), value, paths) ? value : null;
+}
+
 /** omp's transcript: herdr hands over the absolute path, accepted only inside the user's own store. */
 async function ompTranscriptPath(paneId: string): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { kind?: unknown; value?: unknown } } }>("agent.get", { target: paneId });
   const session = info.agent.agent_session;
-  const value = session?.kind === "path" ? session.value : undefined;
-  const sessionsDir = join(process.env["HOME"] ?? "", ".omp", "agent", "sessions") + "/";
-  if (typeof value !== "string" || !value.startsWith(sessionsDir) || !value.endsWith(".jsonl")) {
-    throw new ConversationUnavailable("no_session_path");
-  }
-  return value;
+  // a Windows bridge starts with HOME set to the profile directory (remote-entry.ts)
+  const path = ompSessionPath(session?.kind === "path" ? session.value : undefined, process.env["HOME"] ?? "");
+  if (!path) throw new ConversationUnavailable("no_session_path");
+  return path;
 }
 
 /**

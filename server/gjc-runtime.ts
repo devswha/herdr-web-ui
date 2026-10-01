@@ -6,12 +6,13 @@
 
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
-import { join } from "node:path";
+import nodePath, { join, type PlatformPath } from "node:path";
 
 import { readRange } from "./codex.ts";
 import { herdrRpc, paneRead } from "./herdr/client.ts";
 import { processStartedAt } from "./process-start.ts";
 import { parseOmpTranscript } from "./transcript-records.ts";
+import { descendantArgv, windowsProcessTable, type ProcessRow } from "./windows-processes.ts";
 
 export interface GjcTerminal { id: string; startedAt: number }
 
@@ -21,6 +22,88 @@ export function isGjcProcess(argv: readonly string[]): boolean {
   const executable = /(^|[\\/])gjc(?:\.exe|\.[cm]?js)?$/i;
   return executable.test(argv[0] ?? "") ||
     (/(^|[\\/])(?:bun|node)(?:\.exe)?$/i.test(argv[0] ?? "") && executable.test(argv[1] ?? ""));
+}
+
+const PROCESS_TABLE_MS = 5000;
+let processTable: { at: number; rows: Promise<ProcessRow[]> } | null = null;
+
+/**
+ * The Windows process table, read at most once per PROCESS_TABLE_MS. The chat polls a pane
+ * every 2 s and each read starts a PowerShell (about 1.3 s on a real PC), so the polls of a
+ * few seconds share one; a gjc that left its pane can still count as running for that long.
+ */
+export function recentProcessTable(read: () => Promise<ProcessRow[]> = windowsProcessTable, now = Date.now()): Promise<ProcessRow[]> {
+  if (processTable && now - processTable.at < PROCESS_TABLE_MS) return processTable.rows;
+  const entry = { at: now, rows: read() };
+  processTable = entry;
+  // an empty table is a read that failed: the next poll asks again
+  void entry.rows.then((rows) => { if (rows.length === 0 && processTable === entry) processTable = null; });
+  return entry.rows;
+}
+
+/**
+ * The gjc process below a pane's shell on a Windows PC, or null. herdr names only the shell
+ * there (windows-processes.ts), so the PC's process table answers; elsewhere herdr's
+ * foreground processes are the answer and the table is never asked.
+ */
+export async function gjcPidUnderShell(
+  shellPid: unknown,
+  platform: string = process.platform,
+  table: () => Promise<ProcessRow[]> = recentProcessTable,
+): Promise<number | null> {
+  if (platform !== "win32" || typeof shellPid !== "number") return null;
+  const rows = await table();
+  const seen = new Set<number>([shellPid]);
+  let level = [shellPid];
+  while (level.length > 0) {
+    const next: number[] = [];
+    for (const row of rows) {
+      if (!level.includes(row.parent) || seen.has(row.pid)) continue;
+      // nearest first: the session's own process, not the helper gjc starts below itself
+      if (descendantArgv([row], row.parent).some(isGjcProcess)) return row.pid;
+      seen.add(row.pid);
+      next.push(row.pid);
+    }
+    level = next;
+  }
+  return null;
+}
+
+const windowsBindings = new Map<string, { pid: number; path: string }>();
+
+/**
+ * A Windows pane's session. The screen is the only evidence there, and it is gone whenever no
+ * recent answer's tail is visible (a long list, tool output; live-verified: the lens fell back
+ * for the whole of such an answer). So what the screen once showed is kept for the pane while
+ * the same gjc process runs in it. The screen still wins when it shows another session, and a
+ * pane is never bound without it.
+ */
+export async function boundGjcTranscript(paneId: string, gjcPid: number | null, match: () => Promise<string | null>): Promise<string | null> {
+  const bound = windowsBindings.get(paneId);
+  if (gjcPid === null || bound && bound.pid !== gjcPid) windowsBindings.delete(paneId);
+  if (gjcPid === null) return null;
+  const path = await match();
+  if (path) windowsBindings.set(paneId, { pid: gjcPid, path });
+  return path ?? (bound?.pid === gjcPid ? bound.path : null);
+}
+
+/** Forget the bindings and the process table kept between polls. */
+export function forgetGjcState(): void {
+  windowsBindings.clear();
+  processTable = null;
+}
+
+/**
+ * Where `file` sits inside `root`, as path segments, or null when it is not inside. The
+ * platform's own rules decide: a Windows path comes with backslashes and a drive letter whose
+ * case means nothing, and a prefix test would take `sessions-evil` or a `..` for the store.
+ */
+export function storeRelative(root: string, file: string, paths: PlatformPath = nodePath): string[] | null {
+  const relative = paths.relative(root, file);
+  // another drive or share comes back absolute
+  if (relative === "" || paths.isAbsolute(relative)) return null;
+  const parts = relative.split(paths.sep);
+  return parts[0] === ".." ? null : parts;
 }
 
 /** GJC's native terminal-sessions key, not the most recently written cwd session. */
@@ -110,7 +193,7 @@ export function gjcDisplayCandidates(root: string, cwd: string): { path: string;
       for (const name of entries) {
         if (!name.endsWith(".jsonl")) continue;
         const path = realpathSync(join(root, dir.name, name));
-        if (path.startsWith(`${root}/`) && statSync(path).isFile() && transcriptCwd(path) === cwd) paths.add(path);
+        if (storeRelative(root, path) && statSync(path).isFile() && transcriptCwd(path) === cwd) paths.add(path);
       }
     }
     if (paths.size > 64) return [];
@@ -130,12 +213,12 @@ export function gjcDisplayCandidates(root: string, cwd: string): { path: string;
  * runs, and leaves it there; a subagent's file can be the one it holds open. Either way the pane
  * shows the session, so a subagent's file stands for its session's, and anything else is refused.
  */
-export function gjcSessionFile(root: string, path: string): string | null {
-  if (!path.startsWith(`${root}/`) || !path.endsWith(".jsonl")) return null;
-  const parts = path.slice(root.length + 1).split("/");
+export function gjcSessionFile(root: string, path: string, paths: PlatformPath = nodePath): string | null {
+  const parts = path.endsWith(".jsonl") ? storeRelative(root, path, paths) : null;
+  if (!parts) return null;
   if (parts.length === 2) return path;
   if (parts.length !== 3) return null;
-  const session = join(root, parts[0]!, `${parts[1]!}.jsonl`);
+  const session = paths.join(root, parts[0]!, `${parts[1]!}.jsonl`);
   try { return statSync(session).isFile() ? session : null; } catch { return null; }
 }
 
@@ -167,7 +250,7 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
   let root: string;
   try { root = realpathSync(join(home, ".gjc", "agent", "sessions")); }
   catch { return null; }
-  const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown; argv?: unknown }[] } }>(
+  const info = await herdrRpc<{ process_info?: { shell_pid?: unknown; foreground_processes?: { pid?: unknown; argv?: unknown }[] } }>(
     "pane.process_info",
     { pane_id: paneId },
   ).catch(() => null);
@@ -195,14 +278,16 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
   }
   const candidates = paths.size > 0 ? paths : breadcrumbs;
   if (candidates.size === 1) return [...candidates][0]!;
-  if (candidates.size > 1 || !running) return null;
+  if (candidates.size > 1) return null;
   // Some GJC builds publish neither a file descriptor nor a terminal breadcrumb.
   // Match substantial assistant text in this pane against every same-cwd candidate.
-  const files = gjcDisplayCandidates(root, cwd);
-  if (files.length > 0) {
+  const onScreen = async () => {
+    const files = gjcDisplayCandidates(root, cwd);
+    if (files.length === 0) return null;
     const screen = await paneRead({ paneId, source: "visible", lines: 1000 }).catch(() => null);
-    const matched = screen ? matchGjcTranscript(screen.text, files) : null;
-    if (matched) return matched;
-  }
-  return null;
+    return screen ? matchGjcTranscript(screen.text, files) : null;
+  };
+  if (running) return onScreen();
+  // a Windows pane has neither descriptors nor a breadcrumb to read: gjc under its shell, then the screen
+  return boundGjcTranscript(paneId, await gjcPidUnderShell(info?.process_info?.shell_pid), onScreen);
 }
