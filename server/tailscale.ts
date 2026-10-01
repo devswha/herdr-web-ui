@@ -136,7 +136,10 @@ export function tailscaleIdentity(): { owner: string | null; tagged: boolean } {
     ownerRefresh = (async () => {
       const binary = tailscaleBinary();
       const status = binary === null ? null : await run(binary, ["status", "--json"]);
-      ownerCache = { owner: parseTailscaleOwner(status), tagged: isTaggedNode(status), at: Date.now() };
+      // a CLI that failed this once says nothing new: what it last said stands, so the owner is not
+      // taken for a stranger, nor a stranger let in, for the five minutes until it is asked again
+      ownerCache = binary !== null && status === null && ownerCache !== null ? { ...ownerCache, at: Date.now() }
+        : { owner: parseTailscaleOwner(status), tagged: isTaggedNode(status), at: Date.now() };
     })().finally(() => { ownerRefresh = null; });
   }
   return { owner: ownerCache?.owner ?? null, tagged: ownerCache?.tagged ?? false };
