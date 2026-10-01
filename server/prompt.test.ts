@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt } from "./prompt.ts";
+import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -813,6 +813,313 @@ ${after}`;
   test("leaves numbered rows and a menu without one selected row to the other readers", () => {
     expect(parseInteractivePrompt("claude", "Pick one\n\n❯ 1. First\n  2. Second\n\nEnter to confirm · Esc to cancel\n")).toBeNull();
     expect(parseInteractivePrompt("claude", "Pick one\n\n  First\n  Second\n\nEnter to confirm · Esc to cancel\n")).toBeNull();
+  });
+});
+
+describe("OmO's ask_user_question form", () => {
+  // omo 5.1.7 in a 120-column herdr pane, as herdr reads it: the overlay between two rules, then
+  // omo's footer. herdr labels the pane `pi` while omo waits on it.
+  const rule = "─".repeat(120);
+  const footer = `${rule}\n/private/tmp/omo-ask${" ".repeat(74)}[----------] 42K/1M (4.2%)\n${" ".repeat(86)}claude-opus-5-5 · high · OmO 5.1.7\n`;
+  const form = (body: string) => `\n [표시 위치] [월 한도] wait for answer\n\n${rule}\n\n Ask user · 30m\n${body}\n${footer}`;
+  const first = form(` → 표시 위치    월 한도    Submit
+ 음성 사용량과 추정 비용을 어디에 보여줄까요?
+ → 1. 설정 > 음성 입력 (추천)
+      오늘, 이번 달, 누적의 분·횟수·추정 비용을 보여주고 OpenAI 사용량 페이지 링크를 붙입니다. 변경 범위가 가장 작습니
+ 다.
+   2. 설정 + 사이드바 미터
+      사이드바의 구독 사용량 미터 옆에 음성 항목도 넣습니다. 한눈에 보이지만 UI 변경이 커집니다.
+   Type your own answer...
+ Submit (0/2 answered) — Enter advances
+ ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel
+`);
+
+  test("reads the question asked now, its options and the form's steps", () => {
+    const prompt = parseInteractivePrompt("pi", first);
+    expect(prompt).toMatchObject({
+      agent: "omo", kind: "question", title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?",
+      multi_select: false, custom_option_index: 2,
+      steps: [{ label: "표시 위치", answered: false, current: true }, { label: "월 한도", answered: false, current: false }],
+    });
+    expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터"]);
+    // a word the pane wrapped at its edge is one word again
+    expect(prompt?.options[0]?.description).toEndWith("변경 범위가 가장 작습니다.");
+    // a number picks the option and moves on; a typed answer replaces one typed before
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ text: "2" }]);
+    expect(answerKeys(prompt!, { custom_text: "둘 다" })).toEqual([
+      { keys: ["backspace"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }, { text: "둘 다" }, { keys: ["enter"] },
+    ]);
+    expect(() => answerKeys(prompt!, { option_index: 2 })).toThrow("valid option index");
+    // herdr may name the pane omo, or claude while omo's SDK child runs
+    expect(parseInteractivePrompt("omo", first)?.id).toBe(prompt?.id);
+    expect(parseInteractivePrompt("claude", first)?.id).toBe(prompt?.id);
+    expect(parseInteractivePrompt("", first)?.id).toBe(prompt?.id);
+    expect(parseInteractivePrompt("codex", first)).toBeNull();
+  });
+
+  test("marks answered questions and chosen options, and a new step is another card", () => {
+    const second = form(`   표시 위치 ✓  → 월 한도 ✓    Submit
+ 월 사용 한도를 둘까요?
+   1. 한도 없음
+      경고만 표시합니다.
+   2. 월 $5 한도 ✓
+      넘으면 음성 입력을 막습니다.
+ → Type your own answer...
+ Submit (2/2 answered) — Enter advances
+ ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel
+`);
+    const prompt = parseInteractivePrompt("pi", second);
+    expect(prompt).toMatchObject({ title: "Question 2 of 2", question: "월 사용 한도를 둘까요?" });
+    expect(labels(prompt)).toEqual(["한도 없음", "월 $5 한도"]);
+    expect(prompt?.steps?.map((step) => [step.answered, step.current])).toEqual([[true, false], [true, true]]);
+    expect(prompt?.id).not.toBe(parseInteractivePrompt("pi", first)?.id);
+    // the cursor is on the typed answer's row already
+    expect(answerKeys(prompt!, { custom_text: "없음" })).toEqual([{ keys: ["backspace"] }, { keys: ["enter"] }, { text: "없음" }, { keys: ["enter"] }]);
+  });
+
+  test("answers a multiple choice afresh by number, then moves on with Tab", () => {
+    const prompt = parseInteractivePrompt("pi", form(` → 검사    보고    Submit
+ 어떤 검사를 돌릴까요?
+ → 1. Lint ✓
+      빠른 정적 검사
+   2. Tests
+      단위 테스트
+   3. Build
+   Type your own answer...
+ Submit (1/2 answered) — Enter toggles; Tab to Submit
+ ↑↓ move  1-9 select  space toggle  enter toggle  tab next / Submit  c comment  esc cancel
+`));
+    expect(prompt).toMatchObject({ title: "Question 1 of 2", multi_select: true, custom_option_index: null });
+    expect(labels(prompt)).toEqual(["Lint", "Tests", "Build"]);
+    expect(prompt?.options[2]?.description).toBeNull();
+    // Backspace clears what was chosen before (Lint here, or rows out of view), then each number toggles one
+    expect(answerKeys(prompt!, { option_indices: [2, 0] })).toEqual([{ keys: ["backspace"] }, { text: "1" }, { text: "3" }, { keys: ["tab"] }]);
+    expect(answerKeys(prompt!, { option_indices: [1] })).toEqual([{ keys: ["backspace"] }, { text: "2" }, { keys: ["tab"] }]);
+  });
+
+  test("reviews the answers: Submit, a row to change, or a comment", () => {
+    const review = (rows: string, hint: string) => form(`   표시 위치 ✓    월 한도 ✓  → Submit
+ Review your answers
+${rows}
+
+ Comment (optional; unanswered questions are reported)
+>
+ Submit (2/2 answered)
+ ${hint}
+`);
+    const onComment = parseInteractivePrompt("pi", review("   표시 위치: 설정 > 음성 입력 (추천)\n   월 한도: 월 $5 한도", "enter submit  ↑ review answers  shift+tab back  tab next question  esc back"));
+    expect(onComment).toMatchObject({
+      kind: "menu", title: "Review your answers", question: "Submit (2/2 answered)", body: null, custom_option_index: 3,
+      steps: [{ label: "표시 위치", answered: true, current: false }, { label: "월 한도", answered: true, current: false }],
+    });
+    expect(labels(onComment)).toEqual(["Submit", "표시 위치: 설정 > 음성 입력 (추천)", "월 한도: 월 $5 한도", "Comment (optional; unanswered questions are reported)"]);
+    expect(answerKeys(onComment!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
+    expect(answerKeys(onComment!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }]);
+    expect(answerKeys(onComment!, { custom_text: "급해요" })).toEqual([{ text: "급해요" }, { keys: ["enter"] }]);
+    expect(() => answerKeys(onComment!, { option_index: 3 })).toThrow("valid option index");
+
+    const onRow = parseInteractivePrompt("pi", review("   표시 위치: 설정 > 음성 입력 (추천)\n → 월 한도: 월 $5 한도", "enter edit answer  ↑↓ move  tab next question  esc back"));
+    expect(onRow?.id).toBe(onComment?.id);
+    expect(answerKeys(onRow!, { option_index: 0 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    expect(answerKeys(onRow!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+    expect(answerKeys(onRow!, { custom_text: "급해요" })).toEqual([{ keys: ["down"] }, { text: "급해요" }, { keys: ["enter"] }]);
+  });
+
+  test("joins what a narrow pane wraps, the tab bar, the hint and words cut at the edge", () => {
+    // omo's own renderer at 40 columns
+    const narrow = `${"─".repeat(40)}
+
+ Ask user
+ → 표시 위치    월 한도    Submit
+ 음성 사용량과 추정 비용을 어디에 보여
+ 줄까요?
+ → 1. 설정 > 음성 입력 (추천)
+      오늘, 이번 달, 누적의 분·횟수·추
+ 정 비용을 보여줍니다.
+   2. 설정 + 사이드바 미터
+      한눈에 보이지만 UI 변경이 커집니
+ 다.
+   Type your own answer...
+ Submit (0/2 answered) — Enter advances
+ ↑↓ move  1-9 select  space select
+ enter next  tab next question  c
+ comment  esc cancel
+
+${"─".repeat(40)}
+`;
+    const prompt = parseInteractivePrompt("pi", narrow);
+    expect(prompt?.question).toBe("음성 사용량과 추정 비용을 어디에 보여줄까요?");
+    expect(prompt?.options.map((option) => option.description)).toEqual(["오늘, 이번 달, 누적의 분·횟수·추정 비용을 보여줍니다.", "한눈에 보이지만 UI 변경이 커집니다."]);
+  });
+
+  test("is no card once output has followed the form", () => {
+    const later = first.replace(footer, `${Array.from({ length: 12 }, (_, index) => ` line ${index}`).join("\n")}\n${footer}`);
+    expect(parseInteractivePrompt("pi", later)).toBeNull();
+  });
+
+  // The form's text on a screen that is not omo's live form: printed in a shell, or quoted in
+  // Claude's transcript. A card there would type its answer into that program. Each is tried as
+  // the form alone and with the rule and footer omo drew under it.
+  const printed = [first.replace(footer, ""), first];
+  const claudeBox = `\n${rule}\n❯ \n${rule}\n  ? for shortcuts\n`;
+  const agents = ["", "pi", "omo", "claude"];
+
+  test("is no card for the form's text printed in a shell, its prompt below", () => {
+    for (const text of printed) {
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text}user@host:~/project$ `)).toBeNull();
+    }
+  });
+
+  test("is no card for the form's text in a shell with output after it", () => {
+    for (const text of printed) {
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text} M server/prompt.ts\n M CHANGELOG.md\n 2 files changed\n`)).toBeNull();
+    }
+  });
+
+  test("is no card for the form's text in Claude's transcript, over Claude's input box", () => {
+    for (const text of printed) {
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text}${claudeBox}`)).toBeNull();
+    }
+  });
+
+  test("is no card for the form's text quoted (indented) in Claude's transcript", () => {
+    for (const text of printed) {
+      const quoted = text.split("\n").map((line) => line ? `  ${line}` : line).join("\n");
+      for (const agent of agents) expect(parseInteractivePrompt(agent, `${quoted}${claudeBox}`)).toBeNull();
+    }
+  });
+
+  test("needs the session's matching call when the pane is not known to wait on the user", () => {
+    // what the server asks for a pane herdr names claude, or not at all, that is not blocked
+    expect(parseInteractivePrompt("", first, null, false)).toBeNull();
+    expect(parseInteractivePrompt("claude", first, null, false)).toBeNull();
+    const ask = { questions: ["표시 위치", "월 한도"].map((header) => ({
+      header, question: "q", multiSelect: false, options: [{ label: "a", description: null }, { label: "b", description: null }],
+    })) };
+    expect(parseInteractivePrompt("", first, ask, false)).toMatchObject({ title: "Question 1 of 2" });
+    // another form's call is no evidence
+    ask.questions[1]!.header = "다른 질문";
+    expect(parseInteractivePrompt("claude", first, ask, false)).toBeNull();
+  });
+
+  // omo's session file for the form below: the ask_user_question call, then (once answered) its result
+  const call = {
+    questions: [
+      { header: "표시 위치", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?", options: [
+        { label: "설정 > 음성 입력 (추천)", description: "오늘, 이번 달, 누적을 보여줍니다." },
+        { label: "설정 + 사이드바 미터", description: "한눈에 보이지만 UI 변경이 커집니다." },
+        { label: "상단 상태 표시줄", description: "항상 보입니다." },
+        { label: "표시하지 않음" },
+      ] },
+      { header: "월 한도", question: "월 사용 한도를 둘까요?", options: [{ label: "한도 없음" }, { label: "월 $5 한도" }] },
+    ],
+    waitForAnswer: true,
+  };
+  const record = (message: unknown) => JSON.stringify({ type: "message", message });
+  const asking = [
+    record({ role: "user", content: [{ type: "text", text: "ask me" }] }),
+    record({ role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "ask_user_question", arguments: call }] }),
+  ].join("\n");
+  // omo's own renderer at 60 columns, in a pane too short for the whole form
+  const rule60 = "─".repeat(60);
+
+  test("finds the call omo's session waits on", () => {
+    const ask = pendingOmoAsk(asking);
+    expect(ask?.questions.map((question) => [question.header, question.options.length, question.multiSelect])).toEqual([["표시 위치", 4, false], ["월 한도", 2, false]]);
+    expect(ask?.questions[0]!.options[3]).toEqual({ label: "표시하지 않음", description: null });
+    // answered, the agent moved on, or not the shape omo asks with
+    expect(pendingOmoAsk(`${asking}\n${record({ role: "toolResult", toolCallId: "call-1", content: [] })}`)).toBeNull();
+    expect(pendingOmoAsk(`${asking}\n${record({ role: "assistant", content: [{ type: "text", text: "done" }] })}`)).toBeNull();
+    expect(pendingOmoAsk(asking.replace('"questions"', '"items"'))).toBeNull();
+    // a tail read from inside a record
+    expect(pendingOmoAsk(`ge":{"role":"user"}}\n${asking}`)?.questions).toHaveLength(2);
+  });
+
+  test("takes the form's text from the session's call, the screen telling where it stands", () => {
+    const short = `      한눈에 보이지만 UI 변경이 커집니다.
+   3. 상단 상태 표시줄
+      항상 보입니다.
+   4. 표시하지 않음
+   Type your own answer...
+ Submit (0/2 answered) — Enter advances
+ ↑↓ move  1-9 select  space select  enter next  tab next
+ question  c comment  esc cancel
+
+${rule60}
+`;
+    // the title, the tabs and the question are above the pane's top
+    expect(parseInteractivePrompt("pi", short)).toBeNull();
+    const prompt = parseInteractivePrompt("pi", short, pendingOmoAsk(asking));
+    expect(prompt).toMatchObject({
+      title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?", custom_option_index: 4,
+      steps: [{ label: "표시 위치", answered: false, current: true }, { label: "월 한도", answered: false, current: false }],
+    });
+    expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터", "상단 상태 표시줄", "표시하지 않음"]);
+    expect(prompt?.options[0]?.description).toBe("오늘, 이번 달, 누적을 보여줍니다.");
+    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ text: "1" }]);
+    // the cursor's row is out of view: to the typed answer's row from the top, where ↑ stops
+    expect(answerKeys(prompt!, { custom_text: "둘 다" })).toEqual([
+      { keys: ["backspace"] }, ...Array(5).fill({ keys: ["up"] }), ...Array(4).fill({ keys: ["down"] }), { keys: ["enter"] },
+      { text: "둘 다" }, { keys: ["enter"] },
+    ]);
+    // rows that are not the call's question's are no card
+    expect(parseInteractivePrompt("pi", short, { questions: [pendingOmoAsk(asking)!.questions[1]!] })).toBeNull();
+
+    // with the whole form in view the call's text wins over the pane's wrap; another call is ignored
+    const ask = pendingOmoAsk(asking.replaceAll("상단 상태 표시줄", "x").replace("오늘, 이번 달, 누적을 보여줍니다.", "원문 설명"))!;
+    ask.questions[0]!.options.splice(2);
+    expect(parseInteractivePrompt("pi", first, ask)?.options[0]?.description).toBe("원문 설명");
+    ask.questions[1]!.header = "다른 질문";
+    expect(parseInteractivePrompt("pi", first, ask)?.options[0]?.description).toEndWith("가장 작습니다.");
+  });
+
+  test("offers to save or discard an answer typed in the terminal", () => {
+    const typing = `      항상 보입니다.
+   4. 표시하지 않음
+   Type your own answer...
+ Your answer (enter to save, ↑↓ back to options, esc to
+ discard)
+> 안녕
+ Submit (0/2 answered) — Enter advances
+ enter save and next  ↑↓ back to options  tab next question
+   esc discard
+
+${rule60}
+`;
+    const prompt = parseInteractivePrompt("pi", typing, pendingOmoAsk(asking));
+    expect(prompt).toMatchObject({ kind: "menu", title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?", custom_option_index: null });
+    expect(prompt?.options).toEqual([{ label: "Save the typed answer", description: "안녕" }, { label: "Discard it", description: null }]);
+    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["esc"] }]);
+    // the whole form in view needs no session
+    const whole = form(` → 표시 위치    월 한도    Submit
+ 음성 사용량과 추정 비용을 어디에 보여줄까요?
+   1. 설정 > 음성 입력 (추천)
+   Type your own answer...
+ Your answer (enter to save, ↑↓ back to options, esc to discard)
+> 안녕
+ Submit (0/2 answered) — Enter advances
+ enter save and next  ↑↓ back to options  tab next question  esc discard
+`);
+    expect(parseInteractivePrompt("pi", whole)).toMatchObject({ title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?" });
+  });
+
+  test("reviews the answers of a form whose rows are out of view, by the call's headers", () => {
+    const short = `
+ Comment (optional; unanswered questions are reported)
+>
+ Submit (2/2 answered)
+ enter submit  ↑ review answers  shift+tab back  tab next
+ question  esc back
+
+${rule60}
+`;
+    expect(parseInteractivePrompt("pi", short)).toBeNull();
+    const prompt = parseInteractivePrompt("pi", short, pendingOmoAsk(asking));
+    expect(labels(prompt)).toEqual(["Submit", "표시 위치", "월 한도", "Comment (optional; unanswered questions are reported)"]);
+    expect(prompt?.steps?.every((step) => step.answered && !step.current)).toBeTrue();
+    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }]);
   });
 });
 

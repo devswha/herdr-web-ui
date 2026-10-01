@@ -727,7 +727,12 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? "locked — the token gate is asking again" : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
-      {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => { setPrompt(null); onPendingAnswerDone?.(); }} />}
+      {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => {
+        setPrompt(null);
+        // a form of several questions goes on to its next one: read it now, not at the next poll
+        if (prompt.steps) setPromptPollKey((key) => key + 1);
+        onPendingAnswerDone?.();
+      }} />}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>

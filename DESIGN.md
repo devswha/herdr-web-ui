@@ -319,8 +319,12 @@ Comfortable values are `:root`; the final column is the complete compact overrid
   fold. A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane.
 
 ### Prompt card (`.prompt-card`)
-- Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp
-  or codex question, approval or plan menu.
+- Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,
+  omo or codex question, approval or plan menu.
+- A form of several questions (omo) shows a row of step chips (`.prompt-card-steps`) under the
+  header: a chip per question, pill-shaped, mono number or a check once answered (`--accent`), the
+  one asked now with an `--accent` border, `--accent-tint` fill and a `--primary` number. The title
+  then reads `Question 1 of 2`; the review after the last question keeps the chips, all checked.
 - Single options submit immediately; multi-select exposes checks plus Submit; supported custom input
   has its own labelled field. The prompt content hash rejects a stale answer with `prompt_changed`.
 - Options are full-width rows (`.prompt-card-option`): the menu's number in mono, the label, its
