@@ -256,6 +256,13 @@ it("follows gjc's own session title across /new and /resume on a Windows pane", 
   // yet: the answer on screen is not the parent's alone, so the parent is let go
   expect(await bind(first, "Binding Check", [first, fresh, big])).toBe(first);
   expect(await boundGjcTranscript("w1:p1", gjc, async () => ({ path: null, shared: true, title: "Binding Check", titled: null, titledCount: -1, titles: new Map([[first, "Binding Check"], [big, undefined]]) }))).toBeNull();
+  // a narrow pane cuts the title: every session is asked then, and an answer two differently
+  // titled sessions both hold is no switch. The binding stays, also once the answer scrolls away
+  expect(await bind(first, "Binding Check", [first, fresh])).toBe(first);
+  const everyone = gjcTitles([first, fresh], undefined, (path) => titles[path]);
+  expect(everyone.among).toEqual([first, fresh]);
+  expect(await boundGjcTranscript("w1:p1", gjc, async () => ({ path: null, shared: true, title: undefined, titled: null, titledCount: 0, titles: everyone.titles }))).toBe(first);
+  expect(await bind(null, undefined)).toBe(first);
   // a session bound before gjc titled it stays when the title appears, written to its file or not yet
   expect(await bind(untitled, null, [first, untitled])).toBe(untitled);
   expect(await bind(null, "Not Written Yet", [first, untitled])).toBe(untitled);

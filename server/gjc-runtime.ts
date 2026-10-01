@@ -262,8 +262,10 @@ export async function boundGjcTranscript(paneId: string, gjc: GjcProcess | null 
   }
   if (!bound) return null;
   const own = typeof bound.title === "string" ? bound.title : known(bound.path);
-  // an answer on screen that several sessions hold, the one bound perhaps among them, tells it is not known which runs
-  const other = screen?.shared === true || (title === null ? typeof own === "string"
+  // an answer on screen that several sessions hold, the one bound perhaps among them, tells it is
+  // not known which runs. Not while the status line cannot be read (a narrow pane): every session
+  // of the folder is then asked, and two that say the same thing are no sign of a switch
+  const other = (screen?.shared === true && title !== undefined) || (title === null ? typeof own === "string"
     : typeof title === "string" && (screen!.titledCount > 1 || typeof own === "string" && own !== title));
   if (other) {
     windowsBindings.delete(paneId);
