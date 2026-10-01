@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, 
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { forgetTranscriptState } from "./conversation.ts";
-import { boundGjcTranscript, gjcBreadcrumbPath, gjcDisplayCandidates, gjcPidUnderShell, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs, recentProcessTable, storeRelative } from "./gjc-runtime.ts";
+import { boundGjcTranscript, gjcSessionSwitches, gjcBreadcrumbPath, gjcDisplayCandidates, gjcPidUnderShell, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs, recentProcessTable, storeRelative } from "./gjc-runtime.ts";
 
 // Session paths come back canonical and the store root is passed in canonical; macOS's tmpdir is a symlink into /private.
 const tempDir = (prefix: string) => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -115,40 +115,79 @@ it("finds gjc under a Windows pane's shell, the only process herdr names there",
     { pid: 200, parent: 100, path: gjc, commandLine: `"${gjc}" --resume` },
   ];
   const table = async () => rows;
-  expect(await gjcPidUnderShell(100, "win32", table)).toBe(200);
+  expect(await gjcPidUnderShell(100, "win32", table)).toEqual({ pid: 200, started: null });
   // another pane's shell on the same PC does not run it
   expect(await gjcPidUnderShell(101, "win32", table)).toBeNull();
   expect(await gjcPidUnderShell(undefined, "win32", table)).toBeNull();
+  // the process's start comes with it: a number alone is handed to the next process
+  expect(await gjcPidUnderShell(100, "win32", async () => rows.map((row) => row.pid === 200 ? { ...row, started: 7 } : row))).toEqual({ pid: 200, started: 7 });
+  // a table that could not be read says nothing about gjc
+  expect(await gjcPidUnderShell(100, "win32", async () => [])).toBeUndefined();
   // elsewhere herdr's foreground processes are the answer and the table is never asked
   let asked = false;
   expect(await gjcPidUnderShell(100, "linux", async () => { asked = true; return rows; })).toBeNull();
   expect(asked).toBe(false);
 });
 
+it("reads gjc's own line for a session switch", () => {
+  // as gjc 0.16.4 draws them on a Windows PC
+  expect(gjcSessionSwitches(" user\n ok\n ✔ New session started\n user\n Reply\n gajae\n ok")).toBe(1);
+  expect(gjcSessionSwitches(" ✔ New session started\n a\n Resumed session\n")).toBe(2);
+  // the words inside an answer are not gjc's line
+  expect(gjcSessionSwitches(" gajae\n I said: New session started is what gjc prints.\n")).toBe(0);
+});
+
 it("keeps a Windows pane on the session its screen once showed, while the same gjc runs there", async () => {
   forgetTranscriptState();
   const file = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\one.jsonl";
   const other = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\two.jsonl";
-  const offScreen = async () => null;
+  const gjc = { pid: 200, started: 1000 };
+  const shows = (path: string | null, switches = 0) => async () => ({ path, switches });
+  const offScreen = shows(null);
   // a running gjc alone names no session: the first answer needs the screen
-  expect(await boundGjcTranscript("w1:p1", 200, offScreen)).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", 200, async () => file)).toBe(file);
+  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
   // a long answer pushed every answer's tail off the screen
-  expect(await boundGjcTranscript("w1:p1", 200, offScreen)).toBe(file);
-  expect(await boundGjcTranscript("w1:p2", 200, offScreen)).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBe(file);
+  expect(await boundGjcTranscript("w1:p2", gjc, offScreen)).toBeNull();
   // the same process shows another session (/resume): the screen wins
-  expect(await boundGjcTranscript("w1:p1", 200, async () => other)).toBe(other);
-  expect(await boundGjcTranscript("w1:p1", 200, offScreen)).toBe(other);
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(other))).toBe(other);
+  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBe(other);
   // a different gjc in the pane, and the old one's number coming back, start over
-  expect(await boundGjcTranscript("w1:p1", 201, offScreen)).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", 200, offScreen)).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", { pid: 201, started: 1100 }, offScreen)).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
   // gjc gone from the pane: nothing is answered, whatever the screen still shows
-  expect(await boundGjcTranscript("w1:p1", 200, async () => file)).toBe(file);
-  expect(await boundGjcTranscript("w1:p1", null, async () => file)).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", 200, offScreen)).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", 200, async () => file)).toBe(file);
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
+  expect(await boundGjcTranscript("w1:p1", null, shows(file))).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
   forgetTranscriptState();
-  expect(await boundGjcTranscript("w1:p1", 200, offScreen)).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
+});
+
+it("lets go of a Windows pane's session when gjc switches session or another process takes its number", async () => {
+  forgetTranscriptState();
+  const file = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\one.jsonl";
+  const fresh = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\three.jsonl";
+  const gjc = { pid: 200, started: 1000 };
+  const shows = (path: string | null, switches = 0) => async () => ({ path, switches });
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
+  // /new: gjc's line shows, and the new session's one-word answer anchors nothing. Measured on a
+  // real PC, the chat stayed on the old conversation here; it now shows none until it can tell
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBeNull();
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(fresh, 1))).toBe(fresh);
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBe(fresh);
+  // the switch line scrolls away, then a later /resume shows one again
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 0))).toBe(fresh);
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBeNull();
+  // a later gjc that Windows gave the same number is another process
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
+  expect(await boundGjcTranscript("w1:p1", { pid: 200, started: 2000 }, shows(null))).toBeNull();
+  // a process table that could not be read changes nothing
+  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
+  expect(await boundGjcTranscript("w1:p1", undefined, shows(null))).toBe(file);
+  forgetTranscriptState();
 });
 
 it("asks the Windows process table once for the polls of a few seconds", async () => {

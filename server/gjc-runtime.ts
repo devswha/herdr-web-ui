@@ -41,18 +41,23 @@ export function recentProcessTable(read: () => Promise<ProcessRow[]> = windowsPr
   return entry.rows;
 }
 
+/** A gjc process by its number and when it started: a number alone comes back for another process. */
+export type GjcProcess = { pid: number; started: number | null };
+
 /**
  * The gjc process below a pane's shell on a Windows PC, or null. herdr names only the shell
  * there (windows-processes.ts), so the PC's process table answers; elsewhere herdr's
- * foreground processes are the answer and the table is never asked.
+ * foreground processes are the answer and the table is never asked. undefined: the table could
+ * not be read (a query that timed out answers no rows), which says nothing about gjc.
  */
 export async function gjcPidUnderShell(
   shellPid: unknown,
   platform: string = process.platform,
   table: () => Promise<ProcessRow[]> = recentProcessTable,
-): Promise<number | null> {
+): Promise<GjcProcess | null | undefined> {
   if (platform !== "win32" || typeof shellPid !== "number") return null;
   const rows = await table();
+  if (rows.length === 0) return undefined;
   const seen = new Set<number>([shellPid]);
   let level = [shellPid];
   while (level.length > 0) {
@@ -60,7 +65,7 @@ export async function gjcPidUnderShell(
     for (const row of rows) {
       if (!level.includes(row.parent) || seen.has(row.pid)) continue;
       // nearest first: the session's own process, not the helper gjc starts below itself
-      if (descendantArgv([row], row.parent).some(isGjcProcess)) return row.pid;
+      if (descendantArgv([row], row.parent).some(isGjcProcess)) return { pid: row.pid, started: row.started ?? null };
       seen.add(row.pid);
       next.push(row.pid);
     }
@@ -69,7 +74,20 @@ export async function gjcPidUnderShell(
   return null;
 }
 
-const windowsBindings = new Map<string, { pid: number; path: string }>();
+const windowsBindings = new Map<string, { process: GjcProcess; path: string; switches: number }>();
+
+/** What a pane's screen says: the session it shows, if it can tell, and how many times gjc said it switched session. */
+export type GjcScreen = { path: string | null; switches: number };
+
+/**
+ * `✔ New session started` (/new) and `Resumed session` (/resume): gjc's own line under the
+ * conversation it switched to (seen on gjc 0.16.4 on a Windows PC).
+ */
+export function gjcSessionSwitches(screen: string): number {
+  return screen.split(/\r?\n/).filter((line) => /^\s*(?:\u2714\s*)?(?:New session started|Resumed session)\s*$/.test(line)).length;
+}
+
+const sameProcess = (a: GjcProcess, b: GjcProcess) => a.pid === b.pid && a.started === b.started;
 
 /**
  * A Windows pane's session. The screen is the only evidence there, and it is gone whenever no
@@ -77,14 +95,35 @@ const windowsBindings = new Map<string, { pid: number; path: string }>();
  * for the whole of such an answer). So what the screen once showed is kept for the pane while
  * the same gjc process runs in it. The screen still wins when it shows another session, and a
  * pane is never bound without it.
+ *
+ * Kept, but not past a session switch: after /new or /resume the same process runs another
+ * session, and until an answer of it is on screen the pane showed the one before (measured on
+ * a real PC: /new, then a one-word answer, and the chat stayed on the old conversation). A new
+ * switch line on screen ends the binding; the chat then shows nothing rather than the wrong
+ * conversation, until the new session's answer binds it. A process table that could not be read
+ * (`undefined`) leaves the binding as it was.
  */
-export async function boundGjcTranscript(paneId: string, gjcPid: number | null, match: () => Promise<string | null>): Promise<string | null> {
-  const bound = windowsBindings.get(paneId);
-  if (gjcPid === null || bound && bound.pid !== gjcPid) windowsBindings.delete(paneId);
-  if (gjcPid === null) return null;
-  const path = await match();
-  if (path) windowsBindings.set(paneId, { pid: gjcPid, path });
-  return path ?? (bound?.pid === gjcPid ? bound.path : null);
+export async function boundGjcTranscript(paneId: string, gjc: GjcProcess | null | undefined, look: () => Promise<GjcScreen | null>): Promise<string | null> {
+  let bound = windowsBindings.get(paneId);
+  if (gjc === null || gjc && bound && !sameProcess(bound.process, gjc)) {
+    windowsBindings.delete(paneId);
+    bound = undefined;
+  }
+  if (gjc === null) return null;
+  const screen = await look();
+  const process = gjc ?? bound?.process;
+  if (screen?.path && process) {
+    windowsBindings.set(paneId, { process, path: screen.path, switches: screen.switches });
+    return screen.path;
+  }
+  if (!bound) return null;
+  if (screen && screen.switches > bound.switches) {
+    windowsBindings.delete(paneId);
+    return null;
+  }
+  // a switch line scrolled away: the next one counts from what is left
+  if (screen) bound.switches = screen.switches;
+  return bound.path;
 }
 
 /** Forget the bindings and the process table kept between polls. */
@@ -281,13 +320,13 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
   if (candidates.size > 1) return null;
   // Some GJC builds publish neither a file descriptor nor a terminal breadcrumb.
   // Match substantial assistant text in this pane against every same-cwd candidate.
-  const onScreen = async () => {
+  const look = async (): Promise<GjcScreen | null> => {
     const files = gjcDisplayCandidates(root, cwd);
-    if (files.length === 0) return null;
     const screen = await paneRead({ paneId, source: "visible", lines: 1000 }).catch(() => null);
-    return screen ? matchGjcTranscript(screen.text, files) : null;
+    if (!screen) return null;
+    return { path: files.length === 0 ? null : matchGjcTranscript(screen.text, files), switches: gjcSessionSwitches(screen.text) };
   };
-  if (running) return onScreen();
+  if (running) return (await look())?.path ?? null;
   // a Windows pane has neither descriptors nor a breadcrumb to read: gjc under its shell, then the screen
-  return boundGjcTranscript(paneId, await gjcPidUnderShell(info?.process_info?.shell_pid), onScreen);
+  return boundGjcTranscript(paneId, await gjcPidUnderShell(info?.process_info?.shell_pid), look);
 }
