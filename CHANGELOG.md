@@ -25,6 +25,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that also rewrites `Host` and adds nothing, as nginx's plain `proxy_pass` does, still cannot
   be told from this computer, so set a token behind a proxy. The guide has Caddy and nginx
   examples to copy ([#252](https://github.com/devswha/herdr-web-ui/pull/252)).
+- The chat lens finds the conversation of a Gajae Code pane and of an omp pane on a Windows PC.
+  Both lookups compared paths with `/`, which a Windows path does not have, and Gajae Code was
+  looked for only among the processes herdr names, which on Windows is the pane's shell alone.
+  Paths are now compared by the PC's own rules, and Gajae Code is found among the shell's child
+  processes, then matched by the text on screen. A path that leaves the store through `..` is
+  refused on every platform. A Windows PC gets this with the next remote bundle.
 
 ## [0.3.39] - 2026-10-01
 
