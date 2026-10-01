@@ -1,9 +1,11 @@
-import { useCallback, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { CornerDownLeft, SendHorizontal } from "lucide-react";
 
 import "./TerminalInput.css";
 
 import { useT } from "../lib/i18n.ts";
+import { useSettings } from "../lib/settings.ts";
+import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 
 export interface TerminalInputProps {
   connected: boolean;
@@ -28,6 +30,28 @@ export function TerminalInput({ connected, onSend, onEnter }: TerminalInputProps
   const [note, setNote] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
+  const textRef = useRef(text);
+  textRef.current = text;
+  const { settings } = useSettings();
+  const dictation = useDictation({
+    mode: "terminal",
+    connected,
+    polish: settings.voicePolishTerminal,
+    box,
+    read: () => textRef.current,
+    write: (value, caret) => {
+      textRef.current = value;
+      setText(value);
+      requestAnimationFrame(() => {
+        const element = box.current;
+        if (!element) return;
+        element.selectionStart = element.selectionEnd = caret;
+        // without focus the browser does not follow the caret: a wrapped dictation's end would stay hidden
+        if (caret === element.value.length) element.scrollTop = element.scrollHeight;
+      });
+    },
+    onNote: setNote,
+  });
 
   const send = useCallback(() => {
     if (!connected || sending) return;
@@ -56,9 +80,23 @@ export function TerminalInput({ connected, onSend, onEnter }: TerminalInputProps
     send();
   };
 
-  const rows = Math.min(MAX_ROWS, Math.max(1, text.split("\n").length));
+  // wrapped lines count too: a dictated sentence is one long line, and its end must stay readable
+  const [wrappedRows, setWrappedRows] = useState(1);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const style = getComputedStyle(element);
+    const line = parseFloat(style.lineHeight);
+    if (!(line > 0)) return;
+    const shown = element.rows;
+    element.rows = 1;
+    const content = element.scrollHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    element.rows = shown;
+    setWrappedRows(Math.max(1, Math.round(content / line)));
+  }, [text]);
+  const rows = Math.min(MAX_ROWS, Math.max(wrappedRows, text.split("\n").length));
   return (
-    <div className="terminal-input">
+    <div className={`terminal-input${dictation.shown ? " has-voice" : ""}`}>
       <textarea
         ref={box}
         className="terminal-input-text"
@@ -72,6 +110,7 @@ export function TerminalInput({ connected, onSend, onEnter }: TerminalInputProps
         onChange={(event) => { setText(event.target.value); setNote(null); }}
         onKeyDown={onKeyDown}
       />
+      {dictation.shown && <MicButton dictation={dictation} className="terminal-input-mic" />}
       <button
         type="button"
         className="terminal-input-send"
@@ -85,6 +124,7 @@ export function TerminalInput({ connected, onSend, onEnter }: TerminalInputProps
         {text.length === 0 ? <CornerDownLeft aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
       </button>
       {note !== null && <p className="terminal-input-note" role="alert">{note}</p>}
+      {dictation.shown && <VoiceRecordingPill dictation={dictation} align="end" />}
     </div>
   );
 }

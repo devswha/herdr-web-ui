@@ -10,9 +10,10 @@ import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REP
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
-import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
+import { fetchRemoteAccess, fetchVoiceStatus, fetchVoiceUsage, machineRequest, saveVoiceConfig } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
 import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
+import type { VoiceStatus, VoiceUsageReport } from "../../shared/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
@@ -112,6 +113,38 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
   const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext }, access ?? null);
   // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
   const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
+
+  // Voice input: the server only says whether it holds a key; the key typed here is never kept past a save
+  const [voice, setVoice] = useState<VoiceStatus | null>(null);
+  const [voiceKey, setVoiceKey] = useState("");
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [micDenied, setMicDenied] = useState(false);
+  const [voiceUsage, setVoiceUsage] = useState<VoiceUsageReport | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    fetchVoiceStatus().then(setVoice, () => setVoice(null));
+    fetchVoiceUsage().then(setVoiceUsage, () => setVoiceUsage(null));
+  }, [open]);
+  /** ask now, so the first dictation does not stop at the browser's permission prompt */
+  const toggleVoiceInput = async (voiceInput: boolean) => {
+    update({ voiceInput });
+    setMicDenied(false);
+    if (!voiceInput || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return;
+    try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((track) => track.stop()); }
+    catch { setMicDenied(true); }
+  };
+  const changeVoiceKey = async (api_key: string | null) => {
+    setVoiceBusy(true);
+    try {
+      await saveVoiceConfig({ api_key });
+      setVoiceKey("");
+      setVoiceError(null);
+      setVoice(await fetchVoiceStatus());
+      window.dispatchEvent(new Event("herdr:voice-config"));
+    } catch (e) { setVoiceError(e instanceof Error ? e.message : String(e)); }
+    finally { setVoiceBusy(false); }
+  };
 
   const updatePcSettings = async (patch: Partial<MachineSettings>) => {
     try { setPcSettings(await machineRequest<MachineSettings>("/settings", "PATCH", patch)); setPcSettingsError(null); }
@@ -220,6 +253,91 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
               <div><span className="settings-label">{t("Suggestion chip")}</span><span className="settings-description">{t("On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.")}</span></div>
               <Toggle label={t("Suggestion chip")} checked={settings.showSuggestionChip} onChange={(showSuggestionChip) => update({ showSuggestionChip })} />
             </div>
+          </section>
+
+          <section className="settings-section voice-settings">
+            <h3>{t("Voice input")}</h3>
+            <div className="voice-group">
+              <h4 className="voice-group-title">{t("Microphone")}</h4>
+              <div className="voice-group-body">
+                <div className="settings-row">
+                  <div><span className="settings-label">{t("Microphone button")}</span><span className="settings-description">{t("In the chat composer and the terminal input line")}</span></div>
+                  <Toggle label={t("Microphone button")} checked={settings.voiceInput} onChange={(voiceInput) => void toggleVoiceInput(voiceInput)} />
+                </div>
+                {settings.voiceInput && !window.isSecureContext && <p className="settings-hint voice-error">{t("Voice input needs HTTPS")}</p>}
+                {settings.voiceInput && window.isSecureContext && micDenied && <p className="settings-hint voice-error">{t("Microphone permission was denied")}</p>}
+              </div>
+            </div>
+
+            <div className="voice-group">
+              <h4 className="voice-group-title">{t("OpenAI API key")}</h4>
+              <div className="voice-group-body">
+                {voice && (
+                  <p className="settings-hint voice-status">
+                    {voice.configured ? t(voice.source === "env" ? "OpenAI key set by HERDR_WEB_OPENAI_API_KEY" : "OpenAI key saved on this PC") : t("No OpenAI key: the browser's speech recognition is used")}
+                  </p>
+                )}
+                {voice && voice.source !== "env" && (
+                  <form className="voice-key" onSubmit={(event) => { event.preventDefault(); if (voiceKey.trim()) void changeVoiceKey(voiceKey.trim()); }}>
+                    <input
+                      className="input voice-key-input"
+                      type="password"
+                      value={voiceKey}
+                      placeholder="sk-..."
+                      aria-label={t("OpenAI API key")}
+                      autoComplete="off"
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      onChange={(event) => setVoiceKey(event.target.value)}
+                    />
+                    <button type="submit" className="btn voice-key-save" disabled={voiceBusy || !voiceKey.trim()}>{t("Save key")}</button>
+                    <button type="button" className="btn btn-ghost voice-key-remove" disabled={voiceBusy || !voice.configured} onClick={() => void changeVoiceKey(null)}>{t("Remove key")}</button>
+                  </form>
+                )}
+                {voiceError && <p className="settings-hint voice-error" role="alert">{voiceError}</p>}
+                <p className="settings-hint">{t("Audio is sent to OpenAI with your key. Nothing is recorded until you press the mic.")}</p>
+              </div>
+            </div>
+
+            {settings.voiceInput && (
+              <div className="voice-group">
+                <h4 className="voice-group-title">{t("Tidy dictated text")}</h4>
+                <div className="voice-group-body">
+                  <div className="settings-row">
+                    <div><span className="settings-label">{t("In chat")}</span><span className="settings-description">{t("Drops fillers and fixes spacing; code and paths stay as spoken")}</span></div>
+                    <Toggle label={t("Tidy dictated text in chat")} checked={settings.voicePolishChat} onChange={(voicePolishChat) => update({ voicePolishChat })} />
+                  </div>
+                  <div className="settings-row">
+                    <div><span className="settings-label">{t("In the terminal")}</span><span className="settings-description">{t("Off keeps a command exactly as transcribed")}</span></div>
+                    <Toggle label={t("Tidy dictated text in the terminal")} checked={settings.voicePolishTerminal} onChange={(voicePolishTerminal) => update({ voicePolishTerminal })} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {voiceUsage && (voice?.configured || voiceUsage.total.requests > 0) && (
+              <div className="voice-group voice-usage">
+                <h4 className="voice-group-title">{t("Usage")}</h4>
+                <dl className="voice-usage-table">
+                  {([[t("Today"), voiceUsage.today], [t("This month"), voiceUsage.month], [t("All time"), voiceUsage.total]] as const).map(([period, totals]) => (
+                    <div className="voice-usage-row" key={period}>
+                      <dt>{period}</dt>
+                      <dd>
+                        <span>{totals.requests === 1 ? t("1 dictation") : t("{count} dictations", { count: totals.requests })}</span>
+                        <span>{t("{minutes} min", { minutes: (totals.seconds / 60).toFixed(1) })}</span>
+                        <strong>{`≈ $${totals.cost_usd < 0.01 && totals.cost_usd > 0 ? totals.cost_usd.toFixed(4) : totals.cost_usd.toFixed(2)}`}</strong>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="settings-hint voice-usage-note">
+                  {t("Estimated from OpenAI list prices of {date}; your OpenAI bill is the final word.", { date: voiceUsage.prices_as_of })}
+                  {voiceUsage.total.unpriced > 0 && ` ${t("{count} dictations used a model without a known price.", { count: voiceUsage.total.unpriced })}`}
+                  {" "}<a href="https://platform.openai.com/usage" target="_blank" rel="noreferrer">{t("OpenAI usage")}</a>
+                </p>
+              </div>
+            )}
           </section>
 
           <section className="settings-section">

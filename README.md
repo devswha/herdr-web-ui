@@ -67,6 +67,7 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Open 
 - **Approve with a tap** — approvals, questions and plan menus become cards, checked to be current before your answer is sent.
 - **Know when you're needed** — live status for every pane and push alerts when an agent needs input or finishes, even with the app closed.
 - **Install it on your phone** — a PWA with Esc, Tab, Ctrl and arrows above the keyboard, and a QR code to your Tailscale address. [Phone setup →](docs/guide.md#on-your-phone)
+- **Speak instead of typing** — dictate into the chat or the terminal line, Korean and English mixed. Nothing goes out until you send it; it uses your own OpenAI key or the browser's speech recognition.
 - **Keep your workflow** — herdr owns the agents; this app connects to them. Update from Settings without stopping them. [All features →](docs/guide.md#features)
 
 ---

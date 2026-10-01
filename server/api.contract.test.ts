@@ -48,6 +48,55 @@ describe("usage API", () => {
   });
 });
 
+describe("voice API", () => {
+  it("keeps the key on the server, refuses cross-site writes and streams a transcript", async () => {
+    const voiceState = mkdtempSync(join(tmpdir(), "herdr-voice-contract-"));
+    const key = "sk-contract-0123456789";
+    const provider = Bun.serve({
+      port: 0, hostname: "127.0.0.1",
+      async fetch(request) {
+        if (new URL(request.url).pathname !== "/v1/audio/transcriptions") return new Response("not found", { status: 404 });
+        expect(request.headers.get("authorization")).toBe(`Bearer ${key}`);
+        await request.formData();
+        return new Response(`data: ${JSON.stringify({ type: "transcript.text.done", text: "git status" })}\n\n`, { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    const previous = process.env["HERDR_WEB_OPENAI_BASE_URL"];
+    process.env["HERDR_WEB_OPENAI_BASE_URL"] = `http://127.0.0.1:${provider.port}/v1`;
+    const open = createServer({ port: 0, stateDir: voiceState });
+    const gated = createServer({ port: 0, stateDir: voiceState, token: "test-voice-token" });
+    const at = (path: string) => `http://localhost:${open.port}${path}`;
+    try {
+      expect((await fetch(`http://localhost:${gated.port}/api/voice`)).status).toBe(401);
+      expect(await (await fetch(at("/api/voice"))).json()).toMatchObject({ configured: false, source: null });
+
+      const crossSite = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: JSON.stringify({ api_key: key }) });
+      expect(crossSite.status).toBe(403);
+      const saved = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: key }) });
+      expect(saved.status).toBe(200);
+      const status = await (await fetch(at("/api/voice"))).text();
+      expect(JSON.parse(status)).toMatchObject({ configured: true, source: "file" });
+      expect(status).not.toContain(key);
+      expect(statSync(join(voiceState, "voice.json")).mode & 0o777).toBe(0o600);
+
+      const form = new FormData();
+      form.append("audio", new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" }), "voice.webm");
+      form.append("mode", "chat");
+      form.append("polish", "0");
+      form.append("duration_ms", "6000");
+      const transcribed = await fetch(at("/api/voice/transcribe"), { method: "POST", body: form });
+      expect(transcribed.headers.get("content-type")).toContain("application/x-ndjson");
+      expect((await transcribed.text()).trim().split("\n").map((line) => JSON.parse(line))).toEqual([{ type: "done", text: "git status" }]);
+      const usage = await (await fetch(at("/api/voice/usage"))).json() as { total: { requests: number; seconds: number } };
+      expect(usage.total).toMatchObject({ requests: 1, seconds: 6 });
+    } finally {
+      open.stop(); gated.stop(); provider.stop(true);
+      if (previous === undefined) delete process.env["HERDR_WEB_OPENAI_BASE_URL"]; else process.env["HERDR_WEB_OPENAI_BASE_URL"] = previous;
+      rmSync(voiceState, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("update API", () => {
   it("reports unmanaged servers without performing network discovery", async () => {
     const response = await fetch(`${base()}/api/updates`);

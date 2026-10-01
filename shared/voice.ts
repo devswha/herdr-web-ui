@@ -1,0 +1,94 @@
+/**
+ * Voice input: the browser records a short clip, the connection server sends it to the
+ * user's own OpenAI key (BYOK) and streams the text back. The key lives only on the server
+ * (stateDir/voice.json, mode 0600, or HERDR_WEB_OPENAI_API_KEY); no route ever returns it.
+ */
+
+export type VoiceMode = "chat" | "terminal";
+
+/** GET /api/voice and the answer to PUT /api/voice/config. */
+export interface VoiceStatus {
+  /** a key is set: the server can transcribe */
+  configured: boolean;
+  /** where the key comes from; an env key cannot be changed from the app */
+  source: "env" | "file" | null;
+  /** OpenAI-compatible API root, e.g. https://api.openai.com/v1 */
+  base_url: string;
+  transcribe_model: string;
+  polish_model: string;
+}
+
+/** PUT /api/voice/config. A missing field is left as it is; `api_key: null` removes the key. */
+export interface VoiceConfigUpdate {
+  api_key?: string | null;
+  base_url?: string | null;
+  transcribe_model?: string | null;
+  polish_model?: string | null;
+}
+
+/**
+ * POST /api/voice/transcribe answers `application/x-ndjson`, one event per line:
+ * zero or more `delta`, then `done` with the whole transcript, then (when polish was asked
+ * and succeeded) `polished`. A failure after the stream started is an `error` line.
+ * Failures before it started are the usual `{ error: { code, message } }` envelope.
+ */
+export type VoiceEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; text: string }
+  | { type: "polished"; text: string }
+  | { type: "error"; code: VoiceErrorCode; message: string };
+
+export type VoiceErrorCode =
+  | "voice_not_configured" // 409: no key on the server
+  | "key_from_env" // 409: PUT tried to change a key HERDR_WEB_OPENAI_API_KEY sets
+  | "audio_too_large" // 413
+  | "invalid_audio" // 400: no audio part, empty, or not audio/*
+  | "invalid_request" // 400: bad mode / keywords / config body
+  | "provider_auth" // 502: the provider refused the key (401/403)
+  | "provider_error"; // 502: any other provider failure
+
+/** multipart fields of POST /api/voice/transcribe */
+export const VOICE_FORM = {
+  audio: "audio",
+  mode: "mode",
+  /** "1" asks for a `polished` event after `done` */
+  polish: "polish",
+  /** JSON array of strings: terms that may appear (commands, file names, the agent) */
+  keywords: "keywords",
+  /** how long the clip is, measured by the recorder: the usage record's fallback for its length */
+  duration_ms: "duration_ms",
+} as const;
+
+/** One period of GET /api/voice/usage. Costs are estimates from list prices, not the invoice. */
+export interface VoiceUsageTotals {
+  /** dictations sent to the provider */
+  requests: number;
+  /** seconds of audio transcribed */
+  seconds: number;
+  cost_usd: number;
+  /** dictations with a model the price table does not know: their cost is missing from cost_usd */
+  unpriced: number;
+}
+
+/** GET /api/voice/usage: days follow the server's clock. */
+export interface VoiceUsageReport {
+  today: VoiceUsageTotals;
+  month: VoiceUsageTotals;
+  total: VoiceUsageTotals;
+  /** the first day with a record, YYYY-MM-DD; null before the first dictation */
+  since: string | null;
+  /** the date of the list prices the estimate uses, YYYY-MM-DD */
+  prices_as_of: string;
+}
+
+export const VOICE_MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+/** the recorder stops itself here; the server does not trust it and checks bytes only */
+export const VOICE_MAX_SECONDS = 120;
+export const VOICE_KEYWORDS_MAX = 50;
+export const VOICE_KEYWORD_MAX_CHARS = 80;
+
+export const VOICE_DEFAULTS = {
+  base_url: "https://api.openai.com/v1",
+  transcribe_model: "gpt-transcribe",
+  polish_model: "gpt-6-luna",
+} as const;

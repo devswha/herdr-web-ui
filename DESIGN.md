@@ -367,6 +367,12 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 - Enter sends and Shift+Enter breaks by default; with **Enter sends** off, Mod+Enter sends. IME Enter
   is ignored. While working, Stop sends Escape and Queue stores the next message.
 
+### Voice input
+- A mic button sits beside Attach in the composer and beside Send in the terminal input line; it
+  fills with `--accent` while recording. Dictated text is inserted at the caret, never sent.
+- The recording pill shows Cancel, a **Recording** label, the level bars, a mono timer and Done.
+  Amber only; `--danger` stays for errors.
+
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
   lead an empty query; arrows cycle, Enter activates and Escape closes.
@@ -413,13 +419,19 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | Pulse | `--dur-pulse` | `1600ms` | Working and reconnecting dots (trough opacity 0.35; text never pulses) |
 | Easing | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Finite transitions |
 | Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Endless working and reconnecting dots; avoids drawing every display refresh |
+| Spring easing | `--ease-spring` | `cubic-bezier(0.32, 0.72, 0, 1)` | Voice recording pill enter (180ms, scale 0.96->1 + opacity, from the mic button) and exit (120ms) |
 
 ### Rules
 - Only state changes move: hover/press, the drawer, settings switches, working and reconnecting.
 - Dialogs and their scrims snap open and closed; they have no entrance or exit animation. On mobile,
   their static layout changes to a bottom sheet.
+- The voice recording waveform is the one surface allowed to draw every frame: only while
+  recording, driven by the live microphone level, transform-only (`scaleY` on 7 bars). The pill is
+  a state change, not a dialog, so the snap rule above does not apply to it.
 - `prefers-reduced-motion: reduce` removes pulses, drawer/control transitions, smooth chat scrolling
   and settings toggle motion. State remains legible without animation.
+- Under reduced motion the voice pill swaps its bars for one level bar updated at 4 Hz and drops
+  the ring and the morph; the **Recording** label and the timer stay.
 
 ## 7. Depth & Surface
 

@@ -23,6 +23,7 @@ import type {
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { UpdateCommand, UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
+import type { VoiceConfigUpdate, VoiceStatus, VoiceUsageReport } from "../../shared/voice.ts";
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
@@ -433,3 +434,22 @@ export async function machineRequest<T>(path: string, method = "GET", body?: unk
 export const startMachineSetup = (request: SetupRequest) => machineRequest<SetupJob>("/setup", "POST", request);
 export const fetchMachineSetup = (id: string) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`);
 export const answerMachineSetup = (id: string, action: SetupAction) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`, "POST", action);
+
+/** GET /api/voice: whether the server holds a key; the key itself never comes back. */
+export async function fetchVoiceStatus(): Promise<VoiceStatus> {
+  const response = await fetch("/api/voice", { cache: "no-store" });
+  if (!response.ok) throw await errorFrom("/api/voice", response);
+  return (await response.json()) as VoiceStatus;
+}
+
+/** PUT /api/voice/config: ApiError 409 `key_from_env` when the key comes from HERDR_WEB_OPENAI_API_KEY. */
+export async function saveVoiceConfig(update: VoiceConfigUpdate): Promise<VoiceStatus> {
+  const response = await fetch("/api/voice/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(update) });
+  if (!response.ok) throw await errorFrom("/api/voice/config", response);
+  return (await response.json()) as VoiceStatus;
+}
+
+/** GET /api/voice/usage: dictations, audio minutes and the estimated cost, by today / this month / all. */
+export function fetchVoiceUsage(): Promise<VoiceUsageReport> {
+  return getJson<VoiceUsageReport>("/api/voice/usage");
+}

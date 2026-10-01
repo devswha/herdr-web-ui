@@ -12,6 +12,8 @@ export const SHORTCUTS = [
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },
+  // listed only: held, not dispatched; VoiceInput.tsx listens for it itself (isVoiceShortcut)
+  { id: "voice", label: "Dictate (hold)", keys: ["Mod", "Shift", "Space"] },
 ] as const;
 
 export type ShortcutId = (typeof SHORTCUTS)[number]["id"];
@@ -42,6 +44,12 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean):
   // Shift+Comma produces "<" on common keyboard layouts.
   if (event.code === "Comma") return "settings";
   return KEY_TO_ID[event.key.length === 1 ? event.key.toLowerCase() : event.key] ?? null;
+}
+
+/** Mod+Shift+Space, held to dictate. matchShortcut never returns "voice": it has no action. */
+export function isVoiceShortcut(event: ShortcutEventLike, platformIsMac: boolean): boolean {
+  const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return hasMod && event.shiftKey && !event.altKey && (event.code === "Space" || event.key === " ");
 }
 
 /**
@@ -76,7 +84,7 @@ export function isAppShortcut(event: ShortcutEventLike): boolean {
   return matchShortcut(event, isMacPlatform()) !== null;
 }
 
-function isMacPlatform(): boolean {
+export function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 }

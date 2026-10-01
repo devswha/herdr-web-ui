@@ -124,6 +124,7 @@
   --dur-base: 180ms;
   --dur-pulse: 1600ms;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   /* the pulse jumps between its two looks: a smooth one has the browser draw a new frame at
      every display refresh for as long as an agent works (60+ a second), which stutters a
      video playing beside the app; two steps draw about one frame a second */
