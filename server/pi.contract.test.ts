@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createServer } from "./index.ts";
+import { forgetPiModels } from "./pi-models.ts";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
 
@@ -79,7 +80,8 @@ it("serves a pi pane's native transcript over HTTP", async () => {
   expect(first.source).toBe("pi-transcript");  expect(first.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
   expect(first.turns[0]!.parts).toEqual([{ kind: "text", text: "Check chat" }]);
   // the figure pi's own footer shows: input + output + both cache tiers
-  expect(first.metadata).toEqual({ model: "pi-contract-model", reasoning_effort: null, context: { used: 30, window: null } });
+  // the figure pi's own footer shows: input + output + both cache tiers
+  expect(first.metadata).toEqual({ model: "pi-contract-model", reasoning_effort: null, context: { used: 35, window: null } });
 });
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -110,6 +112,28 @@ it("offers a tool's own picture over the image endpoint", async () => {
       const miss = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation/image?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent("pi:call-9:0")}`);
       expect(miss.status).toBe(404);
   } finally {
+    writeFileSync(transcript, turns("Check chat", "Answer one"));
+  }
+});
+
+it("resolves pi's context window from the agent dir pi reads its models from", async () => {
+  writeFileSync(transcript, turns("Check chat", "Answer one"));
+  expect((await read()).metadata?.context?.window).toBeNull();
+  // the window is nowhere in the transcript: pi's own catalog is the only disk answer for it
+  const agentDir = join(root, "agent-dir");
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { test: { models: [{ id: "pi-contract-model", contextWindow: 200_000 }] } } }));
+  const previous = process.env["PI_CODING_AGENT_DIR"];
+  process.env["PI_CODING_AGENT_DIR"] = agentDir;
+  try {
+    // the window is read as the metadata is rebuilt, so a new answer carries it
+    writeFileSync(transcript, turns("Check chat twice", "Answer two"));
+    const withWindow = await read();
+    expect(withWindow.metadata?.context).toEqual({ used: 35, window: 200_000 });
+  } finally {
+    if (previous === undefined) delete process.env["PI_CODING_AGENT_DIR"]; else process.env["PI_CODING_AGENT_DIR"] = previous;
+    forgetPiModels();
+    // the tests after this one read the session this file first held
     writeFileSync(transcript, turns("Check chat", "Answer one"));
   }
 });

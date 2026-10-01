@@ -204,6 +204,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   tap. Only the address travels in the conversation, so the bytes arrive when the row is opened
   and not on every poll, and an image left behind by a `/tree` stays out of reach, the way its
   output does.
+- A pi pane's context ring shows. What a request filled was already recorded; the window it
+  filled was not, so the ring had nothing to divide by and stayed hidden. It now reads the
+  window from the same `~/.pi/agent/models.json` pi reads its own providers from, and the
+  figure matches what pi's own footer says. A model that file does not state keeps no ring:
+  pi answers those from its built-in catalogue or from a running llama.cpp server, neither of
+  which a reader of the transcript can ask, and a window invented would show a percentage no
+  different from the real one.
 - A pi pane's message box lists pi's own slash commands as you type `/`, the way it does for
   Claude Code, Codex and omp: pi's built-ins in pi's words, the templates in `~/.pi/agent/prompts`
   and the skills under `~/.pi/agent/skills` and `~/.agents/skills`. A project's own skills and

@@ -146,7 +146,11 @@ draft storage or chat history. A changed prompt or busy pane refuses the send; c
 the terminal before entering it again. **Cancel** sends Ctrl+C. Remote PCs need bridge
 bundle v6. Detection covers a narrow list of English prompts, not every program or language.
 
-The model and reasoning effort come from what the session recorded, never from answer text. A todo list shows where the agent recorded it, in the turn's work block: Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. Plain-text plans and Claude Code `TaskCreate` / `TaskUpdate` calls are not currently reconstructed. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
+A ring by the message box shows how much of the model's context the last request filled, and
+its exact token counts on a tap. A pi pane shows it once `~/.pi/agent/models.json` states that
+model's window, which is the file pi reads its own providers from; a model it states no window
+for shows no ring rather than a guessed one, because pi answers those from a catalogue or a
+running llama.cpp server that this app cannot ask. The model and reasoning effort come from what the session recorded, never from answer text. A todo list shows where the agent recorded it, in the turn's work block: Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. Plain-text plans and Claude Code `TaskCreate` / `TaskUpdate` calls are not currently reconstructed. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
 
 ## Features
 
