@@ -12,7 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   background job's result in the user's seat; the chat skipped that record, so the answer before
   it sank into the work block and only the last status line showed as the reply. The result now
   ends the turn, as a quiet "Background result delivered" divider with the text on request, like
-  a compaction.
+  a compaction ([#225](https://github.com/devswha/herdr-web-ui/pull/225)).
 
 ## [0.3.37] - 2026-10-01
 
