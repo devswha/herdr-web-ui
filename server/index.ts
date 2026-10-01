@@ -8,7 +8,7 @@ import type { AgentKind, ClientMessage, ClientRole, HealthAuth, HerdrPane, Serve
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
-import { decideAccess, isLoopbackAddress } from "./access.ts";
+import { cameThroughProxy, decideAccess, isLoopbackAddress } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, tailscaleOwner } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
@@ -742,7 +742,7 @@ export function createServer(
       const ip = bunServer.requestIP(request);
       const access = decideAccess({
         loopback: ip !== null && isLoopbackAddress(ip.address),
-        forwarded: request.headers.has("x-forwarded-for"),
+        forwarded: cameThroughProxy(request.headers),
         funnel: request.headers.has("tailscale-funnel-request"),
         tailscaleLogin: request.headers.get("tailscale-user-login"),
         tokenMatched: token !== "" && isAuthenticated(request, token),

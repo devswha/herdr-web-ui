@@ -7,6 +7,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- A reverse proxy on the same PC that keeps the browser's `Host` but sends no
+  `X-Forwarded-For` no longer makes every visitor count as this computer. A request from this
+  PC with a `Host` that is not `localhost` or `127.0.0.1`, or with any forwarding header, is
+  treated as proxied: once a device is paired, a visitor needs pairing or the token. A proxy
+  that also rewrites `Host` and adds nothing, as nginx's plain `proxy_pass` does, still cannot
+  be told from this computer, so set a token behind a proxy. The guide has Caddy and nginx
+  examples to copy.
+
 ## [0.3.39] - 2026-10-01
 
 ### Fixed

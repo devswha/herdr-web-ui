@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { decideAccess, isLoopbackAddress, type AccessInput } from "./access.ts";
+import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackHost, type AccessInput } from "./access.ts";
 
 const device = { id: "d1", label: "Phone", role: "drive" as const };
 const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, owner: null, tokenConfigured: false, gated: false };
@@ -47,6 +47,20 @@ describe("decideAccess", () => {
   it("a paired device gets in from anywhere, with its role", () => {
     const access = decideAccess({ ...base, loopback: false, gated: true, device: { ...device, role: "watch" } });
     expect(access).toEqual({ level: "full", via: "device", role: "watch", device: { ...device, role: "watch" } });
+  });
+
+  it("knows a name for this machine from a proxied Host", () => {
+    for (const host of ["localhost", "localhost:7317", "LOCALHOST:5173", "herdr.localhost:7317", "127.0.0.1:7317", "127.9.9.9", "[::1]:7317"]) expect(isLoopbackHost(host)).toBe(true);
+    for (const host of ["app.example.test", "app.example.test:8443", "192.168.0.10:7317", "localhost.example.test", "127.0.0.1.example.test", "[fd7a::1]:7317", ""]) expect(isLoopbackHost(host)).toBe(false);
+  });
+
+  it("sees a proxy in a forwarding header or in a Host that is not this machine", () => {
+    const proxy = (headers: Record<string, string>) => cameThroughProxy(new Headers(headers));
+    expect(proxy({ host: "localhost:7317" })).toBe(false);
+    expect(proxy({ host: "127.0.0.1:7317", origin: "http://127.0.0.1:7317" })).toBe(false);
+    expect(proxy({})).toBe(false);
+    expect(proxy({ host: "app.example.test" })).toBe(true);
+    for (const name of ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "via"]) expect(proxy({ host: "127.0.0.1:7317", [name]: "x" })).toBe(true);
   });
 
   it("knows loopback addresses in every spelling", () => {

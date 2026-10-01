@@ -246,11 +246,62 @@ Anyone who can reach the server can type into your terminals, so what matters is
 | `tailscale serve`, your own devices | Nothing needed: your login |
 | `tailscale serve` on a tailnet you share with others | Your devices: your login. Theirs: refused unless you pair them |
 | Your LAN (`HOST=0.0.0.0` or a LAN address) | Pair each device, or set a token |
-| A public domain or reverse proxy | Pair each device, or set a token, with HTTPS. The proxy must send `X-Forwarded-For`. Never `tailscale funnel` it |
+| A public domain or reverse proxy | Set a token, with HTTPS, and set the proxy up as in [Behind a reverse proxy](#behind-a-reverse-proxy). Never `tailscale funnel` it |
 
 Until the first device is paired, and with no token set, a LAN or proxied address is open to anyone who reaches it, as it always was: the server warns on startup. The exception is a proxy on this PC while its Tailscale login is known, as with `tailscale serve`: a request that carries no login there needs pairing from the start. Pairing the first device closes it for good; revoking every device does not reopen it. Without a token, this computer itself stays in whatever happens, so you can never lock yourself out: revoke everything and pair again from `http://localhost:7317`. With a token set, this computer signs in with the token.
 
-A TLS proxy should send `x-forwarded-proto: https` so cookies are marked Secure. The pairing code is a one-time secret: five wrong tries spend it.
+The pairing code is a one-time secret: five wrong tries spend it.
+
+### Behind a reverse proxy
+
+**Set a token first** (`HERDR_WEB_TOKEN`). A proxy on this PC connects from this PC, so the server knows a proxied request only by what the proxy sends: an `X-Forwarded-For` header (or another forwarding header), or a `Host` that is not `localhost` or `127.0.0.1`. A proxy that sends neither makes every visitor count as this computer: they get in with nothing, and pairing a device does not close it. nginx's plain `proxy_pass` is such a proxy. With a token set, every visitor needs the token whatever the proxy sends.
+
+The proxy has to do four things:
+
+- keep the browser's `Host`, so the app's own requests are not refused as coming from another site (`invalid_origin`);
+- send `X-Forwarded-For`, so a visitor is not taken for this computer;
+- send `X-Forwarded-Proto: https` when it serves HTTPS, so cookies are marked Secure and the app's own requests are accepted;
+- pass the WebSocket upgrade for `/ws`, which carries the terminal.
+
+Caddy does all four by default, and gets the certificate itself:
+
+```caddyfile
+herdr.example.com {
+	reverse_proxy 127.0.0.1:7317
+}
+```
+
+nginx does none of them by default:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    server_name herdr.example.com;
+    ssl_certificate     /etc/letsencrypt/live/herdr.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/herdr.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:7317;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 1h;
+        proxy_buffering off;
+    }
+}
+```
+
+The `map` block goes in the `http` section. `proxy_read_timeout` keeps an idle terminal connected, and `proxy_buffering off` lets the PC list update live.
+
+To check it, open `https://herdr.example.com/api/health` from another device: `"via"` must not be `"local"`.
 
 **Sign out** in the header or command palette clears this browser's token and device cookies; terminal sessions and agents keep running. It is shown for token or device authentication, not automatic local or Tailscale access.
 
@@ -348,7 +399,7 @@ No, but a phone needs two things Tailscale gives at once: a way to reach the PC 
 
 - **An SSH tunnel from the phone** (Termux, Blink): `ssh -L 7317:127.0.0.1:7317 <pc>`, then open `http://localhost:7317` on the phone. Browsers treat localhost as secure, so installing and alerts should work while the tunnel is up (not verified on iOS yet). The phone still has to reach the PC over SSH.
 - **A VPN into your home** (WireGuard, ZeroTier, a router VPN): the LAN address works in the browser, but a plain `http://` address can neither install the app nor receive alerts.
-- **A reverse proxy with a real certificate** on a domain you own, with a token set. This exposes the server to the internet, so read [Access and safety](#access-and-safety) first.
+- **A reverse proxy with a real certificate** on a domain you own, with a token set and the proxy sending `X-Forwarded-For`: [Behind a reverse proxy](#behind-a-reverse-proxy) has Caddy and nginx examples to copy. This exposes the server to the internet, so read [Access and safety](#access-and-safety) first.
 </details>
 
 <details>

@@ -1202,6 +1202,19 @@ describe("pairing and identity", () => {
     expect((await fetch(`${base()}/api/session`, { headers: proxied() })).status).toBe(401);
   });
 
+  it("does not take a proxied request for this PC when the proxy sends no X-Forwarded-For", async () => {
+    // a proxy that keeps the browser's Host, or sends only another forwarding header
+    expect(await auth({ host: "app.example.test" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
+    expect((await fetch(`${base()}/api/session`, { headers: { host: "app.example.test" } })).status).toBe(401);
+    for (const name of ["x-forwarded-proto", "x-forwarded-host", "x-real-ip", "forwarded", "via"]) {
+      expect(await auth({ [name]: "https" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
+    }
+    // this PC under its other names is still this PC
+    for (const host of [`localhost:${open.port}`, `herdr.localhost:${open.port}`, "localhost:5173"]) {
+      expect(await auth({ host })).toMatchObject({ authenticated: true, via: "local" });
+    }
+  });
+
   it("trusts the PC's own Tailscale login and refuses another", async () => {
     expect(await auth(proxied(OWNER))).toMatchObject({ authenticated: true, via: "tailscale" });
     expect(await auth(proxied("Owner@Example.com"))).toMatchObject({ authenticated: true, via: "tailscale" });
