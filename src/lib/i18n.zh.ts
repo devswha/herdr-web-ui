@@ -305,6 +305,8 @@ export const ZH: Record<string, string> = {
   "Submit ({n})": "提交 ({n})",
   "Recommended": "推荐",
   "Or type your own answer": "或输入你自己的回答",
+  "Questions": "问题列表",
+  "(answered)": "(已回答)",
   "Agent is asking": "Agent 提问",
   "input needed": "需要输入",
   "Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed.": "Codex 会在此期间继续工作。请在此处回答。在回答或关闭之前，此问题会占用终端的输入。",

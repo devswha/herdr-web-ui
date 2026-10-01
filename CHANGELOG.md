@@ -7,6 +7,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- An omo question in the chat gets a real card, not the last-resort one with only Enter and
+  Esc. omo asks several questions in one form: the card asks them one at a time, with a chip per
+  question that checks off the answered ones, and an option is picked by its number as in omo.
+  After the last one the card reviews the answers: Submit, tap an answer to change it, or type a
+  comment that goes with them. The card's text comes from the question as omo's session recorded
+  it, so a pane too short for the whole form, or one that wraps it, still shows every option word
+  for word; without the session it is read off the screen, with wrapped Korean words joined back.
+  While an answer is typed in omo's own field, the card offers to save or discard it
+  ([#237](https://github.com/devswha/herdr-web-ui/pull/237)).
+
 ## [0.3.38] - 2026-10-01
 
 ### Added

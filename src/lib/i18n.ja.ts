@@ -303,6 +303,8 @@ export const JA: Record<string, string> = {
   "Submit ({n})": "送信 ({n})",
   "Recommended": "推奨",
   "Or type your own answer": "または回答を直接入力",
+  "Questions": "質問一覧",
+  "(answered)": "(回答済み)",
   "Agent is asking": "エージェントからの質問",
   "input needed": "入力が必要",
   "Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed.": "その間も Codex は作業を続けます。ここで回答してください。回答するか閉じるまで、この質問がターミナルの入力を占有します。",
