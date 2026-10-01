@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- Remote PCs use the `remote-v10` runtime, which carries the server-side fixes since `remote-v9`
+  to them, Windows PCs included: New session with Gajae Code, the chat of a Gajae Code or omp
+  pane, pasted and sent lines that stay in an agent's message box, typing that no longer outlives
+  its connection, and OmO detection. A PC connected with the `remote-v9` bridge updates as it did
+  for earlier runtimes.
+
 ### Fixed
 - On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
   Tailscale user". A tagged node has no person's login, and the server took the node's own name
