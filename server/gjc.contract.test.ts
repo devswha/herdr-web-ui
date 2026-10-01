@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { herdrRpc, workspaceClose, workspaceCreate, paneRead } from "./herdr/client.ts";
 import { ConversationUnavailable, gjcTranscriptPath, transcriptPage } from "./conversation.ts";
 
-import { gjcTerminal } from "./gjc-runtime.ts";
+import { gjcTerminal, isGjcProcess } from "./gjc-runtime.ts";
+import { startShellAgent } from "./shell-agent.ts";
 
 const home = mkdtempSync(join(tmpdir(), "herdr-gjc-binding-"));
 const dir = join(home, ".gjc", "agent", "sessions", "v2-shared");
@@ -112,4 +113,14 @@ it("restores a directory-only runtime by unique visible assistant text, never ne
   expect(await gjcTranscriptPath(second, home, home)).toBe(b);
   writeFileSync(join(dir, "duplicate.jsonl"), record(answer));
   await expect(gjcTranscriptPath(first, home, home)).rejects.toThrow(ConversationUnavailable);
+});
+
+it("starts gjc through the pane's shell and waits until gjc is its foreground process", async () => {
+  const created = await workspaceCreate({ cwd: home, label: "herdr-web-ui-test-gjc-start" });
+  workspaces.push(created.workspace.workspace_id);
+  const id = created.root_pane.pane_id;
+  // the stand-in is `bun <home>/gjc`, the interpreter-launched shape isGjcProcess accepts
+  await startShellAgent("gjc", id, [dir], { command: `${process.execPath} ${script}` });
+  const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: id });
+  expect(info.process_info?.foreground_processes?.find((process) => isGjcProcess(process.argv ?? []))?.argv?.slice(-1)).toEqual([dir]);
 });

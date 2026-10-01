@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
-import { isOmoProcess, omoTranscriptForPane, startOmo } from "./omo.ts";
+import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { startShellAgent } from "./shell-agent.ts";
 import { processStartedAt } from "./process-start.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-omo-binding-"));
@@ -56,11 +57,11 @@ it("starts omo through the pane's shell and waits until omo is its foreground pr
     return created.root_pane.pane_id;
   };
   const started = await shell();
-  await startOmo(started, ["it's one arg"], { command: `${process.execPath} ${script}` });
+  await startShellAgent("omo", started, ["it's one arg"], { command: `${process.execPath} ${script}` });
   const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: started });
   expect(info.process_info?.foreground_processes?.find((process) => isOmoProcess(process.argv ?? []))?.argv?.slice(-1)).toEqual(["it's one arg"]);
   // a command that never becomes omo fails at the deadline instead of reporting a start
-  await expect(startOmo(await shell(), [], { command: "true", timeoutMs: 1500 })).rejects.toThrow("omo did not start");
+  await expect(startShellAgent("omo", await shell(), [], { command: "true", timeoutMs: 1500 })).rejects.toThrow("omo did not start");
 });
 
 it("binds each omo pane in a shared cwd to the session its process holds", async () => {

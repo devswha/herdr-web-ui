@@ -7,22 +7,6 @@ import { processStartedAt } from "./process-start.ts";
 const OMO_PROCESS = /(^|\/)omo(\.js)?$|\/omo-ai\//;
 export function isOmoProcess(argv: readonly string[]): boolean { return argv.some((word) => OMO_PROCESS.test(word)); }
 
-/**
- * herdr's agent.start has no omo kind, so the pane's shell runs omo and its process
- * tree tells when omo is up. Resolves once omo is the pane's foreground process.
- */
-export async function startOmo(paneId: string, args: string[] = [], options: { command?: string; timeoutMs?: number } = {}): Promise<void> {
-  const quoted = args.map((arg) => `'${arg.replaceAll("'", `'\\''`)}'`);
-  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${[options.command ?? "omo", ...quoted].join(" ")}\n` });
-  const deadline = Date.now() + (options.timeoutMs ?? 60_000);
-  while (Date.now() < deadline) {
-    const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: paneId }).catch(() => null);
-    if (info?.process_info?.foreground_processes?.some((process) => isOmoProcess(process.argv ?? []))) return;
-    await Bun.sleep(250);
-  }
-  throw new Error("omo did not start in the pane");
-}
-
 export interface OmoCandidate { path: string; id: string; createdAt: number | null }
 export interface OmoRuntime {
   paneId: string;

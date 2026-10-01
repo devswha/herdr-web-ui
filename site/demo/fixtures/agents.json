@@ -33,6 +33,10 @@
       "label": "droid"
     },
     {
+      "kind": "gjc",
+      "label": "Gajae Code"
+    },
+    {
       "kind": "gemini",
       "label": "Gemini CLI"
     },
