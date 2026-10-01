@@ -5,7 +5,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
 import nodePath, { join, type PlatformPath } from "node:path";
 
 import { readRange } from "./codex.ts";
@@ -79,46 +79,93 @@ const windowsBindings = new Map<string, { process: GjcProcess; path: string }>()
 /**
  * What a pane's screen says: the session an answer on it matches, the title gjc's status line
  * shows (null: a session with no title yet, as one is right after /new; undefined: no status
- * line, or one too narrow to hold the title whole) and the one session file carrying that title.
+ * line, or one too narrow to hold the title whole), how many session files of the folder carry
+ * that title (-1: not every file's title is known yet) and, when it is one, that file.
  */
-export type GjcScreen = { path: string | null; title: string | null | undefined; titled: string | null };
+export type GjcScreen = { path: string | null; title: string | null | undefined; titled: string | null; titledCount: number };
+
+/** what gjc puts after the title in its status line: speed, cost, plan */
+const STATUS_EXTRA = /^(?:\u2934.*|\$[\d.]+(?:\s+\([\w-]+\))?|\([\w-]+\))$/u;
 
 /**
- * The title in gjc's status line, the last line with its folder and version (gjc 0.16.4 on a
- * Windows PC): `⬢ sonnet-5 · ◒ med · 1.8% / 📁 ~\\dir ──── Simple Ok Reply / ⤴ 0.3/s / $0.04 (sub) / v0.16.4`.
- * A session with no title yet shows `──── (sub) / v0.16.4` there.
+ * The title in gjc's status line (gjc 0.16.4 on a Windows PC):
+ * `⬢ sonnet-5 · ◒ med · 1.8% / 📁 ~\\dir ──── Simple Ok Reply / ⤴ 0.3/s / $0.04 (sub) / v0.16.4`,
+ * and `──── (sub) / v0.16.4` for a session with no title yet. Only the line right over the
+ * message box counts: the same words printed in an answer are text. Read from the right, since
+ * a title may hold ` / ` itself: the version, then gjc's own extras, and what is left is the title.
  */
 export function gjcStatusTitle(screen: string): string | null | undefined {
-  const status = screen.split(/\r?\n/).reverse().find((line) => line.includes("\u{1F4C1}") && /\/\s*v\d+\.\d+\.\d+\s*$/.test(line));
-  if (status === undefined) return undefined;
-  const segment = status.match(/\u2500+\s+(.+?)\s+\/\s/)?.[1]?.trim();
-  if (segment === undefined || /^(?:\(.*\)|\u2934|\$|v\d)/u.test(segment)) return null;
-  return segment.endsWith("\u2026") ? undefined : segment;
+  const lines = screen.split(/\r?\n/);
+  let box = lines.length - 1;
+  while (box >= 0 && !/^\s*\u256d\u2500/.test(lines[box]!)) box -= 1;
+  const status = box > 0 ? lines[box - 1]! : undefined;
+  if (status === undefined || !/^\s*\u2b22\s/.test(status) || !status.includes("\u{1F4C1}")) return undefined;
+  const version = status.match(/\s\/\s+v\d+\.\d+\.\d+\s*$/);
+  const rule = [...status.matchAll(/\u2500{3,}\s/g)].at(-1);
+  if (!version || !rule || rule.index + rule[0].length > version.index!) return undefined;
+  const parts = status.slice(rule.index + rule[0].length, version.index).split(" / ").map((part) => part.trim());
+  while (parts.length > 0 && STATUS_EXTRA.test(parts.at(-1)!)) parts.pop();
+  const title = parts.join(" / ").trim();
+  if (title === "") return null;
+  return title.endsWith("\u2026") ? undefined : title;
 }
 
-/** A session file's title: its header's, or the last one gjc patched in later. Scanned once per append, as files only grow. */
-const titleScans = new Map<string, { scanned: number; title: string | null }>();
-export function gjcSessionTitle(path: string): string | null {
-  let size: number;
-  try { size = statSync(path).size; } catch { return null; }
-  let scan = titleScans.get(path);
-  if (!scan || scan.scanned > size) scan = { scanned: 0, title: null };
-  if (scan.scanned < size) {
-    const text = readRange(path, scan.scanned === 0 ? 0 : scan.scanned - 1, size);
-    const lastBreak = text.lastIndexOf("\n");
-    for (const line of (lastBreak === -1 ? "" : text.slice(0, lastBreak)).split("\n")) {
-      if (!line.includes('"title"')) continue;
-      try {
-        const record = JSON.parse(line) as { type?: unknown; title?: unknown; patch?: { title?: unknown } };
-        const title = record.type === "session" ? record.title : record.type === "header_patch" ? record.patch?.title : undefined;
-        if (typeof title === "string" && title.trim()) scan.title = title.trim();
-      } catch { /* a line cut by the read window */ }
+const TITLE_CHUNK_BYTES = 256 * 1024;
+/** bytes of session files one look at a pane may read for titles; what is left is read by the next looks */
+export const TITLE_BUDGET_BYTES = 2 * 1024 * 1024;
+interface TitleScan { head: string; scanned: number; title: string | null; skipping: boolean }
+const titleScans = new Map<string, TitleScan>();
+
+/**
+ * A session file's title: its header's, or the last one gjc patched in later (`header_patch`).
+ * undefined while the file is not read to its end: a file is scanned in chunks, within `budget`,
+ * and the scan goes on from where it stopped at the next call, as files only grow. A file put in
+ * the old one's place (its first bytes differ) is read anew.
+ */
+export function gjcSessionTitle(path: string, budget: { bytes: number } = { bytes: TITLE_BUDGET_BYTES }): string | null | undefined {
+  let fd: number;
+  try { fd = openSync(path, "r"); } catch { return null; }
+  try {
+    const size = fstatSync(fd).size;
+    const first = Buffer.alloc(Math.min(256, size));
+    readSync(fd, first, 0, first.length, 0);
+    const head = first.toString("latin1");
+    let scan = titleScans.get(path);
+    if (!scan || scan.scanned > size || !head.startsWith(scan.head.slice(0, head.length)) || head.length < scan.head.length) scan = { head, scanned: 0, title: null, skipping: false };
+    scan.head = head;
+    while (scan.scanned < size && budget.bytes > 0) {
+      const chunk = Buffer.alloc(Math.min(TITLE_CHUNK_BYTES, size - scan.scanned, budget.bytes));
+      const got = readSync(fd, chunk, 0, chunk.length, scan.scanned);
+      if (got <= 0) break;
+      budget.bytes -= got;
+      const bytes = chunk.subarray(0, got);
+      const lastBreak = bytes.lastIndexOf(0x0a);
+      if (lastBreak === -1) {
+        // a record longer than a chunk (a picture) is no title record: pass over it
+        if (got < TITLE_CHUNK_BYTES) break;
+        scan.skipping = true;
+        scan.scanned += got;
+        continue;
+      }
+      let from = 0;
+      if (scan.skipping) { from = bytes.indexOf(0x0a) + 1; scan.skipping = false; }
+      for (const line of bytes.subarray(from, lastBreak).toString("utf8").split("\n")) {
+        if (!line.includes('"title"')) continue;
+        try {
+          const record = JSON.parse(line) as { type?: unknown; title?: unknown; patch?: { title?: unknown } };
+          const title = record.type === "session" ? record.title : record.type === "header_patch" ? record.patch?.title : undefined;
+          if (typeof title === "string" && title.trim()) scan.title = title.trim();
+        } catch { /* not a record */ }
+      }
+      scan.scanned += lastBreak + 1;
     }
-    if (lastBreak !== -1) scan.scanned = (scan.scanned === 0 ? 0 : scan.scanned - 1) + Buffer.byteLength(text.slice(0, lastBreak + 1));
+    titleScans.delete(path);
     titleScans.set(path, scan);
-    if (titleScans.size > 256) titleScans.delete(titleScans.keys().next().value!);
-  }
-  return scan.title;
+    if (titleScans.size > 512) titleScans.delete(titleScans.keys().next().value!);
+    // a last line still being written is not waited for: it is read once it has its newline
+    return size - scan.scanned > TITLE_CHUNK_BYTES || (scan.scanned < size && budget.bytes <= 0) ? undefined : scan.title;
+  } catch { return null; }
+  finally { closeSync(fd); }
 }
 
 /** The start time decides only when both reads have it: a column that failed once is not another process. */
@@ -128,35 +175,44 @@ const sameProcess = (a: GjcProcess, b: GjcProcess) => a.pid === b.pid && (a.star
  * A Windows pane's session. The screen is the only evidence there, and it is gone whenever no
  * recent answer's tail is visible (a long list, tool output; live-verified: the lens fell back
  * for the whole of such an answer). So what the screen once showed is kept for the pane while
- * the same gjc process runs in it. The screen still wins when it shows another session, and a
- * pane is never bound without it.
+ * the same gjc process runs in it, and a pane is never bound without the screen.
  *
  * gjc's status line names the session the process runs now, and the session file carries the
  * same title. After /new or /resume the same process runs another session, and a one-word answer
- * never matched (measured on a real PC: the chat stayed on the old conversation), so a title that
- * differs from the bound session's ends the binding, and a title that one session file carries
- * binds the pane to it. A matched answer under another session's title is text on the screen, not
- * this session (a pasted answer). A process table that could not be read (`undefined`) leaves the
- * binding as it was.
+ * never matched (measured on a real PC: the chat stayed on the old conversation). So the title
+ * decides when it can: one file with it is the session, whatever answer shows (a pasted one is
+ * text); several files with it leave only an answer of one of them to tell, and without one the
+ * chat shows none rather than the last session; no file with it ends a binding to a session
+ * titled otherwise. A process table that could not be read (`undefined`) leaves the binding as it was.
  */
-export async function boundGjcTranscript(paneId: string, gjc: GjcProcess | null | undefined, look: () => Promise<GjcScreen | null>, titleOf: (path: string) => string | null = gjcSessionTitle): Promise<string | null> {
+export async function boundGjcTranscript(paneId: string, gjc: GjcProcess | null | undefined, look: () => Promise<GjcScreen | null>, titleOf: (path: string) => string | null | undefined = gjcSessionTitle): Promise<string | null> {
   let bound = windowsBindings.get(paneId);
   if (gjc === null || gjc && bound && !sameProcess(bound.process, gjc)) {
     windowsBindings.delete(paneId);
     bound = undefined;
   }
   if (gjc === null) return null;
+  // a start time once known is kept: a later read without it must not hide a reused number
+  if (bound && gjc && gjc.started !== null) bound.process = gjc;
   const screen = await look();
-  const process = gjc ?? bound?.process;
+  const process = gjc && bound && gjc.started === null ? bound.process : gjc ?? bound?.process;
   const title = screen?.title;
-  const matched = screen?.path && !(typeof title === "string" && titleOf(screen.path) !== null && titleOf(screen.path) !== title) ? screen.path : null;
-  const found = matched ?? screen?.titled ?? null;
+  const anchor = screen?.path ?? null;
+  const fits = (path: string, untitled: boolean) => { const own = titleOf(path); return own === title || (untitled && (own === null || own === undefined)); };
+  let found: string | null;
+  // no title in the status line: the session running has none, so one that has a title is not it
+  const titledElsewhere = (path: string) => title === null && typeof titleOf(path) === "string";
+  if (typeof title !== "string") found = anchor && !titledElsewhere(anchor) ? anchor : null;
+  else if (screen!.titledCount === 1) found = screen!.titled;
+  else if (screen!.titledCount > 1) found = anchor && fits(anchor, false) ? anchor : null;
+  else found = anchor && fits(anchor, true) ? anchor : null;
   if (found && process) {
     windowsBindings.set(paneId, { process, path: found });
     return found;
   }
   if (!bound) return null;
-  if (typeof title === "string" && titleOf(bound.path) !== title) {
+  // several sessions carry the title, or the bound one is known to carry another
+  if (titledElsewhere(bound.path) || typeof title === "string" && (screen!.titledCount > 1 || !fits(bound.path, true))) {
     windowsBindings.delete(paneId);
     return null;
   }
@@ -363,8 +419,14 @@ export async function gjcTranscriptForPane(paneId: string, cwd: string, home = p
     const screen = await paneRead({ paneId, source: "visible", lines: 1000 }).catch(() => null);
     if (!screen) return null;
     const title = gjcStatusTitle(screen.text);
-    const titled = typeof title === "string" ? files.filter((file) => gjcSessionTitle(file.path) === title) : [];
-    return { path: files.length === 0 ? null : matchGjcTranscript(screen.text, files), title, titled: titled.length === 1 ? titled[0]!.path : null };
+    const budget = { bytes: TITLE_BUDGET_BYTES };
+    const titles = typeof title === "string" ? files.map((file) => gjcSessionTitle(file.path, budget)) : [];
+    const titled = files.filter((_, at) => titles[at] === title);
+    return {
+      path: files.length === 0 ? null : matchGjcTranscript(screen.text, files), title,
+      titled: titled.length === 1 && !titles.includes(undefined) ? titled[0]!.path : null,
+      titledCount: titles.includes(undefined) ? -1 : titled.length,
+    };
   };
   if (running) return (await look())?.path ?? null;
   // a Windows pane has neither descriptors nor a breadcrumb to read: gjc under its shell, then the screen
