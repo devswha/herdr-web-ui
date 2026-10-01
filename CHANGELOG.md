@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.38] - 2026-10-01
+
 ### Added
 - A workspace with several panes gets a chevron in its sidebar header that folds its pane rows
   away. The fold is remembered per PC and workspace, the header keeps its status badge, Needs you
@@ -25,8 +27,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A PC whose herdr cannot attach a terminal (a Windows PC for now) has a terminal lens all the
   same. The bridge reads the pane's screen a few times a second and repaints it, so output and
   colours show and typing works. It is a stopgap until herdr can attach there: the cursor is not
-  shown, and the grid is the pane's own size on that PC, not the browser's
-  ([#228](https://github.com/devswha/herdr-web-ui/pull/228)).
+  shown, and the grid is the pane's own size on that PC, not the browser's, so a phone shows its
+  left part and cannot pan it yet
+  ([#230](https://github.com/devswha/herdr-web-ui/issues/230),
+  [#228](https://github.com/devswha/herdr-web-ui/pull/228)).
 
 ### Fixed
 - A gjc chat no longer folds hours of work into one turn. gjc wakes its agent with a
