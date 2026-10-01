@@ -50,15 +50,19 @@ describe("decideAccess", () => {
   });
 
   it("knows a name for this machine from a proxied Host", () => {
-    for (const host of ["localhost", "localhost:7317", "LOCALHOST:5173", "herdr.localhost:7317", "127.0.0.1:7317", "127.9.9.9", "[::1]:7317"]) expect(isLoopbackHost(host)).toBe(true);
-    for (const host of ["app.example.test", "app.example.test:8443", "192.168.0.10:7317", "localhost.example.test", "127.0.0.1.example.test", "[fd7a::1]:7317", ""]) expect(isLoopbackHost(host)).toBe(false);
+    for (const host of ["localhost", "localhost:7317", "LOCALHOST:5173", "herdr.localhost:7317", "127.0.0.1:7317", "127.9.9.9", "[::1]:7317", "localhost.:7317", "[::ffff:127.0.0.1]:7317"]) expect(isLoopbackHost(host)).toBe(true);
+    for (const host of ["app.example.test", "app.example.test:8443", "192.168.0.10:7317", "localhost.example.test", "127.0.0.1.example.test", "[fd7a::1]:7317", "", "0.0.0.0:7317", "[::ffff:192.168.0.10]"]) expect(isLoopbackHost(host)).toBe(false);
+    // not an authority: a URL parser would have read these as localhost
+    for (const host of ["public.example@localhost:7317", "localhost/x@public.example", "localhost:7317/x", "localhost?x", "local host", "localhost:port", "localhost..", "127.0.0.1@public.example"]) expect(isLoopbackHost(host)).toBe(false);
   });
 
   it("sees a proxy in a forwarding header or in a Host that is not this machine", () => {
     const proxy = (headers: Record<string, string>) => cameThroughProxy(new Headers(headers));
     expect(proxy({ host: "localhost:7317" })).toBe(false);
     expect(proxy({ host: "127.0.0.1:7317", origin: "http://127.0.0.1:7317" })).toBe(false);
-    expect(proxy({})).toBe(false);
+    // no Host at all: HTTP/1.0 through a proxy, never a local browser or CLI
+    expect(proxy({})).toBe(true);
+    expect(proxy({ host: "public.example@localhost:7317" })).toBe(true);
     expect(proxy({ host: "app.example.test" })).toBe(true);
     for (const name of ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "via"]) expect(proxy({ host: "127.0.0.1:7317", [name]: "x" })).toBe(true);
   });

@@ -50,11 +50,18 @@ export function isLoopbackAddress(address: string): boolean {
 /** Headers a proxy adds and a browser or CLI on this PC has no reason to send. */
 const PROXY_HEADERS = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "via"];
 
-/** Is this Host header (name, optional port) a name for this machine itself? */
+/**
+ * Is this Host header a name for this machine itself? It is read as a bare authority, a name
+ * or a bracketed address with an optional port, and nothing else: handed to a URL parser,
+ * `public.example@localhost` and `localhost/x@public.example` both came out as localhost.
+ */
 export function isLoopbackHost(host: string): boolean {
-  let name: string;
-  try { name = new URL(`http://${host}`).hostname; } catch { return false; }
-  return name === "localhost" || name.endsWith(".localhost") || name === "[::1]" || /^127(?:\.\d+){3}$/.test(name);
+  const authority = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/i.exec(host);
+  if (!authority) return false;
+  // one trailing dot is the DNS root, the same name
+  const name = authority[1]!.toLowerCase().replace(/\.$/, "");
+  return name === "localhost" || name.endsWith(".localhost") || name === "[::1]"
+    || /^127(?:\.\d{1,3}){3}$/.test(name) || /^\[::ffff:127(?:\.\d{1,3}){3}\]$/.test(name);
 }
 
 /**
@@ -63,8 +70,9 @@ export function isLoopbackHost(host: string): boolean {
  */
 export function cameThroughProxy(headers: Headers): boolean {
   if (PROXY_HEADERS.some((name) => headers.has(name))) return true;
+  // no Host at all is not how a browser or a CLI on this PC asks (HTTP/1.0 through a proxy is)
   const host = headers.get("host");
-  return host !== null && !isLoopbackHost(host);
+  return host === null || !isLoopbackHost(host);
 }
 
 export function decideAccess(input: AccessInput): Access {

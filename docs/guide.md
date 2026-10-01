@@ -267,7 +267,9 @@ Caddy does all four by default, and gets the certificate itself:
 
 ```caddyfile
 herdr.example.com {
-	reverse_proxy 127.0.0.1:7317
+	reverse_proxy 127.0.0.1:7317 {
+		header_up -Tailscale-User-Login
+	}
 }
 ```
 
@@ -291,6 +293,7 @@ server {
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Tailscale-User-Login "";
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 1h;
@@ -301,7 +304,9 @@ server {
 
 The `map` block goes in the `http` section. `proxy_read_timeout` keeps an idle terminal connected, and `proxy_buffering off` lets the PC list update live.
 
-To check it, open `https://herdr.example.com/api/health` from another device: `"via"` must not be `"local"`.
+Both examples drop a `Tailscale-User-Login` header a visitor sends. That header is how `tailscale serve` names your own login, and on a PC that runs Tailscale the server trusts it from any proxy on this PC, so a public proxy must not pass a visitor's copy on.
+
+To check it, open `https://herdr.example.com/api/session` from another device without signing in: it must answer 401.
 
 **Sign out** in the header or command palette clears this browser's token and device cookies; terminal sessions and agents keep running. It is shown for token or device authentication, not automatic local or Tailscale access.
 
