@@ -123,6 +123,12 @@ export function holderStartedAt(dir: string, pid: number): number | null {
   return null;
 }
 
+/** The earliest start known among a pane's OmO processes: a helper that keeps no record of its own (an MCP child) says nothing against the engine's. */
+export function earliestStart(starts: readonly (number | null)[]): number | null {
+  const known = starts.filter((start): start is number => start !== null);
+  return known.length > 0 ? Math.min(...known) : null;
+}
+
 /** Bounded, canonical store reads; exact descriptor paths can live outside the cwd slug. */
 export function omoCandidates(cwd: string, home: string, exactPaths: string[] = []): OmoCandidate[] {
   const root = join(home, ".omo", "agent", "sessions");
@@ -177,7 +183,7 @@ function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: ReadonlyMap
     const paths: string[] = [];
     const ids: string[] = [];
     const told = processes.map((process, index) => starts[index] ?? holderStartedAt(dir, process.pid));
-    since.set(pane.pane_id, told.every((start) => start !== null) ? Math.min(...(told as number[])) : null);
+    since.set(pane.pane_id, earliestStart(told));
     held.set(pane.pane_id, processes.flatMap((process, index) => heldSessionIds(dir, process.pid, starts[index] ?? null)));
     for (const process of processes) {
       ids.push(...resumedIds(process.argv ?? []));

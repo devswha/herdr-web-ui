@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { CompletionTracker } from "./completion.ts";
 import { paneAfterStatus } from "./machines.ts";
-import { holderStartedAt } from "./omo.ts";
+import { earliestStart, holderStartedAt } from "./omo.ts";
 import { noTurn, OMO_ALIASES, omoBackgroundTasks, omoSessionId, OmoStatus, omoTurnAfter, omoTurnStatus, readLines, type OmoLine, type OmoPane } from "./omo-status.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-omo-status-"));
@@ -374,6 +374,10 @@ describe("OmO panes' status in place of herdr's", () => {
     expect(holderStartedAt(dir, 4242)).toBe(1_790_000_000_000);
     expect(holderStartedAt(dir, 4243)).toBeNull();
     expect(holderStartedAt(join(root, "nowhere"), 4242)).toBeNull();
+    // a helper process with no record does not undo the engine's
+    expect(earliestStart([1_790_000_000_000, null])).toBe(1_790_000_000_000);
+    expect(earliestStart([5, 3])).toBe(3);
+    expect(earliestStart([null])).toBeNull();
   });
 
   it("keeps a remote PC's count of background tasks as its frames say", () => {
