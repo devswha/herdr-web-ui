@@ -256,21 +256,28 @@ export class HerdrSocket {
 
   /** Send once on this connection. Only a result callback is retained, never the value. */
   sendSecret(paneId: string, prompt: string, secret: string): Promise<SubmitResult> | null {
-    if (!this.connected || this.mode === "observe") return null;
-    if (!this.features.has("secret-input")) return Promise.resolve({ ok: false, code: "unsupported", message: "Update this PC to use masked input." });
-    const id = this.nextSubmit++;
-    const result = new Promise<SubmitResult>((resolve) => {
-      this.submits.set(id, resolve);
-      window.setTimeout(() => {
-        if (this.submits.delete(id)) resolve({ ok: false, code: "timeout", message: "Check the terminal before trying again." });
-      }, 15_000);
-    });
-    try { this.rawSend({ type: "secret", id, pane_id: paneId, prompt, secret }); }
-    catch {
-      this.submits.get(id)?.(DISCONNECTED);
-      this.submits.delete(id);
-    } finally { secret = ""; }
-    return result;
+    const socket = this.socket;
+    if (!this.connected || socket === null || this.mode === "observe") return null;
+    return (async (): Promise<SubmitResult> => {
+      // right after a reconnect the terminal's output can arrive before the snapshot that says
+      // whether the server takes masked input: wait for it, as a submit does
+      await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
+      if (!this.connected || this.socket !== socket) { secret = ""; return DISCONNECTED; }
+      if (!this.features.has("secret-input")) { secret = ""; return { ok: false, code: "unsupported", message: "Update this PC to use masked input." }; }
+      const id = this.nextSubmit++;
+      const result = new Promise<SubmitResult>((resolve) => {
+        this.submits.set(id, resolve);
+        window.setTimeout(() => {
+          if (this.submits.delete(id)) resolve({ ok: false, code: "timeout", message: "Check the terminal before trying again." });
+        }, 15_000);
+      });
+      try { this.rawSend({ type: "secret", id, pane_id: paneId, prompt, secret }); }
+      catch {
+        this.submits.get(id)?.(DISCONNECTED);
+        this.submits.delete(id);
+      } finally { secret = ""; }
+      return result;
+    })();
   }
 
   private settleSubmits(result: SubmitResult): void {

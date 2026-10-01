@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A password or PIN sent right after a reconnect is no longer refused with "Update this PC to
+  use masked input". The terminal's output could arrive before the server had said what it
+  supports, and a Send in that gap sent nothing
+  ([#244](https://github.com/devswha/herdr-web-ui/pull/244)).
 - A Stop, an Enter or anything typed right after a message no longer reaches the pane once the
   connection that sent it has closed. It waited behind the message and was sent afterwards, with
   nobody watching. The message itself is still finished for a phone that locks
