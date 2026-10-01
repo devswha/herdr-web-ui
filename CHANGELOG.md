@@ -53,7 +53,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and arrows when its hint names them. An answer to a changed screen is refused. Each such
   wait is logged once ([#205](https://github.com/devswha/herdr-web-ui/pull/205) by @Haeminway1, [#216](https://github.com/devswha/herdr-web-ui/pull/216)).
 - **Add PC** on a Windows host now says that Windows hosts are not supported yet, instead of
-  failing with the host shell's "'sh' is not recognized" ([#208](https://github.com/devswha/herdr-web-ui/pull/208), #189).
+  failing with the host shell's "'sh' is not recognized" ([#208](https://github.com/devswha/herdr-web-ui/pull/208), [#189](https://github.com/devswha/herdr-web-ui/issues/189)).
 - A pane waiting for another web bridge no longer frees its input for a moment and reports the
   wait twice when herdr's refusal of a retry arrives slowly (a busy PC). It keeps waiting and
   tries again instead, however late that refusal's exit is
