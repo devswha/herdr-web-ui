@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 import type { SlashCommand } from "../shared/protocol.ts";
@@ -112,14 +112,28 @@ function customCommands(root: string, source: SlashCommand["source"]): SlashComm
 /**
  * Templates are commands. A conventional prompt directory holds direct `.md` children only —
  * pi reads no deeper there, so recursing would offer commands pi never loads.
+ *
+ * A link is asked of what it points at, not of itself: pi stats the entry, so a `.md` reached
+ * through a symlink is a template it loads, and a directory is not one however the link is named.
  */
 function piTemplates(root: string, source: SlashCommand["source"]): SlashCommand[] {
   if (!existsSync(root)) return [];
   const result: SlashCommand[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    if (!entry.name.endsWith(".md")) continue;
+    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
     let markdown: string;
-    try { markdown = readFileSync(join(root, entry.name), "utf8"); } catch { continue; }
+    try {
+      // the target is what gets read, so the target is what gets asked: a broken link throws here
+      // and is skipped, as pi skips it, and a link to a folder fails isFile however it is named.
+      // One path for links and plain files alike — the stat costs less than the read that follows
+      // and keeps the two from being judged by different rules
+      const target = join(root, entry.name);
+      if (!statSync(target).isFile()) continue;
+      markdown = readFileSync(target, "utf8");
+    } catch {
+      continue;
+    }
     result.push({ name: entry.name.slice(0, -3), description: description(markdown), source });
   }
   return result;

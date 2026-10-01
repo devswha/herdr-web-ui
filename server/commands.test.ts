@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -110,6 +110,36 @@ describe("pi's slash commands", () => {
       { name: "skill:from-agents", description: "Found under ~/.agents", source: "skill" },
       { name: "skill:pdf-tools", description: "Extract text from PDFs", source: "skill" },
     ]);
+  });
+
+  it("offers a template reached through a symbolic link", () => {
+    // pi reads a prompt directory with readdir + stat, so a link to a .md file is a file to it and
+    // the command is loaded. `entry.isFile()` on the directory entry asks the link itself, which
+    // answers false, and the chat silently hid a command the agent would run — the common way to
+    // keep one review prompt shared between a dotfiles repo and an agent dir
+    const home = temp("pi-home-");
+    const elsewhere = temp("pi-shared-");
+    put(join(elsewhere, "review.md"), "---\ndescription: Review staged git changes\n---\nbody\n");
+    mkdirSync(join(home, ".pi", "agent", "prompts"), { recursive: true });
+    symlinkSync(join(elsewhere, "review.md"), join(home, ".pi", "agent", "prompts", "review.md"));
+    const commands = paneCommands("pi", null, home).filter((command) => command.source === "user");
+    expect(commands).toEqual([{ name: "review", description: "Review staged git changes", source: "user" }]);
+  });
+
+  it("skips a prompt link that resolves to nothing or to a folder", () => {
+    // a broken link is skipped by pi too (its stat throws), and a folder is not a template: a
+    // conventional prompt directory loads its direct .md children and nothing below one, so
+    // following a link to a folder would offer commands pi never loads
+    const home = temp("pi-home-");
+    const elsewhere = temp("pi-shared-");
+    put(join(elsewhere, "deep.md"), "---\ndescription: nested under a linked folder\n---\n");
+    mkdirSync(join(home, ".pi", "agent", "prompts"), { recursive: true });
+    symlinkSync(join(elsewhere, "gone.md"), join(home, ".pi", "agent", "prompts", "broken.md"));
+    // named .md so the name test alone cannot pass it: only the stat knows it is a folder
+    symlinkSync(elsewhere, join(home, ".pi", "agent", "prompts", "folder.md"));
+    symlinkSync(join(elsewhere, "deep.md"), join(home, ".pi", "agent", "prompts", "ok.md"));
+    const names = paneCommands("pi", null, home).filter((command) => command.source === "user").map((command) => command.name);
+    expect(names).toEqual(["ok"]);
   });
 
   it("reads no deeper than pi does in a prompt directory", () => {
