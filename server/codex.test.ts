@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexCallFailed, codexHistoryTail, codexRolloutPath, forgetHistoryChains, matchCodexTranscript, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
@@ -183,7 +183,8 @@ describe("Codex rollout resolution", () => {
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
   it("accepts files inside the store and rejects traversal, external symlinks, missing files and directories", () => {
-    const root = mkdtempSync(join(tmpdir(), "herdr-codex-path-")); roots.push(root);
+    // an accepted rollout comes back canonical; macOS's tmpdir is a symlink into /private
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-codex-path-"))); roots.push(root);
     const home = join(root, "codex"); const sessions = join(home, "sessions");
     mkdirSync(sessions, { recursive: true });
     const path = join(sessions, "rollout.jsonl"); writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { source: "cli", thread_source: "user" } }));
