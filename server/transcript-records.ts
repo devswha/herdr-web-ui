@@ -58,7 +58,8 @@ export function piNotice(value: unknown): string | null {
 
 /** The one-line summary a collapsed tool chip shows. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
-  const first = input["command"] ?? input["file_path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
+  // pi names a file `path` where Claude names it `file_path`; both are worth showing.
+  const first = input["command"] ?? input["file_path"] ?? input["path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
   return typeof first === "string" ? first.slice(0, 120) : name;
 }
 

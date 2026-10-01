@@ -29,8 +29,8 @@ describe("recorded conversation model settings", () => {
     ), "codex-transcript")).toEqual({ model: "second", reasoning_effort: null });
   });
 
-  it("updates independent omp/omo model and thinking settings, including off", () => {
-    for (const source of ["omp-transcript", "omo-transcript"] as const) {
+  it("updates independent omp/omo/pi model and thinking settings, including off", () => {
+    for (const source of ["omp-transcript", "omo-transcript", "pi-transcript"] as const) {
       expect(parseConversationMetadata(jsonl(
         { type: "model_change", modelId: "first" },
         { type: "thinking_level_change", thinkingLevel: "max" },
@@ -92,5 +92,13 @@ describe("context use", () => {
     const entry = { type: "message", message: { role: "assistant", model: "gpt-6", usage: { input: 2, output: 7_000, cacheRead: 10_000, cacheWrite: 22_000 } } };
     expect(parseConversationMetadata(jsonl(entry), "omo-transcript").context).toEqual({ used: 32_002, window: null });
     expect(parseConversationMetadata(jsonl({ type: "message", message: { role: "user" } }), "omp-transcript").context).toBeUndefined();
+  });
+
+  it("reads pi's usage shape, which names the same fields omp does", () => {
+    const entry = { type: "message", message: { role: "assistant", model: "qwen-test", usage: { input: 4_924, output: 198, cacheRead: 18_400, cacheWrite: 1_000, reasoning: 53, totalTokens: 24_522 } } };
+    // the context an agent actually fills is what it paid for: input plus both cache tiers
+    expect(parseConversationMetadata(jsonl(entry), "pi-transcript")).toEqual({
+      model: "qwen-test", reasoning_effort: null, context: { used: 24_324, window: null },
+    });
   });
 });

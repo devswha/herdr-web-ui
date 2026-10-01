@@ -63,7 +63,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>모든 클립은 데스크톱과 폰을 동시에 녹화한 실제 동작입니다. 누르면 약 20초짜리 전체 영상을 볼 수 있습니다.</sub></p>
 
-- **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc의 대화 기록을 그대로 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. [지원 에이전트 →](docs/guide.md#supported-agents)
+- **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc와 pi의 대화 기록을 그대로 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. [지원 에이전트 →](docs/guide.md#supported-agents)
 - **탭 한 번으로 승인** — 승인 요청, 질문, 계획 메뉴가 카드로 뜹니다. 답을 보내기 전에 그 질문이 아직 유효한지 확인합니다.
 - **내가 필요할 때 알림** — 모든 pane의 상태를 실시간으로 보여 주고, 에이전트가 입력을 기다리거나 일을 끝내면 앱이 닫혀 있어도 푸시 알림을 보냅니다.
 - **폰에 설치해서 쓰기** — 키보드 위에 Esc, Tab, Ctrl, 방향키가 붙은 PWA입니다. Tailscale 주소는 QR 코드로 받아 갑니다. [폰 설정 →](docs/guide.md#on-your-phone)

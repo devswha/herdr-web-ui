@@ -1,0 +1,124 @@
+import { afterAll, beforeAll, expect, it } from "bun:test";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { createServer } from "./index.ts";
+import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
+import type { ConversationResponse } from "../shared/protocol.ts";
+
+// Real herdr metadata + HTTP + native files, all under an owned workspace/store.
+const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-pi-contract-"));
+const sessionDir = join(root, ".pi", "agent", "sessions");
+const slug = join(sessionDir, `--${root.replaceAll("/", "-")}--`);
+const transcript = join(slug, "session.jsonl");
+let workspaceId: string | undefined;
+let paneId: string;
+let server: ReturnType<typeof createServer>;
+// herdr keeps one session report per pane and refuses one older than the last.
+let seq = Date.now() * 1000;
+const nextSeq = () => ++seq;
+const reportSession = (path: string) =>
+  herdrRpc("pane.report_agent_session", { pane_id: paneId, source: "herdr:pi", agent: "pi", seq: nextSeq(), agent_session_path: path, session_start_source: "startup" });
+
+const page = (entries: unknown[]) => [
+  { type: "session", version: 3, id: "session", timestamp: new Date().toISOString(), cwd: root },
+  ...entries,
+].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+
+const turns = (prompt: string, answer: string) => page([
+  { type: "model_change", id: "m1", parentId: null, timestamp: "2026-09-30T00:00:00Z", provider: "test", modelId: "pi-contract-model" },
+  { type: "message", id: "u1", parentId: "m1", timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: [{ type: "text", text: prompt }] } },
+  { type: "message", id: "a1", parentId: "u1", timestamp: "2026-09-30T00:00:02Z", message: {
+    role: "assistant", model: "pi-contract-model", provider: "test", stopReason: "stop",
+    usage: { input: 10, output: 5, cacheRead: 20, cacheWrite: 0 },
+    content: [{ type: "text", text: answer }],
+  } },
+]);
+
+beforeAll(async () => {
+  process.env["PI_CODING_AGENT_SESSION_DIR"] = sessionDir;
+  mkdirSync(slug, { recursive: true });
+  // herdr takes a session report only from an agent holding the pane: one it detected
+  // running there, reporting under its own integration source. A fake pi stands in.
+  const bin = join(root, "bin");
+  mkdirSync(bin, { recursive: true });
+  const fakePi = join(bin, "pi");
+  writeFileSync(fakePi, "#!/bin/sh\nsleep 600\n");
+  chmodSync(fakePi, 0o755);
+  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-pi-contract" });
+  workspaceId = created.workspace.workspace_id;
+  paneId = created.root_pane.pane_id;
+  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${fakePi}\n` });
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+    if (pane?.agent === "pi") break;
+    await Bun.sleep(50);
+  }
+  await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr:pi", agent: "pi", state: "idle", seq: nextSeq() });
+  await reportSession(transcript);
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push") });
+});
+
+afterAll(async () => {
+  server?.stop();
+  if (workspaceId) await workspaceClose(workspaceId);
+  delete process.env["PI_CODING_AGENT_SESSION_DIR"];
+  rmSync(root, { recursive: true, force: true });
+});
+
+const read = async (): Promise<ConversationResponse> => {
+  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+  expect(response.status).toBe(200);
+  return await response.json() as ConversationResponse;
+};
+
+it("serves a pi pane's native transcript over HTTP", async () => {
+  writeFileSync(transcript, turns("Check chat", "Answer one"));
+  const first = await read();
+  expect(first.source).toBe("pi-transcript");  expect(first.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
+  expect(first.turns[0]!.parts).toEqual([{ kind: "text", text: "Check chat" }]);
+  expect(first.metadata).toEqual({ model: "pi-contract-model", reasoning_effort: null, context: { used: 30, window: null } });
+});
+
+it("follows the pane to a new session file when /new or /resume replaces it", async () => {  const before = await read();
+  const replacement = join(slug, "replacement.jsonl");
+  writeFileSync(replacement, turns("New topic", "Answer from the new session"));
+  // pi emits no history marker: the integration re-reports the path herdr holds.
+  await reportSession(replacement);
+  const after = await read();
+  expect(after.source).toBe("pi-transcript");
+  expect(after.history_id).not.toBe(before.history_id);
+  expect(after.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
+  expect(after.turns[0]!.parts).toEqual([{ kind: "text", text: "New topic" }]);
+  // the previous conversation is gone: it lived in the abandoned file
+  expect(JSON.stringify(after.turns)).not.toContain("Check chat");
+});
+
+it("shows the branch /tree leaves the leaf on, and invalidates the pages held before it", async () => {
+  await reportSession(transcript); // /resume back to the session this pane began on
+  const before = await read();
+  expect(JSON.stringify(before.turns)).toContain("Answer one");
+  // pi writes the new answer beside the old one, parented to the prompt, and moves the leaf
+  const branched = [...turns("Check chat", "Answer one").trimEnd().split("\n")];
+  const prompt = JSON.parse(branched[2]!);
+  branched.push(JSON.stringify({
+    type: "message", id: "a2", parentId: prompt.id, timestamp: new Date().toISOString(),
+    message: { role: "assistant", model: "pi-contract-model", stopReason: "stop", content: [{ type: "text", text: "the retried answer" }] },
+  }));
+  writeFileSync(transcript, branched.join("\n") + "\n");
+  const after = await read();
+  expect(after.source).toBe("pi-transcript");
+  expect(after.history_id).not.toBe(before.history_id); // same file, same size class: the tree moved
+  expect(JSON.stringify(after.turns)).toContain("the retried answer");
+  expect(JSON.stringify(after.turns)).not.toContain("Answer one");
+});
+
+it("falls back to the scrollback when the reported path leaves the store", async () => {
+  const outside = join(root, "outside.jsonl");
+  writeFileSync(outside, turns("Must not be read", "no"));
+  await reportSession(outside);
+  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ source: "scrollback", turns: [] });
+});

@@ -15,6 +15,11 @@
  *   parseOmpTranscript (transcript-records.ts) reads it.
  * - gjc: an open session file or fresh native terminal breadcrumb belonging to
  *   its process (gjc-runtime.ts). It writes omp's session shape too.
+ * - pi: herdr's agent.get names the session jsonl outright under
+ *   ~/.pi/agent/sessions/<cwd-slug>/ (pi.ts). Its records are the session shape
+ *   parseOmpTranscript reads, but its file is an entry tree, not a log: /tree
+ *   moves the leaf and appends beside the path it left (pi-tree.ts), so the
+ *   stream is projected onto the branch the leaf stands on before it is read.
  *
  * This module turns those files into the conversation the chat lens renders;
  * the pty stays the input path. Pure parsing lives in parseClaudeTranscript /
@@ -33,6 +38,8 @@ import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { piTranscriptPath } from "./pi.ts";
+import { piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
@@ -223,7 +230,7 @@ export class HistoryChanged extends Error {
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "codex-transcript";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript";
   turns: ConversationTurn[];
   metadata: ConversationMetadata;
   /** the first turn's position, for the page before it; null at the conversation's beginning */
@@ -255,7 +262,8 @@ export type ConversationPage = { before?: string; since?: string; from?: string 
 interface TranscriptStream {
   /** the live file's identity: cursors from any other file are refused */
   id: string;
-  files: { path: string; start: number; length: number }[];
+  /** `offset` is where the segment starts in its file: equal to `start` for a whole prefix */
+  files: { path: string; start: number; length: number; offset: number }[];
   length: number;
   floor: number;
 }
@@ -274,25 +282,45 @@ function transcriptGeneration(path: string, stat: { dev: number; ino: number; si
 }
 
 function transcriptStream(source: RecognizedConversation["source"], path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }, codexHome: string): TranscriptStream {
-  // (a chain whose parent was archived since comes back shorter: codexHistorySegments)
-  const segments = source === "codex-transcript" ? codexHistorySegments(path, codexHome) : [{ path, end: stat.size }];
+  // (a chain whose parent was archived since comes back shorter: codexHistorySegments;
+  // a pi branch skips the side paths a /tree left behind: piBranchSegments)
+  const branch = source === "pi-transcript" ? piBranchSegments(path, stat.size) : null;
+  if (source === "pi-transcript" && branch === null) throw new ConversationUnavailable("branch_unreadable");
+  const segments: { path: string; start: number; end: number }[] = source === "codex-transcript"
+    ? codexHistorySegments(path, codexHome).map((segment) => ({ path: segment.path, start: 0, end: segment.end }))
+    : branch !== null ? branch.map((segment) => ({ path, start: segment.start, end: segment.end }))
+    : [{ path, start: 0, end: stat.size }];
   const files: TranscriptStream["files"] = [];
-  let start = 0;
+  let stream = 0;
   for (const segment of segments) {
     // the live file is read to the size it had when it was identified
-    const length = segment.path === path ? Math.min(segment.end, stat.size) : segment.end;
-    files.push({ path: segment.path, start, length });
-    start += length;
+    const end = segment.path === path ? Math.min(segment.end, stat.size) : segment.end;
+    const length = end - segment.start;
+    if (length <= 0) continue;
+    files.push({ path: segment.path, start: stream, length, offset: segment.start });
+    stream += length;
   }
   // Positions count from the start of the whole chain: a cursor names the live file AND
   // the rollouts before it, so one read against another chain (an earlier rollout found
   // later, a parent since archived) answers 409 instead of pointing at other turns.
-  const earlier = files.slice(0, -1).map((file) => {
-    const identity = statSync(file.path, { throwIfNoEntry: false });
-    return `${file.path}\0${file.length}\0${identity ? `${identity.dev}:${identity.ino}` : "-"}`;
-  });
-  const chain = earlier.length === 0 ? "" : `-${createHash("sha256").update(earlier.join("\n")).digest("base64url").slice(0, 10)}`;
-  return { id: `${stat.dev.toString(36)}-${stat.ino.toString(36)}${chain}${transcriptGeneration(path, stat)}`, files, length: start, floor: 0 };
+  // A pi branch is laid out from one file, so its layout stands in for that chain: /tree
+  // moves the conversation to other bytes while the file, its inode and its size all stay
+  // put. Every range counts by where it starts, and by where it ends too except the last:
+  // the last one grows with every append, and history_id must stay stable across appends.
+  // Two /tree moves away from the same entry share their head ranges and differ only
+  // where their tails begin, so the last range's start is what tells them apart.
+  let chain = "";
+  if (branch !== null) {
+    const layout = files.map((file, at) => (at === files.length - 1 ? `${file.offset}` : `${file.offset}\0${file.length}`)).join("\n");
+    chain = `-${createHash("sha256").update(layout).digest("base64url").slice(0, 10)}`;
+  } else if (source === "codex-transcript") {
+    const earlier = files.slice(0, -1).map((file) => {
+      const identity = statSync(file.path, { throwIfNoEntry: false });
+      return `${file.path}\0${file.length}\0${identity ? `${identity.dev}:${identity.ino}` : "-"}`;
+    });
+    chain = earlier.length === 0 ? "" : `-${createHash("sha256").update(earlier.join("\n")).digest("base64url").slice(0, 10)}`;
+  }
+  return { id: `${stat.dev.toString(36)}-${stat.ino.toString(36)}${chain}${transcriptGeneration(path, stat)}`, files, length: stream, floor: 0 };
 }
 
 function readStream(stream: TranscriptStream, from: number, to: number): Buffer {
@@ -304,7 +332,7 @@ function readStream(stream: TranscriptStream, from: number, to: number): Buffer 
     const fd = openSync(file.path, "r");
     try {
       const buffer = Buffer.alloc(high - low);
-      chunks.push(buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, low - file.start)));
+      chunks.push(buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, file.offset + (low - file.start))));
     } finally {
       closeSync(fd);
     }
@@ -358,12 +386,14 @@ const TURN_MARK: Record<RecognizedConversation["source"], Buffer> = {
   "omp-transcript": Buffer.from('"user"'),
   "omo-transcript": Buffer.from('"user"'),
   "gjc-transcript": Buffer.from('"user"'),
+  "pi-transcript": Buffer.from('"user"'),
 };
 
 /**
  * Does this line open a turn? Pages start at such lines, so a page never splits
  * a turn: a Codex task (its prompt, duplicate records and tool calls all follow
- * task_started), a Claude or omp prompt (tool results answer the turn before it).
+ * task_started), a Claude or omp prompt (tool results answer the turn before it),
+ * and the same for pi, whose prompts are `message` records with a user role.
  */
 function opensTurn(source: RecognizedConversation["source"], line: string): boolean {
   let entry: { type?: unknown; isMeta?: unknown; isCompactSummary?: unknown; payload?: { type?: unknown }; message?: { role?: unknown; content?: unknown } };
@@ -685,6 +715,12 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]) };
     if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId) };
     if (agent === "gjc") return { source: "gjc-transcript", path: await gjcTranscriptPath(paneId, cwd) };
+    // pi's own label only routes pi: an omo pane was taken above, by its process tree.
+    if (agent === "pi") {
+      const path = await piTranscriptPath(paneId);
+      if (!path) throw new ConversationUnavailable("no_session_path");
+      return { source: "pi-transcript", path };
+    }
     throw new ConversationUnavailable("no_recognized_transcript");
   } catch (error) {
     if (!(error instanceof ConversationUnavailable) || !(await paneRunsOmo(paneId))) throw error;
@@ -729,7 +765,10 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
   try {
     stream = transcriptStream(source, path, stat, codexHome ?? defaultCodexHome());
     applyHistoryBoundary(path, stream, source);
-  } catch {
+  } catch (error) {
+    // a branch that cannot be walked says so; a file that went unreadable mid-read has
+    // one answer, and an unreadable branch has its own
+    if (error instanceof ConversationUnavailable) throw error;
     throw new ConversationUnavailable("transcript_missing");
   }
   // an older page never changes while its file and the rollouts before it stay the same
@@ -866,9 +905,32 @@ export function transcriptToolOutput(source: RecognizedConversation["source"], p
     }
     return null;
   }
+  if (source === "pi-transcript") return piToolOutput(path, ref);
   let text: string;
   try { text = readFileSync(path, "utf8"); } catch { return null; }
   return outputInText(source, text, ref);
+}
+
+/**
+ * One whole tool output by ref. A pi output lives on the active branch only: reading the
+ * file whole would answer a ref from a branch a /tree abandoned, whose output the chat
+ * never showed, so the branch is read the way the conversation is.
+ */
+function piToolOutput(path: string, ref: string): string | null {
+  let size: number;
+  let branch: ReturnType<typeof piBranchSegments>;
+  try { size = statSync(path).size; branch = piBranchSegments(path, size); } catch { return null; }
+  if (branch === null) return null;
+  const fd = openSync(path, "r");
+  try {
+    for (const segment of branch) {
+      const buffer = Buffer.alloc(segment.end - segment.start);
+      if (readSync(fd, buffer, 0, buffer.length, segment.start) !== buffer.length) continue;
+      const output = outputInText("pi-transcript", buffer.toString("utf8"), ref);
+      if (output !== null) return output;
+    }
+  } finally { closeSync(fd); }
+  return null;
 }
 
 function outputInText(source: RecognizedConversation["source"], text: string, ref: string): string | null {

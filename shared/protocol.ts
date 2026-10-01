@@ -68,7 +68,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
  *  POST   /api/pane/input  { pane_id, text }   -> { ok: true }
  *  GET    /api/pane/conversation?pane_id=    -> ConversationResponse (structured agent
- *         transcript turns - claude, codex, omp or omo; source:"scrollback" when the pane has no
+ *         transcript turns - claude, codex, omp, omo, gjc or pi; source:"scrollback" when the pane has no
  *         recognized store)
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
@@ -274,7 +274,7 @@ export interface ConversationMetadata {
 export interface ConversationResponse {
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "codex-transcript" | "scrollback";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**

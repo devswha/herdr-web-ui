@@ -187,6 +187,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   sign-in expired, a provider asking to slow down) dims them and says why in its row
   ([#206](https://github.com/devswha/herdr-web-ui/pull/206) by @Haeminway1, [#217](https://github.com/devswha/herdr-web-ui/pull/217)).
 
+- A pi pane is a chat. Its own session file under `~/.pi/agent/sessions` is read through herdr,
+  so prompts, thinking, tool calls with their results, the model and the reasoning level show
+  the way they do for omp. `/new`, `/resume`, `/fork` and `/clone` move the chat to the session
+  that replaced the old one, and after a `/tree` it shows the branch in play: the paths pi
+  navigated away from stay in the file, unread, as they do in pi. Answering a prompt from the
+  chat is not there yet, so use Terminal for that. A session directory chosen with
+  `--session-dir` or the `sessionDir` setting is not found; `PI_CODING_AGENT_SESSION_DIR` is.
+
 ### Fixed
 - A table an agent indents under a list item shows as a table in that item in the chat. It was
   read as the item's text, so its rows ran together on one line with their pipes. The list goes

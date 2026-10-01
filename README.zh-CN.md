@@ -63,7 +63,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>每段片段都是同时录制电脑和手机的真实操作。点击可播放约 20 秒的完整视频。</sub></p>
 
-- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo 和 gjc 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
+- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc 和 pi 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。
 - **需要你时及时提醒** — 实时显示每个窗格的状态；智能体需要输入或完成任务时发送推送通知，即使应用已关闭也能收到。
 - **安装到手机** — PWA 在键盘上方提供 Esc、Tab、Ctrl 和方向键，Tailscale 地址以二维码显示。[手机设置 →](docs/guide.md#on-your-phone)
