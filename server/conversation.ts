@@ -39,7 +39,7 @@ import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
 import { piTranscriptPath } from "./pi.ts";
-import { piBranchSegments } from "./pi-tree.ts";
+import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
@@ -211,7 +211,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
 }
 
 /** Re-parse on file changes, including replacement and same-size rewrites. */
-const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null }>();
+const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; abandoned?: { count: number; summary: string | null } }>();
 
 export class ConversationUnavailable extends Error {
   constructor(reason: string) {
@@ -235,6 +235,12 @@ export type RecognizedConversation = {
   metadata: ConversationMetadata;
   /** the first turn's position, for the page before it; null at the conversation's beginning */
   cursor: string | null;
+  /**
+   * Turns the file holds on paths a `/tree` walked away from, which no page of this conversation
+   * can reach; absent for every agent that keeps no entry tree. pi moves its leaf without writing
+   * anything, so the chat would otherwise drop those turns with no sign they were ever there.
+   */
+  abandoned?: { count: number; summary: string | null };
   history_id: string;
   /** changes whenever the answer could: the route's ETag, so an unchanged poll costs no body */
   version: string;
@@ -781,7 +787,9 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
   const cached = cache.get(key);
   // the answer is a function of the page asked for and the file's state, so they name it
   const version = answerVersion(key, signature);
-  if (cached?.signature === signature) return { source, turns: cached.turns, metadata: cached.metadata, cursor: cached.cursor, history_id: stream.id, version };
+  if (cached?.signature === signature) {
+    return { source, turns: cached.turns, metadata: cached.metadata, cursor: cached.cursor, abandoned: cached.abandoned, history_id: stream.id, version };
+  }
 
   let start: number;
   let text: string;
@@ -829,9 +837,12 @@ export function transcriptPage(source: RecognizedConversation["source"], path: s
   // Record the stat from BEFORE the read: an append during parsing must cause
   // another read on the next poll, not permanently cache a torn tail.
   cache.delete(key);
-  cache.set(key, { signature, turns, metadata, cursor });
+  // the abandoned turns live outside the branch's byte ranges, so the page cannot see them: a
+  // straight line answers { count: 0 }, which is most sessions and costs the client nothing
+  const abandoned = source === "pi-transcript" ? piAbandonedTurns(path, stat.size) ?? undefined : undefined;
+  cache.set(key, { signature, turns, metadata, cursor, abandoned });
   if (cache.size > 32) cache.delete(cache.keys().next().value!);
-  return { source, turns, metadata, cursor, history_id: stream.id, version };
+  return { source, turns, metadata, cursor, abandoned, history_id: stream.id, version };
 }
 
 /**

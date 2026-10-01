@@ -34,14 +34,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   refused is reported as failed instead of as done. Enter is now pressed as a key after the
   text, not sent as a carriage return inside it
   ([#263](https://github.com/devswha/herdr-web-ui/pull/263)).
-- A pi dialog shows on a phone. A phone leaves pi a pane barely wide enough for its own hint, so
-  the hint wraps, and pi keeps its footer underneath: the wrapped hint then sat further from the
-  bottom than the window that tells a live dialog from an answered one reached, so no card came up
-  at all. `/model` failed twice over — the hint itself wrapping, and a model's own name wrapping so
-  that the provider's bracket, which is what tells a row from pi's notes, fell onto a line of its
-  own among them. The wrap is joined back before the screen is read, and a row still missing its
-  provider voids the whole reading, because a name cut in half would switch pi to a model that
-  does not exist
 - A pane running a command that is only given an omo path (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is
   no longer shown as OmO or counted as a second OmO in its folder. Only the program a pane runs
   counts, or the script that node or bun runs
@@ -194,38 +186,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and when it resets. A tap opens every limit. An account whose numbers are old or missing (a
   sign-in expired, a provider asking to slow down) dims them and says why in its row
   ([#206](https://github.com/devswha/herdr-web-ui/pull/206) by @Haeminway1, [#217](https://github.com/devswha/herdr-web-ui/pull/217)).
-
-- A pi pane is a chat. Its own session file under `~/.pi/agent/sessions` is read through herdr,
-  so prompts, thinking, tool calls with their results, the model and the reasoning level show
-  the way they do for omp. `/new`, `/resume`, `/fork` and `/clone` move the chat to the session
-  that replaced the old one, and after a `/tree` it shows the branch in play: the paths pi
-  navigated away from stay in the file, unread, as they do in pi. Where pi folded old context
-  into a summary — on `/compact`, or by itself — the chat says so and opens the summary. A pi
-  dialog answers from the chat too: an extension's question, a Yes/No, and one that wants text
-  typed, though not `/tree` itself, which would move the session's branch. pi calls itself idle
-  while it waits on a dialog, never blocked, so the card comes from its screen. A session
-  directory chosen with `--session-dir` or the `sessionDir` setting is not found;
-  `PI_CODING_AGENT_SESSION_DIR` is.
-- A picture a pi tool opened shows in the chat. pi keeps the image a `read` returned in the
-  session file beside the text it answers with, so a screenshot the agent looked at was in the
-  transcript and invisible here; it now shows inside that tool's row, and opens full size on a
-  tap. Only the address travels in the conversation, so the bytes arrive when the row is opened
-  and not on every poll, and an image left behind by a `/tree` stays out of reach, the way its
-  output does.
-- A pi pane's context ring shows. What a request filled was already recorded; the window it
-  filled was not, so the ring had nothing to divide by and stayed hidden. It now reads the
-  window from the same `~/.pi/agent/models.json` pi reads its own providers from, and the
-  figure matches what pi's own footer says. A model that file does not state keeps no ring:
-  pi answers those from its built-in catalogue or from a running llama.cpp server, neither of
-  which a reader of the transcript can ask, and a window invented would show a percentage no
-  different from the real one.
-- A pi pane's message box lists pi's own slash commands as you type `/`, the way it does for
-  Claude Code, Codex and omp: pi's built-ins in pi's words, the templates in `~/.pi/agent/prompts`
-  and the skills under `~/.pi/agent/skills` and `~/.agents/skills`. A project's own skills and
-  prompt templates stay out of the list, because pi loads those only once you have trusted the
-  folder, and a command the agent will not run is worse than one missing from the menu.
-- The browser demo runs a pi pane, backfilled into the recorded snapshot when the fixtures
-  predate it: `site/demo/fixtures.ts` is the only file a new demo agent needs.
 
 ### Fixed
 - A table an agent indents under a list item shows as a table in that item in the chat. It was

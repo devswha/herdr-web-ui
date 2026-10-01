@@ -289,6 +289,15 @@ export interface ConversationResponse {
    * `history_changed`.
    */
   cursor?: string | null;
+  /**
+   * Turns the transcript holds on paths a `/tree` walked away from, which no page of this
+   * conversation can reach. pi moves its leaf pointer without writing an entry, so those turns
+   * would otherwise leave the chat with no sign they were ever there. `summary` is pi's own account
+   * of the abandoned path, kept when the user answered `/tree`'s "Summarize branch?" with one.
+   * A session no `/tree` touched answers `{ count: 0 }` — drawn as nothing — since zero and
+   * "unknown" are different answers. Absent for every agent that keeps no entry tree.
+   */
+  abandoned?: { count: number; summary: string | null };
 }
 
 /** GET /api/agents: one agent kind herdr can start (`agent.start` kind), with a display label. */

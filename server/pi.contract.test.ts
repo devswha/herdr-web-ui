@@ -171,6 +171,34 @@ it("shows the branch /tree leaves the leaf on, and invalidates the pages held be
   expect(JSON.stringify(after.turns)).not.toContain("Answer one");
 });
 
+it("counts the turns a /tree left behind, over HTTP", async () => {
+  writeFileSync(transcript, page([
+    { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "the question" } },
+    { type: "message", id: "a-gone", parentId: "u1", timestamp: "2026-09-30T00:00:02Z", message: { role: "assistant", content: "the abandoned answer" } },
+    { type: "message", id: "u2", parentId: null, timestamp: "2026-09-30T00:00:03Z", message: { role: "user", content: "the retried question" } },
+    { type: "message", id: "a-live", parentId: "u2", timestamp: "2026-09-30T00:00:04Z", message: { role: "assistant", content: "the answer in play" } },
+  ]));
+  const branched = await read();
+  // pi moved its leaf and wrote nothing, so the page is built from the live branch alone; the
+  // count is the only thing that can tell the reader the file holds more than this
+  expect(JSON.stringify(branched.turns)).not.toContain("abandoned");
+  expect(branched.abandoned).toEqual({ count: 2, summary: null });
+
+  // answering /tree's "Summarize branch?" writes pi's own account of the abandoned path
+  writeFileSync(transcript, page([
+    { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "the question" } },
+    { type: "message", id: "a-gone", parentId: "u1", timestamp: "2026-09-30T00:00:02Z", message: { role: "assistant", content: "the abandoned answer" } },
+    { type: "branch_summary", id: "bs", parentId: null, timestamp: "2026-09-30T00:00:03Z", fromId: "a-gone", summary: "Tried the first question; it failed." },
+    { type: "message", id: "u2", parentId: "bs", timestamp: "2026-09-30T00:00:04Z", message: { role: "user", content: "the retried question" } },
+    { type: "message", id: "a-live", parentId: "u2", timestamp: "2026-09-30T00:00:05Z", message: { role: "assistant", content: "the answer in play" } },
+  ]));
+  expect((await read()).abandoned?.summary).toBe("Tried the first question; it failed.");
+
+  // a session no /tree touched answers zero, not absent: the client shows nothing at 0
+  writeFileSync(transcript, turns("Check chat", "Answer one"));
+  expect((await read()).abandoned).toEqual({ count: 0, summary: null });
+});
+
 it("falls back to the scrollback when the reported path leaves the store", async () => {
   const outside = join(root, "outside.jsonl");
   writeFileSync(outside, turns("Must not be read", "no"));

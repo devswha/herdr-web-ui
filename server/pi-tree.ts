@@ -15,7 +15,7 @@ export const MAX_BRANCH_BYTES = 64 * 1024 * 1024;
 /** One range of the transcript file, in the order it should be read. */
 export interface TranscriptSegment { start: number; end: number }
 
-interface PiEntry { id: string; parent: string | null; start: number; end: number }
+interface PiEntry { id: string; parent: string | null; start: number; end: number; type: string; role: string; summary: string | null }
 interface PiIndex {
   /** the tree's children in append order; entries without an id (the session header) are not nodes */
   entries: PiEntry[];
@@ -31,10 +31,22 @@ const piIndexes = new Map<string, PiIndex>();
 
 function indexEntry(line: string, start: number, end: number): PiEntry | null {
   if (!line.includes('"id"')) return null; // the header and a torn fragment answer no sooner
-  let entry: { id?: unknown; parentId?: unknown };
+  let entry: { id?: unknown; parentId?: unknown; type?: unknown; summary?: unknown; message?: { role?: unknown } };
   try { entry = JSON.parse(line); } catch { return null; }
   if (typeof entry.id !== "string" || entry.id.length === 0) return null;
-  return { id: entry.id, parent: typeof entry.parentId === "string" && entry.parentId.length > 0 ? entry.parentId : null, start, end };
+  // type and role are taken here because the line is parsed for this anyway: what counts as a
+  // turn is decided later by a reader that must not pay for a second pass over the file
+  const message = entry.message;
+  const role = message !== null && typeof message === "object" && typeof message.role === "string" ? message.role : "";
+  return {
+    id: entry.id,
+    parent: typeof entry.parentId === "string" && entry.parentId.length > 0 ? entry.parentId : null,
+    start,
+    end,
+    type: typeof entry.type === "string" ? entry.type : "",
+    role,
+    summary: typeof entry.summary === "string" ? entry.summary : null,
+  };
 }
 
 function buildIndex(path: string, size: number): PiIndex {
@@ -147,4 +159,52 @@ export function piBranchSegments(path: string, size: number): TranscriptSegment[
     else segments.push({ start: entry.start, end: entry.end });
   }
   return segments;
+}
+
+/**
+ * What the file holds that the chat cannot show: the turns on paths pi walked away from.
+ *
+ * pi keeps the leaf pointer to itself. `branch()` moves it and writes no entry, and no entry type
+ * names the leaf, so the only branch a reader of the file can rebuild is the one ending at the
+ * last entry written. Every other message in the file was abandoned, and the chat hides it with no
+ * trace it was ever there — which is what this counts, so the reader can say so out loud.
+ *
+ * `count` is turns, not entries: pi's own markers and a tool's result are not bubbles the chat
+ * would have shown. A turn abandoned into several branches is counted once, and `summary` carries
+ * pi's own account of the abandoned path when the user answered `/tree`'s "Summarize branch?" with
+ * a summary — a `branch_summary` entry written on the new branch. `fromId` names where the
+ * abandoned path ended but is not read: the count comes from the tree, which already knows, and one
+ * more source of truth would be one to keep in step. Null when the tree cannot be walked, and
+ * `{ count: 0 }` for a session no `/tree` touched, which is the common case and must cost the
+ * client nothing.
+ */
+export function piAbandonedTurns(path: string, size: number): { count: number; summary: string | null } | null {
+  const index = piEntryIndex(path);
+  if (index === null || index.entries.length === 0) return null;
+  if (index.entries[index.entries.length - 1]!.end > size) return null;
+  const byId = new Map<string, PiEntry>();
+  for (const entry of index.entries) byId.set(entry.id, entry); // later appends win
+  const live = new Set<string>();
+  let next: PiEntry | undefined = index.entries[index.entries.length - 1]!;
+  while (next !== undefined && !live.has(next.id)) {
+    live.add(next.id);
+    next = next.parent === null ? undefined : byId.get(next.parent);
+  }
+  let count = 0;
+  let summary: string | null = null;
+  for (const entry of index.entries) {
+    // pi's summary of an abandoned path sits on the branch that replaced it, so only one on the
+    // live path describes what the chat is hiding here; the newest wins, as a later /tree
+    // supersedes an earlier answer
+    if (entry.type === "branch_summary") {
+      if (!live.has(entry.id)) continue;
+      if (entry.summary !== null && entry.summary.trim().length > 0) summary = entry.summary;
+      continue;
+    }
+    if (live.has(entry.id) || entry.type !== "message") continue;
+    // a tool call and its result are one step of the turn that asked for them, counted with it
+    if (entry.role !== "user" && entry.role !== "assistant") continue;
+    count += 1;
+  }
+  return { count, summary };
 }

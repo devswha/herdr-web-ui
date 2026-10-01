@@ -433,6 +433,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   /** the first answer for this pane arrived (or failed): until then an empty chat is only loading */
   const [loaded, setLoaded] = useState(false);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
+  // turns the transcript holds on a path /tree walked away from: no page can reach them, so the
+  // only way to say they exist is to be told, and to say it where the reader would look for them
+  const [abandoned, setAbandoned] = useState<{ count: number; summary: string | null } | null>(null);
   // the suggestion is handed up from each read, with the pane that read it: never kept here,
   // where a pane switch or a send upstream could leave it stale
   const onSuggestionRef = useRef(onSuggestion);
@@ -478,7 +481,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   useEffect(() => {
     shownPane.current = paneId;
     history.current = undefined; setHistoryId(undefined);
-    stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null);
+    stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null); setAbandoned(null);
     dropOlder();
     lastAnswer.current = null;
     setSentOver(null);
@@ -560,6 +563,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
         if (moved.length > 0) setOlder((turns) => [...turns, ...moved]);
         if (heldFrom.current === null) setOlderCursor(conversation.source === "scrollback" ? undefined : conversation.cursor);
         onMetadata?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
+        setAbandoned(conversation.abandoned ?? null);
         let next: ChatState;
         if (conversation.source !== "scrollback") next = { source: "conversation", turns: conversation.turns, messages: [], truncated: false };
         else {
@@ -719,6 +723,17 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
+      {/* the conversation below is not all the file holds: a /tree left these behind, and pi moved
+          its leaf without writing anything, so nothing here could say they were ever there. First
+          in the transcript, because paging back would otherwise drop them under their own heading */}
+      {state.source === "conversation" && abandoned !== null && abandoned.count > 0 && (
+        <details className="chat-compact chat-abandoned">
+          <summary>{t(abandoned.count === 1 ? "{n} earlier turn on a branch you navigated away from" : "{n} earlier turns on a branch you navigated away from", { n: abandoned.count })}</summary>
+          {abandoned.summary !== null
+            ? <div className="chat-compact-text"><Markdown>{abandoned.summary}</Markdown></div>
+            : <p className="chat-abandoned-note">{t("pi kept them in the session file but answers from the branch you chose. Use /tree in the terminal to go back.")}</p>}
+        </details>
+      )}
       {/* one button in every state: swapping it for a status line of another height would shift the reader */}
       {state.source === "conversation" && typeof olderCursor === "string" && (
         <button type="button" className="btn btn-ghost chat-older" disabled={olderState === "loading"} onClick={() => void loadOlder()}>

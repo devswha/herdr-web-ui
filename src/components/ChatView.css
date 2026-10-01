@@ -883,3 +883,10 @@
 .chat-skill-detail p { margin: 0 0 var(--space-1); color: var(--text-dim); }
 
 .chat-skill[open] .chat-skill-caret { transform: rotate(180deg); }
+
+/* pi moved its leaf and wrote nothing: the turns above are not all the file holds, and this is
+   the only place that can say so. Read-only, so it is quieter than a compaction, which changed
+   what the agent answers from. */
+.chat-abandoned { margin: var(--space-2) 0; }
+.chat-abandoned > summary { font-style: italic; }
+.chat-abandoned-note { margin: var(--space-2) 0 0; color: var(--text-dim); }
