@@ -531,6 +531,8 @@ export const JA: Record<string, string> = {
   "Conversation compacted": "会話を圧縮しました",
   "{n} earlier turn on a branch you navigated away from": "移動で離れたブランチの以前の話 {n}件",
   "{n} earlier turns on a branch you navigated away from": "移動で離れたブランチの以前の話 {n}件",
+  "{n} earlier turn on {b} branches you navigated away from": "移動で離れた {b}件のブランチの以前の話 {n}件",
+  "{n} earlier turns on {b} branches you navigated away from": "移動で離れた {b}件のブランチの以前の話 {n}件",
   "pi kept them in the session file but answers from the branch you chose. Use /tree in the terminal to go back.": "pi はセッションファイルに残していますが、選択したブランチから回答します。ターミナルで /tree を使うと戻れます。",
   "Background result delivered": "バックグラウンドの結果が届きました",
   "Skill activity": "スキルのアクティビティ",

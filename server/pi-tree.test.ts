@@ -199,7 +199,37 @@ describe("pi's abandoned paths", () => {
     ]);
     // zero and unreadable are different answers: one is every session no /tree touched, the other
     // is a tree this reader cannot vouch for, and only the second is worth warning about
-    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 0, summary: null });
+    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 0, branches: 0, summary: null });
+  });
+
+  it("names the branch a turn was abandoned into", () => {
+    const path = file([
+      entry("s", null, { type: "session", version: 3, id: "s", cwd: root }),
+      user("u1", "s", "the question"),
+      assistant("a-gone", "u1", "the abandoned answer"),
+      user("u2", "s", "the retried question"),
+      assistant("a-live", "u2", "the answer in play"),
+    ]);
+    // one place you navigated away from, holding two turns: the label has to say "a branch" and
+    // not "branches", which a count of turns alone cannot tell it
+    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 2, branches: 1, summary: null });
+  });
+
+  it("counts the branches separately from the turns they hold", () => {
+    // two abandoned paths of different lengths: 1281 turns somewhere and a 2-turn dead end read
+    // nothing alike, and a label that only knows the turn count calls both "a branch"
+    const path = file([
+      entry("s", null, { type: "session", version: 3, id: "s", cwd: root }),
+      user("u1", "s", "asked"),
+      assistant("a1", "u1", "answer one"),
+      user("u2", "s", "asked again"),
+      assistant("a2", "u2", "answer two"),
+      user("u3", "s", "third try"),
+      assistant("a3", "u3", "answer three"),
+    ]);
+    const abandoned = piAbandonedTurns(path, statSync(path).size);
+    expect(abandoned?.branches).toBe(2); // u1's path and u2's path, both left behind by u3's
+    expect(abandoned?.count).toBe(4); // and the head they share is still counted once
   });
 
   it("counts the turns a branch left behind, on both sides of the live path", () => {
@@ -211,7 +241,23 @@ describe("pi's abandoned paths", () => {
       assistant("a-live", "u2", "the answer in play"),
     ]);
     // u1 and a-gone are not ancestors of a-live; pi keeps them, the chat shows only the branch
-    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 2, summary: null });
+    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 2, branches: 1, summary: null });
+  });
+
+  it("does not mistake pi's session header for a branch you navigated away from", () => {
+    // every real pi file opens with a session entry no other entry names as its parent, and an entry
+    // that has never had a child is nowhere the pointer was moved away from. Counting heads of
+    // abandoned paths, rather than live entries with abandoned children, reports it as a branch in
+    // every session there has ever been, and the label then says that to the reader
+    const path = file([
+      entry("session", null, { type: "session", version: 3, cwd: root }), // orphan: nothing links to it
+      entry("m1", null, { type: "model_change", provider: "p", modelId: "m" }),
+      user("u1", "m1", "the question"),
+      assistant("a-gone", "u1", "the abandoned answer"),
+      user("u2", "m1", "the retried question"),
+      assistant("a-live", "u2", "the answer in play"),
+    ]);
+    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 2, branches: 1, summary: null });
   });
 
   it("counts a turn once however many branches it was abandoned into", () => {
@@ -225,7 +271,7 @@ describe("pi's abandoned paths", () => {
       user("u3", "s", "third try"),
       assistant("a3", "u3", "answer three"),
     ]);
-    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 4, summary: null });
+    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 4, branches: 2, summary: null });
   });
 
   it("carries pi's own summary of the abandoned path when the user asked for one", () => {
@@ -240,6 +286,7 @@ describe("pi's abandoned paths", () => {
     ]);
     const result = piAbandonedTurns(path, statSync(path).size);
     expect(result?.count).toBe(2);
+    expect(result?.branches).toBe(1); // the summary sits on the live branch, so it is not one itself
     expect(result?.summary).toBe("We tried the first question and it failed.");
   });
 
@@ -263,7 +310,7 @@ describe("pi's abandoned paths", () => {
       user("u2", "s", "the retried question"),
       assistant("a-live", "u2", "the answer in play"),
     ]);
-    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 2, summary: null });
+    expect(piAbandonedTurns(path, statSync(path).size)).toEqual({ count: 2, branches: 1, summary: null });
   });
 });
 
@@ -282,7 +329,7 @@ describe("the abandoned count on the page", () => {
     ]);
     // shown by the chat, and hidden but counted: the two together are the file
     expect(shown(path)).toEqual(["user:the retried question", "assistant:the answer in play"]);
-    expect(page(path).abandoned).toEqual({ count: 2, summary: null });
+    expect(page(path).abandoned).toEqual({ count: 2, branches: 1, summary: null });
   });
 
   it("says nothing for a session no /tree touched", () => {
@@ -291,7 +338,7 @@ describe("the abandoned count on the page", () => {
       user("u1", "s", "first"),
       assistant("a1", "u1", "answer one"),
     ]);
-    expect(page(path).abandoned).toEqual({ count: 0, summary: null });
+    expect(page(path).abandoned).toEqual({ count: 0, branches: 0, summary: null });
   });
 
   it("carries pi's summary when the user answered /tree with one", () => {

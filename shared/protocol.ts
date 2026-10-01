@@ -294,10 +294,13 @@ export interface ConversationResponse {
    * conversation can reach. pi moves its leaf pointer without writing an entry, so those turns
    * would otherwise leave the chat with no sign they were ever there. `summary` is pi's own account
    * of the abandoned path, kept when the user answered `/tree`'s "Summarize branch?" with one.
-   * A session no `/tree` touched answers `{ count: 0 }` — drawn as nothing — since zero and
-   * "unknown" are different answers. Absent for every agent that keeps no entry tree.
+   * `branches` is how many separate paths were left behind — the places a live entry was given a
+   * child that is not live — because the count alone reads the same for one abandoned path of four
+   * turns and two of two, and the reader pluralizes on it. A session no `/tree` touched answers
+   * zeroes — drawn as nothing — since zero and "unknown" are different answers. Absent for every
+   * agent that keeps no entry tree.
    */
-  abandoned?: { count: number; summary: string | null };
+  abandoned?: { count: number; branches: number; summary: string | null };
 }
 
 /** GET /api/agents: one agent kind herdr can start (`agent.start` kind), with a display label. */

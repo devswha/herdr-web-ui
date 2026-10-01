@@ -211,7 +211,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
 }
 
 /** Re-parse on file changes, including replacement and same-size rewrites. */
-const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; abandoned?: { count: number; summary: string | null } }>();
+const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; abandoned?: { count: number; branches: number; summary: string | null } }>();
 
 export class ConversationUnavailable extends Error {
   constructor(reason: string) {
@@ -240,7 +240,7 @@ export type RecognizedConversation = {
    * can reach; absent for every agent that keeps no entry tree. pi moves its leaf without writing
    * anything, so the chat would otherwise drop those turns with no sign they were ever there.
    */
-  abandoned?: { count: number; summary: string | null };
+  abandoned?: { count: number; branches: number; summary: string | null };
   history_id: string;
   /** changes whenever the answer could: the route's ETag, so an unchanged poll costs no body */
   version: string;

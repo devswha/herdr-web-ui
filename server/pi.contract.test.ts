@@ -172,23 +172,27 @@ it("shows the branch /tree leaves the leaf on, and invalidates the pages held be
 });
 
 it("counts the turns a /tree left behind, over HTTP", async () => {
+  // shaped like a real file: a parentless model_change is where the first turns hang, and a
+  // navigation re-hangs a new turn beside an abandoned one there, exactly as /tree leaves it
   writeFileSync(transcript, page([
-    { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "the question" } },
+    { type: "model_change", id: "m1", parentId: null, timestamp: "2026-09-30T00:00:00Z", provider: "test", modelId: "pi-contract-model" },
+    { type: "message", id: "u1", parentId: "m1", timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "the question" } },
     { type: "message", id: "a-gone", parentId: "u1", timestamp: "2026-09-30T00:00:02Z", message: { role: "assistant", content: "the abandoned answer" } },
-    { type: "message", id: "u2", parentId: null, timestamp: "2026-09-30T00:00:03Z", message: { role: "user", content: "the retried question" } },
+    { type: "message", id: "u2", parentId: "m1", timestamp: "2026-09-30T00:00:03Z", message: { role: "user", content: "the retried question" } },
     { type: "message", id: "a-live", parentId: "u2", timestamp: "2026-09-30T00:00:04Z", message: { role: "assistant", content: "the answer in play" } },
   ]));
   const branched = await read();
   // pi moved its leaf and wrote nothing, so the page is built from the live branch alone; the
   // count is the only thing that can tell the reader the file holds more than this
   expect(JSON.stringify(branched.turns)).not.toContain("abandoned");
-  expect(branched.abandoned).toEqual({ count: 2, summary: null });
+  expect(branched.abandoned).toEqual({ count: 2, branches: 1, summary: null });
 
   // answering /tree's "Summarize branch?" writes pi's own account of the abandoned path
   writeFileSync(transcript, page([
-    { type: "message", id: "u1", parentId: null, timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "the question" } },
+    { type: "model_change", id: "m1", parentId: null, timestamp: "2026-09-30T00:00:00Z", provider: "test", modelId: "pi-contract-model" },
+    { type: "message", id: "u1", parentId: "m1", timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "the question" } },
     { type: "message", id: "a-gone", parentId: "u1", timestamp: "2026-09-30T00:00:02Z", message: { role: "assistant", content: "the abandoned answer" } },
-    { type: "branch_summary", id: "bs", parentId: null, timestamp: "2026-09-30T00:00:03Z", fromId: "a-gone", summary: "Tried the first question; it failed." },
+    { type: "branch_summary", id: "bs", parentId: "m1", timestamp: "2026-09-30T00:00:03Z", fromId: "a-gone", summary: "Tried the first question; it failed." },
     { type: "message", id: "u2", parentId: "bs", timestamp: "2026-09-30T00:00:04Z", message: { role: "user", content: "the retried question" } },
     { type: "message", id: "a-live", parentId: "u2", timestamp: "2026-09-30T00:00:05Z", message: { role: "assistant", content: "the answer in play" } },
   ]));
@@ -196,7 +200,7 @@ it("counts the turns a /tree left behind, over HTTP", async () => {
 
   // a session no /tree touched answers zero, not absent: the client shows nothing at 0
   writeFileSync(transcript, turns("Check chat", "Answer one"));
-  expect((await read()).abandoned).toEqual({ count: 0, summary: null });
+  expect((await read()).abandoned).toEqual({ count: 0, branches: 0, summary: null });
 });
 
 it("falls back to the scrollback when the reported path leaves the store", async () => {

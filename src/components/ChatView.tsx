@@ -435,7 +435,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
   // turns the transcript holds on a path /tree walked away from: no page can reach them, so the
   // only way to say they exist is to be told, and to say it where the reader would look for them
-  const [abandoned, setAbandoned] = useState<{ count: number; summary: string | null } | null>(null);
+  const [abandoned, setAbandoned] = useState<{ count: number; branches: number; summary: string | null } | null>(null);
   // the suggestion is handed up from each read, with the pane that read it: never kept here,
   // where a pane switch or a send upstream could leave it stale
   const onSuggestionRef = useRef(onSuggestion);
@@ -728,7 +728,10 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
           in the transcript, because paging back would otherwise drop them under their own heading */}
       {state.source === "conversation" && abandoned !== null && abandoned.count > 0 && (
         <details className="chat-compact chat-abandoned">
-          <summary>{t(abandoned.count === 1 ? "{n} earlier turn on a branch you navigated away from" : "{n} earlier turns on a branch you navigated away from", { n: abandoned.count })}</summary>
+          <summary>{t(abandoned.branches > 1
+            ? abandoned.count === 1 ? "{n} earlier turn on {b} branches you navigated away from" : "{n} earlier turns on {b} branches you navigated away from"
+            : abandoned.count === 1 ? "{n} earlier turn on a branch you navigated away from" : "{n} earlier turns on a branch you navigated away from",
+            { n: abandoned.count, b: abandoned.branches })}</summary>
           {abandoned.summary !== null
             ? <div className="chat-compact-text"><Markdown>{abandoned.summary}</Markdown></div>
             : <p className="chat-abandoned-note">{t("pi kept them in the session file but answers from the branch you chose. Use /tree in the terminal to go back.")}</p>}

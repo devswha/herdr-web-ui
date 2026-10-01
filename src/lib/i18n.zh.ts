@@ -533,6 +533,8 @@ export const ZH: Record<string, string> = {
   "Conversation compacted": "对话已压缩",
   "{n} earlier turn on a branch you navigated away from": "你离开的分支上有 {n} 条更早的对话",
   "{n} earlier turns on a branch you navigated away from": "你离开的分支上有 {n} 条更早的对话",
+  "{n} earlier turn on {b} branches you navigated away from": "你离开的 {b} 条分支上有 {n} 条更早的对话",
+  "{n} earlier turns on {b} branches you navigated away from": "你离开的 {b} 条分支上有 {n} 条更早的对话",
   "pi kept them in the session file but answers from the branch you chose. Use /tree in the terminal to go back.": "pi 会将其保留在会话文件中，但会基于你选择的分支作答。可在终端中使用 /tree 返回。",
   "Background result delivered": "后台结果已送达",
   "Skill activity": "Skill 活动",

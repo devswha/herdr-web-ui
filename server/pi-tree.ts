@@ -170,15 +170,18 @@ export function piBranchSegments(path: string, size: number): TranscriptSegment[
  * trace it was ever there — which is what this counts, so the reader can say so out loud.
  *
  * `count` is turns, not entries: pi's own markers and a tool's result are not bubbles the chat
- * would have shown. A turn abandoned into several branches is counted once, and `summary` carries
- * pi's own account of the abandoned path when the user answered `/tree`'s "Summarize branch?" with
- * a summary — a `branch_summary` entry written on the new branch. `fromId` names where the
- * abandoned path ended but is not read: the count comes from the tree, which already knows, and one
- * more source of truth would be one to keep in step. Null when the tree cannot be walked, and
- * `{ count: 0 }` for a session no `/tree` touched, which is the common case and must cost the
- * client nothing.
+ * would have shown. A turn abandoned into several branches is counted once. `branches` is how many
+ * places the navigation happened — the places a live entry was given a child that is not itself
+ * live — which a turn count cannot tell the reader: "4 turns left behind" reads nothing alike for
+ * one abandoned path of 4 and two abandoned paths of 2, and the label pluralizes on it, not on the
+ * turns. `summary` carries pi's own account of the abandoned path when the user answered `/tree`'s
+ * "Summarize branch?" with a summary — a `branch_summary` entry written on the new branch. `fromId`
+ * names where the abandoned path ended but is not read: the count comes from the tree, which
+ * already knows, and one more source of truth would be one to keep in step. Null when the tree
+ * cannot be walked, and all zeroes for a session no `/tree` touched, which is the common case and
+ * must cost the client nothing.
  */
-export function piAbandonedTurns(path: string, size: number): { count: number; summary: string | null } | null {
+export function piAbandonedTurns(path: string, size: number): { count: number; branches: number; summary: string | null } | null {
   const index = piEntryIndex(path);
   if (index === null || index.entries.length === 0) return null;
   if (index.entries[index.entries.length - 1]!.end > size) return null;
@@ -191,7 +194,19 @@ export function piAbandonedTurns(path: string, size: number): { count: number; s
     next = next.parent === null ? undefined : byId.get(next.parent);
   }
   let count = 0;
+  let branches = 0;
   let summary: string | null = null;
+  // a branch is a place the pointer was moved away from: a live entry with a child left behind, so
+  // an abandoned path attached to the path still in play. Attached is the word — pi's session header
+  // is a root no entry ever links to, orphaned from the moment it is written, and counting heads of
+  // abandoned paths instead would report it as a navigation in every session there has ever been
+  for (const id of live) {
+    // ids deduped the way piBranchSegments dedupes them: an entry appended twice (never pi, never
+    // trusted) is still one place navigated away from
+    const left = new Set<string>();
+    for (const child of index.children.get(id) ?? []) if (!live.has(child.id)) left.add(child.id);
+    branches += left.size;
+  }
   for (const entry of index.entries) {
     // pi's summary of an abandoned path sits on the branch that replaced it, so only one on the
     // live path describes what the chat is hiding here; the newest wins, as a later /tree
@@ -206,5 +221,5 @@ export function piAbandonedTurns(path: string, size: number): { count: number; s
     if (entry.role !== "user" && entry.role !== "assistant") continue;
     count += 1;
   }
-  return { count, summary };
+  return { count, branches, summary };
 }

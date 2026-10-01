@@ -529,6 +529,8 @@ export const KO: Record<string, string> = {
   "Conversation compacted": "대화가 압축됨",
   "{n} earlier turn on a branch you navigated away from": "이동으로 떠난 브랜치의 이전 대화 {n}개",
   "{n} earlier turns on a branch you navigated away from": "이동으로 떠난 브랜치의 이전 대화 {n}개",
+  "{n} earlier turn on {b} branches you navigated away from": "이동으로 떠난 {b}개 브랜치의 이전 대화 {n}개",
+  "{n} earlier turns on {b} branches you navigated away from": "이동으로 떠난 {b}개 브랜치의 이전 대화 {n}개",
   "pi kept them in the session file but answers from the branch you chose. Use /tree in the terminal to go back.": "pi는 세션 파일에 그대로 두지만 선택한 브랜치로 답변합니다. 터미널에서 /tree로 돌아갈 수 있습니다.",
   "Background result delivered": "백그라운드 결과 도착",
   "Skill activity": "스킬 활동",
