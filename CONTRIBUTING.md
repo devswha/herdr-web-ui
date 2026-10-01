@@ -74,6 +74,7 @@ running terminals: see [development](docs/development.md#checks).
   else gets its 404.
 - **Changelog:** a change users notice gets a line under `## [Unreleased]` in
   [CHANGELOG.md](CHANGELOG.md) (`### Added`, `### Changed` or `### Fixed`). Do not bump versions.
+  The link to your PR and your name are added by a maintainer at release, so you can leave them out.
 
 ## Releases
 
