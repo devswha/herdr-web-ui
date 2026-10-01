@@ -30,7 +30,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   looked for only among the processes herdr names, which on Windows is the pane's shell alone.
   Paths are now compared by the PC's own rules, and Gajae Code is found among the shell's child
   processes, then matched by the text on screen. A path that leaves the store through `..` is
-  refused on every platform. A Windows PC gets this with the next remote bundle.
+  refused on every platform. A Windows PC gets this with the next remote bundle
+  ([#264](https://github.com/devswha/herdr-web-ui/pull/264)).
 
 ## [0.3.39] - 2026-10-01
 
