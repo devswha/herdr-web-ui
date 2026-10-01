@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { heldSessionIds, omoCandidates, selectOmoTranscript, type OmoRuntime } from "./omo.ts";
@@ -30,7 +30,8 @@ it("binds explicit sessions independently in one cwd but rejects conflicting cla
 });
 
 it("reads session identity from bounded headers and rejects foreign cwd and escaped paths", () => {
-  const home = mkdtempSync(join(tmpdir(), "herdr-omo-candidates-"));
+  // candidates come back canonical; macOS's tmpdir is a symlink into /private
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-omo-candidates-")));
   try {
     const dir = join(home, ".omo", "agent", "sessions", "--project--");
     mkdirSync(dir, { recursive: true });
