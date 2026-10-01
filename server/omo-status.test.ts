@@ -323,7 +323,7 @@ describe("OmO panes' status in place of herdr's", () => {
   });
 
   it("reads again what a failed read left", async () => {
-    const { omo, told, append, state } = setup();
+    const { omo, told, append, replace, state } = setup();
     await omo.refresh(herdr().panes);
     state.failing = true;
     append(message("user"));
@@ -332,6 +332,27 @@ describe("OmO panes' status in place of herdr's", () => {
     state.failing = false;
     omo.poll();
     expect(told).toEqual([["omo", "working", 0, true]]);
+    // a rewritten file that cannot be read is no finished turn: one RUN, one DONE
+    state.failing = true;
+    replace(message("user"));
+    omo.poll();
+    state.failing = false;
+    omo.poll();
+    expect(told).toHaveLength(1);
+    append(message("assistant", "stop"));
+    omo.poll();
+    expect(told.slice(1)).toEqual([["omo", "idle", 0, true]]);
+  });
+
+  it("keeps the start of a process known before its session was", async () => {
+    const { omo, told, state } = setup(lines(message("user", undefined, "2026-10-02T00:00:10.000Z"), message("assistant", "toolUse", "2026-10-02T00:00:12.000Z")));
+    state.discovered.set("omo", { path: null, startedAt: Date.parse("2026-10-02T00:05:00.000Z") });
+    await omo.refresh(herdr().panes);
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(statuses(omo.apply(herdr()))["omo"]).toBe("omo/idle");
+    expect(told).toEqual([]);
   });
 
   it("tells a change in background tasks as that, not as a turn", async () => {

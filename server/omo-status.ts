@@ -299,7 +299,7 @@ export class OmoStatus {
           // started when it was last known to
           if (before) this.remember(paneId, before);
           const prior = this.last.get(paneId);
-          const startedAt = pane.startedAt ?? (prior?.path === pane.path ? prior.startedAt : null);
+          const startedAt = pane.startedAt ?? before?.startedAt ?? (prior?.path === pane.path ? prior.startedAt : null);
           this.panes.set(paneId, { ...pane, startedAt, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", retell: prior !== undefined, turn: noTurn(), status: prior?.status ?? "idle", background: prior?.background ?? 0 });
         }
         if (pane.path !== null) this.last.delete(paneId);
@@ -347,6 +347,8 @@ export class OmoStatus {
       else if (size !== tracked.size || tracked.offset < size) tracked.offset = this.file.lines(tracked.path, tracked.offset, size, (line) => { tracked.turn = omoTurnAfter(tracked.turn, line); });
       tracked.size = size;
       tracked.id = stat.id;
+      // nothing could be read of it (a read that failed): what the pane read before stands until one succeeds
+      if (tracked.turn.status === null && tracked.offset < size) continue;
       const stale = tracked.turn.status === "working" && tracked.turn.at !== null && tracked.startedAt !== null && tracked.turn.at < tracked.startedAt - STALE_TURN_MS;
       const status = tracked.turn.status === "working" && !stale ? "working" : "idle";
       const sessionId = omoSessionId(tracked.path);
