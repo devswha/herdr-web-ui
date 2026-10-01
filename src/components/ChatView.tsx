@@ -368,6 +368,14 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
       <div className="chat-compact-text"><Markdown>{compact.text}</Markdown></div>
     </details>;
   }
+  // the runtime spoke, not the user: a quiet divider like a compaction, the text on request
+  const notice = turn.parts.find((part): part is Extract<ConversationPart, { kind: "notice" }> => part.kind === "notice");
+  if (notice !== undefined) {
+    return <details className="chat-compact chat-notice">
+      <summary>{t("Background result delivered")}{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
+      <pre className="chat-compact-text chat-notice-text">{notice.text}</pre>
+    </details>;
+  }
   if (turn.role === "user") {
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
     return <article className="chat-turn chat-turn-user">

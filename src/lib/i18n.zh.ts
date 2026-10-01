@@ -522,6 +522,7 @@ export const ZH: Record<string, string> = {
   "Open image": "打开图片",
   "Attached image": "附加的图片",
   "Conversation compacted": "对话已压缩",
+  "Background result delivered": "后台结果已送达",
   "Skill activity": "Skill 活动",
   "Skill requested": "已请求调用",
   "Skill invoked": "已调用",

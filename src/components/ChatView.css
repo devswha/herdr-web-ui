@@ -821,6 +821,17 @@
   border-radius: var(--radius-lg);
 }
 
+/* a runtime notice is job output, not prose: verbatim, wrapped, and bounded like a whole tool output */
+.chat-notice-text {
+  margin-bottom: 0;
+  max-height: 60vh;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* a cut output's rest, on request; once whole, it scrolls in its own box instead of growing the page */
 .chat-tool-more {
   margin-top: var(--space-1);
