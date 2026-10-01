@@ -39,6 +39,9 @@ describe("typing into a mirrored pane", () => {
   });
 
   test("a herdr that hands the bytes to the program as they are gets them untouched, unasked", async () => {
-    expect(await mirrorInput("line one\rline two", false, unreachable)).toBe("line one\rline two");
+    let asked = 0;
+    const counted = async () => { asked += 1; return "gjc"; };
+    expect(await mirrorInput("line one\rline two", false, counted)).toBe("line one\rline two");
+    expect(asked).toBe(0);
   });
 });
