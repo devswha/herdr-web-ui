@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A password entered from the secret prompt on a mirrored terminal (a PC whose herdr cannot
+  attach, as on Windows) is reported as entered only after herdr took it, and a send herdr
+  refused is reported as failed instead of as done. Enter is now pressed as a key after the
+  text, not sent as a carriage return inside it
+  ([#263](https://github.com/devswha/herdr-web-ui/pull/263)).
 - A pane running a command that is only given an omo path (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is
   no longer shown as OmO or counted as a second OmO in its folder. Only the program a pane runs
   counts, or the script that node or bun runs

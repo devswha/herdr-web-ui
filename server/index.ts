@@ -1466,8 +1466,16 @@ export function createServer(
                   authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }
                   if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
-                  // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
-                  attachment.pty.write(`${message.secret}\r`);
+                  if (attachment.mirror) {
+                    // A mirrored pane has no pty to type into: the secret is herdr's text, then the
+                    // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,
+                    // so a send herdr refused is answered as failed, not as entered.
+                    await paneSendText(message.pane_id, message.secret);
+                    await paneSendKeys(message.pane_id, ["Enter"]);
+                  } else {
+                    // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
+                    attachment.pty.write(`${message.secret}\r`);
+                  }
                   result(true);
                 });
               } catch {
