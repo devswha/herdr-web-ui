@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.37] - 2026-10-01
+
 ### Changed
 - Settings → Appearance no longer offers Clawd and the Codex app icon in place of the
   provider logos. Claude and Codex panes show their provider logos again, also where one of
