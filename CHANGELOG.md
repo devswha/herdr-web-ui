@@ -55,7 +55,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   shifts: the browser counted most emoji, and the ⚠️ kind with a selector, as one cell, and an
   emoji sequence such as 👨‍👩‍👧 as one cell per emoji. The next letter overlapped the emoji, parts
   of the sequence were overwritten, and stray characters stayed behind. Thai and Indic vowel
-  signs and invisible characters such as a zero-width space are counted as herdr counts them too.
+  signs and invisible characters such as a zero-width space are counted as herdr counts them too
+  ([#273](https://github.com/devswha/herdr-web-ui/pull/273)).
 
 ## [0.3.39] - 2026-10-01
 
