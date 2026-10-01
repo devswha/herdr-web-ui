@@ -106,12 +106,14 @@ export function gjcStatusTitle(screen: string): string | null | undefined {
   const status = lines[at - 1]!;
   if (!/^\s*\u2b22\s/.test(status) || !status.includes("\u{1F4C1}")) return undefined;
   const version = status.match(/\s\/\s+v\d+\.\d+\.\d+\s*$/);
-  const rule = [...status.matchAll(/\u2500{3,}\s/g)].at(-1);
-  if (!version || !rule || rule.index + rule[0].length > version.index!) return undefined;
+  // one rule between the folder and the title: with two, the folder or the title holds one and neither can be told
+  const rules = [...status.matchAll(/\u2500{3,}\s/g)];
+  const rule = rules[0];
+  if (!version || rules.length !== 1 || !rule || rule.index + rule[0].length > version.index!) return undefined;
   const parts = status.slice(rule.index + rule[0].length, version.index).split(" / ").map((part) => part.trim());
   // `$0.04 (sub)`, or `(sub)` alone before anything was spent; then `⤴ 0.3/s`
   if (/^(?:\$[\d.]+\s+)?\(sub\)$|^\$[\d.]+$/.test(parts.at(-1) ?? "")) parts.pop();
-  if (/^\u2934\s/u.test(parts.at(-1) ?? "")) parts.pop();
+  if (/^\u2934\s*[\d.]+\/s$/u.test(parts.at(-1) ?? "")) parts.pop();
   const title = parts.join(" / ").trim();
   if (title === "") return null;
   return title.endsWith("\u2026") ? undefined : title;
@@ -141,7 +143,7 @@ export function gjcSessionTitle(path: string, budget: { bytes: number } = { byte
     readSync(fd, first, 0, first.length, 0);
     const head = first.toString("latin1");
     let scan = titleScans.get(path);
-    if (!scan || scan.file !== file || scan.scanned > size || (size === scan.size && stat.mtimeMs !== scan.modified)
+    if (!scan || scan.file !== file || size < scan.size || (size === scan.size && stat.mtimeMs !== scan.modified)
       || !head.startsWith(scan.head.slice(0, head.length)) || head.length < scan.head.length) {
       scan = { file, size, modified: stat.mtimeMs, head, scanned: 0, title: null, skipping: false };
     }
@@ -192,14 +194,17 @@ export function gjcTitles(paths: readonly string[], title: string | null | undef
   if (typeof title !== "string" && title !== null) return { titled: null, titledCount: 0, titles, among: [...paths] };
   const budget = { bytes: TITLE_BUDGET_BYTES };
   for (const path of paths) titles.set(path, titleOf(path, budget));
-  if (title === null) return { titled: null, titledCount: 0, titles, among: paths.filter((path) => typeof titles.get(path) !== "string") };
+  // a file not read to its end may carry any title: it is no untitled session to match an answer in
+  const untitled = paths.filter((path) => titles.get(path) === null);
+  if (title === null) return { titled: null, titledCount: 0, titles, among: untitled };
   const carrying = paths.filter((path) => titles.get(path) === title);
   const unread = [...titles.values()].includes(undefined);
   return {
     titled: carrying.length === 1 && !unread ? carrying[0]! : null,
-    titledCount: unread ? -1 : carrying.length,
+    // two that carry it are two, whatever the unread ones turn out to carry
+    titledCount: carrying.length > 1 ? carrying.length : unread ? -1 : carrying.length,
     titles,
-    among: carrying.length > 0 ? carrying : paths.filter((path) => typeof titles.get(path) !== "string"),
+    among: carrying.length > 0 ? carrying : untitled,
   };
 }
 
@@ -235,7 +240,8 @@ export async function boundGjcTranscript(paneId: string, gjc: GjcProcess | null 
   const known = (path: string) => screen?.titles.get(path);
   const found = typeof title === "string" && screen!.titledCount === 1 ? screen!.titled : screen?.path ?? null;
   if (found && process) {
-    windowsBindings.set(paneId, { process, path: found, title });
+    // matched again with no status line to read: what the pane was bound under still stands
+    windowsBindings.set(paneId, { process, path: found, title: title === undefined && bound?.path === found ? bound.title : title });
     return found;
   }
   if (!bound) return null;

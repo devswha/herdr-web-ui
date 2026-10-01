@@ -143,7 +143,11 @@ it("reads the session title from gjc's status line", () => {
   expect(gjcStatusTitle(status("v2 Migration / (sub)"))).toBe("v2 Migration");
   expect(gjcStatusTitle(status("(draft) / (sub)"))).toBe("(draft)");
   expect(gjcStatusTitle(status("Ship / (draft) / ⤴ 2.0/s / $1.20 (sub)"))).toBe("Ship / (draft)");
-  expect(gjcStatusTitle(status("Simple Ok Reply / (sub)", "~\\a ──── b"))).toBe("Simple Ok Reply");
+  // a second rule in the line (in the folder's name, or the title's) leaves nothing to tell them by
+  expect(gjcStatusTitle(status("Simple Ok Reply / (sub)", "~\\a ──── b"))).toBeUndefined();
+  expect(gjcStatusTitle(status("Foo ──── Bar / (sub)"))).toBeUndefined();
+  // an arrow in a title is not gjc's speed
+  expect(gjcStatusTitle(status("Ship / ⤴ Thoughts / (sub)"))).toBe("Ship / ⤴ Thoughts");
   // a title cut short by a narrow pane says nothing
   expect(gjcStatusTitle(status("Herdr GJC Binding Che… / ⤴ 13.6/s / $0.04 (sub)"))).toBeUndefined();
   // a menu stands where the message box does (/resume): nothing to read, whatever is printed above
@@ -164,8 +168,12 @@ it("reads which sessions of the folder can be the one on screen", () => {
   expect(gjcTitles(["a", "b", "c"], "Ship", titleOf)).toMatchObject({ titled: null, titledCount: 2, among: ["a", "b"] });
   // none carries it yet: only a session without a title can be the one
   expect(gjcTitles(["c", "d"], "Fresh", titleOf)).toMatchObject({ titled: null, titledCount: 0, among: ["d"] });
-  // a history not read to its end yet: nothing is decided by counting
+  // a history not read to its end yet: nothing is decided by counting one, but two that carry it are two
   expect(gjcTitles(["a", "big"], "Ship", titleOf)).toMatchObject({ titled: null, titledCount: -1, among: ["a"] });
+  expect(gjcTitles(["a", "b", "big"], "Ship", titleOf)).toMatchObject({ titled: null, titledCount: 2, among: ["a", "b"] });
+  // and an unread one is no untitled session: an answer is not matched in it
+  expect(gjcTitles(["c", "d", "big"], "Fresh", titleOf)).toMatchObject({ titledCount: -1, among: ["d"] });
+  expect(gjcTitles(["a", "d", "big"], null, titleOf)).toMatchObject({ among: ["d"] });
   // no title in the status line: a titled session is not the one running
   expect(gjcTitles(["a", "d"], null, titleOf)).toMatchObject({ titledCount: 0, among: ["d"] });
   // no status line: every file is asked, and none is read for a title
@@ -233,6 +241,11 @@ it("follows gjc's own session title across /new and /resume on a Windows pane", 
   // another title, while a long history is still being read for its own: the pane was bound
   // under "Binding Check", so it is let go without reading anything
   expect(await bind(null, "New Session", [first, fresh, big])).toBeNull();
+  // the same session matched again while a menu hides the status line keeps the title it was bound
+  // under: another title then still lets it go, its own history unread or not
+  expect(await bind(first, "Binding Check", [first, fresh, big])).toBe(first);
+  expect(await bind(first, undefined, [first, fresh, big])).toBe(first);
+  expect(await bind(null, "New Session", [first, fresh, big])).toBeNull();
   // a session bound before gjc titled it stays when the title appears, written to its file or not yet
   expect(await bind(untitled, null, [first, untitled])).toBe(untitled);
   expect(await bind(null, "Not Written Yet", [first, untitled])).toBe(untitled);
@@ -292,6 +305,13 @@ it("reads a session file's title from its header and gjc's later patches, a boun
     expect(gjcSessionTitle(history, { bytes: 1024 * 1024 })).toBeUndefined();
     expect(gjcSessionTitle(history, { bytes: 1024 * 1024 })).toBeUndefined();
     expect(gjcSessionTitle(history, { bytes: 4 * 1024 * 1024 })).toBe("Late Title");
+    // a file that shrank is read anew, also one whose scan was not finished and still fits
+    const shrunk = join(dir, "shrunk.jsonl");
+    const filler = (JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "z".repeat(1000) }] } }) + "\n");
+    writeFileSync(shrunk, header() + patch("Old Name") + filler.repeat(3000));
+    expect(gjcSessionTitle(shrunk, { bytes: 1024 * 1024 })).toBeUndefined();
+    writeFileSync(shrunk, header() + patch("New Name") + filler.repeat(2000));
+    expect(gjcSessionTitle(shrunk, { bytes: 8 * 1024 * 1024 })).toBe("New Name");
     // more files than one pane's folder holds do not push a scan under way out
     for (let n = 0; n < 700; n++) { const other = join(dir, `o${n}.jsonl`); writeFileSync(other, header(`T${n}`)); gjcSessionTitle(other); }
     appendFileSync(history, patch("Later Still"));
