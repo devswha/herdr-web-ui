@@ -14,6 +14,7 @@ import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayloa
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
+import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar } from "./KeyBar.tsx";
@@ -27,7 +28,6 @@ import type { PaneView } from "../lib/actions.ts";
 import { terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
-import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 
 // xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
 // must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback
