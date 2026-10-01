@@ -14,6 +14,8 @@ import { HerdrError } from "./herdr/client.ts";
 /** between reads while the screen is changing, and the ceiling it relaxes to while it is not */
 export const MIRROR_ACTIVE_MS = 80;
 export const MIRROR_IDLE_MS = 400;
+/** how often the pane's size is asked for: herdr announces no layout change this server listens to */
+export const MIRROR_SIZE_MS = 2000;
 /** reads in a row that herdr did not answer before the mirror ends as a terminal would */
 const MIRROR_FAILURES = 10;
 
@@ -24,8 +26,15 @@ export interface MirrorOptions {
   write: (data: string) => Promise<unknown>;
   onData: (data: string) => void;
   onExit: (code: number | null) => void;
+  /** the grid the mirror starts on, and the pane's grid now (null when herdr's layout has none for it) */
+  cols: number;
+  rows: number;
+  size?: () => Promise<{ cols: number; rows: number } | null>;
+  /** the pane changed size on its PC: called before the screen is painted again for the new grid */
+  onResize?: (cols: number, rows: number) => void;
   activeMs?: number;
   idleMs?: number;
+  sizeMs?: number;
 }
 
 /** One screen as bytes for xterm: home, clear, the rows; the last row has no newline, which would scroll. */
@@ -45,10 +54,15 @@ export class MirrorSession {
   private failures = 0;
   private delay: number;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private cols: number;
+  private rows: number;
+  private sizedAt = Date.now();
 
   constructor(private readonly options: MirrorOptions) {
     this.exited = new Promise((resolve) => { this.finish = resolve; });
     this.delay = options.activeMs ?? MIRROR_ACTIVE_MS;
+    this.cols = options.cols;
+    this.rows = options.rows;
     void this.tick();
   }
 
@@ -56,6 +70,18 @@ export class MirrorSession {
     if (this.closed) return;
     const active = this.options.activeMs ?? MIRROR_ACTIVE_MS;
     const idle = this.options.idleMs ?? MIRROR_IDLE_MS;
+    if (this.options.size && Date.now() - this.sizedAt >= (this.options.sizeMs ?? MIRROR_SIZE_MS)) {
+      this.sizedAt = Date.now();
+      const size = await this.options.size().catch(() => null);
+      if (this.closed) return;
+      if (size && (size.cols !== this.cols || size.rows !== this.rows)) {
+        this.cols = size.cols;
+        this.rows = size.rows;
+        this.options.onResize?.(size.cols, size.rows);
+        // the clients' grids were cleared by the resize: the next screen goes out even if unchanged
+        this.sent = null;
+      }
+    }
     try {
       this.screen = await this.options.read();
       this.failures = 0;
@@ -86,11 +112,9 @@ export class MirrorSession {
     return true;
   }
 
-  /** The current screen once more: a grid that changed size cleared what was painted. */
-  repaint(): void {
-    if (this.closed) return;
-    this.sent = null;
-    this.flush();
+  /** The screen last sent, whole, for a client joining now: a stream tail could cut a large one in two. */
+  get current(): string | null {
+    return this.sent === null ? null : mirrorFrame(this.sent);
   }
 
   write(data: string): void {

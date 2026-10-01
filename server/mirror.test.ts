@@ -3,7 +3,7 @@ import { HerdrError } from "./herdr/client.ts";
 import { MirrorSession, mirrorFrame } from "./mirror.ts";
 
 /** A pane whose every read waits until the test answers it. */
-function pane() {
+function pane(extra: Partial<ConstructorParameters<typeof MirrorSession>[0]> = {}) {
   const asked: { resolve(screen: string): void; reject(error: unknown): void }[] = [];
   let wake: (() => void) | null = null;
   const frames: string[] = [];
@@ -14,8 +14,11 @@ function pane() {
     write: async (data) => { written.push(data); },
     onData: (frame) => frames.push(frame),
     onExit: (code) => exits.push(code),
+    cols: 80,
+    rows: 24,
     activeMs: 0,
     idleMs: 0,
+    ...extra,
   });
   /** the nth read, once the mirror asks for it */
   const read = async (n: number) => {
@@ -56,12 +59,31 @@ it("holds screens while paused and sends only the latest on resume", async () =>
   session.kill();
 });
 
-it("paints the same screen again on request, for a grid that changed size", async () => {
-  const { session, read, frames } = pane();
+it("adopts the pane's new size, says so first, and paints the unchanged screen again", async () => {
+  let size = { cols: 80, rows: 24 };
+  const events: string[] = [];
+  const { session, read, frames } = pane({ size: async () => size, sizeMs: 0, onResize: (cols, rows) => events.push(`resize ${cols}x${rows}`) });
   (await read(1)).resolve("one");
   await read(2);
-  session.repaint();
+  events.push(`frames ${frames.length}`);
+  size = { cols: 100, rows: 30 };
+  (await read(2)).resolve("one");
+  (await read(3)).resolve("one");
+  await read(4);
+  events.push(`frames ${frames.length}`);
+  expect(events).toEqual(["frames 1", "resize 100x30", "frames 2"]);
   expect(frames).toEqual([mirrorFrame("one"), mirrorFrame("one")]);
+  session.kill();
+});
+
+it("keeps the latest screen whole for a client joining late", async () => {
+  const { session, read } = pane();
+  expect(session.current).toBeNull();
+  const big = Array.from({ length: 700 }, () => "x".repeat(400)).join("\r\n");
+  (await read(1)).resolve(big);
+  await read(2);
+  expect(session.current).toBe(mirrorFrame(big));
+  expect(Buffer.byteLength(session.current!)).toBeGreaterThan(256 * 1024);
   session.kill();
 });
 

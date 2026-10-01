@@ -484,13 +484,23 @@ export function createServer(
 
     if (mirrored) {
       const mirror = new MirrorSession({
+        cols: spawnCols,
+        rows: spawnRows,
+        size: async () => {
+          const now = (await terminalInfoFor(paneId)).rect;
+          return now ? { cols: now.width, rows: now.height } : null;
+        },
+        // the grid follows herdr's layout: the clients adopt the new size before the screen
+        onResize: (cols, rows) => {
+          if (attachments.get(paneId) !== attachment) return;
+          attachment.cols = cols;
+          attachment.rows = rows;
+          broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows, fixed: true });
+        },
         read: async () => (await paneRead({ paneId, source: "visible", format: "ansi" })).text,
         write: (data) => paneSendText(paneId, data),
         onData: (frame) => {
           if (attachments.get(paneId) !== attachment) return;
-          // every frame is a whole screen: a late joiner needs the latest one only
-          attachment.replay = new ReplayBuffer(MAX_REPLAY_BYTES);
-          attachment.replay.append(frame);
           for (const client of attachment.clients) sendOutput(client, paneId, frame);
           reconcileOutput(paneId);
         },
@@ -651,19 +661,6 @@ export function createServer(
     return attachment;
   }
 
-  /** A mirrored pane's grid follows herdr's layout: the clients adopt the new size, then get the screen again. */
-  async function refreshMirrorGeometry(): Promise<void> {
-    for (const [paneId, attachment] of attachments) {
-      if (!attachment.mirror) continue;
-      const rect = await terminalInfoFor(paneId).then((info) => info.rect, () => null);
-      if (!rect || attachments.get(paneId) !== attachment || (rect.width === attachment.cols && rect.height === attachment.rows)) continue;
-      attachment.cols = rect.width;
-      attachment.rows = rect.height;
-      broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols: rect.width, rows: rect.height, fixed: true });
-      attachment.mirror.repaint();
-    }
-  }
-
   /** The attaching client sees the error in-band; the log is the only record the operator gets. */
   function spawnFailure(paneId: string, error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
@@ -719,10 +716,7 @@ export function createServer(
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);
     },
-    onStructureChange: () => {
-      broadcastAll({ type: "session-changed" });
-      void refreshMirrorGeometry();
-    },
+    onStructureChange: () => broadcastAll({ type: "session-changed" }),
   });
 
   const envPort = process.env["PORT"];
@@ -1308,6 +1302,13 @@ export function createServer(
                 releaseUnclaimed(message.pane_id, attachment);
                 break;
               }
+              // a mirror whose pane went away during its first read has already ended: joining
+              // it would leave this client on a terminal that never says anything again
+              if (attachment.mirror && attachments.get(message.pane_id) !== attachment) {
+                client.data.attached.delete(message.pane_id);
+                send(client, { type: "pty-exit", pane_id: message.pane_id, code: null });
+                break;
+              }
               // An idempotent attach must not replay terminal bytes a second time.
               const alreadyAttached = attachment.clients.has(client);
               attachment.clients.add(client);
@@ -1316,7 +1317,8 @@ export function createServer(
               // before the screen, or the rows would wrap in a grid of another width
               if (attachment.mirror) send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
               // hand the newcomer the current screen it would otherwise have missed
-              const replay = attachment.replay.text();
+              // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
+              const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
               if (!alreadyAttached && replay) sendOutput(client, message.pane_id, replay);
               // a pane waiting for another web bridge to let go says so to each newcomer, too
               if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
