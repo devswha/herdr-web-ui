@@ -88,6 +88,22 @@ export class CompletionTracker {
     return changed;
   }
 
+  /**
+   * The pane's agent is now known under another name (an OmO pane herdr called `claude` or
+   * `pi`): what it worked on and finished stays its own. A finish is matched by identity, and
+   * would otherwise be dropped as another agent's.
+   */
+  adopt(paneId: string, agent: string): void {
+    if (this.finished.has(paneId)) this.finished.set(paneId, agent);
+    if (this.worked.has(paneId)) this.worked.set(paneId, agent);
+    this.save();
+  }
+
+  /** What the pane was last reported as, if it was. */
+  current(paneId: string): AgentStatus | undefined {
+    return this.reported.get(paneId);
+  }
+
   /** Read an asynchronous snapshot without undoing statuses or focus changes made while it was pending. */
   async readSnapshot(read: () => Promise<SessionSnapshot>, label?: (snapshot: SessionSnapshot) => Promise<SessionSnapshot>): Promise<SessionSnapshot> {
     const order = ++this.order;

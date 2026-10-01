@@ -17,7 +17,7 @@ import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
-import { omoTranscriptForPane } from "./omo.ts";
+import { omoPanes } from "./omo.ts";
 import { OmoStatus } from "./omo-status.ts";
 import { CompletionTracker } from "./completion.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
@@ -409,10 +409,11 @@ export function createServer(
   const completions = new CompletionTracker(join(options.stateDir ?? defaultStateDir(), "completions.json"));
   /** OmO panes get their status from OmO's session files: herdr reports none for them (server/omo-status.ts) */
   const omo = new OmoStatus({
-    runsOmo: paneRunsOmo,
-    transcript: (paneId, cwd, panes) => omoTranscriptForPane(paneId, cwd, panes),
+    discover: (panes) => omoPanes(panes),
     snapshot: sessionSnapshot,
-    onChange: (paneId, derived, background) => omoChanged(paneId, derived, background),
+    onChange: (paneId, derived, background, turn) => omoChanged(paneId, derived, background, turn),
+    // herdr called it `claude` or `pi` until now: what it finished under that name is its own
+    onFound: (paneId) => completions.adopt(paneId, "omo"),
   });
   /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
   const rawSnapshot = async (): Promise<SessionSnapshot> => {
@@ -422,7 +423,7 @@ export function createServer(
   };
   /** the snapshot clients get: finishes settled, OmO panes named, their running background tasks counted */
   const clientSnapshot = async (): Promise<SessionSnapshot> => {
-    const snapshot = await completions.readSnapshot(rawSnapshot, async (raw) => omo.label(raw));
+    const snapshot = await completions.readSnapshot(rawSnapshot);
     if (!snapshot.panes.some((pane) => omo.backgroundOf(pane.pane_id) > 0)) return snapshot;
     return { ...snapshot, panes: snapshot.panes.map((pane) => omo.backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: omo.backgroundOf(pane.pane_id) } : pane) };
   };
@@ -740,21 +741,20 @@ export function createServer(
   };
 
   /** Status of EVERY pane, attached or not: one collector feeds all connected clients and web push. */
-  const omoReported = new Map<string, AgentStatus>();
-  function omoChanged(paneId: string, derived: AgentStatus, background: number): void {
-    const status = completions.observe(paneId, derived, "omo");
+  function omoChanged(paneId: string, derived: AgentStatus, background: number, turn: boolean): void {
+    // a background task starting or ending is no turn: the status stands, and nothing is alerted
+    const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
     broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: background });
-    // a background task starting or ending is no change of status: nothing to alert
-    if (omoReported.get(paneId) !== status) push.onStatus(paneId, status).catch(logPushError);
-    omoReported.set(paneId, status);
+    if (turn) push.onStatus(paneId, status).catch(logPushError);
   }
 
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent) => {
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
-      // an agent herdr lost on the way still works and finishes as such (server/completion.ts)
-      const status = completions.observe(paneId, raw, agent);
+      // an agent herdr lost on the way still works and finishes as such (server/completion.ts);
+      // an OmO pane whose session is not known keeps herdr's status, under its own name
+      const status = completions.observe(paneId, raw, omo.runs(paneId) ? "omo" : agent);
       broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
       push.onStatus(paneId, status).catch(logPushError);
     },
@@ -767,7 +767,6 @@ export function createServer(
     onBaseline: (panes) => push.seed(panes),
     onResync: (panes, newer) => push.resync(panes, newer),
     onPaneEnded: (paneId) => {
-      omoReported.delete(paneId);
       completions.forget(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);

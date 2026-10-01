@@ -136,8 +136,14 @@ function resumedIds(argv: string[]): string[] {
   return result;
 }
 
-/** Same-cwd peers are inspected even when herdr calls omo's SDK child `claude`. */
-export async function omoTranscriptForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<string | null> {
+type ProcessInfo = { process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } } | null;
+const processInfo = (paneId: string): Promise<ProcessInfo> => herdrRpc<NonNullable<ProcessInfo>>("pane.process_info", { pane_id: paneId }).catch(() => null);
+
+/**
+ * The session each OmO pane of one folder holds, from the processes herdr named for its panes.
+ * Same-cwd peers are inspected even when herdr calls omo's SDK child `claude`.
+ */
+function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: ReadonlyMap<string, ProcessInfo>, home: string): Map<string, { path: string | null; startedAt: number | null }> {
   const runtimes: OmoRuntime[] = [];
   // Only an open file in the session store is evidence: omo also holds its background
   // tasks' logs (<cwd>/.omo/senpi-task/logs/*.jsonl) open, and one of those pinned the
@@ -146,11 +152,11 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
   try { store = realpathSync(store); } catch { /* no store yet: no descriptor can be in it */ }
   const dir = sessionDir(cwd, home);
   const held = new Map<string, string[]>();
-  await Promise.all(panes.filter((pane) => pane.cwd === cwd).map(async (pane) => {
-    const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: pane.pane_id }).catch(() => null);
-    if (!info?.process_info?.foreground_processes) { runtimes.push({ paneId: pane.pane_id, startedAt: null, paths: [], ids: [] }); return; }
+  for (const pane of panes.filter((candidate) => candidate.cwd === cwd)) {
+    const info = infos.get(pane.pane_id) ?? null;
+    if (!info?.process_info?.foreground_processes) { runtimes.push({ paneId: pane.pane_id, startedAt: null, paths: [], ids: [] }); continue; }
     const processes = (info.process_info?.foreground_processes ?? []).filter((process) => isOmoProcess(process.argv ?? []));
-    if (processes.length === 0) return;
+    if (processes.length === 0) continue;
     const starts = processes.map((process) => processStartedAt(process.pid));
     const paths: string[] = [];
     const ids: string[] = [];
@@ -172,7 +178,7 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
       if (session.kind === "id") ids.push(session.value);
     }
     runtimes.push({ paneId: pane.pane_id, startedAt: starts.every((start) => start !== null) ? Math.min(...(starts as number[])) : null, paths, ids });
-  }));
+  }
   const files = omoCandidates(cwd, home, runtimes.flatMap((runtime) => runtime.paths));
   // Match canonical candidates even when /proc names a symlink into the store.
   for (const runtime of runtimes) runtime.paths = runtime.paths.flatMap((path) => { try { return [realpathSync(path)]; } catch { return []; } });
@@ -185,5 +191,29 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
     runtime.paths = current;
     runtime.ids = [];
   }
-  return selectOmoTranscript(paneId, files, runtimes);
+  return new Map(runtimes.map((runtime) => [runtime.paneId, { path: selectOmoTranscript(runtime.paneId, files, runtimes), startedAt: runtime.startedAt }]));
+}
+
+export async function omoTranscriptForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<string | null> {
+  const peers = panes.filter((pane) => pane.cwd === cwd);
+  const infos = new Map(await Promise.all(peers.map(async (pane) => [pane.pane_id, await processInfo(pane.pane_id)] as const)));
+  return omoTranscriptsOfCwd(cwd, peers, infos, home).get(paneId)?.path ?? null;
+}
+
+/**
+ * Every pane of a snapshot that runs OmO, whatever herdr calls it, with the session it holds
+ * (null when that cannot be told) and when its OmO process started. One process lookup per
+ * pane herdr has no other agent for, shared by all the panes of a folder.
+ */
+export async function omoPanes(panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<Map<string, { path: string | null; startedAt: number | null }>> {
+  const candidates = panes.filter((pane) => !pane.agent || pane.agent === "pi" || pane.agent === "claude" || pane.agent === "omo");
+  const infos = new Map(await Promise.all(candidates.map(async (pane) => [pane.pane_id, await processInfo(pane.pane_id)] as const)));
+  const runs = (paneId: string) => (infos.get(paneId)?.process_info?.foreground_processes ?? []).some((process) => isOmoProcess(process.argv ?? []));
+  const found = new Map<string, { path: string | null; startedAt: number | null }>();
+  for (const cwd of new Set(candidates.filter((pane) => runs(pane.pane_id)).map((pane) => pane.cwd ?? ""))) {
+    const peers = candidates.filter((pane) => (pane.cwd ?? "") === cwd);
+    const transcripts = cwd ? omoTranscriptsOfCwd(cwd, peers, infos, home) : new Map<string, { path: string | null; startedAt: number | null }>();
+    for (const pane of peers) if (runs(pane.pane_id)) found.set(pane.pane_id, transcripts.get(pane.pane_id) ?? { path: null, startedAt: null });
+  }
+  return found;
 }

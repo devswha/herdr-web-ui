@@ -5,7 +5,7 @@ import { createServer as tcpServer } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { BRIDGE_PROTOCOL, LOCAL_MACHINE, REMOTE_BUNDLE_VERSION, type BridgeIdentity, type Machine, type MachineAction, type MachineEvent, type MachineSettings, type SetupAction, type SetupJob, type SetupProgress, type SetupRequest, type SshTarget } from "../shared/machines.ts";
-import type { ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { ServerMessage, SessionSnapshot, HerdrPane } from "../shared/protocol.ts";
 import type { PushService } from "./push.ts";
 import type { BridgeDescriptor } from "./bridge.ts";
 import { sessionSnapshot } from "./herdr/client.ts";
@@ -126,7 +126,13 @@ export class MachineManager {
     }
     this.emit({ type: "machine-message", machine_id: LOCAL_MACHINE, message });
     if (message.type === "pane-status" && this.local.snapshot) {
-      this.local.snapshot = { ...this.local.snapshot, panes: this.local.snapshot.panes.map((p) => p.pane_id === message.pane_id ? { ...p, agent_status: message.agent_status } : p) };
+      this.local.snapshot = { ...this.local.snapshot, panes: this.local.snapshot.panes.map((p: HerdrPane) => {
+        if (p.pane_id !== message.pane_id) return p;
+        // a frame that names a count replaces it; one that names none leaves it
+        const { background_tasks: before, ...pane } = p;
+        const tasks = message.background_tasks === undefined ? before : message.background_tasks > 0 ? message.background_tasks : undefined;
+        return { ...pane, agent_status: message.agent_status, ...(tasks === undefined ? {} : { background_tasks: tasks }) };
+      }) };
     }
     if (message.type === "session-changed" || message.type === "pane-exited") void this.refreshLocal();
   }

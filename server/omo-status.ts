@@ -12,60 +12,138 @@
  * background task, a monitor, a goal continuation); it is over after an assistant message that
  * stopped for good. Measured over 40 session files: each of 492 such runtime messages written at
  * rest was followed by an assistant message, a median of 5 s later, so the message itself is the
- * start. Nothing of OmO's or Claude's is installed or changed for this: files are read.
+ * start. An answer that ended in an error is not the end by itself: OmO retries (the next
+ * answer followed 2, 4, 8 and 16 s later), and writes `senpi.hooks.stop-state` when it gives up
+ * (475 of 510 errors seen), so the turn runs until that or the next message. Nothing of OmO's
+ * or Claude's is installed or changed for this: files are read.
  *
  * The status replaces herdr's for the pane before CompletionTracker sees it, in status events and
  * in snapshots alike, under the one identity `omo`: herdr has named such a pane `pi` and `claude`
  * by turns, and a finish is matched by identity. A pane whose session cannot be told keeps
- * herdr's status.
+ * herdr's status, under the same identity.
  */
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 
-/** runtime messages that start a turn nobody typed */
+/** runtime messages that start a turn nobody typed; one not named here shows as RUN from its first answer on */
 const TURN_STARTS = new Set([
   "goal-continuation", "omo-senpi:wake", "senpi-monitor:notification", "senpi-terminal:notification",
-  "senpi-codemode:notification", "senpi.todo-owed",
+  "senpi-codemode:notification", "senpi.todo-owed", "omo-init-deep-advisor:run",
 ]);
 
-/** The end of a session file is enough: the last message decides, and a file runs to megabytes. */
-const TAIL_BYTES = 256 * 1024;
-
-/**
- * Whether the turn at the end of this session text is running. null when the text holds nothing
- * that tells (a tail cut inside one long record).
- */
-export function omoTurnStatus(text: string): "working" | "idle" | null {
-  let status: "working" | "idle" | null = null;
-  for (const line of text.split("\n")) {
-    if (!line.startsWith('{"type":"message"') && !line.startsWith('{"type":"custom_message"')) continue;
-    let entry: { type?: unknown; customType?: unknown; message?: { role?: unknown; stopReason?: unknown } };
-    try { entry = JSON.parse(line); } catch { continue; }
-    if (entry.type === "custom_message") {
-      if (typeof entry.customType === "string" && TURN_STARTS.has(entry.customType)) status = "working";
-      continue;
-    }
-    const role = entry.message?.role;
-    if (role === "assistant") status = entry.message?.stopReason === "toolUse" ? "working" : "idle";
-    else if (role === "user" || role === "toolResult") status = "working";
-  }
-  return status;
+export interface OmoTurn {
+  status: "working" | "idle" | null;
+  /** the last answer ended in an error: OmO may be retrying, until it says it stopped */
+  retrying: boolean;
+  /** when the entry that decided the status was written */
+  at: number | null;
 }
 
-/** The last bytes of a file and its size, or null when it cannot be read. A first line cut by the window is dropped. */
-export function readTail(path: string, bytes = TAIL_BYTES): { size: number; text: string } | null {
-  let fd: number;
-  try { fd = openSync(path, "r"); } catch { return null; }
-  try {
-    const size = fstatSync(fd).size;
-    const from = Math.max(0, size - bytes);
-    const buffer = Buffer.alloc(size - from);
-    const text = buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, from)).toString("utf8");
-    return { size, text: from === 0 ? text : text.slice(text.indexOf("\n") + 1) };
-  } catch { return null; }
-  finally { closeSync(fd); }
+export const noTurn = (): OmoTurn => ({ status: null, retrying: false, at: null });
+
+/** A record too long to hold is read by its ends: its role and time are in the first bytes, its stop reason in the last. */
+export type OmoLine = { text: string } | { head: string; tail: string };
+
+/** One session record, applied to the turn so far. */
+export function omoTurnAfter(turn: OmoTurn, line: OmoLine): OmoTurn {
+  const head = "text" in line ? line.text : line.head;
+  if (head.startsWith('{"type":"custom"')) {
+    return turn.retrying && /"customType":"senpi\.hooks\.stop-state"/.test(head.slice(0, 200)) ? { ...turn, status: "idle", retrying: false } : turn;
+  }
+  const custom = head.startsWith('{"type":"custom_message"');
+  if (!custom && !head.startsWith('{"type":"message"')) return turn;
+  let role: unknown, stopReason: unknown, customType: unknown, timestamp: unknown;
+  if ("text" in line) {
+    try {
+      const entry = JSON.parse(line.text) as { customType?: unknown; timestamp?: unknown; message?: { role?: unknown; stopReason?: unknown } };
+      ({ customType, timestamp } = entry);
+      role = entry.message?.role;
+      stopReason = entry.message?.stopReason;
+    } catch { return turn; }
+  } else {
+    role = line.head.match(/"role":"(\w+)"/)?.[1];
+    stopReason = (line.tail.match(/"stopReason":"(\w+)"/g)?.at(-1) ?? line.head.match(/"stopReason":"(\w+)"/)?.[0])?.match(/:"(\w+)"/)?.[1];
+    customType = line.head.match(/"customType":"([^"]+)"/)?.[1];
+    timestamp = line.head.match(/"timestamp":"([^"]+)"/)?.[1];
+  }
+  const parsed = typeof timestamp === "string" ? Date.parse(timestamp) : NaN;
+  const at = Number.isFinite(parsed) ? parsed : turn.at;
+  if (custom) return typeof customType === "string" && TURN_STARTS.has(customType) ? { status: "working", retrying: false, at } : turn;
+  if (role === "assistant") {
+    if (stopReason === "toolUse") return { status: "working", retrying: false, at };
+    if (stopReason === "error") return { status: "working", retrying: true, at };
+    return { status: "idle", retrying: false, at };
+  }
+  return role === "user" || role === "toolResult" ? { status: "working", retrying: false, at } : turn;
+}
+
+/** The turn at the end of a session text. */
+export function omoTurnStatus(text: string): "working" | "idle" | null {
+  let turn = noTurn();
+  for (const line of text.split("\n")) turn = omoTurnAfter(turn, { text: line });
+  return turn.status;
+}
+
+const CHUNK_BYTES = 256 * 1024;
+/** a line longer than this is kept by its ends only */
+const LONG_LINE_BYTES = 64 * 1024;
+const LINE_END_BYTES = 4096;
+/** how far back the first read of a session file starts, and how far when that held nothing that tells */
+const FIRST_READ_BYTES = 1024 * 1024;
+const DEEP_READ_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Reads the whole lines of a file from `from` on and hands each to `each`; the offset of the
+ * first byte not read (a last line still being written waits for its newline). A long line is
+ * handed over by its ends, so no record is held whole however large.
+ */
+export function readLines(fd: number, from: number, size: number, each: (line: OmoLine) => void, read: typeof readSync = readSync): number {
+  let offset = from;
+  let position = from;
+  let parts: Buffer[] = [];
+  let held = 0;
+  let head: Buffer | null = null;
+  let tail = Buffer.alloc(0);
+  const keepEnd = (more: Buffer) => { tail = Buffer.concat([tail, more]).subarray(-LINE_END_BYTES); };
+  while (position < size) {
+    const chunk = Buffer.alloc(Math.min(CHUNK_BYTES, size - position));
+    const got = read(fd, chunk, 0, chunk.length, position);
+    if (got <= 0) break;
+    const bytes = chunk.subarray(0, got);
+    let start = 0;
+    for (let newline = bytes.indexOf(0x0a, start); newline !== -1; newline = bytes.indexOf(0x0a, start)) {
+      const piece = bytes.subarray(start, newline);
+      if (head !== null) {
+        keepEnd(piece);
+        each({ head: head.toString("utf8"), tail: tail.toString("utf8") });
+        head = null;
+        tail = Buffer.alloc(0);
+      } else {
+        each({ text: Buffer.concat([...parts, piece]).toString("utf8") });
+      }
+      parts = [];
+      held = 0;
+      start = newline + 1;
+      offset = position + start;
+    }
+    const rest = bytes.subarray(start);
+    if (head !== null) keepEnd(rest);
+    else {
+      parts.push(rest);
+      held += rest.length;
+      if (held > LONG_LINE_BYTES) {
+        const all = Buffer.concat(parts);
+        head = all.subarray(0, LINE_END_BYTES);
+        tail = all.subarray(-LINE_END_BYTES);
+        parts = [];
+        held = 0;
+      }
+    }
+    position += got;
+  }
+  return offset;
 }
 
 /** `<timestamp>_<session id>.jsonl` */
@@ -74,22 +152,22 @@ export function omoSessionId(path: string): string | null {
 }
 
 /**
- * How many background tasks of a session are running: OmO keeps one record per `task` child in
- * `<cwd>/.omo/senpi-task/tasks/`, with the session that started it. A record left `running` by a
- * host process that is gone is not counted.
+ * How many background tasks each session of a folder has running: OmO keeps one record per
+ * `task` child in `<cwd>/.omo/senpi-task/tasks/`, with the session that started it. A record
+ * left `running` by a host process that is gone is not counted.
  */
-export function omoBackgroundTasks(cwd: string, sessionId: string, alive: (pid: number) => boolean = processAlive): number {
+export function omoBackgroundTasks(cwd: string, alive: (pid: number) => boolean = processAlive): Map<string, number> {
+  const running = new Map<string, number>();
   const dir = join(cwd, ".omo", "senpi-task", "tasks");
   let names: string[];
-  try { names = readdirSync(dir); } catch { return 0; }
-  let running = 0;
+  try { names = readdirSync(dir); } catch { return running; }
   for (const name of names.slice(0, 2048)) {
     if (!name.startsWith("st_") || !name.endsWith(".json")) continue;
     try {
       const record = JSON.parse(readFileSync(join(dir, name), "utf8")) as { status?: unknown; parent_session_id?: unknown; host_pid?: unknown };
-      if (record.status !== "running" || record.parent_session_id !== sessionId) continue;
+      if (record.status !== "running" || typeof record.parent_session_id !== "string") continue;
       if (typeof record.host_pid === "number" && !alive(record.host_pid)) continue;
-      running += 1;
+      running.set(record.parent_session_id, (running.get(record.parent_session_id) ?? 0) + 1);
     } catch { /* being written, or not a record */ }
   }
   return running;
@@ -99,23 +177,44 @@ function processAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
+/** An OmO pane: the session file it holds (null when it cannot be told) and when its OmO process started. */
+export interface OmoPane { path: string | null; startedAt: number | null }
+
+export interface OmoFile {
+  size: (path: string) => number | null;
+  /** the lines from `from` to `size`, and the offset read to */
+  lines: (path: string, from: number, size: number, each: (line: OmoLine) => void) => number;
+}
+
 export interface OmoStatusDeps {
-  /** does this pane run OmO, whatever herdr calls it */
-  runsOmo: (paneId: string) => Promise<boolean>;
-  /** the session file the pane holds, or null when it cannot be told */
-  transcript: (paneId: string, cwd: string, panes: HerdrPane[]) => Promise<string | null>;
+  /** the panes of a snapshot that run OmO, whatever herdr calls them: one process lookup per pane */
+  discover: (panes: HerdrPane[]) => Promise<Map<string, OmoPane>>;
   snapshot: () => Promise<SessionSnapshot>;
-  /** a pane's turn started or ended, or its background tasks changed */
-  onChange: (paneId: string, status: AgentStatus, background: number) => void;
-  read?: (path: string) => { size: number; text: string } | null;
-  background?: (cwd: string, sessionId: string) => number;
+  /** `turn`: the pane's turn started or ended; otherwise only its background tasks changed */
+  onChange: (paneId: string, status: AgentStatus, background: number, turn: boolean) => void;
+  /** a pane was found to run OmO: what herdr called it until now is the same agent */
+  onFound?: (paneId: string) => void;
+  file?: OmoFile;
+  background?: (cwd: string) => Map<string, number>;
   /** how often the session files are looked at, and the panes found anew */
   pollMs?: number;
   refreshMs?: number;
   now?: () => number;
 }
 
-interface Tracked { path: string | null; cwd: string; size: number; status: "working" | "idle"; background: number }
+interface Tracked extends OmoPane { cwd: string; offset: number; size: number; turn: OmoTurn; status: "working" | "idle"; background: number }
+
+const FILES: OmoFile = {
+  size: (path) => { try { const fd = openSync(path, "r"); try { return fstatSync(fd).size; } finally { closeSync(fd); } } catch { return null; } },
+  lines: (path, from, size, each) => {
+    let fd: number;
+    try { fd = openSync(path, "r"); } catch { return from; }
+    try { return readLines(fd, from, size, each); } catch { return from; } finally { closeSync(fd); }
+  },
+};
+
+/** A turn older than the process that holds the session now was another process's: it did not finish, and is not running. */
+const STALE_TURN_MS = 2000;
 
 export class OmoStatus {
   /** every pane that runs OmO; those whose session is known carry a status */
@@ -125,13 +224,13 @@ export class OmoStatus {
   private refreshing: Promise<void> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
-  private readonly read: NonNullable<OmoStatusDeps["read"]>;
+  private readonly file: OmoFile;
   private readonly background: NonNullable<OmoStatusDeps["background"]>;
   private readonly now: () => number;
   private readonly refreshMs: number;
 
   constructor(private readonly deps: OmoStatusDeps) {
-    this.read = deps.read ?? readTail;
+    this.file = deps.file ?? FILES;
     this.background = deps.background ?? omoBackgroundTasks;
     this.now = deps.now ?? Date.now;
     this.refreshMs = deps.refreshMs ?? 5000;
@@ -159,6 +258,11 @@ export class OmoStatus {
     return this.panes.get(paneId)?.path != null;
   }
 
+  /** The pane runs OmO, its session known or not: its identity is `omo` whatever herdr calls it. */
+  runs(paneId: string): boolean {
+    return this.panes.has(paneId);
+  }
+
   backgroundOf(paneId: string): number {
     return this.panes.get(paneId)?.background ?? 0;
   }
@@ -172,66 +276,76 @@ export class OmoStatus {
     if (key === this.refreshedFor && this.now() - this.refreshedAt < this.refreshMs) return;
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {
-      const candidates = panes.filter((pane) => !pane.agent || pane.agent === "pi" || pane.agent === "claude" || pane.agent === "omo");
-      const found = new Map<string, Tracked>();
-      await Promise.all(candidates.map(async (pane) => {
-        if (!await this.deps.runsOmo(pane.pane_id).catch(() => false)) return;
-        const cwd = pane.cwd ?? "";
-        const path = cwd ? await this.deps.transcript(pane.pane_id, cwd, panes).catch(() => null) : null;
-        const before = this.panes.get(pane.pane_id);
-        found.set(pane.pane_id, before && before.path === path ? before : { path, cwd, size: -1, status: "idle", background: 0 });
-      }));
-      this.panes.clear();
-      for (const [paneId, tracked] of found) this.panes.set(paneId, tracked);
+      const found = await this.deps.discover(panes);
+      const cwds = new Map(panes.map((pane) => [pane.pane_id, pane.cwd ?? ""]));
+      for (const paneId of [...this.panes.keys()]) if (!found.has(paneId)) this.panes.delete(paneId);
+      for (const [paneId, pane] of found) {
+        const before = this.panes.get(paneId);
+        if (!before) this.deps.onFound?.(paneId);
+        // the same session goes on being read from where it was: what happened meanwhile is told
+        if (before && before.path === pane.path) before.startedAt = pane.startedAt;
+        else this.panes.set(paneId, { ...pane, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, turn: noTurn(), status: "idle", background: 0 });
+      }
       this.refreshedFor = key;
       this.refreshedAt = this.now();
-      // a pane found anew is read before any snapshot shows it, and tells nobody: the snapshot does
-      this.poll(false);
+      this.poll();
     })().finally(() => { this.refreshing = null; });
     return this.refreshing;
   }
 
-  /** Reads the session files that grew; a turn that started or ended is told. */
-  poll(tell = true): void {
+  /**
+   * Reads what the session files gained; a turn that started or ended is told. A pane read for
+   * the first time tells nobody: the snapshot that found it carries its status.
+   */
+  poll(): void {
+    const counts = new Map<string, Map<string, number>>();
     for (const [paneId, tracked] of this.panes) {
       if (tracked.path === null) continue;
-      const tail = this.read(tracked.path);
-      if (tail === null) continue;
+      const size = this.file.size(tracked.path);
+      if (size === null) continue;
+      const first = tracked.offset === -1;
+      if (first || size < tracked.offset) this.readFrom(tracked, tracked.path, size, Math.max(0, size - FIRST_READ_BYTES));
+      else if (size !== tracked.size) tracked.offset = this.file.lines(tracked.path, tracked.offset, size, (line) => { tracked.turn = omoTurnAfter(tracked.turn, line); });
+      tracked.size = size;
+      const stale = tracked.turn.status === "working" && tracked.turn.at !== null && tracked.startedAt !== null && tracked.turn.at < tracked.startedAt - STALE_TURN_MS;
+      const status = tracked.turn.status === "working" && !stale ? "working" : "idle";
       const sessionId = omoSessionId(tracked.path);
-      const background = sessionId ? this.background(tracked.cwd, sessionId) : 0;
-      let status = tracked.status;
-      if (tail.size !== tracked.size) {
-        status = omoTurnStatus(tail.text) ?? tracked.status;
-        tracked.size = tail.size;
-      }
-      const changed = status !== tracked.status || background !== tracked.background;
+      if (!counts.has(tracked.cwd)) counts.set(tracked.cwd, tracked.cwd ? this.background(tracked.cwd) : new Map());
+      const background = sessionId ? counts.get(tracked.cwd)!.get(sessionId) ?? 0 : 0;
+      const turn = status !== tracked.status;
+      const changed = turn || background !== tracked.background;
       tracked.status = status;
       tracked.background = background;
-      if (changed && tell) this.deps.onChange(paneId, status, background);
+      if (changed && !first) this.deps.onChange(paneId, status, background, turn);
     }
   }
 
-  /**
-   * A snapshot with OmO's own status in place of herdr's, under the identity `omo`, for the
-   * panes whose session is known. This is what CompletionTracker settles.
-   */
-  apply<T extends { panes: HerdrPane[]; agents?: SessionSnapshot["agents"] }>(snapshot: T): T {
-    const status = (paneId: string) => { const tracked = this.panes.get(paneId); return tracked && tracked.path !== null ? tracked.status : null; };
-    if (!snapshot.panes.some((pane) => status(pane.pane_id) !== null)) return snapshot;
-    return {
-      ...snapshot,
-      panes: snapshot.panes.map((pane) => status(pane.pane_id) !== null ? { ...pane, agent: "omo", agent_status: status(pane.pane_id)! } : pane),
-      ...(snapshot.agents ? { agents: snapshot.agents.map((agent) => status(agent.pane_id) !== null ? { ...agent, agent: "omo", agent_status: status(agent.pane_id)! } : agent) } : {}),
+  /** The first read of a file: its end, and further back when that end holds nothing that tells (one long record). */
+  private readFrom(tracked: Tracked, path: string, size: number, from: number): void {
+    const read = (start: number): void => {
+      tracked.turn = noTurn();
+      let skip = start > 0;
+      tracked.offset = this.file.lines(path, start, size, (line) => {
+        // the first line of a read that starts inside the file is the rest of a record
+        if (skip) { skip = false; return; }
+        tracked.turn = omoTurnAfter(tracked.turn, line);
+      });
     };
+    read(from);
+    if (tracked.turn.status === null && from > 0) read(Math.max(0, size - DEEP_READ_BYTES));
   }
 
-  /** The name shown for every OmO pane, also one whose session is not known. */
-  label(snapshot: SessionSnapshot): SessionSnapshot {
+  /**
+   * A snapshot with OmO's own status in place of herdr's for the panes whose session is known,
+   * and every OmO pane under the identity `omo`. This is what CompletionTracker settles.
+   */
+  apply<T extends { panes: HerdrPane[]; agents?: SessionSnapshot["agents"] }>(snapshot: T): T {
     if (!snapshot.panes.some((pane) => this.panes.has(pane.pane_id))) return snapshot;
-    return {
-      ...snapshot,
-      panes: snapshot.panes.map((pane) => this.panes.has(pane.pane_id) ? { ...pane, agent: "omo" } : pane),
-      agents: snapshot.agents.map((agent) => this.panes.has(agent.pane_id) ? { ...agent, agent: "omo" } : agent),
+    const own = <P extends { pane_id: string; agent_status: AgentStatus }>(entry: P): P => {
+      const tracked = this.panes.get(entry.pane_id);
+      if (!tracked) return entry;
+      return { ...entry, agent: "omo", ...(tracked.path !== null ? { agent_status: tracked.status } : {}) };
     };
+    return { ...snapshot, panes: snapshot.panes.map(own), ...(snapshot.agents ? { agents: snapshot.agents.map(own) } : {}) };
   }
 }
