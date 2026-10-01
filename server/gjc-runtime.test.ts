@@ -1,8 +1,11 @@
 import { expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gjcBreadcrumbPath, gjcDisplayCandidates, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs } from "./gjc-runtime.ts";
+
+// Session paths come back canonical and the store root is passed in canonical; macOS's tmpdir is a symlink into /private.
+const tempDir = (prefix: string) => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 
 it("recognizes native and interpreter-launched gjc, not look-alikes", () => {
   expect(isGjcProcess(["/home/u/.local/bin/gjc", "--resume"])).toBe(true);
@@ -22,7 +25,7 @@ it("reads macOS terminal/process identity without /proc", () => {
 });
 
 it("validates breadcrumbs against process age, canonical cwd and the native session store", () => {
-  const home = mkdtempSync(join(tmpdir(), "gjc-breadcrumb-"));
+  const home = tempDir("gjc-breadcrumb-");
   try {
     // GJC's layout: one store directory per project under sessions/
     const store = join(home, ".gjc/agent/sessions/v2-project");
@@ -44,7 +47,7 @@ it("validates breadcrumbs against process age, canonical cwd and the native sess
 });
 
 it("reads a breadcrumb left on a subagent's file as the session that ran it", () => {
-  const home = mkdtempSync(join(tmpdir(), "gjc-subagent-"));
+  const home = tempDir("gjc-subagent-");
   try {
     const root = join(home, ".gjc/agent/sessions"), store = join(root, "v2-project");
     const markers = join(home, ".gjc/agent/terminal-sessions");
@@ -67,7 +70,7 @@ it("reads a breadcrumb left on a subagent's file as the session that ran it", ()
 });
 
 it("keeps every whole record of a candidate's tail window", () => {
-  const root = mkdtempSync(join(tmpdir(), "gjc-candidates-"));
+  const root = tempDir("gjc-candidates-");
   try {
     mkdirSync(join(root, "project"));
     const path = join(root, "project", "session.jsonl");

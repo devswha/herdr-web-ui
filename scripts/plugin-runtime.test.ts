@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { activePluginScript } from "./plugin-runtime.ts";
@@ -7,7 +7,8 @@ import { updateStateDir } from "../server/update-state.ts";
 
 let root: string, state: string, updates: string, revision: string, release: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "herdr-plugin-runtime-"));
+  // the active release comes back canonical; macOS's tmpdir is a symlink into /private
+  root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-plugin-runtime-")));
   state = join(root, "state");
   Bun.spawnSync(["git", "init", "-q", root]);
   Bun.spawnSync(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-q", "--allow-empty", "-m", "fixture"], { cwd: root });
