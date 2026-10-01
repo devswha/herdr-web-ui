@@ -18,6 +18,22 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   changed in between (`/thinking`, or a model switch) was never seen: a session started at
   `high` and switched to `medium` still showed `high`. A model or thinking-level change between
   them now counts, in order, without reading more of the file.
+- The chat shows the conversation of OmO installed with `bun add -g omo-ai` again, and the
+  sidebar marks its pane as OmO. A global bun install puts OmO's engine next to omo-ai rather
+  than inside it, so the pane runs `bun …/@code-yeongyu/senpi/dist/bundle/cli.js --extension
+  …/omo-ai/plugin`, and 0.3.40 no longer took it for OmO: the chat found no conversation and
+  New session did not see OmO start. That engine counts as OmO again when omo-ai's plugin is one
+  of its extensions.
+- Claude usage on a Mac no longer shows `expired` while Claude Code is signed in. Claude Code
+  started outside the desktop session (over SSH, or by a background service) cannot write its
+  keychain item, so it refreshes only `~/.claude/.credentials.json` and the item keeps a token
+  that expired hours ago. The app took the keychain item whenever it could read it; it now
+  takes whichever of the two expires later, the way it already does for Cursor. Both are still
+  only read.
+- Claude's subscription usage no longer shows a locked keychain on a Mac whose server was
+  started outside the desktop session (over SSH, or by a detached multiplexer), where
+  `security` cannot open the login keychain. The item is read through a one-shot launchd job
+  in the desktop session instead.
 
 ## [0.3.40] - 2026-10-01
 

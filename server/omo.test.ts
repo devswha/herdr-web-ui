@@ -23,6 +23,23 @@ it("takes omo from the program a process runs: its own binary, or the script of 
   expect(isOmoProcess([`${OMO_AI}/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`, "--output-format", "stream-json"])).toBeTrue();
 });
 
+it("takes the engine a global bun install hoists next to omo-ai for omo when it loads omo-ai's plugin", () => {
+  const modules = "/home/u/.bun/install/global/node_modules";
+  // omo-ai 5.1.6 installed with `bun add -g omo-ai`: senpi is not under omo-ai
+  expect(isOmoProcess(["/home/u/.bun/bin/bun", `${modules}/@code-yeongyu/senpi/dist/bundle/cli.js`, "--extension", `${modules}/omo-ai/plugin`])).toBeTrue();
+  expect(isOmoProcess(["bun", `${modules}/@code-yeongyu/senpi/dist/cli.js`, "--extension", `${modules}/omo-ai/plugin`, "--model", "anthropic/claude-opus-4-1", "--thinking", "medium"])).toBeTrue();
+  // senpi on its own, or with another extension, is not omo
+  expect(isOmoProcess(["bun", `${modules}/@code-yeongyu/senpi/dist/bundle/cli.js`])).toBeFalse();
+  expect(isOmoProcess(["bun", `${modules}/@code-yeongyu/senpi/dist/bundle/cli.js`, "--extension", "/home/u/ext/other"])).toBeFalse();
+  // an omo-ai plugin path handed to another script, or not as an extension, is still not omo
+  expect(isOmoProcess(["bun", "/home/u/tools/watch.js", "--extension", `${modules}/omo-ai/plugin`])).toBeFalse();
+  expect(isOmoProcess(["bun", `${modules}/@code-yeongyu/senpi/dist/bundle/cli.js`, `${modules}/omo-ai/plugin`])).toBeFalse();
+  expect(isOmoProcess([`${modules}/@code-yeongyu/senpi/dist/bundle/cli.js`, "--extension", `${modules}/omo-ai/plugin`])).toBeFalse();
+  // words after `--` are the prompt: senpi loads no extension from them
+  expect(isOmoProcess(["bun", `${modules}/@code-yeongyu/senpi/dist/bundle/cli.js`, "--", "Explain", "--extension", `${modules}/omo-ai/plugin`])).toBeFalse();
+  expect(isOmoProcess(["bun", `${modules}/@code-yeongyu/senpi/dist/bundle/cli.js`, "--extension", `${modules}/omo-ai/plugin`, "--", "Explain"])).toBeTrue();
+});
+
 it("does not take an omo path given to another program for omo", () => {
   expect(isOmoProcess(["grep", "-q", `${OMO_AI}/x`])).toBeFalse();
   expect(isOmoProcess(["cat", "/home/u/.nvm/versions/node/v24.18.0/bin/omo"])).toBeFalse();

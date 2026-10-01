@@ -181,7 +181,7 @@ Only providers with a sign-in are shown; a GitHub account without Copilot is lef
 - **Asked only while someone looks.** Nothing runs in the background. The server asks a provider at most every five minutes, a refresh from the popover at most every 30 seconds, and a provider that answered 429 not before it said to.
 - **Yours to arrange.** Settings → Subscription usage orders the accounts (until then the one nearest a limit comes first), hides any (from the strip and its popover alike), and switches the meters between what is used and what is left.
 - **The server's PC only.** Remote PCs are not included.
-- A macOS keychain the server's session cannot open (a server started outside the logged-in desktop session, for one) shows as such instead of the numbers.
+- On macOS, a server started outside the logged-in desktop session (over SSH, or by a multiplexer started there) reads the keychain item through a one-shot job in that desktop session. A keychain that still cannot be opened shows as such instead of the numbers.
 
 ## On your phone
 

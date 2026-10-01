@@ -7,16 +7,30 @@ import { processStartedAt } from "./process-start.ts";
 const OMO_PROCESS = /(^|\/)omo(\.js)?$|\/omo-ai\//;
 /** node and bun run a script: the program is then the script, the first word that is not a flag */
 const JS_RUNTIME = /(^|\/)(node|nodejs|bun)$/;
+/** omo's engine, run by its launcher; it is omo only with omo-ai's plugin as an extension */
+const SENPI_ENTRY = /\/@code-yeongyu\/senpi\/dist\/(bundle\/)?cli\.js$/;
+const OMO_EXTENSION = /\/omo-ai\/plugin\/?$/;
 /**
  * Only the program counts: argv[0] (omo's native binary, its SDK's claude), or the script a
  * JS runtime runs (`bun …/omo-ai/…/cli.js`, `node …/bin/omo`). An omo-ai path handed to another
  * program (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is that program's argument, not omo. The word
  * is one path: a PATH list that names omo-ai's bin directory (`printf %s\n $PATH` in an rc
  * file) made a fresh shell pass for omo for a moment.
+ *
+ * A global bun install hoists omo's engine next to omo-ai instead of inside it
+ * (`bun …/node_modules/@code-yeongyu/senpi/dist/bundle/cli.js --extension …/node_modules/omo-ai/plugin`):
+ * the script is then senpi's own entry, and omo-ai shows only as the extension it loads.
+ * Words after a `--` are the prompt, not options: senpi loads no extension from them.
  */
 export function isOmoProcess(argv: readonly string[]): boolean {
-  const program = JS_RUNTIME.test(argv[0] ?? "") ? argv.slice(1).find((word) => !word.startsWith("-")) : argv[0];
-  return program !== undefined && !program.includes(":") && OMO_PROCESS.test(program);
+  const runtime = JS_RUNTIME.test(argv[0] ?? "");
+  const program = runtime ? argv.slice(1).find((word) => !word.startsWith("-")) : argv[0];
+  if (program === undefined || program.includes(":")) return false;
+  if (OMO_PROCESS.test(program)) return true;
+  if (!runtime || !SENPI_ENTRY.test(program)) return false;
+  const prompt = argv.indexOf("--", argv.indexOf(program));
+  const options = prompt === -1 ? argv : argv.slice(0, prompt);
+  return options.some((word, at) => options[at - 1] === "--extension" && !word.includes(":") && OMO_EXTENSION.test(word));
 }
 
 export interface OmoCandidate { path: string; id: string; createdAt: number | null }
