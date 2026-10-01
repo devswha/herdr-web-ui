@@ -123,6 +123,16 @@ function cmdValue(value: string): string {
   return value;
 }
 
+/**
+ * A bridge's log and launcher on Windows, one pair per herdr session. cmd holds the file it
+ * redirects into, so a second bridge sent to the same log never starts: "The process cannot
+ * access the file because it is being used by another process" (live-verified).
+ */
+export function windowsBridgeFiles(session?: string): { log: string; launcher: string } {
+  const suffix = session ? `-${session}` : "";
+  return { log: `bridge${suffix}.log`, launcher: `start-bridge${suffix}.cmd` };
+}
+
 const WINDOWS_BUNDLE = `${WINDOWS_BUNDLE_BASE}\\remote-v${REMOTE_BUNDLE_VERSION}`;
 const WINDOWS_REGISTRY = "$env:USERPROFILE\\.config\\herdr-web-ui\\bridges";
 // a script's exit code follows its last statement: a listing of a registry not there yet must
@@ -132,7 +142,7 @@ const WINDOWS_DESCRIPTORS = `if (Test-Path ${WINDOWS_REGISTRY}) { Get-ChildItem 
 export const windowsHost: RemoteHost = {
   kind: "windows",
   bundleDescription: "Private web bridge bundle (Bun only: herdr owns every terminal on Windows)",
-  logHint: "%USERPROFILE%\\.config\\herdr-web-ui\\bridges\\bridge.log",
+  logHint: "%USERPROFILE%\\.config\\herdr-web-ui\\bridges\\bridge.log (bridge-<session>.log for a named session)",
   async inspect(ssh, session) {
     const inspection = await ssh.runPowerShell([
       "$ErrorActionPreference = 'Continue'",
@@ -246,21 +256,22 @@ export const windowsHost: RemoteHost = {
   },
   async start(ssh, { session, herdrPath, inspection }) {
     if (!herdrPath) throw new Error("herdr is not installed on this PC");
+    const files = windowsBridgeFiles(session);
     // a launcher script: cmd can set the environment and redirect the log without any
     // quoting the WMI command line would have to survive
     const launcher = [
       "@echo off",
       `set "HERDR_REMOTE_SESSION=${cmdValue(session ?? "")}"`,
       `set "HERDR_WEB_HERDR_BIN=${cmdValue(herdrPath)}"`,
-      `"${cmdValue(`${inspection.runtimeDir}\\bin\\bun.exe`)}" "${cmdValue(`${inspection.runtimeDir}\\server\\remote-entry.ts`)}" >> "${cmdValue(`${inspection.registryDir}\\bridge.log`)}" 2>&1`,
+      `"${cmdValue(`${inspection.runtimeDir}\\bin\\bun.exe`)}" "${cmdValue(`${inspection.runtimeDir}\\server\\remote-entry.ts`)}" >> "${cmdValue(`${inspection.registryDir}\\${files.log}`)}" 2>&1`,
     ];
     await ssh.runPowerShell([
       "$ErrorActionPreference = 'Stop'",
       `$dir = "${WINDOWS_REGISTRY}"; New-Item -ItemType Directory -Force $dir | Out-Null`,
       // one literal per line: WriteAllLines ends each with the CRLF cmd expects
-      `[IO.File]::WriteAllLines("$dir\\start-bridge.cmd", [string[]]@(${launcher.map(psQuote).join(", ")}), [Text.Encoding]::ASCII)`,
+      `[IO.File]::WriteAllLines("$dir\\${files.launcher}", [string[]]@(${launcher.map(psQuote).join(", ")}), [Text.Encoding]::ASCII)`,
       // not Start-Process: that child belongs to the SSH session's job and dies with it
-      "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \"cmd.exe /d /c `\"$dir\\start-bridge.cmd`\"\"; CurrentDirectory = $env:USERPROFILE }",
+      `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "cmd.exe /d /c \`"$dir\\${files.launcher}\`""; CurrentDirectory = $env:USERPROFILE }`,
       "if ($r.ReturnValue -ne 0) { throw \"Could not start the bridge (Win32_Process.Create returned $($r.ReturnValue))\" }",
     ].join("\n"));
   },
