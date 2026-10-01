@@ -102,7 +102,7 @@ describe("OmO panes' status in place of herdr's", () => {
     const ids: Record<string, string> = {};
     const told: [string, AgentStatus, number, boolean][] = [];
     const found: string[] = [];
-    const state = { background: 0, discovered: new Map<string, OmoPane>([["omo", { path: FILE, startedAt: null }], ["lost", { path: null, startedAt: null }]]), lookups: 0, clock: 0, during: () => {} };
+    const state = { background: 0, discovered: new Map<string, OmoPane>([["omo", { path: FILE, startedAt: null }], ["lost", { path: null, startedAt: null }]]), lookups: 0, clock: 0, failing: false, during: () => {} };
     const omo = new OmoStatus({
       // the session of `lost` cannot be told (two OmO panes in one folder without /proc)
       discover: async () => { state.lookups += 1; state.during(); return new Map(state.discovered); },
@@ -111,7 +111,7 @@ describe("OmO panes' status in place of herdr's", () => {
       onFound: (id) => found.push(id),
       file: {
         stat: (path) => path in files ? { size: Buffer.byteLength(files[path]!), id: ids[path] ?? "1" } : null,
-        lines: (path, from, size, each) => { const text = Buffer.from(files[path]!).subarray(from, size).toString("utf8"); const whole = text.slice(0, text.lastIndexOf("\n") + 1); for (const line of whole.split("\n").slice(0, -1)) each({ text: line }); return from + Buffer.byteLength(whole); },
+        lines: (path, from, size, each) => { if (state.failing) return from; const text = Buffer.from(files[path]!).subarray(from, size).toString("utf8"); const whole = text.slice(0, text.lastIndexOf("\n") + 1); for (const line of whole.split("\n").slice(0, -1)) each({ text: line }); return from + Buffer.byteLength(whole); },
       },
       background: () => new Map([["01a0f88b-481c-7139-8125-c9cd453b9e17", state.background]]),
       now: () => state.clock,
@@ -260,14 +260,78 @@ describe("OmO panes' status in place of herdr's", () => {
     const { omo, state } = setup();
     await omo.refresh(herdr().panes);
     // herdr's names for OmO itself change nothing
-    for (const name of [null, "claude", "pi", "omo"]) omo.named("omo", name);
+    for (const name of [null, "claude", "pi", "omo"]) expect(omo.named("omo", name)).toBe(false);
     expect(omo.tracks("omo")).toBe(true);
     // Codex started in the pane: its events are no longer swallowed, and the panes are looked up again
-    omo.named("omo", "codex");
+    expect(omo.named("omo", "codex")).toBe(true);
+    expect(omo.named("omo", "codex")).toBe(false);
     expect([omo.tracks("omo"), omo.runs("omo")]).toEqual([false, false]);
     state.discovered.delete("omo");
     await omo.refresh(herdr().panes);
     expect(state.lookups).toBe(2);
+  });
+
+  it("does not take a pane back from a lookup that began before another agent was named in it", async () => {
+    const { omo, told, state } = setup(lines(message("user")));
+    await omo.refresh(herdr().panes);
+    state.clock += 10_000;
+    // the lookup still sees OmO; Codex's event arrives while it runs
+    state.during = () => { omo.named("omo", "codex"); };
+    await omo.refresh(herdr().panes);
+    expect(omo.runs("omo")).toBe(false);
+    expect(told).toEqual([["omo", "working", 0, true]]);
+    // a pane only remembered (its lookup missed) is let go the same way
+    state.during = () => {};
+    await omo.refresh(herdr().panes);
+    state.discovered.delete("omo");
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(omo.named("omo", "codex")).toBe(true);
+  });
+
+  it("tells a turn still running anew once herdr's status stood for the pane a while", async () => {
+    const { omo, told, state } = setup(lines(message("user")));
+    const completions = new CompletionTracker(null);
+    const settle = () => { const [id, status] = told.at(-1)!; return completions.observe(id, status, "omo"); };
+    await omo.refresh(herdr().panes);
+    expect(settle()).toBe("working");
+    // the session cannot be told: herdr's claude/idle counts, and reads as a finish
+    state.discovered.set("omo", { path: null, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(completions.observe("omo", "idle", "omo")).toBe("done");
+    // told again, the turn still runs: RUN is said anew, so its real end is a finish
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(told).toHaveLength(2);
+    expect(settle()).toBe("working");
+  });
+
+  it("keeps another agent's status out of a snapshot being read when OmO takes the pane", async () => {
+    const completions = new CompletionTracker(null);
+    let release = (_: SessionSnapshot) => {};
+    const reading = completions.readSnapshot(() => new Promise<SessionSnapshot>((resolve) => { release = resolve; }));
+    completions.observe("omo", "blocked", "codex");
+    completions.adopt("omo", "omo", OMO_ALIASES);
+    release(snapshotOf(pane("omo", "omo", "idle")));
+    expect(statuses(await reading)["omo"]).toBe("omo/idle");
+    // herdr's own done for Codex is not OmO's either
+    completions.observe("omo", "done", "codex");
+    completions.adopt("omo", "omo", OMO_ALIASES);
+    expect(completions.current("omo")).toBeUndefined();
+  });
+
+  it("reads again what a failed read left", async () => {
+    const { omo, told, append, state } = setup();
+    await omo.refresh(herdr().panes);
+    state.failing = true;
+    append(message("user"));
+    omo.poll();
+    expect(told).toEqual([]);
+    state.failing = false;
+    omo.poll();
+    expect(told).toEqual([["omo", "working", 0, true]]);
   });
 
   it("tells a change in background tasks as that, not as a turn", async () => {

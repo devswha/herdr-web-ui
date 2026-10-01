@@ -199,7 +199,7 @@ export interface OmoStatusDeps {
   now?: () => number;
 }
 
-interface Tracked extends OmoPane { cwd: string; offset: number; size: number; id: string; turn: OmoTurn; status: "working" | "idle"; background: number }
+interface Tracked extends OmoPane { cwd: string; offset: number; size: number; id: string; /** found again after a while herdr's status stood for it: a turn still running is told anew */ retell: boolean; turn: OmoTurn; status: "working" | "idle"; background: number }
 
 const FILES: OmoFile = {
   stat: (path) => { try { const fd = openSync(path, "r"); try { const stat = fstatSync(fd); return { size: stat.size, id: `${stat.dev}:${stat.ino}` }; } finally { closeSync(fd); } } catch { return null; } },
@@ -221,6 +221,8 @@ export class OmoStatus {
   private refreshedAt = -Infinity;
   private refreshedFor = "";
   private refreshing: Promise<void> | null = null;
+  /** counts the panes taken from OmO by an event: a lookup started before one says nothing of them */
+  private generation = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
   private readonly file: OmoFile;
@@ -275,7 +277,9 @@ export class OmoStatus {
     if (key === this.refreshedFor && this.now() - this.refreshedAt < this.refreshMs) return;
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {
+      const generation = this.generation;
       const found = await this.deps.discover(panes);
+      if (generation !== this.generation) return;
       const cwds = new Map(panes.map((pane) => [pane.pane_id, pane.cwd ?? ""]));
       for (const [paneId, gone] of this.panes) {
         if (found.has(paneId)) continue;
@@ -296,7 +300,7 @@ export class OmoStatus {
           if (before) this.remember(paneId, before);
           const prior = this.last.get(paneId);
           const startedAt = pane.startedAt ?? (prior?.path === pane.path ? prior.startedAt : null);
-          this.panes.set(paneId, { ...pane, startedAt, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", turn: noTurn(), status: prior?.status ?? "idle", background: prior?.background ?? 0 });
+          this.panes.set(paneId, { ...pane, startedAt, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", retell: prior !== undefined, turn: noTurn(), status: prior?.status ?? "idle", background: prior?.background ?? 0 });
         }
         if (pane.path !== null) this.last.delete(paneId);
       }
@@ -314,13 +318,17 @@ export class OmoStatus {
   /**
    * herdr named the pane's agent in a status event. Another agent than the names it gives OmO
    * (Codex started where OmO ran) ends OmO's hold on the pane at once, not at the next lookup:
-   * that agent's events are its own, a question it asks among them.
+   * that agent's events are its own, a question it asks among them. True when the pane was
+   * OmO's until now: what OmO did there is then no part of the other agent's status.
    */
-  named(paneId: string, agent: string | null): void {
-    if (agent === null || agent === "omo" || OMO_ALIASES.includes(agent) || !this.panes.has(paneId)) return;
-    this.panes.delete(paneId);
-    this.last.delete(paneId);
+  named(paneId: string, agent: string | null): boolean {
+    if (agent === null || agent === "omo" || OMO_ALIASES.includes(agent)) return false;
+    const held = this.panes.delete(paneId);
+    const remembered = this.last.delete(paneId);
+    if (!held && !remembered) return false;
+    this.generation += 1;
     this.refreshedFor = "";
+    return true;
   }
 
   /**
@@ -335,7 +343,8 @@ export class OmoStatus {
       if (stat === null) continue;
       const { size } = stat;
       if (tracked.offset === -1 || size < tracked.offset || stat.id !== tracked.id) this.readFrom(tracked, tracked.path, size, Math.max(0, size - FIRST_READ_BYTES));
-      else if (size !== tracked.size) tracked.offset = this.file.lines(tracked.path, tracked.offset, size, (line) => { tracked.turn = omoTurnAfter(tracked.turn, line); });
+      // also what a read that failed left unread
+      else if (size !== tracked.size || tracked.offset < size) tracked.offset = this.file.lines(tracked.path, tracked.offset, size, (line) => { tracked.turn = omoTurnAfter(tracked.turn, line); });
       tracked.size = size;
       tracked.id = stat.id;
       const stale = tracked.turn.status === "working" && tracked.turn.at !== null && tracked.startedAt !== null && tracked.turn.at < tracked.startedAt - STALE_TURN_MS;
@@ -343,7 +352,8 @@ export class OmoStatus {
       const sessionId = omoSessionId(tracked.path);
       if (!counts.has(tracked.cwd)) counts.set(tracked.cwd, tracked.cwd ? this.background(tracked.cwd) : new Map());
       const background = sessionId ? counts.get(tracked.cwd)!.get(sessionId) ?? 0 : 0;
-      const turn = status !== tracked.status;
+      const turn = status !== tracked.status || (tracked.retell && status === "working");
+      tracked.retell = false;
       const changed = turn || background !== tracked.background;
       tracked.status = status;
       tracked.background = background;

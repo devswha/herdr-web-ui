@@ -750,7 +750,8 @@ export function createServer(
 
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent) => {
-      omo.named(paneId, agent);
+      // another agent took an OmO pane: what OmO worked on there is not that agent's to finish
+      if (omo.named(paneId, agent)) completions.forget(paneId);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
       // an agent herdr lost on the way still works and finishes as such (server/completion.ts);

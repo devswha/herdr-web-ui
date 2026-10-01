@@ -95,15 +95,18 @@ export class CompletionTracker {
    * (Codex, then OmO started in its place) is not OmO's: that is dropped.
    */
   adopt(paneId: string, agent: string, from: readonly string[]): void {
+    let kept = false;
     for (const state of [this.finished, this.worked]) {
       if (!state.has(paneId)) continue;
       const was = state.get(paneId) ?? null;
-      if (was === null || was === agent || from.includes(was)) state.set(paneId, agent);
-      else {
-        state.delete(paneId);
-        // nor is what that agent was last reported as: the pane's status is settled anew
-        this.reported.delete(paneId);
-      }
+      if (was === null || was === agent || from.includes(was)) { state.set(paneId, agent); kept = true; }
+      else state.delete(paneId);
+    }
+    if (!kept) {
+      // nothing of its own to go on from: what the pane was last reported as may be another
+      // agent's, in a snapshot still being read too, and its status is settled anew
+      this.reported.delete(paneId);
+      for (const changes of this.pending.values()) changes.delete(paneId);
     }
     this.save();
   }
