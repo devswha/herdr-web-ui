@@ -142,7 +142,9 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     const workspaceId = snapshot.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
     if (!workspaceId) return;
     unfoldedFor.current = opened;
-    if (collapsedWorkspaces.has(workspaceId)) setWorkspaceCollapsed(workspaceId, false);
+    // not guarded by collapsedWorkspaces: a fold the effect above just restored from storage
+    // is not in this render's set yet, and the updater leaves an open workspace as it is
+    setWorkspaceCollapsed(workspaceId, false);
   }, [selectedPaneId, snapshot, machineId]);
 
   const panes = snapshot?.panes ?? [];
