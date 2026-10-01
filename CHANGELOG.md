@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.41] - 2026-10-02
+
 ### Added
 - An OmO pane shows how many background tasks it still has running, as a small count beside its
   state in the sidebar. A turn can be DONE while tasks it started still work, and they wake the
@@ -29,12 +31,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   where to go instead. Wording checked at 390 wide: the lens switch is an icon there (its word is
   hidden below 560px, and a `title` is a tooltip a phone never shows), so the hint names where the
   button is rather than a word no phone displays
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A pi pane says when the conversation is bigger than what the chat shows. `/tree` moves pi's leaf
   pointer and writes nothing, so the turns a `/tree` left behind simply disappeared from the chat
   with no sign they had been there. The chat now names how many it holds back and across how many
   branches, and where pi summarized the abandoned path — answering `/tree`'s **Summarize branch?**
   — it shows that summary. Going back to those turns still means `/tree` in the terminal: the chat
   reads them but cannot move pi's pointer, and a chat that could would offer to undo a branch by a tap
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A pi pane is a chat. Its own session file under `~/.pi/agent/sessions` is read through herdr,
   so prompts, thinking, tool calls with their results, the model and the reasoning level show
   the way they do for omp. `/new`, `/resume`, `/fork` and `/clone` move the chat to the session
@@ -46,12 +50,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   while it waits on a dialog, never blocked, so the card comes from its screen. A session
   directory chosen with `--session-dir` or the `sessionDir` setting is not found;
   `PI_CODING_AGENT_SESSION_DIR` is.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A picture a pi tool opened shows in the chat. pi keeps the image a `read` returned in the
   session file beside the text it answers with, so a screenshot the agent looked at was in the
   transcript and invisible here; it now shows inside that tool's row, and opens full size on a
   tap. Only the address travels in the conversation, so the bytes arrive when the row is opened
   and not on every poll, and an image left behind by a `/tree` stays out of reach, the way its
   output does.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A pi pane's context ring shows. What a request filled was already recorded; the window it
   filled was not, so the ring had nothing to divide by and stayed hidden. It now reads the
   window from the same `~/.pi/agent/models.json` pi reads its own providers from, and the
@@ -59,13 +65,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   pi answers those from its built-in catalogue or from a running llama.cpp server, neither of
   which a reader of the transcript can ask, and a window invented would show a percentage no
   different from the real one.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A pi pane's message box lists pi's own slash commands as you type `/`, the way it does for
   Claude Code, Codex and omp: pi's built-ins in pi's words, the templates in `~/.pi/agent/prompts`
   and the skills under `~/.pi/agent/skills` and `~/.agents/skills`. A project's own skills and
   prompt templates stay out of the list, because pi loads those only once you have trusted the
   folder, and a command the agent will not run is worse than one missing from the menu.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - The browser demo runs a pi pane, backfilled into the recorded snapshot when the fixtures
   predate it: `site/demo/fixtures.ts` is the only file a new demo agent needs.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 
 ### Changed
 - Remote PCs use the `remote-v10` runtime, which carries the server-side fixes since `remote-v9`
@@ -81,6 +90,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   state only the terminal lens can leave. Navigating was never the chat's to do; omp curates its own
   list the same way. What the chat does say is where a `/tree` left the conversation: the marker
   above the turns names how many it holds back and across how many branches
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 
 ### Fixed
 - A Codex pane whose answers are all short shows its chat. The chat finds a Codex conversation by
@@ -127,22 +137,26 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   changed in between (`/thinking`, or a model switch) was never seen: a session started at
   `high` and switched to `medium` still showed `high`. A model or thinking-level change between
   them now counts, in order, without reading more of the file.
+  ([#279](https://github.com/devswha/herdr-web-ui/pull/279) by @ddotz)
 - The chat shows the conversation of OmO installed with `bun add -g omo-ai` again, and the
   sidebar marks its pane as OmO. A global bun install puts OmO's engine next to omo-ai rather
   than inside it, so the pane runs `bun …/@code-yeongyu/senpi/dist/bundle/cli.js --extension
   …/omo-ai/plugin`, and 0.3.40 no longer took it for OmO: the chat found no conversation and
   New session did not see OmO start. That engine counts as OmO again when omo-ai's plugin is one
   of its extensions.
+  ([#278](https://github.com/devswha/herdr-web-ui/pull/278) by @ddotz)
 - Claude usage on a Mac no longer shows `expired` while Claude Code is signed in. Claude Code
   started outside the desktop session (over SSH, or by a background service) cannot write its
   keychain item, so it refreshes only `~/.claude/.credentials.json` and the item keeps a token
   that expired hours ago. The app took the keychain item whenever it could read it; it now
   takes whichever of the two expires later, the way it already does for Cursor. Both are still
   only read.
+  ([#277](https://github.com/devswha/herdr-web-ui/pull/277) by @ddotz)
 - Claude's subscription usage no longer shows a locked keychain on a Mac whose server was
   started outside the desktop session (over SSH, or by a detached multiplexer), where
   `security` cannot open the login keychain. The item is read through a one-shot launchd job
   in the desktop session instead.
+  ([#255](https://github.com/devswha/herdr-web-ui/pull/255) by @ddotz)
 - A pi pane no longer shows a context window pi never used, and now shows the one it does. A
   provider that states `contextWindow` beside a model that names none reported that number as the
   model's denominator; pi does not inherit it, and runs the model at its own default instead, so the
@@ -150,18 +164,24 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the way pi applies it — an override that raises a model to 256k was read at 128k, which drew twice
   the utilisation pi shows. Both checked against pi 0.87.1 by pointing `PI_CODING_AGENT_DIR` at a
   crafted `models.json` and reading `pi --list-models`.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A malformed entry in `~/.pi/agent/models.json` no longer takes the chat down with it. One model
   that was not an object — a stray `null` from a hand edit — threw while the window was being read.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A prompt template reached through a symbolic link is offered again. A `.md` linked from a dotfiles
   repo into the prompt directory was hidden from the menu while pi loaded it and ran it.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A command name longer than the menu no longer runs out from under it, on a phone or a desktop. A
   template is named after its file, and the name kept its full width past the row's edge.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A model list caught mid-redraw is refused instead of offered in part. A screen written while pi is
   still drawing it ends a row inside its provider bracket; the rows above it were kept and offered
   as a catalogue, so counting down walked into models pi had not drawn.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A path abandoned at the very root of a pi session is counted. Navigating pi's tree to its first
   entry clears where the next entry attaches, and starting a second path beside the first was read
   as no navigation at all, hiding what was left behind.
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 - A pi dialog shows on a phone. A phone leaves pi a pane barely wide enough for its own hint, so
   the hint wraps, and pi keeps its footer underneath: the wrapped hint then sat further from the
   bottom than the window that tells a live dialog from an answered one reached, so no card came up
@@ -170,6 +190,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   among them. The wrap is joined back before the screen is read, and a row still missing its
   provider voids the whole reading, because a name cut in half would switch pi to a model that
   does not exist
+  ([#262](https://github.com/devswha/herdr-web-ui/pull/262) by @diegolhambi)
 
 ## [0.3.40] - 2026-10-01
 
@@ -1225,7 +1246,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.40...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.41...HEAD
+[0.3.41]: https://github.com/devswha/herdr-web-ui/compare/v0.3.40...v0.3.41
 [0.3.40]: https://github.com/devswha/herdr-web-ui/compare/v0.3.39...v0.3.40
 [0.3.39]: https://github.com/devswha/herdr-web-ui/compare/v0.3.38...v0.3.39
 [0.3.38]: https://github.com/devswha/herdr-web-ui/compare/v0.3.37...v0.3.38
