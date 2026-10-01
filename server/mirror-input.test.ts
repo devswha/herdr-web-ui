@@ -14,6 +14,10 @@ describe("typing into a mirrored pane", () => {
     }
   });
 
+  test("a pasted block that holds an escape byte, as coloured output does, is still one paste", () => {
+    expect(mirrorInput("\x1b[31mline one\x1b[0m\rline two", true)).toBe("\x1b[200~\x1b[31mline one\x1b[0m\rline two\x1b[201~");
+  });
+
   test("a paste the terminal already bracketed is not wrapped again", () => {
     const pasted = "\x1b[200~line one\rline two\x1b[201~";
     expect(mirrorInput(pasted, true)).toBe(pasted);
