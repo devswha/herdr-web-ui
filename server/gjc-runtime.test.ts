@@ -1,9 +1,9 @@
 import { expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { forgetTranscriptState } from "./conversation.ts";
-import { boundGjcTranscript, gjcSessionSwitches, gjcBreadcrumbPath, gjcDisplayCandidates, gjcPidUnderShell, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs, recentProcessTable, storeRelative } from "./gjc-runtime.ts";
+import { boundGjcTranscript, gjcSessionTitle, gjcStatusTitle, gjcBreadcrumbPath, gjcDisplayCandidates, gjcPidUnderShell, gjcSessionFile, isGjcProcess, matchGjcTranscript, parseGjcPs, recentProcessTable, storeRelative } from "./gjc-runtime.ts";
 
 // Session paths come back canonical and the store root is passed in canonical; macOS's tmpdir is a symlink into /private.
 const tempDir = (prefix: string) => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -129,65 +129,99 @@ it("finds gjc under a Windows pane's shell, the only process herdr names there",
   expect(asked).toBe(false);
 });
 
-it("reads gjc's own line for a session switch", () => {
-  // as gjc 0.16.4 draws them on a Windows PC
-  expect(gjcSessionSwitches(" user\n ok\n ✔ New session started\n user\n Reply\n gajae\n ok")).toBe(1);
-  expect(gjcSessionSwitches(" ✔ New session started\n a\n Resumed session\n")).toBe(2);
-  // the words inside an answer are not gjc's line
-  expect(gjcSessionSwitches(" gajae\n I said: New session started is what gjc prints.\n")).toBe(0);
+it("reads the session title from gjc's status line", () => {
+  // as gjc 0.16.4 draws it on a Windows PC
+  const status = (middle: string) => ` user\n ok\n ⬢ sonnet-5 · ◒ med · 1.8% / 📁 ~\\herdr-qa ──────── ${middle} / v0.16.4\n╭──╮\n│ > Type your message... │\n╰──╯`;
+  expect(gjcStatusTitle(status("Simple Ok Reply / ⤴ 0.3/s / $0.04 (sub)"))).toBe("Simple Ok Reply");
+  // right after /new the session has no title yet
+  expect(gjcStatusTitle(status("(sub)"))).toBeNull();
+  // a title cut short by a narrow pane says nothing
+  expect(gjcStatusTitle(status("Herdr GJC Binding Che… / ⤴ 13.6/s / $0.04 (sub)"))).toBeUndefined();
+  // no status line: a menu covers it, or no gjc
+  expect(gjcStatusTitle(" Resume Session\n> \n❯ Simple Ok Reply")).toBeUndefined();
 });
 
 it("keeps a Windows pane on the session its screen once showed, while the same gjc runs there", async () => {
   forgetTranscriptState();
   const file = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\one.jsonl";
   const other = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\two.jsonl";
+  const titles: Record<string, string | null> = { [file]: "One", [other]: "Two" };
+  const titleOf = (path: string) => titles[path] ?? null;
   const gjc = { pid: 200, started: 1000 };
-  const shows = (path: string | null, switches = 0) => async () => ({ path, switches });
+  const shows = (path: string | null, title?: string | null, titled: string | null = null) => async () => ({ path, title, titled });
   const offScreen = shows(null);
+  const bind = (pane: string, process: typeof gjc | null | undefined, look: ReturnType<typeof shows>) => boundGjcTranscript(pane, process, look, titleOf);
   // a running gjc alone names no session: the first answer needs the screen
-  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
+  expect(await bind("w1:p1", gjc, offScreen)).toBeNull();
+  expect(await bind("w1:p1", gjc, shows(file, "One"))).toBe(file);
   // a long answer pushed every answer's tail off the screen
-  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBe(file);
-  expect(await boundGjcTranscript("w1:p2", gjc, offScreen)).toBeNull();
+  expect(await bind("w1:p1", gjc, shows(null, "One"))).toBe(file);
+  expect(await bind("w1:p1", gjc, offScreen)).toBe(file);
+  expect(await bind("w1:p2", gjc, offScreen)).toBeNull();
   // the same process shows another session (/resume): the screen wins
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(other))).toBe(other);
-  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBe(other);
+  expect(await bind("w1:p1", gjc, shows(other, "Two"))).toBe(other);
+  expect(await bind("w1:p1", gjc, offScreen)).toBe(other);
   // a different gjc in the pane, and the old one's number coming back, start over
-  expect(await boundGjcTranscript("w1:p1", { pid: 201, started: 1100 }, offScreen)).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
+  expect(await bind("w1:p1", { pid: 201, started: 1100 }, offScreen)).toBeNull();
+  expect(await bind("w1:p1", gjc, offScreen)).toBeNull();
   // gjc gone from the pane: nothing is answered, whatever the screen still shows
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
-  expect(await boundGjcTranscript("w1:p1", null, shows(file))).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
+  expect(await bind("w1:p1", gjc, shows(file))).toBe(file);
+  expect(await bind("w1:p1", null, shows(file))).toBeNull();
+  expect(await bind("w1:p1", gjc, offScreen)).toBeNull();
   forgetTranscriptState();
-  expect(await boundGjcTranscript("w1:p1", gjc, offScreen)).toBeNull();
 });
 
-it("lets go of a Windows pane's session when gjc switches session or another process takes its number", async () => {
+it("follows gjc's own session title across /new and /resume on a Windows pane", async () => {
   forgetTranscriptState();
-  const file = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\one.jsonl";
-  const fresh = "C:\\Users\\u\\.gjc\\agent\\sessions\\v2-project\\three.jsonl";
+  const first = "C:\\s\\first.jsonl", fresh = "C:\\s\\fresh.jsonl";
+  const titles: Record<string, string | null> = { [first]: "Herdr GJC Binding Check Sentence", [fresh]: "Simple Ok Reply" };
+  const titleOf = (path: string) => titles[path] ?? null;
   const gjc = { pid: 200, started: 1000 };
-  const shows = (path: string | null, switches = 0) => async () => ({ path, switches });
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
-  // /new: gjc's line shows, and the new session's one-word answer anchors nothing. Measured on a
-  // real PC, the chat stayed on the old conversation here; it now shows none until it can tell
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBeNull();
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(fresh, 1))).toBe(fresh);
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBe(fresh);
-  // the switch line scrolls away, then a later /resume shows one again
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 0))).toBe(fresh);
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(null, 1))).toBeNull();
+  const bind = (path: string | null, title: string | null | undefined, titled: string | null = null, process: { pid: number; started: number | null } | undefined = gjc) =>
+    boundGjcTranscript("w1:p1", process, async () => ({ path, title, titled }), titleOf);
+  expect(await bind(first, "Herdr GJC Binding Check Sentence")).toBe(first);
+  // /new: no title yet. Nothing on screen says which session runs, and the old one may scroll away;
+  // the chat keeps what it had until the status line says otherwise
+  expect(await bind(null, null)).toBe(first);
+  // a one-word answer: gjc titles the new session, and one file carries that title (measured on a
+  // real PC: the chat stayed on the old conversation here before)
+  expect(await bind(null, "Simple Ok Reply", fresh)).toBe(fresh);
+  expect(await bind(null, "Simple Ok Reply")).toBe(fresh);
+  // an answer of the old session pasted into the new one matches the old file, but under the new title
+  expect(await bind(first, "Simple Ok Reply")).toBe(fresh);
+  // /resume back to the first session, with none of its answers on screen
+  expect(await bind(null, "Herdr GJC Binding Check Sentence", first)).toBe(first);
+  // resuming the session already shown keeps it, anchor or none
+  expect(await bind(null, "Herdr GJC Binding Check Sentence")).toBe(first);
+  // a title no single file carries (two sessions share it): the old binding is not that session
+  expect(await bind(null, "Simple Ok Reply")).toBeNull();
+  // a status line too narrow for the title, or covered by a menu, changes nothing
+  expect(await bind(first, "Herdr GJC Binding Check Sentence")).toBe(first);
+  expect(await bind(null, undefined)).toBe(first);
+  // the words of a switch in an answer are just words now: no status title, no change
+  // a start time that went missing for one read is the same process
+  expect(await bind(null, undefined, null, { pid: 200, started: null })).toBe(first);
   // a later gjc that Windows gave the same number is another process
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
-  expect(await boundGjcTranscript("w1:p1", { pid: 200, started: 2000 }, shows(null))).toBeNull();
+  expect(await bind(null, undefined, null, { pid: 200, started: 2000 })).toBeNull();
   // a process table that could not be read changes nothing
-  expect(await boundGjcTranscript("w1:p1", gjc, shows(file))).toBe(file);
-  expect(await boundGjcTranscript("w1:p1", undefined, shows(null))).toBe(file);
+  expect(await bind(first, "Herdr GJC Binding Check Sentence")).toBe(first);
+  expect(await boundGjcTranscript("w1:p1", undefined, async () => ({ path: null, title: undefined, titled: null }), titleOf)).toBe(first);
   forgetTranscriptState();
+});
+
+it("reads a session file's title from its header and gjc's later patches", () => {
+  const dir = mkdtempSync(join(tmpdir(), "herdr-gjc-title-"));
+  try {
+    const path = join(dir, "s.jsonl");
+    writeFileSync(path, JSON.stringify({ type: "session", id: "a", cwd: "C:\\x" }) + "\n");
+    expect(gjcSessionTitle(path)).toBeNull();
+    appendFileSync(path, JSON.stringify({ type: "header_patch", patch: { title: "Herdr GJC Binding Check Sentence", titleSource: "auto" } }) + "\n");
+    expect(gjcSessionTitle(path)).toBe("Herdr GJC Binding Check Sentence");
+    // a session gjc started with a title already carries it in its header
+    const titled = join(dir, "t.jsonl");
+    writeFileSync(titled, JSON.stringify({ type: "session", id: "b", title: "Simple Ok Reply" }) + "\n" + JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "\"title\": no" }] } }) + "\n");
+    expect(gjcSessionTitle(titled)).toBe("Simple Ok Reply");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 it("asks the Windows process table once for the polls of a few seconds", async () => {

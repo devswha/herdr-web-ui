@@ -67,12 +67,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   above the turns names how many it holds back and across how many branches
 
 ### Fixed
-- The chat of a Gajae Code pane on a Windows PC no longer stays on the previous conversation
-  after `/new` or `/resume`. It showed the old one until an answer of the new session was long
-  enough to recognise, which a one-word answer never is; it now shows none until it can tell, and
-  the right one as soon as an answer of it is on screen. A later gjc that Windows gave the same
-  process number no longer inherits the old session either, and a process list that could not be
-  read keeps the chat as it was instead of dropping it.
+- The chat of a Gajae Code pane on a Windows PC follows `/new` and `/resume`. It stayed on the
+  previous conversation until an answer of the new one was long enough to recognise, which a
+  one-word answer never is. It now goes by the session title gjc shows in its status line: when
+  that names one session of the folder, the chat shows that one, and when two sessions share
+  the title it shows none rather than the wrong one. A later gjc that Windows gave the same
+  process number no longer inherits the old session, and a process list that could not be read
+  keeps the chat as it was instead of dropping it.
   ([#285](https://github.com/devswha/herdr-web-ui/pull/285))
 - On a PC whose Tailscale node is tagged, your own devices are no longer refused as "another
   Tailscale user". A tagged node has no person's login, and the server took the node's own name
