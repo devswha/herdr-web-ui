@@ -8,6 +8,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A Stop, an Enter or anything typed right after a message no longer reaches the pane once the
+  connection that sent it has closed. It waited behind the message and was sent afterwards, with
+  nobody watching. The message itself is still finished for a phone that locks
+  ([#235](https://github.com/devswha/herdr-web-ui/pull/235)).
+- A terminal whose grid is not the browser's own (a mirrored pane on a PC whose herdr cannot
+  attach, or a view-only connection) can be reached past the edge of a small screen: a drag pans
+  it on a phone, the wheel or a scrollbar in a small desktop window, and it opens on the rows
+  with the prompt instead of the top of the grid
+  ([#241](https://github.com/devswha/herdr-web-ui/pull/241)).
 - An omo question in the chat gets a real card, not the last-resort one with only Enter and
   Esc. omo asks several questions in one form: the card asks them one at a time, with a chip per
   question that checks off the answered ones, and an option is picked by its number as in omo.
@@ -16,7 +25,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   it, so a pane too short for the whole form, or one that wraps it, still shows every option word
   for word; without the session it is read off the screen, with wrapped Korean words joined back.
   While an answer is typed in omo's own field, the card offers to save or discard it
-  ([#237](https://github.com/devswha/herdr-web-ui/pull/237)).
+  ([#237](https://github.com/devswha/herdr-web-ui/pull/237) by @nahwan-kim).
 
 ## [0.3.38] - 2026-10-01
 

@@ -280,11 +280,30 @@ export function PaneTerminal({
         dragWheel(event);
         return false;
       }
+      // an adopted grid sends herdr nothing: the wheel is the browser's, and pans the mount
+      if (adopted()) return false;
       if (term.hasSelection()) term.clearSelection();
       return term.modes.mouseTrackingMode !== "none";
     });
     termRef.current = term;
     fitRef.current = fit;
+
+    // A grid that is not this browser's own (observing, or mirrored from a PC that cannot
+    // attach) may be larger than the mount. The mount then scrolls (PaneTerminal.css) and a
+    // drag pans it. Until the user pans, the view keeps the cursor's row in sight: the top of
+    // the grid while the row fits there, else the bottom rows, where a prompt sits. A mirror
+    // has no cursor; xterm's own rests on the last row with text, which serves the same.
+    const adopted = (): boolean => observeRef.current || fixedGridRef.current;
+    let panned = false;
+    const followCursor = (): void => {
+      host.toggleAttribute("data-adopted-grid", adopted());
+      const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+      if (!adopted() || panned || !screen) return;
+      const row = screen.offsetHeight / term.rows;
+      const cursorBottom = screen.offsetTop + (term.buffer.active.cursorY + 1) * row;
+      const max = host.scrollHeight - host.clientHeight;
+      host.scrollTop = cursorBottom <= host.clientHeight ? 0 : cursorBottom - row >= max ? max : cursorBottom - host.clientHeight;
+    };
 
     /** herdr's text for the last drag, while its highlight is still the selection */
     let copiedText: string | null = null;
@@ -560,6 +579,7 @@ export function PaneTerminal({
           acknowledge?.();
           if (paneRef.current !== owner || generation !== outputGeneration) return;
           setOutputReady(true);
+          followCursor();
           const lines: string[] = [];
           const buffer = term.buffer.active;
           for (let row = 0; row < buffer.length; row++) {
@@ -597,6 +617,8 @@ export function PaneTerminal({
           const pane = paneRef.current;
           if (pane) socket.resize(pane, term.cols, term.rows, true);
         }
+        panned = false;
+        followCursor();
       } else if (message.type === "pane-geometry") {
         // observe clients adopt the pty's grid; interact clients drive it and ignore this,
         // unless the grid is fixed: then nobody here drives it
@@ -604,6 +626,8 @@ export function PaneTerminal({
         if (message.fixed) fixedGridRef.current = true;
         if (!observeRef.current && !fixedGridRef.current) return;
         if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
+        panned = false;
+        followCursor();
       } else if (message.type === "error") {
         if (message.code === "attach_held") {
           // a pane this terminal already left: its wait is not this pane's
@@ -675,7 +699,13 @@ export function PaneTerminal({
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         resizeTimer = null;
-        if (observeRef.current || fixedGridRef.current) return; // the grid belongs to the pty while observing, and to herdr when fixed
+        // the grid belongs to the pty while observing, and to herdr when fixed: only the view moves
+        // (a soft keyboard opening must not leave the prompt under it)
+        if (adopted()) {
+          panned = false;
+          followCursor();
+          return;
+        }
         try {
           fit.fit();
         } catch {
@@ -694,12 +724,18 @@ export function PaneTerminal({
     // The text follows the finger, as everywhere on a phone: dragging down brings
     // older lines in. Each event carries the finger's position, since xterm reports
     // a wheel at the cell under it (without one, every report said row 1, column 1).
+    // An adopted grid has no history to send a wheel to (an observer's reports are dropped, a
+    // mirror reports nothing): there the drag pans the mount, both ways, to the cells past its edge.
+    let touchX = 0;
     let touchY = 0;
     let tracking = false;
     const onTouchStart = (event: TouchEvent): void => {
       tracking = event.touches.length === 1;
       const first = event.touches[0];
-      if (tracking && first) touchY = first.clientY;
+      if (tracking && first) {
+        touchX = first.clientX;
+        touchY = first.clientY;
+      }
     };
     const onTouchMove = (event: TouchEvent): void => {
       if (!tracking || event.touches.length !== 1) return;
@@ -708,7 +744,14 @@ export function PaneTerminal({
       if (!first) return;
       // finger moving down (y > touchY) shows older lines: a wheel scrolling up, negative deltaY
       const delta = touchY - first.clientY;
+      const across = touchX - first.clientX;
+      touchX = first.clientX;
       touchY = first.clientY;
+      if (adopted()) {
+        panned = true;
+        host.scrollBy(across, delta);
+        return;
+      }
       if (delta !== 0) {
         const target = term.element ?? host;
         target.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: delta, clientX: first.clientX, clientY: first.clientY }));
@@ -817,6 +860,8 @@ export function PaneTerminal({
     setHeld(false);
     setUnsupported(false);
     fixedGridRef.current = false;
+    // the next pane's grid is this browser's again unless it says otherwise (pane-geometry)
+    hostRef.current?.toggleAttribute("data-adopted-grid", observeRef.current);
     secretRef.current = null;
     setSecret(null);
     term.options.disableStdin = observeRef.current;
