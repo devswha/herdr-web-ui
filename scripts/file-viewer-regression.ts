@@ -17,7 +17,7 @@ const transcript = join(codexHome, "sessions", `rollout-2026-09-28T00-00-00-${th
 writeFileSync(transcript, [
   { type: "session_meta", payload: { id: thread, cwd: root } },
   { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Show me the demo video." }] } },
-  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "Open [demo video](./preview.webm) or [notes](./notes.txt)." }] } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}` }] } },
 ].map((row) => JSON.stringify(row)).join("\n"));
 const db = new Database(join(codexHome, "state_5.sqlite"));
 db.exec("CREATE TABLE threads (id TEXT, rollout_path TEXT, cwd TEXT, archived INTEGER, agent_role TEXT, created_at INTEGER, updated_at INTEGER, source TEXT, first_user_message TEXT)");
@@ -49,6 +49,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await context.newPage();
+  await page.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
   page.setDefaultTimeout(10_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -121,6 +122,25 @@ try {
   assert.equal(page.url(), `${origin}/api/health`, "no ghost modal entry or back trap after explicit close");
   assert.deepEqual(errors, []);
   console.log("PASS text preview survives reload; closed viewers leave normal Back navigation intact");
+  await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
+  await page.getByRole("button", { name: "file URI notes", exact: true }).tap();
+  await page.locator(".file-viewer-text").waitFor();
+  assert.match(await page.locator(".file-viewer-text").innerText(), /File preview history regression/);
+  console.log("PASS Chat file URI label opens file content through touch");
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await page.locator(".file-viewer").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "folder", exact: true }).tap();
+  await page.locator(".file-viewer .dir-browser").waitFor();
+  await page.locator(".file-viewer .dir-browser").getByRole("button", { name: /notes.txt/ }).tap();
+  await page.locator(".file-viewer-text").waitFor();
+  assert.match(await page.locator(".file-viewer-text").innerText(), /File preview history regression/);
+  console.log("PASS Chat folder URI opens directory browser through touch");
+  await page.locator(".file-viewer-header button").click();
+  await page.locator(".file-viewer").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: new URL(`file://${join(root, "notes.txt")}`).href, exact: true }).tap();
+  await page.locator(".file-viewer-text").waitFor();
+  assert.match(await page.locator(".file-viewer-text").innerText(), /File preview history regression/);
+  console.log("PASS Chat plain file URI opens content through touch");
 } finally {
   await browser?.close();
   server?.stop();

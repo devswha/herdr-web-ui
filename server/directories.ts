@@ -14,10 +14,11 @@ export const MAX_DIRECTORY_ENTRIES = 500;
  * Hidden folders (a leading dot) are left out unless asked for. Null when `path` is not
  * a directory this user can read.
  */
-export function listDirectories(path: string, hidden = false, withFiles = false): DirectoryListing | null {
+/** `base`: the folder a relative path is read from (a pane's, for a link in its chat); else the server's own. */
+export function listDirectories(path: string, hidden = false, withFiles = false, base?: string): DirectoryListing | null {
   const home = homedir();
   const trimmed = path.trim();
-  const target = trimmed === "" || trimmed === "~" ? home : trimmed.startsWith("~/") ? resolve(home, trimmed.slice(2)) : resolve(trimmed);
+  const target = trimmed === "" || trimmed === "~" ? home : trimmed.startsWith("~/") ? resolve(home, trimmed.slice(2)) : base !== undefined ? resolve(base, trimmed) : resolve(trimmed);
   let entries;
   try {
     if (!statSync(target).isDirectory()) return null;

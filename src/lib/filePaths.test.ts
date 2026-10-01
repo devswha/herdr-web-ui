@@ -19,6 +19,8 @@ describe("file paths in chat text", () => {
 
   it("takes a code span that is one file name or path", () => {
     for (const code of ["README.md", "src/app.ts", "~/x/y.png", "/tmp/a.log", "docs/demo.mp4"]) expect(codeIsFilePath(code)).toBe(true);
-    for (const code of ["bun test", "1.2.3", "git log --oneline", "a/b", "foo()", "x.y()"]) expect(codeIsFilePath(code)).toBe(false);
+    for (const code of ["bun test", "1.2.3", "git log --oneline", "a/b", "foo()", "x.y()", "tool.monitor", "Math.random", "process.env", "os.path", "process.env.HOME", "console.log", "JSON.parse"]) expect(codeIsFilePath(code)).toBe(false);
+    // a file of any language still opens: what is refused above is known code, not an unknown extension
+    for (const code of ["main.c", "util.h", "App.vue", "go.mod", "Cargo.lock", "nginx.conf", "config.env", "src/process.env", "os.py", "std.rs", "tool.ts", "fmt.go", "app.dev", "tool.vue", "std.lock", "os.conf", "Math.js", "process.yml", "README.org", "notes.io", "example.com"]) expect(codeIsFilePath(code)).toBe(true);
   });
 });

@@ -26,6 +26,8 @@ export interface Settings {
   palette: Palette;
   /** xterm font size in px */
   terminalFontSize: number;
+  /** mouse reports sent to herdr per wheel event in the terminal: 1 is what xterm sends by itself */
+  terminalWheelSpeed: number;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
   chatFontSize: number | null;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
@@ -63,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   density: "comfortable",
   palette: "amber",
   terminalFontSize: 13,
+  terminalWheelSpeed: 1,
   chatFontSize: null,
   enterSends: true,
   showThinking: false,
@@ -105,6 +108,8 @@ export function alertPrefs(settings: Settings): AlertPrefs {
 const STORAGE_KEY = "herdr-web-ui:settings";
 export const TERMINAL_FONT_MIN = 10;
 export const TERMINAL_FONT_MAX = 22;
+export const TERMINAL_WHEEL_SPEED_MIN = 1;
+export const TERMINAL_WHEEL_SPEED_MAX = 10;
 
 export const CHAT_FONT_MIN = 11;
 export const CHAT_FONT_MAX = 24;
@@ -132,6 +137,9 @@ export function sanitizeSettings(raw: unknown): Settings {
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
+    terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
+      ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))
+      : DEFAULT_SETTINGS.terminalWheelSpeed,
     chatFontSize: typeof chatFont === "number" && Number.isFinite(chatFont)
       ? Math.min(CHAT_FONT_MAX, Math.max(CHAT_FONT_MIN, Math.round(chatFont)))
       : DEFAULT_SETTINGS.chatFontSize,

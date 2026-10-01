@@ -6,7 +6,7 @@ import "./SettingsDialog.css";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys } from "../lib/shortcuts.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, useSettings } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
@@ -188,6 +188,14 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
                 <button type="button" className="icon-button" aria-label={t("Decrease terminal font size")} disabled={settings.terminalFontSize <= TERMINAL_FONT_MIN} onClick={() => update({ terminalFontSize: settings.terminalFontSize - 1 })}><Minus /></button>
                 <output aria-live="polite">{settings.terminalFontSize}px</output>
                 <button type="button" className="icon-button" aria-label={t("Increase terminal font size")} disabled={settings.terminalFontSize >= TERMINAL_FONT_MAX} onClick={() => update({ terminalFontSize: settings.terminalFontSize + 1 })}><Plus /></button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Wheel scroll speed")}</span><span className="settings-description">{t("How far one turn of the wheel scrolls the terminal")}</span></div>
+              <div className="settings-stepper" aria-label={t("Wheel scroll speed")}>
+                <button type="button" className="icon-button" aria-label={t("Slower wheel scrolling")} disabled={settings.terminalWheelSpeed <= TERMINAL_WHEEL_SPEED_MIN} onClick={() => update({ terminalWheelSpeed: settings.terminalWheelSpeed - 1 })}><Minus /></button>
+                <output aria-live="polite">{settings.terminalWheelSpeed}×</output>
+                <button type="button" className="icon-button" aria-label={t("Faster wheel scrolling")} disabled={settings.terminalWheelSpeed >= TERMINAL_WHEEL_SPEED_MAX} onClick={() => update({ terminalWheelSpeed: settings.terminalWheelSpeed + 1 })}><Plus /></button>
               </div>
             </div>
           </section>

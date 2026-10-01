@@ -676,6 +676,7 @@ export function App() {
             view={view}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
+            terminalWheelSpeed={settings.terminalWheelSpeed}
             theme={resolvedTheme}
             palette={settings.palette}
             role={role}
@@ -705,7 +706,7 @@ export function App() {
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}
       {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
-        <FileViewer path={viewing.path} paneId={viewing.paneId} onClose={closeFile} />
+        <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} />
       </MachineContext.Provider>}
       <CommandPalette key={selectedMachineId} open={paletteOpen} onClose={() => setPaletteOpen(false)} snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} actions={actions} />
     </div></MachineContext.Provider>

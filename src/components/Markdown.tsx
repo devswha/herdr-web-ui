@@ -4,6 +4,7 @@ import katex from "katex";
 
 import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
+import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { useT } from "../lib/i18n.ts";
 
 function MathExpression({ value, displayMode = false }: { value: string; displayMode?: boolean }) {
@@ -35,6 +36,8 @@ function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactiv
         if (open === null) return <span key={key}>{node.value}</span>;
         return <span key={key}>{splitFilePaths(node.value).map((part, n) => typeof part === "string" ? part : <FilePath key={n} path={part.path} code={false} open={open} />)}</span>;
       case "code": {
+        const file = fileUriPath(node.value);
+        if (open !== null && file !== null) return <FilePath key={key} path={file} code open={open} />;
         // agents often put an address in backticks: it stays code to the eye, and opens
         if (interactive && /^https?:\/\/\S+$/i.test(node.value)) return <a key={key} className="markdown-code-link" href={node.value} target="_blank" rel="noopener noreferrer"><code>{node.value}</code></a>;
         return open !== null && codeIsFilePath(node.value) ? <FilePath key={key} path={node.value} code open={open} /> : <code key={key}>{node.value}</code>;
