@@ -180,6 +180,30 @@ it("reads a thread whose answers are all short by its newest answers on screen, 
     await onScreen(shortPane, shortAnswers[1]!);
     // both answers are one turn's
     expect(lastAnswer(await read(shortPane))).toBe(shortAnswers.join(""));
+    // a thread of this cwd whose rollout is gone, or one continuing a rollout that is not found,
+    // may be the pane's own and have said those lines: the chat cannot tell
+    const thread = (id: string, rollout: string) => {
+      const db = new Database(join(codexHome, "state_5.sqlite"));
+      db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, 1, 'cli', 'unread')").run(id, rollout, root);
+      db.close();
+      return () => {
+        const db = new Database(join(codexHome, "state_5.sqlite"));
+        db.query("DELETE FROM threads WHERE id = ?").run(id);
+        db.close();
+      };
+    };
+    const gone = thread("01a0c7a1-56d9-7e20-9f08-f7a2d973bd01", join(codexHome, "sessions", "rollout-2026-09-24T00-00-00-01a0c7a1-56d9-7e20-9f08-f7a2d973bd01.jsonl"));
+    try { expect((await read(shortPane)).source).toBe("scrollback"); } finally { gone(); }
+    expect((await read(shortPane)).source).toBe("codex-transcript");
+    const forkId = "01a0c7a1-56d9-7e20-9f08-f7a2d973bd02";
+    const fork = join(codexHome, "sessions", `rollout-2026-09-24T00-00-00-${forkId}.jsonl`);
+    writeFileSync(fork, [
+      { type: "session_meta", payload: { id: forkId, cwd: root, history_base: { thread_id: "01a0c7a1-56d9-7e20-9f08-f7a2d973bd03", end_ordinal_exclusive: 3, end_byte_offset: 400 } } },
+      { type: "response_item", timestamp: "2026-09-24T00:00:05Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    const forked = thread(forkId, fork);
+    try { expect((await read(shortPane)).source).toBe("scrollback"); } finally { forked(); }
+    expect((await read(shortPane)).source).toBe("codex-transcript");
     // a pane a long answer bound keeps that rollout when another thread's short answers show later
     const bound = await pane("bound-short", `FLOOD_AFTER=3 THEN=short ${join(root, "bin", "codex")} --say`);
     for (let attempt = 0; attempt < 30 && lastAnswer(await read(bound)) !== answers.matched; attempt++) await Bun.sleep(100);

@@ -379,13 +379,13 @@ describe("Codex rollout resolution", () => {
     expect(matchCodexTranscript(bullets(looked, changed, answer), candidates)).toBe("real");
   });
 
+  const migrated = "The migration script now rewrites every legacy record in place.";
   it("needs 64 letters and digits together, 16 in each answer and 12 distinct", () => {
     const read = (...texts: string[]) => matchShortCodexAnswers(bullets(...texts), [{ path: "short", text: answered(...texts) }]);
     // 29 + 34 = 63, and 29 + 36 = 65
     expect(read("The build finished without errors.", "All checks on the feature branch pass now.")).toBeNull();
     expect(read("The build finished without errors.", "All checks on the feature branch pass again.")).toBe("short");
     // 14 + 53 = 67 with an answer below 16, and the same with one of 16
-    const migrated = "The migration script now rewrites every legacy record in place.";
     expect(read("Updated the docs", migrated)).toBeNull();
     expect(read("Updated the README", migrated)).toBe("short");
     // 18 + 29 + 31 = 78 from 10 distinct letters
@@ -413,6 +413,25 @@ describe("Codex rollout resolution", () => {
     // and a rollout read only from its end may have said them before: no answer then
     expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done."), cut: true }])).toBeNull();
     expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done.") }])).toBe("parent");
+  });
+
+  // the third review of #284
+  it("reads an answer with a link as the screen shows it, the target between its label and the rest", () => {
+    const texts = ["The [build results](reports/build.md) are ready to review.", "All checks on the feature branch pass again."];
+    const candidates = [{ path: "linked", text: answered(...texts) }];
+    const pass = "• All checks on the feature branch pass again.";
+    expect(matchShortCodexAnswers(`• The build results (reports/build.md) are ready to review.\n${pass}`, candidates)).toBe("linked");
+    // more between the label and the rest than the target holds is not that answer
+    expect(matchShortCodexAnswers(`• The build results\n• Some other line that says more than a link target would.\n• are ready to review.\n${pass}`, candidates)).toBeNull();
+  });
+
+  it("does not read short answers when two rollouts show that way, sharing nothing", () => {
+    const first = ["The build finished without errors.", "All checks on the feature branch pass again."];
+    const second = ["Updated the README", migrated];
+    const candidates = [{ path: "first", text: answered(...first) }, { path: "second", text: answered(...second) }];
+    // the second's answers below, and the first's between them: each is found bottom-up
+    expect(matchShortCodexAnswers(bullets(first[0]!, second[0]!, first[1]!, second[1]!), candidates)).toBeNull();
+    expect(matchShortCodexAnswers(bullets(second[0]!, second[1]!), candidates)).toBe("second");
   });
 
   it("reads short answers in bounded time however many unclosed links the answers hold", () => {
