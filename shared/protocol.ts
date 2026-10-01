@@ -54,8 +54,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         Update POSTs require X-Herdr-Update: 1, same-origin browser requests,
  *         and the usual token gate. Managed starts only; status is polled during restart.
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
- *         kinds `agent.start` accepts, plus omo when it is on this server's PATH, for the
- *         new-session dialog)
+ *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
+ *         for the new-session dialog)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
@@ -84,7 +84,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
  *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
- *         omo, which herdr cannot start, is typed into the root pane's shell)
+ *         omo and gjc, which herdr cannot start, are typed into the root pane's shell)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
@@ -252,7 +252,9 @@ export type ConversationPart =
   /** A native Claude/Codex user image, addressed by an opaque ref and fetched on demand: GET /api/pane/conversation/image?pane_id=…&ref=… */
   | { kind: "image"; media_type: string; ref: string }
   /** the summary a compaction left; the conversation before it is what it sums up */
-  | { kind: "compact"; text: string };
+  | { kind: "compact"; text: string }
+  /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it */
+  | { kind: "notice"; text: string };
 
 /** Latest model settings actually recorded by this agent. */
 export interface ConversationMetadata {

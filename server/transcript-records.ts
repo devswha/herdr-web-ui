@@ -44,6 +44,18 @@ export function piResults(message: Row): { id: string; text: string; error: bool
 /** Enough turns for a conversation. */
 export const MAX_TURNS = 100;
 
+/**
+ * gjc wakes the agent with a `custom_message` (a background job's result, `display: true`)
+ * in the user's seat: the answer before it is final and the work after it is a new turn.
+ * Merging across it buried that answer in the work block. The envelope is chrome.
+ */
+export function piNotice(value: unknown): string | null {
+  const entry = record(value);
+  if (entry.type !== "custom_message" || entry.display === false || typeof entry.content !== "string") return null;
+  const text = entry.content.trim().replace(/^<system-notice>\s*/, "").replace(/\s*<\/system-notice>$/, "").trim();
+  return text.length > 0 ? text : null;
+}
+
 /** The one-line summary a collapsed tool chip shows. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
   const first = input["command"] ?? input["file_path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
@@ -82,9 +94,14 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS): Conversa
     }
     if (entry === null || typeof entry !== "object") continue;
     if (isContextClear(entry, "omp-transcript")) { turns.length = 0; pending.clear(); continue; }
+    const timestamp = (entry as { timestamp?: string }).timestamp;
+    const notice = piNotice(entry);
+    if (notice !== null) {
+      turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "notice", text: notice }] });
+      continue;
+    }
     const message = piMessage(entry);
     if (message === null) continue;
-    const timestamp = (entry as { timestamp?: string }).timestamp;
     const applyResults = () => {
       for (const result of piResults(message)) {
         const tool = pending.get(result.id);
