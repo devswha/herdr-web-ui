@@ -5,12 +5,19 @@ import { herdrRpc } from "./herdr/client.ts";
 import { processStartedAt } from "./process-start.ts";
 
 const OMO_PROCESS = /(^|\/)omo(\.js)?$|\/omo-ai\//;
+/** node and bun run a script: the program is then the script, the first word that is not a flag */
+const JS_RUNTIME = /(^|\/)(node|nodejs|bun)$/;
 /**
- * A word counts only as one path: a PATH list that names omo-ai's bin directory is an argument
- * of the shell's startup (`printf %s\n $PATH` in an rc file), not omo, and it made a fresh
- * shell pass for omo for a moment.
+ * Only the program counts: argv[0] (omo's native binary, its SDK's claude), or the script a
+ * JS runtime runs (`bun …/omo-ai/…/cli.js`, `node …/bin/omo`). An omo-ai path handed to another
+ * program (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is that program's argument, not omo. The word
+ * is one path: a PATH list that names omo-ai's bin directory (`printf %s\n $PATH` in an rc
+ * file) made a fresh shell pass for omo for a moment.
  */
-export function isOmoProcess(argv: readonly string[]): boolean { return argv.some((word) => !word.includes(":") && OMO_PROCESS.test(word)); }
+export function isOmoProcess(argv: readonly string[]): boolean {
+  const program = JS_RUNTIME.test(argv[0] ?? "") ? argv.slice(1).find((word) => !word.startsWith("-")) : argv[0];
+  return program !== undefined && !program.includes(":") && OMO_PROCESS.test(program);
+}
 
 export interface OmoCandidate { path: string; id: string; createdAt: number | null }
 export interface OmoRuntime {
