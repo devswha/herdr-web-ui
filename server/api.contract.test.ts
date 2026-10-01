@@ -1224,6 +1224,23 @@ describe("pairing and identity", () => {
     expect(((await refused.json()) as ApiError).error.code).toBe("other_user");
   });
 
+  it("takes the login named in HERDR_WEB_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-named-owner-"));
+    const before = process.env["HERDR_WEB_TAILSCALE_OWNER"];
+    process.env["HERDR_WEB_TAILSCALE_OWNER"] = " named@example.com ";
+    const named = createServer({ port: 0, stateDir: state });
+    try {
+      const at = async (headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${named.port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
+      expect(await at(proxied("named@example.com"))).toMatchObject({ authenticated: true, via: "tailscale" });
+      expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "other_user" });
+      expect(await at(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
+    } finally {
+      named.stop();
+      if (before === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = before;
+      rmSync(state, { recursive: true, force: true });
+    }
+  });
+
   it("never treats a Funnel request as open", async () => {
     expect(await auth(proxied(undefined, { "tailscale-funnel-request": "?1" }))).toMatchObject({ authenticated: false, reason: "pairing_required" });
   });

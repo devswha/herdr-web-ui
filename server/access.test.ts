@@ -43,6 +43,8 @@ describe("decideAccess", () => {
     expect(via({ forwarded: true, tagged: true, tailscaleLogin: "me@example.com", tokenConfigured: true })).toBe("refused:token_required");
     expect(via({ forwarded: true, tagged: true, tailscaleLogin: "me@example.com", device })).toBe("device");
     expect(via({ tagged: true })).toBe("local");
+    // a login header alone marks a proxy: with no owner to refuse it against, it must not pass for this PC
+    expect(cameThroughProxy(new Headers({ host: "localhost:7317", "tailscale-user-login": "them@example.com" }))).toBe(true);
     // a login named for the PC lets that person in as on any other node
     expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("tailscale");
   });
