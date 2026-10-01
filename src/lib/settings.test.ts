@@ -55,6 +55,15 @@ describe("quick replies", () => {
   });
 });
 
+describe("suggestion chip", () => {
+  it("stays off until chosen in settings", () => {
+    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(false);
+    expect(sanitizeSettings({}).showSuggestionChip).toBe(false);
+    expect(sanitizeSettings({ showSuggestionChip: true }).showSuggestionChip).toBe(true);
+    expect(sanitizeSettings({ showSuggestionChip: "yes" }).showSuggestionChip).toBe(false);
+  });
+});
+
 describe("quick replies row", () => {
   it("stays hidden until chosen in settings", () => {
     expect(DEFAULT_SETTINGS.showQuickReplies).toBe(false);

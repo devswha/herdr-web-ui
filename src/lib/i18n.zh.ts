@@ -48,6 +48,8 @@ export const ZH: Record<string, string> = {
   "Composer": "输入框",
   "Enter sends": "按 Enter 发送",
   "When off, Mod+Enter sends": "关闭后按 Mod+Enter 发送",
+  "Suggestion chip": "建议标签",
+  "On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "在触摸屏上，输入框上方的标签会把 Claude Code 建议的下一条提示填入输入框。使用键盘时按 Tab 即可。",
   "Chat": "聊天",
   "Show thinking": "显示思考过程",
   "Include the agent's reasoning blocks": "一并显示 Agent 的推理块",

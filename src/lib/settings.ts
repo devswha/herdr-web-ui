@@ -53,6 +53,8 @@ export interface Settings {
   quickReplies: string[];
   /** whether the quick replies show above the composer at all */
   showQuickReplies: boolean;
+  /** touch screens: a chip above the message box takes the prompt Claude suggests next; off until chosen */
+  showSuggestionChip: boolean;
   /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
   showUsage: boolean;
   usageCount: UsageCount;
@@ -80,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   alertDone: "long",
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
+  showSuggestionChip: false,
   showUsage: false,
   usageCount: "used",
   usagePlacement: "footer",
@@ -155,6 +158,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       ? record["quickReplies"].filter((reply): reply is string => typeof reply === "string").slice(0, QUICK_REPLIES_MAX).map((reply) => reply.slice(0, QUICK_REPLY_MAX_CHARS))
       : [...DEFAULT_SETTINGS.quickReplies],
     showQuickReplies: typeof record["showQuickReplies"] === "boolean" ? record["showQuickReplies"] : DEFAULT_SETTINGS.showQuickReplies,
+    showSuggestionChip: typeof record["showSuggestionChip"] === "boolean" ? record["showSuggestionChip"] : DEFAULT_SETTINGS.showSuggestionChip,
     showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
     usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
     usagePlacement: record["usagePlacement"] === "top" || record["usagePlacement"] === "footer" ? record["usagePlacement"] : DEFAULT_SETTINGS.usagePlacement,

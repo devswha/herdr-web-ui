@@ -44,6 +44,8 @@ export const KO: Record<string, string> = {
   "Composer": "입력창",
   "Enter sends": "Enter로 보내기",
   "When off, Mod+Enter sends": "끄면 Mod+Enter로 보냅니다",
+  "Suggestion chip": "제안 칩",
+  "On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "터치 화면에서 입력창 위의 칩을 누르면 Claude Code가 제안한 다음 프롬프트가 입력창에 들어갑니다. 키보드에서는 Tab으로 넣습니다.",
   "Chat": "채팅",
   "Show thinking": "생각 표시",
   "Include the agent's reasoning blocks": "에이전트의 추론 블록을 함께 보여줍니다",

@@ -46,6 +46,8 @@ export const JA: Record<string, string> = {
   "Composer": "入力欄",
   "Enter sends": "Enter で送信",
   "When off, Mod+Enter sends": "オフの場合は Mod+Enter で送信します",
+  "Suggestion chip": "提案チップ",
+  "On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "タッチ画面では、入力欄の上のチップで Claude Code が次に提案するプロンプトを入力欄に入れます。キーボードでは Tab で入れます。",
   "Chat": "チャット",
   "Show thinking": "思考を表示",
   "Include the agent's reasoning blocks": "エージェントの推論ブロックも表示します",

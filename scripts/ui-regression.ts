@@ -587,6 +587,29 @@ try {
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 
+  // Claude's suggestion on a phone is the placeholder only, until Settings turns its chip on
+  const promptRoute = `**/api/pane/prompt?pane_id=${encodeURIComponent(paneB)}`;
+  const suggest = { json: { prompt: null, suggestion: "run the tests" } };
+  const mobileComposer = mobilePage.getByRole("textbox", { name: "Message", exact: true });
+  await mobilePage.route(promptRoute, (route) => route.fulfill(suggest));
+  await mobileComposer.fill("");
+  await until(async () => await mobileComposer.getAttribute("placeholder") === "run the tests", "a phone shows the suggestion as the placeholder");
+  assert.equal(await mobilePage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip until Settings turns it on");
+  await mobilePage.unroute(promptRoute);
+  const chipPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await chipPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: true })); });
+  const chipPage = await chipPhone.newPage();
+  chipPage.on("pageerror", (error) => errors.push(error.message));
+  await chipPage.route(promptRoute, (route) => route.fulfill(suggest));
+  await chipPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
+  await chipPage.locator(".conn-live").waitFor();
+  await chipPage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  await chipPage.getByTitle("Use the suggestion", { exact: true }).click();
+  assert.equal(await chipPage.getByRole("textbox", { name: "Message", exact: true }).inputValue(), "run the tests", "the chip puts the suggestion in the box");
+  await chipPhone.close();
+  assert.deepEqual(errors, []);
+  console.log("PASS a phone offers Claude's suggestion as a chip only once Settings turns it on");
+
   // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const touchPage = await touch.newPage();
