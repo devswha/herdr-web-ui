@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.40] - 2026-10-01
+
 ### Fixed
 - Korean, Japanese and Chinese in the terminal no longer look spread apart on an iPhone. iOS has
   no font that draws Hangul as wide as two terminal cells, so every syllable sat at the left of
@@ -1059,7 +1061,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.39...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.40...HEAD
+[0.3.40]: https://github.com/devswha/herdr-web-ui/compare/v0.3.39...v0.3.40
 [0.3.39]: https://github.com/devswha/herdr-web-ui/compare/v0.3.38...v0.3.39
 [0.3.38]: https://github.com/devswha/herdr-web-ui/compare/v0.3.37...v0.3.38
 [0.3.37]: https://github.com/devswha/herdr-web-ui/compare/v0.3.36...v0.3.37
