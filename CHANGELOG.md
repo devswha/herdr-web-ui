@@ -13,7 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the working mirror for an attach it could not start, and the terminal ended at once.
   `/api/health` and the PC list say `terminal_attach: false` and `terminal_mirror: true` there.
   The real terminal on Windows therefore needs a bundle that ships the sidecar, not only a
-  herdr that attaches.
+  herdr that attaches ([#265](https://github.com/devswha/herdr-web-ui/pull/265)).
 - A pane running a command that is only given an omo path (`grep -q …/omo-ai/x`, `cat …/bin/omo`) is
   no longer shown as OmO or counted as a second OmO in its folder. Only the program a pane runs
   counts, or the script that node or bun runs
