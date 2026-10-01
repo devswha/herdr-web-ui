@@ -1389,10 +1389,12 @@ export function createServer(
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) return;
+                  // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
+                  const shaped = await mirrorInput(text, process.platform === "win32", async () => (await paneContext(message.pane_id)).agent);
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
-                  return paneSendText(message.pane_id, mirrorInput(text, process.platform === "win32"));
+                  return paneSendText(message.pane_id, shaped);
                 }).catch(() => undefined);
                 break;
               }
