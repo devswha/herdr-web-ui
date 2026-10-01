@@ -1291,13 +1291,22 @@ function piModelRows(lines: string[], startIndex: number): { label: string; curs
     }
     block.push(raw);
   }
+  // A row cut before its provider bracket closes is a catalogue still being drawn, not a note.
+  // pi's own notes ("Model Name: …", "Refreshing model catalogs…") are indented lines with no
+  // bracket at all, and they end the list without voiding it; an unclosed `[` is the one mark that
+  // tells the two apart, and it means the rows above are a prefix of a list pi has not finished
+  // writing. Offering that prefix would let a reader count down into rows that do not exist.
+  const cutMidBracket = (line: string) => line.includes("[") && !PI_MODEL_PROVIDER_RE.test(line);
   for (const raw of block) {
     const line = cleanLine(raw);
     if (!line || isDivider(line) || PI_MODEL_HINT_RE.test(line)) break;
     const cursor = /^[\u2192\u276f\u279c]\s*\S/.test(line);
     if (!cursor && !/^ {2,}/.test(raw)) break;
     const label = line.match(PI_ROW_RE)?.[2]?.trim();
-    if (!label || !PI_MODEL_PROVIDER_RE.test(label) || /\s{2,}/.test(label)) break;
+    if (!label || !PI_MODEL_PROVIDER_RE.test(label) || /\s{2,}/.test(label)) {
+      if (cutMidBracket(line)) return null;
+      break;
+    }
     rows.push({ label, cursor, current: PI_MODEL_CURRENT_RE.test(raw) });
   }
   // A name wrapped in the middle of its bracket is not a model pi can be switched to, and joining

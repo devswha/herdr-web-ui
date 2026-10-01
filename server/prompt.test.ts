@@ -1487,6 +1487,25 @@ ${MODEL_HINT}
     expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
   });
 
+  test("voids a catalogue whose rows run out mid-name rather than offering the ones before it", () => {
+    // a screen redrawn while pi is still writing it ends a row in the middle of its provider
+    // bracket. Stopping there is right, but the rows before it were already collected, and
+    // offering them is a catalogue pi never drew: the reader would count down into a list whose
+    // rest does not exist, and the count the card shows would not be the list pi has. This is the
+    // same call the wrapped-name check makes — a row that cannot be read voids the reading
+    const cut = `────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+>
+
+→ ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default
+    vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]
+    another-model [provider-
+${MODEL_HINT}
+────────────────────────────────────────${FOOTER}`;
+    expect(parseInteractivePrompt("pi", cut)).toBeNull();
+  });
+
   // Captured from pi 0.87.1 running /model in a 46-column pane, the width a phone leaves it:
   // the hint splits across two lines, and so does a model's own name, which drops the provider's
   // bracket — the one mark that tells a row from pi's notes — onto a line of its own at column
