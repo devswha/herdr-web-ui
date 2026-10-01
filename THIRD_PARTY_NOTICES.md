@@ -4,10 +4,9 @@ herdr web ui includes material from the projects below, under their own licenses
 
 ## LobeHub Icons
 
-The Claude Code (`claudecode-color`) and Codex (`codex-color`) icon paths in
-`src/components/AgentMark.tsx`, which the built client in `dist/` carries, come from
-[LobeHub Icons](https://github.com/lobehub/lobe-icons). The marks themselves belong to
-Anthropic and OpenAI.
+The agent marks in `src/components/agentSvgMarks.ts` other than droid and maki, which the
+built client in `dist/` carries, come from [LobeHub Icons](https://github.com/lobehub/lobe-icons)
+(`@lobehub/icons-static-svg`). The marks themselves belong to their owners.
 
 ```
 MIT License
