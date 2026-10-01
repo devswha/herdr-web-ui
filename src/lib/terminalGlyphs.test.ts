@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { displayText, glyphFit } from "./terminalGlyphs.ts";
+import { displayText, glyphFit, textPresentation } from "./terminalGlyphs.ts";
 
 // iPhone Safari at 13px: Menlo cells are 7.84px, Hangul from Apple SD Gothic Neo 11.24px
 const IOS_CELL = 7.8367;
@@ -31,7 +31,17 @@ describe("glyphFit", () => {
 
   it("leaves rounding-level spacing and glyphs wider than their cells alone", () => {
     expect(glyphFit(0.6, 4, 4.6)).toBeNull();
-    expect(glyphFit(-1.3, 17, IOS_CELL)).toBeNull();
+    expect(glyphFit(2 * IOS_CELL - 17, 17, IOS_CELL)).toBeNull();
+  });
+});
+
+describe("textPresentation", () => {
+  it("asks a text-default symbol for its text form, so iOS does not draw ⏺ as a two-cell emoji", () => {
+    expect(textPresentation("⏺ ✔")).toBe("⏺\ufe0e ✔\ufe0e");
+  });
+
+  it("leaves emoji, chosen presentations and plain text alone", () => {
+    expect(textPresentation("😀⚠️⏺\ufe0e#1 ●")).toBe("😀⚠️⏺\ufe0e#1 ●");
   });
 });
 
