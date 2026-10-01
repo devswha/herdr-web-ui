@@ -8,7 +8,10 @@ import { paneNotificationTag } from "../shared/notify-policy.ts";
 import { machinePath, paneStorageId } from "../shared/machines.ts";
 import { canSendSecret, sameOrigin, shellQuote, validateTarget } from "./machine-security.ts";
 import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
-import { hostProbeError, MachineManager, UNSUPPORTED_HOST } from "./machines.ts";
+import { MachineManager } from "./machines.ts";
+import { detectHost, psQuote, UNSUPPORTED_HOST } from "./remote-host.ts";
+import { decodeClixml, type SshConnection } from "./ssh.ts";
+import { terminalAttachSupported } from "./herdr/client.ts";
 import { CompletionTracker } from "./completion.ts";
 import type { PushService } from "./push.ts";
 import { recentSshOutput } from "./ssh.ts";
@@ -156,16 +159,56 @@ describe("SSH output during setup", () => {
   });
 });
 
-describe("host probe", () => {
-  it("names Windows hosts as unsupported when cmd or PowerShell cannot find sh", () => {
-    const cmd = "'sh' is not recognized as an internal or external command,\r\noperable program or batch file.";
-    const pwsh = "sh : The term 'sh' is not recognized as a name of a cmdlet, function, script file, or executable program.";
-    expect(hostProbeError(new Error(cmd)).message).toBe(UNSUPPORTED_HOST);
-    expect(hostProbeError(new Error(pwsh)).message).toBe(UNSUPPORTED_HOST);
-    expect(UNSUPPORTED_HOST).toContain("Windows hosts are not supported yet");
+describe("terminal attach capability", () => {
+  it("follows herdr's own word when it gives one, and the platform otherwise", () => {
+    expect(terminalAttachSupported({ direct_terminal_attach: false, live_handoff: true })).toBe(false);
+    expect(terminalAttachSupported({ direct_terminal_attach: true })).toBe(true);
+    expect(terminalAttachSupported({ live_handoff: true })).toBe(process.platform !== "win32");
+    expect(terminalAttachSupported(undefined)).toBe(process.platform !== "win32");
   });
-  it("keeps any other probe failure as it was", () => {
-    const error = new Error("ssh: connect to host pc port 22: Connection refused");
-    expect(hostProbeError(error)).toBe(error);
+});
+
+describe("host detection", () => {
+  /** a PC that answers sh with `shError` (or not at all) and PowerShell with `ps` */
+  const pc = (shError: string | null, ps: string | Error): SshConnection => ({
+    run: async (script: string) => {
+      if (shError !== null) throw new Error(shError);
+      // the sh probe, then the socket realpath
+      return script.includes("uname") ? "Linux\nx86_64\n/home/u\n/home/u/.config\n/usr/bin/herdr\nbundle-ready\n" : "/home/u/.config/herdr/herdr.sock";
+    },
+    runPowerShell: async () => { if (ps instanceof Error) throw ps; return ps; },
+  } as unknown as SshConnection);
+  const windowsAnswer = "Windows\nAMD64\nC:\\Users\\u\nC:\\Users\\u\\AppData\\Roaming\nC:\\Users\\u\\AppData\\Local\nC:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe\n";
+
+  it("takes a PC that answers sh as Linux or macOS without asking PowerShell", async () => {
+    const { host, inspection } = await detectHost(pc(null, new Error("never asked")));
+    expect(host.kind).toBe("posix");
+    expect(inspection).toMatchObject({ platform: "linux-x64", home: "/home/u", herdrPath: "/usr/bin/herdr", expectedSocket: "/home/u/.config/herdr/herdr.sock", bundleReady: true });
+  });
+  it("asks a PC whose cmd or PowerShell cannot find sh in PowerShell, and reads Windows paths", async () => {
+    for (const shError of ["'sh' is not recognized as an internal or external command,\r\noperable program or batch file.", "sh : The term 'sh' is not recognized as a name of a cmdlet, function, script file, or executable program."]) {
+      const { host, inspection } = await detectHost(pc(shError, windowsAnswer), "qa");
+      expect(host.kind).toBe("windows");
+      expect(inspection).toMatchObject({
+        platform: "win32-x64", home: "C:\\Users\\u", herdrPath: "C:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe",
+        expectedSocket: "C:\\Users\\u\\AppData\\Roaming\\herdr\\sessions\\qa\\herdr.sock",
+        runtimeDir: "C:\\Users\\u\\AppData\\Local\\herdr-web-ui\\remote-v9", bundleReady: false,
+      });
+    }
+  });
+  it("refuses a Windows PC that is not x64, by name", async () => {
+    await expect(detectHost(pc("sh: not found", windowsAnswer.replace("AMD64", "ARM64")))).rejects.toThrow(UNSUPPORTED_HOST);
+  });
+  it("reports sh's own error for a PC that answers neither shell", async () => {
+    await expect(detectHost(pc("ssh: connect to host pc port 22: Connection refused", new Error("Connection refused")))).rejects.toThrow("connect to host pc port 22");
+  });
+  it("reads PowerShell's words out of its CLIXML stderr", () => {
+    const stderr = '#< CLIXML\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><MS><PR N="Record"><AV>처음 사용하기 위해 모듈을 준비하는 중입니다.</AV></PR></MS></Obj><S S="Error">Another installation is in progress; retry shortly_x000D__x000A_</S><S S="Error">At line:4 char:1 &lt;x&gt;_x000D__x000A_</S></Objs>';
+    expect(decodeClixml(stderr)).toBe("Another installation is in progress; retry shortly\nAt line:4 char:1 <x>");
+    expect(decodeClixml("#< CLIXML\n<Objs><Obj S=\"progress\"/></Objs>")).toBe("PowerShell failed");
+  });
+  it("quotes for PowerShell with doubled single quotes only", () => {
+    expect(psQuote("C:\\Users\\o'brien\\x")).toBe("'C:\\Users\\o''brien\\x'");
+    expect(() => psQuote("a\nb")).toThrow();
   });
 });

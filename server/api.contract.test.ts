@@ -1339,8 +1339,10 @@ describe("token auth", () => {
   it("keeps /api/health public and advertises the gate state", async () => {
     const res = await fetch(`${securedBase()}/api/health`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; auth: HealthAuth };
+    const body = (await res.json()) as { ok: boolean; auth: HealthAuth; herdr: { version: string; protocol: number; terminal_attach?: boolean } };
     expect(body.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
+    // a Unix herdr attaches terminals; Windows PCs report false and open in the chat lens
+    expect(body.herdr.terminal_attach).toBe(true);
   });
 
   it("refuses a token that does not match", async () => {

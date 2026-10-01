@@ -11,8 +11,8 @@ import type { BridgeDescriptor } from "./bridge.ts";
 import { sessionSnapshot } from "./herdr/client.ts";
 import { labelOmoPanes } from "./conversation.ts";
 import type { CompletionTracker } from "./completion.ts";
-import { shellQuote, validateTarget } from "./machine-security.ts";
-import { BUNDLE_DIR, installBundle, REMOTE_PATH } from "./remote-bundle.ts";
+import { validateTarget } from "./machine-security.ts";
+import { detectHost, HERDR_INSTALL_CMD } from "./remote-host.ts";
 import { SshConnection } from "./ssh.ts";
 
 interface StoredMachine { id: string; name: string; target: SshTarget; enabled: boolean; snapshot?: SessionSnapshot | null }
@@ -63,14 +63,6 @@ async function freePort(): Promise<number> {
 /** A connection that retrying cannot fix: the PC waits for the user instead of reconnecting. */
 export class MachineActionRequired extends Error {
   constructor(message: string, readonly action: MachineAction) { super(message); }
-}
-
-export const UNSUPPORTED_HOST = "Only Linux and macOS PCs (x64 or arm64) are supported. Windows hosts are not supported yet.";
-
-/** Windows OpenSSH runs the probe in cmd or PowerShell, which answer that `sh` "is not recognized". */
-export function hostProbeError(error: unknown): Error {
-  const message = error instanceof Error ? error.message : String(error);
-  return /\bsh\b.*is not recognized/is.test(message) ? new Error(UNSUPPORTED_HOST) : error instanceof Error ? error : new Error(message);
 }
 
 export class MachineManager {
@@ -319,36 +311,32 @@ export class MachineManager {
     const generation = runtime.generation;
     const ssh = runtime.ssh!;
     const session = runtime.machine.target!.session;
-    const inspection = await ssh.run(REMOTE_PATH + `printf '%s\\n' "$(uname -s)" "$(uname -m)" "$(cd -P "$HOME" && pwd -P)" "\${XDG_CONFIG_HOME:-$HOME/.config}" "$(command -v herdr || true)"; test -x "$HOME/${BUNDLE_DIR}/bin/bun" && printf 'bundle-ready\\n' || true; for d in "$HOME/.local/share/herdr-web-ui/remote-v"*; do if test -x "$d/bin/bun"; then printf 'bundle-older\\n'; break; fi; done; for f in "$HOME/.config/herdr-web-ui/bridges/"*.json; do test ! -f "$f" || cat "$f"; printf '\\n'; done`).catch((error: unknown) => { throw hostProbeError(error); });
-    const [os, arch, home, xdgConfig, herdrPath, ...lines] = inspection.split("\n");
-    if (!["Linux", "Darwin"].includes(os ?? "") || !["x86_64", "aarch64", "arm64"].includes(arch ?? "")) throw new Error(UNSUPPORTED_HOST);
-    if (!home?.startsWith("/")) throw new Error("The SSH account's home directory ($HOME) could not be read on this PC");
-    const platform = `${os === "Darwin" ? "darwin" : "linux"}-${arch === "x86_64" ? "x64" : "arm64"}`;
+    const { host, inspection } = await detectHost(ssh, session);
+    const { platform, expectedSocket } = inspection;
+    let { herdrPath } = inspection;
     if (herdrPath) {
-      const version = await ssh.run(`${shellQuote(herdrPath)} --version`);
+      const version = await host.herdrVersion(ssh, herdrPath);
       const match = /herdr (\d+)\.(\d+)\.(\d+)/.exec(version);
       if (!match || Number(match[1]) === 0 && Number(match[2]) < 9) throw new Error("The installed herdr is incompatible. Update it explicitly to 0.9+ before connecting; it was left unchanged.");
     }
-    // the same XDG_CONFIG_HOME rule remote-entry.ts and herdr itself follow
-    const herdrConfig = `${xdgConfig?.startsWith("/") ? xdgConfig : `${home}/.config`}/herdr`;
-    const nominalSocket = session ? `${herdrConfig}/sessions/${session}/herdr.sock` : `${herdrConfig}/herdr.sock`;
-    const expectedSocket = await ssh.run(`socket=${shellQuote(nominalSocket)}; if test -d "\${socket%/*}"; then cd -P "\${socket%/*}" && printf '%s/herdr.sock' "$PWD"; else printf '%s' "$socket"; fi`);
-    const descriptors: BridgeDescriptor[] = lines.flatMap((line) => { try { const d = JSON.parse(line); return d.socket_path === expectedSocket ? [d] : []; } catch { return []; } });
+    const descriptors = inspection.descriptors.filter((d) => d.socket_path === expectedSocket);
     let descriptor = descriptors.find((d) => d.bridge_protocol === BRIDGE_PROTOCOL && d.bundle_version === REMOTE_BUNDLE_VERSION);
     if (job?.update && !descriptor) descriptor = descriptors[0];
     if (descriptors.length && !descriptor) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    // a descriptor whose bridge is gone (a crash, a reboot, a Windows kill): the next bridge
+    // replaces it, but until then it is still the first one listed
+    let stalePid: number | null = null;
     if (descriptor) {
       if (!Number.isInteger(descriptor.pid) || descriptor.pid < 1) throw new Error("Invalid bridge process identity");
-      const live = await ssh.run(`kill -0 ${descriptor.pid} 2>/dev/null && printf live || true`);
-      if (live !== "live") descriptor = undefined;
+      if (!(await host.alive(ssh, descriptor.pid))) { stalePid = descriptor.pid; descriptor = undefined; }
     }
-    const hasBundle = lines.includes("bundle-ready");
+    const hasBundle = inspection.bundleReady;
     // a runtime from another bundle version and no bridge running (the PC rebooted since): an update
-    if (!descriptor && !hasBundle && lines.includes("bundle-older") && !job) throw new MachineActionRequired("This PC has the bridge runtime of a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    if (!descriptor && !hasBundle && inspection.bundleOlder && !job) throw new MachineActionRequired("This PC has the bridge runtime of a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
     const installs: string[] = [];
     if (job?.update) installs.push("Download and verify the bridge runtime, then restart this bridge (herdr sessions keep running)");
-    if (!descriptor && !hasBundle) installs.push("Private web bridge bundle (Bun, Node and node-pty; no build tools needed)");
-    if (!descriptor && !herdrPath) installs.push("Bundled herdr 0.9.3 (existing installations are preserved)");
+    if (!descriptor && !hasBundle) installs.push(host.bundleDescription);
+    if (!descriptor && !herdrPath) installs.push(host.installHerdr ? `herdr 0.9.3 through its own installer (${HERDR_INSTALL_CMD})` : "Bundled herdr 0.9.3 (existing installations are preserved)");
     if (!descriptor && job) installs.push("Start the loopback bridge and, only if absent, the herdr daemon");
     if (ssh.usedSecret) installs.push("Register a dedicated SSH public key for automatic reconnection");
     if (installs.length) {
@@ -359,7 +347,8 @@ export class MachineManager {
         this.stage(job, "approval", "Review the changes on this PC");
         await this.wait(job);
       }
-      if (job.update || !descriptor && !hasBundle) { this.stage(job, "installing", `Installing verified ${platform} bundle…`); await installBundle(ssh, platform, job.abort.signal, { cacheDir: join(this.stateDir, "bundles"), onProgress: (stage, done, total) => this.progress(job, stage, done, total) }); }
+      if (job.update || !descriptor && !hasBundle) { this.stage(job, "installing", `Installing verified ${platform} bundle…`); await host.installBundle(ssh, platform, job.abort.signal, { cacheDir: join(this.stateDir, "bundles"), onProgress: (stage, done, total) => this.progress(job, stage, done, total) }); }
+      if (!descriptor && !herdrPath && host.installHerdr) { this.stage(job, "installing", "Installing herdr with its own installer…"); herdrPath = await host.installHerdr(ssh); }
       if (ssh.usedSecret) {
         this.stage(job, "installing", "Registering the app SSH key…");
         const path = join(this.sshDir, runtime.machine.id);
@@ -369,10 +358,10 @@ export class MachineManager {
         }
         chmodSync(path, 0o600);
         const publicKey = readFileSync(path + ".pub", "utf8").trim();
-        await ssh.run(`set -eu; umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; key=${shellQuote("no-agent-forwarding,no-X11-forwarding,no-pty " + publicKey)}; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf '\\n%s\\n' "$key" >> "$HOME/.ssh/authorized_keys"; chmod 600 "$HOME/.ssh/authorized_keys"`);
+        await host.authorizeKey(ssh, "no-agent-forwarding,no-X11-forwarding,no-pty " + publicKey);
         // A separate master proves the new key actually works without a password.
         const proof = new SshConnection({ ...runtime.machine.target!, identity_file: path }, this.sshDir, path, true);
-        try { await proof.start(); await proof.run("true"); } finally { proof.close(); }
+        try { await proof.start(); await (host.kind === "windows" ? proof.runPowerShell("Write-Output ok") : proof.run("true")); } finally { proof.close(); }
       }
     }
     if (job?.update && descriptor) {
@@ -381,21 +370,20 @@ export class MachineManager {
       if (!verified.identity.managed_remote || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
       this.stage(job, "starting", "Restarting the verified remote bridge…");
       this.progress(job, "restart", 0, null);
-      await ssh.run(`kill -TERM ${descriptor.pid}`);
+      await host.stop(ssh, descriptor.pid);
       await Bun.sleep(2500);
       descriptor = undefined;
     }
     if (!descriptor) {
       if (job) this.stage(job, "starting", "Starting the remote bridge…");
-      await ssh.run(REMOTE_PATH + `umask 077; mkdir -p "$HOME/.config/herdr-web-ui/bridges"; HERDR_REMOTE_SESSION=${shellQuote(session ?? "")} HERDR_WEB_HERDR_BIN=${shellQuote(herdrPath || `${home}/${BUNDLE_DIR}/bin/herdr`)} nohup "$HOME/${BUNDLE_DIR}/bin/bun" "$HOME/${BUNDLE_DIR}/server/remote-entry.ts" </dev/null >>"$HOME/.config/herdr-web-ui/bridges/bridge.log" 2>&1 &`);
+      await host.start(ssh, { session, herdrPath, inspection });
       for (let i = 0; i < 40; i++) {
         if (job?.abort.signal.aborted || this.stopped) throw new Error("Setup cancelled");
-        const out = await ssh.run(`for f in "$HOME/.config/herdr-web-ui/bridges/"*.json; do test ! -f "$f" || cat "$f"; printf '\\n'; done`);
-        descriptor = out.split("\n").flatMap((line) => { try { const d = JSON.parse(line); return d.socket_path === expectedSocket ? [d] : []; } catch { return []; } })[0];
+        descriptor = (await host.descriptors(ssh)).find((d) => d.socket_path === expectedSocket && d.pid !== stalePid);
         if (descriptor) break;
         await Bun.sleep(250);
       }
-      if (!descriptor) throw new Error("Bridge did not start. Check ~/.config/herdr-web-ui/bridges/bridge.log on the PC.");
+      if (!descriptor) throw new Error(`Bridge did not start. Check ${host.logHint} on the PC.`);
     }
     const verified = await this.verify(ssh, descriptor, expectedSocket);
     if (runtime.generation !== generation || this.stopped || job?.abort.signal.aborted) throw new Error("Setup cancelled");

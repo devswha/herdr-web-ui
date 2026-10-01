@@ -16,7 +16,7 @@ export async function bridgeIdentity(): Promise<BridgeIdentity> {
   const socket = socketPath();
   const stat = statSync(socket);
   const info = await ping();
-  return { pid: process.pid, managed_remote: process.env["HERDR_WEB_REMOTE"] === "1", bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: `${stat.dev}:${stat.ino}`, herdr: { version: info.version, protocol: info.protocol } };
+  return { pid: process.pid, managed_remote: process.env["HERDR_WEB_REMOTE"] === "1", bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: `${stat.dev}:${stat.ino}`, herdr: info };
 }
 export function registerBridge(port: number, token = randomBytes(32).toString("hex")): { token: string; close(): void } {
   const dir = bridgeRegistry();

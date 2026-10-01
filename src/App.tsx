@@ -90,9 +90,12 @@ function storeSelection(machineId: string, paneId: string | null): void {
  * terminal, except an agent pane on a touch screen, which opens its chat: a phone reads a
  * conversation better than a TUI sized for a desktop. Until the snapshot says whether the
  * pane has an agent (null), a touch screen guesses chat: most panes opened there are agents,
- * and guessing terminal flashed it for the seconds before the snapshot arrived.
+ * and guessing terminal flashed it for the seconds before the snapshot arrived. A PC whose
+ * herdr has no terminal attach (Windows, herdrdev/herdr#4821) always opens its chat: its
+ * terminal lens is only a notice, so a remembered choice there is not worth keeping.
  */
-function storedView(paneId: string, machineId: string, hasAgent: boolean | null): PaneView {
+function storedView(paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean): PaneView {
+  if (!terminalAttach) return "chat";
   try {
     const stored = window.localStorage.getItem(`herdr-web-ui:view:${paneStorageId(machineId, paneId)}`);
     if (stored === "chat" || stored === "terminal") return stored;
@@ -443,12 +446,14 @@ export function App() {
   const targetHerdr = selectedMachineId === "local" ? health?.herdr : selectedMachine?.herdr;
   const selectedTitle = selectedPane ? displayPaneTitle(selectedPane) : null;
   const selectedAgent = selectedPane?.agent ?? null;
+  // unknown herdr (offline, or a server that predates the flag) counts as attach-capable
+  const terminalAttach = targetHerdr?.terminal_attach !== false;
 
   // the lens follows the selected pane: each pane remembers its own
   useEffect(() => {
     if (selectedPaneId === null) return;
-    setViewState(storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null));
-  }, [selectedPaneId, selectedMachineId, selectedPane !== null, selectedAgent !== null]);
+    setViewState(storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach));
+  }, [selectedPaneId, selectedMachineId, selectedPane !== null, selectedAgent !== null, terminalAttach]);
 
   const setView = useCallback(
     (next: PaneView) => {
@@ -602,9 +607,10 @@ export function App() {
               <MessageSquare />
               <span className="header-desktop-only">{t("Chat")}</span>
             </button>
-            <button type="button" aria-pressed={view === "terminal"} onClick={() => setView("terminal")} title={t("Live terminal (⌘⇧J)")}>
+            <button type="button" aria-pressed={view === "terminal"} onClick={() => setView("terminal")} title={terminalAttach ? t("Live terminal (⌘⇧J)") : t("Live terminal: coming to Windows PCs once herdr can attach there")}>
               <SquareTerminal />
               <span className="header-desktop-only">{t("Terminal")}</span>
+              {!terminalAttach && <span className="pill pill-soon">{t("soon")}</span>}
             </button>
           </div>
         )}

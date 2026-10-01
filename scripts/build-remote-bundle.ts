@@ -1,4 +1,8 @@
-/** Native Linux bundles; macOS also supports assembly from verified prebuilds on Linux. */
+/**
+ * Native Linux bundles; macOS and Windows bundles are assembled from verified prebuilds on any
+ * OS. A Windows bundle is Bun alone: herdr has no `terminal attach` there (no Node, no PTY), and
+ * herdr itself comes from its own installer, which setup runs (server/remote-host.ts).
+ */
 import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -7,7 +11,7 @@ import { REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
 const root = resolve(import.meta.dir, "..");
 const hostPlatform = `${process.platform}-${process.arch}`;
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
-if (args.length > 1) throw new Error("Usage: bun run build:remote [linux-x64|linux-arm64|darwin-x64|darwin-arm64]");
+if (args.length > 1) throw new Error("Usage: bun run build:remote [linux-x64|linux-arm64|darwin-x64|darwin-arm64|win32-x64]");
 const platform = args[0] ?? hostPlatform;
 const herdrPins: Record<string, [string, string]> = {
   "linux-x64": ["herdr-linux-x86_64", "18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7"],
@@ -36,10 +40,13 @@ const ptyPins: Record<string, string> = {
   "darwin-x64": "2a45297cec01dffa282f39cc1f87d1f2fa42e5c186e261ff88bfcfbce0186c00",
   "darwin-arm64": "937a533814ddeb3eb1d6d7a84f5aa2302d73ffe69332a34a94ae05e9e203eab3",
 };
+// Official release digest: oven-sh/bun bun-v1.4.2 SHASUMS256.txt.
+const WINDOWS_BUN_SHA = "ce4c17497b2f29712a99d3d53f028de28cd42e3bacb8589599e7f000e49b6405";
+const windows = platform === "win32-x64";
 const pin = herdrPins[platform];
-if (!pin) throw new Error(`Unsupported platform ${platform}`);
+if (!pin && !windows) throw new Error(`Unsupported platform ${platform}`);
 const mac = macPins[platform];
-if (!mac && platform !== hostPlatform) throw new Error(`Build ${platform} on that OS/CPU: a Linux bundle carries the host's Bun binary`);
+if (!mac && !windows && platform !== hostPlatform) throw new Error(`Build ${platform} on that OS/CPU: a Linux bundle carries the host's Bun binary`);
 if (!existsSync(join(root, "dist/index.html"))) throw new Error("Run bun run build before building remote bundles");
 
 const output = resolve(process.env["HERDR_BUNDLE_OUTPUT"] ?? join(root, "remote-bundles"));
@@ -60,55 +67,7 @@ function command(argv: string[], cwd = root): void {
   const result = Bun.spawnSync(argv, { cwd, timeout: 120_000 });
   if (result.exitCode !== 0) throw new Error(`${argv[0]} failed: ${result.stderr.toString()}`);
 }
-function verifyMachO(path: string): void {
-  const bytes = readFileSync(path);
-  const cpu = platform === "darwin-arm64" ? 0x0100000c : 0x01000007;
-  if (bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu) throw new Error(`Wrong macOS architecture: ${path}`);
-}
-
-try {
-  for (const dir of ["server", "shared", "dist", "node_modules"]) cpSync(join(root, dir), join(stage, dir), { recursive: true, dereference: false, filter: (path) => !path.endsWith(".test.ts") });
-  let bunVersion = Bun.version;
-  // Use a reproducible LTS runtime instead of the builder's Node: newer local
-  // binaries can require extra system libraries absent on an otherwise supported PC.
-  const nodeVersion = "v22.23.2";
-  const nodeArchive = join(downloads, "node.tar.gz");
-  writeFileSync(nodeArchive, await download(`https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-${platform}.tar.gz`, nodePins[platform]!));
-  command(["tar", "xzf", nodeArchive, "-C", downloads, `node-${nodeVersion}-${platform}/bin/node`]);
-  cpSync(join(downloads, `node-${nodeVersion}-${platform}/bin/node`), join(stage, "bin/node"));
-  if (mac) {
-    const bunArchive = join(downloads, "bun.zip");
-    writeFileSync(bunArchive, await download(`https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/${mac.bunFile}.zip`, mac.bunSha));
-    command(["unzip", "-qo", bunArchive, "-d", downloads]);
-    cpSync(join(downloads, mac.bunFile, "bun"), join(stage, "bin/bun"));
-    bunVersion = "1.4.2";
-  } else {
-    cpSync(realpathSync(process.execPath), join(stage, "bin/bun"));
-  }
-  // every bundle carries exactly its own platform's PTY package (flat: pty.node, and spawn-helper on macOS)
-  const ptyPackages = join(stage, "node_modules/@lydell");
-  const ptyPackage = join(ptyPackages, `node-pty-${platform}`);
-  for (const name of readdirSync(ptyPackages)) if (name.startsWith("node-pty-") && name !== `node-pty-${platform}`) rmSync(join(ptyPackages, name), { recursive: true, force: true });
-  if (!existsSync(join(ptyPackage, "pty.node"))) {
-    const ptyArchive = join(downloads, "node-pty.tgz");
-    writeFileSync(ptyArchive, await download(`https://registry.npmjs.org/@lydell/node-pty-${platform}/-/node-pty-${platform}-${PTY_VERSION}.tgz`, ptyPins[platform]!));
-    mkdirSync(ptyPackage, { recursive: true });
-    command(["tar", "xzf", ptyArchive, "-C", ptyPackage, "--strip-components=1"]);
-  }
-  if (mac) {
-    for (const name of ["pty.node", "spawn-helper"]) verifyMachO(join(ptyPackage, name));
-    chmodSync(join(ptyPackage, "spawn-helper"), 0o755);
-  }
-  writeFileSync(join(stage, "bin/herdr"), await download(`https://github.com/herdrdev/herdr/releases/download/v0.9.3/${pin[0]}`, pin[1]), { mode: 0o755 });
-  for (const name of ["bun", "node", "herdr"]) {
-    chmodSync(join(stage, "bin", name), 0o755);
-    if (mac) verifyMachO(join(stage, "bin", name));
-  }
-  writeFileSync(join(stage, "package.json"), JSON.stringify({ type: "module", version: REMOTE_BUNDLE_VERSION }));
-  writeFileSync(join(stage, "bundle.json"), JSON.stringify({ version: REMOTE_BUNDLE_VERSION, platform, herdr: "0.9.3", bun: bunVersion, node: nodeVersion, native_smoke_tested: platform === hostPlatform }));
-  if (platform === hostPlatform) command([join(stage, "bin/node"), join(stage, "server/pty/smoke.mjs")], stage);
-  else console.log(`${platform}: verified binary architecture and checksums; PTY execution is checked on the destination before activation`);
-
+async function archive(): Promise<void> {
   const filename = `herdr-web-ui-${platform}.tgz`;
   const archive = join(output, filename);
   const temporaryArchive = archive + ".tmp";
@@ -120,6 +79,68 @@ try {
   writeFileSync(manifest + ".tmp", JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { [platform]: { url: filename, sha256 } } }, null, 2));
   renameSync(manifest + ".tmp", manifest);
   console.log(`${filename} sha256:${sha256}`);
+}
+function verifyMachO(path: string): void {
+  const bytes = readFileSync(path);
+  const cpu = platform === "darwin-arm64" ? 0x0100000c : 0x01000007;
+  if (bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu) throw new Error(`Wrong macOS architecture: ${path}`);
+}
+
+try {
+  for (const dir of ["server", "shared", "dist", "node_modules"]) cpSync(join(root, dir), join(stage, dir), { recursive: true, dereference: false, filter: (path) => !path.endsWith(".test.ts") });
+  let bunVersion = Bun.version;
+  if (windows) {
+    const bunArchive = join(downloads, "bun.zip");
+    writeFileSync(bunArchive, await download("https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-windows-x64.zip", WINDOWS_BUN_SHA));
+    command(["unzip", "-qo", bunArchive, "-d", downloads]);
+    cpSync(join(downloads, "bun-windows-x64", "bun.exe"), join(stage, "bin/bun.exe"));
+    // nothing native: the PTY sidecar is never spawned on Windows (the server refuses attach there)
+    rmSync(join(stage, "node_modules/@lydell"), { recursive: true, force: true });
+    writeFileSync(join(stage, "package.json"), JSON.stringify({ type: "module", version: REMOTE_BUNDLE_VERSION }));
+    writeFileSync(join(stage, "bundle.json"), JSON.stringify({ version: REMOTE_BUNDLE_VERSION, platform, herdr: null, bun: "1.4.2", node: null, native_smoke_tested: false }));
+  } else {
+    // Use a reproducible LTS runtime instead of the builder's Node: newer local
+    // binaries can require extra system libraries absent on an otherwise supported PC.
+    const nodeVersion = "v22.23.2";
+    const nodeArchive = join(downloads, "node.tar.gz");
+    writeFileSync(nodeArchive, await download(`https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-${platform}.tar.gz`, nodePins[platform]!));
+    command(["tar", "xzf", nodeArchive, "-C", downloads, `node-${nodeVersion}-${platform}/bin/node`]);
+    cpSync(join(downloads, `node-${nodeVersion}-${platform}/bin/node`), join(stage, "bin/node"));
+    if (mac) {
+      const bunArchive = join(downloads, "bun.zip");
+      writeFileSync(bunArchive, await download(`https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/${mac.bunFile}.zip`, mac.bunSha));
+      command(["unzip", "-qo", bunArchive, "-d", downloads]);
+      cpSync(join(downloads, mac.bunFile, "bun"), join(stage, "bin/bun"));
+      bunVersion = "1.4.2";
+    } else {
+      cpSync(realpathSync(process.execPath), join(stage, "bin/bun"));
+    }
+    // every bundle carries exactly its own platform's PTY package (flat: pty.node, and spawn-helper on macOS)
+    const ptyPackages = join(stage, "node_modules/@lydell");
+    const ptyPackage = join(ptyPackages, `node-pty-${platform}`);
+    for (const name of readdirSync(ptyPackages)) if (name.startsWith("node-pty-") && name !== `node-pty-${platform}`) rmSync(join(ptyPackages, name), { recursive: true, force: true });
+    if (!existsSync(join(ptyPackage, "pty.node"))) {
+      const ptyArchive = join(downloads, "node-pty.tgz");
+      writeFileSync(ptyArchive, await download(`https://registry.npmjs.org/@lydell/node-pty-${platform}/-/node-pty-${platform}-${PTY_VERSION}.tgz`, ptyPins[platform]!));
+      mkdirSync(ptyPackage, { recursive: true });
+      command(["tar", "xzf", ptyArchive, "-C", ptyPackage, "--strip-components=1"]);
+    }
+    if (mac) {
+      for (const name of ["pty.node", "spawn-helper"]) verifyMachO(join(ptyPackage, name));
+      chmodSync(join(ptyPackage, "spawn-helper"), 0o755);
+    }
+    writeFileSync(join(stage, "bin/herdr"), await download(`https://github.com/herdrdev/herdr/releases/download/v0.9.3/${pin![0]}`, pin![1]), { mode: 0o755 });
+    for (const name of ["bun", "node", "herdr"]) {
+      chmodSync(join(stage, "bin", name), 0o755);
+      if (mac) verifyMachO(join(stage, "bin", name));
+    }
+    writeFileSync(join(stage, "package.json"), JSON.stringify({ type: "module", version: REMOTE_BUNDLE_VERSION }));
+    writeFileSync(join(stage, "bundle.json"), JSON.stringify({ version: REMOTE_BUNDLE_VERSION, platform, herdr: "0.9.3", bun: bunVersion, node: nodeVersion, native_smoke_tested: platform === hostPlatform }));
+    if (platform === hostPlatform) command([join(stage, "bin/node"), join(stage, "server/pty/smoke.mjs")], stage);
+    else console.log(`${platform}: verified binary architecture and checksums; PTY execution is checked on the destination before activation`);
+
+  }
+  await archive();
 } finally {
   rmSync(stage, { recursive: true, force: true });
   rmSync(downloads, { recursive: true, force: true });

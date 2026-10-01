@@ -122,6 +122,8 @@ export function PaneTerminal({
   const [outputReady, setOutputReady] = useState(false);
   const [ended, setEnded] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
+  // this PC's herdr has no terminal attach (Windows): the lens is a notice, the chat still works
+  const [unsupported, setUnsupported] = useState(false);
   // another web bridge has this pane's terminal: the server waits for it and says attach-resumed
   const [held, setHeldState] = useState(false);
   // what the socket handlers read mid-stream: stdin, onData and the composer's submit
@@ -607,6 +609,13 @@ export function PaneTerminal({
           setConnected(socket.connected);
           return;
         }
+        if (message.code === "terminal_unsupported") {
+          if (message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
+          setUnsupported(true);
+          term.options.disableStdin = true;
+          setConnected(socket.connected);
+          return;
+        }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
           setOutputError(message.message);
           setEnded(true);
@@ -801,6 +810,7 @@ export function PaneTerminal({
     setOutputReady(false);
     setOutputError(null);
     setHeld(false);
+    setUnsupported(false);
     secretRef.current = null;
     setSecret(null);
     term.options.disableStdin = observeRef.current;
@@ -1028,6 +1038,11 @@ export function PaneTerminal({
         {paneId !== null && held && (
           <div className="terminal-banner terminal-banner-warning" role="status">
             <span>{t("Another app has this pane open. It connects here as soon as that app lets go.")}</span>
+          </div>
+        )}
+        {paneId !== null && !chatView && unsupported && (
+          <div className="terminal-banner terminal-banner-soon" role="status">
+            <span>{t("Live terminal is coming to Windows PCs: herdr cannot attach a terminal there yet. The chat lens works now.")}</span>
           </div>
         )}
         {paneId !== null && outputError && (

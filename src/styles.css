@@ -719,6 +719,17 @@ button {
   background: var(--danger-tint);
 }
 
+/* a lens that is on its way: inside a segmented button, so it stays small */
+.pill-soon {
+  height: auto;
+  padding: 0 var(--space-1);
+  margin-left: var(--space-1);
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  text-transform: uppercase;
+}
+
 /* status badge: tinted background + text, the state readable as a word */
 .badge {
   display: inline-flex;

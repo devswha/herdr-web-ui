@@ -170,7 +170,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/health") {
     const auth = { required: false, authenticated: true };
     if (query.get("scope") === "bridge") return json({ ok: true, auth, bridge_protocol: 1 });
-    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22 }, auth, web_ui: { boot_id: DEMO_VERSION, revision: null } });
+    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { boot_id: DEMO_VERSION, revision: null } });
   }
   if (path === "/api/machines") return json({ machines });
   if (path === "/api/session") return json({ snapshot: snapshot() });

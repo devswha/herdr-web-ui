@@ -7,6 +7,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **Add PC** connects a Windows PC (x64, OpenSSH Server, herdr 0.9+). Setup asks it in
+  PowerShell when `sh` is not there, installs a Bun-only `win32-x64` bundle under
+  `%LOCALAPPDATA%\herdr-web-ui`, runs herdr's own installer when the PC has no herdr, registers
+  the app key where Windows OpenSSH reads it (an administrator's
+  `administrators_authorized_keys`), and starts the bridge and the daemon through WMI so they
+  outlive the SSH session and each other. The bridge talks to herdr over its named pipe. herdr
+  has no terminal attach on Windows yet ([herdrdev/herdr#4821](https://github.com/herdrdev/herdr/issues/4821)),
+  so a Windows PC's panes open in the chat lens, the Terminal button carries a **soon** pill,
+  and `/api/health` and the PC list carry `terminal_attach` so the lens turns on by itself once
+  herdr reports it. Remote bundle `remote-v9`
+  ([#189](https://github.com/devswha/herdr-web-ui/issues/189)).
+
+### Fixed
+- A bridge that died without withdrawing its registration (a crash or a reboot) no longer
+  makes the reconnect verify the dead one before the new bridge has registered.
+
 ## [0.3.37] - 2026-10-01
 
 ### Changed
@@ -22,7 +39,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   prompt is now off until Settings → Composer → **Suggestion chip** turns it on. The suggestion
   still stands as the box's placeholder, and Tab still takes it with a keyboard
   ([#223](https://github.com/devswha/herdr-web-ui/pull/223)).
-
 ## [0.3.36] - 2026-10-01
 
 ### Added

@@ -2,7 +2,7 @@ import type { HealthAuth, ServerMessage, SessionSnapshot } from "./protocol.ts";
 
 export const LOCAL_MACHINE = "local";
 export const BRIDGE_PROTOCOL = 1;
-export const REMOTE_BUNDLE_VERSION = "8";
+export const REMOTE_BUNDLE_VERSION = "9";
 export interface PaneTarget { machine_id: string; pane_id: string }
 export type MachineState = "connecting" | "connected" | "reconnecting" | "disconnected" | "error";
 export interface SshTarget {
@@ -24,8 +24,14 @@ export interface Machine {
   /** a bridge update running for this PC right now (in the background, or from its dialog) */
   updating?: MachineUpdate | null;
   snapshot: SessionSnapshot | null;
-  herdr?: { version: string; protocol: number };
+  herdr?: HerdrIdentity;
 }
+/**
+ * The herdr behind a PC. terminal_attach is false on a Windows host: herdr has no
+ * `terminal attach` there yet (herdrdev/herdr#4821), so its panes have a chat lens and
+ * input but no live terminal. Absent on older bridges, which are never Windows.
+ */
+export interface HerdrIdentity { version: string; protocol: number; terminal_attach?: boolean }
 export type MachineAction = "update_bridge" | "setup";
 export interface MachineUpdate { job_id: string; step: string; progress: SetupProgress | null }
 /**
@@ -65,7 +71,7 @@ export interface BridgeIdentity {
   bundle_version: string;
   socket_path: string;
   socket_id: string;
-  herdr: { version: string; protocol: number };
+  herdr: HerdrIdentity;
 }
 
 /** Local storage keeps its historical keys; remote IDs occupy a separate namespace. */

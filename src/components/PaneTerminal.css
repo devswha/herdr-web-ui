@@ -132,6 +132,13 @@
   color: var(--status-working);
 }
 
+/* not a fault: a lens herdr does not offer on this PC yet */
+.terminal-banner-soon {
+  border-color: var(--accent);
+  color: var(--text);
+  background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-elevated);
+}
+
 .terminal-banner-output-error {
   max-width: 100%;
   white-space: normal;
@@ -230,6 +237,7 @@
   }
 
   .terminal-banner-observe,
+  .terminal-banner-soon,
   .terminal-banner-warning {
     max-width: min(36ch, 100%);
     text-align: right;

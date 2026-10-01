@@ -106,6 +106,7 @@ const TYPED_SETTLE_MS = 300;
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
 const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input"];
+export const TERMINAL_UNSUPPORTED_MESSAGE = "Live terminal is not available on Windows PCs yet: herdr has no terminal attach there (herdrdev/herdr#4821). Chat, status and input work.";
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -225,6 +226,12 @@ export function createServer(
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
+  /** whether this herdr can `terminal attach`: asked once, the answer never changes while it runs */
+  let terminalAttachKnown: boolean | null = null;
+  const terminalAttach = async (): Promise<boolean> => {
+    if (terminalAttachKnown === null) terminalAttachKnown = (await ping()).terminal_attach !== false;
+    return terminalAttachKnown;
+  };
   const retryFor = options.attachRetryForMs ?? ATTACH_RETRY_FOR_MS;
   const heldRetry = options.attachHeldRetryMs ?? ATTACH_HELD_RETRY_MS;
   /** attachments still resolving their terminal, so concurrent attaches share one pty */
@@ -794,7 +801,7 @@ export function createServer(
         if (url.searchParams.get("scope") === "bridge") return jsonResponse({ ok: true, auth, bridge_protocol: BRIDGE_PROTOCOL });
         try {
           const info = await ping();
-          return jsonResponse({ ok: true, herdr: { version: info.version, protocol: info.protocol }, auth,
+          return jsonResponse({ ok: true, herdr: info, auth,
             web_ui: { boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
         } catch (error) {
           return errorResponse(error);
@@ -1235,6 +1242,12 @@ export function createServer(
                 send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
                 break;
               }
+              // a Windows herdr has no `terminal attach` (herdrdev/herdr#4821): the pane keeps
+              // its chat, status and input, and the client is told why the grid stays empty
+              if (!(await terminalAttach())) {
+                send(client, { type: "error", code: "terminal_unsupported", message: TERMINAL_UNSUPPORTED_MESSAGE, pane_id: message.pane_id });
+                break;
+              }
               // record the pane before the await: a detach (switching panes) or a close
               // that lands while the terminal is looked up must cancel this attach, and
               // neither can see a client that only joins the attachment afterwards
@@ -1300,6 +1313,13 @@ export function createServer(
               // the pty holds a lone ESC ~150ms and a Stop would overtake nothing
               // typing reaches an attached pane only, queued or not
               const attachment = attachments.get(message.pane_id);
+              // without a terminal (Windows) the key bar's Enter, Stop and arrows still have to
+              // land: herdr delivers the bytes itself
+              if (!attachment && !(await terminalAttach())) {
+                authorizeSocket(client);
+                void paneSendText(message.pane_id, message.text).catch(() => undefined);
+                break;
+              }
               // another web bridge has this pane's terminal: nothing typed here reaches it
               if (!attachment || attachment.held) break;
               if (paneQueues.has(message.pane_id)) {

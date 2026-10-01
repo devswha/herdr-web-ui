@@ -5,12 +5,29 @@ import type {
   SessionSnapshot,
 } from "../../shared/protocol.ts";
 import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
+import type { HerdrIdentity } from "../../shared/machines.ts";
 
-const DEFAULT_SOCKET = `${process.env.HOME ?? ""}/.config/herdr/herdr.sock`;
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/** herdr's default socket: ~/.config/herdr on Unix, %APPDATA%\herdr on Windows. */
 export function herdrSocketPath(): string {
-  return process.env.HERDR_SOCKET ?? DEFAULT_SOCKET;
+  if (process.env.HERDR_SOCKET) return process.env.HERDR_SOCKET;
+  if (process.platform === "win32") return `${process.env.APPDATA ?? ""}\\herdr\\herdr.sock`;
+  return `${process.env.HOME ?? ""}/.config/herdr/herdr.sock`;
+}
+
+/**
+ * On Windows herdr.sock is a marker file (`pid:start`), and the server listens on a named
+ * pipe of the same name: `\\.\pipe\C:\Users\…\herdr.sock` (live-verified, herdr 0.9.3).
+ */
+export function socketAddress(socketPath: string): string {
+  return process.platform === "win32" && !socketPath.startsWith("\\\\.\\pipe\\") ? `\\\\.\\pipe\\${socketPath}` : socketPath;
+}
+
+/** herdr's `terminal attach` exists on Unix only (herdrdev/herdr#4821); its ping does not say so yet. */
+export function terminalAttachSupported(capabilities?: Record<string, unknown>): boolean {
+  const declared = capabilities?.["direct_terminal_attach"];
+  return typeof declared === "boolean" ? declared : process.platform !== "win32";
 }
 
 export class HerdrError extends Error {
@@ -101,7 +118,7 @@ export async function herdrRpc<T = unknown>(
     const onData = makeLineReader(handleLine);
 
     Bun.connect({
-      unix: socketPath,
+      unix: socketAddress(socketPath),
       socket: {
         data(_sock, chunk) {
           onData(chunk);
@@ -134,9 +151,9 @@ export async function herdrRpc<T = unknown>(
   });
 }
 
-export async function ping(socketPath?: string): Promise<{ version: string; protocol: number }> {
-  const result = await herdrRpc<{ version: string; protocol: number }>("ping", {}, socketPath);
-  return { version: result.version, protocol: result.protocol };
+export async function ping(socketPath?: string): Promise<HerdrIdentity> {
+  const result = await herdrRpc<{ version: string; protocol: number; capabilities?: Record<string, unknown> }>("ping", {}, socketPath);
+  return { version: result.version, protocol: result.protocol, terminal_attach: terminalAttachSupported(result.capabilities) };
 }
 
 export async function sessionSnapshot(socketPath?: string): Promise<SessionSnapshot> {
@@ -322,7 +339,7 @@ export function subscribeEvents(
   });
 
   Bun.connect({
-    unix: socketPath,
+    unix: socketAddress(socketPath),
     socket: {
       data(_sock, chunk) {
         onData(chunk);

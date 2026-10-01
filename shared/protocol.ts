@@ -43,7 +43,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  */
 
 /** HTTP API
- *  GET    /api/health                    -> { ok: true, herdr: { version, protocol }, auth: HealthAuth,
+ *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
+ *                                          Windows herdr, whose attach is refused with code terminal_unsupported), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what

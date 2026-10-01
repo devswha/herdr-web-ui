@@ -1,4 +1,4 @@
-import { machinePath, type BridgeHealth, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
+import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
   DirectoryListing,
@@ -149,7 +149,7 @@ export async function fetchPaneConversation(paneId: string, machineId = "local",
 
 export interface HealthInfo {
   ok: boolean;
-  herdr: { version: string; protocol: number };
+  herdr: HerdrIdentity;
   web_ui?: { boot_id: string | null; revision: string | null };
   /** Absent only on a server that predates the token gate. */
   auth?: HealthAuth;
