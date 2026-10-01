@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- A workspace with several panes gets a chevron in its sidebar header that folds its pane rows
+  away. The fold is remembered per PC and workspace, the header keeps its status badge, Needs you
+  still lists agents inside it, and opening one of its panes (palette, Needs you, an alert link)
+  unfolds it ([#222](https://github.com/devswha/herdr-web-ui/pull/222)).
+
 ## [0.3.37] - 2026-10-01
 
 ### Changed
@@ -22,7 +28,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   prompt is now off until Settings → Composer → **Suggestion chip** turns it on. The suggestion
   still stands as the box's placeholder, and Tab still takes it with a keyboard
   ([#223](https://github.com/devswha/herdr-web-ui/pull/223)).
-
 ## [0.3.36] - 2026-10-01
 
 ### Added

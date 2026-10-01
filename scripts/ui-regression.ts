@@ -336,6 +336,32 @@ try {
   await composer.fill("draft for A");
   console.log("PASS successful sends settle after switching panes and preserve edits made after returning");
 
+  // a workspace with two panes gets a fold caret; the fold is remembered and opens again for a pane picked inside it
+  const split = await herdrRpc<{ pane: { pane_id: string } }>("pane.split", { target_pane_id: paneB, direction: "down", focus: false });
+  // the header, not a pane row, names the section: its rows are exactly what folding removes
+  const sectionB = page.locator(".workspace", { has: page.locator(".workspace-label", { hasText: "herdr-web-ui-test-browser-b" }) });
+  const toggleB = sectionB.locator(".workspace-toggle");
+  await toggleB.waitFor();
+  assert.equal(await page.locator(".workspace", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".workspace-toggle").count(), 0, "a lone pane has nothing to fold");
+  await toggleB.click();
+  await until(async () => await sectionB.locator(".pane-list").count() === 0, "folded workspace hides its panes");
+  assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
+  await sectionB.locator(".badge").waitFor();
+  await page.reload();
+  await page.locator(".conn-live").waitFor();
+  const foldedB = page.locator(".workspace.is-collapsed", { has: page.locator(".workspace-toggle[aria-expanded='false']") });
+  await foldedB.waitFor();
+  assert.equal(await foldedB.locator(`.pane-select[title^="${paneB} —"]`).count(), 0, "the fold survives a reload");
+  await page.goto(`${origin}/?pane=${encodeURIComponent(split.pane.pane_id)}`);
+  await page.locator(".conn-live").waitFor();
+  await until(async () => (await page.locator(`.pane-item.is-selected .pane-select[title^="${split.pane.pane_id} —"]`).count()) === 1, "a pane picked inside a folded workspace unfolds it");
+  assert.equal(await page.locator(".workspace.is-collapsed").count(), 0);
+  await herdrRpc("pane.close", { pane_id: split.pane.pane_id });
+  await until(async () => await page.locator(`.pane-select[title^="${split.pane.pane_id} —"]`).count() === 0, "split pane closed");
+  await selectPane(paneA);
+  await composer.fill("draft for A");
+  console.log("PASS a workspace folds from its caret, stays folded across reloads, and unfolds for a pane opened inside it");
+
   let releaseImage!: () => void;
   const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
   releases.push(releaseImage);
