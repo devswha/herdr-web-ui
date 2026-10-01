@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Bug, Clock, FileText, KeyboardOff, Paperclip, SendHorizontal, Square, X } from "lucide-react";
+import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -32,9 +32,7 @@ import {
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
-import { ReportDialog } from "./ReportDialog.tsx";
 import { useT } from "../lib/i18n.ts";
-import { dismissKeyboard } from "../lib/keyboard.ts";
 
 export interface ComposerProps {
   connected: boolean;
@@ -217,7 +215,6 @@ export function Composer({
   const [note, setNote] = useState<string | null>(null);
   // shown only when chosen in Settings → Quick replies: a button beside the box was one more thing to read
   const quickOpen = settings.showQuickReplies;
-  const [reporting, setReporting] = useState(false);
   const quickReplies = quickReplyButtons(settings);
   const [manualHeight, setManualHeight] = useState<number | null>(readComposerHeight);
   /** the box's rendered height, for the grip to announce while the height is automatic */
@@ -629,16 +626,6 @@ export function Composer({
             <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}
           </span>
         )}
-        {/* shown only while a phone's keyboard is up (Composer.css); the draft stays. Before the
-            report action, so that one keeps its place at the end as the keyboard comes and goes */}
-        <button type="button" className="btn btn-ghost composer-hide-keyboard" aria-label={t("Hide keyboard")} title={t("Hide keyboard")}
-          onPointerDown={(event) => event.preventDefault()} onClick={dismissKeyboard}>
-          <KeyboardOff aria-hidden="true" /><span>{t("Hide keyboard")}</span>
-        </button>
-        {/* while problems are being chased: a report of this pane's chat, one tap away */}
-        <button type="button" className="btn btn-ghost composer-report" aria-label={t("Report a problem")} title={t("Report a problem")} onClick={() => setReporting(true)}>
-          <Bug aria-hidden="true" /><span>{t("Report a problem")}</span>
-        </button>
       </div>
 
       {/* no Tab key on a phone: the suggestion can be a chip there that fills the box, once chosen in Settings */}
@@ -855,7 +842,6 @@ export function Composer({
         </div>
       </div>
       {note && <div className="composer-note" role="alert">{note}</div>}
-      {reporting && <ReportDialog paneId={paneId} agent={agent} agentStatus={agentStatus} model={metadata?.model ?? null} onClose={() => setReporting(false)} />}
     </div>
   );
 }

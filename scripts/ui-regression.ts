@@ -300,49 +300,8 @@ try {
   await composer.fill("");
   console.log("PASS the composer keeps an IME's committing Enter");
 
-  // a problem report gathers the pane's pieces, sends nothing on its own, and files a prefilled issue
-  await page.getByRole("button", { name: "Report a problem", exact: true }).click();
-  const reportDialog = page.getByRole("dialog", { name: "Report a problem" });
-  const reportText = reportDialog.getByRole("textbox", { name: "Report", exact: true });
-  await until(async () => (await reportText.inputValue()).includes("## Environment"), "report gathered");
-  await reportDialog.getByRole("textbox", { name: "What went wrong?" }).fill("list numbers read 1. 1. 1.");
-  await reportDialog.getByLabel("Terminal screen").check();
-  await until(async () => (await reportText.inputValue()).includes("## Terminal screen"), "screen included");
-  assert.match(await reportText.inputValue(), /## What went wrong\n\nlist numbers read 1\. 1\. 1\./);
-  const redacted = "한글 보고서 😀\n".repeat(1000);
-  await reportText.fill(redacted);
-  await reportDialog.getByLabel("Terminal screen").uncheck();
-  await report("working");
-  await Bun.sleep(300);
-  assert.equal(await reportText.inputValue(), redacted, "manual redactions survive live updates and option changes");
-  assert.ok((await reportDialog.getByRole("link", { name: "Open a GitHub issue" }).getAttribute("href"))!.length <= 2000);
-  const download = page.waitForEvent("download");
-  await reportDialog.getByRole("button", { name: "Save as file", exact: true }).click();
-  const savedReport = await download;
-  assert.match(savedReport.suggestedFilename(), /^herdr-report-.+\.md$/);
-  assert.equal(await Bun.file((await savedReport.path())!).text(), redacted, "saved report is complete");
-  // the issue page itself is GitHub's: the address asked for is what is checked, and never loaded
-  let issueRequested = "";
-  await page.context().route(/^https:\/\/github\.com\//, async (route) => {
-    issueRequested ||= route.request().url();
-    await route.fulfill({ status: 200, contentType: "text/plain", body: "stub" });
-  });
-  const popup = page.waitForEvent("popup");
-  await reportDialog.getByRole("link", { name: "Open a GitHub issue", exact: true }).click();
-  const issue = await popup;
-  await until(() => issueRequested !== "", "issue address requested");
-  const issueAddress = new URL(issueRequested);
-  assert.equal(`${issueAddress.origin}${issueAddress.pathname}`, "https://github.com/devswha/herdr-web-ui/issues/new");
-  assert.equal(issueAddress.searchParams.get("title"), "[claude] list numbers read 1. 1. 1.");
-  assert.ok(issueRequested.length <= 2000);
-  assert.match(issueAddress.searchParams.get("body")!, /Please paste the full report/);
-  await issue.close();
-  await reportDialog.getByRole("button", { name: "Rebuild report" }).click();
-  assert.match(await reportText.inputValue(), /## Environment/);
-  await report("idle");
-  await reportDialog.getByRole("button", { name: "Close", exact: true }).click();
-  await reportDialog.waitFor({ state: "hidden" });
-  console.log("PASS a problem report gathers the pane, saves a file, and opens a prefilled issue");
+  // the status line holds the agent and its state: no report action
+  assert.equal(await page.getByRole("button", { name: "Report a problem", exact: true }).count(), 0, "no report action");
 
   const selectPane = async (paneId: string) => {
     await page.locator(`.pane-select[title^="${paneId} —"]`).click();
@@ -567,23 +526,11 @@ try {
   await mobilePage.locator(".chat-terminal-fallback").waitFor();
   assert.equal(await mobilePage.locator(".chat-terminal-fallback").getAttribute("open"), null, "missing native history is labeled, not presented as broken chat");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  const mobileReportButton = mobilePage.getByRole("button", { name: "Report a problem", exact: true });
-  assert.equal(await mobileReportButton.innerText(), "Report a problem");
-  const reportButtonBox = await mobileReportButton.boundingBox();
-  assert.ok(reportButtonBox && reportButtonBox.height >= 44 && reportButtonBox.width >= 44, "report action has a touch-sized target");
-  if (process.env.UI_EVIDENCE_DIR) await mobilePage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "report-mobile-button.png") });
-  await mobileReportButton.click();
-  const mobileReport = mobilePage.getByRole("dialog", { name: "Report a problem" });
-  await mobileReport.getByRole("link", { name: "Open a GitHub issue" }).waitFor();
-  await mobileReport.getByRole("textbox", { name: "Report", exact: true }).fill("한글 보고서 😀".repeat(1000));
-  for (const theme of ["light", "dark"]) {
-    await mobilePage.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
-    const action = await mobileReport.getByRole("link", { name: "Open a GitHub issue" }).boundingBox();
-    assert.ok(action && action.y >= 0 && action.y + action.height <= 844, "mobile issue action fits viewport");
-    assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    if (process.env.UI_EVIDENCE_DIR) await mobilePage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `report-mobile-${theme}.png`) });
-  }
-  await mobileReport.getByRole("button", { name: "Close", exact: true }).click();
+  // a phone's status line holds the agent and its state: no report action, and no keyboard button while typing
+  await mobilePage.evaluate(() => document.documentElement.setAttribute("data-keyboard", ""));
+  assert.equal(await mobilePage.getByRole("button", { name: "Report a problem", exact: true }).count(), 0, "no report action on a phone");
+  assert.equal(await mobilePage.getByRole("button", { name: "Hide keyboard", exact: true }).count(), 0, "no keyboard button on a phone");
+  await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 

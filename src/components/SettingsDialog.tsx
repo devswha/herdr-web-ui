@@ -163,26 +163,6 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Claude icon")}</span><span className="settings-description">{t("The mark on Claude panes")}</span></div>
-              <div className="segmented" aria-label={t("Claude icon")}>
-                {(["logo", "mascot"] as const).map((claudeMark) => (
-                  <button key={claudeMark} type="button" aria-pressed={settings.claudeMark === claudeMark} onClick={() => update({ claudeMark })}>
-                    <AgentMark agent="claude" size={14} variant={claudeMark} />{" "}{claudeMark === "mascot" ? "Claude Code" /* a product name, never translated */ : t("Logo")}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Codex icon")}</span><span className="settings-description">{t("The mark on Codex panes")}</span></div>
-              <div className="segmented" aria-label={t("Codex icon")}>
-                {(["logo", "app"] as const).map((codexMark) => (
-                  <button key={codexMark} type="button" aria-pressed={settings.codexMark === codexMark} onClick={() => update({ codexMark })}>
-                    <AgentMark agent="codex" size={14} variant={codexMark} />{" "}{t(codexMark === "app" ? "Codex app" : "Logo")}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="settings-row">
               <div><span className="settings-label">{t("Density")}</span><span className="settings-description">{t("Adjust spacing throughout the interface")}</span></div>
               <div className="segmented" aria-label={t("Density")}>
                 {(["comfortable", "compact"] as const).map((density) => (
