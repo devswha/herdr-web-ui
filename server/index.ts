@@ -241,10 +241,12 @@ export function createServer(
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
+  /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
+  const sidecar = options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false;
   let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
   const terminalAttach = async (): Promise<boolean> => {
     if (terminalAttachKnown === null) {
-      terminalAttachKnown = typeof options.terminalAttach === "function" ? await options.terminalAttach() : attachableIdentity(await ping(), sidecarAvailable()).terminal_attach !== false;
+      terminalAttachKnown = typeof options.terminalAttach === "function" ? await options.terminalAttach() : attachableIdentity(await ping(), sidecar).terminal_attach !== false;
     }
     return terminalAttachKnown;
   };
@@ -776,7 +778,7 @@ export function createServer(
 
       if (pathname === "/api/bridge") {
         if (token === "" && !bridgeAuthorized) return unauthorizedJson();
-        try { return jsonResponse(await bridgeIdentity()); } catch (error) { return errorResponse(error); }
+        try { return jsonResponse(await bridgeIdentity(sidecar)); } catch (error) { return errorResponse(error); }
       }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);
@@ -855,7 +857,7 @@ export function createServer(
         try {
           const info = await ping();
           // a forced answer (tests) and a runtime without the PTY sidecar are told the way a Windows herdr's own would be
-          const herdr = attachableIdentity(info, options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
+          const herdr = attachableIdentity(info, sidecar);
           return jsonResponse({ ok: true, herdr, auth,
             web_ui: { boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
         } catch (error) {

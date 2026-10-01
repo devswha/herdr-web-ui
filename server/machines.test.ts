@@ -12,7 +12,7 @@ import { MachineManager } from "./machines.ts";
 import { detectHost, psQuote, UNSUPPORTED_HOST, windowsBridgeFiles } from "./remote-host.ts";
 import { decodeClixml, type SshConnection } from "./ssh.ts";
 import { terminalAttachSupported } from "./herdr/client.ts";
-import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
+import { attachableIdentity, isRealNode, sidecarAvailable } from "./pty/sidecar.ts";
 import { CompletionTracker } from "./completion.ts";
 import type { PushService } from "./push.ts";
 import { recentSshOutput } from "./ssh.ts";
@@ -181,6 +181,24 @@ describe("terminal attach capability", () => {
     expect(sidecarAvailable({ node: () => true, pty: () => true })).toBe(true);
     expect(sidecarAvailable({ node: () => false, pty: () => true })).toBe(false);
     expect(sidecarAvailable({ node: () => true, pty: () => false })).toBe(false);
+  });
+
+  it("takes a node for Node only when it answers in time and is not Bun", () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-sidecar-probe-"));
+    const stand = (name: string, body: string) => {
+      const path = join(dir, name);
+      writeFileSync(path, `#!/bin/sh\n${body}\n`);
+      chmodSync(path, 0o755);
+      return path;
+    };
+    try {
+      expect(isRealNode(stand("node", "echo"))).toBe(true);
+      expect(isRealNode(stand("bun-as-node", "echo 1.4.2"))).toBe(false);
+      expect(isRealNode(stand("broken", "exit 1"))).toBe(false);
+      expect(isRealNode(join(dir, "absent"))).toBe(false);
+      // a node that never answers is given up on, not waited for
+      expect(isRealNode(stand("hung", "exec sleep 30"), process.env, 200)).toBe(false);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
 

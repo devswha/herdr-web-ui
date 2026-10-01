@@ -10,24 +10,31 @@ export interface SidecarRuntime {
   pty: () => boolean;
 }
 
-let realNode: boolean | null = null;
+/** a node that hangs must not hold the server: no answer in this long counts as no Node */
+const PROBE_TIMEOUT_MS = 3000;
 
 /**
  * `bun run` puts a `node` that is Bun itself first on PATH when the PC has none, and
  * node-pty must not load in Bun (oven-sh/bun#18546): only a `node` that is Node counts.
+ * The probe is written for any Node, however old (no `??`).
+ */
+export function isRealNode(executable: string, env: Record<string, string | undefined> = process.env, timeoutMs = PROBE_TIMEOUT_MS): boolean {
+  try {
+    const asked = Bun.spawnSync([executable, "-p", "process.versions.bun || ''"], { env, stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: timeoutMs });
+    return asked.success && asked.stdout.toString().trim() === "";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Looked up on the PATH the sidecar's spawn inherits (PtySession passes process.env), not the
+ * one this process was launched with: a remote bundle adds its own bin/ at runtime
+ * (server/remote-entry.ts), and a bare Bun.which() would not see the Node shipped there.
  */
 function nodeOnPath(): boolean {
-  if (realNode === null) {
-    const found = Bun.which("node");
-    if (found === null) return (realNode = false);
-    try {
-      const asked = Bun.spawnSync([found, "-p", "process.versions.bun ?? ''"], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
-      realNode = asked.success && asked.stdout.toString().trim() === "";
-    } catch {
-      realNode = false;
-    }
-  }
-  return realNode;
+  const found = Bun.which("node", { PATH: process.env["PATH"] ?? "" });
+  return found !== null && isRealNode(found);
 }
 
 const here: SidecarRuntime = {
@@ -42,8 +49,13 @@ const here: SidecarRuntime = {
   },
 };
 
-export function sidecarAvailable(runtime: SidecarRuntime = here): boolean {
-  return runtime.pty() && runtime.node();
+let known: boolean | null = null;
+
+/** This runtime's answer is taken once: every caller (attach, /api/health, /api/bridge) gets the same one. */
+export function sidecarAvailable(runtime?: SidecarRuntime): boolean {
+  if (runtime) return runtime.pty() && runtime.node();
+  if (known === null) known = here.pty() && here.node();
+  return known;
 }
 
 /** herdr's identity as this bridge can serve it: without the sidecar, told the way a herdr that cannot attach tells it. */
