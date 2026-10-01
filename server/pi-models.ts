@@ -14,9 +14,10 @@ import { join } from "node:path";
  * is pi's default location, moved by `PI_CODING_AGENT_DIR`.
  *
  * So this resolves what that file states and nothing else. A model pi knows from its
- * built-in registry, or a provider whose entry omits `contextWindow`, stays unresolved and
- * the ring is not drawn: guessing a window would draw a percentage the user cannot tell
- * from pi's own. pi's footer does the same, showing `?` in place of a number.
+ * built-in registry, a provider whose entry omits `contextWindow`, and a model that names none
+ * while its provider states one (pi does not inherit that number) all stay unresolved and the ring
+ * is not drawn: guessing a window would draw a percentage the user cannot tell from pi's own. pi's
+ * footer does the same, showing `?` in place of a number.
  */
 
 /** The file's own spelling: `providers` by id, each with a list of models. */
@@ -31,20 +32,49 @@ function parse(text: string): unknown {
 }
 
 /**
- * A provider's models by id. A provider may re-state `contextWindow` at its own level, the
- * way a default applies to every model under it; a model that says otherwise wins.
+ * A provider's models by id.
+ *
+ * A model's own `contextWindow`, or the `modelOverrides[model.id]` window when pi has one, and
+ * nothing else. Two things this deliberately does not do, both checked against pi 0.87.1 by
+ * pointing `PI_CODING_AGENT_DIR` at a crafted `models.json` and reading `pi --list-models`:
+ *
+ * - A provider-level `contextWindow` is NOT inherited by its models. A provider at 32000 whose
+ *   model names no window shows that model at pi's own default of 128000, not at 32000. So this
+ *   reports no window there: pi's default is pi's to apply, not a number this reader may show as
+ *   though the user had stated it, and the ring stays undrawn rather than showing a denominator pi
+ *   never used.
+ * - `modelOverrides` IS applied, after the model definitions, and wins
+ *   (`contextWindow: override.contextWindow ?? model.contextWindow`). Reading only `models` would
+ *   report the pre-override window; at 128000 against an override of 256000 that is half the window
+ *   and double the percentage the ring shows.
+ *
+ * An entry that is not an object is skipped rather than read, and the models beside it are still
+ * resolved. pi is stricter: it validates the file, warns, and refuses the whole provider — checked
+ * with a `models` list of `null, "a string", {id}`, which leaves `pi --list-models` reporting no
+ * models at all. This reader is deliberately the more forgiving of the two, because its worst
+ * outcome is one fewer number on the ring, while pi's worst outcome is switching to a model that
+ * does not exist. It is not merely defensive: a `null` in that list threw, and the throw came from
+ * the read every poll does, so the chat went down for a comma in a hand-edited file.
  */
-function windowsOf(providerId: string, provider: PiProvider): Map<string, number> {
-  const shared = (provider as { contextWindow?: unknown }).contextWindow;
-  const list: PiModel[] = Array.isArray(provider.models) ? provider.models as PiModel[] : [];
+function windowsOf(provider: PiProvider): Map<string, number> {
+  const list: unknown[] = Array.isArray(provider.models) ? provider.models : [];
+  const overrides = (provider as { modelOverrides?: unknown }).modelOverrides;
   const models = new Map<string, number>();
-  for (const model of list) {
+  for (const value of list) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+    const model = value as PiModel;
     if (typeof model.id !== "string") continue;
-    const window = typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? model.contextWindow : typeof shared === "number" && Number.isFinite(shared) && shared > 0 ? shared : null;
-    if (window !== null) models.set(model.id, window);
+    const listed = overrides !== null && typeof overrides === "object" && !Array.isArray(overrides)
+      ? (overrides as Record<string, unknown>)[model.id]
+      : undefined;
+    const override = listed !== null && typeof listed === "object" && !Array.isArray(listed) ? listed as PiModel : undefined;
+    // pi's own rule, field by field: the override states a window or the model's own stands. An
+    // override that only renames a model, or sets its cost, says nothing here
+    const window = override?.contextWindow ?? model.contextWindow;
+    if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) continue;
+    models.set(model.id, window);
   }
-  const empty = models.size === 0;
-  return empty ? new Map() : models;
+  return models;
 }
 
 /** `models.json` read once per change: a conversation is re-read on every poll. */
@@ -73,7 +103,7 @@ export function piContextWindow(model: string, provider: string | null, agentDir
     if (catalog !== null && typeof catalog === "object" && catalog.providers !== undefined && catalog.providers !== null) {
       for (const [id, provider] of Object.entries(catalog.providers)) {
         if (provider === null || typeof provider !== "object") continue;
-        providers.set(id, windowsOf(id, provider));
+        providers.set(id, windowsOf(provider));
       }
     }
     cache = { path, signature, providers };
