@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Tailscale user". A tagged node has no person's login, and the server took the node's own name
   for one, which no device could match. Such a PC now asks every device to pair, yours included,
   and `HERDR_WEB_TAILSCALE_OWNER` names the login that gets in without pairing.
+  ([#280](https://github.com/devswha/herdr-web-ui/pull/280))
 - The chat of an OmO, omp or Gajae Code session shows the reasoning level the session runs at
   now. It read the level from the first 64 KB of the transcript and the newest page, so a level
   changed in between (`/thinking`, or a model switch) was never seen: a session started at
