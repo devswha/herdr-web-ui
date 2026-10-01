@@ -9,6 +9,13 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({}).keepScreenOn).toBe(false);
   expect(sanitizeSettings({ keepScreenOn: true }).keepScreenOn).toBe(true);
   expect(sanitizeSettings({ keepScreenOn: "true" }).keepScreenOn).toBe(false);
+  // the terminal's wheel speed: one report per wheel event unless chosen, whole and bounded
+  expect(sanitizeSettings({}).terminalWheelSpeed).toBe(1);
+  expect(sanitizeSettings({ terminalWheelSpeed: 3 }).terminalWheelSpeed).toBe(3);
+  expect(sanitizeSettings({ terminalWheelSpeed: 2.6 }).terminalWheelSpeed).toBe(3);
+  expect(sanitizeSettings({ terminalWheelSpeed: 99 }).terminalWheelSpeed).toBe(10);
+  expect(sanitizeSettings({ terminalWheelSpeed: 0 }).terminalWheelSpeed).toBe(1);
+  expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
 describe("chat font size", () => {

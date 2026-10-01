@@ -8,6 +8,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Settings → Appearance has a wheel scroll speed for the terminal, from 1× (as it was) to 10×.
+  xterm sends herdr at most one wheel report per wheel event however far the wheel turned, so a
+  long history took a lot of turning; at 3× the same turn scrolls three times as far. A trackpad
+  is scaled the same way; a pinch and touch scrolling are unchanged.
+  ([#274](https://github.com/devswha/herdr-web-ui/pull/274) by @taehwan08)
+- A file path or a `file:///` address in the terminal opens in the file viewer with a click or
+  a tap, as one in the chat does. A path counts when it names a folder (`src/App.tsx`,
+  `server/index.ts:120`); a bare name such as `README.md` stays text, since a terminal is full
+  of those and a tap to focus the pane would open the viewer. In the chat a `file:///` address
+  opens too, written plain, as code or as a link, and one that names a folder shows the folder's
+  files. `process.env`, `Math.random` and the like no longer read as files in the chat.
+  ([#266](https://github.com/devswha/herdr-web-ui/pull/266) by @beomq)
 - A pi or omp pane says so when you type `/tree` into the chat. The command runs, in the terminal,
   and opens a tree the chat cannot show — so the composer says that while you are typing it, and
   where to go instead. Wording checked at 390 wide: the lens switch is an icon there (its word is

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
 import type { AgentKind, ClientMessage, ClientRole, HealthAuth, HerdrPane, ServerFeature, ServerMessage } from "../shared/protocol.ts";
@@ -921,7 +921,16 @@ export function createServer(
 
       if (pathname === "/api/workspace/directories") {
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        const listing = listDirectories(url.searchParams.get("path") ?? "", url.searchParams.get("hidden") === "1", url.searchParams.get("files") === "1");
+        // a folder a pane's chat names is read from that pane's folder, as a file it names is
+        const paneId = url.searchParams.get("pane_id");
+        let base: string | undefined;
+        if (paneId) {
+          try { base = (await paneContext(paneId)).cwd; } catch { /* an absolute path still lists */ }
+          // a relative path whose pane is gone has no folder to be read from: not the server's own
+          const path = (url.searchParams.get("path") ?? "").trim();
+          if (base === undefined && path !== "" && path !== "~" && !path.startsWith("~/") && !isAbsolute(path)) return badRequest("invalid_cwd", "the pane a relative path belongs to is gone");
+        }
+        const listing = listDirectories(url.searchParams.get("path") ?? "", url.searchParams.get("hidden") === "1", url.searchParams.get("files") === "1", base);
         return listing === null ? badRequest("invalid_cwd", "path must be a directory this user can read") : jsonResponse(listing);
       }
 

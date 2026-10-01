@@ -1,3 +1,5 @@
+import { fileUriPath } from "./terminalFileLinks.ts";
+
 export type InlineNode =
   | { type: "text"; value: string }
   | { type: "code"; value: string }
@@ -59,6 +61,7 @@ export function webLikeHref(target: string): string | null {
  */
 export function markdownFileTarget(href: string): string | null {
   const value = href.trim();
+  if (/^file:\/\/\//i.test(value)) return fileUriPath(value);
   if (value === "" || value.startsWith("#")) return null;
   const withoutAnchor = value.replace(/#.*$/, "");
   const path = withoutAnchor.replace(/(?::\d+){1,2}$/, "");
@@ -89,13 +92,19 @@ export function parseInline(source: string, links = true): InlineNode[] {
   // rendering exactly as it appears in the terminal and native transcript.
   // a bare or <angle> http(s) URL is a link too; it stops at the first non-ASCII character,
   // so `…/pull/36에서` links the address and leaves the Korean after it as text
-  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
+  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
   let offset = 0;
   for (const match of source.matchAll(marker)) {
     const index = match.index ?? 0;
     if (index > offset) nodes.push({ type: "text", value: source.slice(offset, index) });
     let token = match[0];
-    if (token.startsWith("<")) {
+    // like an http address it stops at the first non-ASCII character (`file:///tmp/a.md에서`); a
+    // name with other letters in it is percent-encoded in a URI
+    if (token.startsWith("file:///")) {
+      token = trimUrl(token);
+      const path = fileUriPath(token);
+      nodes.push(links && path !== null ? { type: "file", path, children: [{ type: "text", value: token }] } : { type: "text", value: token });
+    } else if (token.startsWith("<")) {
       const url = token.slice(1, -1);
       nodes.push(links ? { type: "link", href: url, children: [{ type: "text", value: url }] } : { type: "text", value: token });
     } else if (/^(?:https?:|www\.)/i.test(token)) {

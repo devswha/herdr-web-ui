@@ -281,8 +281,8 @@ export async function fetchAgentKinds(machineId = "local"): Promise<AgentKind[]>
 }
 
 /** GET /api/workspace/directories: the folders in `path` (empty: home), for the folder browser. */
-export async function fetchDirectories(path: string, hidden: boolean, machineId = "local", files = false): Promise<DirectoryListing> {
-  const query = new URLSearchParams({ path, ...(hidden ? { hidden: "1" } : {}), ...(files ? { files: "1" } : {}) });
+export async function fetchDirectories(path: string, hidden: boolean, machineId = "local", files = false, paneId: string | null = null): Promise<DirectoryListing> {
+  const query = new URLSearchParams({ path, ...(hidden ? { hidden: "1" } : {}), ...(files ? { files: "1" } : {}), ...(paneId ? { pane_id: paneId } : {}) });
   return getJson<DirectoryListing>(machinePath(machineId, `workspace/directories?${query.toString()}`));
 }
 
