@@ -537,8 +537,34 @@ function answerAnchor(text: string): string | null {
   return null;
 }
 
+/** A piece below this says too little to count toward a match made of several ("Done", "Fixed it."). */
+const SHORT_PIECE_MIN = 16;
+
+/**
+ * Whether a rollout whose answers are each too short to be an anchor shows on screen as a
+ * whole: its recent answers found there one after another, in the rollout's order, and long
+ * enough together. A conversation of one-line answers never produces a 64-character anchor, yet
+ * several of its lines in a row say as much as one long answer does. Read from the bottom up,
+ * so an answer not rendered yet or one scrolled away is skipped, and text shown twice counts
+ * only as often as it shows.
+ */
+function shortAnswersShown(display: string, answers: string[]): boolean {
+  let before = display.length;
+  let shown = "";
+  for (const piece of answers.flatMap((text) => text.split(/\]\([^)\s]*\)/)).reverse()) {
+    const fragment = normalizeDisplay(piece).slice(-160);
+    if (fragment.length < SHORT_PIECE_MIN || fragment.length > before) continue;
+    const at = display.lastIndexOf(fragment, before - fragment.length);
+    if (at < 0) continue;
+    before = at;
+    shown += fragment;
+  }
+  return shown.length >= 64 && new Set(shown).size >= 12;
+}
+
 /** Shared app-server TUIs do not hold rollout descriptors. For read-only display,
- * require a unique substantial assistant-message match in this pane's output.
+ * require a unique substantial assistant-message match in this pane's output: one answer
+ * long enough, or several short ones together (shortAnswersShown).
  * Directory recency alone is never evidence: multiple panes can share a cwd. */
 export function matchCodexTranscript(screen: string, candidates: { path: string; text: string }[]): string | null {
   const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
@@ -550,7 +576,7 @@ export function matchCodexTranscript(screen: string, candidates: { path: string;
     if (prose.some((part) => {
       const anchor = answerAnchor(part.text);
       return anchor !== null && display.includes(anchor);
-    })) matching.add(candidate.path);
+    }) || shortAnswersShown(display, prose.map((part) => part.text))) matching.add(candidate.path);
   }
   return matching.size === 1 ? [...matching][0]! : null;
 }

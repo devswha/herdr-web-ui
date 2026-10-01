@@ -313,6 +313,44 @@ describe("Codex rollout resolution", () => {
     expect(matchCodexTranscript("• The report (output/test/REPORT.md)", candidates)).toBeNull();
   });
 
+  // issue #283: no answer of this session reaches 64 letters and digits (40, 29 and 38)
+  const short = [
+    "세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen 스킬을 사용할게요.",
+    "세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요.",
+    "imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n[합친 이미지 다운로드](/home/user/repo/.herdr-web-ui/combined-20261002.png)",
+  ];
+  const shortRollout = jsonl(
+    message("user", "이거 세개 사진 합처서 하나의 이미지로 만들어줘."),
+    message("assistant", short[0]!, "commentary"), message("assistant", short[1]!, "commentary"), message("assistant", short[2]!, "final_answer"),
+  );
+  const shortScreen = [
+    "› 이거 세개 사진 합처서 하나의 이미지로 만들어줘.",
+    "• 세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen\n  스킬을 사용할게요.",
+    "• 세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요.",
+    "• imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n  합친 이미지 다운로드 (.herdr-web-ui/combined-20261002.png)",
+  ];
+  it("binds a session whose answers are all short by several of them shown together, in order", () => {
+    const candidates = [
+      { path: "short", text: shortRollout },
+      { path: "other", text: jsonl(message("assistant", answer, "final_answer")) },
+    ];
+    expect(matchCodexTranscript(shortScreen.join("\n\n"), candidates)).toBe("short");
+    // the last answer not rendered yet: the two before it are enough together
+    expect(matchCodexTranscript(shortScreen.slice(0, 3).join("\n\n"), candidates)).toBe("short");
+    // one short answer alone is still too little, and so are the same lines out of order
+    expect(matchCodexTranscript(shortScreen[1]!, candidates)).toBeNull();
+    expect(matchCodexTranscript([shortScreen[3], shortScreen[2], shortScreen[1]].join("\n\n"), candidates)).toBeNull();
+    // answers of a few words never add up, however many show
+    const done = Array.from({ length: 8 }, () => message("assistant", "Done. Fixed it."));
+    expect(matchCodexTranscript(Array.from({ length: 8 }, () => "• Done. Fixed it.").join("\n"), [{ path: "done", text: jsonl(...done) }])).toBeNull();
+  });
+
+  it("does not bind short answers that two rollouts share, or ones above the welcome card", () => {
+    const shared = [{ path: "one", text: shortRollout }, { path: "two", text: jsonl(message("user", "다시 해줘"), ...short.map((text) => message("assistant", text))) }];
+    expect(matchCodexTranscript(shortScreen.join("\n\n"), shared)).toBeNull();
+    expect(matchCodexTranscript(`${shortScreen.join("\n\n")}\nOpenAI Codex (v1.0)\nNew session`, [shared[0]!])).toBeNull();
+  });
+
   it("does not bind using user context, tool output or a previous session above the welcome card", () => {
     expect(matchCodexTranscript(answer, [{ path: "user", text: jsonl(message("user", answer)) }])).toBeNull();
     expect(matchCodexTranscript(`${answer}\nOpenAI Codex (v1.0)\nNew session`, [{ path: "old", text: jsonl(message("assistant", answer)) }])).toBeNull();
