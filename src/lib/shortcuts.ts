@@ -42,6 +42,30 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean):
 }
 
 /**
+ * Mod+Shift+ArrowUp/ArrowDown move the selection in a text field (on a Mac Cmd+Shift+↑ selects to
+ * the start of the text): in the message box or any other field they stay the field's, and switch
+ * panes everywhere else, the terminal included (its own input element is xterm's, not a field to edit).
+ */
+export interface KeyTargetLike {
+  tagName?: string;
+  type?: string;
+  isContentEditable?: boolean;
+  classList?: { contains(name: string): boolean };
+}
+
+export function keepsArrowsForText(target: KeyTargetLike | EventTarget | null): boolean {
+  if (target === null || typeof target !== "object" || !("tagName" in target)) return false;
+  const element = target as KeyTargetLike;
+  if (element.classList?.contains("xterm-helper-textarea")) return false;
+  if (element.isContentEditable) return true;
+  const tag = element.tagName;
+  if (tag === "TEXTAREA") return true;
+  if (tag !== "INPUT") return false;
+  const type = element.type ?? "";
+  return type === "text" || type === "search" || type === "url" || type === "email" || type === "password" || type === "tel" || type === "number" || type === "";
+}
+
+/**
  * The capture listener below only prevents the browser's default, so xterm would still encode an
  * app shortcut for the pane: its key handler asks this first.
  */
@@ -70,6 +94,7 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
     const onKeyDown = (event: KeyboardEvent): void => {
       const shortcut = matchShortcut(event, platformIsMac);
       if (shortcut === null) return;
+      if ((shortcut === "previous-pane" || shortcut === "next-pane") && keepsArrowsForText(event.target)) return;
       event.preventDefault();
       switch (shortcut) {
         case "palette":

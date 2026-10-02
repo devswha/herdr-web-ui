@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { matchShortcut, type ShortcutEventLike } from "./shortcuts.ts";
+import { matchShortcut, type ShortcutEventLike, keepsArrowsForText } from "./shortcuts.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return { key, ctrlKey: false, metaKey: false, shiftKey: true, altKey: false, ...patch };
@@ -29,5 +29,22 @@ describe("matchShortcut", () => {
     expect(matchShortcut(keyEvent("k", { ctrlKey: true, altKey: true }), false)).toBeNull();
     expect(matchShortcut(keyEvent("k", { ctrlKey: true, metaKey: true }), false)).toBeNull();
     expect(matchShortcut(keyEvent("x", { ctrlKey: true }), false)).toBeNull();
+  });
+});
+
+describe("keepsArrowsForText", () => {
+  const classes = (...names: string[]) => ({ contains: (name: string) => names.includes(name) });
+  it("leaves Mod+Shift+arrows to the message box and other text fields, where they select text", () => {
+    expect(keepsArrowsForText({ tagName: "TEXTAREA", classList: classes("composer-text") })).toBe(true);
+    expect(keepsArrowsForText({ tagName: "INPUT", type: "text", classList: classes() })).toBe(true);
+    expect(keepsArrowsForText({ tagName: "INPUT", type: "search", classList: classes() })).toBe(true);
+    expect(keepsArrowsForText({ tagName: "DIV", isContentEditable: true, classList: classes() })).toBe(true);
+  });
+
+  it("switches panes from the terminal and anywhere that is no text field", () => {
+    expect(keepsArrowsForText({ tagName: "TEXTAREA", classList: classes("xterm-helper-textarea") })).toBe(false);
+    expect(keepsArrowsForText({ tagName: "INPUT", type: "checkbox", classList: classes() })).toBe(false);
+    expect(keepsArrowsForText({ tagName: "BUTTON", classList: classes() })).toBe(false);
+    expect(keepsArrowsForText(null)).toBe(false);
   });
 });

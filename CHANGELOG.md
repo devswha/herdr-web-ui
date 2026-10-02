@@ -16,6 +16,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
 
 ### Fixed
+- Cmd+Shift+↑ and ↓ select text in the message box on a Mac again (Ctrl+Shift+↑ and ↓ in any text
+  field elsewhere). The pane shortcut took them wherever the cursor was, switched panes and left
+  the message behind; it now switches panes from the terminal and outside text fields only.
 - An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
   The server reopens its status subscription whenever the set of panes changes, and a status
   that changed in between was never sent again: no done alert came, and a browser kept the old
