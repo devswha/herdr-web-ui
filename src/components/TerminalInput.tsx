@@ -63,6 +63,9 @@ export function TerminalInput({ connected, onSend, onEnter }: TerminalInputProps
     const sent = onSend(text);
     if (sent === false) { setNote(t("Not sent: the terminal is disconnected.")); return; }
     const written = text;
+    // a polish that lands before the acknowledgement would read as text typed meanwhile, and
+    // leave the sent command in the line
+    dictation.forget();
     setSending(true);
     void sent.then((result) => {
       if (result === true) {
@@ -70,7 +73,7 @@ export function TerminalInput({ connected, onSend, onEnter }: TerminalInputProps
         setText((current) => (current === written ? "" : current.startsWith(written) ? current.slice(written.length) : current));
       } else setNote(result);
     }).finally(() => setSending(false));
-  }, [connected, onEnter, onSend, sending, t, text]);
+  }, [connected, dictation.forget, onEnter, onSend, sending, t, text]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter sends; Shift+Enter breaks the line; an IME keeps its Enter, including the committing
