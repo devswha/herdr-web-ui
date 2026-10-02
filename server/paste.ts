@@ -13,7 +13,7 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HerdrError, sessionSnapshot } from "./herdr/client.ts";
 
@@ -37,7 +37,8 @@ function storedName(name: string | undefined): { base: string; extension: string
 /** Where a pane's attachments go: `HERDR_WEB_PASTE_DIR` when set, else `<cwd>/.herdr-web-ui`. */
 export function pasteDirectory(cwd: string | null | undefined): string {
   const override = process.env["HERDR_WEB_PASTE_DIR"];
-  if (override) return resolve(override);
+  // the plugin's env file is not a shell: expand a leading ~ here
+  if (override) return override === "~" || override.startsWith("~/") ? resolve(homedir(), override.slice(2)) : resolve(override);
   return join(cwd ?? join(tmpdir(), "herdr-web-ui"), ".herdr-web-ui");
 }
 

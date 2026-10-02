@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { pasteDirectory } from "./paste.ts";
@@ -22,6 +22,13 @@ describe("pasteDirectory", () => {
     expect(pasteDirectory(undefined)).toBe(resolve("/var/tmp/pastes"));
     process.env["HERDR_WEB_PASTE_DIR"] = "pastes";
     expect(pasteDirectory("/work/repo")).toBe(resolve("pastes"));
+  });
+
+  it("expands a leading ~ to the home directory", () => {
+    process.env["HERDR_WEB_PASTE_DIR"] = "~/pastes";
+    expect(pasteDirectory("/work/repo")).toBe(join(homedir(), "pastes"));
+    process.env["HERDR_WEB_PASTE_DIR"] = "~";
+    expect(pasteDirectory("/work/repo")).toBe(homedir());
   });
 
   it("treats an empty HERDR_WEB_PASTE_DIR as unset", () => {
