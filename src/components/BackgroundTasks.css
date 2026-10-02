@@ -56,7 +56,9 @@
   color: var(--text-strong);
 }
 
-/* inside the status line, which keeps to one line: the list wraps as a page does */
+/* inside the status line, which keeps to one line: the list wraps as a page does.
+   --bg-tasks-room is the measured room above the composer (BackgroundTasks.tsx): on a short screen
+   the list keeps to it, a gap from each end, and scrolls; never less than one row */
 .bg-tasks-menu {
   position: absolute;
   right: var(--space-4);
@@ -64,7 +66,7 @@
   left: var(--space-4);
   z-index: var(--z-popover);
   max-width: var(--content-w);
-  max-height: calc(var(--row-h) * 9);
+  max-height: max(var(--row-h), min(calc(var(--row-h) * 9), calc(var(--bg-tasks-room, 100vh) - var(--space-2) * 2)));
   margin-inline: auto;
   overflow-y: auto;
   white-space: normal;
