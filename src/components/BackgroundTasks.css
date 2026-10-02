@@ -1,0 +1,103 @@
+/* The toggle sits in the composer's status line; the list opens above the composer, as the
+   slash menu does, so it never covers what is being typed. */
+.bg-tasks {
+  display: inline-flex;
+  flex: none;
+}
+
+.bg-tasks-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--chip-h);
+  padding: 0 var(--space-2);
+  background: var(--status-working-tint);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--status-working);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.bg-tasks-toggle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.bg-tasks-toggle[aria-expanded="true"] {
+  color: var(--text-strong);
+}
+
+/* inside the status line, which keeps to one line: the list wraps as a page does */
+.bg-tasks-menu {
+  position: absolute;
+  right: var(--space-4);
+  bottom: calc(100% + var(--space-2));
+  left: var(--space-4);
+  z-index: var(--z-popover);
+  max-width: var(--content-w);
+  max-height: calc(var(--row-h) * 9);
+  margin-inline: auto;
+  overflow-y: auto;
+  white-space: normal;
+}
+
+.bg-tasks-note {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.bg-task-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bg-task {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+}
+
+.bg-task-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 3px;
+  color: var(--text-dim);
+}
+
+.bg-task.is-running .bg-task-icon { color: var(--status-working); }
+.bg-task.is-completed .bg-task-icon { color: var(--status-done); }
+.bg-task.is-failed .bg-task-icon,
+.bg-task.is-lost .bg-task-icon { color: var(--status-blocked); }
+
+.bg-task-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bg-task-title {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.bg-task-meta {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.bg-task .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

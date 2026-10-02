@@ -52,6 +52,8 @@ export interface PaneTerminalProps {
   agent?: string | null;
   /** the pane's live agent status: `working` turns composer sends into the queue */
   agentStatus?: AgentStatus;
+  /** an OmO pane's running background tasks: the composer's status line offers their list */
+  backgroundTasks?: number;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
@@ -100,6 +102,7 @@ export function PaneTerminal({
   restoreError = null,
   agent = null,
   agentStatus,
+  backgroundTasks = 0,
   view,
   autoSelected = false,
   terminalFontSize,
@@ -1269,6 +1272,7 @@ export function PaneTerminal({
           autoFocus={!autoSelected}
           agent={agent}
           agentStatus={agentStatus}
+          backgroundTasks={backgroundTasks}
           metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
           connected={connected && !held}
           queueMode={busy}

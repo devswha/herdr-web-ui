@@ -256,6 +256,17 @@ describe("workspace and discovery endpoints", () => {
   });
 });
 
+describe("GET /api/pane/omo-tasks", () => {
+  it("answers 400 without a pane, and no tasks for a pane that runs no OmO", async () => {
+    const missing = await fetch(`${base()}/api/pane/omo-tasks`);
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as ApiError).error.code).toBe("missing_pane_id");
+    const unknown = await fetch(`${base()}/api/pane/omo-tasks?pane_id=w0:p0`);
+    expect(unknown.status).toBe(200);
+    expect(await unknown.json()).toEqual({ tasks: [] });
+  });
+});
+
 describe("GET /api/session", () => {
   it("returns the live herdr snapshot with at least one real workspace", async () => {
     const res = await fetch(`${base()}/api/session`);

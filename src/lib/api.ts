@@ -6,6 +6,7 @@ import type {
   ConversationResponse,
   HealthAuth,
   InteractivePrompt,
+  OmoTask,
   PairedDevice,
   PairingCode,
   PaneReadResult,
@@ -342,6 +343,11 @@ export async function closeWorkspace(workspaceId: string, machineId = "local"): 
 /** GET /api/pane/commands: the slash commands the pane's agent understands (built-in + custom). */
 export async function fetchPaneCommands(paneId: string, machineId = "local"): Promise<SlashCommand[]> {
   return (await getJson<{ commands: SlashCommand[] }>(machinePath(machineId, `pane/commands?pane_id=${encodeURIComponent(paneId)}`))).commands;
+}
+
+/** GET /api/pane/omo-tasks: the background tasks the pane's OmO session started. */
+export async function fetchPaneOmoTasks(paneId: string, machineId = "local"): Promise<OmoTask[]> {
+  return (await getJson<{ tasks: OmoTask[] }>(machinePath(machineId, `pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`))).tasks;
 }
 
 /** GET /api/pane/files: paths under the pane's cwd matching `query`, for @-mentions. */

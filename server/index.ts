@@ -18,7 +18,8 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { omoPanes } from "./omo.ts";
-import { OMO_ALIASES, OmoStatus } from "./omo-status.ts";
+import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
+import { omoTasks } from "./omo-tasks.ts";
 import { CompletionTracker } from "./completion.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
@@ -1103,6 +1104,14 @@ export function createServer(
         } catch (error) {
           return errorResponse(error);
         }
+      }
+
+      if (pathname === "/api/pane/omo-tasks") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        const paneId = url.searchParams.get("pane_id");
+        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+        const session = omo.sessionOf(paneId);
+        return jsonResponse({ tasks: session === null ? [] : omoTasks(session.cwd, session.sessionId, processAlive) });
       }
 
       if (pathname === "/api/pane/read") {

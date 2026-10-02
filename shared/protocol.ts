@@ -78,6 +78,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/, path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
+ *  GET    /api/pane/omo-tasks?pane_id=  -> { tasks: OmoTask[] } (the background tasks the pane's
+ *         OmO session started: running ones, then those that ended in the last day; [] for a
+ *         pane that is not OmO or whose session is not known yet)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
@@ -271,6 +274,23 @@ export interface ConversationMetadata {
    * response reports its usage. `window` is null when the transcript does not say it.
    */
   context?: { used: number; window: number | null };
+}
+
+/** One background task of an OmO session (GET /api/pane/omo-tasks), from OmO's task record. */
+export interface OmoTask {
+  id: string;
+  /** the task's summary, else its description or name */
+  title: string;
+  /** the category or agent type it ran as */
+  category: string | null;
+  model: string | null;
+  /** `lost`: OmO's process that ran it is gone */
+  status: "running" | "completed" | "failed" | "cancelled" | "lost";
+  started_at: string | null;
+  ended_at: string | null;
+  turns: number | null;
+  tool_calls: number | null;
+  tokens: number | null;
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */

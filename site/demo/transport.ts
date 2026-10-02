@@ -53,6 +53,16 @@ let promptOpen = true;
 let promptId = PROMPT.id;
 let nextWorkspace = 100;
 
+/** The OmO pane's background tasks (the composer's "2 background tasks"), timed from now. */
+const OMO_TASKS_PANE = "docs";
+const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+const omoTasks = () => [
+  { id: "st_demo1", title: "Check every link in the guide", category: "quick", model: "Claude Haiku 4.5", status: "running", started_at: ago(3), ended_at: null, turns: 6, tool_calls: 41, tokens: 52_300 },
+  { id: "st_demo2", title: "Rewrite the install section for Windows", category: "writing", model: "Claude Opus 5.5", status: "running", started_at: ago(1), ended_at: null, turns: 2, tool_calls: 7, tokens: 18_900 },
+  { id: "st_demo3", title: "Find pages that still say v0.2", category: "quick", model: "Claude Haiku 4.5", status: "completed", started_at: ago(26), ended_at: ago(22), turns: 9, tool_calls: 33, tokens: 61_200 },
+  { id: "st_demo4", title: "Translate the FAQ to Korean", category: "writing", model: "GPT-6.1", status: "failed", started_at: ago(48), ended_at: ago(44), turns: 3, tool_calls: 5, tokens: 12_000 },
+];
+
 /**
  * A pane the fixtures predate. `fixtures/panes.json` and `fixtures/machines.json` are recorded
  * together by `bun scripts/demo-fixtures.ts`, which drives a live herdr and renumbers every pane,
@@ -79,6 +89,7 @@ function backfillPanes(): void {
   snap.workspaces.forEach((workspace, index) => { workspace.number = index + 1; });
 }
 backfillPanes();
+for (const pane of snapshot().panes) if (keyOfPane.get(pane.pane_id) === OMO_TASKS_PANE) Object.assign(pane, { background_tasks: 2 });
 
 const sseListeners = new Set<SseListener>();
 const sockets = new Set<DemoSocket>();
@@ -226,6 +237,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     return json({ ok: true });
   }
   if (path === "/api/pane/commands") return json(commandsFixture);
+  if (path === "/api/pane/omo-tasks") return json({ tasks: keyOfPane.get(paneId) === OMO_TASKS_PANE ? omoTasks() : [] });
   if (path === "/api/pane/files") {
     const q = (query.get("q") ?? "").toLowerCase();
     return json({ files: DEMO_FILES.filter((file) => file.toLowerCase().includes(q)).slice(0, Number(query.get("limit") ?? 20)) });

@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- While an OmO pane has background tasks running, the chat's status line says how many, and tapping
+  it lists them: what each is doing, its category and model, how long it has run, its turns, tool
+  calls and tokens, and below, the tasks that ended in the last day and whether they finished,
+  failed, were cancelled or were lost with OmO's process. A remote PC lists them once it runs a
+  bridge that knows this list.
+
 ### Changed
 - A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
   that changed instead of the whole screen each time, and shows what you type sooner. An agent at
