@@ -8,13 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
-- An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
-  The server reopens its status subscription whenever the set of panes changes, and a status
-  that changed in between was never sent again: no done alert came, and a browser kept the old
-  state until its next refresh. The status is now read back once the new subscription is live
-  and told as the event it would have been. Seen as a flaky test first: with panes opening and
-  closing beside it, a pane's one status change was lost in 5 of 10 runs, and in none after.
-  ([#291](https://github.com/devswha/herdr-web-ui/pull/291))
+- Several lines sent to an agent from the terminal's input line, or pasted into the terminal,
+  stay in its message box until sent on a Linux or macOS PC that mirrors its terminals too (one
+  with no Node for the terminal attach). They went as bare lines there, and the agent sent the
+  first line as a message of its own. Measured with gjc on a mirrored Linux pane: two lines
+  arrived as two messages, and now arrive as one.
+  ([#290](https://github.com/devswha/herdr-web-ui/pull/290))
 
 ## [0.3.41] - 2026-10-02
 
