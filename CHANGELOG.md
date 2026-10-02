@@ -13,7 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   calls and tokens. What ended in the last day is one line under them that says how many ended
   and how many failed, and opens to show whether each finished, failed, was cancelled or was lost
   with OmO's process. A remote PC lists them once it runs a bridge that knows this list.
-  ([#305](https://github.com/devswha/herdr-web-ui/pull/305))
+  ([#305](https://github.com/devswha/herdr-web-ui/pull/305), [#310](https://github.com/devswha/herdr-web-ui/pull/310))
 - The same list shows the workflows (DAG runs) the OmO session started: each one's name, how many
   steps are done, running or failed, and its steps wave by wave, with why a failed step failed.
   A workflow that ended folds into the same line as the tasks that ended.
