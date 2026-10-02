@@ -162,7 +162,7 @@ export function PaneTerminal({
   const [observing, setObserving] = useState(false);
   const [secret, setSecret] = useState<{ pane: string; prompt: string } | null>(null);
   const secretRef = useRef<string | null>(null);
-  const secretActive = secret?.pane === paneId;
+  const secretActive = secret !== null && secret.pane === paneId;
   // a touch screen writes in the terminal's input line; typing straight into the grid is chosen
   const coarse = useCoarsePointer();
   // A touch screen reads a pane before it answers: picking a pane or a lens there never raises the
