@@ -1449,7 +1449,9 @@ export function createServer(
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
-                  return paneSendText(message.pane_id, shaped);
+                  await paneSendText(message.pane_id, shaped);
+                  // the echo is read at once, not at the mirror's next idle read
+                  attachments.get(message.pane_id)?.mirror?.poke();
                 }).catch(() => undefined);
                 break;
               }
@@ -1496,7 +1498,7 @@ export function createServer(
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
               }
-              await serialize(message.pane_id, () => {
+              await serialize(message.pane_id, async () => {
                 // held while this waited its turn (the attach was refused after the check above)
                 if (attachments.get(message.pane_id)?.held) {
                   send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
@@ -1505,7 +1507,8 @@ export function createServer(
                 // a key pressed by a connection that has gone since is not pressed
                 if (!clients.has(client)) return;
                 authorizeSocket(client);
-                return paneSendKeys(message.pane_id, message.keys);
+                await paneSendKeys(message.pane_id, message.keys);
+                attachments.get(message.pane_id)?.mirror?.poke();
               });
               break;
             }
