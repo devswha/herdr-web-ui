@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { OmoTask } from "../../shared/protocol.ts";
-import { clockOffsetMs, formatElapsed, taskElapsedMs } from "./omoTasks.ts";
+import type { OmoRun, OmoTask } from "../../shared/protocol.ts";
+import { clockOffsetMs, endedSummary, formatElapsed, runGoing, taskElapsedMs } from "./omoTasks.ts";
 
 const task = (over: Partial<OmoTask>): OmoTask => ({ id: "st_1", title: "t", category: null, model: null, status: "running", started_at: "2026-10-02T05:00:00Z", ended_at: null, turns: null, tool_calls: null, tokens: null, ...over });
 const at = Date.parse("2026-10-02T05:04:12Z");
@@ -14,6 +14,16 @@ test("no start, no end, or an end before the start: unknown", () => {
   expect(taskElapsedMs(task({ started_at: null }), at)).toBeNull();
   expect(taskElapsedMs(task({ status: "lost" }), at)).toBeNull();
   expect(taskElapsedMs(task({ status: "completed", ended_at: "2026-10-02T04:00:00Z" }), at)).toBeNull();
+});
+
+test("the folded line counts what ended, and what of it went wrong", () => {
+  const run = (status: OmoRun["status"]): OmoRun => ({ id: status, name: status, status, started_at: null, ended_at: null, waves: [] });
+  const tasks = [task({}), task({ status: "completed" }), task({ status: "failed" }), task({ status: "cancelled" }), task({ status: "lost" })];
+  const runs = [run("running"), run("pending"), run("paused"), run("completed"), run("failed"), run("cancelled")];
+  expect(runs.filter(runGoing).map((item) => item.status)).toEqual(["running", "pending", "paused"]);
+  // 4 ended tasks and 3 ended workflows; a failed and a lost task and a failed workflow went wrong
+  expect(endedSummary(tasks, runs)).toEqual({ ended: 7, failed: 3 });
+  expect(endedSummary([task({})], [run("running")])).toEqual({ ended: 0, failed: 0 });
 });
 
 test("elapsed time reads in seconds, minutes, then hours", () => {

@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type ComponentType } from "react";
-import { Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, CircleX, Layers, Workflow, type LucideProps } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, CircleX, Layers, Workflow, type LucideProps } from "lucide-react";
 
 import "./BackgroundTasks.css";
 
 import { useMachineApi } from "../lib/machineContext.tsx";
-import { clockOffsetMs, formatElapsed, spanMs, taskElapsedMs } from "../lib/omoTasks.ts";
+import { clockOffsetMs, endedSummary, formatElapsed, runGoing, spanMs, taskElapsedMs } from "../lib/omoTasks.ts";
 import { formatTokens } from "../lib/compose.ts";
 import { useT } from "../lib/i18n.ts";
 import type { OmoRun, OmoRunNode, OmoTask } from "../../shared/protocol.ts";
@@ -21,7 +21,8 @@ const NODE_ICONS: Record<OmoRunNode["state"], ComponentType<LucideProps>> = {
 /**
  * The status line's "N background tasks": opens what OmO's background tasks are and how far they got.
  * Shown on every OmO pane (quiet while nothing runs: what ended in the last day can still be read,
- * after a reload too), and on any pane while a task runs.
+ * after a reload too), and on any pane while a task runs. The list is for what runs now: what
+ * ended is one line that says how many ended and how many went wrong, and opens on request.
  */
 export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count: number; omo: boolean }) {
   const t = useT();
@@ -35,8 +36,10 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   const [now, setNow] = useState(() => Date.now());
   /** the PC's clock minus this browser's: task times are on the PC's */
   const [offset, setOffset] = useState(0);
+  const [showEnded, setShowEnded] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const id = useId();
+  const endedId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -101,8 +104,7 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
     const done = nodes.filter((node) => node.state === "completed").length;
     const runningNow = nodes.filter((node) => node.state === "running").length;
     const failedNodes = nodes.filter((node) => node.state === "failed");
-    const going = run.status === "running" || run.status === "pending" || run.status === "paused";
-    const elapsed = spanMs(run.started_at, run.ended_at, going, now + offset);
+    const elapsed = spanMs(run.started_at, run.ended_at, runGoing(run), now + offset);
     const meta = [
       t("{done} of {total} done", { done, total: nodes.length }),
       runningNow > 0 ? t("{n} running", { n: runningNow }) : null,
@@ -122,6 +124,9 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
     </li>;
   };
 
+  const goingRuns = runs.filter(runGoing);
+  const endedRuns = runs.filter((run) => !runGoing(run));
+  const summary = endedSummary(tasks ?? [], runs);
 
   if (count === 0 && !open && !seen && !omo) return null;
   return <span className="bg-tasks" ref={root}>
@@ -133,9 +138,17 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
       {failed && tasks === null && <p className="bg-tasks-note">{t("Couldn't load the background tasks")}</p>}
       {failed && tasks !== null && <p className="bg-tasks-note" role="status">{t("Couldn't refresh: this is the list as it last read")}</p>}
       {tasks !== null && tasks.length === 0 && runs.length === 0 && <p className="bg-tasks-note">{t("No background tasks to show yet")}</p>}
-      {runs.length > 0 && <><div className="menu-heading">{t("Workflows")}</div><ul className="bg-task-list">{runs.map(runView)}</ul></>}
+      {tasks !== null && running.length === 0 && goingRuns.length === 0 && summary.ended > 0 && <p className="bg-tasks-note">{t("Nothing running right now")}</p>}
+      {goingRuns.length > 0 && <><div className="menu-heading">{t("Workflows")}</div><ul className="bg-task-list">{goingRuns.map(runView)}</ul></>}
       {running.length > 0 && <><div className="menu-heading">{t("Running")}</div><ul className="bg-task-list">{running.map(row)}</ul></>}
-      {ended.length > 0 && <><div className="menu-heading">{t("Ended in the last day")}</div><ul className="bg-task-list">{ended.map(row)}</ul></>}
+      {summary.ended > 0 && <>
+        <button type="button" className="bg-ended-toggle" aria-expanded={showEnded} aria-controls={endedId} onClick={() => setShowEnded(!showEnded)}>
+          {showEnded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+          <span>{t("{n} ended in the last day", { n: summary.ended })}</span>
+          {summary.failed > 0 && <span className="bg-ended-failed">{t("{n} failed", { n: summary.failed })}</span>}
+        </button>
+        <ul id={endedId} className="bg-task-list" hidden={!showEnded}>{endedRuns.map(runView)}{ended.map(row)}</ul>
+      </>}
     </div>}
   </span>;
 }

@@ -61,6 +61,48 @@
   list-style: none;
 }
 
+/* what ended is one line until asked for: the list is for what runs now */
+.bg-ended-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bg-task-list + .bg-ended-toggle {
+  margin-top: var(--space-1);
+  border-top: var(--hairline) solid var(--border);
+}
+
+.bg-ended-toggle svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.bg-ended-toggle:hover,
+.bg-ended-toggle[aria-expanded="true"] {
+  color: var(--text);
+}
+
+.bg-ended-failed {
+  color: var(--status-blocked);
+}
+
+.bg-ended-failed::before {
+  content: "·";
+  margin-right: var(--space-1);
+  color: var(--text-dim);
+}
+
 .bg-task {
   display: flex;
   align-items: flex-start;
