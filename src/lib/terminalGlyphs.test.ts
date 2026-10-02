@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { displayText, glyphFit, textPresentation } from "./terminalGlyphs.ts";
+import { displayText, glyphFit, iconFit, textPresentation } from "./terminalGlyphs.ts";
 
 // iPhone Safari at 13px: Menlo cells are 7.84px, Hangul from Apple SD Gothic Neo 11.24px
 const IOS_CELL = 7.8367;
@@ -32,6 +32,22 @@ describe("glyphFit", () => {
   it("leaves rounding-level spacing and glyphs wider than their cells alone", () => {
     expect(glyphFit(0.6, 4, 4.6)).toBeNull();
     expect(glyphFit(2 * IOS_CELL - 17, 17, IOS_CELL)).toBeNull();
+  });
+});
+
+describe("iconFit", () => {
+  it("shrinks a Nerd Font icon wider than its cell to fit the cell", () => {
+    // Symbols Nerd Font Mono advances 1em: 13px in a 6.5px cell, so xterm gave it -6.5px
+    expect(iconFit("\uf07b", -6.5, 13)).toBe(0.5);
+    expect(iconFit("\u{f0219}", -5.2, 13)).toBeCloseTo(0.6);
+    expect(iconFit("\ue0b0\ue0b0", -6.5, 13)).toBe(0.5);
+  });
+
+  it("leaves an icon that fits, and anything that is no icon, alone", () => {
+    expect(iconFit("\uf07b", -0.5, 7)).toBeNull();
+    expect(iconFit("\uf07b", 1, 6)).toBeNull();
+    expect(iconFit("👍", -6.5, 13)).toBeNull();
+    expect(iconFit("a", -6.5, 13)).toBeNull();
   });
 });
 

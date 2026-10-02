@@ -72,6 +72,24 @@ export function glyphFit(spacing: number, glyphWidth: number, cellWidth: number)
   return { scale, spacing: slot - glyphWidth * scale };
 }
 
+/** Nerd Font icons and the like: the private use areas, where a font's glyph is meant to fill one cell. */
+const PRIVATE_USE = /^[\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}]/u;
+/** Powerline's separators and their extras: shapes that join the cells around them, from the top of the row to the bottom */
+const POWERLINE_SHAPE = /^[\ue0b0-\ue0d7]/u;
+
+/**
+ * The font-size multiplier that fits an icon wider than its cell into it, or null. Symbols Nerd
+ * Font Mono advances 1em, two of the app's 0.5-0.6em cells, so each icon covered the cell after it
+ * (`ls` with icons, a prompt's branch symbol). A terminal with a Nerd Font scales its icons to the
+ * cell; so does this. Only the private use areas: an emoji wider than its one cell is left to run
+ * over, as xterm's Unicode 6 widths give most emoji one cell and they came out tiny.
+ */
+export function iconFit(text: string, spacing: number, glyphWidth: number): number | null {
+  if (!PRIVATE_USE.test(text) || !(spacing < -MIN_SPACING_PX) || !(glyphWidth > 0)) return null;
+  const slot = glyphWidth + spacing;
+  return slot > 0 ? slot / glyphWidth : null;
+}
+
 /** The text to draw for a cell span: composed when it carries marks or decomposed Hangul. */
 export function displayText(text: string): string {
   return DECOMPOSED.test(text) ? text.normalize("NFC") : text;
@@ -211,6 +229,14 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
         spacing = slot - glyphWidth;
       }
       if (shown !== text) span.textContent = shown;
+      const icon = iconFit(shown, spacing, glyphWidth);
+      if (icon !== null) {
+        // every icon of the span shrinks alike: a span merges only cells drawn with the same spacing.
+        // A separator is stretched back to its height, or the arrows between a prompt's segments shrank too
+        const tall = POWERLINE_SHAPE.test(shown) ? `;transform:scaleY(${1 / icon});transform-origin:50% 50%` : "";
+        span.style.cssText += `;font-size:${fontSize * icon}px;letter-spacing:0px${tall}`;
+        continue;
+      }
       const fit = glyphFit(spacing, glyphWidth, cellWidth);
       if (!fit) {
         if (spacing !== xtermSpacing) span.style.letterSpacing = `${spacing}px`;
