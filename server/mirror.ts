@@ -55,6 +55,25 @@ export function mirrorFrame(screen: string): string {
 }
 
 const rowsOf = (screen: string): string[] => screen.replace(/(?:\r?\n)+$/, "").split(/\r?\n/);
+const plain = (row: string): string => row.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+
+/** How many cells a row takes, near enough to tell one that does not fit: wide scripts and emoji two, marks none. */
+export function cellWidth(text: string): number {
+  let width = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0)!;
+    if ((code >= 0x300 && code <= 0x36f) || code === 0x200d || (code >= 0xfe00 && code <= 0xfe0f) || (code >= 0x1ab0 && code <= 0x1aff) || (code >= 0x20d0 && code <= 0x20ff)) continue;
+    width += (code >= 0x1100 && code <= 0x115f) || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) || (code >= 0xf900 && code <= 0xfaff)
+      || (code >= 0xfe30 && code <= 0xfe4f) || (code >= 0xff00 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1faff) || (code >= 0x20000 && code <= 0x3fffd) ? 2 : 1;
+  }
+  return width;
+}
+
+/** Every row fits the grid: only then is a row of the read a row of the screen. A longer one wraps in a whole frame, and all below it move. */
+export function rowsFit(screen: string, cols: number): boolean {
+  // no character is wider than two cells: a short row needs no counting
+  return rowsOf(screen).every((row) => row.length * 2 <= cols || cellWidth(plain(row)) <= cols);
+}
 
 /**
  * The rows of `after` that differ from `before`, each cleared and drawn in its place. herdr's
@@ -65,6 +84,10 @@ const rowsOf = (screen: string): string[] => screen.replace(/(?:\r?\n)+$/, "").s
  * A read can hold more rows than the grid (seen on a headless herdr after a split: the layout
  * said 20 rows, the read gave 40). A whole frame scrolls those through and leaves the last
  * `gridRows` on the screen, so the rows compared here are those same last ones.
+ *
+ * The (hidden) cursor ends where a whole frame leaves it, after the last row: the client pans
+ * a grid larger than its screen to the cursor, and one left on a spinner's row at the top
+ * took a phone away from the prompt at the bottom.
  */
 export function mirrorRows(before: string, after: string, gridRows: number): string {
   const was = rowsOf(before).slice(-gridRows);
@@ -74,7 +97,7 @@ export function mirrorRows(before: string, after: string, gridRows: number): str
     if (was[row] === now[row]) continue;
     frame += `\x1b[${row + 1};1H\x1b[0m\x1b[2K${now[row] ?? ""}`;
   }
-  return `${frame}\x1b[0m\x1b[?7h`;
+  return `${frame}\x1b[0m\x1b[${now.length};${cellWidth(plain(now.at(-1) ?? "")) + 1}H\x1b[?7h`;
 }
 
 export class MirrorSession {
@@ -96,6 +119,8 @@ export class MirrorSession {
   private reading = false;
   /** something was typed while a read was on its way: the next read follows at once */
   private poked = false;
+  /** a read for an echo is already on the timer: more typing does not put it off */
+  private echoing = false;
 
   constructor(private readonly options: MirrorOptions) {
     this.exited = new Promise((resolve) => { this.finish = resolve; });
@@ -106,6 +131,7 @@ export class MirrorSession {
   }
 
   private async tick(): Promise<void> {
+    this.echoing = false;
     if (this.closed) return;
     const active = this.options.activeMs ?? MIRROR_ACTIVE_MS;
     const idle = this.options.idleMs ?? MIRROR_IDLE_MS;
@@ -118,8 +144,10 @@ export class MirrorSession {
         this.cols = size.cols;
         this.rows = size.rows;
         this.options.onResize?.(size.cols, size.rows);
-        // the clients' grids were cleared by the resize: the next screen goes out even if unchanged
+        // the clients' grids were cleared by the resize: the next screen goes out even if unchanged,
+        // and it is one read on the new grid, not the one held from before
         this.sent = null;
+        this.screen = null;
       }
     }
     try {
@@ -146,6 +174,7 @@ export class MirrorSession {
     if (this.poked) {
       this.poked = false;
       this.delay = active;
+      this.echoing = true;
       this.timer = setTimeout(() => void this.tick(), this.options.echoMs ?? MIRROR_ECHO_MS);
       return;
     }
@@ -157,7 +186,8 @@ export class MirrorSession {
     if (this.paused || this.screen === null || this.screen === this.sent) return false;
     const all = mirrorFrame(this.screen);
     const due = this.sent === null || Date.now() - this.wholeAt >= (this.options.wholeMs ?? MIRROR_WHOLE_MS);
-    const rows = due ? null : mirrorRows(this.sent!, this.screen, this.rows);
+    // a row wider than the grid wraps: the rows of the read are then not the rows of the screen
+    const rows = due || !rowsFit(this.screen, this.cols) || !rowsFit(this.sent!, this.cols) ? null : mirrorRows(this.sent!, this.screen, this.rows);
     // a screen that scrolled changed every row, and each row drawn in its place costs more than the screen whole
     const whole = rows === null || rows.length >= all.length;
     const frame = whole ? all : rows;
@@ -174,6 +204,9 @@ export class MirrorSession {
   poke(): void {
     if (this.closed) return;
     if (this.reading) { this.poked = true; return; }
+    // keys held down come faster than the echo read: the one already due stays due
+    if (this.echoing) return;
+    this.echoing = true;
     clearTimeout(this.timer);
     this.delay = this.options.activeMs ?? MIRROR_ACTIVE_MS;
     this.timer = setTimeout(() => void this.tick(), this.options.echoMs ?? MIRROR_ECHO_MS);
