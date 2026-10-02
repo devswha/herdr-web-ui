@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - An OmO turn that set or updated a goal shows it on the turn, beside the skills, also while its work
   is folded: the objective, whether it is in progress, complete, blocked, paused or out of budget, and
   opened, the whole objective, why it is blocked and the time and tokens spent on it so far.
+  ([#303](https://github.com/devswha/herdr-web-ui/pull/303))
 
 ### Changed
 - A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
