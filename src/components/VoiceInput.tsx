@@ -124,7 +124,7 @@ export function useDictation(options: DictationOptions): Dictation {
   // per take: a slow polish of an earlier dictation must not land on a later one's words
   const spans = useRef(new Map<number, InsertedSpan>());
 
-  const onText = useCallback((result: VoiceText): void => {
+  const apply = useCallback((result: VoiceText): void => {
     const { box, read, write, maxLength, onNote } = latest.current;
     const value = read();
     const element = box.current;
@@ -134,6 +134,36 @@ export function useDictation(options: DictationOptions): Dictation {
     if (next === "too_long") onNote(t("The dictation does not fit in the box"));
     else if (next) write(next.value, next.caret);
   }, [t]);
+
+  // An answer that lands while an IME is composing (a Hangul syllable half typed) would rewrite the
+  // box under the composition and break it: it waits for compositionend, in arrival order.
+  const composing = useRef(false);
+  const held = useRef<VoiceText[]>([]);
+  const onText = useCallback((result: VoiceText): void => {
+    if (composing.current) held.current.push(result);
+    else apply(result);
+  }, [apply]);
+
+  useEffect(() => {
+    const element = options.box.current;
+    if (!element) return;
+    const start = (): void => { composing.current = true; };
+    const end = (): void => {
+      composing.current = false;
+      // after the input event that commits the syllable, so read() already holds it
+      setTimeout(() => {
+        if (composing.current) return;
+        const waiting = held.current.splice(0);
+        for (const result of waiting) apply(result);
+      }, 0);
+    };
+    element.addEventListener("compositionstart", start);
+    element.addEventListener("compositionend", end);
+    return () => {
+      element.removeEventListener("compositionstart", start);
+      element.removeEventListener("compositionend", end);
+    };
+  }, [options.box, apply]);
 
   const voice = useVoiceInput({
     mode: options.mode,

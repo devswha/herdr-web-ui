@@ -29,13 +29,14 @@ function call(voice: VoiceService, pathname: string, init: RequestInit = {}): Pr
 
 const put = (voice: VoiceService, body: unknown) => call(voice, "/api/voice/config", { method: "PUT", body: JSON.stringify(body) });
 
-function clipForm(fields: { audio?: Blob | null; name?: string; mode?: string; polish?: string; keywords?: string } = {}): FormData {
+function clipForm(fields: { audio?: Blob | null; name?: string; mode?: string; polish?: string; keywords?: string; language?: string } = {}): FormData {
   const form = new FormData();
   const audio = fields.audio === undefined ? new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/webm;codecs=opus" }) : fields.audio;
   if (audio) form.append("audio", audio, fields.name ?? "clip.webm");
   form.append("mode", fields.mode ?? "chat");
   form.append("polish", fields.polish ?? "0");
   if (fields.keywords !== undefined) form.append("keywords", fields.keywords);
+  if (fields.language !== undefined) form.append("language", fields.language);
   return form;
 }
 
@@ -161,10 +162,41 @@ describe("voice transcribe", () => {
     expect(await response.json()).toMatchObject({ error: { code: "audio_too_large" } });
   });
 
+  it("stops reading a body without a length once it passes the limit", async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(1024 * 1024);
+    const chunks = Math.ceil(VOICE_MAX_AUDIO_BYTES / chunk.byteLength) + 8;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= chunks * chunk.byteLength) { controller.close(); return; }
+        pulled += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const request = new Request("http://127.0.0.1/api/voice/transcribe", {
+      method: "POST", body, headers: { "content-type": "multipart/form-data; boundary=x" }, duplex: "half",
+    } as RequestInit);
+    const response = await handleVoiceRequest(request, "/api/voice/transcribe", service({ HERDR_WEB_OPENAI_API_KEY: KEY }));
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: { code: "audio_too_large" } });
+    expect(pulled).toBeLessThan(VOICE_MAX_AUDIO_BYTES + 4 * chunk.byteLength);
+  });
+
   it("refuses a missing audio part", async () => {
     const response = await transcribe(service({ HERDR_WEB_OPENAI_API_KEY: KEY }), clipForm({ audio: null }));
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "invalid_audio" } });
+  });
+
+  it("asks for the speaker's language and English, Korean when the client names none", async () => {
+    const asked: string[][] = [];
+    handler = async (_url, init) => { asked.push((init.body as FormData).getAll("languages[]") as string[]); return transcriptAnswer(); };
+    const voice = service({ HERDR_WEB_OPENAI_API_KEY: KEY });
+    for (const language of ["ja", "zh", "en", undefined]) await events(await transcribe(voice, clipForm({ language })));
+    expect(asked).toEqual([["ja", "en"], ["zh", "en"], ["en"], ["ko", "en"]]);
+    const bad = await transcribe(voice, clipForm({ language: "japanese" }));
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ error: { code: "invalid_request" } });
   });
 
   it("refuses a bad mode", async () => {

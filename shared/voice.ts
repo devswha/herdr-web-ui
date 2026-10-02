@@ -59,6 +59,8 @@ export const VOICE_FORM = {
   polish: "polish",
   /** JSON array of strings: terms that may appear (commands, file names, the agent) */
   keywords: "keywords",
+  /** the speaker's language, an ISO 639-1 code (the UI language); English is always added for code terms */
+  language: "language",
 } as const;
 
 export const VOICE_MAX_AUDIO_BYTES = 10 * 1024 * 1024;

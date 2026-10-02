@@ -654,6 +654,7 @@ function createVoiceEngine(io: EngineIO) {
     form.append(VOICE_FORM.mode, options.mode);
     form.append(VOICE_FORM.polish, options.polish ? "1" : "0");
     form.append(VOICE_FORM.keywords, JSON.stringify(voiceKeywords(options.keywords?.() ?? [])));
+    form.append(VOICE_FORM.language, io.language());
     try {
       const response = await fetch("/api/voice/transcribe", { method: "POST", body: form, credentials: "same-origin", signal });
       if (!response.ok || !response.body) {

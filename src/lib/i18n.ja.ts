@@ -440,6 +440,7 @@ export const JA: Record<string, string> = {
   "Use the install icon in the address bar, or the browser menu's Install option.": "アドレスバーのインストールアイコン、またはブラウザーメニューのインストール項目を使用してください。",
 
   // ---- voice input ----
+  "Without a key the browser recognizes the speech: Chrome and Edge send the audio to Google or Microsoft. Nothing is recorded until you press the mic.": "キーがない場合はブラウザが音声を認識します。Chrome と Edge は音声を Google または Microsoft に送信します。マイクを押すまで録音されません。",
   "The dictation does not fit in the box": "音声入力の内容が入力欄の上限を超えるため挿入しませんでした",
   "No speech was heard": "音声が聞こえませんでした",
   "Drops fillers and fixes spacing; code and paths stay as spoken": "言いよどみを除き、スペースを整えます。コードとパスはそのまま残します",

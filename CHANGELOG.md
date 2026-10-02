@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   It uses your own OpenAI API key, kept on the server (Settings → Voice input), and falls back to
   the browser's speech recognition without one. Off by default. Silence before, between and after
   the words is left out of the recording, so it is neither uploaded nor billed.
+  ([#231](https://github.com/devswha/herdr-web-ui/pull/231) by @nahwan-kim)
 - The sidebar opens a new tab in a workspace (a `+` on the workspace, or on the row when it
   holds a single pane) and splits a pane beside itself, through `POST /api/tab/create` and
   `POST /api/pane/split`. The new pane is selected once herdr reports it.

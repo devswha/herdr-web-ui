@@ -18,8 +18,8 @@ const FIELDS = ["api_key", "base_url", "transcribe_model", "polish_model"] as co
 type Field = typeof FIELDS[number];
 type VoiceFile = Partial<Record<Field, string>>;
 
-/** the speech is Korean with English code terms mixed in */
-const LANGUAGES = ["ko", "en"];
+/** without a language from the client: the app's first users dictate Korean with English code terms */
+const DEFAULT_LANGUAGE = "ko";
 const PROMPTS: Record<VoiceMode, string> = {
   chat: "Dictation of a message to a coding agent",
   terminal: "Dictation of a shell command line typed into a terminal",
@@ -66,6 +66,8 @@ export interface VoiceClip {
   mode: VoiceMode;
   polish: boolean;
   keywords: string[];
+  /** the speaker's language and English, for the code terms said in it */
+  languages: string[];
 }
 
 export interface VoiceServiceOptions {
@@ -87,6 +89,26 @@ function baseUrlOf(value: string): string {
   try { url = new URL(value.trim()); } catch { throw invalid("base_url must be an http(s) URL"); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw invalid("base_url must be an http(s) URL");
   return url.href.replace(/\/+$/, "");
+}
+
+const tooLarge = () => new VoiceError("audio_too_large", 413, `A recording may hold at most ${VOICE_MAX_AUDIO_BYTES} bytes`);
+
+async function readLimited(request: Request, limit: number): Promise<Uint8Array<ArrayBuffer>> {
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) { await reader.cancel(); throw tooLarge(); }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) { body.set(chunk, at); at += chunk.byteLength; }
+  return body;
 }
 
 /** a provider's words for a failure, without the key it may quote back */
@@ -151,7 +173,7 @@ export function parseClip(form: FormData): VoiceClip {
   const audio = form.get(VOICE_FORM.audio);
   if (audio === null || typeof audio === "string") throw new VoiceError("invalid_audio", 400, "Send the recording as the audio part");
   if (audio.size === 0) throw new VoiceError("invalid_audio", 400, "The recording is empty");
-  if (audio.size > VOICE_MAX_AUDIO_BYTES) throw new VoiceError("audio_too_large", 413, `A recording may hold at most ${VOICE_MAX_AUDIO_BYTES} bytes`);
+  if (audio.size > VOICE_MAX_AUDIO_BYTES) throw tooLarge();
   const type = (audio.type.split(";")[0] ?? "").trim().toLowerCase();
   const named = /\.([a-z0-9]+)$/i.exec(audio.name)?.[1]?.toLowerCase();
   const known = named !== undefined && EXTENSIONS.has(named) ? named : undefined;
@@ -176,7 +198,11 @@ export function parseClip(form: FormData): VoiceClip {
     .slice(0, VOICE_KEYWORDS_MAX);
 
 
-  return { audio, filename: `audio.${extension}`, mode, polish: form.get(VOICE_FORM.polish) === "1", keywords };
+  const language = form.get(VOICE_FORM.language);
+  if (language !== null && (typeof language !== "string" || !/^[a-z]{2}$/.test(language))) throw invalid("language must be a two-letter ISO 639-1 code");
+  const languages = [...new Set([language ?? DEFAULT_LANGUAGE, "en"])];
+
+  return { audio, filename: `audio.${extension}`, mode, polish: form.get(VOICE_FORM.polish) === "1", keywords, languages };
 }
 
 export class VoiceService {
@@ -274,7 +300,7 @@ export class VoiceService {
     form.append("file", new File([clip.audio], clip.filename, { type: clip.audio.type }));
     form.append("model", transcribeModel);
     form.append("stream", "true");
-    for (const language of LANGUAGES) form.append("languages[]", language);
+    for (const language of clip.languages) form.append("languages[]", language);
     for (const keyword of clip.keywords) form.append("keywords[]", keyword);
     form.append("prompt", PROMPTS[clip.mode]);
 
@@ -357,11 +383,13 @@ export async function handleVoiceRequest(request: Request, pathname: string, ser
     if (request.method !== "POST") return jsonResponse({ error: { code: "method_not_allowed", message: "Use POST /api/voice/transcribe" } }, 405, { allow: "POST" });
     try {
       if (!service.status().configured) throw new VoiceError("voice_not_configured", 409, "Set an OpenAI API key for voice input");
-      if (Number(request.headers.get("content-length") ?? 0) > VOICE_MAX_AUDIO_BYTES + FORM_SLACK_BYTES) {
-        throw new VoiceError("audio_too_large", 413, `A recording may hold at most ${VOICE_MAX_AUDIO_BYTES} bytes`);
-      }
+      const limit = VOICE_MAX_AUDIO_BYTES + FORM_SLACK_BYTES;
+      if (Number(request.headers.get("content-length") ?? 0) > limit) throw tooLarge();
+      // a chunked body names no length: it is counted as it arrives and dropped past the limit
+      const body = await readLimited(request, limit);
       let form: FormData;
-      try { form = await request.formData(); } catch { throw invalid("Send the recording as multipart/form-data"); }
+      try { form = await new Response(body, { headers: { "content-type": request.headers.get("content-type") ?? "" } }).formData(); }
+      catch { throw invalid("Send the recording as multipart/form-data"); }
       const stream = await service.transcribe(parseClip(form), request.signal);
       return new Response(stream, { status: 200, headers: { "content-type": "application/x-ndjson; charset=utf-8", ...noStore } });
     } catch (error) {

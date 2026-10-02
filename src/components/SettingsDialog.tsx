@@ -295,7 +295,11 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
                   </form>
                 )}
                 {voiceError && <p className="settings-hint voice-error" role="alert">{voiceError}</p>}
-                <p className="settings-hint">{t("Audio is sent to OpenAI with your key. Nothing is recorded until you press the mic.")}</p>
+                <p className="settings-hint voice-privacy">
+                  {voice && !voice.configured
+                    ? t("Without a key the browser recognizes the speech: Chrome and Edge send the audio to Google or Microsoft. Nothing is recorded until you press the mic.")
+                    : t("Audio is sent to OpenAI with your key. Nothing is recorded until you press the mic.")}
+                </p>
               </div>
             </div>
 

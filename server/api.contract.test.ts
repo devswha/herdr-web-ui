@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated } from "../shared/protocol.ts";
 import { UsageService } from "./usage.ts";
+import { VoiceService } from "./voice.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
@@ -61,10 +62,9 @@ describe("voice API", () => {
         return new Response(`data: ${JSON.stringify({ type: "transcript.text.done", text: "git status" })}\n\n`, { headers: { "content-type": "text/event-stream" } });
       },
     });
-    const previous = process.env["HERDR_WEB_OPENAI_BASE_URL"];
-    process.env["HERDR_WEB_OPENAI_BASE_URL"] = `http://127.0.0.1:${provider.port}/v1`;
-    const open = createServer({ port: 0, stateDir: voiceState });
-    const gated = createServer({ port: 0, stateDir: voiceState, token: "test-voice-token" });
+    const voice = new VoiceService({ stateDir: voiceState, env: { HERDR_WEB_OPENAI_BASE_URL: `http://127.0.0.1:${provider.port}/v1` }, fetch });
+    const open = createServer({ port: 0, stateDir: voiceState, voice });
+    const gated = createServer({ port: 0, stateDir: voiceState, voice, token: "test-voice-token" });
     const at = (path: string) => `http://localhost:${open.port}${path}`;
     try {
       expect((await fetch(`http://localhost:${gated.port}/api/voice`)).status).toBe(401);
@@ -88,7 +88,6 @@ describe("voice API", () => {
       expect((await transcribed.text()).trim().split("\n").map((line) => JSON.parse(line))).toEqual([{ type: "done", text: "git status" }]);
     } finally {
       open.stop(); gated.stop(); provider.stop(true);
-      if (previous === undefined) delete process.env["HERDR_WEB_OPENAI_BASE_URL"]; else process.env["HERDR_WEB_OPENAI_BASE_URL"] = previous;
       rmSync(voiceState, { recursive: true, force: true });
     }
   });

@@ -442,6 +442,7 @@ export const ZH: Record<string, string> = {
   "Use the install icon in the address bar, or the browser menu's Install option.": "使用地址栏中的安装图标，或浏览器菜单中的“安装”选项。",
 
   // ---- voice input ----
+  "Without a key the browser recognizes the speech: Chrome and Edge send the audio to Google or Microsoft. Nothing is recorded until you press the mic.": "没有密钥时由浏览器识别语音：Chrome 和 Edge 会把音频发送给 Google 或 Microsoft。按下麦克风前不会录音。",
   "The dictation does not fit in the box": "听写内容超出输入框上限，未插入",
   "No speech was heard": "没有听到语音",
   "Drops fillers and fixes spacing; code and paths stay as spoken": "去掉口头禅并修正空格；代码和路径保持原样",
