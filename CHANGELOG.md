@@ -27,7 +27,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   without it, and nothing changes when no token is set. Before, the token was skipped for a request
   that named this PC's Tailscale login, and any other proxy on the same PC (nginx, Caddy, a tunnel)
   passes a visitor's copy of that name on unless it is told to drop it, so the token did not keep
-  such a visitor out.
+  such a visitor out. ([#309](https://github.com/devswha/herdr-web-ui/pull/309))
 - A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
   that changed instead of the whole screen each time, and shows what you type sooner. An agent at
   work repaints a spinner about 12 times a second: measured with gjc, that was 88 KB a second to
