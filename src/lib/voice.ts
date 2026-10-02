@@ -214,11 +214,14 @@ const SPANS_KEPT = 8;
  * One VoiceText applied to the box: raw text goes in at the selection and its span is kept under
  * its take; a polished text replaces only its own take's span, and only while the user has not
  * edited it. Null: nothing to change. `spans` is updated in place.
+ * `"too_long"`: the text would push the box past `maxLength`; nothing changes, so a box's limit
+ * never cuts the user's own words after the caret.
  */
-export function applyDictation(value: string, selection: { start: number; end: number }, spans: Map<number, InsertedSpan>, result: VoiceText): { value: string; caret: number } | null {
+export function applyDictation(value: string, selection: { start: number; end: number }, spans: Map<number, InsertedSpan>, result: VoiceText, maxLength = Infinity): { value: string; caret: number } | "too_long" | null {
   if (result.phase === "raw") {
     const next = insertAtCaret(value, selection.start, selection.end, result.text);
     if (next.value === value) return null;
+    if (next.value.length > maxLength) return "too_long";
     shiftSpans(spans, Math.min(selection.start, selection.end), Math.max(selection.start, selection.end), next.value.length - value.length);
     spans.set(result.take, { start: next.start, end: next.end, text: next.value.slice(next.start, next.end) });
     for (const take of spans.keys()) if (spans.size > SPANS_KEPT) spans.delete(take);
@@ -228,7 +231,8 @@ export function applyDictation(value: string, selection: { start: number; end: n
   spans.delete(result.take);
   if (!span) return null;
   const next = replaceIfUnchanged(value, span, span.text, result.text);
-  if (!next) return null;
+  // a polish that no longer fits leaves the raw words, which already did
+  if (!next || next.value.length > maxLength) return null;
   shiftSpans(spans, span.start, span.end, next.value.length - value.length);
   // the caret follows the swap only if it was in or after the replaced span
   const caret = selection.start >= span.end ? selection.start + next.end - span.end : selection.start > span.start ? next.end : selection.start;

@@ -93,6 +93,8 @@ export interface DictationOptions {
   read: () => string;
   /** sets the text and puts the caret at `caret`, without taking focus */
   write: (value: string, caret: number) => void;
+  /** the input's character limit: a dictation that would pass it is refused whole, not cut */
+  maxLength?: number;
   /** the input's one-line note: a failed dictation's reason, null to clear it */
   onNote: (note: string | null) => void;
 }
@@ -123,14 +125,15 @@ export function useDictation(options: DictationOptions): Dictation {
   const spans = useRef(new Map<number, InsertedSpan>());
 
   const onText = useCallback((result: VoiceText): void => {
-    const { box, read, write } = latest.current;
+    const { box, read, write, maxLength, onNote } = latest.current;
     const value = read();
     const element = box.current;
     const live = element !== null && element.value === value;
     const selection = live ? { start: element.selectionStart, end: element.selectionEnd } : { start: value.length, end: value.length };
-    const next = applyDictation(value, selection, spans.current, result);
-    if (next) write(next.value, next.caret);
-  }, []);
+    const next = applyDictation(value, selection, spans.current, result, maxLength);
+    if (next === "too_long") onNote(t("The dictation does not fit in the box"));
+    else if (next) write(next.value, next.caret);
+  }, [t]);
 
   const voice = useVoiceInput({
     mode: options.mode,

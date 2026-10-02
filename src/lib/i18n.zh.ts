@@ -647,6 +647,7 @@ export const ZH: Record<string, string> = {
   "The chat can't be shown. The terminal still works.": "无法显示聊天，终端仍可使用。",
   "Try again": "重试",
   // ---- voice input ----
+  "The dictation does not fit in the box": "听写内容超出输入框上限，未插入",
   "1 dictation": "1 次",
   "No speech was heard": "没有听到语音",
   "All time": "累计",

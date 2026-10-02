@@ -402,16 +402,16 @@ export function Composer({
     keywords: () => [...(agent ? [agentLabel] : []), ...commands.map((command) => command.name)],
     box: textareaRef,
     read: () => textRef.current,
+    // a dictation that does not fit is refused whole: cutting would drop the draft after the caret
+    maxLength: MAX_COMPOSER_CHARS,
     write: (value, at) => {
-      const limited = value.slice(0, MAX_COMPOSER_CHARS);
-      const next = Math.min(at, limited.length);
-      textRef.current = limited;
-      caretRef.current = next;
-      setText(limited);
-      setCaret(next);
+      textRef.current = value;
+      caretRef.current = at;
+      setText(value);
+      setCaret(at);
       requestAnimationFrame(() => {
         const element = textareaRef.current;
-        if (element) element.selectionStart = element.selectionEnd = next;
+        if (element) element.selectionStart = element.selectionEnd = at;
       });
     },
     onNote: setNote,

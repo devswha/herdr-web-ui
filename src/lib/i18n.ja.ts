@@ -645,6 +645,7 @@ export const JA: Record<string, string> = {
   "The chat can't be shown. The terminal still works.": "チャットを表示できません。ターミナルは引き続き使えます。",
   "Try again": "再試行",
   // ---- voice input ----
+  "The dictation does not fit in the box": "音声入力の内容が入力欄の上限を超えるため挿入しませんでした",
   "1 dictation": "1 回",
   "No speech was heard": "音声が聞こえませんでした",
   "All time": "累計",

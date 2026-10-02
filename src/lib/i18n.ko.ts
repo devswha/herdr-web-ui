@@ -643,6 +643,7 @@ export const KO: Record<string, string> = {
   "The chat can't be shown. The terminal still works.": "채팅을 표시할 수 없습니다. 터미널은 계속 쓸 수 있습니다.",
   "Try again": "다시 시도",
   // ---- voice input ----
+  "The dictation does not fit in the box": "받아쓴 내용이 입력창 한도를 넘어 넣지 않았습니다",
   "1 dictation": "1회",
   "No speech was heard": "말소리가 들리지 않았습니다",
   "All time": "누적",

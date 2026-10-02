@@ -254,31 +254,47 @@ describe("createSpeechGate", () => {
 
 describe("applyDictation", () => {
   const end = (value: string) => ({ start: value.length, end: value.length });
+  /** the box after an applied dictation; fails the test when it was refused or changed nothing */
+  const applied = (...args: Parameters<typeof applyDictation>) => {
+    const next = applyDictation(...args);
+    if (next === null || next === "too_long") throw new Error(`not applied: ${String(next)}`);
+    return next;
+  };
 
   it("puts each take's polish on its own words, even when a later take finished first", () => {
     const spans = new Map<number, InsertedSpan>();
-    let box = applyDictation("", end(""), spans, { take: 1, phase: "raw", text: "음 git status 봐줘" })!.value;
-    box = applyDictation(box, end(box), spans, { take: 2, phase: "raw", text: "그리고 커밋" })!.value;
+    let box = applied("", end(""), spans, { take: 1, phase: "raw", text: "음 git status 봐줘" }).value;
+    box = applied(box, end(box), spans, { take: 2, phase: "raw", text: "그리고 커밋" }).value;
     expect(box).toBe("음 git status 봐줘 그리고 커밋");
-    box = applyDictation(box, end(box), spans, { take: 1, phase: "polished", text: "git status 봐 줘." })!.value;
+    box = applied(box, end(box), spans, { take: 1, phase: "polished", text: "git status 봐 줘." }).value;
     expect(box).toBe("git status 봐 줘. 그리고 커밋");
-    box = applyDictation(box, end(box), spans, { take: 2, phase: "polished", text: "그리고 커밋해 줘." })!.value;
+    box = applied(box, end(box), spans, { take: 2, phase: "polished", text: "그리고 커밋해 줘." }).value;
     expect(box).toBe("git status 봐 줘. 그리고 커밋해 줘.");
   });
 
   it("drops a polish whose take never inserted text or whose words were edited", () => {
     const spans = new Map<number, InsertedSpan>();
     expect(applyDictation("hi", end("hi"), spans, { take: 7, phase: "polished", text: "Hi." })).toBeNull();
-    const box = applyDictation("", end(""), spans, { take: 1, phase: "raw", text: "음 안녕" })!.value;
+    const box = applied("", end(""), spans, { take: 1, phase: "raw", text: "음 안녕" }).value;
     expect(applyDictation(`${box}하세요`.replace("음", "응"), end(box), spans, { take: 1, phase: "polished", text: "안녕." })).toBeNull();
+  });
+
+  it("refuses a dictation that would push the box past its limit, keeping the draft after the caret", () => {
+    const spans = new Map<number, InsertedSpan>();
+    const draft = "앞 뒤";
+    expect(applyDictation(draft, { start: 1, end: 1 }, spans, { take: 1, phase: "raw", text: "가나다라" }, 6)).toBe("too_long");
+    expect(spans.size).toBe(0);
+    const fits = applyDictation(draft, { start: 1, end: 1 }, spans, { take: 2, phase: "raw", text: "가" }, 6);
+    expect(fits).toEqual({ value: "앞 가 뒤", caret: 3 });
+    expect(applyDictation("앞 가 뒤", { start: 5, end: 5 }, spans, { take: 2, phase: "polished", text: "가나다" }, 6)).toBeNull();
   });
 
   it("forgets a take whose words were overwritten by the next one", () => {
     const spans = new Map<number, InsertedSpan>();
-    const first = applyDictation("", end(""), spans, { take: 1, phase: "raw", text: "음 첫째" })!.value;
-    const second = applyDictation(first, { start: 0, end: first.length }, spans, { take: 2, phase: "raw", text: "둘째" })!.value;
+    const first = applied("", end(""), spans, { take: 1, phase: "raw", text: "음 첫째" }).value;
+    const second = applied(first, { start: 0, end: first.length }, spans, { take: 2, phase: "raw", text: "둘째" }).value;
     expect(second).toBe("둘째");
     expect(applyDictation(second, end(second), spans, { take: 1, phase: "polished", text: "첫째." })).toBeNull();
-    expect(applyDictation(second, end(second), spans, { take: 2, phase: "polished", text: "둘째." })!.value).toBe("둘째.");
+    expect(applied(second, end(second), spans, { take: 2, phase: "polished", text: "둘째." }).value).toBe("둘째.");
   });
 });
