@@ -246,55 +246,6 @@
   padding: var(--space-2) var(--space-3);
 }
 
-.voice-usage-table {
-  margin: 0;
-}
-
-.voice-usage-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-height: 38px;
-  padding: 0 var(--space-3);
-}
-
-.voice-usage-row + .voice-usage-row {
-  border-top: var(--hairline) solid var(--border);
-}
-
-.voice-usage-row dt {
-  color: var(--text-strong);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-}
-
-.voice-usage-row dd {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  margin: 0;
-  color: var(--text-dim);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.voice-usage-row dd strong {
-  min-width: 6ch;
-  color: var(--text-strong);
-  font-weight: var(--fw-semibold);
-  text-align: right;
-}
-
-.voice-usage-note {
-  padding: var(--space-2) var(--space-3);
-  border-top: var(--hairline) solid var(--border);
-}
-
-.voice-usage-note a {
-  color: var(--accent);
-}
-
 /* Subscription usage: one card of accounts, a row each: mark, name, account, then move and show */
 .usage-accounts {
   margin-top: var(--space-2);

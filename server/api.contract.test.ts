@@ -83,12 +83,9 @@ describe("voice API", () => {
       form.append("audio", new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" }), "voice.webm");
       form.append("mode", "chat");
       form.append("polish", "0");
-      form.append("duration_ms", "6000");
       const transcribed = await fetch(at("/api/voice/transcribe"), { method: "POST", body: form });
       expect(transcribed.headers.get("content-type")).toContain("application/x-ndjson");
       expect((await transcribed.text()).trim().split("\n").map((line) => JSON.parse(line))).toEqual([{ type: "done", text: "git status" }]);
-      const usage = await (await fetch(at("/api/voice/usage"))).json() as { total: { requests: number; seconds: number } };
-      expect(usage.total).toMatchObject({ requests: 1, seconds: 6 });
     } finally {
       open.stop(); gated.stop(); provider.stop(true);
       if (previous === undefined) delete process.env["HERDR_WEB_OPENAI_BASE_URL"]; else process.env["HERDR_WEB_OPENAI_BASE_URL"] = previous;

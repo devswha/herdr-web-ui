@@ -10,10 +10,10 @@ import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REP
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
-import { fetchRemoteAccess, fetchVoiceStatus, fetchVoiceUsage, machineRequest, saveVoiceConfig } from "../lib/api.ts";
+import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
 import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
-import type { VoiceStatus, VoiceUsageReport } from "../../shared/voice.ts";
+import type { VoiceStatus } from "../../shared/voice.ts";
 import { VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -121,11 +121,8 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [micDenied, setMicDenied] = useState(false);
-  const [voiceUsage, setVoiceUsage] = useState<VoiceUsageReport | null>(null);
   useEffect(() => {
-    if (!open) return;
-    fetchVoiceStatus().then(setVoice, () => setVoice(null));
-    fetchVoiceUsage().then(setVoiceUsage, () => setVoiceUsage(null));
+    if (open) fetchVoiceStatus().then(setVoice, () => setVoice(null));
   }, [open]);
   /** ask now, so the first dictation does not stop at the browser's permission prompt */
   const toggleVoiceInput = async (voiceInput: boolean) => {
@@ -146,8 +143,6 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
       window.dispatchEvent(new Event(VOICE_CONFIG_EVENT));
     } catch (e) { setVoiceError(e instanceof Error ? e.message : String(e)); }
     finally { setVoiceBusy(false); }
-    // the card shows when a key is set or anything was used, so it follows the key too
-    fetchVoiceUsage().then(setVoiceUsage, () => setVoiceUsage(null));
   };
 
   const updatePcSettings = async (patch: Partial<MachineSettings>) => {
@@ -317,29 +312,6 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
                     <Toggle label={t("Tidy dictated text in the terminal")} checked={settings.voicePolishTerminal} onChange={(voicePolishTerminal) => update({ voicePolishTerminal })} />
                   </div>
                 </div>
-              </div>
-            )}
-
-            {voiceUsage && (voice?.configured || voiceUsage.total.requests > 0) && (
-              <div className="voice-group voice-usage">
-                <h4 className="voice-group-title">{t("Usage")}</h4>
-                <dl className="voice-usage-table">
-                  {([[t("Today"), voiceUsage.today], [t("This month"), voiceUsage.month], [t("All time"), voiceUsage.total]] as const).map(([period, totals]) => (
-                    <div className="voice-usage-row" key={period}>
-                      <dt>{period}</dt>
-                      <dd>
-                        <span>{totals.requests === 1 ? t("1 dictation") : t("{count} dictations", { count: totals.requests })}</span>
-                        <span>{t("{minutes} min", { minutes: (totals.seconds / 60).toFixed(1) })}</span>
-                        <strong>{`≈ $${totals.cost_usd < 0.01 && totals.cost_usd > 0 ? totals.cost_usd.toFixed(4) : totals.cost_usd.toFixed(2)}`}</strong>
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                <p className="settings-hint voice-usage-note">
-                  {t("Estimated from OpenAI list prices of {date}; your OpenAI bill is the final word.", { date: voiceUsage.prices_as_of })}
-                  {voiceUsage.total.unpriced > 0 && ` ${t("{count} dictations used a model without a known price.", { count: voiceUsage.total.unpriced })}`}
-                  {" "}<a href="https://platform.openai.com/usage" target="_blank" rel="noreferrer">{t("OpenAI usage")}</a>
-                </p>
               </div>
             )}
           </section>

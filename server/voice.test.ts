@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { VOICE_MAX_AUDIO_BYTES, type VoiceEvent, type VoiceStatus, type VoiceUsageReport } from "../shared/voice.ts";
+import { VOICE_MAX_AUDIO_BYTES, type VoiceEvent, type VoiceStatus } from "../shared/voice.ts";
 import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 const KEY = "sk-test-0123456789abcdef";
@@ -29,14 +29,13 @@ function call(voice: VoiceService, pathname: string, init: RequestInit = {}): Pr
 
 const put = (voice: VoiceService, body: unknown) => call(voice, "/api/voice/config", { method: "PUT", body: JSON.stringify(body) });
 
-function clipForm(fields: { audio?: Blob | null; name?: string; mode?: string; polish?: string; keywords?: string; durationMs?: string } = {}): FormData {
+function clipForm(fields: { audio?: Blob | null; name?: string; mode?: string; polish?: string; keywords?: string } = {}): FormData {
   const form = new FormData();
   const audio = fields.audio === undefined ? new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/webm;codecs=opus" }) : fields.audio;
   if (audio) form.append("audio", audio, fields.name ?? "clip.webm");
   form.append("mode", fields.mode ?? "chat");
   form.append("polish", fields.polish ?? "0");
   if (fields.keywords !== undefined) form.append("keywords", fields.keywords);
-  if (fields.durationMs !== undefined) form.append("duration_ms", fields.durationMs);
   return form;
 }
 
@@ -260,83 +259,5 @@ describe("voice transcribe", () => {
       { type: "delta", text: "안녕" },
       { type: "error", code: "provider_error", message: "server_error" },
     ]);
-  });
-});
-
-describe("voice usage", () => {
-  let clock: Date;
-  const dated = (env: Record<string, string | undefined> = { HERDR_WEB_OPENAI_API_KEY: KEY }) => new VoiceService({
-    stateDir, env, now: () => clock,
-    async fetch(url, init) { requests.push({ url, init }); return handler(url, init); },
-  });
-  const usage = async (voice: VoiceService) => (await (await call(voice, "/api/voice/usage")).json()) as VoiceUsageReport;
-  const polishing: Handler = (url) => url.endsWith("/audio/transcriptions")
-    ? transcriptAnswer()
-    : Response.json({ choices: [{ message: { content: "tidy" } }], usage: { prompt_tokens: 1000, completion_tokens: 200 } });
-
-  beforeEach(() => { clock = new Date(2026, 9, 1, 12); });
-
-  it("starts empty", async () => {
-    expect(await usage(dated())).toEqual({
-      today: { requests: 0, seconds: 0, cost_usd: 0, unpriced: 0 }, month: { requests: 0, seconds: 0, cost_usd: 0, unpriced: 0 },
-      total: { requests: 0, seconds: 0, cost_usd: 0, unpriced: 0 }, since: null, prices_as_of: "2026-10-01",
-    });
-  });
-
-  it("prices the recorder's length per minute and the polish per token", async () => {
-    handler = polishing;
-    const voice = dated();
-    await events(await transcribe(voice, clipForm({ polish: "1", durationMs: "30000" })));
-    const report = await usage(voice);
-    // 0.5 min x $0.0045 + (1000 x $0.1 + 200 x $0.5) / 1M tokens on gpt-6-luna
-    expect(report.today.requests).toBe(1);
-    expect(report.today.seconds).toBe(30);
-    expect(report.today.cost_usd).toBeCloseTo(0.00225 + 0.0002, 10);
-    expect(report.today.unpriced).toBe(0);
-    expect(report.month).toEqual(report.today);
-    expect(report.total).toEqual(report.today);
-    expect(report.since).toBe("2026-10-01");
-    expect(statSync(join(stateDir, "voice-usage.json")).mode & 0o777).toBe(0o600);
-    expect(readFileSync(join(stateDir, "voice-usage.json"), "utf8")).not.toContain(KEY);
-  });
-
-  it("takes the provider's audio length over the recorder's", async () => {
-    handler = () => sse([{ type: "transcript.text.done", text: "hi", usage: { type: "duration", seconds: 12 } }], []);
-    const voice = dated();
-    await events(await transcribe(voice, clipForm({ durationMs: "30000" })));
-    const report = await usage(voice);
-    expect(report.today.seconds).toBe(12);
-    expect(report.today.cost_usd).toBeCloseTo((12 / 60) * 0.0045, 10);
-  });
-
-  it("counts a model without a list price as unpriced instead of guessing", async () => {
-    handler = transcriptAnswer;
-    const voice = dated();
-    voice.update({ transcribe_model: "whisper-next" });
-    await events(await transcribe(voice, clipForm({ durationMs: "6000" })));
-    expect((await usage(voice)).today).toEqual({ requests: 1, seconds: 6, cost_usd: 0, unpriced: 1 });
-  });
-
-  it("keeps days apart: today and this month follow the clock, the total keeps everything", async () => {
-    handler = transcriptAnswer;
-    const voice = dated();
-    clock = new Date(2026, 8, 30, 23);
-    await events(await transcribe(voice, clipForm({ durationMs: "60000" })));
-    clock = new Date(2026, 9, 1, 9);
-    await events(await transcribe(voice, clipForm({ durationMs: "120000" })));
-    await events(await transcribe(voice, clipForm({ durationMs: "60000" })));
-    const report = await usage(voice);
-    expect(report.today).toMatchObject({ requests: 2, seconds: 180 });
-    expect(report.month).toMatchObject({ requests: 2, seconds: 180 });
-    expect(report.total).toMatchObject({ requests: 3, seconds: 240 });
-    expect(report.total.cost_usd).toBeCloseTo(4 * 0.0045, 10);
-    expect(report.since).toBe("2026-09-30");
-  });
-
-  it("records nothing for a request the provider refused", async () => {
-    handler = () => Response.json({ error: { message: "nope" } }, { status: 401 });
-    const voice = dated();
-    expect((await transcribe(voice, clipForm({ durationMs: "5000" }))).status).toBe(502);
-    expect((await usage(voice)).total.requests).toBe(0);
   });
 });

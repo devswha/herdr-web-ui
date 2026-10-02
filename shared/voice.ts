@@ -59,31 +59,7 @@ export const VOICE_FORM = {
   polish: "polish",
   /** JSON array of strings: terms that may appear (commands, file names, the agent) */
   keywords: "keywords",
-  /** how long the clip is, measured by the recorder: the usage record's fallback for its length */
-  duration_ms: "duration_ms",
 } as const;
-
-/** One period of GET /api/voice/usage. Costs are estimates from list prices, not the invoice. */
-export interface VoiceUsageTotals {
-  /** dictations sent to the provider */
-  requests: number;
-  /** seconds of audio transcribed */
-  seconds: number;
-  cost_usd: number;
-  /** dictations with a model the price table does not know: their cost is missing from cost_usd */
-  unpriced: number;
-}
-
-/** GET /api/voice/usage: days follow the server's clock. */
-export interface VoiceUsageReport {
-  today: VoiceUsageTotals;
-  month: VoiceUsageTotals;
-  total: VoiceUsageTotals;
-  /** the first day with a record, YYYY-MM-DD; null before the first dictation */
-  since: string | null;
-  /** the date of the list prices the estimate uses, YYYY-MM-DD */
-  prices_as_of: string;
-}
 
 export const VOICE_MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 /** the recorder stops itself here; the server does not trust it and checks bytes only */

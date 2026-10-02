@@ -23,7 +23,7 @@ import type {
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { UpdateCommand, UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { VoiceConfigUpdate, VoiceStatus, VoiceUsageReport } from "../../shared/voice.ts";
+import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
@@ -447,9 +447,4 @@ export async function saveVoiceConfig(update: VoiceConfigUpdate): Promise<VoiceS
   const response = await fetch("/api/voice/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(update) });
   if (!response.ok) throw await errorFrom("/api/voice/config", response);
   return (await response.json()) as VoiceStatus;
-}
-
-/** GET /api/voice/usage: dictations, audio minutes and the estimated cost, by today / this month / all. */
-export function fetchVoiceUsage(): Promise<VoiceUsageReport> {
-  return getJson<VoiceUsageReport>("/api/voice/usage");
 }

@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   VOICE_DEFAULTS, VOICE_FORM, VOICE_KEYWORD_MAX_CHARS, VOICE_KEYWORDS_MAX, VOICE_MAX_AUDIO_BYTES,
-  VOICE_MAX_SECONDS, type VoiceErrorCode, type VoiceEvent, type VoiceMode, type VoiceStatus, type VoiceUsageReport, type VoiceUsageTotals,
+  type VoiceErrorCode, type VoiceEvent, type VoiceMode, type VoiceStatus,
 } from "../shared/voice.ts";
 import { errorResponse, isJsonObject, jsonResponse } from "./http.ts";
 
@@ -46,16 +46,6 @@ const TYPE_EXTENSIONS: Record<string, string> = {
   "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/mpeg": "mp3", "audio/flac": "flac",
 };
 const CONTAINER_TYPES = new Set(["video/webm", "video/mp4", "application/octet-stream", ""]);
-/**
- * USD list prices on the developers.openai.com model pages at PRICES_AS_OF. A model missing here
- * is counted as unpriced instead of guessed.
- */
-const PRICES_AS_OF = "2026-10-01";
-const PRICE_PER_MINUTE: Record<string, number> = { "gpt-transcribe": 0.0045 };
-const PRICE_PER_MILLION_TOKENS: Record<string, { input: number; output: number }> = {
-  "gpt-6-luna": { input: 0.1, output: 0.5 },
-  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
-};
 /** multipart framing around the clip */
 const FORM_SLACK_BYTES = 64 * 1024;
 const MESSAGE_MAX_CHARS = 300;
@@ -76,77 +66,12 @@ export interface VoiceClip {
   mode: VoiceMode;
   polish: boolean;
   keywords: string[];
-  /** the recorder's measure of the clip; null when the browser did not send one */
-  durationMs: number | null;
 }
 
 export interface VoiceServiceOptions {
   stateDir: string;
   env: Record<string, string | undefined>;
   fetch(url: string, init: RequestInit): Promise<Response>;
-  /** the clock that dates usage records; tests pass a fixed one */
-  now?: () => Date;
-}
-
-/** what one provider call reported it used */
-interface CallUsage { seconds: number | null; inputTokens: number; outputTokens: number }
-
-function callUsage(value: unknown): CallUsage {
-  const usage = record(value);
-  const count = (field: string) => { const n = usage[field]; return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : 0; };
-  const seconds = usage["type"] === "duration" ? count("seconds") : null;
-  return { seconds, inputTokens: count("input_tokens") || count("prompt_tokens"), outputTokens: count("output_tokens") || count("completion_tokens") };
-}
-
-const emptyTotals = (): VoiceUsageTotals => ({ requests: 0, seconds: 0, cost_usd: 0, unpriced: 0 });
-
-function localDay(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-/** Per-day totals in stateDir/voice-usage.json: small enough to keep forever, and nothing in it is secret. */
-class UsageLedger {
-  constructor(private readonly path: string, private readonly now: () => Date) {}
-
-  private load(): Record<string, VoiceUsageTotals> {
-    let raw: string;
-    try { raw = readFileSync(this.path, "utf8"); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw error;
-    }
-    const days: Record<string, VoiceUsageTotals> = {};
-    for (const [day, value] of Object.entries(record(record(JSON.parse(raw))["days"]))) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
-      const totals = record(value);
-      const count = (field: keyof VoiceUsageTotals) => { const n = totals[field]; return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : 0; };
-      days[day] = { requests: count("requests"), seconds: count("seconds"), cost_usd: count("cost_usd"), unpriced: count("unpriced") };
-    }
-    return days;
-  }
-
-  record(seconds: number, cost: number, priced: boolean): void {
-    const days = this.load();
-    const day = localDay(this.now());
-    const totals = days[day] ?? emptyTotals();
-    days[day] = { requests: totals.requests + 1, seconds: totals.seconds + seconds, cost_usd: totals.cost_usd + cost, unpriced: totals.unpriced + (priced ? 0 : 1) };
-    writeJsonPrivate(this.path, { days });
-  }
-
-  report(): VoiceUsageReport {
-    const days = this.load();
-    const today = localDay(this.now());
-    const sum = (keep: (day: string) => boolean): VoiceUsageTotals => Object.entries(days).filter(([day]) => keep(day)).reduce((total, [, totals]) => ({
-      requests: total.requests + totals.requests, seconds: total.seconds + totals.seconds,
-      cost_usd: total.cost_usd + totals.cost_usd, unpriced: total.unpriced + totals.unpriced,
-    }), emptyTotals());
-    return {
-      today: sum((day) => day === today),
-      month: sum((day) => day.slice(0, 7) === today.slice(0, 7)),
-      total: sum(() => true),
-      since: Object.keys(days).sort()[0] ?? null,
-      prices_as_of: PRICES_AS_OF,
-    };
-  }
 }
 
 /** Owner-only, and written whole: a crash mid-write must not leave half a key file. */
@@ -185,7 +110,7 @@ function record(value: unknown): Record<string, unknown> {
  * The transcript from the provider's SSE answer, calling `onDelta` per piece as it arrives. A
  * line may be split across chunks. The `done` event's text wins over the joined pieces.
  */
-async function readTranscript(body: ReadableStream<Uint8Array> | null, onDelta: (delta: string) => void, onUsage: (usage: CallUsage) => void): Promise<string> {
+async function readTranscript(body: ReadableStream<Uint8Array> | null, onDelta: (delta: string) => void): Promise<string> {
   if (!body) return "";
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -204,7 +129,6 @@ async function readTranscript(body: ReadableStream<Uint8Array> | null, onDelta: 
       onDelta(event["delta"]);
     } else if (event["type"] === "transcript.text.done" && typeof event["text"] === "string") {
       final = event["text"];
-      onUsage(callUsage(event["usage"]));
     } else if (event["type"] === "error") {
       throw new Error(text(record(event["error"])["message"]) ?? "The provider stopped with an error");
     }
@@ -251,47 +175,19 @@ export function parseClip(form: FormData): VoiceClip {
   const keywords = [...new Set((parsed as string[]).map((item) => item.trim()).filter((item) => item && item.length <= VOICE_KEYWORD_MAX_CHARS))]
     .slice(0, VOICE_KEYWORDS_MAX);
 
-  // only bookkeeping hangs on it, so a missing or odd value is dropped rather than refused
-  const duration = Number(form.get(VOICE_FORM.duration_ms));
-  const durationMs = Number.isFinite(duration) && duration > 0 && duration <= (VOICE_MAX_SECONDS + 10) * 1000 ? duration : null;
 
-  return { audio, filename: `audio.${extension}`, mode, polish: form.get(VOICE_FORM.polish) === "1", keywords, durationMs };
+  return { audio, filename: `audio.${extension}`, mode, polish: form.get(VOICE_FORM.polish) === "1", keywords };
 }
 
 export class VoiceService {
   private readonly path: string;
   private readonly env: Record<string, string | undefined>;
   private readonly fetch: VoiceServiceOptions["fetch"];
-  private readonly ledger: UsageLedger;
 
   constructor(options: VoiceServiceOptions) {
     this.path = join(options.stateDir, "voice.json");
     this.env = options.env;
     this.fetch = options.fetch;
-    this.ledger = new UsageLedger(join(options.stateDir, "voice-usage.json"), options.now ?? (() => new Date()));
-  }
-
-  usage(): VoiceUsageReport {
-    return this.ledger.report();
-  }
-
-  /**
-   * One dictation the provider accepted, billed or not: the audio length is the provider's when it
-   * says, else the recorder's; a model without a list price leaves the request unpriced.
-   */
-  private recordUsage(clip: VoiceClip, transcribeModel: string, transcribed: CallUsage | null, polishModel: string, polished: CallUsage | null): void {
-    const seconds = transcribed?.seconds ?? (clip.durationMs === null ? null : clip.durationMs / 1000);
-    const perMinute = PRICE_PER_MINUTE[transcribeModel];
-    let cost = 0;
-    let priced = seconds !== null && perMinute !== undefined;
-    if (priced) cost += (seconds! / 60) * perMinute!;
-    if (polished) {
-      const tokens = PRICE_PER_MILLION_TOKENS[polishModel];
-      if (tokens) cost += (polished.inputTokens * tokens.input + polished.outputTokens * tokens.output) / 1_000_000;
-      else priced = false;
-    }
-    try { this.ledger.record(seconds ?? 0, cost, priced); }
-    catch (error) { console.warn(`voice: usage could not be saved: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
   private read(): VoiceFile {
@@ -397,41 +293,31 @@ export class VoiceService {
         const send = (event: VoiceEvent) => { if (open) controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`)); };
         const close = () => { if (open) { open = false; controller.close(); } };
         let transcript: string;
-        let transcribed: CallUsage | null = null;
         try {
           // a compatible server may ignore stream=true and answer the whole transcript at once
-          if ((response.headers.get("content-type") ?? "").includes("application/json")) {
-            const body = record(await response.json());
-            transcript = text(body["text"]) ?? "";
-            transcribed = callUsage(body["usage"]);
-          } else {
-            transcript = await readTranscript(response.body, (delta) => send({ type: "delta", text: delta }), (usage) => { transcribed = usage; });
-          }
+          transcript = (response.headers.get("content-type") ?? "").includes("application/json")
+            ? text(record(await response.json())["text"]) ?? ""
+            : await readTranscript(response.body, (delta) => send({ type: "delta", text: delta }));
         } catch (error) {
           if (!upstream.aborted) send({ type: "error", code: "provider_error", message: scrub(error instanceof Error ? error.message : String(error), key) });
-          this.recordUsage(clip, transcribeModel, transcribed, polishModel, null);
           close();
           return;
         }
         send({ type: "done", text: transcript });
-        let polished: CallUsage | null = null;
         if (clip.polish && transcript.trim()) {
           try {
-            const answer = await this.polish(base, key, polishModel, clip.mode, transcript, upstream);
-            polished = answer.usage;
-            send({ type: "polished", text: answer.text });
+            send({ type: "polished", text: await this.polish(base, key, polishModel, clip.mode, transcript, upstream) });
           } catch (error) {
             if (!upstream.aborted) console.warn(`voice: polish failed: ${scrub(error instanceof Error ? error.message : String(error), key)}`);
           }
         }
-        this.recordUsage(clip, transcribeModel, transcribed, polishModel, polished);
         close();
       },
       cancel: () => { open = false; cancelled.abort(); },
     });
   }
 
-  private async polish(base: string, key: string, model: string, mode: VoiceMode, transcript: string, signal: AbortSignal): Promise<{ text: string; usage: CallUsage }> {
+  private async polish(base: string, key: string, model: string, mode: VoiceMode, transcript: string, signal: AbortSignal): Promise<string> {
     const response = await this.fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
@@ -443,11 +329,10 @@ export class VoiceService {
       signal,
     });
     if (!response.ok) throw await providerFailure(response, key);
-    const answer = record(await response.json());
-    const choices = answer["choices"];
+    const choices = record(await response.json())["choices"];
     const content = text(record(record(Array.isArray(choices) ? choices[0] : null)["message"])["content"]);
     if (!content) throw new Error("The provider answered no text");
-    return { text: content, usage: callUsage(answer["usage"]) };
+    return content;
   }
 }
 
@@ -461,10 +346,6 @@ export async function handleVoiceRequest(request: Request, pathname: string, ser
   if (pathname === "/api/voice") {
     if (request.method !== "GET") return jsonResponse({ error: { code: "method_not_allowed", message: "Use GET /api/voice" } }, 405, { allow: "GET" });
     try { return jsonResponse(service.status(), 200, noStore); } catch (error) { return voiceError(error); }
-  }
-  if (pathname === "/api/voice/usage") {
-    if (request.method !== "GET") return jsonResponse({ error: { code: "method_not_allowed", message: "Use GET /api/voice/usage" } }, 405, { allow: "GET" });
-    try { return jsonResponse(service.usage(), 200, noStore); } catch (error) { return voiceError(error); }
   }
   if (pathname === "/api/voice/config") {
     if (request.method !== "PUT") return jsonResponse({ error: { code: "method_not_allowed", message: "Use PUT /api/voice/config" } }, 405, { allow: "PUT" });

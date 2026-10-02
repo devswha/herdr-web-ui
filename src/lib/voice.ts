@@ -400,9 +400,6 @@ interface Take {
   recorderAt: number | null;
   /** null: the recorder takes the raw microphone and keeps every second */
   gate: SpeechGate | null;
-  /** audio the gated recorder kept so far, and when its current stretch began */
-  keptMs: number;
-  keptFrom: number | null;
   chunks: Blob[];
   heard: boolean;
   startedAt: number | null;
@@ -476,8 +473,8 @@ function createVoiceEngine(io: EngineIO) {
     if (!current) return;
     if (current.gate && current.recorder && current.recorder.state !== "inactive") {
       const change = current.gate.step(rms, now);
-      if (change === "open" && current.recorder.state === "paused") { current.recorder.resume(); current.keptFrom = now; }
-      else if (change === "close" && current.recorder.state === "recording") keep(current, now, true);
+      if (change === "open" && current.recorder.state === "paused") current.recorder.resume();
+      else if (change === "close" && current.recorder.state === "recording") current.recorder.pause();
     }
     if (phase === "starting" && current.recorderAt !== null && (current.heard || now - current.recorderAt >= READY_FALLBACK_MS)) markRecording(current, now);
     if (phase !== "recording" || current.startedAt === null) return;
@@ -490,13 +487,6 @@ function createVoiceEngine(io: EngineIO) {
       if (silent !== meter.silent) { meter.silent = silent; io.setSilent(silent); }
     }
     if (elapsed >= VOICE_MAX_SECONDS * 1000) finishTake(false);
-  }
-
-  /** closes the gated recorder's current stretch into keptMs; `pause` also stops it hearing */
-  function keep(current: Take, now: number, pause: boolean): void {
-    if (current.keptFrom !== null) current.keptMs += now - current.keptFrom;
-    current.keptFrom = null;
-    if (pause && current.recorder?.state === "recording") current.recorder.pause();
   }
 
   function startLoop(): void {
@@ -657,14 +647,13 @@ function createVoiceEngine(io: EngineIO) {
     current.recognition?.abort();
   }
 
-  async function transcribe(id: number, blob: Blob, extension: string, durationMs: number, signal: AbortSignal): Promise<void> {
+  async function transcribe(id: number, blob: Blob, extension: string, signal: AbortSignal): Promise<void> {
     const options = io.options();
     const form = new FormData();
     form.append(VOICE_FORM.audio, blob, `voice.${extension}`);
     form.append(VOICE_FORM.mode, options.mode);
     form.append(VOICE_FORM.polish, options.polish ? "1" : "0");
     form.append(VOICE_FORM.keywords, JSON.stringify(voiceKeywords(options.keywords?.() ?? [])));
-    form.append(VOICE_FORM.duration_ms, String(durationMs));
     try {
       const response = await fetch("/api/voice/transcribe", { method: "POST", body: form, credentials: "same-origin", signal });
       if (!response.ok || !response.body) {
@@ -689,13 +678,13 @@ function createVoiceEngine(io: EngineIO) {
     }
   }
 
-  async function deliver(current: Take, controller: AbortController, mime: { mimeType: string; extension: string }, durationMs: number): Promise<void> {
+  async function deliver(current: Take, controller: AbortController, mime: { mimeType: string; extension: string }): Promise<void> {
     try {
       if (controller.signal.aborted) return;
       const blob = new Blob(current.chunks, { type: current.recorder?.mimeType || mime.mimeType });
       if (blob.size === 0) return;
       if (blob.size > VOICE_MAX_AUDIO_BYTES) { io.setError("too_large"); return; }
-      await transcribe(current.id, blob, mime.extension, durationMs, controller.signal);
+      await transcribe(current.id, blob, mime.extension, controller.signal);
     } finally {
       pending.delete(controller);
       settle();
@@ -729,13 +718,7 @@ function createVoiceEngine(io: EngineIO) {
     const recorder = current.recorder;
     const gate = current.gate;
     const finishedAt = performance.now();
-    // the clip's length for the usage record: what the gate kept, else the whole recording
-    let durationMs = Math.round(finishedAt - (current.recorderAt ?? current.startedAt ?? finishedAt));
     const stopped = (): void => {
-      if (gate) {
-        keep(current, performance.now(), false);
-        durationMs = Math.round(current.keptMs);
-      }
       if (release || document.hidden) releaseStream(); else keepWarm();
       if (gate && !gate.everOpened) {
         // nothing above the room's noise was heard: no upload, nothing billed
@@ -744,7 +727,7 @@ function createVoiceEngine(io: EngineIO) {
         settle();
         return;
       }
-      if (mime) void deliver(current, controller, mime, durationMs);
+      if (mime) void deliver(current, controller, mime);
       else { pending.delete(controller); settle(); }
     };
     if (!recorder || recorder.state === "inactive") { stopped(); return; }
@@ -777,7 +760,7 @@ function createVoiceEngine(io: EngineIO) {
     io.setElapsed(0);
     io.setSilent(false);
     meter.silent = false;
-    const current: Take = { id: ++lastTakeId, engine, discard: false, releaseMic: false, closing: null, recorder: null, recorderAt: null, gate: null, keptMs: 0, keptFrom: null, chunks: [], heard: false, startedAt: null, recognition: null, finalText: "" };
+    const current: Take = { id: ++lastTakeId, engine, discard: false, releaseMic: false, closing: null, recorder: null, recorderAt: null, gate: null, chunks: [], heard: false, startedAt: null, recognition: null, finalText: "" };
     take = current;
     pressedAt = performance.now();
     // the pill shows on this very frame; the mic catches up
