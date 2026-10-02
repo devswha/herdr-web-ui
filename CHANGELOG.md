@@ -30,6 +30,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Pane titles that contain a directory show its last folder, and matching workspace and folder
   names appear once in the sidebar and command palette, including Windows paths.
   ([#337](https://github.com/devswha/herdr-web-ui/pull/337) by @Haeminway1)
+- In the sidebar's By workspace view, a pane row no longer repeats the workspace its header names.
+  Its second line shows the folder only when neither the title nor the workspace already says it.
+  ([#358](https://github.com/devswha/herdr-web-ui/pull/358))
 
 ### Fixed
 - GJC conversations are resolved from the foreground process directory when it differs from

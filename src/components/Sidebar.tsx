@@ -11,7 +11,7 @@ import { useInstallPrompt } from "../lib/install.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { UsageMeters } from "./UsageMeters.tsx";
-import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
+import { folderName, shortPathTitle } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { groupDirectories } from "../lib/directoryGroups.ts";
 import { useSettings, type SidebarGrouping } from "../lib/settings.ts";
@@ -345,6 +345,11 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
           {visiblePanes.map((pane) => {
             const fullTitle = paneTitle(pane);
             const displayTitle = displayPaneTitle(pane);
+            // The group header already names one of the two: a workspace's rows name the folder, a
+            // folder's rows the workspace. A workspace is usually named after its folder, and a shell
+            // titled by it: the folder shows only when neither already says it.
+            const folder = cwdBasename(pane.cwd);
+            const place = byFolder ? workspace.label : folder === displayTitle || folder === workspace.label ? "" : folder;
             const selected = pane.pane_id === selectedPaneId;
             const editing = editingPaneId === pane.pane_id;
             return (
@@ -391,7 +396,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                       <span className="pane-meta">
                         {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge status={pane.agent_status} />}
                         <BackgroundBadge count={(pane as HerdrPane).background_tasks} />
-                        <span className="pane-subtitle">{byFolder ? workspace.label : placeLine(workspace.label, cwdBasename(pane.cwd))}</span>
+                        {place && <span className="pane-subtitle">{place}</span>}
                       </span>
                     </span>
                   </div>

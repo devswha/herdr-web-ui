@@ -182,7 +182,11 @@ try {
   assert.equal(await page.locator(workspaceToggle).getAttribute("aria-expanded"), "false", "legacy workspace fold is restored");
   assert.equal(await page.locator(`${otherWorkspace} .pane-list`).count(), 0);
   for (const fixture of [alpha, beta]) {
-    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .pane-subtitle`).textContent(), `${fixture.label} · project`);
+    // The header names the workspace, so line two names only the folder, and nothing when the
+    // title already is that folder (a shell titled by its cwd).
+    const title = await page.locator(`${itemSelector(fixture.paneId)} .pane-title`).textContent();
+    assert.deepEqual(await page.locator(`${itemSelector(fixture.paneId)} .pane-subtitle`).allTextContents(), title === "project" ? [] : ["project"]);
+    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .pane-meta`).textContent().then((text) => text?.includes(fixture.label)), false);
     const workspace = `.workspace:has(${paneSelector(fixture.paneId)})`;
     assert.equal(await page.locator(`${workspace} .workspace-toggle`).getAttribute("aria-expanded"), "true");
     assert.equal(await page.locator(`${workspace} .workspace-number`).textContent(), String(fixture.workspaceNumber));
