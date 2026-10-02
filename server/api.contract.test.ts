@@ -155,9 +155,8 @@ describe("mutation body validation", () => {
   it("rejects non-object JSON without touching herdr or losing the error envelope", async () => {
     for (const path of [
       "/api/workspace/create", "/api/workspace/rename", "/api/workspace/move", "/api/workspace/close",
-      "/api/tab/create",
       "/api/pane/rename", "/api/pane/input", "/api/pane/keys", "/api/pane/close", "/api/pane/image",
-      "/api/pane/scroll", "/api/pane/split",
+      "/api/pane/scroll",
     ]) {
       for (const body of [null, [], "text", 42, true]) {
         const response = await fetch(`${base()}${path}`, {
@@ -176,10 +175,6 @@ describe("mutation body validation", () => {
       ["/api/pane/keys", { pane_id: "unknown", keys: [null] }, "missing_keys"],
       ["/api/pane/image", { pane_id: "unknown", content_type: "image/png", data_base64: {} }, "invalid_image"],
       ["/api/workspace/create", { agent: { kind: "claude", args: "--help" } }, "invalid_agent"],
-      ["/api/tab/create", { workspace_id: 5 }, "missing_workspace_id"],
-      ["/api/tab/create", { cwd: 5 }, "invalid_cwd"],
-      ["/api/pane/split", { pane_id: 5 }, "missing_pane_id"],
-      ["/api/pane/split", { direction: "up" }, "invalid_direction"],
     ] as const) {
       const response = await fetch(`${base()}${path}`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -286,50 +281,6 @@ describe("workspace and discovery endpoints", () => {
     expect(close.status).toBe(200);
     expect(await close.json()).toEqual({ ok: true });
     workspaceId = null;
-  }, 20_000);
-
-  it("creates, splits, and closes tabs in an owned workspace", async () => {
-    const ws = await fetch(`${base()}/api/workspace/create`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ cwd: tmpdir(), label: `${label}-tabs`, agent: null }),
-    });
-    expect(ws.status).toBe(200);
-    const owned = (await ws.json()) as WorkspaceCreated;
-    try {
-      const create = await fetch(`${base()}/api/tab/create`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspace_id: owned.workspace_id, label: `${label}-tab` }),
-      });
-      expect(create.status).toBe(200);
-      const created = (await create.json()) as { tab_id: string; pane_id: string };
-      expect(typeof created.tab_id).toBe("string");
-      expect(typeof created.pane_id).toBe("string");
-
-      const split = await fetch(`${base()}/api/pane/split`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pane_id: created.pane_id, direction: "right" }),
-      });
-      expect(split.status).toBe(200);
-      expect(typeof ((await split.json()) as { pane_id: string }).pane_id).toBe("string");
-
-      // herdr requires a direction: one left out splits right instead of failing
-      const defaulted = await fetch(`${base()}/api/pane/split`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pane_id: created.pane_id }),
-      });
-      expect(defaulted.status).toBe(200);
-      expect(typeof ((await defaulted.json()) as { pane_id: string }).pane_id).toBe("string");
-    } finally {
-      await fetch(`${base()}/api/workspace/close`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspace_id: owned.workspace_id }),
-      });
-    }
   }, 20_000);
 
   it("uses the shared error envelope for malformed mutation bodies", async () => {

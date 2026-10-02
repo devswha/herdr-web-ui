@@ -151,12 +151,6 @@ export const ZH: Record<string, string> = {
   "Close failed: {reason}": "关闭失败：{reason}",
   "Rename failed: {reason}": "重命名失败：{reason}",
   "Reorder failed: {reason}": "调整顺序失败：{reason}",
-  "New tab in {name}": "在 {name} 中新建标签页",
-  "New tab": "新建标签页",
-  "Split {title}": "拆分 {title}",
-  "Split pane": "拆分窗格",
-  "New tab failed: {reason}": "新建标签页失败：{reason}",
-  "Split failed: {reason}": "拆分失败：{reason}",
 
   // ---- PCs sidebar ----
   "Connecting…": "正在连接…",

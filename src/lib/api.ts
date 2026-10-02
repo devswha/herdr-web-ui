@@ -10,13 +10,11 @@ import type {
   PairedDevice,
   PairingCode,
   PaneReadResult,
-  PaneSplit,
   PromptAnswer,
   PushKey,
   RemoteAccess,
   SessionSnapshot,
   SlashCommand,
-  TabCreated,
   UsageReport,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
@@ -341,30 +339,6 @@ export async function moveWorkspace(workspaceId: string, insertIndex: number, ma
 
 export async function closeWorkspace(workspaceId: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "workspace/close"), "POST", { workspace_id: workspaceId });
-}
-
-export interface CreateTabRequest {
-  workspace_id?: string;
-  cwd?: string | null;
-  label?: string | null;
-}
-
-/** POST /api/tab/create: a new tab in the workspace and its root pane. */
-export async function createTab(request: CreateTabRequest, machineId = "local"): Promise<TabCreated> {
-  const response = await sendJson(machinePath(machineId, "tab/create"), "POST", request);
-  return (await response.json()) as TabCreated;
-}
-
-export interface SplitPaneRequest {
-  pane_id?: string;
-  direction?: "right" | "down";
-  cwd?: string | null;
-}
-
-/** POST /api/pane/split: split the pane and return the new one. */
-export async function splitPane(request: SplitPaneRequest, machineId = "local"): Promise<PaneSplit> {
-  const response = await sendJson(machinePath(machineId, "pane/split"), "POST", request);
-  return (await response.json()) as PaneSplit;
 }
 
 /** GET /api/pane/commands: the slash commands the pane's agent understands (built-in + custom). */

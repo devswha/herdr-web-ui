@@ -149,12 +149,6 @@ export const JA: Record<string, string> = {
   "Close failed: {reason}": "閉じられませんでした: {reason}",
   "Rename failed: {reason}": "名前を変更できませんでした: {reason}",
   "Reorder failed: {reason}": "並べ替えできませんでした: {reason}",
-  "New tab in {name}": "{name} に新しいタブ",
-  "New tab": "新しいタブ",
-  "Split {title}": "{title} を分割",
-  "Split pane": "ペインを分割",
-  "New tab failed: {reason}": "新しいタブを作成できませんでした: {reason}",
-  "Split failed: {reason}": "分割できませんでした: {reason}",
 
   // ---- PCs sidebar ----
   "Connecting…": "接続しています…",
