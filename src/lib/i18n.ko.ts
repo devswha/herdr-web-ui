@@ -621,4 +621,12 @@ export const KO: Record<string, string> = {
   "Couldn't refresh: this is the list as it last read": "새로 고치지 못했습니다. 마지막으로 읽은 목록입니다",
   "blocked": "막힘",
   "paused": "일시 중지",
+  "Goal": "목표",
+  "complete": "완료",
+  "out of budget": "예산 소진",
+  "Used so far: {spent}": "지금까지 사용: {spent}",
+  "in progress": "진행 중",
+  "This message can't be shown here. The terminal has it.": "이 메시지는 여기서 표시할 수 없습니다. 터미널에서 볼 수 있습니다.",
+  "The chat can't be shown. The terminal still works.": "채팅을 표시할 수 없습니다. 터미널은 계속 쓸 수 있습니다.",
+  "Try again": "다시 시도",
 };

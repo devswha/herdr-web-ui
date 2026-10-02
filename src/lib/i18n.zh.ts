@@ -625,4 +625,12 @@ export const ZH: Record<string, string> = {
   "Couldn't refresh: this is the list as it last read": "无法刷新：这是上次读取的列表",
   "blocked": "受阻",
   "paused": "已暂停",
+  "Goal": "目标",
+  "complete": "已完成",
+  "out of budget": "预算用尽",
+  "Used so far: {spent}": "目前已用：{spent}",
+  "in progress": "进行中",
+  "This message can't be shown here. The terminal has it.": "此消息无法在这里显示，可在终端中查看。",
+  "The chat can't be shown. The terminal still works.": "无法显示聊天，终端仍可使用。",
+  "Try again": "重试",
 };

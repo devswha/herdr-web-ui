@@ -623,4 +623,12 @@ export const JA: Record<string, string> = {
   "Couldn't refresh: this is the list as it last read": "更新できませんでした。最後に読み込んだ一覧です",
   "blocked": "ブロック中",
   "paused": "一時停止",
+  "Goal": "目標",
+  "complete": "完了",
+  "out of budget": "予算切れ",
+  "Used so far: {spent}": "これまでの使用量: {spent}",
+  "in progress": "進行中",
+  "This message can't be shown here. The terminal has it.": "このメッセージはここに表示できません。ターミナルで確認できます。",
+  "The chat can't be shown. The terminal still works.": "チャットを表示できません。ターミナルは引き続き使えます。",
+  "Try again": "再試行",
 };
