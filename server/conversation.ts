@@ -810,6 +810,8 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
   } catch (error) {
     if (!(error instanceof ConversationNotStarted)) throw error;
+    // nothing comes before a conversation not begun: a cursor for older pages is another one's
+    if (page.before !== undefined || page.since !== undefined) throw new HistoryChanged();
     // the chat says there is nothing yet; the session's first prompt writes the file and
     // the next poll's history_id differs, so the chat takes it whole
     const id = `unwritten:${error.sessionId}`;
