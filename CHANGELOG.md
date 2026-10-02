@@ -19,6 +19,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A message sent to Claude Code while it is working shows in the chat. Claude records such a
   message differently from one sent while it waits, and the chat skipped it, so the agent acted
   on words the chat never showed.
+  ([#301](https://github.com/devswha/herdr-web-ui/pull/301))
 - New session has a shortcut that works in a browser tab: Ctrl+Shift+O (Cmd+Shift+O on a Mac).
   Chrome keeps Ctrl+Shift+N for a new incognito window and never passed it to the page, so it
   worked only in the installed app, where it still does.
