@@ -2,7 +2,10 @@
 $ErrorActionPreference = 'Stop'
 $installer = Join-Path $PSScriptRoot '..\install.ps1'
 $originalPath = $env:PATH
-$state = @{ installed = $false; installs = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false }
+$state = @{ installed = $false; installs = 0; uninstalls = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false; windowsRelease = $true }
+# A real directory: the installer reads the installed copy to tell whether it can run on Windows.
+$pluginRoot = Join-Path ([IO.Path]::GetTempPath()) "herdr plugin with spaces $PID"
+$launcher = Join-Path $pluginRoot 'scripts\plugin.ps1'
 function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 
 # Tool boundaries only: no downloads, installed plugins, processes or user settings are changed.
@@ -25,15 +28,19 @@ function herdr {
         '--version' { 'herdr 0.9.3' }
         'plugin list --json' {
             $plugins = @()
-            if ($state.installed) { $plugins = @(@{ plugin_id = 'devswha.herdr-web-ui'; plugin_root = 'C:\Plugin with spaces' }) }
+            if ($state.installed) { $plugins = @(@{ plugin_id = 'devswha.herdr-web-ui'; plugin_root = $pluginRoot }) }
             @{ result = @{ plugins = $plugins } } | ConvertTo-Json -Depth 4 -Compress
         }
         'status server --json' { @{ running = $state.running } | ConvertTo-Json -Compress }
         'plugin action invoke devswha.herdr-web-ui.start-windows' { $state.started = $true; '{}' }
+        'plugin uninstall devswha.herdr-web-ui' { $state.installed = $false; $state.uninstalls++; 'Uninstalled' }
         default {
             if ($args[0] -eq 'plugin' -and $args[1] -eq 'install') {
                 if ($state.failInstall) { $global:LASTEXITCODE = 1; return }
                 $state.installed = $true; $state.installs++; $state.ref = $args[4]
+                Remove-Item -LiteralPath $pluginRoot -Recurse -Force -ErrorAction SilentlyContinue
+                New-Item -ItemType Directory -Force -Path (Split-Path $launcher) | Out-Null
+                if ($state.windowsRelease) { Set-Content -LiteralPath $launcher -Value '' }
                 'Installed herdr web ui'
             } else { throw "Unexpected herdr command: $args" }
         }
@@ -74,5 +81,17 @@ try {
     $failed = $false
     try { & $installer -Ref 'broken' } catch { $failed = $_.Exception.Message -match 'herdr failed' }
     Assert ($failed -and -not $state.started) 'A failed native command must stop installation'
-    Write-Host 'PASS native installer release selection, rerun, Bun bootstrap, explicit ref, stopped herdr and install failure'
-} finally { $env:PATH = $originalPath }
+
+    # A copy from a release without Windows support: installed, listed, and unable to start.
+    $state.failInstall = $false; $state.running = $true; $state.installed = $false; $state.windowsRelease = $false
+    $failed = $false
+    try { & $installer -Ref '' } catch { $failed = $_.Exception.Message -match 'does not support Windows yet' }
+    Assert ($failed -and -not $state.started) 'A release without Windows support must not be reported as installed'
+    $state.windowsRelease = $true; $installs = $state.installs
+    & $installer -Ref ''
+    Assert ($state.uninstalls -eq 1 -and $state.installs -eq $installs + 1 -and $state.started) 'A copy without Windows support must be replaced and started'
+    Write-Host 'PASS native installer release selection, rerun, Bun bootstrap, explicit ref, stopped herdr, install failure and a copy without Windows support'
+} finally {
+    $env:PATH = $originalPath
+    Remove-Item -LiteralPath $pluginRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
