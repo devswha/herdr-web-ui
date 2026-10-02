@@ -264,7 +264,7 @@ describe("startStatusCollector recovery", () => {
     await tick(20);
     herdr.setPanes([paneOf("w1:p1", "blocked"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
-    await tick(20);
+    await tick(70);
     // answered, worked and finished right after the new subscription started: the snapshot says idle before its two events are read
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
     const live = herdr.status()!;
@@ -287,7 +287,7 @@ describe("startStatusCollector recovery", () => {
     await tick(20);
     herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "working"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
-    await tick(20);
+    await tick(70);
     // both finish in the gap; while the replay waits, p1 is closed (no exit frame)
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
     herdr.status()!.start();
@@ -305,7 +305,7 @@ describe("startStatusCollector recovery", () => {
     await tick(20);
     lost.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
     lost.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
-    await tick(20);
+    await tick(70);
     lost.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
     lost.status()!.start();
     await tick(10);
@@ -380,6 +380,28 @@ describe("startStatusCollector recovery", () => {
     expect(second.log.statuses).toEqual([]);
     expect(second.log.resyncs).toHaveLength(1);
     flaky.stop();
+  });
+
+  it("reads an event still on its way before it closes the connection, also when the snapshot shows nothing to replay", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, { ...herdr.deps, replaySettleMs: 40 });
+    await tick();
+    herdr.status()!.start();
+    await tick(20);
+    const live = herdr.status()!;
+    // brought to the front: what p1 was told as is forgotten, so the snapshot has nothing to measure it against
+    herdr.subscriptions.find((s) => s.types[0] === "pane.focused")!.emit({ event: "pane_focused", data: { type: "pane_focused", pane_id: "w1:p1" } });
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
+    herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    // the finish arrives on the old connection while the collector waits before closing it
+    expect(live.closedByCollector).toBe(false);
+    live.emit(statusFrame("w1:p1", "idle"));
+    await tick(60);
+    expect(live.closedByCollector).toBe(true);
+    expect(log.statuses).toEqual(["w1:p1:idle"]);
+    collector.stop();
   });
 
   it("recovers without telling when the reopened subscription could not connect", async () => {

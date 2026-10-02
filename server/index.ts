@@ -770,9 +770,11 @@ export function createServer(
       push.onStatus(paneId, "idle").catch(logPushError);
     },
     onBaseline: (panes) => push.seed(panes),
+    // the tracker first: what it makes of each pane (a finish after work is done, not idle) is
+    // what the alerts are measured against from here, or the next event would alert of it
     onResync: (panes, newer) => {
-      push.resync(panes, newer);
       completions.resync(panes, newer);
+      push.resync(panes.map((pane) => ({ ...pane, agent_status: completions.current(pane.pane_id) ?? pane.agent_status })), newer);
     },
     onPaneEnded: (paneId) => {
       completions.forget(paneId);

@@ -347,7 +347,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         if (before === undefined || resynced) heard.set(pane.pane_id, { status: pane.agent_status, agent: pane.agent ?? null });
         else if (replaying && before.status !== pane.agent_status) replays.push(pane);
       }
-      if (replays.length > 0) {
+      // also with nothing to replay, when the live connection is about to close: an event on its way is read first
+      if (replays.length > 0 || leaving) {
         const generation = statusGeneration;
         // the old connection stays open through this: an event it still holds is read, and wins
         await new Promise((resolve) => setTimeout(resolve, deps.replaySettleMs));
