@@ -1025,8 +1025,10 @@ export function createServer(
             else {
               const given = typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : null;
               // herdr refuses a name another agent holds. Two creations at once can pick the same
-              // free one: the refused one picks again.
-              for (let attempt = 1; ; attempt += 1) {
+              // free one: the refused one picks again. It also refuses a pane whose shell is not up
+              // yet (`agent_pane_busy`, herdr 0.9.3), which a workspace made a moment ago can be.
+              const shellDeadline = Date.now() + 10_000;
+              for (let attempt = 1; ; ) {
                 try {
                   await agentStart({
                     name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((agent) => agent.name)),
@@ -1037,7 +1039,13 @@ export function createServer(
                   });
                   break;
                 } catch (error) {
-                  if (given !== null || attempt === 3 || !(error instanceof HerdrError) || error.code !== "agent_name_taken") throw error;
+                  if (!(error instanceof HerdrError)) throw error;
+                  if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
+                    await Bun.sleep(100);
+                    continue;
+                  }
+                  if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
+                  attempt += 1;
                 }
               }
             }

@@ -21,7 +21,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - New session starts an agent when another of the same kind is already running. The second
   Claude (or Codex, ...) used to get an empty workspace and `agent name claude is already used`,
   because every agent was named after its kind and herdr wants each name once. Later ones are now
-  named `claude-2`, `claude-3` and so on.
+  named `claude-2`, `claude-3` and so on. An agent is also started once the new workspace's shell is
+  up, instead of being refused when it was not yet.
   ([#328](https://github.com/devswha/herdr-web-ui/pull/328))
 
 ## [0.3.42] - 2026-10-02
