@@ -25,10 +25,11 @@ export function selectedSkill(text: string): SkillActivity | null {
 const SKILL_INSTRUCTION = /^The user explicitly invoked the "([^"]+)" skill\. Follow the instructions in <skill-instruction> as binding for this request, while respecting higher-priority instructions\.\n\n<skill-instruction name="([^"]+)" location="([^"]+)">\n[\s\S]*?\n<\/skill-instruction>/;
 const LEGACY_SKILL = /^<skill name="([^"]+)" location="([^"]+)">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/;
 
+/** pi names the skill file it loaded: a SKILL.md, or a standalone `.md` skill (`--skill review.md`). */
 function loadedSkill(name: string | undefined, location: string | undefined): SkillActivity | null {
-  const document = skillDocument(location);
   const skill = label(name);
-  return document && skill ? { ...document, name: skill } : null;
+  if (skill === null || typeof location !== "string" || location.length === 0 || location.length > 4096 || /[\r\n]/.test(location)) return null;
+  return { name: skill, path: location, evidence: "instructions", status: "loaded" };
 }
 
 /**
