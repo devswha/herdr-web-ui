@@ -182,7 +182,7 @@ export class MirrorSession {
     const due = this.sent === null || Date.now() - this.wholeAt >= (this.options.wholeMs ?? MIRROR_WHOLE_MS);
     const rows = due ? null : mirrorRows(this.sent!, this.screen, this.rows);
     // a screen that scrolled changed every row, and each row drawn in its place costs more than the screen whole
-    const whole = rows === null || rows.length >= all.length;
+    const whole = rows === null || Buffer.byteLength(rows) >= Buffer.byteLength(all);
     const frame = whole ? all : rows;
     if (whole) this.wholeAt = Date.now();
     this.patched = !whole;
