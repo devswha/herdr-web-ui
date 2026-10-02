@@ -11,6 +11,12 @@ export function taskElapsedMs(task: OmoTask, now: number): number | null {
   return spanMs(task.started_at, task.ended_at, task.status === "running", now);
 }
 
+/** How far the PC's clock is ahead of this browser's, from the time it answered with; 0 when unknown. */
+export function clockOffsetMs(serverTime: string | null, receivedAt: number): number {
+  const server = serverTime === null ? NaN : Date.parse(serverTime);
+  return Number.isFinite(server) ? server - receivedAt : 0;
+}
+
 /** `8s`, `4m 12s`, `1h 3m` */
 export function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);

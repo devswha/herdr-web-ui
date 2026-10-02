@@ -80,7 +80,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
  *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
  *         pane's OmO session started: running ones, then those that ended in the last day; empty
- *         for a pane that is not OmO or whose session is not known yet)
+ *         for a pane that is not OmO or whose session is not known yet. server_time: that PC's
+ *         clock, which the times are on)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
@@ -297,7 +298,7 @@ export interface OmoTask {
 export interface OmoRunNode {
   id: string;
   label: string;
-  state: "pending" | "scheduled" | "running" | "completed" | "failed" | "skipped" | "cancelled";
+  state: "pending" | "scheduled" | "running" | "blocked" | "completed" | "failed" | "skipped" | "cancelled";
   error: string | null;
 }
 
@@ -305,7 +306,8 @@ export interface OmoRunNode {
 export interface OmoRun {
   id: string;
   name: string;
-  status: "running" | "completed" | "failed" | "cancelled";
+  /** `pending` and `paused` have not ended either */
+  status: "pending" | "running" | "paused" | "completed" | "failed" | "cancelled";
   started_at: string | null;
   ended_at: string | null;
   waves: OmoRunNode[][];
@@ -315,6 +317,8 @@ export interface OmoRun {
 export interface OmoActivity {
   tasks: OmoTask[];
   runs: OmoRun[];
+  /** the PC's clock, which the times are on */
+  server_time: string;
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */

@@ -618,4 +618,7 @@ export const KO: Record<string, string> = {
   "Workflows": "워크플로",
   "waiting": "대기",
   "skipped": "건너뜀",
+  "Couldn't refresh: this is the list as it last read": "새로 고치지 못했습니다. 마지막으로 읽은 목록입니다",
+  "blocked": "막힘",
+  "paused": "일시 중지",
 };

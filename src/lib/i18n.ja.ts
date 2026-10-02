@@ -620,4 +620,7 @@ export const JA: Record<string, string> = {
   "Workflows": "ワークフロー",
   "waiting": "待機中",
   "skipped": "スキップ",
+  "Couldn't refresh: this is the list as it last read": "更新できませんでした。最後に読み込んだ一覧です",
+  "blocked": "ブロック中",
+  "paused": "一時停止",
 };

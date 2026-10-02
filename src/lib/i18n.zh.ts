@@ -622,4 +622,7 @@ export const ZH: Record<string, string> = {
   "Workflows": "工作流",
   "waiting": "等待中",
   "skipped": "已跳过",
+  "Couldn't refresh: this is the list as it last read": "无法刷新：这是上次读取的列表",
+  "blocked": "受阻",
+  "paused": "已暂停",
 };
