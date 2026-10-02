@@ -19,9 +19,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - New session has a shortcut that works in a browser tab: Ctrl+Shift+O (Cmd+Shift+O on a Mac).
   Chrome keeps Ctrl+Shift+N for a new incognito window and never passed it to the page, so it
   worked only in the installed app, where it still does.
+  ([#298](https://github.com/devswha/herdr-web-ui/pull/298))
 - Cmd+Shift+↑ and ↓ select text in the message box on a Mac again (Ctrl+Shift+↑ and ↓ in any text
   field elsewhere). The pane shortcut took them wherever the cursor was, switched panes and left
   the message behind; it now switches panes from the terminal and outside text fields only.
+  ([#298](https://github.com/devswha/herdr-web-ui/pull/298))
 - An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
   The server reopens its status subscription whenever the set of panes changes, and a status
   that changed in between was never sent again: no done alert came, and a browser kept the old
