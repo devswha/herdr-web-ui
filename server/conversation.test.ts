@@ -91,6 +91,28 @@ describe("parseClaudeTranscript", () => {
     expect(parseClaudeTranscript("")).toEqual([]);
   });
 
+  it("shows a message the person sent while the agent was working", () => {
+    const queued = (attachment: Record<string, unknown>) => ({ type: "attachment", timestamp: "2026-10-02T04:00:05.000Z", attachment: { type: "queued_command", timestamp: "2026-10-02T04:00:05.000Z", ...attachment } });
+    const transcript = [
+      { type: "user", timestamp: "2026-10-02T04:00:00.000Z", message: { role: "user", content: "start" } },
+      { type: "assistant", timestamp: "2026-10-02T04:00:02.000Z", message: { role: "assistant", content: [{ type: "text", text: "working" }] } },
+      // the queue pair repeats the text; only the attachment becomes a turn
+      { type: "queue-operation", operation: "enqueue", timestamp: "2026-10-02T04:00:05.000Z", content: "also fix the tests" },
+      { type: "queue-operation", operation: "remove", timestamp: "2026-10-02T04:00:09.000Z", content: "also fix the tests", reason: "absorbed_mid_turn" },
+      queued({ prompt: "also fix the tests", commandMode: "prompt", origin: { kind: "human" }, humanTurn: true }),
+      // a background task's notice and another agent's message are not the person's words
+      queued({ prompt: "<task-notification>\n<status>completed</status>\n</task-notification>", commandMode: "task-notification" }),
+      queued({ prompt: "<agent-message from=\"reviewer\">\ndone\n</agent-message>", commandMode: "prompt", origin: { kind: "peer" }, isMeta: true }),
+      { type: "assistant", timestamp: "2026-10-02T04:00:10.000Z", message: { role: "assistant", content: [{ type: "text", text: "on it" }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n");
+    expect(parseClaudeTranscript(transcript).map((turn) => [turn.role, turn.ts, turn.parts])).toEqual([
+      ["user", "2026-10-02T04:00:00.000Z", [{ kind: "text", text: "start" }]],
+      ["assistant", "2026-10-02T04:00:02.000Z", [{ kind: "text", text: "working" }]],
+      ["user", "2026-10-02T04:00:05.000Z", [{ kind: "text", text: "also fix the tests" }]],
+      ["assistant", "2026-10-02T04:00:10.000Z", [{ kind: "text", text: "on it" }]],
+    ]);
+  });
+
   it("preserves array user text, including mixed tool results, without exposing bookkeeping", () => {
     const transcript = [
       { type: "assistant", message: { content: [{ type: "tool_use", id: "t", name: "Read", input: {} }] } },

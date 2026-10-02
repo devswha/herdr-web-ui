@@ -96,6 +96,7 @@ interface TranscriptEntry {
   isMeta?: boolean;
   isCompactSummary?: boolean;
   message?: { role?: string; content?: unknown };
+  attachment?: { type?: unknown; prompt?: unknown; commandMode?: unknown; origin?: { kind?: unknown } };
 }
 
 function claudeResultText(output: unknown): string {
@@ -141,6 +142,18 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
       const summary = typeof content === "string" ? content
         : Array.isArray(content) ? content.map((block) => typeof block === "object" && block !== null && (block as { type?: unknown }).type === "text" ? String((block as { text?: unknown }).text ?? "") : "").join("\n") : "";
       turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "compact", text: summary }] });
+      continue;
+    }
+
+    // A message sent while Claude is working is no `user` entry: it is queued, then recorded
+    // as this attachment when the turn takes it in. Background task notices and other agents'
+    // messages use the same record, so only a person's prompt counts. The `queue-operation`
+    // lines around it repeat the text and are skipped.
+    const queued = entry.type === "attachment" ? entry.attachment : undefined;
+    if (queued?.type === "queued_command" && queued.commandMode === "prompt" && queued.origin?.kind === "human") {
+      if (typeof queued.prompt === "string" && queued.prompt.trim() && !isCommandEntry(queued.prompt.trim())) {
+        turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(queued.prompt) }] });
+      }
       continue;
     }
 
