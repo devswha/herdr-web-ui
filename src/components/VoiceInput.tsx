@@ -104,6 +104,8 @@ export interface Dictation {
   shown: boolean;
   connected: boolean;
   voice: VoiceInput;
+  /** drops the polish still owed to text already in the box: the caller is sending that text as it is */
+  forget: () => void;
   /** the transcript so far, while it is being made */
   partial: string;
   press: () => void;
@@ -164,6 +166,8 @@ export function useDictation(options: DictationOptions): Dictation {
       element.removeEventListener("compositionend", end);
     };
   }, [options.box, apply]);
+  // a flush already scheduled finds nothing to insert once the field is gone
+  useEffect(() => () => { held.current = []; }, []);
 
   const voice = useVoiceInput({
     mode: options.mode,
@@ -175,6 +179,11 @@ export function useDictation(options: DictationOptions): Dictation {
   });
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+
+  // a transcript waiting for an IME composition to end is part of what the user cancels
+  const engineCancel = voice.cancel;
+  const cancel = useCallback((): void => { held.current = []; engineCancel(); }, [engineCancel]);
+  const forget = useCallback((): void => { spans.current.clear(); held.current = held.current.filter((result) => result.phase === "raw"); }, []);
 
   const press = useCallback((): void => {
     if (voiceRef.current.state === "idle") { setPartial(""); latest.current.onNote(null); }
@@ -190,8 +199,8 @@ export function useDictation(options: DictationOptions): Dictation {
   }, [voice.state]);
 
   useEffect(() => {
-    if (!options.connected) voice.cancel();
-  }, [options.connected, voice.cancel]);
+    if (!options.connected) cancel();
+  }, [options.connected, cancel]);
 
   const active = voice.state !== "idle";
   useEffect(() => {
@@ -200,18 +209,18 @@ export function useDictation(options: DictationOptions): Dictation {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      voiceRef.current.cancel();
+      cancel();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [active]);
+  }, [active, cancel]);
 
   useEffect(() => {
     if (!shown) return;
     return registerTarget({ mode: latest.current.mode, box: latest.current.box, voice: () => voiceRef.current, press });
   }, [shown, press]);
 
-  return { shown, connected: options.connected, voice, partial, press };
+  return { shown, connected: options.connected, voice: { ...voice, cancel }, forget, partial, press };
 }
 
 /** The mic: press to talk, held (release finishes) or tapped (tap again to finish). */

@@ -12,6 +12,7 @@
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
 import type { AgentStatus, ConversationTurn, Machine, MachineEvent, ServerMessage, SessionSnapshot, UsageReport } from "../../shared/protocol.ts";
+import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
@@ -340,6 +341,10 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     return json(split ? { pane_id: pane.pane_id } : { tab_id: tabId, pane_id: pane.pane_id });
   }
+  // no key in the demo: the app falls back to the browser's own speech recognition
+  if (path === "/api/voice") return json({ configured: false, source: null, ...VOICE_DEFAULTS } satisfies VoiceStatus, 200, { "cache-control": "no-store" });
+  if (path === "/api/voice/config") return error("demo", "the demo saves no OpenAI key", 409);
+  if (path === "/api/voice/transcribe") return error("voice_not_configured", "transcription is unavailable in the demo", 409);
   if (path.startsWith("/api/fs/")) return error("not_found", "the demo has no files to open", 404);
   return error("demo", `${method} ${path} is not part of the demo`, 404);
 }

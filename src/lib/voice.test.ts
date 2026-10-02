@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { VoiceEvent } from "../../shared/voice.ts";
 import type { InsertedSpan } from "./voice.ts";
 import {
@@ -6,6 +6,7 @@ import {
   barScales,
   classifyRelease,
   createSpeechGate,
+  createVoiceEngine,
   insertAtCaret,
   levelFromRms,
   micErrorReason,
@@ -289,6 +290,23 @@ describe("applyDictation", () => {
     expect(applyDictation("앞 가 뒤", { start: 5, end: 5 }, spans, { take: 2, phase: "polished", text: "가나다" }, 6)).toBeNull();
   });
 
+  it("leaves a selection alone and writes nothing for an unchanged polish", () => {
+    const spans = new Map<number, InsertedSpan>();
+    const box = applied("", end(""), spans, { take: 1, phase: "raw", text: "run tests" }).value;
+    expect(applyDictation(box, { start: 4, end: 9 }, spans, { take: 1, phase: "polished", text: "Run tests." })).toBeNull();
+    const again = applied("", end(""), spans, { take: 2, phase: "raw", text: "run tests" }).value;
+    expect(applyDictation(again, end(again), spans, { take: 2, phase: "polished", text: "run tests" })).toBeNull();
+  });
+
+  it("drops a polish once the box was edited, even when the old offsets still read the same", () => {
+    const spans = new Map<number, InsertedSpan>();
+    const draft = "um check tests";
+    const box = applied(draft, { start: 0, end: 0 }, spans, { take: 1, phase: "raw", text: "um check tests" }).value;
+    expect(box).toBe("um check tests um check tests");
+    // the user deletes the dictated words: the original draft now sits at the stored offsets
+    expect(applyDictation(draft, { start: 0, end: 0 }, spans, { take: 1, phase: "polished", text: "check tests" })).toBeNull();
+  });
+
   it("forgets a take whose words were overwritten by the next one", () => {
     const spans = new Map<number, InsertedSpan>();
     const first = applied("", end(""), spans, { take: 1, phase: "raw", text: "음 첫째" }).value;
@@ -296,5 +314,127 @@ describe("applyDictation", () => {
     expect(second).toBe("둘째");
     expect(applyDictation(second, end(second), spans, { take: 1, phase: "polished", text: "첫째." })).toBeNull();
     expect(applied(second, end(second), spans, { take: 2, phase: "polished", text: "둘째." }).value).toBe("둘째.");
+  });
+});
+
+describe("createVoiceEngine", () => {
+  class FakeStream {
+    stopped = false;
+    private readonly track = { readyState: "live", stop: () => { this.stopped = true; this.track.readyState = "ended"; } };
+    getTracks() { return [this.track]; }
+    getAudioTracks() { return [this.track]; }
+  }
+  class FakeRecorder {
+    static made: FakeRecorder[] = [];
+    state = "inactive";
+    mimeType = "audio/webm";
+    ondataavailable: ((event: { data: Blob }) => void) | null = null;
+    onstart: (() => void) | null = null;
+    onstop: (() => void) | null = null;
+    constructor(readonly stream: FakeStream) { FakeRecorder.made.push(this); }
+    start() { this.state = "recording"; this.onstart?.(); }
+    stop() { this.state = "inactive"; this.ondataavailable?.({ data: new Blob(["audio"]) }); this.onstop?.(); }
+  }
+
+  const GLOBALS = ["document", "MediaRecorder", "requestAnimationFrame", "cancelAnimationFrame", "fetch"] as const;
+  const saved = new Map<string, PropertyDescriptor | undefined>();
+  const define = (target: object, name: string, value: unknown) => Object.defineProperty(target, name, { configurable: true, writable: true, value });
+  /** each getUserMedia call, to be answered by the test in the order it chooses */
+  let micRequests: Array<(stream: FakeStream) => void> = [];
+  let frames: FrameRequestCallback[] = [];
+  let uploads: Array<(response: Response) => void> = [];
+
+  beforeEach(() => {
+    micRequests = [];
+    frames = [];
+    uploads = [];
+    FakeRecorder.made = [];
+    for (const name of GLOBALS) saved.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+    saved.set("mediaDevices", Object.getOwnPropertyDescriptor(navigator, "mediaDevices"));
+    define(globalThis, "document", { hidden: false });
+    define(globalThis, "MediaRecorder", FakeRecorder);
+    define(globalThis, "requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+    define(globalThis, "cancelAnimationFrame", () => undefined);
+    define(globalThis, "fetch", () => new Promise<Response>((resolve) => { uploads.push(resolve); }));
+    define(navigator, "mediaDevices", { getUserMedia: () => new Promise<FakeStream>((resolve) => { micRequests.push(resolve); }) });
+  });
+
+  afterEach(() => {
+    for (const [name, descriptor] of saved) {
+      const target: object = name === "mediaDevices" ? navigator : globalThis;
+      if (descriptor) Object.defineProperty(target, name, descriptor);
+      else Reflect.deleteProperty(target, name);
+    }
+    saved.clear();
+  });
+
+  function engine() {
+    const states: string[] = [];
+    const texts: string[] = [];
+    const waiting: Array<{ state: string; resolve: () => void }> = [];
+    const voice = createVoiceEngine({
+      setState: (state) => {
+        states.push(state);
+        for (const waiter of waiting.splice(0)) if (waiter.state === state) waiter.resolve(); else waiting.push(waiter);
+      },
+      setElapsed: () => undefined,
+      setSilent: () => undefined,
+      setError: () => undefined,
+      options: () => ({ mode: "chat", enabled: true, polish: false, onText: (result) => { texts.push(result.text); } }),
+      engine: () => "server",
+      language: () => "en",
+      recorder: () => ({ mimeType: "audio/webm", extension: "webm" }),
+      speech: () => null,
+    });
+    const reached = (state: string) => new Promise<void>((resolve) => { waiting.push({ state, resolve }); });
+    return { voice, states, texts, reached };
+  }
+
+  /** lets the engine's own continuations after a resolved promise run; nothing here waits on time */
+  const drain = async (): Promise<void> => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); };
+
+  it("closes only its own stream when a cancelled microphone request answers after a newer one", async () => {
+    const { voice } = engine();
+    voice.press();
+    voice.cancel();
+    voice.press();
+    expect(micRequests).toHaveLength(2);
+    const stale = new FakeStream();
+    const current = new FakeStream();
+    micRequests[1]!(current);
+    await drain();
+    expect(FakeRecorder.made.map((recorder) => recorder.stream)).toEqual([current]);
+    micRequests[0]!(stale);
+    await drain();
+    expect(stale.stopped).toBe(true);
+    expect(current.stopped).toBe(false);
+    voice.cancel();
+  });
+
+  it("starts no new take while an earlier one is still being transcribed", async () => {
+    const { voice, states, texts, reached } = engine();
+    voice.press();
+    micRequests[0]!(new FakeStream());
+    await drain();
+    // the meter loop is what moves a take from starting to recording
+    frames.pop()!(performance.now() + 1000);
+    expect(states.at(-1)).toBe("recording");
+    voice.press();
+    expect(states.at(-1)).toBe("transcribing");
+    await drain();
+    expect(uploads).toHaveLength(1);
+
+    voice.press();
+    expect(states.at(-1)).toBe("transcribing");
+    expect(FakeRecorder.made).toHaveLength(1);
+
+    const idle = reached("idle");
+    uploads[0]!(new Response('{"type":"done","text":"create the file"}\n'));
+    await idle;
+    expect(texts).toEqual(["create the file"]);
+    voice.press();
+    await drain();
+    expect(FakeRecorder.made).toHaveLength(2);
+    voice.cancel();
   });
 });

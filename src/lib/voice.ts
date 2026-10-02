@@ -210,6 +210,9 @@ function shiftSpans(spans: Map<number, InsertedSpan>, from: number, to: number, 
 
 const SPANS_KEPT = 8;
 
+/** The takes' spans, with the box text they were measured against (what the last dictation left there). */
+export type DictationSpans = Map<number, InsertedSpan> & { box?: string };
+
 /**
  * One VoiceText applied to the box: raw text goes in at the selection and its span is kept under
  * its take; a polished text replaces only its own take's span, and only while the user has not
@@ -217,7 +220,11 @@ const SPANS_KEPT = 8;
  * `"too_long"`: the text would push the box past `maxLength`; nothing changes, so a box's limit
  * never cuts the user's own words after the caret.
  */
-export function applyDictation(value: string, selection: { start: number; end: number }, spans: Map<number, InsertedSpan>, result: VoiceText, maxLength = Infinity): { value: string; caret: number } | "too_long" | null {
+export function applyDictation(value: string, selection: { start: number; end: number }, spans: DictationSpans, result: VoiceText, maxLength = Infinity): { value: string; caret: number } | "too_long" | null {
+  // the box no longer holds what the last dictation left: the user edited it, and the stored
+  // offsets may now sit on other words that happen to read the same
+  if (spans.box !== undefined && spans.box !== value) spans.clear();
+  spans.box = value;
   if (result.phase === "raw") {
     const next = insertAtCaret(value, selection.start, selection.end, result.text);
     if (next.value === value) return null;
@@ -225,17 +232,21 @@ export function applyDictation(value: string, selection: { start: number; end: n
     shiftSpans(spans, Math.min(selection.start, selection.end), Math.max(selection.start, selection.end), next.value.length - value.length);
     spans.set(result.take, { start: next.start, end: next.end, text: next.value.slice(next.start, next.end) });
     for (const take of spans.keys()) if (spans.size > SPANS_KEPT) spans.delete(take);
+    spans.box = next.value;
     return { value: next.value, caret: next.end };
   }
   const span = spans.get(result.take);
   spans.delete(result.take);
-  if (!span) return null;
+  // a selection is the user's next edit under way and writing the box would collapse it; an
+  // unchanged polish has nothing to write at all
+  if (!span || selection.start !== selection.end || result.text === span.text) return null;
   const next = replaceIfUnchanged(value, span, span.text, result.text);
   // a polish that no longer fits leaves the raw words, which already did
   if (!next || next.value.length > maxLength) return null;
   shiftSpans(spans, span.start, span.end, next.value.length - value.length);
   // the caret follows the swap only if it was in or after the replaced span
   const caret = selection.start >= span.end ? selection.start + next.end - span.end : selection.start > span.start ? next.end : selection.start;
+  spans.box = next.value;
   return { value: next.value, caret };
 }
 
@@ -408,7 +419,7 @@ interface Take {
 }
 
 /** The imperative half of useVoiceInput: mic, recorder, meter loop, uploads. Outlives renders. */
-function createVoiceEngine(io: EngineIO) {
+export function createVoiceEngine(io: EngineIO) {
   let phase: VoiceState = "idle";
   let take: Take | null = null;
   let lastTakeId = 0;
@@ -561,11 +572,17 @@ function createVoiceEngine(io: EngineIO) {
         stream?.getTracks().forEach((track) => track.stop());
         stream = null;
         const opened = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        if (take !== current) {
+          // this request was cancelled or finished while the mic opened: only its own stream may
+          // close, never the one a newer take is recording from
+          if (take !== null || stream || current.releaseMic || document.hidden) opened.getTracks().forEach((track) => track.stop());
+          else { stream = opened; keepWarm(); }
+          return;
+        }
         // an overlapping earlier start may have opened one meanwhile; keep a single stream
         if (stream) opened.getTracks().forEach((track) => track.stop());
         else stream = opened;
       }
-      if (take !== current) { if (current.releaseMic || document.hidden) releaseStream(); else keepWarm(); return; }
       if (warmTimer !== null) clearTimeout(warmTimer);
       warmTimer = null;
       if (audio && audio.stream !== stream) {
@@ -752,6 +769,9 @@ function createVoiceEngine(io: EngineIO) {
 
   function press(): void {
     if (phase === "starting" || phase === "recording") { finishTake(false); return; }
+    // an earlier take is still being transcribed: a second one answering first would put its
+    // words in front of the first's
+    if (pending.size > 0) return;
     const engine = io.engine();
     if (engine === null) return;
     const mime = io.recorder();

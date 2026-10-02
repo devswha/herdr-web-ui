@@ -541,6 +541,8 @@ export function Composer({
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
     };
     if (!composerDrafts.begin(draftKey, sent)) return;
+    // a polish landing before the acknowledgement would count as an edit and keep the sent message here
+    dictation.forget();
     try {
       const result = onSend(text);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
@@ -549,7 +551,7 @@ export function Composer({
       composerDrafts.end(draftKey);
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [attachments, connected, draftKey, onSend, sending, text, uploading]);
+  }, [attachments, connected, dictation.forget, draftKey, onSend, sending, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
