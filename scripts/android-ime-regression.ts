@@ -134,8 +134,16 @@ try {
   }
   console.log("PASS native Android/Gboard", JSON.stringify({ ...report, events: undefined }));
 } finally {
-  await context?.close(); await device.close();
+  await context?.close().catch(() => {});
+  await device.close().catch(() => {});
   await adbRun("reverse", "--remove", `tcp:${server.port}`).catch(() => {});
-  server.stop(); if (workspace) await workspaceClose(workspace).catch((error) => { if (error?.code !== "workspace_not_found") throw error; });
-  rmSync(root, { recursive: true, force: true });
+  try {
+    server.stop();
+  } finally {
+    try {
+      if (workspace) await workspaceClose(workspace).catch((error) => { if (error?.code !== "workspace_not_found") throw error; });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
 }
