@@ -147,12 +147,6 @@ export const KO: Record<string, string> = {
   "Close failed: {reason}": "닫기 실패: {reason}",
   "Rename failed: {reason}": "이름 바꾸기 실패: {reason}",
   "Reorder failed: {reason}": "순서 바꾸기 실패: {reason}",
-  "New tab in {name}": "{name}에 새 탭",
-  "New tab": "새 탭",
-  "Split {title}": "{title} 분할",
-  "Split pane": "패널 분할",
-  "New tab failed: {reason}": "새 탭 실패: {reason}",
-  "Split failed: {reason}": "분할 실패: {reason}",
 
   // ---- PCs sidebar ----
   "Connecting…": "연결 중…",

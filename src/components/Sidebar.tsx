@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Columns2, Download, Folder, GripVertical, Layers, Pencil, Plus, Settings, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Folder, GripVertical, Layers, Pencil, Plus, Settings, Terminal, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -95,31 +95,22 @@ interface InlineError {
 export interface SidebarProps {
   snapshot: SessionSnapshot | null;
   selectedPaneId: string | null;
-  /** What the app has open, on whichever PC: `selectedPaneId` is null while another PC is open. */
-  selection: string;
   actions: AppActions;
   version: string | null;
   embedded?: boolean;
 }
 
-export function Sidebar({ snapshot, selectedPaneId, selection, actions, version, embedded = false }: SidebarProps) {
+export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded = false }: SidebarProps) {
   const t = useT();
   const { settings } = useSettings();
   const byFolder = settings.sidebarGrouping === "directory";
   const machineId = useMachineId();
-  const { closePane, createTab, moveWorkspace, renamePane, renameWorkspace, splitPane } = useMachineApi();
+  const { closePane, moveWorkspace, renamePane, renameWorkspace } = useMachineApi();
   const [armedId, setArmedId] = useState<string | null>(null);
   const [editingPaneId, setEditingPaneId] = useState<string | null>(null);
   const [paneLabel, setPaneLabel] = useState("");
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [workspaceLabel, setWorkspaceLabel] = useState("");
-  const [pendingTabWorkspaceId, setPendingTabWorkspaceId] = useState<string | null>(null);
-  const [pendingSplitPaneId, setPendingSplitPaneId] = useState<string | null>(null);
-  // a new tab or split answers late: it takes the selection only if the user has not picked
-  // another pane or PC meanwhile. This PC's own selected pane cannot tell: it stays null for as
-  // long as another PC is open, whatever is picked there.
-  const selectedRef = useRef(selection);
-  selectedRef.current = selection;
   const [workspaceOrder, setWorkspaceOrder] = useState<string[]>([]);
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<InlineError | null>(null);
@@ -211,32 +202,6 @@ export function Sidebar({ snapshot, selectedPaneId, selection, actions, version,
     void closePane(paneId).catch((reason: unknown) => {
       noteError(t("Close failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
     });
-  };
-
-  const newTabClick = (workspaceId: string): void => {
-    if (pendingTabWorkspaceId !== null) return;
-    setInlineError(null);
-    setPendingTabWorkspaceId(workspaceId);
-    const selectedAtClick = selectedRef.current;
-    void createTab({ workspace_id: workspaceId })
-      .then((created) => { if (selectedRef.current === selectedAtClick) actions.selectPane(created.pane_id); })
-      .catch((reason: unknown) => {
-        noteError(t("New tab failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }));
-      })
-      .finally(() => setPendingTabWorkspaceId(null));
-  };
-
-  const splitPaneClick = (paneId: string): void => {
-    if (pendingSplitPaneId !== null) return;
-    setInlineError(null);
-    setPendingSplitPaneId(paneId);
-    const selectedAtClick = selectedRef.current;
-    void splitPane({ pane_id: paneId, direction: "right" })
-      .then((split) => { if (selectedRef.current === selectedAtClick) actions.selectPane(split.pane_id); })
-      .catch((reason: unknown) => {
-        noteError(t("Split failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
-      })
-      .finally(() => setPendingSplitPaneId(null));
   };
 
   const beginPaneRename = (pane: PaneInfo): void => {
@@ -371,16 +336,6 @@ export function Sidebar({ snapshot, selectedPaneId, selection, actions, version,
               </span>
             )}
             <StatusBadge status={workspace.agent_status} />
-            <button
-              type="button"
-              className="sidebar-row-action workspace-new-tab"
-              aria-label={t("New tab in {name}", { name: workspace.label })}
-              title={t("New tab")}
-              disabled={pendingTabWorkspaceId !== null}
-              onClick={() => newTabClick(workspace.workspace_id)}
-            >
-              <Plus aria-hidden="true" />
-            </button>
             <button type="button" className="sidebar-row-action workspace-rename" aria-label={t("Rename workspace {name}", { name: workspace.label })} onClick={() => beginWorkspaceRename(workspace, scope)}>
               <Pencil aria-hidden="true" />
             </button>
@@ -442,28 +397,6 @@ export function Sidebar({ snapshot, selectedPaneId, selection, actions, version,
                     </span>
                   </div>
                   <div className="pane-actions">
-                    {merged && (
-                      <button
-                        type="button"
-                        className="sidebar-row-action pane-new-tab"
-                        aria-label={t("New tab in {name}", { name: workspace.label })}
-                        title={t("New tab")}
-                        disabled={pendingTabWorkspaceId !== null}
-                        onClick={() => newTabClick(workspace.workspace_id)}
-                      >
-                        <Plus aria-hidden="true" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="sidebar-row-action pane-split"
-                      aria-label={t("Split {title}", { title: displayTitle })}
-                      title={t("Split pane")}
-                      disabled={pendingSplitPaneId !== null}
-                      onClick={() => splitPaneClick(pane.pane_id)}
-                    >
-                      <Columns2 aria-hidden="true" />
-                    </button>
                     <button type="button" className="sidebar-row-action" aria-label={t("Rename {title}", { title: displayTitle })} title={t("Rename pane")} onClick={() => beginPaneRename(pane)}>
                       <Pencil aria-hidden="true" />
                     </button>

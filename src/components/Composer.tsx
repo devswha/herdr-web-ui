@@ -798,7 +798,9 @@ export function Composer({
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
-          disabled={!connected}
+          // stays editable while the socket reconnects (sending waits for it): a phone's
+          // dictation keyboard opens its own app and comes back, the socket may drop meanwhile,
+          // and a disabled box would lose its focus and the dictated text with it
           onPaste={onPaste}
           onKeyDown={onKeyDown}
           onClick={(event) => {

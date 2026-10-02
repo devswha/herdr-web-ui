@@ -219,50 +219,6 @@ export async function workspaceClose(workspaceId: string, socketPath?: string): 
   await herdrRpc("workspace.close", { workspace_id: workspaceId }, socketPath);
 }
 
-export interface TabCreateResult {
-  type: "tab_created";
-  tab: TabInfo;
-  root_pane: PaneInfo;
-}
-
-export async function tabCreate(
-  options: { workspaceId?: string; cwd?: string; label?: string },
-  socketPath?: string,
-): Promise<TabCreateResult> {
-  return herdrRpc(
-    "tab.create",
-    {
-      ...(options.workspaceId === undefined ? {} : { workspace_id: options.workspaceId }),
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-      ...(options.label === undefined ? {} : { label: options.label }),
-      focus: false,
-    },
-    socketPath,
-  );
-}
-
-export interface PaneSplitResult {
-  type: "pane_info";
-  pane: PaneInfo;
-}
-
-/** Split a pane; answers the new pane. herdr requires `direction`, so an omitted one is `right`. */
-export async function paneSplit(
-  options: { paneId?: string; direction?: "right" | "down"; cwd?: string },
-  socketPath?: string,
-): Promise<PaneSplitResult> {
-  return herdrRpc(
-    "pane.split",
-    {
-      ...(options.paneId === undefined ? {} : { target_pane_id: options.paneId }),
-      direction: options.direction ?? "right",
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-      focus: false,
-    },
-    socketPath,
-  );
-}
-
 export interface PaneReadOptions {
   paneId: string;
   source?: ReadSource;

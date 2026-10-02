@@ -7,11 +7,22 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The sidebar's rows are as they were before 0.3.42. Its new tab and split buttons took room from
+  every pane's name, also while hidden, so the names were cut shorter. Both buttons are gone, and
+  so are `POST /api/tab/create` and `POST /api/pane/split`.
+  ([#327](https://github.com/devswha/herdr-web-ui/pull/327))
+
 ### Fixed
+- The message box stays editable while the app reconnects. On an iPhone, a dictation keyboard such
+  as Typeless or Wispr Flow opens its own app and comes back; the connection could drop meanwhile,
+  the box was disabled and lost its focus, and the dictated text went nowhere. Sending still waits
+  for the connection. ([#318](https://github.com/devswha/herdr-web-ui/pull/318) by @Haeminway1)
 - New session starts an agent when another of the same kind is already running. The second
   Claude (or Codex, ...) used to get an empty workspace and `agent name claude is already used`,
   because every agent was named after its kind and herdr wants each name once. Later ones are now
   named `claude-2`, `claude-3` and so on.
+  ([#328](https://github.com/devswha/herdr-web-ui/pull/328))
 
 ## [0.3.42] - 2026-10-02
 
