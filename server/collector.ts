@@ -22,12 +22,16 @@ import { HerdrError, sessionSnapshot, subscribeEvents, type EventFrame, type Sub
  *
  * - A status that changed while no subscription was listening for the pane is never sent
  *   again: the pane set changed (a pane opened or closed elsewhere) and the status connection
- *   was being reopened with the new set, or the server had only just started. A finish in
- *   that gap cost its done alert (#245: with panes opening and closing beside it, a pane's
- *   one status change was lost in 5 of 10 runs). So each pane's status as last heard is
- *   kept, and a snapshot that shows another, with no event since it was asked for, is told
- *   as that event. The recovery after `events_lost` stays as it is: what was missed over
- *   an outage of unknown length is corrected without alerts (`onResync`).
+ *   was being reopened with the new set, herdr refused a batch for a pane that had gone, or
+ *   the server had only just started. A finish in that gap cost its done alert (#245: with
+ *   panes opening and closing beside it, a pane's one status change was lost in 5 of 10
+ *   runs). Such a gap is short and known, so the first snapshot after the new subscription
+ *   started is measured against each pane's status as last heard, and a pane that went
+ *   between working and at rest with no event to say so is told as that event (`replay`).
+ *   Nothing else is: a snapshot at any other time may differ from the last event for reasons
+ *   that are no change (herdr reads a finish nobody saw as `done` here and `idle` there),
+ *   and what was missed over an outage of unknown length (`events_lost`, a herdr that could
+ *   not be reached) is corrected without alerts (`onResync`).
  *
  * Status frames are flat (`{event:"pane.agent_status_changed", data:{pane_id, agent_status, ...}}`)
  * while structure frames carry a snake_case `data.type` - both shapes below parse only
@@ -43,8 +47,12 @@ const RECONCILE_DEBOUNCE_MS = 500;
 const SNAPSHOT_RETRY_MS = 5_000;
 
 export interface StatusCollectorHandlers {
-  /** `agent` is the agent herdr now sees in the pane (null: none) */
-  onStatus: (paneId: string, status: AgentStatus, agent: string | null) => void;
+  /**
+   * `agent` is the agent herdr now sees in the pane (null: none). `replay`: no event said
+   * so; a snapshot did, right after a gap between two subscriptions, and this is what the
+   * pane was last heard as before it.
+   */
+  onStatus: (paneId: string, status: AgentStatus, agent: string | null, replay?: { before: AgentStatus; agent: string | null }) => void;
   /**
    * Every pane as of each reconcile's snapshot. Status events only report changes, so
    * this is where a consumer learns the status a later change is measured against -
@@ -199,8 +207,14 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
   /** counts status events; each pane keeps the count of its latest */
   let statusEvents = 0;
   const lastEventOf = new Map<string, number>();
-  /** each pane's status as last heard, in an event or a snapshot: what the next snapshot is measured against */
-  const heard = new Map<string, AgentStatus>();
+  /** each pane's status as last heard, in an event or a snapshot: what the snapshot after a gap is measured against */
+  const heard = new Map<string, { status: AgentStatus; agent: string | null }>();
+  /** when a pane last ended or came to the front, counted as events are: a snapshot asked for before that is no news of it */
+  const actedOn = new Map<string, number>();
+  /** the status subscription was closed for another pane set, or refused: a change since then may have had no event */
+  let gap = false;
+  /** the subscription that started after such a gap: the next reconcile's snapshot replays */
+  let replayFor: number | null = null;
 
   const STRUCTURE_SUBSCRIPTIONS = [
     { type: "pane.created" },
@@ -219,6 +233,10 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
     subscribedPaneIds = new Set(paneIds);
     const generation = ++statusGeneration;
     let started = false;
+    /** herdr answered the batch with an error of its own (a pane that had gone), not a connection that failed */
+    let refused = false;
+    // between the snapshot that chose these panes and this subscription's start nothing listens
+    gap = true;
     const subscription = deps.subscribe(
       paneIds.map((paneId) => ({ type: "pane.agent_status_changed", pane_id: paneId })),
       {
@@ -226,7 +244,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
           const parsed = parseStatusFrame(frame);
           if (!parsed) return;
           lastEventOf.set(parsed.paneId, ++statusEvents);
-          heard.set(parsed.paneId, parsed.status);
+          heard.set(parsed.paneId, { status: parsed.status, agent: parsed.agent });
           handlers.onStatus(parsed.paneId, parsed.status, parsed.agent);
         },
         // herdr's contract: subscribe, wait until it started, then snapshot. The snapshot
@@ -235,19 +253,25 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
           started = true;
           if (statusSubscription !== subscription) return;
           if (recovering) resyncFor = generation;
+          else if (gap) replayFor = generation;
           void reconcile();
         },
-        onError: logSubscriptionError,
+        onError: (error) => {
+          const code = error instanceof HerdrError ? error.code : "error";
+          refused = code !== "connect_failed" && code !== "socket_error" && code !== "timeout" && code !== "error";
+          logSubscriptionError(error);
+        },
         // herdr answers a bad batch (e.g. a pane that vanished between snapshot and
         // subscribe) with an error frame and closes the socket, and closes a subscriber
         // that fell behind (`events_lost`): the whole set is re-subscribed from a fresh
         // snapshot, now rather than after the debounce, and what was missed is resynced.
-        // One refused before it started lost no events of its own: the gap it leaves is
-        // the short one between two subscriptions, and a change in it is told as an event
+        // One herdr refused before it started lost no events of its own: the gap it leaves
+        // is the short one between two subscriptions. One that could not connect says
+        // nothing of how long nobody listened, and recovers like a lost one
         onClose: () => {
           if (statusSubscription !== subscription || stopped) return;
           closeStatusSubscription();
-          if (started) recovering = true;
+          if (started || !refused) recovering = true;
           void reconcile();
         },
       },
@@ -266,6 +290,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
     reconciling = true;
     const resync = resyncFor;
     resyncFor = null;
+    const replay = replayFor;
+    replayFor = null;
     const askedAt = statusEvents;
     try {
       const snapshot = await deps.snapshot();
@@ -281,28 +307,38 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         // clients learn statuses from events, and some were lost: they fetch again
         handlers.onStructureChange();
       }
+      const replaying = !resynced && !recovering && replay !== null && replay === statusGeneration && statusSubscription !== null;
+      if (resynced || replaying) gap = false;
+      const busy = (status: AgentStatus): boolean => status === "working" || status === "blocked";
       for (const pane of snapshot.panes) {
-        // an event since the snapshot was asked for is newer than it
-        if ((lastEventOf.get(pane.pane_id) ?? 0) > askedAt) continue;
+        // an event, an exit or a focus since the snapshot was asked for is newer than it
+        if (Math.max(lastEventOf.get(pane.pane_id) ?? 0, actedOn.get(pane.pane_id) ?? 0) > askedAt) continue;
         const before = heard.get(pane.pane_id);
-        heard.set(pane.pane_id, pane.agent_status);
-        // the change had no event: it fell between two subscriptions, and is told as one.
-        // While events are known to be lost the resync alone speaks, and alerts nobody
-        if (before !== undefined && before !== pane.agent_status && !resynced && !recovering) {
-          handlers.onStatus(pane.pane_id, pane.agent_status, pane.agent ?? null);
-        }
+        const agent = pane.agent ?? null;
+        // a snapshot taken inside a gap is not what the pane was last heard as: the one after
+        // the gap is still to be measured against what came before it
+        if (before !== undefined && gap) continue;
+        heard.set(pane.pane_id, { status: pane.agent_status, agent });
+        if (!replaying || before === undefined || before.status === pane.agent_status) continue;
+        // done and idle are both at rest: herdr reads a finish nobody saw as either
+        if (!busy(before.status) && !busy(pane.agent_status)) continue;
+        handlers.onStatus(pane.pane_id, pane.agent_status, agent, { before: before.status, agent: before.agent });
       }
       const paneIds = snapshot.panes.map((pane) => pane.pane_id);
       // gone before this snapshot; a pane heard of since may be too new for it
       for (const [paneId, seq] of lastEventOf) if (seq <= askedAt && !paneIds.includes(paneId)) lastEventOf.delete(paneId);
       for (const paneId of [...heard.keys()]) if (!paneIds.includes(paneId) && (lastEventOf.get(paneId) ?? 0) <= askedAt) heard.delete(paneId);
+      for (const [paneId, seq] of actedOn) if (seq <= askedAt && !paneIds.includes(paneId)) actedOn.delete(paneId);
       const sameSet =
         paneIds.length === subscribedPaneIds.size && paneIds.every((id) => subscribedPaneIds.has(id));
       if (sameSet) return;
       closeStatusSubscription();
       openStatusSubscription(paneIds);
+      // no pane left to listen for: nothing can have been missed
+      if (paneIds.length === 0) gap = false;
     } catch {
       if (resync !== null && resyncFor === null) resyncFor = resync;
+      if (replay !== null && replayFor === null) replayFor = replay;
       /* herdr unreachable or slow: retry shortly instead of waiting for the backstop */
       if (!stopped && reconcileTimer === null) {
         reconcileTimer = setTimeout(() => {
@@ -333,7 +369,12 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
     (frame) => {
       const parsed = parseStructureFrame(frame);
       if (!parsed) return;
-      if (parsed.kind === "pane-ended") handlers.onPaneEnded(parsed.paneId);
+      if (parsed.kind === "pane-ended") {
+        // a snapshot already on its way still holds the pane: it is no news of it
+        actedOn.set(parsed.paneId, ++statusEvents);
+        heard.delete(parsed.paneId);
+        handlers.onPaneEnded(parsed.paneId);
+      }
       else {
         handlers.onStructureChange();
         scheduleReconcile();
@@ -355,7 +396,9 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       [{ type: "pane.focused" }],
       (frame) => {
         const paneId = parseFocusFrame(frame);
-        if (paneId !== null) onFocus(paneId);
+        if (paneId === null) return;
+        actedOn.set(paneId, ++statusEvents);
+        onFocus(paneId);
       },
       // a focus change missed meanwhile is gone for good: the next one is heard again
       () => {},

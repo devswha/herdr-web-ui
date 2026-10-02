@@ -749,7 +749,12 @@ export function createServer(
   }
 
   const collector = startStatusCollector({
-    onStatus: (paneId, raw, agent) => {
+    onStatus: (paneId, raw, agent, replay) => {
+      // read back from a snapshot after a gap between subscriptions. An OmO pane's status there
+      // is OmO's own or herdr's by turns (server/omo-status.ts), and a difference is no change
+      if (replay && omo.runs(paneId)) return;
+      // a pane the tracker never saw (the server just started): the change starts from what it was
+      if (replay && completions.current(paneId) === undefined) completions.observe(paneId, replay.before, replay.agent);
       // another agent took an OmO pane: what OmO worked on there is not that agent's to finish
       if (omo.named(paneId, agent)) completions.forget(paneId);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
