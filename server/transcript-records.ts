@@ -1,5 +1,6 @@
 /** Shared native-record rules keep paging, rendering and on-demand results consistent. */
 import type { ConversationPart, ConversationTurn } from "../shared/protocol.ts";
+import { skillInvocationPrompt } from "./skill-activity.ts";
 import { trimOutput } from "./tool-output.ts";
 
 type Row = Record<string, unknown>;
@@ -171,7 +172,11 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
               .filter((part) => part.length > 0)
               .join("\n");
       if (prompt.length === 0) continue; // image-only user parts have no text to show
-      turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "text", text: prompt }] });
+      // a skill invocation reads as what the user asked, the skill as a chip on it: not as the
+      // SKILL.md the runtime put before it. Kept on this record, so no page boundary can part them
+      const invocation = skillInvocationPrompt(prompt);
+      const asked = invocation === null ? prompt : invocation.request || invocation.skills.map((skill) => `/skill:${skill.name}`).join(" ");
+      turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "text", text: asked }, ...(invocation?.skills ?? []).map((skill) => ({ kind: "skill" as const, skill }))] });
       continue;
     }
 
