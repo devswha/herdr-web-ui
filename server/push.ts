@@ -354,8 +354,10 @@ export function createPushService(options: PushServiceOptions): PushService {
         const key = paneStorageId(machineId, pane.pane_id);
         const previous = lastStatus.get(key);
         const status = pane.agent_status;
-        // done and idle are both at rest: herdr reports a finish nobody has seen as idle
-        if (previous === status || (previous !== undefined && !busy(previous) && !busy(status))) continue;
+        if (previous === status) continue;
+        // done and idle are both at rest: herdr reports a finish nobody has seen as idle. No
+        // alert is called off for it, but it is what the next event is measured against
+        if (previous !== undefined && !busy(previous) && !busy(status)) { lastStatus.set(key, status); continue; }
         lastStatus.set(key, status);
         if (previous === undefined) continue;
         callOff(key);

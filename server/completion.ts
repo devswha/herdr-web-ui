@@ -111,6 +111,56 @@ export class CompletionTracker {
     this.save();
   }
 
+  /**
+   * A status the collector read back from a snapshot around a gap between subscriptions,
+   * no event having said it: is it news? A pane never reported here (the server just
+   * started), or reported only from a snapshot taken once its work had ended, first takes
+   * what it was before, so a finish after work is a finish. Between
+   * two statuses at rest it is news only while the pane is shown as working (`unknown`
+   * under another agent's name reads as work going on): herdr reads a finish nobody saw
+   * as `done` in one place and `idle` in another, and that difference must not undo a DONE.
+   * A change from work to rest is always news, even where a snapshot served to a browser
+   * settled it here first: that told no device.
+   */
+  replayed(paneId: string, status: AgentStatus, before: { before: AgentStatus; agent: string | null }): boolean {
+    const busy = (value: AgentStatus): boolean => value === "working" || value === "blocked";
+    const shown = this.reported.get(paneId);
+    // never reported, or only from a snapshot taken after the work ended: the work it did is not known here yet
+    const unseenWork = busy(before.before) && !busy(status) && !this.worked.has(paneId) && !this.finished.has(paneId) && (shown === undefined || !busy(shown));
+    if (shown === undefined || unseenWork) {
+      this.observe(paneId, before.before, before.agent);
+      return true;
+    }
+    // a finish a browser's snapshot settled first is still one nobody was alerted of: it goes on, and stays DONE
+    return busy(shown) || busy(status) || busy(before.before);
+  }
+
+  /**
+   * Status events were lost for a stretch of unknown length and this snapshot is the truth
+   * now (the collector's resync), but for the `newer` panes, which had an event since. Each
+   * pane is settled against it without telling anyone, as the alerts are corrected without
+   * alerting: work kept from before the loss would otherwise make a finish of the next
+   * change the pane shows, long after it ended.
+   */
+  resync(panes: readonly { pane_id: string; agent_status: AgentStatus; agent?: string | null }[], newer: ReadonlySet<string>): void {
+    const live = new Set(panes.map((pane) => pane.pane_id));
+    for (const pane of panes) {
+      if (newer.has(pane.pane_id)) continue;
+      const agent = pane.agent ?? null;
+      // at rest now: the work known from before the loss is over, whoever is in the pane. `unknown`
+      // under another agent's name would otherwise read as that work still going on
+      if (pane.agent_status !== "working" && pane.agent_status !== "blocked" && this.worked.delete(pane.pane_id) && agent !== null) {
+        this.finished.set(pane.pane_id, agent);
+      }
+      this.record(pane.pane_id, this.settle(pane.pane_id, pane.agent_status, agent), ++this.order);
+    }
+    // a pane that went during the loss: a snapshot still being read must not bring it back
+    for (const paneId of new Set([...this.worked.keys(), ...this.finished.keys(), ...this.reported.keys()])) {
+      if (!live.has(paneId) && !newer.has(paneId)) this.drop(paneId, ++this.order);
+    }
+    this.save();
+  }
+
   /** What the pane was last reported as, if it was. */
   current(paneId: string): AgentStatus | undefined {
     return this.reported.get(paneId);

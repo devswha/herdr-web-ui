@@ -7,12 +7,34 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
+  that changed instead of the whole screen each time, and shows what you type sooner. An agent at
+  work repaints a spinner about 12 times a second: measured with gjc, that was 88 KB a second to
+  every viewer and is 11 KB now. Typing waited for the mirror's next look at the screen, up to
+  0.4 s on an idle pane: on a real Windows PC a key's echo took 159 ms and takes 23 ms.
+  ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
+
 ### Fixed
 - Nerd Font icons (a Starship or Powerlevel10k prompt, `lsd`, `eza --icons`, Neovim file
   trees) show in the terminal instead of empty boxes. The terminal's fonts had none of them, and
   Safari never uses a font the user installed, so even a Nerd Font set up for the native
   terminal did not help there. The app now carries Symbols Nerd Font Mono for those characters
   alone; the browser downloads it (1.2 MB) only once a pane prints one.
+  ([#294](https://github.com/devswha/herdr-web-ui/pull/294) by @jmr533)
+- An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
+  The server reopens its status subscription whenever the set of panes changes, and a status
+  that changed in between was never sent again: no done alert came, and a browser kept the old
+  state until its next refresh. The status is now read back once the new subscription is live
+  and told as the event it would have been. Seen as a flaky test first: with panes opening and
+  closing beside it, a pane's one status change was lost in 5 of 10 runs, and in none after.
+  ([#291](https://github.com/devswha/herdr-web-ui/pull/291))
+- Frames and tables an agent draws in the terminal have whole lines. Box-drawing characters came
+  from the font, whose glyph is shorter than a row, so an upright line broke at every row and a
+  corner did not meet its lines; a phone drew the heavy lines `━ ┃ ╋` almost like the light ones,
+  and shades `░▒▓` as a dot pattern. These characters and the block elements (`█ ▄ ▌` and the
+  like, as in a progress bar) are now drawn to the cell, edge to edge, on whole screen pixels.
+  ([#295](https://github.com/devswha/herdr-web-ui/pull/295))
 - Several lines sent to an agent from the terminal's input line, or pasted into the terminal,
   stay in its message box until sent on a Linux or macOS PC that mirrors its terminals too (one
   with no Node for the terminal attach). They went as bare lines there, and the agent sent the

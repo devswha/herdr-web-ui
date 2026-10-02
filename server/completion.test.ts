@@ -307,4 +307,50 @@ describe("CompletionTracker", () => {
       expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ herdr: "herdr-a" });
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it("takes a status read back from a snapshot for news only where it is a change", () => {
+    const tracker = new CompletionTracker(null);
+    // a pane never reported here: it starts from what it was, so the finish is a finish
+    expect(tracker.replayed("fresh", "idle", { before: "working", agent: "claude" })).toBe(true);
+    expect(tracker.observe("fresh", "idle", "claude")).toBe("done");
+    // herdr reads that finish as idle in a snapshot and done in an event: not news, the DONE stands
+    expect(tracker.replayed("fresh", "idle", { before: "done", agent: "claude" })).toBe(false);
+    expect(tracker.current("fresh")).toBe("done");
+    // unknown under another agent's name is shown as working: its idle after a gap is the finish
+    tracker.observe("handoff", "working", "pi");
+    expect(tracker.observe("handoff", "unknown", "claude")).toBe("working");
+    expect(tracker.replayed("handoff", "idle", { before: "unknown", agent: "claude" })).toBe(true);
+    expect(tracker.observe("handoff", "idle", "claude")).toBe("done");
+    // a browser's snapshot reported the pane at rest before the replay came: the work it did is still taken in
+    const late = new CompletionTracker(null);
+    late.present(snapshot([{ id: "late", status: "unknown", agent: "codex" }]));
+    expect(late.replayed("late", "unknown", { before: "working", agent: "codex" })).toBe(true);
+    expect(late.observe("late", "unknown", "codex")).toBe("done");
+    // a browser's snapshot settled the finish first: the replay still goes on to the devices, and it stays DONE
+    const settled = new CompletionTracker(null);
+    settled.observe("p", "working", "claude");
+    settled.present(snapshot([{ id: "p", status: "idle" }]));
+    expect(settled.current("p")).toBe("done");
+    expect(settled.replayed("p", "idle", { before: "working", agent: "claude" })).toBe(true);
+    expect(settled.observe("p", "idle", "claude")).toBe("done");
+    // work kept from before a loss of events is settled by the resync, and makes no finish of a later change at rest
+    const lossy = new CompletionTracker(null);
+    lossy.observe("p", "working", "codex");
+    lossy.observe("q", "working", "codex");
+    lossy.resync([{ pane_id: "p", agent_status: "idle", agent: "codex" }, { pane_id: "q", agent_status: "idle", agent: "codex" }], new Set(["q"]));
+    expect([lossy.current("p"), lossy.current("q")]).toEqual(["done", "working"]);
+    expect(lossy.replayed("p", "unknown", { before: "idle", agent: "codex" })).toBe(false);
+    // another agent sits in the pane at rest after the loss: the work from before is over, not going on under its name
+    const handed = new CompletionTracker(null);
+    handed.observe("p", "working", "codex");
+    handed.observe("gone", "working", "codex");
+    handed.resync([{ pane_id: "p", agent_status: "unknown", agent: "claude" }], new Set());
+    expect(handed.current("p")).toBe("done");
+    expect(handed.replayed("p", "idle", { before: "unknown", agent: "claude" })).toBe(false);
+    // and a pane that went during the loss is forgotten
+    expect(handed.current("gone")).toBeUndefined();
+    // work starting, or stopping for a question, is news from any state
+    expect(tracker.replayed("fresh", "working", { before: "idle", agent: "claude" })).toBe(true);
+    expect(tracker.replayed("fresh", "blocked", { before: "idle", agent: "claude" })).toBe(true);
+  });
 });

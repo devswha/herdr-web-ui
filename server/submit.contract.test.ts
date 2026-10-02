@@ -379,6 +379,38 @@ describe("a herdr without terminal attach (Windows)", () => {
     }
   }, 30_000);
 
+  it("hands several lines for an agent on a mirrored pane over as one paste, typed or sent, and bare where no agent is", async () => {
+    const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+      "workspace.create", { label: "herdr-web-ui-test-submit-mirror-paste", cwd: root, focus: false },
+    );
+    workspaces.push(created.workspace.workspace_id);
+    const pane = created.root_pane.pane_id;
+    const socket = await Socket.connect(bare.port);
+    const shows = (text: string) => socket.waitFor((message) => message.type === "pty-data" && message.pane_id === pane && message.data.includes(text));
+    try {
+      socket.send({ type: "attach", pane_id: pane, cols: 80, rows: 24 });
+      await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === pane);
+      // a program that shows every byte it is sent, the escape of a paste marker as ^[
+      socket.send({ type: "input", pane_id: pane, text: "cat -v\r" });
+      await shows("cat -v");
+      // no agent on the pane: the lines go as they came (#267: a program without paste support must get them bare)
+      socket.send({ type: "input", pane_id: pane, text: "bare one\rbare two\r" });
+      const bare = await shows("bare two");
+      expect(bare.data).not.toContain("200~");
+      // herdr names an agent on it: the same shape of block is one bracketed paste, on both paths
+      await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "idle" });
+      socket.send({ type: "input", pane_id: pane, text: "typed one\rtyped two" });
+      await shows("^[[200~typed one");
+      await shows("typed two^[[201~");
+      socket.send({ type: "submit", id: 31, pane_id: pane, text: "sent one\nsent two", payload: "sent one\rsent two", typed: true });
+      expect(await socket.result(31)).toMatchObject({ ok: true });
+      await shows("^[[200~sent one");
+      await shows("sent two^[[201~");
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
   it("keeps unattached typing behind a message in flight: a Stop right after Send lands after its Enter", async () => {
     const socket = await Socket.connect(bare.port);
     try {
