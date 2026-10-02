@@ -22,6 +22,46 @@ export function selectedSkill(text: string): SkillActivity | null {
   return name && document ? { ...document, name } : null;
 }
 
+const SKILL_INSTRUCTION = /^The user explicitly invoked the "([^"]+)" skill\. Follow the instructions in <skill-instruction> as binding for this request, while respecting higher-priority instructions\.\n\n<skill-instruction name="([^"]+)" location="([^"]+)">\n[\s\S]*?\n<\/skill-instruction>/;
+const LEGACY_SKILL = /^<skill name="([^"]+)" location="([^"]+)">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/;
+
+/** pi names the skill file it loaded: a SKILL.md, or a standalone `.md` skill (`--skill review.md`). */
+function loadedSkill(name: string | undefined, location: string | undefined): SkillActivity | null {
+  const skill = label(name);
+  if (skill === null || typeof location !== "string" || location.length === 0 || location.length > 4096 || /[\r\n]/.test(location)) return null;
+  return { name: skill, path: location, evidence: "instructions", status: "loaded" };
+}
+
+/**
+ * The prompt omp/omo record when the user invokes a skill (`/skill:name`, `$name`, a keyword): the
+ * whole SKILL.md before the request, tens of KB the user never typed. Mirrors pi's own
+ * `parseSkillBlock` (core/skill-invocation.ts): chained invocations, then `<user-request>`, or the
+ * legacy `<skill name location>` form. Anything else is left as the user's text.
+ */
+export function skillInvocationPrompt(text: string): { skills: SkillActivity[]; request: string } | null {
+  const skills: SkillActivity[] = [];
+  let remainder = text;
+  let match = SKILL_INSTRUCTION.exec(remainder);
+  while (match !== null) {
+    const skill = match[1] === match[2] ? loadedSkill(match[1], match[3]) : null;
+    if (skill === null) return null;
+    skills.push(skill);
+    remainder = remainder.slice(match[0].length);
+    if (!remainder.startsWith("\n\nThe user explicitly invoked the ")) break;
+    remainder = remainder.slice(2);
+    match = SKILL_INSTRUCTION.exec(remainder);
+    if (match === null) return null;
+  }
+  if (skills.length > 0) {
+    if (remainder.length === 0) return { skills, request: "" };
+    const request = /^\n\n<user-request>\n([\s\S]*?)\n<\/user-request>$/.exec(remainder);
+    return request ? { skills, request: request[1]!.trim() } : null;
+  }
+  const legacy = LEGACY_SKILL.exec(text);
+  const skill = legacy ? loadedSkill(legacy[1], legacy[2]) : null;
+  return skill ? { skills: [skill], request: legacy![3]?.trim() ?? "" } : null;
+}
+
 export function invokedSkill(name: string, input: Record<string, unknown>): SkillActivity | null {
   if (name !== "Skill") return null;
   const skill = label(input.skill);

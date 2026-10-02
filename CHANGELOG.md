@@ -23,6 +23,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
 
 ### Fixed
+- In an OmO, omp or pi chat, a message that invoked a skill (`/skill:name`, `$name`, or a keyword such as
+  `ulw`) shows what you asked, not the whole SKILL.md the agent put before it: one such message
+  filled tens of KB of the chat. The skill shows as a chip under your message, standalone `.md`
+  skills included. ([#302](https://github.com/devswha/herdr-web-ui/pull/302))
 - A chat message the page cannot draw no longer blanks the whole app. That message says it can't be
   shown and the rest of the conversation stays; if the chat as a whole fails, it says so with Try
   again, and the header, sidebar and terminal keep working.

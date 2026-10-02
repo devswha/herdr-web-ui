@@ -884,6 +884,9 @@
 
 .chat-skill[open] .chat-skill-caret { transform: rotate(180deg); }
 
+/* under the message that invoked it, on the message's side */
+.chat-turn-user .chat-skills { justify-content: flex-end; margin: 0; }
+
 /* pi moved its leaf and wrote nothing: the turns above are not all the file holds, and this is
    the only place that can say so. Read-only, so it is quieter than a compaction, which changed
    what the agent answers from. */
