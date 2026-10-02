@@ -143,9 +143,20 @@ export class CompletionTracker {
    * change the pane shows, long after it ended.
    */
   resync(panes: readonly { pane_id: string; agent_status: AgentStatus; agent?: string | null }[], newer: ReadonlySet<string>): void {
+    const live = new Set(panes.map((pane) => pane.pane_id));
     for (const pane of panes) {
       if (newer.has(pane.pane_id)) continue;
-      this.record(pane.pane_id, this.settle(pane.pane_id, pane.agent_status, pane.agent ?? null), ++this.order);
+      const agent = pane.agent ?? null;
+      // at rest now: the work known from before the loss is over, whoever is in the pane. `unknown`
+      // under another agent's name would otherwise read as that work still going on
+      if (pane.agent_status !== "working" && pane.agent_status !== "blocked" && this.worked.delete(pane.pane_id) && agent !== null) {
+        this.finished.set(pane.pane_id, agent);
+      }
+      this.record(pane.pane_id, this.settle(pane.pane_id, pane.agent_status, agent), ++this.order);
+    }
+    // a pane that went during the loss: a snapshot still being read must not bring it back
+    for (const paneId of new Set([...this.worked.keys(), ...this.finished.keys(), ...this.reported.keys()])) {
+      if (!live.has(paneId) && !newer.has(paneId)) this.drop(paneId, ++this.order);
     }
     this.save();
   }

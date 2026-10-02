@@ -323,7 +323,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       const resynced = resync !== null && resync === statusGeneration && statusSubscription !== null;
       if (resynced) {
         recovering = false;
-        const newer = new Set([...lastEventOf].filter(([, seq]) => seq > askedAt).map(([paneId]) => paneId));
+        // an exit or a focus since the snapshot was asked for is newer than it too
+        const newer = new Set([...lastEventOf, ...actedOn].filter(([, seq]) => seq > askedAt).map(([paneId]) => paneId));
         handlers.onResync?.(snapshot.panes, newer);
         // clients learn statuses from events, and some were lost: they fetch again
         handlers.onStructureChange();
@@ -446,8 +447,10 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         const paneId = parseFocusFrame(frame);
         if (paneId === null) return;
         actedOn.set(paneId, ++statusEvents);
-        // seen at herdr's terminal: what it was heard as before is no measure for a later snapshot
-        heard.delete(paneId);
+        // a finish seen at herdr's terminal is no measure for a later snapshot. Work still going on is:
+        // its finish in a gap after this is news
+        const told = heard.get(paneId);
+        if (told !== undefined && told.status !== "working" && told.status !== "blocked") heard.delete(paneId);
         onFocus(paneId);
       },
       // a focus change missed meanwhile is gone for good: the next one is heard again

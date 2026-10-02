@@ -382,6 +382,24 @@ describe("startStatusCollector recovery", () => {
     flaky.stop();
   });
 
+  it("still tells the finish of work that was brought to the front while it went on", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.status()!.start();
+    await tick(20);
+    herdr.subscriptions.find((s) => s.types[0] === "pane.focused")!.emit({ event: "pane_focused", data: { type: "pane_focused", pane_id: "w1:p1" } });
+    herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
+    herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(30);
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
+    herdr.status()!.start();
+    await tick(30);
+    expect(log.statuses).toEqual(["w1:p1:idle (was working)"]);
+    collector.stop();
+  });
+
   it("reads an event still on its way before it closes the connection, also when the snapshot shows nothing to replay", async () => {
     const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
     const { log, handlers } = recorder();

@@ -340,6 +340,15 @@ describe("CompletionTracker", () => {
     lossy.resync([{ pane_id: "p", agent_status: "idle", agent: "codex" }, { pane_id: "q", agent_status: "idle", agent: "codex" }], new Set(["q"]));
     expect([lossy.current("p"), lossy.current("q")]).toEqual(["done", "working"]);
     expect(lossy.replayed("p", "unknown", { before: "idle", agent: "codex" })).toBe(false);
+    // another agent sits in the pane at rest after the loss: the work from before is over, not going on under its name
+    const handed = new CompletionTracker(null);
+    handed.observe("p", "working", "codex");
+    handed.observe("gone", "working", "codex");
+    handed.resync([{ pane_id: "p", agent_status: "unknown", agent: "claude" }], new Set());
+    expect(handed.current("p")).toBe("done");
+    expect(handed.replayed("p", "idle", { before: "unknown", agent: "claude" })).toBe(false);
+    // and a pane that went during the loss is forgotten
+    expect(handed.current("gone")).toBeUndefined();
     // work starting, or stopping for a question, is news from any state
     expect(tracker.replayed("fresh", "working", { before: "idle", agent: "claude" })).toBe(true);
     expect(tracker.replayed("fresh", "blocked", { before: "idle", agent: "claude" })).toBe(true);
