@@ -618,4 +618,7 @@ export const ZH: Record<string, string> = {
   "Running": "运行中",
   "Ended in the last day": "最近一天内结束",
   "Couldn't refresh: this is the list as it last read": "无法刷新：这是上次读取的列表",
+  "This message can't be shown here. The terminal has it.": "此消息无法在这里显示，可在终端中查看。",
+  "The chat can't be shown. The terminal still works.": "无法显示聊天，终端仍可使用。",
+  "Try again": "重试",
 };

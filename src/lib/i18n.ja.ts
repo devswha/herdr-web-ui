@@ -616,4 +616,7 @@ export const JA: Record<string, string> = {
   "Running": "実行中",
   "Ended in the last day": "この 1 日で終了",
   "Couldn't refresh: this is the list as it last read": "更新できませんでした。最後に読み込んだ一覧です",
+  "This message can't be shown here. The terminal has it.": "このメッセージはここに表示できません。ターミナルで確認できます。",
+  "The chat can't be shown. The terminal still works.": "チャットを表示できません。ターミナルは引き続き使えます。",
+  "Try again": "再試行",
 };

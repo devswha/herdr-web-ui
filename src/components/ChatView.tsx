@@ -9,6 +9,8 @@ import "./ChatView.css";
 import { AgentMark } from "./AgentMark.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PromptCard } from "./PromptCard.tsx";
+import { RenderBoundary } from "./RenderBoundary.tsx";
+import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
@@ -747,7 +749,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       {state.source === "conversation"
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
-            return <Turn key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} />;
+            return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
+              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} />
+            </RenderBoundary>;
           })
         : agent !== null
           ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>
