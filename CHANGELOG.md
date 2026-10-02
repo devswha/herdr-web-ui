@@ -14,6 +14,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   state until its next refresh. The status is now read back once the new subscription is live
   and told as the event it would have been. Seen as a flaky test first: with panes opening and
   closing beside it, a pane's one status change was lost in 5 of 10 runs, and in none after.
+  ([#291](https://github.com/devswha/herdr-web-ui/pull/291))
 
 ## [0.3.41] - 2026-10-02
 
