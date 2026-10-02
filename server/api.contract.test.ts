@@ -288,6 +288,38 @@ describe("workspace and discovery endpoints", () => {
     workspaceId = null;
   }, 20_000);
 
+  it("starts another agent of a kind whose name is already taken", async () => {
+    // muse stands in for the agent: herdr answers agent.start once the launch is typed into the
+    // pane, so the kind needs no program behind it and no real agent runs
+    const kind = "muse";
+    const explicit = `given-${Math.random().toString(36).slice(2, 10)}`;
+    const owned: string[] = [];
+    const start = async (agent: { kind: string; name?: string }) => {
+      const res = await fetch(`${base()}/api/workspace/create`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cwd: tmpdir(), label: `${label}-agent-${owned.length}`, agent }),
+      });
+      expect(res.status).toBe(200);
+      const created = (await res.json()) as WorkspaceCreated;
+      owned.push(created.workspace_id);
+      expect(created.error).toBeUndefined();
+      expect(created.agent_started).toBeTrue();
+      return (await herdrRpc<{ agent: { name?: string | null } }>("agent.get", { target: created.pane_id })).agent.name;
+    };
+    try {
+      const first = await start({ kind });
+      const second = await start({ kind });
+      expect(first).toMatch(/^muse(-\d+)?$/);
+      expect(second).toMatch(/^muse-\d+$/);
+      expect(second).not.toBe(first);
+      // a name the client gives is used as given
+      expect(await start({ kind, name: explicit })).toBe(explicit);
+    } finally {
+      for (const id of owned) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
+    }
+  }, 20_000);
+
   it("creates, splits, and closes tabs in an owned workspace", async () => {
     const ws = await fetch(`${base()}/api/workspace/create`, {
       method: "POST",

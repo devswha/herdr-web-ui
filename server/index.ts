@@ -21,6 +21,7 @@ import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { CompletionTracker } from "./completion.ts";
+import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile } from "./file-view.ts";
@@ -1023,13 +1024,25 @@ export function createServer(
           try {
             const kind = payload.agent.kind as string;
             if (isShellAgentKind(kind)) await startShellAgent(kind, created.root_pane.pane_id, payload.agent.args as string[] | undefined);
-            else await agentStart({
-              name: typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : payload.agent.kind as string,
-              kind,
-              paneId: created.root_pane.pane_id,
-              ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
-              timeoutMs: 60_000,
-            });
+            else {
+              const given = typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : null;
+              // herdr refuses a name another agent holds. Two creations at once can pick the same
+              // free one: the refused one picks again.
+              for (let attempt = 1; ; attempt += 1) {
+                try {
+                  await agentStart({
+                    name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((agent) => agent.name)),
+                    kind,
+                    paneId: created.root_pane.pane_id,
+                    ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
+                    timeoutMs: 60_000,
+                  });
+                  break;
+                } catch (error) {
+                  if (given !== null || attempt === 3 || !(error instanceof HerdrError) || error.code !== "agent_name_taken") throw error;
+                }
+              }
+            }
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: true });
           } catch (error) {
             return jsonResponse({
