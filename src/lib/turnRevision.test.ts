@@ -1,0 +1,18 @@
+import { expect, test } from "bun:test";
+import type { ConversationTurn } from "../../shared/protocol.ts";
+import { turnRevision } from "./turnRevision.ts";
+import { RenderBoundary } from "../components/RenderBoundary.tsx";
+
+const turn = (text: string, end?: string): ConversationTurn => ({ role: "assistant", ts: "2026-10-02T00:00:00Z", ...(end ? { end_ts: end } : {}), parts: [{ kind: "text", text }] });
+
+test("a turn parsed again unchanged keeps its revision; new content or a later end changes it", () => {
+  expect(turnRevision(turn("same"))).toBe(turnRevision(structuredClone(turn("same"))));
+  expect(turnRevision(turn("same"))).not.toBe(turnRevision(turn("same, and more")));
+  expect(turnRevision(turn("same"))).not.toBe(turnRevision(turn("same", "2026-10-02T00:00:09Z")));
+});
+
+test("the boundary tries again in the render where its key changes, and not while it stays", () => {
+  const props = (resetKey: unknown) => ({ resetKey, fallback: () => null, children: null });
+  expect(RenderBoundary.getDerivedStateFromProps(props("a"), { failed: true, key: "a" })).toBeNull();
+  expect(RenderBoundary.getDerivedStateFromProps(props("b"), { failed: true, key: "a" })).toEqual({ failed: false, key: "b" });
+});
