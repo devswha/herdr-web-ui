@@ -33,9 +33,12 @@ import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 
 // xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
-// must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback
+// must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback.
+// Symbols Nerd Font Mono is the app's own (PaneTerminal.css) and covers only the private use
+// area, so it never sizes a cell: it draws the Nerd Font icons a prompt or `ls` replacement
+// prints, which no system font has and Safari will not take from a font the user installed
 const FONT_STACK =
-  '"JetBrains Mono", "Fira Code", "D2Coding", Menlo, Monaco, "Cascadia Mono", Consolas, "Noto Sans Mono CJK KR", monospace, "Malgun Gothic"';
+  '"Symbols Nerd Font Mono", "JetBrains Mono", "Fira Code", "D2Coding", Menlo, Monaco, "Cascadia Mono", Consolas, "Noto Sans Mono CJK KR", monospace, "Malgun Gothic"';
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;

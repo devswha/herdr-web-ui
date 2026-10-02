@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- Nerd Font icons (a Starship or Powerlevel10k prompt, `lsd`, `eza --icons`, Neovim file
+  trees) show in the terminal instead of empty boxes. The terminal's fonts had none of them, and
+  Safari never uses a font the user installed, so even a Nerd Font set up for the native
+  terminal did not help there. The app now carries Symbols Nerd Font Mono for those characters
+  alone; the browser downloads it (1.2 MB) only once a pane prints one.
 - Several lines sent to an agent from the terminal's input line, or pasted into the terminal,
   stay in its message box until sent on a Linux or macOS PC that mirrors its terminals too (one
   with no Node for the terminal attach). They went as bare lines there, and the agent sent the
