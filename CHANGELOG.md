@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.42] - 2026-10-02
+
 ### Added
 - Voice input in the chat composer and the terminal input line. Hold or tap the mic and speak,
   Korean and English mixed; the text lands in the box at the caret and is never sent by itself.
@@ -32,7 +34,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   it lists them: what each is doing, its category and model, how long it has run, its turns, tool
   calls and tokens. The newest tasks that ended in the last day (up to ten) are one line under
   them that says how many ended and how many failed, and opens to show whether each finished,
-  failed, was cancelled or was lost with OmO's process. A remote PC lists them once it runs a bridge that knows this list.
+  failed, was cancelled or was lost with OmO's process. A remote PC lists them once it runs a
+  bridge that knows this list.
   ([#305](https://github.com/devswha/herdr-web-ui/pull/305), [#310](https://github.com/devswha/herdr-web-ui/pull/310))
 - The same list shows the workflows (DAG runs) the OmO session started: each one's name, how many
   steps are done, running or failed, and its steps wave by wave, with why a failed step failed.
@@ -84,8 +87,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   message differently from one sent while it waits, and the chat skipped it, so the agent acted
   on words the chat never showed.
   ([#301](https://github.com/devswha/herdr-web-ui/pull/301))
-- In an OmO, omp or pi chat, a message that invoked a skill (`/skill:name`, `$name`, or a keyword such as
-  `ulw`) shows what you asked, not the whole SKILL.md the agent put before it: one such message
+- In an OmO, omp or pi chat, a message that invoked a skill (`/skill:name`, `$name`, or a keyword
+  such as `ulw`) shows what you asked, not the whole SKILL.md the agent put before it: one such message
   filled tens of KB of the chat. The skill shows as a chip under your message, standalone `.md`
   skills included. ([#302](https://github.com/devswha/herdr-web-ui/pull/302))
 - A chat message the page cannot draw no longer blanks the whole app. That message says it can't be
@@ -1366,7 +1369,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.41...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.42...HEAD
+[0.3.42]: https://github.com/devswha/herdr-web-ui/compare/v0.3.41...v0.3.42
 [0.3.41]: https://github.com/devswha/herdr-web-ui/compare/v0.3.40...v0.3.41
 [0.3.40]: https://github.com/devswha/herdr-web-ui/compare/v0.3.39...v0.3.40
 [0.3.39]: https://github.com/devswha/herdr-web-ui/compare/v0.3.38...v0.3.39
