@@ -17,10 +17,10 @@ const ICONS: Record<OmoTask["status"], ComponentType<LucideProps>> = {
 
 /**
  * The status line's "N background tasks": opens what OmO's background tasks are and how far they got.
- * Shown while a task runs, and once there was one, for the rest of this pane's view: when the last
- * one ends, what it came to can still be read.
+ * Shown on every OmO pane (quiet while nothing runs: what ended in the last day can still be read,
+ * after a reload too), and on any pane while a task runs.
  */
-export function BackgroundTasks({ paneId, count }: { paneId: string; count: number }) {
+export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count: number; omo: boolean }) {
   const t = useT();
   const { fetchPaneOmoTasks } = useMachineApi();
   const [open, setOpen] = useState(false);
@@ -83,12 +83,12 @@ export function BackgroundTasks({ paneId, count }: { paneId: string; count: numb
       <Icon className="bg-task-icon" aria-hidden="true" />
       <span className="bg-task-main">
         <span className="bg-task-title">{task.title}<span className="sr-only"> ({words[task.status]})</span></span>
-        {meta.length > 0 && <span className="bg-task-meta">{task.status !== "running" && task.status !== "completed" && <>{words[task.status]} · </>}{meta}</span>}
+        {(meta.length > 0 || (task.status !== "running" && task.status !== "completed")) && <span className="bg-task-meta">{[task.status !== "running" && task.status !== "completed" ? words[task.status] : null, meta || null].filter((item) => item !== null).join(" · ")}</span>}
       </span>
     </li>;
   };
 
-  if (count === 0 && !open && !seen) return null;
+  if (count === 0 && !open && !seen && !omo) return null;
   return <span className="bg-tasks" ref={root}>
     <button type="button" className={`bg-tasks-toggle${count === 0 ? " is-idle" : ""}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
       <Layers aria-hidden="true" />{count === 0 ? t("Background tasks") : t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count })}
