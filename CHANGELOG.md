@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   corner did not meet its lines; a phone drew the heavy lines `━ ┃ ╋` almost like the light ones,
   and shades `░▒▓` as a dot pattern. These characters and the block elements (`█ ▄ ▌` and the
   like, as in a progress bar) are now drawn to the cell, edge to edge, on whole screen pixels.
+  ([#295](https://github.com/devswha/herdr-web-ui/pull/295))
 - Several lines sent to an agent from the terminal's input line, or pasted into the terminal,
   stay in its message box until sent on a Linux or macOS PC that mirrors its terminals too (one
   with no Node for the terminal attach). They went as bare lines there, and the agent sent the
