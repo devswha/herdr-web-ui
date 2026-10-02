@@ -15,7 +15,7 @@ export function turnRevision(turn: ConversationTurn): string {
   for (const part of turn.parts) {
     add(part.kind);
     if (part.kind === "text" || part.kind === "thinking" || part.kind === "compact" || part.kind === "notice") add(part.text);
-    else if (part.kind === "tool") { add(String(part.name)); add(part.input); add(part.output); add(part.error ? "!" : ""); add(String(part.images?.length ?? 0)); }
+    // a tool row draws its name, summary, input, output, error, images and skill: all of it counts
     else add(JSON.stringify(part));
   }
   return `${turn.role}|${turn.ts ?? ""}|${turn.end_ts ?? ""}|${turn.parts.length}|${(hash >>> 0).toString(36)}`;

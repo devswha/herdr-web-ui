@@ -13,6 +13,9 @@ test("a turn parsed again unchanged keeps its revision; new content or a later e
   expect(turnRevision(turn("ab"))).not.toBe(turnRevision(turn("cd")));
   const tool = (name: string): ConversationTurn => ({ role: "assistant", ts: null, parts: [{ kind: "tool", name, summary: "", input: "{}", output: "" }] });
   expect(turnRevision(tool("read"))).not.toBe(turnRevision(tool("edit")));
+  const shown = (summary: string, ref: string): ConversationTurn => ({ role: "assistant", ts: null, parts: [{ kind: "tool", name: "read", summary, input: "{}", output: "", images: [{ media_type: "image/png", ref }] }] });
+  expect(turnRevision(shown("a.ts", "pi:1:0"))).not.toBe(turnRevision(shown("b.ts", "pi:1:0")));
+  expect(turnRevision(shown("a.ts", "pi:1:0"))).not.toBe(turnRevision(shown("a.ts", "pi:2:0")));
 });
 
 test("the boundary tries again in the render where its key changes, and not while it stays", () => {
