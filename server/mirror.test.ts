@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import { HerdrError } from "./herdr/client.ts";
-import { cellWidth, MirrorSession, mirrorFrame, mirrorRows, rowsFit } from "./mirror.ts";
+import { MirrorSession, mirrorFrame, mirrorRows } from "./mirror.ts";
 
 /** A pane whose every read waits until the test answers it. */
 function pane(extra: Partial<ConstructorParameters<typeof MirrorSession>[0]> = {}) {
@@ -33,18 +33,25 @@ function pane(extra: Partial<ConstructorParameters<typeof MirrorSession>[0]> = {
   return { session, read, asked, frames, exits, written };
 }
 
-it("paints a screen as home, clear and rows, without a newline after the last row", () => {
-  expect(mirrorFrame("a\nb\r\n\r\n")).toBe("\x1b[?25l\x1b[0m\x1b[H\x1b[2Ja\r\nb\x1b[0m");
+it("paints a screen as home, clear and rows with line wrap off, without a newline after the last row", () => {
+  expect(mirrorFrame("a\nb\r\n\r\n")).toBe("\x1b[?25l\x1b[0m\x1b[H\x1b[2J\x1b[?7la\r\nb\x1b[0m\x1b[?7h");
+  // a read longer than the grid: its last rows are the screen
+  expect(mirrorFrame("1\n2\n3", 2)).toBe("\x1b[?25l\x1b[0m\x1b[H\x1b[2J\x1b[?7l2\r\n3\x1b[0m\x1b[?7h");
 });
 
-it("draws only the rows that changed, each cleared in its place with line wrap off", () => {
-  expect(mirrorRows("a\r\nb\r\nc", "a\r\nB\r\nc", 24)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2KB\x1b[0m\x1b[3;2H\x1b[?7h");
+it("draws the rows that changed, each cleared in its place with line wrap off, and the last row last", () => {
+  const head = "\x1b[?25l\x1b[?7l";
+  const tail = "\x1b[0m\x1b[?7h";
+  const at = (row: number, text: string) => `\x1b[${row};1H\x1b[0m\x1b[2K${text}`;
+  // the last row is drawn again each time, so the cursor ends where a whole frame leaves it
+  expect(mirrorRows("a\r\nb\r\nc", "a\r\nB\r\nc", 24)).toBe(head + at(2, "B") + at(3, "c") + tail);
+  expect(mirrorRows("a\r\nb\r\nc", "a\r\nb\r\nC", 24)).toBe(head + at(3, "C") + tail);
   // a row that is gone is cleared, one that is new is drawn; trailing newlines are no rows
-  expect(mirrorRows("a\nb\nc\n", "a\n", 24)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2K\x1b[3;1H\x1b[0m\x1b[2K\x1b[0m\x1b[1;2H\x1b[?7h");
+  expect(mirrorRows("a\nb\nc\n", "a\n", 24)).toBe(head + at(2, "") + at(3, "") + at(1, "a") + tail);
+  expect(mirrorRows("a", "a\nb", 24)).toBe(head + at(2, "b") + tail);
   // a read longer than the grid: the rows on the screen are its last ones, counted from the top of the grid
-  expect(mirrorRows("1\n2\n3\n4", "1\n2\n3\nX", 2)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2KX\x1b[0m\x1b[2;2H\x1b[?7h");
-  expect(mirrorRows("1\n2\n3", "1\n2\n3\n4", 2)).toBe("\x1b[?25l\x1b[?7l\x1b[1;1H\x1b[0m\x1b[2K3\x1b[2;1H\x1b[0m\x1b[2K4\x1b[0m\x1b[2;2H\x1b[?7h");
-  expect(mirrorRows("a", "a\nb", 24)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2Kb\x1b[0m\x1b[2;2H\x1b[?7h");
+  expect(mirrorRows("1\n2\n3\n4", "1\n2\n3\nX", 2)).toBe(head + at(2, "X") + tail);
+  expect(mirrorRows("1\n2\n3", "1\n2\n3\n4", 2)).toBe(head + at(1, "3") + at(2, "4") + tail);
 });
 
 it("sends the whole screen first and after a while, and the changed rows in between", async () => {
@@ -61,33 +68,23 @@ it("sends the whole screen first and after a while, and the changed rows in betw
     (await read(3)).resolve(screen("-"));
     await read(4);
     expect(frames).toEqual([mirrorFrame(screen("|")), mirrorRows(screen("|"), screen("/"), 24), mirrorFrame(screen("-"))]);
-    expect(frames[1]).toBe("\x1b[?25l\x1b[?7l\x1b[3;1H\x1b[0m\x1b[2Kworking /\x1b[0m\x1b[4;23H\x1b[?7h");
+    expect(frames[1]).toBe("\x1b[?25l\x1b[?7l\x1b[3;1H\x1b[0m\x1b[2Kworking /\x1b[4;1H\x1b[0m\x1b[2Klast row of the screen\x1b[0m\x1b[?7h");
     // a client joining late gets the screen whole, whatever went out last
     expect(session.current).toBe(mirrorFrame(screen("-")));
     session.kill();
   } finally { Date.now = clock; }
 });
 
-it("leaves the cursor after the last row, as a whole frame does, whatever row changed", () => {
-  // a coloured, wide last row: 2 + 2 + 1 cells, so the cursor sits in column 6
-  expect(mirrorRows("spin |\r\nmiddle\r\n\x1b[32m한글\x1b[0m>", "spin /\r\nmiddle\r\n\x1b[32m한글\x1b[0m>", 24).endsWith("\x1b[0m\x1b[3;6H\x1b[?7h")).toBe(true);
-  expect([cellWidth("abc"), cellWidth("한글"), cellWidth("e\u0301"), cellWidth("👍")]).toEqual([3, 4, 1, 2]);
-});
-
-it("sends the whole screen while a row is wider than the grid: it wraps, and the rows below it move", async () => {
-  expect(rowsFit("12345\r\n\x1b[31m12345\x1b[0m", 5)).toBe(true);
-  expect(rowsFit("123456\r\n1", 5)).toBe(false);
-  expect(rowsFit("한글한", 5)).toBe(false);
-  const { session, read, frames } = pane({ wholeMs: 60_000, cols: 12, rows: 8 });
-  const below = Array.from({ length: 6 }, (_, i) => `row ${i} below`).join("\r\n");
-  const screen = (top: string) => `${top}\r\n${below}`;
-  (await read(1)).resolve(screen("abcdefghijklMNOP"));
-  (await read(2)).resolve(screen("ABCDEFGHIJKLmnop"));
-  (await read(3)).resolve(screen("short"));
-  (await read(4)).resolve(screen("s"));
+it("sends the screen whole once more when it goes quiet after rows", async () => {
+  const { session, read, frames } = pane({ wholeMs: 60_000 });
+  const screen = (spinner: string) => ["first row of the screen", "second row of the screen", `working ${spinner}`, "last row of the screen"].join("\r\n");
+  (await read(1)).resolve(screen("|"));
+  (await read(2)).resolve(screen("/"));
+  // unchanged: the changes have stopped, and whatever a client's screen holds is whole again
+  (await read(3)).resolve(screen("/"));
+  (await read(4)).resolve(screen("/"));
   await read(5);
-  // whole while either the screen sent or the new one holds the long row, rows after
-  expect(frames).toEqual([mirrorFrame(screen("abcdefghijklMNOP")), mirrorFrame(screen("ABCDEFGHIJKLmnop")), mirrorFrame(screen("short")), mirrorRows(screen("short"), screen("s"), 8)]);
+  expect(frames).toEqual([mirrorFrame(screen("|"), 24), mirrorRows(screen("|"), screen("/"), 24), mirrorFrame(screen("/"), 24)]);
   session.kill();
 });
 
@@ -192,12 +189,12 @@ it("adopts the pane's new size, says so first, and paints the unchanged screen a
 });
 
 it("keeps the latest screen whole for a client joining late", async () => {
-  const { session, read } = pane();
+  const { session, read } = pane({ rows: 700 });
   expect(session.current).toBeNull();
   const big = Array.from({ length: 700 }, () => "x".repeat(400)).join("\r\n");
   (await read(1)).resolve(big);
   await read(2);
-  expect(session.current).toBe(mirrorFrame(big));
+  expect(session.current).toBe(mirrorFrame(big, 700));
   expect(Buffer.byteLength(session.current!)).toBeGreaterThan(256 * 1024);
   session.kill();
 });

@@ -3,7 +3,7 @@
  * There is no byte stream to forward, so the pane's visible screen is read a few times a
  * second (`pane.read`, ansi) and each changed screen goes out in the same `pty-data` frames a
  * real attach sends: the rows that changed, each drawn in its place, and the whole screen at
- * the start, after a resize and every few seconds. A working agent changes a spinner and a
+ * the start, after a resize, every few seconds and once the screen goes quiet. A working agent changes a spinner and a
  * timer on almost every read (measured with gjc on a 119x40 pane: 12 screens a second, 2.8
  * rows changed in each), so whole screens were 135 KB a second to every viewer, over SSH from
  * a remote PC and on to a phone; the changed rows are 9 KB a second (#261). Output that scrolls
@@ -48,56 +48,39 @@ export interface MirrorOptions {
   wholeMs?: number;
 }
 
-/** One screen as bytes for xterm: home, clear, the rows; the last row has no newline, which would scroll. */
-export function mirrorFrame(screen: string): string {
-  const rows = screen.replace(/(?:\r?\n)+$/, "").replace(/\r?\n/g, "\r\n");
-  return `\x1b[?25l\x1b[0m\x1b[H\x1b[2J${rows}\x1b[0m`;
+/**
+ * One screen as bytes for xterm: home, clear, the rows; the last row has no newline, which
+ * would scroll. Line wrap is off while they are drawn, so a row of the read is a row of the
+ * screen whatever xterm makes of its width: a row it counts wider than the grid loses its end
+ * instead of pushing every row below it down, and the rows drawn one by one later
+ * (mirrorRows) land where these did. A read can hold more rows than the grid (seen on a
+ * headless herdr after a split: the layout said 20 rows, the read gave 40); the last
+ * `gridRows` are the screen.
+ */
+export function mirrorFrame(screen: string, gridRows = Number.POSITIVE_INFINITY): string {
+  return `\x1b[?25l\x1b[0m\x1b[H\x1b[2J\x1b[?7l${rowsOf(screen).slice(-gridRows).join("\r\n")}\x1b[0m\x1b[?7h`;
 }
 
 const rowsOf = (screen: string): string[] => screen.replace(/(?:\r?\n)+$/, "").split(/\r?\n/);
-const plain = (row: string): string => row.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
-
-/** How many cells a row takes, near enough to tell one that does not fit: wide scripts and emoji two, marks none. */
-export function cellWidth(text: string): number {
-  let width = 0;
-  for (const char of text) {
-    const code = char.codePointAt(0)!;
-    if ((code >= 0x300 && code <= 0x36f) || code === 0x200d || (code >= 0xfe00 && code <= 0xfe0f) || (code >= 0x1ab0 && code <= 0x1aff) || (code >= 0x20d0 && code <= 0x20ff)) continue;
-    width += (code >= 0x1100 && code <= 0x115f) || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) || (code >= 0xf900 && code <= 0xfaff)
-      || (code >= 0xfe30 && code <= 0xfe4f) || (code >= 0xff00 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1faff) || (code >= 0x20000 && code <= 0x3fffd) ? 2 : 1;
-  }
-  return width;
-}
-
-/** Every row fits the grid: only then is a row of the read a row of the screen. A longer one wraps in a whole frame, and all below it move. */
-export function rowsFit(screen: string, cols: number): boolean {
-  // no character is wider than two cells: a short row needs no counting
-  return rowsOf(screen).every((row) => row.length * 2 <= cols || cellWidth(plain(row)) <= cols);
-}
-
 /**
- * The rows of `after` that differ from `before`, each cleared and drawn in its place. herdr's
- * read starts every row from plain text (a row's colours end with it), so a row stands alone.
- * Line wrap is off while they are drawn: a row xterm counts wider than herdr did would run
- * into the row below, which is not drawn again until it changes.
+ * The rows of `after` that differ from `before`, each cleared and drawn in its place, as a
+ * whole frame would have drawn them. herdr's read starts every row from plain text (a row's
+ * colours end with it), so a row stands alone.
  *
- * A read can hold more rows than the grid (seen on a headless herdr after a split: the layout
- * said 20 rows, the read gave 40). A whole frame scrolls those through and leaves the last
- * `gridRows` on the screen, so the rows compared here are those same last ones.
- *
- * The (hidden) cursor ends where a whole frame leaves it, after the last row: the client pans
- * a grid larger than its screen to the cursor, and one left on a spinner's row at the top
- * took a phone away from the prompt at the bottom.
+ * The last row is drawn again each time, last: the (hidden) cursor then ends where a whole
+ * frame leaves it. The client pans a grid larger than its screen to the cursor, and one left
+ * on a spinner's row at the top took a phone away from the prompt at the bottom.
  */
 export function mirrorRows(before: string, after: string, gridRows: number): string {
   const was = rowsOf(before).slice(-gridRows);
   const now = rowsOf(after).slice(-gridRows);
+  const last = now.length - 1;
   let frame = "\x1b[?25l\x1b[?7l";
   for (let row = 0; row < Math.max(was.length, now.length); row++) {
-    if (was[row] === now[row]) continue;
+    if (row === last || was[row] === now[row]) continue;
     frame += `\x1b[${row + 1};1H\x1b[0m\x1b[2K${now[row] ?? ""}`;
   }
-  return `${frame}\x1b[0m\x1b[${now.length};${cellWidth(plain(now.at(-1) ?? "")) + 1}H\x1b[?7h`;
+  return `${frame}\x1b[${last + 1};1H\x1b[0m\x1b[2K${now[last]}\x1b[0m\x1b[?7h`;
 }
 
 export class MirrorSession {
@@ -121,6 +104,8 @@ export class MirrorSession {
   private poked = false;
   /** a read for an echo is already on the timer: more typing does not put it off */
   private echoing = false;
+  /** rows went out since the last whole screen */
+  private patched = false;
 
   constructor(private readonly options: MirrorOptions) {
     this.exited = new Promise((resolve) => { this.finish = resolve; });
@@ -170,7 +155,10 @@ export class MirrorSession {
     }
     this.reading = false;
     if (this.closed) return;
-    this.delay = this.flush() ? active : Math.min(idle, Math.ceil(this.delay * 1.5));
+    const changed = this.flush();
+    this.delay = changed ? active : Math.min(idle, Math.ceil(this.delay * 1.5));
+    // unchanged for as long as it takes the reads to relax: the changes have stopped
+    if (!changed && this.delay >= idle && this.screen === this.sent) this.settle();
     if (this.poked) {
       this.poked = false;
       this.delay = active;
@@ -184,17 +172,30 @@ export class MirrorSession {
   /** Sends the screen if it is not the one last sent: its changed rows, or all of it when a client's screen cannot be built on. */
   private flush(): boolean {
     if (this.paused || this.screen === null || this.screen === this.sent) return false;
-    const all = mirrorFrame(this.screen);
+    const all = mirrorFrame(this.screen, this.rows);
     const due = this.sent === null || Date.now() - this.wholeAt >= (this.options.wholeMs ?? MIRROR_WHOLE_MS);
-    // a row wider than the grid wraps: the rows of the read are then not the rows of the screen
-    const rows = due || !rowsFit(this.screen, this.cols) || !rowsFit(this.sent!, this.cols) ? null : mirrorRows(this.sent!, this.screen, this.rows);
+    const rows = due ? null : mirrorRows(this.sent!, this.screen, this.rows);
     // a screen that scrolled changed every row, and each row drawn in its place costs more than the screen whole
     const whole = rows === null || rows.length >= all.length;
     const frame = whole ? all : rows;
     if (whole) this.wholeAt = Date.now();
+    this.patched = !whole;
     this.sent = this.screen;
     this.options.onData(frame);
     return true;
+  }
+
+  /**
+   * The screen whole once more, after rows were sent and it has gone quiet. A client writes
+   * into its own terminal too (an error it was sent), and rows drawn after that sit on a
+   * shifted screen: whatever it holds is whole again when the changes stop, not only at the
+   * next ten-second mark of a screen that keeps changing.
+   */
+  private settle(): void {
+    if (!this.patched || this.paused || this.sent === null) return;
+    this.patched = false;
+    this.wholeAt = Date.now();
+    this.options.onData(mirrorFrame(this.sent, this.rows));
   }
 
   /**
@@ -214,7 +215,7 @@ export class MirrorSession {
 
   /** The screen last sent, whole, for a client joining now: a stream tail could cut a large one in two. */
   get current(): string | null {
-    return this.sent === null ? null : mirrorFrame(this.sent);
+    return this.sent === null ? null : mirrorFrame(this.sent, this.rows);
   }
 
   write(data: string): void {

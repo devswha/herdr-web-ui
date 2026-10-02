@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
+  that changed instead of the whole screen each time, and shows what you type sooner. An agent at
+  work repaints a spinner about 12 times a second: measured with gjc, that was 88 KB a second to
+  every viewer and is 11 KB now. Typing waited for the mirror's next look at the screen, up to
+  0.4 s on an idle pane: on a real Windows PC a key's echo took 159 ms and takes 23 ms.
+  ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
+
 ### Fixed
 - Several lines sent to an agent from the terminal's input line, or pasted into the terminal,
   stay in its message box until sent on a Linux or macOS PC that mirrors its terminals too (one
