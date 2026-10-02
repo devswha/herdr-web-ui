@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
@@ -37,6 +38,89 @@ describe("chat font size", () => {
     expect(sanitizeSettings({ chatFontSize: 15.6 }).chatFontSize).toBe(16);
     expect(sanitizeSettings({ chatFontSize: "18" }).chatFontSize).toBeNull();
     expect(sanitizeSettings({ terminalFontSize: 15 }).chatFontSize).toBeNull();
+  });
+});
+
+describe("font families", () => {
+  const family = (value: unknown): string => sanitizeSettings({ terminalFontFamily: value }).terminalFontFamily;
+
+  it("keep today's fonts until a list is typed, and ignore anything that is not text", () => {
+    expect(DEFAULT_SETTINGS.terminalFontFamily).toBe("");
+    expect(DEFAULT_SETTINGS.chatFontFamily).toBe("");
+    expect(sanitizeSettings({}).terminalFontFamily).toBe("");
+    expect(sanitizeSettings({}).chatFontFamily).toBe("");
+    for (const value of [undefined, null, 7, true, ["D2Coding"], { name: "D2Coding" }]) expect(family(value)).toBe("");
+    expect(family("")).toBe("");
+    expect(family("   ")).toBe("");
+    expect(family(" , ,, ")).toBe("");
+  });
+
+  it("trim each name, drop empty ones and join them the CSS way", () => {
+    expect(family("  D2Coding  ")).toBe("D2Coding");
+    expect(family("D2Coding,,  , monospace,")).toBe("D2Coding, monospace");
+    expect(family(",D2Coding")).toBe("D2Coding");
+  });
+
+  it("quote names with spaces once, and keep quoted names quoted", () => {
+    expect(family("Cascadia Mono")).toBe('"Cascadia Mono"');
+    expect(family("  Cascadia    Mono  ")).toBe('"Cascadia Mono"');
+    expect(family('D2Coding, "Cascadia Mono", monospace')).toBe('D2Coding, "Cascadia Mono", monospace');
+    expect(family("'Cascadia Mono'")).toBe('"Cascadia Mono"');
+    expect(family('" Cascadia Mono "')).toBe('"Cascadia Mono"');
+    // quoted, a generic name is a font by that name: the user's quotes stay
+    expect(family('"monospace"')).toBe('"monospace"');
+    // a stray or unbalanced quote cannot end the CSS string early
+    expect(family('Cascadia"Mono')).toBe("CascadiaMono");
+    expect(family('"Cascadia Mono')).toBe('"Cascadia Mono"');
+    expect(family('""')).toBe("");
+  });
+
+  it("quote what CSS cannot read bare", () => {
+    expect(family("3270 Nerd Font")).toBe('"3270 Nerd Font"');
+    expect(family("1942report")).toBe('"1942report"');
+    expect(family("inherit, D2Coding")).toBe('"inherit", D2Coding');
+    expect(family("나눔고딕코딩")).toBe("나눔고딕코딩");
+    expect(family("Sarasa-Mono-K")).toBe("Sarasa-Mono-K");
+  });
+
+  it("compose a decomposed name, so it matches the installed font", () => {
+    const decomposed = "나눔고딕코딩".normalize("NFD");
+    expect(decomposed).not.toBe("나눔고딕코딩");
+    expect(family(decomposed)).toBe("나눔고딕코딩");
+    expect(family(`D2Coding, ${"나눔 고딕".normalize("NFD")}`)).toBe('D2Coding, "나눔 고딕"');
+  });
+
+  it("strip what could leave the declaration", () => {
+    expect(family("D2Coding; color: red")).toBe('"D2Coding color: red"');
+    expect(family("D2Coding} body { color: red")).toBe('"D2Coding body color: red"');
+    expect(family("</style><script>x</script>")).toBe('"/stylescriptx/script"');
+    expect(family("D2\\Coding")).toBe("D2Coding");
+    expect(family("D2\u0000Coding\nMono\t")).toBe("D2CodingMono");
+    for (const unsafe of [";", "{", "}", "<", ">", "\\", "\u0000", "\u001f", "\u007f"]) expect(family(`x${unsafe}y`)).toBe("xy");
+  });
+
+  it("stay within the length limit, dropping whole names past it", () => {
+    const long = Array.from({ length: 40 }, (_, index) => `Font Name ${index}`).join(", ");
+    const kept = family(long);
+    expect(kept.length).toBeLessThanOrEqual(FONT_FAMILY_MAX_CHARS);
+    expect(kept.startsWith('"Font Name 0", "Font Name 1"')).toBe(true);
+    // every name that made it is whole: its quotes pair up
+    expect(kept.split(", ").every((name) => /^"Font Name \d+"$/.test(name))).toBe(true);
+    expect(family("x".repeat(FONT_FAMILY_MAX_CHARS + 1))).toBe("");
+    expect(family("x".repeat(FONT_FAMILY_MAX_CHARS))).toBe("x".repeat(FONT_FAMILY_MAX_CHARS));
+  });
+
+  it("are the same list after a second pass, so a saved one never drifts", () => {
+    for (const typed of ['D2Coding, "Cascadia Mono", monospace', "'Fira Code' ,  Menlo", "inherit, 3270 Nerd Font"]) {
+      const once = family(typed);
+      expect(family(once)).toBe(once);
+    }
+  });
+
+  it("sanitize the chat's list the same way, apart from the terminal's", () => {
+    const both = sanitizeSettings({ terminalFontFamily: "D2Coding", chatFontFamily: " Pretendard ; , Noto Sans KR" });
+    expect(both.terminalFontFamily).toBe("D2Coding");
+    expect(both.chatFontFamily).toBe('Pretendard, "Noto Sans KR"');
   });
 });
 

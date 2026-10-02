@@ -133,6 +133,11 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 - `palette`: `amber`, `report` or `charcoal`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
+- Terminal and chat font families are comma-separated lists, default empty. They go in front of the
+  terminal's built-in fonts (after the bundled Symbols Nerd Font Mono, which only draws icons) and of
+  `--font-ui` in the chat's prose (as `--font-chat`), never in place of them; code in the chat keeps
+  `--font-mono`. At most 200 characters, with `;`, `{`, `}`, `<`,
+  `>`, `\` and control characters stripped and names with spaces quoted.
 - Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.
 - All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
 
@@ -196,6 +201,22 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--z-scrim` | `15` | Mobile drawer scrim |
 | `--z-drawer` | `20` | Mobile drawer |
 | `--z-modal` | `30` | Dialog and palette scrims |
+| `--z-droplet` | `40` | In-app alert, over dialogs |
+
+### In-app alert
+
+One set for both themes: the card is island black wherever it shows.
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--droplet-bg` | `#000` | Drop, anchor and card |
+| `--droplet-text` | `#f5f5f7` | Pane name |
+| `--droplet-text-dim` | `rgba(245, 245, 247, 0.62)` | Ended detail, blank mark |
+| `--droplet-blocked` | `#ff8a80` | Needs-input detail and dot |
+| `--droplet-done` | `#9fd47a` | Finished detail and dot |
+| `--droplet-mark-bg` | `rgba(255, 255, 255, 0.1)` | Agent mark disc |
+| `--droplet-ring` | `rgba(255, 255, 255, 0.1)` | Card hairline |
+| `--droplet-shadow` | `rgba(0, 0, 0, 0.35)` | Drop shadow under the liquid |
 
 ### Shell
 - `.app` is a full-viewport column: `.app-header` over `.app-body`; the body is sidebar plus
@@ -380,8 +401,12 @@ Comfortable values are `:root`; the final column is the complete compact overrid
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
-- Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`.
-- Composer: Enter sends. Chat: Show thinking. Shortcuts: the complete platform-resolved table.
+- Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`, terminal font
+  family.
+- Composer: Enter sends. Chat: Show thinking, chat font size and family. Shortcuts: the complete
+  platform-resolved table.
+- A font family is a text field saved when it is left, on Enter or when the dialog closes, not
+  per keystroke.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
   hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--bg-elevated` header
@@ -396,6 +421,16 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.
 - The mobile key bar is Esc, Tab, one-shot Ctrl, arrows and `^C`; it never steals xterm focus.
 - The mobile drawer slides over a scrim. Closed visibility removes its controls from the tab order.
+
+### In-app alert
+- While the app is on screen, a pane that needs input, finishes a turn (by the device's Finished
+  choice) or ends drops a card from the top edge: a black drop falls from above the safe area,
+  spreads into the card, and its text shows. It hangs from `env(safe-area-inset-top)` only, so a
+  Dynamic Island, a notch and a desktop window take the same path; no device is guessed.
+- One at a time; a newer one folds the current one away first. Tap opens the pane; a drag or flick
+  up puts it away; it leaves by itself 3.6s after its text shows, and waits while touched.
+- Not for the pane already open, and not while the app is hidden (system notifications cover that).
+- Reduced motion: it fades in and out where it rests, without falling or spreading.
 
 ### Token gate
 - A centered password card replaces the entire shell while authentication is required. It has a real

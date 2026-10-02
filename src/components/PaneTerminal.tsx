@@ -27,19 +27,12 @@ import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
+import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
-
-// xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
-// must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback.
-// Symbols Nerd Font Mono is the app's own (PaneTerminal.css) and covers only the private use
-// area, so it never sizes a cell: it draws the Nerd Font icons a prompt or `ls` replacement
-// prints, which no system font has and Safari will not take from a font the user installed
-const FONT_STACK =
-  '"Symbols Nerd Font Mono", "JetBrains Mono", "Fira Code", "D2Coding", Menlo, Monaco, "Cascadia Mono", Consolas, "Noto Sans Mono CJK KR", monospace, "Malgun Gothic"';
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -66,6 +59,8 @@ export interface PaneTerminalProps {
   terminalFontSize: number;
   /** mouse reports sent per wheel event (settings): 1 is xterm's own one report */
   terminalWheelSpeed: number;
+  /** fonts tried before the built-in stack (settings); "" keeps the built-in one */
+  terminalFontFamily: string;
   /** the resolved UI theme: the xterm theme object mirrors it */
   theme: ResolvedTheme;
   /** the chrome palette (settings.ts): the terminal cursor and selection follow it */
@@ -111,6 +106,7 @@ export function PaneTerminal({
   autoSelected = false,
   terminalFontSize,
   terminalWheelSpeed,
+  terminalFontFamily,
   theme,
   palette,
   role = "interact",
@@ -265,7 +261,8 @@ export function PaneTerminal({
       scrollback: 0,
       allowProposedApi: true,
       fontSize: terminalFontSize,
-      fontFamily: FONT_STACK,
+      // a chosen family follows in the font effect below, once its faces have loaded
+      fontFamily: TERMINAL_FONT_STACK,
       theme: terminalTheme(theme, palette),
       linkHandler: {
         activate: (event, uri) => {
@@ -933,13 +930,27 @@ export function PaneTerminal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one terminal for the mount; theme/font follow in their own effect
   }, []);
 
-  // theme and font size follow the settings without a remount; a font change moves the grid
+  // the theme follows the settings without a remount
+  useEffect(() => {
+    const term = termRef.current;
+    if (term) term.options.theme = terminalTheme(theme, palette);
+  }, [theme, palette]);
+
+  // the font follows too, and a font change moves the grid. xterm measures the cell (and the DOM
+  // renderer its glyph widths) when fontFamily or fontSize changes, and setting the same value
+  // again changes nothing: so a chosen family is set only once its faces loaded, or the cell would
+  // stay measured from a fallback
+  const fontFamily = terminalFontStack(terminalFontFamily);
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    term.options.theme = terminalTheme(theme, palette);
-    if (term.options.fontSize !== terminalFontSize) {
+    let superseded = false;
+    const apply = (): void => {
+      // a newer font, or an unmounted terminal, took over while the faces loaded
+      if (superseded || termRef.current !== term) return;
+      if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
+      term.options.fontFamily = fontFamily;
       if (observeRef.current || fixedGridRef.current) return;
       try {
         fitRef.current?.fit();
@@ -948,8 +959,11 @@ export function PaneTerminal({
       }
       const pane = paneRef.current;
       if (pane) socketRef.current?.resize(pane, term.cols, term.rows, true);
-    }
-  }, [theme, palette, terminalFontSize]);
+    };
+    if (fontFamily === TERMINAL_FONT_STACK) apply();
+    else void loadFontStack(fontFamily, terminalFontSize).then(apply);
+    return () => { superseded = true; };
+  }, [terminalFontSize, fontFamily]);
 
   // the grid must re-fit when the lens switches back: the chat lens covered it, and a
   // resize while covered may have been skipped by a zero-size layout

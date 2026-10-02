@@ -8,6 +8,7 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
+import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
 
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
@@ -31,8 +32,12 @@ export interface Settings {
   terminalFontSize: number;
   /** mouse reports sent to herdr per wheel event in the terminal: 1 is what xterm sends by itself */
   terminalWheelSpeed: number;
+  /** fonts tried before the built-in terminal stack, as a CSS font-family list; "" keeps the built-in one */
+  terminalFontFamily: string;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
   chatFontSize: number | null;
+  /** fonts tried before the UI font in the chat's prose (code stays mono), as a CSS font-family list; "" keeps the UI font */
+  chatFontFamily: string;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
   enterSends: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
@@ -47,6 +52,8 @@ export interface Settings {
   alertInput: boolean;
   /** alert this device when a turn finishes: never, after a long one, or every one */
   alertDone: DoneAlerts;
+  /** while the app is on screen, the same alerts drop in from the top edge (components/Droplet.tsx) */
+  alertInApp: boolean;
   /** one-tap replies above the composer, in order; blank ones are kept while being typed, never shown */
   quickReplies: string[];
   /** whether the quick replies show above the composer at all */
@@ -75,7 +82,9 @@ export const DEFAULT_SETTINGS: Settings = {
   palette: "amber",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
+  terminalFontFamily: "",
   chatFontSize: null,
+  chatFontFamily: "",
   enterSends: true,
   showThinking: false,
   keepScreenOn: false,
@@ -83,6 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
   alertsOn: true,
   alertInput: true,
   alertDone: "long",
+  alertInApp: true,
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
   showSuggestionChip: false,
@@ -156,6 +166,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     chatFontSize: typeof chatFont === "number" && Number.isFinite(chatFont)
       ? Math.min(CHAT_FONT_MAX, Math.max(CHAT_FONT_MIN, Math.round(chatFont)))
       : DEFAULT_SETTINGS.chatFontSize,
+    terminalFontFamily: sanitizeFontFamily(record["terminalFontFamily"]),
+    chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,
@@ -163,6 +175,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     alertsOn: typeof record["alertsOn"] === "boolean" ? record["alertsOn"] : DEFAULT_SETTINGS.alertsOn,
     alertInput: typeof record["alertInput"] === "boolean" ? record["alertInput"] : DEFAULT_SETTINGS.alertInput,
     alertDone: record["alertDone"] === "off" || record["alertDone"] === "long" || record["alertDone"] === "always" ? record["alertDone"] : DEFAULT_SETTINGS.alertDone,
+    alertInApp: typeof record["alertInApp"] === "boolean" ? record["alertInApp"] : DEFAULT_SETTINGS.alertInApp,
     // kept as typed (a trailing space is the next word being started), only bounded
     quickReplies: Array.isArray(record["quickReplies"])
       ? record["quickReplies"].filter((reply): reply is string => typeof reply === "string").slice(0, QUICK_REPLIES_MAX).map((reply) => reply.slice(0, QUICK_REPLY_MAX_CHARS))
@@ -241,6 +254,10 @@ function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: 
   root.dataset["palette"] = settings.palette;
   // ChatView.css scales its type tokens by this: the chosen size over the density's
   root.style.setProperty("--chat-scale", String(chatFontSize(settings) / CHAT_BASE_FONT[settings.density]));
+  // ChatView.css sets the transcript's prose in this, and falls back to --font-ui without it
+  const chatFont = chatFontStack(settings.chatFontFamily);
+  if (chatFont === null) root.style.removeProperty("--font-chat");
+  else root.style.setProperty("--font-chat", chatFont);
   root.style.colorScheme = resolved;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[settings.palette][resolved]);
 }

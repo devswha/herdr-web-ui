@@ -41,6 +41,8 @@ import { useFileViewer } from "./lib/useFileViewer.ts";
 import { useT } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
+import { Droplet } from "./components/Droplet.tsx";
+import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
 const APP_TITLE = "herdr web ui";
 const POLL_MS = 5000;
@@ -167,6 +169,8 @@ export function App() {
   const [autoSelected, setAutoSelected] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
+  const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
+  selectionRef.current = { machineId: selectedMachineId, paneId: selectedPaneId };
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -194,6 +198,12 @@ export function App() {
   lockedRef.current = locked;
   // last-seen agent status per pane: the baseline that decides whether a push is news
   const statusRef = useRef<Map<string, AgentStatus>>(new Map());
+  // when each pane's turn began, so an in-app alert knows a long turn from a quick one
+  const turnStartRef = useRef<Map<string, number>>(new Map());
+  // how long each pane's last finished turn took: a pane that ends is told by it too
+  const lastTurnRef = useRef<Map<string, number>>(new Map());
+  const alertInAppRef = useRef(settings.alertInApp);
+  alertInAppRef.current = settings.alertInApp;
   const refetchTimer = useRef<number | null>(null);
   const snapshotRef = useRef<typeof snapshot>(null);
   snapshotRef.current = snapshot;
@@ -261,6 +271,22 @@ export function App() {
     if (refetchTimer.current !== null) window.clearTimeout(refetchTimer.current);
   }, []);
 
+  // In-app alerts (components/Droplet.tsx): only while the app is on screen - a hidden app has
+  // its system notifications - and never for the pane already open in front of the user.
+  const dropIn = useCallback((machine: Machine, pane: HerdrPane, kind: DropletKind) => {
+    if (!alertsOnRef.current || !alertInAppRef.current || document.visibilityState !== "visible") return;
+    const open = selectionRef.current;
+    if (open.machineId === machine.id && open.paneId === pane.pane_id && !drawerOpenRef.current) return;
+    showDroplet({
+      machineId: machine.id,
+      paneId: pane.pane_id,
+      agent: pane.agent ?? null,
+      title: displayPaneTitle(pane),
+      machine: machinesRef.current.length > 1 ? machine.name : null,
+      kind,
+    });
+  }, []);
+
   // One SSE subscription watches every PC, even when no terminal is selected.
   useEffect(() => {
     if (locked !== false) return;
@@ -288,6 +314,9 @@ export function App() {
         const previous = statusRef.current.get(key);
         statusRef.current.set(key, message.agent_status);
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
+        const worked = trackTurn(turnStartRef.current, key, previous, message.agent_status, Date.now());
+        if (worked !== null) lastTurnRef.current.set(key, worked);
+        if (pane && shouldNotifyStatus(previous, message.agent_status) && dropletAllows(alertsRef.current, message.agent_status, worked)) dropIn(machine, pane, message.agent_status === "blocked" ? "blocked" : "done");
         if (pane && shouldNotifyStatus(previous, message.agent_status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, message.agent_status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${paneTitle(pane)}`, message.agent_status, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
         setMachines((list) => {
           let changed = false;
@@ -301,6 +330,11 @@ export function App() {
           return changed ? next : list;
         });
       }
+      if (message.type === "pane-exited") {
+        const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
+        const worked = endedTurn(turnStartRef.current, lastTurnRef.current, paneStorageId(machine.id, message.pane_id), Date.now());
+        if (pane && dropletAllows(alertsRef.current, "done", worked)) dropIn(machine, pane, "ended");
+      }
       if (message.type === "pane-exited" && alertsOnRef.current && !pushOnRef.current && alertsRef.current.done !== "off") {
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
         if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${paneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
@@ -308,7 +342,7 @@ export function App() {
       if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
     };
     return () => events.close();
-  }, [locked, scheduleRefetch]);
+  }, [locked, scheduleRefetch, dropIn]);
 
   const handleServerMessage = useCallback((message: ServerMessage) => {
     if (message.type === "error" && message.code === "output_stalled") setOutputStopped(true);
@@ -678,6 +712,7 @@ export function App() {
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
             terminalWheelSpeed={settings.terminalWheelSpeed}
+            terminalFontFamily={settings.terminalFontFamily}
             theme={resolvedTheme}
             palette={settings.palette}
             role={role}
@@ -702,6 +737,13 @@ export function App() {
         }}
       /></MachineContext.Provider>
       {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={() => setMachineDialog(null)} onConnected={(id) => { setMachineDialog(null); selectTarget(id, null); void load(); }} />}
+      <Droplet onOpen={(machineId, paneId) => {
+        // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
+        if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;
+        // Files lists the pane it was opened on, and would open its paths on the new one
+        setFilesOpen(false);
+        selectTargetRef.current(machineId, paneId);
+      }} />
       <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} />
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />

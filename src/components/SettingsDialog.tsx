@@ -8,6 +8,7 @@ import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys } from "../lib/shortcuts.ts";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
+import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
@@ -37,6 +38,47 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
     <button type="button" className="settings-toggle" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}>
       <span className="settings-toggle-thumb" />
     </button>
+  );
+}
+
+const FONT_FAMILY_PLACEHOLDER = 'D2Coding, "Cascadia Mono"';
+
+/**
+ * A font family list, saved when the field is left, on Enter or when the dialog closes: saving
+ * every keystroke would sanitize away the comma or space being typed, and each change of the
+ * terminal's font refits the grid and resizes the pane.
+ */
+function FontFamilyInput({ value, label, onCommit }: { value: string; label: string; onCommit: (family: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = (): void => {
+    const next = sanitizeFontFamily(draft);
+    setDraft(next);
+    if (next !== value) onCommit(next);
+  };
+  // closing the dialog with Escape unmounts the field without a blur
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => () => commitRef.current(), []);
+  return (
+    <input
+      className="input settings-font-input"
+      value={draft}
+      placeholder={FONT_FAMILY_PLACEHOLDER}
+      maxLength={FONT_FAMILY_MAX_CHARS}
+      aria-label={label}
+      spellCheck={false}
+      autoCapitalize="off"
+      autoCorrect="off"
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        // an IME keeps its Enter, including the committing one WebKit can send after compositionend as key code 229
+        if (event.key !== "Enter" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+        event.preventDefault();
+        commit();
+      }}
+    />
   );
 }
 
@@ -233,6 +275,10 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
               </div>
             </div>
             <div className="settings-row">
+              <div><span className="settings-label">{t("Terminal font")}</span><span className="settings-description">{t("Comma-separated, tried in order. A font this device does not have falls back to the default.")}</span></div>
+              <FontFamilyInput value={settings.terminalFontFamily} label={t("Terminal font")} onCommit={(terminalFontFamily) => update({ terminalFontFamily })} />
+            </div>
+            <div className="settings-row">
               <div><span className="settings-label">{t("Wheel scroll speed")}</span><span className="settings-description">{t("How far one turn of the wheel scrolls the terminal")}</span></div>
               <div className="settings-stepper" aria-label={t("Wheel scroll speed")}>
                 <button type="button" className="icon-button" aria-label={t("Slower wheel scrolling")} disabled={settings.terminalWheelSpeed <= TERMINAL_WHEEL_SPEED_MIN} onClick={() => update({ terminalWheelSpeed: settings.terminalWheelSpeed - 1 })}><Minus /></button>
@@ -334,6 +380,10 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
                 <button type="button" className="icon-button" aria-label={t("Increase chat font size")} disabled={chatFontSize(settings) >= CHAT_FONT_MAX} onClick={() => update({ chatFontSize: chatFontSize(settings) + 1 })}><Plus /></button>
               </div>
             </div>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Chat font")}</span><span className="settings-description">{t("Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.")}</span></div>
+              <FontFamilyInput value={settings.chatFontFamily} label={t("Chat font")} onCommit={(chatFontFamily) => update({ chatFontFamily })} />
+            </div>
           </section>
 
           <section className="settings-section">
@@ -353,6 +403,10 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("In the app")}</span><span className="settings-description">{t("While the app is open, these drop in from the top of the screen at once. Tap one to open its pane.")}</span></div>
+              <Toggle label={t("In the app")} checked={settings.alertInApp} onChange={(alertInApp) => update({ alertInApp })} />
             </div>
           </section>
 

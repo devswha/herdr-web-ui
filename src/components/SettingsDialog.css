@@ -75,6 +75,11 @@
   text-align: center;
 }
 
+.settings-font-input {
+  flex: 0 1 50%;
+  min-width: 0;
+}
+
 .settings-toggle {
   position: relative;
   flex: 0 0 auto;
@@ -162,6 +167,10 @@
   .settings-row > .settings-stepper {
     align-self: stretch;
     justify-content: center;
+  }
+
+  .settings-row > .settings-font-input {
+    align-self: stretch;
   }
 
   /* five languages outgrow a narrow phone: wrap rather than overflow the dialog */

@@ -136,6 +136,17 @@
   --z-scrim: 15;
   --z-drawer: 20;
   --z-modal: 30;
+  --z-droplet: 40;
+
+  /* in-app alert (components/Droplet.css): island black in either theme, so one set */
+  --droplet-bg: #000;
+  --droplet-text: #f5f5f7;
+  --droplet-text-dim: rgba(245, 245, 247, 0.62);
+  --droplet-blocked: #ff8a80;
+  --droplet-done: #9fd47a;
+  --droplet-mark-bg: rgba(255, 255, 255, 0.1);
+  --droplet-ring: rgba(255, 255, 255, 0.1);
+  --droplet-shadow: rgba(0, 0, 0, 0.35);
 }
 
 [data-theme="light"] {
