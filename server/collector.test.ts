@@ -84,6 +84,7 @@ function fakeHerdr(initial: HerdrPane[]) {
     backstopMs: 60_000,
     debounceMs: 5,
     snapshotRetryMs: 5,
+    replaySettleMs: 5,
     subscribe: (subs, handlers) => {
       const record: FakeSubscription = {
         types: subs.map((sub) => sub.type),
@@ -155,7 +156,7 @@ describe("startStatusCollector recovery", () => {
     expect(herdr.status()?.paneIds).toEqual(["w1:p1"]);
     expect(herdr.snapshotCalls()).toBe(1);
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     expect(herdr.snapshotCalls()).toBe(2);
     expect(log.resyncs).toEqual([]);
     collector.stop();
@@ -167,7 +168,7 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     const first = herdr.status()!;
     // a pane opens elsewhere: the connection is reopened with both, and p1 finishes meanwhile
     herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
@@ -179,7 +180,7 @@ describe("startStatusCollector recovery", () => {
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
     expect(log.statuses).toEqual([]);
     second.start();
-    await tick();
+    await tick(20);
     // once, as the event would have been; a pane first seen is no change; nothing was "lost"
     expect(log.statuses).toEqual(["w1:p1:idle (was working)"]);
     expect(log.resyncs).toEqual([]);
@@ -206,7 +207,7 @@ describe("startStatusCollector recovery", () => {
     const reopened = herdr.status()!;
     expect(reopened.paneIds).toEqual(["w1:p1"]);
     reopened.start();
-    await tick();
+    await tick(20);
     expect(log.statuses).toEqual(["w1:p1:idle (was working)"]);
     expect(log.resyncs).toEqual([]);
     collector.stop();
@@ -218,20 +219,20 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, { ...herdr.deps, backstopMs: 15 });
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     herdr.status()!.emit(statusFrame("w1:p1", "done"));
     // the backstop's snapshot reads the same finish as idle: no change, and no undoing of the done
     herdr.setPanes([paneOf("w1:p1", "idle")]);
     await tick(40);
     expect(herdr.snapshotCalls()).toBeGreaterThan(2);
     expect(log.statuses).toEqual(["w1:p1:done"]);
-    // and it is what the pane was last heard as from then on: a gap after it finds no change
+    // around a gap it is passed on with what the pane was last told as: whoever shows the pane decides if that is a change
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
-    await tick(20);
+    await tick(30);
     herdr.status()!.start();
-    await tick();
-    expect(log.statuses).toEqual(["w1:p1:done"]);
+    await tick(20);
+    expect(log.statuses).toEqual(["w1:p1:done", "w1:p1:idle (was done)"]);
     collector.stop();
   });
 
@@ -241,15 +242,38 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     // p1 finishes and a pane opens: herdr's snapshot shows both, its event for p1 is still unread when the connection closes
     herdr.setPanes([paneOf("w1:p1", "unknown"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
     await tick(20);
     expect(log.statuses).toEqual(["w1:p1:unknown (was working)"]);
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     expect(log.statuses).toEqual(["w1:p1:unknown (was working)"]);
+    collector.stop();
+  });
+
+  it("lets an event that was on its way outrank the snapshot that overtook it", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "blocked")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, { ...herdr.deps, replaySettleMs: 40 });
+    await tick();
+    herdr.status()!.start();
+    await tick(20);
+    herdr.setPanes([paneOf("w1:p1", "blocked"), paneOf("w2:p1", "idle")]);
+    herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    // answered, worked and finished right after the new subscription started: the snapshot says idle before its two events are read
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
+    const live = herdr.status()!;
+    live.start();
+    await tick(10);
+    live.emit(statusFrame("w1:p1", "working"));
+    live.emit(statusFrame("w1:p1", "idle"));
+    await tick(60);
+    // told once each, in the order they happened, and no finish before the work
+    expect(log.statuses).toEqual(["w1:p1:working", "w1:p1:idle"]);
     collector.stop();
   });
 
@@ -259,7 +283,7 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "working"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
     await tick(20);
@@ -267,7 +291,7 @@ describe("startStatusCollector recovery", () => {
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
     herdr.hold();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     // the snapshot that will replay is asked for; p1 exits and p2 is brought to the front before it answers
     herdr.lifecycle().emit({ event: "pane_exited", data: { type: "pane_exited", pane_id: "w1:p1" } });
     herdr.subscriptions.find((s) => s.types[0] === "pane.focused")!.emit({ event: "pane_focused", data: { type: "pane_focused", pane_id: "w1:p2" } });
@@ -283,7 +307,7 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     // p1 is brought to the front; later a gap, in which both read idle
     herdr.subscriptions.find((s) => s.types[0] === "pane.focused")!.emit({ event: "pane_focused", data: { type: "pane_focused", pane_id: "w1:p1" } });
     herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "working"), paneOf("w2:p1", "idle")]);
@@ -291,7 +315,7 @@ describe("startStatusCollector recovery", () => {
     await tick(20);
     herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     // p2's finish is told; p1 was taken in anew by the snapshot that saw the new pane, and did not change since
     expect(log.statuses).toEqual(["w1:p2:idle (was working)"]);
     collector.stop();
@@ -303,7 +327,7 @@ describe("startStatusCollector recovery", () => {
     const flaky = startStatusCollector(second.handlers, { ...broken.deps, snapshot: () => failing ? Promise.reject(new HerdrError("timeout", "no answer")) : snapshot() });
     await tick();
     broken.status()!.start();
-    await tick();
+    await tick(20);
     broken.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
     broken.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
     await tick(20);
@@ -325,7 +349,7 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
     await tick(20);
@@ -334,7 +358,7 @@ describe("startStatusCollector recovery", () => {
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     expect(log.statuses).toEqual([]);
     expect(log.resyncs).toHaveLength(1);
     collector.stop();
@@ -346,7 +370,7 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     const lost = herdr.status()!;
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "blocked")]);
     lost.drop();
@@ -357,7 +381,7 @@ describe("startStatusCollector recovery", () => {
     expect(log.resyncs).toEqual([]);
     const before = herdr.snapshotCalls();
     reopened.start();
-    await tick();
+    await tick(20);
     expect(herdr.snapshotCalls()).toBe(before + 1);
     expect(log.resyncs).toEqual([{ panes: ["w1:p1", "w1:p2"], newer: [] }]);
     expect(log.structure).toBe(1);
@@ -370,13 +394,13 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     herdr.status()!.drop();
     await tick();
     herdr.hold();
     const reopened = herdr.status()!;
     reopened.start();
-    await tick();
+    await tick(20);
     reopened.emit(statusFrame("w1:p2", "idle"));
     herdr.answerAll();
     await tick();
@@ -391,7 +415,7 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.lifecycle().start();
-    await tick();
+    await tick(20);
     expect(log.structure).toBe(0);
     const calls = herdr.snapshotCalls();
     // a pane created while the lifecycle stream was lost
@@ -400,7 +424,7 @@ describe("startStatusCollector recovery", () => {
     await tick(10);
     expect(herdr.lifecycles().length).toBe(2);
     herdr.lifecycle().start();
-    await tick();
+    await tick(20);
     expect(log.structure).toBe(1);
     expect(herdr.snapshotCalls()).toBeGreaterThan(calls);
     expect(herdr.status()?.paneIds).toEqual(["w1:p1", "w1:p2"]);
@@ -439,13 +463,13 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     herdr.status()!.drop();
     await tick();
     herdr.hold();
     const second = herdr.status()!;
     second.start();
-    await tick();
+    await tick(20);
     // the snapshot for `second` is on its way when `second` is lost too
     second.drop();
     await tick();
@@ -473,7 +497,7 @@ describe("startStatusCollector recovery", () => {
     await tick(10);
     const calls = herdr.snapshotCalls();
     herdr.lifecycle().start();
-    await tick();
+    await tick(20);
     expect(log.structure).toBe(1);
     expect(herdr.snapshotCalls()).toBeGreaterThan(calls);
     collector.stop();
@@ -485,7 +509,7 @@ describe("startStatusCollector recovery", () => {
     const collector = startStatusCollector(handlers, herdr.deps);
     await tick();
     herdr.status()!.start();
-    await tick();
+    await tick(20);
     herdr.status()!.drop();
     herdr.lifecycle().drop();
     collector.stop();

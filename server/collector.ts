@@ -26,10 +26,11 @@ import { HerdrError, sessionSnapshot, subscribeEvents, type EventFrame, type Sub
  *   the server had only just started. A finish in that gap cost its done alert (#245: with
  *   panes opening and closing beside it, a pane's one status change was lost in 5 of 10
  *   runs). Such a gap is short and known, so the first snapshot after the new subscription
- *   started is measured against each pane's status as last heard, and a pane that went
- *   between working and at rest with no event to say so is told as that event (`replay`).
- *   Nothing else is: a snapshot at any other time may differ from the last event for reasons
- *   that are no change (herdr reads a finish nobody saw as `done` here and `idle` there),
+ *   started is measured against each pane's status as last told (by an event, or by an
+ *   earlier replay), and a difference is told as that event (`replay`). Nothing else is,
+ *   and no other snapshot moves what a pane was last told as: a snapshot at any other time
+ *   may differ from the last event for reasons that are no change (herdr reads a finish
+ *   nobody saw as `done` here and `idle` there), or be ahead of an event still on its way,
  *   and what was missed over an outage of unknown length (`events_lost`, a herdr that could
  *   not be reached) is corrected without alerts (`onResync`).
  *   The snapshot that shows the pane set changed is such evidence too: the connection is
@@ -48,6 +49,12 @@ const BACKSTOP_INTERVAL_MS = 60_000;
 const RECONCILE_DEBOUNCE_MS = 500;
 /** retry delay when a reconcile's snapshot call fails (herdr busy/restarting) */
 const SNAPSHOT_RETRY_MS = 5_000;
+/**
+ * A snapshot is answered on its own connection and can overtake events herdr sent before it
+ * (working, then idle, both still unread when the snapshot already said idle). What a
+ * snapshot is about to replay waits this long first, and an event that came in meanwhile wins.
+ */
+const REPLAY_SETTLE_MS = 150;
 
 export interface StatusCollectorHandlers {
   /**
@@ -85,6 +92,8 @@ export interface StatusCollectorDeps {
   backstopMs: number;
   debounceMs: number;
   snapshotRetryMs: number;
+  /** how long a replay waits for events already on their way: one that arrives is newer than the snapshot */
+  replaySettleMs: number;
 }
 
 const DEFAULT_DEPS: StatusCollectorDeps = {
@@ -95,6 +104,7 @@ const DEFAULT_DEPS: StatusCollectorDeps = {
   backstopMs: BACKSTOP_INTERVAL_MS,
   debounceMs: RECONCILE_DEBOUNCE_MS,
   snapshotRetryMs: SNAPSHOT_RETRY_MS,
+  replaySettleMs: REPLAY_SETTLE_MS,
 };
 
 export interface StatusCollector {
@@ -325,17 +335,27 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       const afterGap = !resynced && !recovering && replay !== null && replay === statusGeneration && statusSubscription !== null;
       const replaying = afterGap || leaving;
       if (resynced || afterGap) gap = false;
+      const newerThan = (paneId: string, seq: number): boolean => Math.max(lastEventOf.get(paneId) ?? 0, actedOn.get(paneId) ?? 0) > seq;
+      const replays: HerdrPane[] = [];
       for (const pane of snapshot.panes) {
         // an event, an exit or a focus since the snapshot was asked for is newer than it
-        if (Math.max(lastEventOf.get(pane.pane_id) ?? 0, actedOn.get(pane.pane_id) ?? 0) > askedAt) continue;
+        if (newerThan(pane.pane_id, askedAt)) continue;
         const before = heard.get(pane.pane_id);
-        const agent = pane.agent ?? null;
-        // a snapshot taken inside a gap is not what the pane was last heard as: the one after
-        // the gap is still to be measured against what came before it
-        if (before !== undefined && gap) continue;
-        heard.set(pane.pane_id, { status: pane.agent_status, agent });
-        if (!replaying || before === undefined || before.status === pane.agent_status) continue;
-        handlers.onStatus(pane.pane_id, pane.agent_status, agent, { before: before.status, agent: before.agent });
+        // a pane first seen, or corrected by the resync: this is what it is told as from now
+        if (before === undefined || resynced) heard.set(pane.pane_id, { status: pane.agent_status, agent: pane.agent ?? null });
+        else if (replaying && before.status !== pane.agent_status) replays.push(pane);
+      }
+      if (replays.length > 0) {
+        // the old connection stays open through this: an event it still holds is read, and wins
+        await new Promise((resolve) => setTimeout(resolve, deps.replaySettleMs));
+        if (stopped) return;
+        for (const pane of replays) {
+          const before = heard.get(pane.pane_id);
+          if (newerThan(pane.pane_id, askedAt) || before === undefined || before.status === pane.agent_status) continue;
+          const agent = pane.agent ?? null;
+          heard.set(pane.pane_id, { status: pane.agent_status, agent });
+          handlers.onStatus(pane.pane_id, pane.agent_status, agent, { before: before.status, agent: before.agent });
+        }
       }
       // gone before this snapshot; a pane heard of since may be too new for it
       for (const [paneId, seq] of lastEventOf) if (seq <= askedAt && !paneIds.includes(paneId)) lastEventOf.delete(paneId);

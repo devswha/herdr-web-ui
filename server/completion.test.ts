@@ -326,6 +326,13 @@ describe("CompletionTracker", () => {
     late.present(snapshot([{ id: "late", status: "unknown", agent: "codex" }]));
     expect(late.replayed("late", "unknown", { before: "working", agent: "codex" })).toBe(true);
     expect(late.observe("late", "unknown", "codex")).toBe("done");
+    // a browser's snapshot settled the finish first: the replay still goes on to the devices, and it stays DONE
+    const settled = new CompletionTracker(null);
+    settled.observe("p", "working", "claude");
+    settled.present(snapshot([{ id: "p", status: "idle" }]));
+    expect(settled.current("p")).toBe("done");
+    expect(settled.replayed("p", "idle", { before: "working", agent: "claude" })).toBe(true);
+    expect(settled.observe("p", "idle", "claude")).toBe("done");
     // work starting, or stopping for a question, is news from any state
     expect(tracker.replayed("fresh", "working", { before: "idle", agent: "claude" })).toBe(true);
     expect(tracker.replayed("fresh", "blocked", { before: "idle", agent: "claude" })).toBe(true);

@@ -119,6 +119,8 @@ export class CompletionTracker {
    * two statuses at rest it is news only while the pane is shown as working (`unknown`
    * under another agent's name reads as work going on): herdr reads a finish nobody saw
    * as `done` in one place and `idle` in another, and that difference must not undo a DONE.
+   * A change from work to rest is always news, even where a snapshot served to a browser
+   * settled it here first: that told no device.
    */
   replayed(paneId: string, status: AgentStatus, before: { before: AgentStatus; agent: string | null }): boolean {
     const busy = (value: AgentStatus): boolean => value === "working" || value === "blocked";
@@ -129,7 +131,8 @@ export class CompletionTracker {
       this.observe(paneId, before.before, before.agent);
       return true;
     }
-    return busy(shown) || busy(status);
+    // a finish a browser's snapshot settled first is still one nobody was alerted of: it goes on, and stays DONE
+    return busy(shown) || busy(status) || busy(before.before);
   }
 
   /** What the pane was last reported as, if it was. */
