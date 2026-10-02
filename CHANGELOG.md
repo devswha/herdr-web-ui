@@ -49,6 +49,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#308](https://github.com/devswha/herdr-web-ui/pull/308) by @Kuhave)
 
 ### Changed
+- Remote PCs use the `remote-v11` runtime, which carries the server-side changes since `remote-v10`
+  to them: a new tab and a split from the sidebar, an OmO pane's background tasks and workflows,
+  and the access token asked before a Tailscale login is trusted. A PC connected with the
+  `remote-v10` bridge updates as it did for earlier runtimes.
+  ([#322](https://github.com/devswha/herdr-web-ui/pull/322))
 - With an access token set (`HERDR_WEB_TOKEN`), your own Tailscale devices are asked for it too:
   once per device, and that browser then stays signed in for a year. A paired device still gets in
   without it, and nothing changes when no token is set. Before, the token was skipped for a request
