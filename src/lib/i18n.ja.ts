@@ -615,4 +615,5 @@ export const JA: Record<string, string> = {
   "No background tasks to show yet": "表示できるバックグラウンドタスクはまだありません",
   "Running": "実行中",
   "Ended in the last day": "この 1 日で終了",
+  "Couldn't refresh: this is the list as it last read": "更新できませんでした。最後に読み込んだ一覧です",
 };

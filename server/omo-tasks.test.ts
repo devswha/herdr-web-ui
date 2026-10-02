@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { omoTasks } from "./omo-tasks.ts";
@@ -53,4 +53,35 @@ test("no task folder, and at most ten ended tasks", () => {
   const tasks = omoTasks(cwd, SESSION, alive, NOW);
   expect(tasks.length).toBe(10);
   expect(tasks[0]!.title).toBe("done 0");
+});
+
+test("only plain files are read: a link, a pipe and an oversized record are passed over", () => {
+  const cwd = folder([{ status: "running", task_summary: "plain" }]);
+  const dir = join(cwd, ".omo", "senpi-task", "tasks");
+  const outside = join(cwd, "outside.json");
+  writeFileSync(outside, JSON.stringify({ task_id: "st_x", parent_session_id: SESSION, status: "running", task_summary: "through a link" }));
+  symlinkSync(outside, join(dir, "st_link.json"));
+  expect(Bun.spawnSync(["mkfifo", join(dir, "st_pipe.json")]).exitCode).toBe(0);
+  writeFileSync(join(dir, "st_huge.json"), JSON.stringify({ task_id: "st_h", parent_session_id: SESSION, status: "running", task_summary: "huge", pad: "x".repeat(1024 * 1024) }));
+  expect(omoTasks(cwd, SESSION, alive, NOW).map((task) => task.title)).toEqual(["plain"]);
+});
+
+test("a folder of thousands of tasks: the newest are read, and this session's running one is among them", () => {
+  const cwd = folder([]);
+  const dir = join(cwd, ".omo", "senpi-task", "tasks");
+  for (let index = 0; index < 2100; index++) writeFileSync(join(dir, `st_00${String(index).padStart(6, "0")}.json`), JSON.stringify({ task_id: `st_${index}`, parent_session_id: "someone-else", status: "completed" }));
+  writeFileSync(join(dir, "st_01a0ffff.json"), JSON.stringify({ task_id: "st_01a0ffff", parent_session_id: SESSION, status: "running", task_summary: "mine" }));
+  expect(omoTasks(cwd, SESSION, alive, NOW).map((task) => task.title)).toEqual(["mine"]);
+});
+
+test("a rewritten record is read again, and a host that dies after it was read makes it lost", () => {
+  const cwd = folder([{ status: "running", task_summary: "work", updated_at: ago(1) }]);
+  const path = join(cwd, ".omo", "senpi-task", "tasks", "st_0.json");
+  let up = true;
+  expect(omoTasks(cwd, SESSION, () => up, NOW)[0]).toMatchObject({ status: "running", ended_at: null });
+  up = false;
+  expect(omoTasks(cwd, SESSION, () => up, NOW)[0]).toMatchObject({ status: "lost", ended_at: ago(1) });
+  writeFileSync(path, JSON.stringify({ task_id: "st_0", parent_session_id: SESSION, host_pid: 1, status: "completed", task_summary: "work", terminal_at: ago(0) }));
+  utimesSync(path, NOW / 1000 + 5, NOW / 1000 + 5);
+  expect(omoTasks(cwd, SESSION, () => up, NOW)[0]).toMatchObject({ status: "completed", ended_at: ago(0) });
 });

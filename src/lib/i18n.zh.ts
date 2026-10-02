@@ -617,4 +617,5 @@ export const ZH: Record<string, string> = {
   "No background tasks to show yet": "暂时没有可显示的后台任务",
   "Running": "运行中",
   "Ended in the last day": "最近一天内结束",
+  "Couldn't refresh: this is the list as it last read": "无法刷新：这是上次读取的列表",
 };

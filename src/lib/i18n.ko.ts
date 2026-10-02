@@ -613,4 +613,5 @@ export const KO: Record<string, string> = {
   "No background tasks to show yet": "아직 보여줄 백그라운드 작업이 없습니다",
   "Running": "실행 중",
   "Ended in the last day": "최근 하루 동안 끝난 작업",
+  "Couldn't refresh: this is the list as it last read": "새로 고치지 못했습니다. 마지막으로 읽은 목록입니다",
 };

@@ -78,9 +78,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/, path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
- *  GET    /api/pane/omo-tasks?pane_id=  -> { tasks: OmoTask[] } (the background tasks the pane's
- *         OmO session started: running ones, then those that ended in the last day; [] for a
- *         pane that is not OmO or whose session is not known yet)
+ *  GET    /api/pane/omo-tasks?pane_id=  -> { tasks: OmoTask[], server_time } (the background tasks
+ *         the pane's OmO session started: running ones, then those that ended in the last day; []
+ *         for a pane that is not OmO or whose session is not known yet. server_time: that PC's
+ *         clock, which the task times are on)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }

@@ -4,7 +4,7 @@ import { CircleAlert, CircleCheck, CircleDot, CircleSlash, CircleX, Layers, type
 import "./BackgroundTasks.css";
 
 import { useMachineApi } from "../lib/machineContext.tsx";
-import { formatElapsed, taskElapsedMs } from "../lib/omoTasks.ts";
+import { clockOffsetMs, formatElapsed, taskElapsedMs } from "../lib/omoTasks.ts";
 import { formatTokens } from "../lib/compose.ts";
 import { useT } from "../lib/i18n.ts";
 import type { OmoTask } from "../../shared/protocol.ts";
@@ -15,7 +15,10 @@ const ICONS: Record<OmoTask["status"], ComponentType<LucideProps>> = {
   running: CircleDot, completed: CircleCheck, failed: CircleX, cancelled: CircleSlash, lost: CircleAlert,
 };
 
-/** The status line's "N background tasks": opens what OmO's background tasks are and how far they got. */
+/**
+ * The status line's "N background tasks": opens what OmO's background tasks are and how far they got.
+ * Shown while a task runs; an open list stays when the last one ends, so its result can be read.
+ */
 export function BackgroundTasks({ paneId, count }: { paneId: string; count: number }) {
   const t = useT();
   const { fetchPaneOmoTasks } = useMachineApi();
@@ -23,6 +26,8 @@ export function BackgroundTasks({ paneId, count }: { paneId: string; count: numb
   const [tasks, setTasks] = useState<OmoTask[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  /** the PC's clock minus this browser's: task times are on the PC's */
+  const [offset, setOffset] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const id = useId();
 
@@ -34,12 +39,13 @@ export function BackgroundTasks({ paneId, count }: { paneId: string; count: numb
       try {
         const next = await fetchPaneOmoTasks(paneId);
         if (!alive) return;
-        setTasks(next); setFailed(false);
+        const received = Date.now();
+        setTasks(next.tasks); setFailed(false); setOffset(clockOffsetMs(next.serverTime, received)); setNow(received);
       } catch {
+        // the clock stops with the list: a running task's time is no longer known to run on
         if (alive) setFailed(true);
       }
       if (!alive) return;
-      setNow(Date.now());
       timer = setTimeout(() => void load(), POLL_MS);
     };
     void load();
@@ -63,7 +69,7 @@ export function BackgroundTasks({ paneId, count }: { paneId: string; count: numb
 
   const row = (task: OmoTask) => {
     const Icon = ICONS[task.status];
-    const elapsed = taskElapsedMs(task, now);
+    const elapsed = taskElapsedMs(task, now + offset);
     const meta = [
       task.category, task.model, elapsed === null ? null : formatElapsed(elapsed),
       task.turns === null ? null : t(task.turns === 1 ? "{n} turn" : "{n} turns", { n: task.turns }),
@@ -79,6 +85,7 @@ export function BackgroundTasks({ paneId, count }: { paneId: string; count: numb
     </li>;
   };
 
+  if (count === 0 && !open) return null;
   return <span className="bg-tasks" ref={root}>
     <button type="button" className="bg-tasks-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
       <Layers aria-hidden="true" />{t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count })}
@@ -86,6 +93,7 @@ export function BackgroundTasks({ paneId, count }: { paneId: string; count: numb
     {open && <div id={id} className="menu bg-tasks-menu" role="dialog" aria-live="off" aria-label={t("Background tasks")}>
       {tasks === null && !failed && <p className="bg-tasks-note">{t("Loading…")}</p>}
       {failed && tasks === null && <p className="bg-tasks-note">{t("Couldn't load the background tasks")}</p>}
+      {failed && tasks !== null && <p className="bg-tasks-note" role="status">{t("Couldn't refresh: this is the list as it last read")}</p>}
       {tasks !== null && tasks.length === 0 && <p className="bg-tasks-note">{t("No background tasks to show yet")}</p>}
       {running.length > 0 && <><div className="menu-heading">{t("Running")}</div><ul className="bg-task-list">{running.map(row)}</ul></>}
       {ended.length > 0 && <><div className="menu-heading">{t("Ended in the last day")}</div><ul className="bg-task-list">{ended.map(row)}</ul></>}

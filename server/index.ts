@@ -1111,7 +1111,8 @@ export function createServer(
         const paneId = url.searchParams.get("pane_id");
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
         const session = omo.sessionOf(paneId);
-        return jsonResponse({ tasks: session === null ? [] : omoTasks(session.cwd, session.sessionId, processAlive) });
+        // server_time: the browser's clock can differ from this PC's, and the list says how long tasks ran
+        return jsonResponse({ tasks: session === null ? [] : omoTasks(session.cwd, session.sessionId, processAlive), server_time: new Date().toISOString() });
       }
 
       if (pathname === "/api/pane/read") {

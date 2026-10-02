@@ -345,9 +345,10 @@ export async function fetchPaneCommands(paneId: string, machineId = "local"): Pr
   return (await getJson<{ commands: SlashCommand[] }>(machinePath(machineId, `pane/commands?pane_id=${encodeURIComponent(paneId)}`))).commands;
 }
 
-/** GET /api/pane/omo-tasks: the background tasks the pane's OmO session started. */
-export async function fetchPaneOmoTasks(paneId: string, machineId = "local"): Promise<OmoTask[]> {
-  return (await getJson<{ tasks: OmoTask[] }>(machinePath(machineId, `pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`))).tasks;
+/** GET /api/pane/omo-tasks: the background tasks the pane's OmO session started, and that PC's clock. */
+export async function fetchPaneOmoTasks(paneId: string, machineId = "local"): Promise<{ tasks: OmoTask[]; serverTime: string | null }> {
+  const answer = await getJson<{ tasks: OmoTask[]; server_time?: string }>(machinePath(machineId, `pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`));
+  return { tasks: answer.tasks, serverTime: answer.server_time ?? null };
 }
 
 /** GET /api/pane/files: paths under the pane's cwd matching `query`, for @-mentions. */
