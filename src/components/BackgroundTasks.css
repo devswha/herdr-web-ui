@@ -24,6 +24,12 @@
   height: 12px;
 }
 
+/* nothing running: the list of what ran stays at hand, without the working tint */
+.bg-tasks-toggle.is-idle {
+  background: transparent;
+  color: var(--text-dim);
+}
+
 .bg-tasks-toggle[aria-expanded="true"] {
   color: var(--text-strong);
 }

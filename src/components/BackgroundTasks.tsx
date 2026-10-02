@@ -17,12 +17,15 @@ const ICONS: Record<OmoTask["status"], ComponentType<LucideProps>> = {
 
 /**
  * The status line's "N background tasks": opens what OmO's background tasks are and how far they got.
- * Shown while a task runs; an open list stays when the last one ends, so its result can be read.
+ * Shown while a task runs, and once there was one, for the rest of this pane's view: when the last
+ * one ends, what it came to can still be read.
  */
 export function BackgroundTasks({ paneId, count }: { paneId: string; count: number }) {
   const t = useT();
   const { fetchPaneOmoTasks } = useMachineApi();
   const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState(count > 0);
+  useEffect(() => { if (count > 0) setSeen(true); }, [count]);
   const [tasks, setTasks] = useState<OmoTask[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -85,10 +88,10 @@ export function BackgroundTasks({ paneId, count }: { paneId: string; count: numb
     </li>;
   };
 
-  if (count === 0 && !open) return null;
+  if (count === 0 && !open && !seen) return null;
   return <span className="bg-tasks" ref={root}>
-    <button type="button" className="bg-tasks-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
-      <Layers aria-hidden="true" />{t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count })}
+    <button type="button" className={`bg-tasks-toggle${count === 0 ? " is-idle" : ""}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      <Layers aria-hidden="true" />{count === 0 ? t("Background tasks") : t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count })}
     </button>
     {open && <div id={id} className="menu bg-tasks-menu" role="dialog" aria-live="off" aria-label={t("Background tasks")}>
       {tasks === null && !failed && <p className="bg-tasks-note">{t("Loading…")}</p>}
