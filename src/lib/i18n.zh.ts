@@ -601,4 +601,12 @@ export const ZH: Record<string, string> = {
   "{name} asked to slow down. These are the last numbers.": "{name} 要求降低请求频率。显示的是上次读取的数值。",
   "{name} could not be reached.": "无法连接 {name}。",
   "The server cannot open the keychain holding this sign-in.": "服务器无法打开保存此登录信息的钥匙串。",
+  "Goal": "目标",
+  "paused": "已暂停",
+  "complete": "已完成",
+  "out of budget": "预算用尽",
+  "{n} tokens": "{n} 个 token",
+  "Used so far: {spent}": "目前已用：{spent}",
+  "in progress": "进行中",
+  "blocked": "受阻",
 };

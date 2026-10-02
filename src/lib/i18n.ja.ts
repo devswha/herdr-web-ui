@@ -599,4 +599,12 @@ export const JA: Record<string, string> = {
   "{name} asked to slow down. These are the last numbers.": "{name} からリクエストの制限を受けました。最後に取得した値です。",
   "{name} could not be reached.": "{name} に接続できませんでした。",
   "The server cannot open the keychain holding this sign-in.": "このサインイン情報を保存したキーチェーンをサーバーが開けません。",
+  "Goal": "目標",
+  "paused": "一時停止",
+  "complete": "完了",
+  "out of budget": "予算切れ",
+  "{n} tokens": "{n} トークン",
+  "Used so far: {spent}": "これまでの使用量: {spent}",
+  "in progress": "進行中",
+  "blocked": "ブロック中",
 };

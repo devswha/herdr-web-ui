@@ -597,4 +597,12 @@ export const KO: Record<string, string> = {
   "{name} asked to slow down. These are the last numbers.": "{name}이(가) 요청 속도 제한을 걸었습니다. 마지막으로 읽은 값입니다.",
   "{name} could not be reached.": "{name}에 연결하지 못했습니다.",
   "The server cannot open the keychain holding this sign-in.": "서버가 이 로그인 정보가 든 키체인을 열 수 없습니다.",
+  "Goal": "목표",
+  "paused": "일시 중지",
+  "complete": "완료",
+  "out of budget": "예산 소진",
+  "{n} tokens": "토큰 {n}개",
+  "Used so far: {spent}": "지금까지 사용: {spent}",
+  "in progress": "진행 중",
+  "blocked": "막힘",
 };

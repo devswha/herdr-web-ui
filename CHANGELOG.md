@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- An OmO turn that set or updated a goal shows it on the turn, beside the skills, also while its work
+  is folded: the objective, whether it is in progress, complete, blocked, paused or out of budget, and
+  opened, the whole objective, why it is blocked and the time and tokens spent on it so far.
+
 ### Changed
 - A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
   that changed instead of the whole screen each time, and shows what you type sooner. An agent at
