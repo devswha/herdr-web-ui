@@ -607,4 +607,7 @@ export const JA: Record<string, string> = {
   "Used so far: {spent}": "これまでの使用量: {spent}",
   "in progress": "進行中",
   "blocked": "ブロック中",
+  "This message can't be shown here. The terminal has it.": "このメッセージはここに表示できません。ターミナルで確認できます。",
+  "The chat can't be shown. The terminal still works.": "チャットを表示できません。ターミナルは引き続き使えます。",
+  "Try again": "再試行",
 };

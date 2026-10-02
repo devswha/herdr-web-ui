@@ -609,4 +609,7 @@ export const ZH: Record<string, string> = {
   "Used so far: {spent}": "目前已用：{spent}",
   "in progress": "进行中",
   "blocked": "受阻",
+  "This message can't be shown here. The terminal has it.": "此消息无法在这里显示，可在终端中查看。",
+  "The chat can't be shown. The terminal still works.": "无法显示聊天，终端仍可使用。",
+  "Try again": "重试",
 };
