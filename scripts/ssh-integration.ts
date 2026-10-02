@@ -125,6 +125,8 @@ try {
   ws.send(JSON.stringify({ type: "role", mode: "observe" }));
   ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 80, rows: 24, flow_control: "ack" }));
   await until(async () => frames, (list) => list.some((m) => m.type === "pty-data"), "remote terminal paint");
+  // a mirror paints too (pty-data), on a grid it fixes: the remote PC has Node, so this must be herdr's own attach (#265)
+  assert.ok(!frames.some((m) => m.type === "pane-geometry" && m.fixed === true), "remote terminal is attached, not mirrored");
   ws.send(JSON.stringify({ type: "input", pane_id: paneId, text: "forbidden\n" }));
   await until(async () => frames, (list) => list.some((m) => m.type === "error" && m.code === "read_only"), "observe enforcement");
   ws.send(JSON.stringify({ type: "role", mode: "interact" }));
