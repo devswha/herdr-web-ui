@@ -105,6 +105,28 @@ describe("box-drawing characters as painted cells", () => {
     expect(boxBackground(draw("│"), pixelPlacement(0, 0, 0, 0, 1))).toBe("linear-gradient(currentColor,currentColor) 4px 0px/1px 20px no-repeat");
   });
 
+  it("draws Powerline's separators to the cell, from the top of the row to the bottom", () => {
+    for (let code = 0xe0b0; code <= 0xe0b7; code++) {
+      const char = String.fromCodePoint(code);
+      expect(isBoxGlyph(char)).toBe(true);
+      expect(BOX_GLYPHS.test(char)).toBe(true);
+      const shapes = draw(char).shapes!;
+      // every shape together covers the whole cell, top to bottom
+      expect(Math.min(...shapes.map((s) => s.y))).toBe(0);
+      expect(Math.max(...shapes.map((s) => s.y + s.h))).toBe(20);
+      expect(shapes.every((s) => s.x === 0 && s.w === 8)).toBe(true);
+    }
+    // a filled arrow: the two halves of a triangle pointing right
+    expect(draw("\ue0b0").shapes!.map((s) => s.image)).toEqual(["linear-gradient(to top right,currentColor 50%,transparent 50%)", "linear-gradient(to bottom right,currentColor 50%,transparent 50%)"]);
+    expect(draw("\ue0b6").shapes![0]!.image.startsWith("radial-gradient(100% 50% at 100% 50%,currentColor")).toBe(true);
+    // other private use characters are icons, left to the font
+    expect(isBoxGlyph("\ue0a0")).toBe(false);
+    expect(isBoxGlyph("\ue0b8")).toBe(false);
+    expect(boxDrawing("\uf07b", 8, 20, 13)).toBeNull();
+    // in a run, a shape moves with its cell
+    expect(boxRun([draw("─"), draw("\ue0b0")], 8).shapes!.map((s) => s.x)).toEqual([8, 8]);
+  });
+
   it("paints in the text colour, one background layer per rectangle", () => {
     expect(boxBackground(draw("┐"))).toBe("linear-gradient(currentColor,currentColor) 0px 9.5px/4.5px 1px no-repeat,linear-gradient(currentColor,currentColor) 3.5px 9.5px/1px 10.5px no-repeat");
     expect(boxBackground(draw("▒"))).toBe("linear-gradient(color-mix(in srgb,currentColor 50%,transparent),color-mix(in srgb,currentColor 50%,transparent)) 0px 0px/8px 20px no-repeat");

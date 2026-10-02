@@ -24,7 +24,9 @@ export interface BoxRect { x: number; y: number; w: number; h: number; alpha?: n
  * way those lines leave.
  */
 export interface BoxArc { x: number; y: number; r: number; t: number; right: boolean; down: boolean }
-export interface BoxDrawing { rects: BoxRect[]; arcs: BoxArc[] }
+/** A shape painted by a gradient of its own over the box `x`,`y`,`w`,`h` (Powerline's arrows and half circles). */
+export interface BoxShape { x: number; y: number; w: number; h: number; image: string }
+export interface BoxDrawing { rects: BoxRect[]; arcs: BoxArc[]; shapes?: BoxShape[] }
 
 /** 0 none, 1 light, 2 heavy, 3 double */
 type Weight = 0 | 1 | 2 | 3;
@@ -49,13 +51,50 @@ const LINES = (
 /** U+2596-259F as quadrants: upper left 1, upper right 2, lower left 4, lower right 8 */
 const QUADRANTS = [4, 8, 1, 13, 9, 7, 11, 2, 6, 14];
 
+/**
+ * Powerline's separators, U+E0B0-E0B7: filled and outlined arrows, filled and outlined half
+ * circles. They join a prompt's segments from the top of the row to the bottom, and a font
+ * draws them no taller than its own box, nor one cell wide when its icons advance 1em.
+ */
+const POWERLINE_FIRST = 0xe0b0;
+const POWERLINE_LAST = 0xe0b7;
+/** half the width of an outlined arrow's or half circle's line */
+const OUTLINE = 0.75;
+
+function powerlineShapes(code: number, w: number, h: number): BoxShape[] {
+  const fill = (to: string) => `linear-gradient(to ${to},currentColor 50%,transparent 50%)`;
+  // a band along the line between the two corners the 50% line of the gradient joins
+  const line = (to: string) => `linear-gradient(to ${to},transparent calc(50% - ${OUTLINE}px),currentColor calc(50% - ${OUTLINE}px),currentColor calc(50% + ${OUTLINE}px),transparent calc(50% + ${OUTLINE}px))`;
+  const half = (image: (to: string) => string, top: string, bottom: string): BoxShape[] => [
+    { x: 0, y: 0, w, h: h / 2, image: image(top) },
+    { x: 0, y: h / 2, w, h: h / 2, image: image(bottom) },
+  ];
+  const round = (at: string, outlined: boolean): BoxShape[] => [{
+    x: 0, y: 0, w, h,
+    image: outlined
+      ? `radial-gradient(100% 50% at ${at} 50%,transparent calc(100% - ${2 * OUTLINE + 0.5}px),currentColor calc(100% - ${2 * OUTLINE}px),currentColor calc(100% - 0.5px),transparent 100%)`
+      : `radial-gradient(100% 50% at ${at} 50%,currentColor calc(100% - 0.5px),transparent 100%)`,
+  }];
+  switch (code) {
+    case 0xe0b0: return half(fill, "top right", "bottom right");
+    case 0xe0b1: return half(line, "top right", "bottom right");
+    case 0xe0b2: return half(fill, "top left", "bottom left");
+    case 0xe0b3: return half(line, "top left", "bottom left");
+    case 0xe0b4: return round("0%", false);
+    case 0xe0b5: return round("0%", true);
+    case 0xe0b6: return round("100%", false);
+    default: return round("100%", true);
+  }
+}
+
 export function isBoxGlyph(char: string): boolean {
   const code = char.codePointAt(0) ?? 0;
+  if (code >= POWERLINE_FIRST && code <= POWERLINE_LAST) return true;
   if (code >= 0x2580 && code <= 0x259f) return true;
   return code >= 0x2500 && code <= 0x257f && LINES[code - 0x2500] !== "x";
 }
 
-export const BOX_GLYPHS = /[\u2500-\u259f]/;
+export const BOX_GLYPHS = /[\u2500-\u259f\ue0b0-\ue0b7]/;
 
 /** Line widths for a font size: a light line is a pixel at 13px, a heavy one three. */
 export function boxStrokes(fontSize: number): { light: number; heavy: number } {
@@ -70,6 +109,7 @@ export function boxStrokes(fontSize: number): { light: number; heavy: number } {
 export function boxDrawing(char: string, w: number, h: number, fontSize: number): BoxDrawing | null {
   const code = char.codePointAt(0) ?? 0;
   const { light, heavy } = boxStrokes(fontSize);
+  if (code >= POWERLINE_FIRST && code <= POWERLINE_LAST) return { rects: [], arcs: [], shapes: powerlineShapes(code, w, h) };
   if (code >= 0x2580 && code <= 0x259f) return { rects: blockRects(code, w, h), arcs: [] };
   if (code < 0x2500 || code > 0x257f) return null;
   const spec = LINES[code - 0x2500]!;
@@ -209,12 +249,14 @@ function joined(rects: readonly BoxRect[]): BoxRect[] {
 export function boxRun(drawings: readonly BoxDrawing[], w: number): BoxDrawing {
   const rects: BoxRect[] = [];
   const arcs: BoxArc[] = [];
+  const shapes: BoxShape[] = [];
   drawings.forEach((drawing, index) => {
     const shift = index * w;
     for (const arc of drawing.arcs) arcs.push({ ...arc, x: arc.x + shift });
+    for (const shape of drawing.shapes ?? []) shapes.push({ ...shape, x: shape.x + shift });
     for (const rect of drawing.rects) rects.push({ ...rect, x: rect.x + shift });
   });
-  return { rects: joined(rects), arcs };
+  return { rects: joined(rects), arcs, ...(shapes.length > 0 ? { shapes } : {}) };
 }
 
 const px = (value: number): string => `${Math.round(value * 1000) / 1000}px`;
@@ -251,6 +293,11 @@ export function boxBackground(drawing: BoxDrawing, place: BoxPlacement = AS_DRAW
     const x = place.x(arc.x) + (arc.right ? 0 : arc.t - side);
     const y = place.y(arc.y) + (arc.down ? 0 : arc.t - side);
     layers.push(`radial-gradient(circle at ${arc.right ? px(side) : "0px"} ${arc.down ? px(side) : "0px"},transparent ${px(inner - 0.5)},currentColor ${px(inner)},currentColor ${px(outer)},transparent ${px(outer + 0.5)}) ${px(x)} ${px(y)}/${px(side)} ${px(side)} no-repeat`);
+  }
+  for (const shape of drawing.shapes ?? []) {
+    const x = place.x(shape.x);
+    const y = place.y(shape.y);
+    layers.push(`${shape.image} ${px(x)} ${px(y)}/${px(place.x(shape.x + shape.w) - x)} ${px(place.y(shape.y + shape.h) - y)} no-repeat`);
   }
   for (const rect of drawing.rects) {
     const colour = rect.alpha === undefined ? "currentColor" : `color-mix(in srgb,currentColor ${Math.round(rect.alpha * 100)}%,transparent)`;
