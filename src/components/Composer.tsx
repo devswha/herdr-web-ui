@@ -621,7 +621,7 @@ export function Composer({
         <span className="composer-agent-label">{agentLabel}</span>
         <span className="composer-status-separator" aria-hidden="true">·</span>
         <strong>{t(composerStatusWord(agentStatus))}</strong>
-        <BackgroundTasks paneId={paneId} count={backgroundTasks} />
+        <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
         {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
           <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
           <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>

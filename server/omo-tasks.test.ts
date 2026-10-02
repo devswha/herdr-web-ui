@@ -41,7 +41,8 @@ test("another session's tasks, old ones, unknown states and torn files stay out;
     { status: "running", task_summary: "other session", parent_session_id: "someone-else" },
     { status: "completed", task_summary: "two days ago", terminal_at: ago(48 * 60) },
     { status: "paused-ish", task_summary: "unknown state" },
-    { status: "running", task_summary: "host gone", host_pid: 999_999 },
+    { status: "running", task_summary: "host gone", host_pid: 999_999, started_at: ago(30) },
+    { status: "completed", task_summary: "no time at all" },
   ], { "st_torn.json": "{\"task_id\": \"st_t", "notes.txt": "x" });
   const tasks = omoTasks(cwd, SESSION, (pid) => pid !== 999_999, NOW);
   expect(tasks.map((task) => [task.title, task.status])).toEqual([["host gone", "lost"]]);
@@ -164,4 +165,14 @@ test("hundreds of other runs from today: the newest are looked at first, and thi
   }
   writeFileSync(join(dir, "dag_zzz.json"), JSON.stringify({ runId: "dag_zzz", parentSessionId: SESSION, name: "mine", status: "running", nodes: [] }));
   expect(omoRuns(join(dir, "..", "..", "..", ".."), SESSION).map((run) => run.name)).toEqual(["mine"]);
+});
+
+test("a task still running under thousands of newer records is found, over a few polls at most", () => {
+  const cwd = folder([]);
+  const dir = join(cwd, ".omo", "senpi-task", "tasks");
+  writeFileSync(join(dir, "st_00000000.json"), JSON.stringify({ task_id: "st_00000000", parent_session_id: SESSION, status: "running", task_summary: "old but running" }));
+  for (let index = 1; index <= 2500; index++) writeFileSync(join(dir, `st_${String(index).padStart(8, "0")}.json`), JSON.stringify({ task_id: `st_${index}`, parent_session_id: "someone-else", status: "completed", pad: "x".repeat(4000) }));
+  let titles: string[] = [];
+  for (let poll = 0; poll < 5 && titles.length === 0; poll++) titles = omoTasks(cwd, SESSION, alive, NOW).map((task) => task.title);
+  expect(titles).toEqual(["old but running"]);
 });

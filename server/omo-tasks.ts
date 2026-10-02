@@ -10,11 +10,14 @@ import type { OmoRun, OmoRunNode, OmoTask } from "../shared/protocol.ts";
  * record also holds the child's prompt (`spawn_spec`) and its answer: neither leaves the server.
  * The list is asked for every few seconds while it is open, and a folder keeps every task OmO
  * ever ran (records of tens of KB): a record is parsed again only when its size or time changed,
- * and only what the list shows is kept. Only plain files are read (not a link, not a pipe), and
- * only the newest 2048 by name (`st_` ids grow with time).
+ * and only what the list shows is kept. Only plain files are read (not a link, not a pipe). Newest
+ * first by name (`st_` ids grow with time), and at most TASK_PARSE_BUDGET bytes parsed per call:
+ * a folder of thousands is read over a few polls, and after that only what changed, so a task that
+ * still runs under thousands of newer ones is found too.
  */
 const MAX_RECORD_BYTES = 1024 * 1024;
-const NEWEST = 2048;
+const TASK_PARSE_BUDGET = 8 * 1024 * 1024;
+const MAX_TASK_FILES = 50_000;
 
 const RECENT_MS = 24 * 60 * 60 * 1000;
 const RECENT_LIMIT = 10;
@@ -63,17 +66,22 @@ export function omoTasks(cwd: string, sessionId: string, alive: (pid: number) =>
   try { names = readdirSync(dir); } catch { return []; }
   const running: OmoTask[] = [];
   const ended: OmoTask[] = [];
-  const newest = names.filter((name) => name.startsWith("st_") && name.endsWith(".json")).sort().reverse().slice(0, NEWEST);
+  const newest = names.filter((name) => name.startsWith("st_") && name.endsWith(".json")).sort().reverse().slice(0, MAX_TASK_FILES);
+  let budget = TASK_PARSE_BUDGET;
   for (const name of newest) {
     const path = join(dir, name);
     let key: string;
+    let size: number;
     try {
       const stat = lstatSync(path);
       if (!stat.isFile() || stat.size > MAX_RECORD_BYTES) continue;
       key = `${stat.mtimeMs}:${stat.size}`;
+      size = stat.size;
     } catch { continue; }
     let cached = taskCache.get(path);
     if (cached?.key !== key) {
+      if (budget < size) continue; // read on a later poll
+      budget -= size;
       let record: Row | null;
       try { record = row(JSON.parse(readFileSync(path, "utf8"))); } catch { continue; } // being written
       cached = { key, kept: record === null ? { parent: null, hostPid: null, task: null } : keep(record) };
@@ -83,12 +91,12 @@ export function omoTasks(cwd: string, sessionId: string, alive: (pid: number) =>
     if (parent !== sessionId || kept === null) continue;
     // its host died with it running: lost, as OmO itself marks it, and ended when last heard of
     const found: OmoTask = kept.status === "running" && hostPid !== null && !alive(hostPid) ? { ...kept, status: "lost" } : kept.status === "running" ? { ...kept, ended_at: null } : kept;
-    // a task whose host died has no end time: it counts from its start, and with neither, it shows
+    // an ended task with no end time counts from its start; with neither, it is not known to be recent
     const at = time(found.ended_at) || time(found.started_at);
     if (found.status === "running") running.push(found);
-    else if (at === 0 || now - at <= RECENT_MS) ended.push(found);
+    else if (at !== 0 && now - at <= RECENT_MS) ended.push(found);
   }
-  if (taskCache.size > NEWEST * 4) taskCache.clear();
+  if (taskCache.size > MAX_TASK_FILES) taskCache.clear();
   running.sort((a, b) => time(a.started_at) - time(b.started_at));
   ended.sort((a, b) => time(b.ended_at) - time(a.ended_at));
   return [...running, ...ended.slice(0, RECENT_LIMIT)];
