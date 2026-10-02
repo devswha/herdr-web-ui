@@ -95,12 +95,14 @@ interface InlineError {
 export interface SidebarProps {
   snapshot: SessionSnapshot | null;
   selectedPaneId: string | null;
+  /** What the app has open, on whichever PC: `selectedPaneId` is null while another PC is open. */
+  selection: string;
   actions: AppActions;
   version: string | null;
   embedded?: boolean;
 }
 
-export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded = false }: SidebarProps) {
+export function Sidebar({ snapshot, selectedPaneId, selection, actions, version, embedded = false }: SidebarProps) {
   const t = useT();
   const { settings } = useSettings();
   const byFolder = settings.sidebarGrouping === "directory";
@@ -114,9 +116,10 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
   const [pendingTabWorkspaceId, setPendingTabWorkspaceId] = useState<string | null>(null);
   const [pendingSplitPaneId, setPendingSplitPaneId] = useState<string | null>(null);
   // a new tab or split answers late: it takes the selection only if the user has not picked
-  // another pane or PC meanwhile
-  const selectedRef = useRef(selectedPaneId);
-  selectedRef.current = selectedPaneId;
+  // another pane or PC meanwhile. This PC's own selected pane cannot tell: it stays null for as
+  // long as another PC is open, whatever is picked there.
+  const selectedRef = useRef(selection);
+  selectedRef.current = selection;
   const [workspaceOrder, setWorkspaceOrder] = useState<string[]>([]);
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<InlineError | null>(null);
