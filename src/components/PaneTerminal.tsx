@@ -22,6 +22,7 @@ import { TerminalInput } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
+import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
@@ -33,9 +34,12 @@ import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 
 // xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
-// must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback
+// must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback.
+// Symbols Nerd Font Mono is the app's own (PaneTerminal.css) and covers only the private use
+// area, so it never sizes a cell: it draws the Nerd Font icons a prompt or `ls` replacement
+// prints, which no system font has and Safari will not take from a font the user installed
 const FONT_STACK =
-  '"JetBrains Mono", "Fira Code", "D2Coding", Menlo, Monaco, "Cascadia Mono", Consolas, "Noto Sans Mono CJK KR", monospace, "Malgun Gothic"';
+  '"Symbols Nerd Font Mono", "JetBrains Mono", "Fira Code", "D2Coding", Menlo, Monaco, "Cascadia Mono", Consolas, "Noto Sans Mono CJK KR", monospace, "Malgun Gothic"';
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -52,6 +56,8 @@ export interface PaneTerminalProps {
   agent?: string | null;
   /** the pane's live agent status: `working` turns composer sends into the queue */
   agentStatus?: AgentStatus;
+  /** an OmO pane's running background tasks: the composer's status line offers their list */
+  backgroundTasks?: number;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
@@ -100,6 +106,7 @@ export function PaneTerminal({
   restoreError = null,
   agent = null,
   agentStatus,
+  backgroundTasks = 0,
   view,
   autoSelected = false,
   terminalFontSize,
@@ -1190,6 +1197,12 @@ export function PaneTerminal({
       <div className="terminal-surface">
         <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} />
         {paneId !== null && chatView && (
+          <RenderBoundary resetKey={paneId} fallback={(retry) => (
+            <div className="chat-view"><div className="chat-empty" role="alert">
+              <p>{t("The chat can't be shown. The terminal still works.")}</p>
+              <button type="button" className="btn" onClick={retry}>{t("Try again")}</button>
+            </div></div>
+          )}>
           <ChatView
             paneId={paneId}
             refreshKey={chatRefresh}
@@ -1205,6 +1218,7 @@ export function PaneTerminal({
             pendingAnswer={pendingAnswer !== null && pendingAnswer.pane === paneId ? pendingAnswer : null}
             onPendingAnswerDone={clearPendingAnswer}
           />
+          </RenderBoundary>
         )}
       </div>
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
@@ -1269,6 +1283,7 @@ export function PaneTerminal({
           autoFocus={!autoSelected}
           agent={agent}
           agentStatus={agentStatus}
+          backgroundTasks={backgroundTasks}
           metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
           connected={connected && !held}
           queueMode={busy}

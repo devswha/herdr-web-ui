@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, FolderOpen, Lock, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth } from "../shared/protocol.ts";
+import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { displayPaneTitle, paneTitle } from "./components/Sidebar.tsx";
@@ -673,6 +673,7 @@ export function App() {
             restoreError={selectedPane?.restore_error ?? null}
             agent={selectedAgent}
             agentStatus={selectedPane?.agent_status}
+            backgroundTasks={(selectedPane as HerdrPane | null)?.background_tasks ?? 0}
             view={view}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}

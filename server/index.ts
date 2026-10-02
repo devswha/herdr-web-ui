@@ -18,7 +18,8 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { omoPanes } from "./omo.ts";
-import { OMO_ALIASES, OmoStatus } from "./omo-status.ts";
+import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
+import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { CompletionTracker } from "./completion.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
@@ -1103,6 +1104,17 @@ export function createServer(
         } catch (error) {
           return errorResponse(error);
         }
+      }
+
+      if (pathname === "/api/pane/omo-tasks") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        const paneId = url.searchParams.get("pane_id");
+        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+        const session = omo.sessionOf(paneId);
+        // server_time: the browser's clock can differ from this PC's, and the list says how long tasks ran
+        const server_time = new Date().toISOString();
+        if (session === null) return jsonResponse({ tasks: [], runs: [], server_time });
+        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });
       }
 
       if (pathname === "/api/pane/read") {

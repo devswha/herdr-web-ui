@@ -169,7 +169,7 @@ export function omoBackgroundTasks(cwd: string, alive: (pid: number) => boolean 
   return running;
 }
 
-function processAlive(pid: number): boolean {
+export function processAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
@@ -266,6 +266,13 @@ export class OmoStatus {
 
   backgroundOf(paneId: string): number {
     return this.panes.get(paneId)?.background ?? 0;
+  }
+
+  /** The folder and session id of the OmO session the pane holds, once its file is known. */
+  sessionOf(paneId: string): { cwd: string; sessionId: string } | null {
+    const tracked = this.panes.get(paneId);
+    const sessionId = tracked?.path == null ? null : omoSessionId(tracked.path);
+    return tracked && sessionId !== null && tracked.cwd !== "" ? { cwd: tracked.cwd, sessionId } : null;
   }
 
   /**

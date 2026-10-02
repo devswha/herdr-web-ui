@@ -33,6 +33,7 @@ import {
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { useT } from "../lib/i18n.ts";
 
 export interface ComposerProps {
@@ -42,6 +43,8 @@ export interface ComposerProps {
   autoFocus?: boolean;
   agent: string | null;
   agentStatus?: AgentStatus;
+  /** an OmO pane's running background tasks: the status line opens their list */
+  backgroundTasks?: number;
   metadata?: ConversationMetadata | null;
   queueMode?: boolean;
   /** replaces the placeholder: how a message answers the agent's waiting prompt */
@@ -176,6 +179,7 @@ export function Composer({
   autoFocus = true,
   agent,
   agentStatus,
+  backgroundTasks = 0,
   metadata,
   queueMode = false,
   answerHint = null,
@@ -617,6 +621,7 @@ export function Composer({
         <span className="composer-agent-label">{agentLabel}</span>
         <span className="composer-status-separator" aria-hidden="true">·</span>
         <strong>{t(composerStatusWord(agentStatus))}</strong>
+        <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
         {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
           <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
           <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>

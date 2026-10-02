@@ -7,6 +7,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- While an OmO pane has background tasks running, the chat's status line says how many, and tapping
+  it lists them: what each is doing, its category and model, how long it has run, its turns, tool
+  calls and tokens, and below, the tasks that ended in the last day and whether they finished,
+  failed, were cancelled or were lost with OmO's process. A remote PC lists them once it runs a
+  bridge that knows this list. ([#305](https://github.com/devswha/herdr-web-ui/pull/305))
+- The same list shows the workflows (DAG runs) the OmO session started: each one's name, how many
+  steps are done, running or failed, and its steps wave by wave, with why a failed step failed.
+  ([#306](https://github.com/devswha/herdr-web-ui/pull/306))
+- An OmO turn that set or updated a goal shows it on the turn, beside the skills, also while its work
+  is folded: the objective, whether it is in progress, complete, blocked, paused or out of budget, and
+  opened, the whole objective, why it is blocked and the time and tokens spent on it so far.
+  ([#303](https://github.com/devswha/herdr-web-ui/pull/303))
+
 ### Changed
 - A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
   that changed instead of the whole screen each time, and shows what you type sooner. An agent at
@@ -20,6 +34,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   message differently from one sent while it waits, and the chat skipped it, so the agent acted
   on words the chat never showed.
   ([#301](https://github.com/devswha/herdr-web-ui/pull/301))
+- In an OmO, omp or pi chat, a message that invoked a skill (`/skill:name`, `$name`, or a keyword such as
+  `ulw`) shows what you asked, not the whole SKILL.md the agent put before it: one such message
+  filled tens of KB of the chat. The skill shows as a chip under your message, standalone `.md`
+  skills included. ([#302](https://github.com/devswha/herdr-web-ui/pull/302))
+- A chat message the page cannot draw no longer blanks the whole app. That message says it can't be
+  shown and the rest of the conversation stays; if the chat as a whole fails, it says so with Try
+  again, and the header, sidebar and terminal keep working.
+  ([#300](https://github.com/devswha/herdr-web-ui/pull/300))
 - New session has a shortcut that works in a browser tab: Ctrl+Shift+O (Cmd+Shift+O on a Mac).
   Chrome keeps Ctrl+Shift+N for a new incognito window and never passed it to the page, so it
   worked only in the installed app, where it still does.
@@ -28,6 +50,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   field elsewhere). The pane shortcut took them wherever the cursor was, switched panes and left
   the message behind; it now switches panes from the terminal and outside text fields only.
   ([#298](https://github.com/devswha/herdr-web-ui/pull/298))
+- Nerd Font icons (a Starship or Powerlevel10k prompt, `lsd`, `eza --icons`, Neovim file
+  trees) show in the terminal instead of empty boxes. The terminal's fonts had none of them, and
+  Safari never uses a font the user installed, so even a Nerd Font set up for the native
+  terminal did not help there. The app now carries Symbols Nerd Font Mono for those characters
+  alone; the browser downloads it (1.2 MB) only once a pane prints one, and each icon is drawn to
+  its one cell, Powerline's separators at the full height of the row.
+  ([#294](https://github.com/devswha/herdr-web-ui/pull/294) by @jmr533)
 - An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
   The server reopens its status subscription whenever the set of panes changes, and a status
   that changed in between was never sent again: no done alert came, and a browser kept the old
