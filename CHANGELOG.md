@@ -37,6 +37,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Native Android/Gboard checks also fixed stale editor text after Backspace breaking the next
   Hangul word. Secret entry now refuses a held or unready attachment and failed PTY writes.
   ([#334](https://github.com/devswha/herdr-web-ui/pull/334))
+- New session in the browser demo opens the new session instead of leaving a blank page.
+  ([#355](https://github.com/devswha/herdr-web-ui/pull/355))
 - Terminal input keeps multi-character IME commits and emoji while disconnected, waits for the
   attachment before sending keys, and reports input failures. Unsent input lines survive pane,
   lens and mode changes; late acknowledgements preserve replacement edits. Composition keeps
