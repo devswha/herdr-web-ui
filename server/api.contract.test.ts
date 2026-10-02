@@ -263,7 +263,7 @@ describe("GET /api/pane/omo-tasks", () => {
     expect(((await missing.json()) as ApiError).error.code).toBe("missing_pane_id");
     const unknown = await fetch(`${base()}/api/pane/omo-tasks?pane_id=w0:p0`);
     expect(unknown.status).toBe(200);
-    expect(await unknown.json()).toEqual({ tasks: [] });
+    expect(await unknown.json()).toEqual({ tasks: [], runs: [] });
   });
 });
 

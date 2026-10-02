@@ -78,9 +78,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/, path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
- *  GET    /api/pane/omo-tasks?pane_id=  -> { tasks: OmoTask[] } (the background tasks the pane's
- *         OmO session started: running ones, then those that ended in the last day; [] for a
- *         pane that is not OmO or whose session is not known yet)
+ *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
+ *         pane's OmO session started: running ones, then those that ended in the last day; empty
+ *         for a pane that is not OmO or whose session is not known yet)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
@@ -291,6 +291,30 @@ export interface OmoTask {
   turns: number | null;
   tool_calls: number | null;
   tokens: number | null;
+}
+
+/** One step of an OmO workflow (a DAG node); `error` is why a failed one failed. */
+export interface OmoRunNode {
+  id: string;
+  label: string;
+  state: "pending" | "scheduled" | "running" | "completed" | "failed" | "skipped" | "cancelled";
+  error: string | null;
+}
+
+/** One OmO workflow (a DAG run): its steps by wave, a wave's steps able to run side by side. */
+export interface OmoRun {
+  id: string;
+  name: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  started_at: string | null;
+  ended_at: string | null;
+  waves: OmoRunNode[][];
+}
+
+/** GET /api/pane/omo-tasks */
+export interface OmoActivity {
+  tasks: OmoTask[];
+  runs: OmoRun[];
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */

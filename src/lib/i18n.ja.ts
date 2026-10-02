@@ -615,4 +615,9 @@ export const JA: Record<string, string> = {
   "No background tasks to show yet": "表示できるバックグラウンドタスクはまだありません",
   "Running": "実行中",
   "Ended in the last day": "この 1 日で終了",
+  "{done} of {total} done": "{total} 件中 {done} 件完了",
+  "{n} running": "{n} 件実行中",
+  "Workflows": "ワークフロー",
+  "waiting": "待機中",
+  "skipped": "スキップ",
 };

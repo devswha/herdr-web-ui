@@ -613,4 +613,9 @@ export const KO: Record<string, string> = {
   "No background tasks to show yet": "아직 보여줄 백그라운드 작업이 없습니다",
   "Running": "실행 중",
   "Ended in the last day": "최근 하루 동안 끝난 작업",
+  "{done} of {total} done": "{total}개 중 {done}개 완료",
+  "{n} running": "{n}개 실행 중",
+  "Workflows": "워크플로",
+  "waiting": "대기",
+  "skipped": "건너뜀",
 };

@@ -19,7 +19,7 @@ import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
-import { omoTasks } from "./omo-tasks.ts";
+import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { CompletionTracker } from "./completion.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
@@ -1111,7 +1111,8 @@ export function createServer(
         const paneId = url.searchParams.get("pane_id");
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
         const session = omo.sessionOf(paneId);
-        return jsonResponse({ tasks: session === null ? [] : omoTasks(session.cwd, session.sessionId, processAlive) });
+        if (session === null) return jsonResponse({ tasks: [], runs: [] });
+        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId) });
       }
 
       if (pathname === "/api/pane/read") {

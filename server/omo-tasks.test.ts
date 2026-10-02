@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { omoTasks } from "./omo-tasks.ts";
+import { omoRuns, omoTasks } from "./omo-tasks.ts";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -53,4 +53,54 @@ test("no task folder, and at most ten ended tasks", () => {
   const tasks = omoTasks(cwd, SESSION, alive, NOW);
   expect(tasks.length).toBe(10);
   expect(tasks[0]!.title).toBe("done 0");
+});
+
+function runs(records: Record<string, unknown>[]): string {
+  const cwd = mkdtempSync(join(tmpdir(), "omo-runs-"));
+  dirs.push(cwd);
+  const dir = join(cwd, ".omo", "senpi-task", "dag", "runs");
+  mkdirSync(dir, { recursive: true });
+  records.forEach((record, index) => writeFileSync(join(dir, `dag_${index}.json`), JSON.stringify({ runId: `dag_${index}`, parentSessionId: SESSION, ...record })));
+  return dir;
+}
+const node = (id: string, state: string, more: Record<string, unknown> = {}) => ({ id, state, prompt: "SECRET PROMPT", output: "SECRET OUTPUT", ...more });
+
+test("a session's workflows: name, status and steps by wave, with why a step failed", () => {
+  const dir = runs([{
+    name: "Bug-fix round", status: "running", startedAt: new Date(Date.now() - 60_000).toISOString(),
+    nodes: [node("fix", "completed", { label: "fix it" }), node("review", "failed", { label: "review it", error: { code: "task_cancelled", message: "started too early" } }), node("ship", "pending"), node("stray", "running")],
+    waves: [{ index: 0, nodeIds: ["fix"] }, { index: 1, nodeIds: ["review", "ship"] }],
+  }]);
+  const [run, ...rest] = omoRuns(join(dir, "..", "..", "..", ".."), SESSION);
+  expect(rest).toEqual([]);
+  expect(run).toMatchObject({ id: "dag_0", name: "Bug-fix round", status: "running", ended_at: null });
+  expect(run!.waves).toEqual([
+    [{ id: "fix", label: "fix it", state: "completed", error: null }],
+    [{ id: "review", label: "review it", state: "failed", error: "started too early" }, { id: "ship", label: "ship", state: "pending", error: null }],
+    [{ id: "stray", label: "stray", state: "running", error: null }],
+  ]);
+  expect(JSON.stringify(run)).not.toContain("SECRET");
+});
+
+test("another session's workflows, ones untouched for a day, unknown states and torn files stay out", () => {
+  const dir = runs([
+    { name: "other", status: "running", parentSessionId: "someone-else", nodes: [] },
+    { name: "stale", status: "running", nodes: [] },
+    { name: "odd", status: "paused-ish", nodes: [] },
+    { name: "kept", status: "completed", completedAt: new Date().toISOString(), nodes: [node("a", "completed"), node("b", "weird")] },
+  ]);
+  const old = (Date.now() - 2 * 24 * 60 * 60 * 1000) / 1000;
+  utimesSync(join(dir, "dag_1.json"), old, old);
+  writeFileSync(join(dir, "dag_torn.json"), "{\"runId\": \"dag_t");
+  const found = omoRuns(join(dir, "..", "..", "..", ".."), SESSION);
+  expect(found.map((run) => run.name)).toEqual(["kept"]);
+  expect(found[0]!.waves).toEqual([[{ id: "a", label: "a", state: "completed", error: null }]]);
+});
+
+test("a rewritten checkpoint is read again", () => {
+  const dir = runs([{ name: "first", status: "running", nodes: [node("a", "running")] }]);
+  const cwd = join(dir, "..", "..", "..", "..");
+  expect(omoRuns(cwd, SESSION)[0]!.status).toBe("running");
+  writeFileSync(join(dir, "dag_0.json"), JSON.stringify({ runId: "dag_0", parentSessionId: SESSION, name: "first", status: "completed", completedAt: new Date().toISOString(), nodes: [node("a", "completed"), node("b", "completed")] }));
+  expect(omoRuns(cwd, SESSION)[0]!.status).toBe("completed");
 });

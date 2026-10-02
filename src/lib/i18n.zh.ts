@@ -617,4 +617,9 @@ export const ZH: Record<string, string> = {
   "No background tasks to show yet": "暂时没有可显示的后台任务",
   "Running": "运行中",
   "Ended in the last day": "最近一天内结束",
+  "{done} of {total} done": "已完成 {done}/{total}",
+  "{n} running": "{n} 个运行中",
+  "Workflows": "工作流",
+  "waiting": "等待中",
+  "skipped": "已跳过",
 };

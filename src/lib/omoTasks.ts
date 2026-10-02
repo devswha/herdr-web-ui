@@ -1,10 +1,14 @@
 import type { OmoTask } from "../../shared/protocol.ts";
 
-/** How long a task has run: until now while it runs, until it ended otherwise; null when unknown. */
-export function taskElapsedMs(task: OmoTask, now: number): number | null {
-  const started = task.started_at === null ? NaN : Date.parse(task.started_at);
-  const ended = task.status === "running" ? now : task.ended_at === null ? NaN : Date.parse(task.ended_at);
+/** How long something has run: until now while it runs, until it ended otherwise; null when unknown. */
+export function spanMs(startedAt: string | null, endedAt: string | null, running: boolean, now: number): number | null {
+  const started = startedAt === null ? NaN : Date.parse(startedAt);
+  const ended = running ? now : endedAt === null ? NaN : Date.parse(endedAt);
   return Number.isFinite(started) && Number.isFinite(ended) && ended >= started ? ended - started : null;
+}
+
+export function taskElapsedMs(task: OmoTask, now: number): number | null {
+  return spanMs(task.started_at, task.ended_at, task.status === "running", now);
 }
 
 /** `8s`, `4m 12s`, `1h 3m` */
