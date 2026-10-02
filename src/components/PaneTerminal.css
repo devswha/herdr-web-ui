@@ -6,6 +6,16 @@
  * key bar (KeyBar.css) leaves, and clips so a pending refit never paints over it.
  */
 
+/* Nerd Font icons (the FONT_STACK note in PaneTerminal.tsx). The range is the private use
+   area alone, so the browser fetches the file only once a pane prints an icon, and a heart,
+   a lightning bolt or a box line keeps the system font's glyph */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("../fonts/SymbolsNerdFontMono-Regular.woff2") format("woff2");
+  font-display: block;
+  unicode-range: U+E000-F8FF, U+F0000-FFFFD;
+}
+
 .terminal-stack {
   display: flex;
   flex-direction: column;

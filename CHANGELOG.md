@@ -28,6 +28,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   field elsewhere). The pane shortcut took them wherever the cursor was, switched panes and left
   the message behind; it now switches panes from the terminal and outside text fields only.
   ([#298](https://github.com/devswha/herdr-web-ui/pull/298))
+- Nerd Font icons (a Starship or Powerlevel10k prompt, `lsd`, `eza --icons`, Neovim file
+  trees) show in the terminal instead of empty boxes. The terminal's fonts had none of them, and
+  Safari never uses a font the user installed, so even a Nerd Font set up for the native
+  terminal did not help there. The app now carries Symbols Nerd Font Mono for those characters
+  alone; the browser downloads it (1.2 MB) only once a pane prints one, and each icon is drawn to
+  its one cell, Powerline's separators at the full height of the row.
+  ([#294](https://github.com/devswha/herdr-web-ui/pull/294) by @jmr533)
 - An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
   The server reopens its status subscription whenever the set of panes changes, and a status
   that changed in between was never sent again: no done alert came, and a browser kept the old

@@ -72,6 +72,32 @@ export function glyphFit(spacing: number, glyphWidth: number, cellWidth: number)
   return { scale, spacing: slot - glyphWidth * scale };
 }
 
+/** Nerd Font icons and the like: the private use areas, where a font's glyph is meant to fill one cell. */
+const PRIVATE_USE = /^[\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}]/u;
+const ANY_PRIVATE_USE = /[\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}]/u;
+/** Powerline's other separators (flames, trapezoids, pixels): shapes that run from the top of the row to the bottom */
+const POWERLINE_EXTRA = /^[\ue0b8-\ue0d7]/u;
+
+/** a character that joins the one before it: a variation selector, a zero-width joiner, a combining mark */
+const JOINS = /[\p{M}\u200d\ufe00-\ufe0f]/u;
+/** the app's own icon font (PaneTerminal.css), whose late arrival makes every width measured before it wrong */
+export const ICON_FAMILY = "Symbols Nerd Font Mono";
+
+/**
+ * Whether a character is an icon drawn wider than its one cell. Symbols Nerd Font Mono advances
+ * 1em, two of the app's 0.5-0.6em cells, so each icon covered the cell after it (`ls` with icons,
+ * a prompt's branch symbol). Only the private use areas: an emoji wider than its one cell is left
+ * to run over, as xterm's Unicode 6 widths give most emoji one cell and they came out tiny.
+ */
+export function oversizedIcon(char: string, width: number, cellWidth: number): boolean {
+  return PRIVATE_USE.test(char) && width > cellWidth + MIN_SPACING_PX;
+}
+
+/** The font-size multiplier that fits every icon of a run into its cell. */
+export function iconScale(widths: readonly number[], cellWidth: number): number {
+  return Math.min(1, ...widths.map((width) => cellWidth / width));
+}
+
 /** The text to draw for a cell span: composed when it carries marks or decomposed Hangul. */
 export function displayText(text: string): string {
   return DECOMPOSED.test(text) ? text.normalize("NFC") : text;
@@ -107,59 +133,78 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
   // the boxes one pass made: painted together once every span is written, when their places are known
   let placed: { box: HTMLSpanElement; drawing: BoxDrawing; cells: number; rowHeight: number }[] = [];
 
-  /** Replaces each run of box characters in a span by one drawn box; false when it holds none that are drawn. */
-  const drawBoxes = (span: HTMLSpanElement, text: string, cellWidth: number, rowHeight: number, fontSize: number): boolean => {
+  /**
+   * Rebuilds a span as runs: box characters drawn to their cells (terminalBoxGlyphs.ts), icons too
+   * wide for their cells drawn smaller inside them, the way a terminal fits a Nerd Font's icons
+   * (Symbols Nerd Font Mono advances 1em, two of the app's cells, and each icon covered the cell
+   * after it), and the rest with xterm's spacing in a span of its own: xterm merges cells that share
+   * a spacing (an icon with a Powerline arrow, or with a 1em CJK symbol), and their fits differ.
+   * False when the span holds nothing to draw or fit.
+   */
+  const rebuild = (span: HTMLSpanElement, text: string, cellWidth: number, rowHeight: number, fontSize: number, widthOf: (glyph: string) => number): boolean => {
     const cell = `${cellWidth}x${rowHeight}@${fontSize}`;
     if (cell !== boxCell) {
       boxes.clear();
       boxCell = cell;
     }
-    const parts: (string | HTMLSpanElement)[] = [];
-    let run: BoxDrawing[] = [];
-    let chars = "";
-    let plain = "";
-    let boxed = 0;
-    const closeRun = (): void => {
-      if (run.length === 0) return;
-      const box = document.createElement("span");
-      box.className = BOX_CLASS;
-      // the characters stay for the DOM's sake, unpainted, in a span of their own: the box keeps the text
-      // colour, which its lines and an underline through them are drawn in
-      const text = document.createElement("span");
-      text.className = BOX_CLASS;
-      text.textContent = chars;
-      // a block, which a decoration of the box reaches into (xterm makes every span of a row an inline-block,
-      // which it does not), cut to the cells: a font may draw these glyphs wider than a cell
-      text.style.cssText = "display:block;width:100%;height:100%;overflow:hidden;color:transparent";
-      box.append(text);
-      // an inline-block takes no underline, strikethrough or overline from the span around it: it asks for them
-      box.style.cssText = `display:inline-block;position:relative;width:${cellWidth * run.length}px;height:${rowHeight}px;vertical-align:top;white-space:pre;letter-spacing:0;text-decoration:inherit`;
-      parts.push(box);
-      placed.push({ box, drawing: boxRun(run, cellWidth), cells: run.length, rowHeight });
-      boxed += 1;
-      run = [];
-      chars = "";
-    };
-    for (const char of text) {
+    const drawingOf = (char: string): BoxDrawing | null => {
       let drawing = boxes.get(char);
       if (drawing === undefined) {
         drawing = BOX_GLYPHS.test(char) ? boxDrawing(char, cellWidth, rowHeight, fontSize) : null;
         boxes.set(char, drawing);
       }
-      if (drawing === null) {
-        closeRun();
-        plain += char;
-        continue;
+      return drawing;
+    };
+    // a character that joins the one before it makes one cell of two characters, or two cells of one
+    // (an icon with VS16): the runs below count a character a cell, so such a span is left as drawn
+    if (JOINS.test(text)) return false;
+    const chars = [...text];
+    // a separator is its own kind: beside an icon it shares the icon's spacing, not its fit
+    const kinds = chars.map((char) => drawingOf(char) !== null ? "box"
+      : !oversizedIcon(char, widthOf(char), cellWidth) ? "text" : POWERLINE_EXTRA.test(char) ? "shape" : "icon");
+    if (!kinds.some((kind) => kind !== "text")) return false;
+    const spacing = span.style.letterSpacing || "0px";
+    const parts: HTMLSpanElement[] = [];
+    for (let start = 0; start < chars.length;) {
+      let end = start;
+      // an icon is a run of its own: two icons of different widths each get their own size and centring
+      while (end < chars.length && kinds[end] === kinds[start] && (kinds[start] !== "icon" || end === start)) end += 1;
+      const run = chars.slice(start, end);
+      const part = document.createElement("span");
+      part.className = BOX_CLASS;
+      if (kinds[start] === "text") {
+        part.style.cssText = `display:inline;letter-spacing:${spacing};font-weight:inherit`;
+        part.textContent = run.join("");
+      } else {
+        // an inline-block takes no underline, strikethrough or overline from the span around it: it asks for them
+        part.style.cssText = `display:inline-block;position:relative;width:${cellWidth * run.length}px;height:${rowHeight}px;vertical-align:top;white-space:pre;letter-spacing:0;text-decoration:inherit;font-weight:inherit`;
+        const glyphs = document.createElement("span");
+        glyphs.className = BOX_CLASS;
+        glyphs.textContent = run.join("");
+        if (kinds[start] === "box") {
+          // the characters stay for the DOM's sake, unpainted, in a block the box's decoration reaches into
+          // (xterm makes every span of a row an inline-block, which it does not), cut to the cells
+          glyphs.style.cssText = "display:block;width:100%;height:100%;overflow:hidden;color:transparent";
+          placed.push({ box: part, drawing: boxRun(run.map((char) => drawingOf(char)!), cellWidth), cells: run.length, rowHeight });
+        } else if (kinds[start] === "shape") {
+          // a separator takes the height of the row (its outline is as tall as the font's em) and is narrowed
+          // to its cell, the glyph alone transformed: the box around it keeps the cell and its background
+          const size = rowHeight;
+          const squeeze = cellWidth / (widthOf(run[0]!) * (size / fontSize));
+          glyphs.style.cssText = `display:block;width:${100 / squeeze}%;height:100%;font-size:${size}px;line-height:${rowHeight}px;letter-spacing:0;font-weight:inherit;transform:scaleX(${squeeze});transform-origin:0 0`;
+          part.style.overflow = "hidden";
+        } else {
+          // each icon centred in its cell: what its smaller glyph leaves is split before and after it
+          const scale = iconScale(run.map(widthOf), cellWidth);
+          const left = cellWidth - widthOf(run[0]!) * scale;
+          glyphs.style.cssText = `display:block;width:100%;height:100%;overflow:hidden;font-size:${fontSize * scale}px;line-height:${rowHeight}px;letter-spacing:${left}px;padding-left:${left / 2}px;font-weight:inherit`;
+        }
+        part.append(glyphs);
       }
-      if (plain) { parts.push(plain); plain = ""; }
-      run.push(drawing);
-      chars += char;
+      parts.push(part);
+      start = end;
     }
-    closeRun();
-    if (boxed === 0) return false;
-    if (plain) parts.push(plain);
-    // a span of nothing but drawn cells has its width from them: xterm's spacing was for the font's glyphs
-    if (parts.length === boxed) span.style.letterSpacing = "0px";
+    span.style.letterSpacing = "0px";
     span.replaceChildren(...parts);
     return true;
   };
@@ -178,14 +223,6 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
       if (!(span instanceof HTMLSpanElement) || span.classList.contains(BOX_CLASS)) continue;
       const text = span.textContent ?? "";
       let shown = displayText(text);
-      // the cell under the cursor keeps the font's glyph: xterm draws an underline or bar cursor as the
-      // span's own border and shadow, and a painted layer would cover them
-      if (BOX_GLYPHS.test(shown) && !span.classList.contains("xterm-cursor") && cellWidth > 0 && rowHeight > 0 && drawBoxes(span, shown, cellWidth, rowHeight, fontSize)) continue;
-      const xtermSpacing = Number.parseFloat(span.style.letterSpacing);
-      if (!(Math.abs(xtermSpacing) > MIN_SPACING_PX)) {
-        if (shown !== text) span.textContent = shown;
-        continue;
-      }
       const bold = span.classList.contains("xterm-bold");
       const italic = span.classList.contains("xterm-italic");
       const widthOf = (glyph: string): number => {
@@ -198,6 +235,20 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
         }
         return width;
       };
+      // boxes drawn and icons fitted to their cells. The cell under the cursor keeps the font's glyph:
+      // xterm draws an underline or bar cursor as the span's own border and shadow, which they would cover
+      if ((BOX_GLYPHS.test(shown) || ANY_PRIVATE_USE.test(shown)) && !span.classList.contains("xterm-cursor") && cellWidth > 0 && rowHeight > 0
+        && rebuild(span, shown, cellWidth, rowHeight, fontSize, widthOf)) continue;
+      // under the cursor an icon is fitted in the cursor's own span, which keeps its background and border
+      if (span.classList.contains("xterm-cursor") && [...shown].length === 1 && oversizedIcon(shown, widthOf(shown), cellWidth)) {
+        span.style.cssText += `;font-size:${fontSize * iconScale([widthOf(shown)], cellWidth)}px;letter-spacing:0px`;
+        continue;
+      }
+      const xtermSpacing = Number.parseFloat(span.style.letterSpacing);
+      if (!(Math.abs(xtermSpacing) > MIN_SPACING_PX)) {
+        if (shown !== text) span.textContent = shown;
+        continue;
+      }
       // a span merges only cells drawn with the same spacing, so its first glyph speaks for all
       const first = String.fromCodePoint(shown.codePointAt(0) ?? 0x20);
       let glyphWidth = widthOf(first);
@@ -258,6 +309,23 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
     });
   };
 
+  /**
+   * The icon font is fetched only once a pane prints an icon (unicode-range), after xterm and
+   * this module measured that icon with whatever stood in for it, and both keep what they
+   * measured. When it arrives, the font family is set again in a form that reads differently and
+   * means the same: xterm measures and draws every row anew, and the widths here start over.
+   */
+  const fontsArrived = (event: Event): void => {
+    const faces = (event as FontFaceSetLoadEvent).fontfaces ?? [];
+    if (!faces.some((face) => face.family.replace(/["']/g, "") === ICON_FAMILY)) return;
+    const family = term.options.fontFamily ?? "";
+    const double = `"${ICON_FAMILY}"`;
+    const single = `'${ICON_FAMILY}'`;
+    if (family.includes(double)) term.options.fontFamily = family.replace(double, single);
+    else if (family.includes(single)) term.options.fontFamily = family.replace(single, double);
+  };
+  document.fonts?.addEventListener("loadingdone", fontsArrived);
+
   adjustAll(rows.querySelectorAll("span"));
   placeBoxes();
   const observer = new MutationObserver((records) => {
@@ -265,5 +333,8 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
     placeBoxes();
   });
   observer.observe(rows, { childList: true, subtree: true });
-  return () => observer.disconnect();
+  return () => {
+    observer.disconnect();
+    document.fonts?.removeEventListener("loadingdone", fontsArrived);
+  };
 }
