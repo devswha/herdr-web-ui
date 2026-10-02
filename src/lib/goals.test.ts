@@ -28,8 +28,10 @@ test("a create_goal whose answer was cut keeps the objective it asked for", () =
 });
 
 test("the turn shows the goal as its last goal call left it", () => {
-  const parts: ConversationPart[] = [call("create_goal", goal("active")), { kind: "text", text: "working" }, call("update_goal", goal("complete")), call("get_goal", { goal: null })];
+  const parts: ConversationPart[] = [call("create_goal", goal("active")), { kind: "text", text: "working" }, call("update_goal", goal("complete")), call("get_goal", "not json")];
   expect(turnGoal(parts)?.status).toBe("complete");
+  // cleared (/goal clear), a get_goal says so: the turn shows no goal
+  expect(turnGoal([...parts, call("get_goal", { goal: null })])).toBeNull();
   expect(turnGoal([{ kind: "text", text: "no goal here" }])).toBeNull();
 });
 

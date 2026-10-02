@@ -65,12 +65,19 @@ export function formatGoalTime(seconds: number): string {
   return minutes % 60 === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** The goal as the turn's last goal call left it. */
+/** A goal call that answered `{"goal": null}`: there is no goal (any more). */
+function saysNoGoal(part: Tool): boolean {
+  if (!isGoalTool(part.name) || part.error) return false;
+  const answer = record(parse(part.output));
+  return answer !== null && answer["goal"] === null;
+}
+
+/** The goal as the turn's last goal call left it; a later call that says there is none clears it. */
 export function turnGoal(parts: readonly ConversationPart[]): GoalState | null {
   let latest: GoalState | null = null;
   for (const part of parts) {
     if (part.kind !== "tool") continue;
-    latest = goalOf(part) ?? latest;
+    latest = saysNoGoal(part) ? null : goalOf(part) ?? latest;
   }
   return latest;
 }
