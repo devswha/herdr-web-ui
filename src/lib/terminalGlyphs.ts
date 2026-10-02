@@ -167,7 +167,8 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
     const parts: HTMLSpanElement[] = [];
     for (let start = 0; start < chars.length;) {
       let end = start;
-      while (end < chars.length && kinds[end] === kinds[start]) end += 1;
+      // an icon is a run of its own: two icons of different widths each get their own size and centring
+      while (end < chars.length && kinds[end] === kinds[start] && (kinds[start] !== "icon" || end === start)) end += 1;
       const run = chars.slice(start, end);
       const part = document.createElement("span");
       part.className = BOX_CLASS;
