@@ -43,11 +43,11 @@ below. The icon sets it gathers keep their own licenses, as Nerd Fonts lists the
 | Icon set | Upstream | Version | License | Copyright |
 |---|---|---|---|---|
 | Codicons | https://github.com/microsoft/vscode-codicons | 0.0.45 | CC BY 4.0 | Microsoft Corporation |
-| Devicons | https://github.com/devicons/devicon | 2.17.0 | MIT | the devicon contributors |
+| Devicons | https://github.com/devicons/devicon | 2.17.0 | MIT | Copyright (c) 2015 konpa |
 | extraglyphs | https://github.com/source-foundry/Hack | - | MIT | Source Foundry Authors |
 | Font Awesome | https://github.com/FortAwesome/Font-Awesome | 6.5.1 | CC BY 4.0 (icons) | Fonticons, Inc. |
 | Font Awesome Extension | https://github.com/AndreLZGava/font-awesome-extension | 0.0.3 | MIT | André Zanghelini |
-| Font Logos | https://github.com/lukas-w/font-logos | 1.3.0 | none stated upstream | Lukas W.; each logo is a trademark of its owner |
+| Font Logos | https://github.com/lukas-w/font-logos | 1.3.0 | The Unlicense (public domain) | each logo is a trademark of its owner |
 | MaterialDesign | https://github.com/Templarian/MaterialDesign-Font | Oct 6, 2022 | Apache 2.0 | Pictogrammers (Austin Andrews and contributors) |
 | Octicons | https://github.com/primer/octicons | 18.3.0 | MIT | GitHub Inc. |
 | Seti and original | https://github.com/jesseweed/seti-ui | 0.8.1 | MIT | Jesse Weed |
@@ -63,8 +63,34 @@ below. The icon sets it gathers keep their own licenses, as Nerd Fonts lists the
 license (https://creativecommons.org/licenses/by/4.0/). Nerd Fonts rescaled and repositioned them
 into its font, and this app ships that font converted to WOFF2; no other change was made.
 
-**Font Logos.** Its upstream states no license. The logos are trademarks of their owners and are
-shipped as Nerd Fonts distributes them, to show which system a prompt or a file belongs to.
+**Font Logos** is released into the public domain under The Unlicense
+(https://github.com/lukas-w/font-logos/blob/v1.3.0/LICENSE). The logos themselves are trademarks of
+their owners, shown as Nerd Fonts distributes them to tell which system a prompt or a file belongs to.
+
+**Devicons** (https://github.com/devicons/devicon, v2.17.0):
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2015 konpa
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
 
 The Apache License 2.0 (MaterialDesign) and the SIL Open Font License 1.1 (Pomicons, Weather
 Icons) follow the Nerd Fonts license below.
