@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   with no Node for the terminal attach). They went as bare lines there, and the agent sent the
   first line as a message of its own. Measured with gjc on a mirrored Linux pane: two lines
   arrived as two messages, and now arrive as one.
+  ([#290](https://github.com/devswha/herdr-web-ui/pull/290))
 
 ## [0.3.41] - 2026-10-02
 
