@@ -1,5 +1,5 @@
 /** Shared native-record rules keep paging, rendering and on-demand results consistent. */
-import type { ConversationPart, ConversationTurn } from "../shared/protocol.ts";
+import type { ConversationPart, ConversationTurn, SkillActivity } from "../shared/protocol.ts";
 import { skillInvocationPrompt } from "./skill-activity.ts";
 import { trimOutput } from "./tool-output.ts";
 
@@ -106,6 +106,8 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
   const turns: ConversationTurn[] = [];
   /** tool parts still waiting for their result, by toolCall id */
   const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
+  /** skills a user message invoked, for the answer that follows it (another message may come first) */
+  let invoked: SkillActivity[] = [];
 
   const assistantTurn = (ts?: string): ConversationTurn => {
     const last = turns[turns.length - 1];
@@ -127,7 +129,7 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
       continue; // a torn tail line while omp is mid-append
     }
     if (entry === null || typeof entry !== "object") continue;
-    if (isContextClear(entry, "omp-transcript")) { turns.length = 0; pending.clear(); continue; }
+    if (isContextClear(entry, "omp-transcript")) { turns.length = 0; pending.clear(); invoked = []; continue; }
     const timestamp = (entry as { timestamp?: string }).timestamp;
     const notice = piNotice(entry);
     if (notice !== null) {
@@ -177,12 +179,13 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
       const invocation = skillInvocationPrompt(prompt);
       const asked = invocation === null ? prompt : invocation.request || invocation.skills.map((skill) => `/skill:${skill.name}`).join(" ");
       turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "text", text: asked }] });
-      for (const skill of invocation?.skills ?? []) assistantTurn(timestamp).parts.push({ kind: "skill", skill });
+      invoked.push(...invocation?.skills ?? []);
       continue;
     }
 
     if (message.role === "assistant" && Array.isArray(message.content)) {
       const turn = assistantTurn(timestamp);
+      for (const skill of invoked.splice(0)) turn.parts.push({ kind: "skill", skill });
       if (timestamp) turn.end_ts = timestamp;
       for (const block of message.content) {
         if (typeof block !== "object" || block === null) continue;
@@ -217,5 +220,10 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
     }
   }
 
+  // not answered yet: the skills still show, on the answer to come
+  if (invoked.length > 0) {
+    const turn: ConversationTurn = { role: "assistant", ts: turns[turns.length - 1]?.ts ?? null, parts: invoked.map((skill) => ({ kind: "skill" as const, skill })) };
+    turns.push(turn);
+  }
   return turns.filter((turn) => turn.parts.length > 0).slice(-maxTurns);
 }

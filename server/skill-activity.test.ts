@@ -135,3 +135,14 @@ test("the legacy <skill> form, and text that only looks like an invocation, as p
   expect(skillInvocationPrompt("The user explicitly invoked nothing")).toBeNull();
   expect(parseOmpTranscript(lines([piUser(`${invoked("a")}\n\nmore`)]))[0]!.parts[0]).toMatchObject({ kind: "text", text: expect.stringContaining("PRIVATE a") });
 });
+
+test("a message sent before the answer: the skill still goes with the answer, not between the two messages", () => {
+  const text = `${invoked("ulw-research")}\n\n<user-request>\ncompare\n</user-request>`;
+  const turns = parseOmpTranscript(lines([piUser(text), piUser("also check the docs"), piAnswer("On it.")]));
+  expect(turns.map((turn) => turn.role)).toEqual(["user", "user", "assistant"]);
+  expect(turnSkills(turns[2]!.parts)).toEqual([loaded("ulw-research")]);
+  // not answered yet: the skill is shown on the answer to come
+  const waiting = parseOmpTranscript(lines([piUser(text)]));
+  expect(waiting.map((turn) => turn.role)).toEqual(["user", "assistant"]);
+  expect(turnSkills(waiting[1]!.parts)).toEqual([loaded("ulw-research")]);
+});
