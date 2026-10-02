@@ -124,6 +124,8 @@ export function PaneTerminal({
   openFileRef.current = openFile;
   const machineId = useMachineId();
   const { answerPanePrompt, uploadPaneImage } = useMachineApi();
+  const uploadFileRef = useRef(uploadPaneImage);
+  uploadFileRef.current = uploadPaneImage;
   const chatView = view === "chat";
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
@@ -162,6 +164,10 @@ export function PaneTerminal({
   const secretActive = secret?.pane === paneId;
   // a touch screen writes in the terminal's input line; typing straight into the grid is chosen
   const coarse = useCoarsePointer();
+  // A touch screen reads a pane before it answers: picking a pane or a lens there never raises the
+  // keyboard by itself, only a tap on the message box or the grid does. A desktop has no keyboard
+  // to raise, and the pane it picks takes the typing at once.
+  const coarseRef = useRef(coarse); coarseRef.current = coarse;
   const [directTyping, setDirectTyping] = useState(storedDirectTyping);
   const inputLine = coarse && !directTyping && !chatView;
   const inputLineRef = useRef(inputLine);
@@ -650,7 +656,8 @@ export function PaneTerminal({
           term.options.disableStdin = observeRef.current || secretRef.current !== null;
         }
       } else if (message.type === "pty-exit") {
-        if (message.pane_id === paneRef.current) setEnded(true);
+        // an ended pane takes no input: a file dropped on it must not upload and paste either
+        if (message.pane_id === paneRef.current) { setEnded(true); term.options.disableStdin = true; }
       } else if (message.type === "role-ack") {
         // the server is the authority on the role; only after this ack may an
         // interact client reclaim the shared grid it stopped owning
@@ -740,6 +747,62 @@ export function PaneTerminal({
       }
       socket.sendInput(current, data);
     });
+
+    // Browsers expose dropped files as bytes, not local paths. Save them beside
+    // the pane and paste the returned paths; never send Enter with a drop.
+    // Batches upload one after another, so overlapping drops paste their paths in the order dropped.
+    let fileQueue: Promise<void> = Promise.resolve();
+    const uploadFiles = (files: File[]): void => {
+      const pane = paneRef.current;
+      if (!pane || !socket.connected || term.options.disableStdin) return;
+      fileQueue = fileQueue.then(() => uploadBatch(pane, files));
+    };
+    const uploadBatch = async (pane: string, files: File[]): Promise<void> => {
+      if (paneRef.current !== pane || !socket.connected || term.options.disableStdin) return;
+      try {
+        const paths: string[] = [];
+        for (const file of files) paths.push(await uploadFileRef.current(pane, file));
+        // An upload can finish after the user has switched panes or lost input access.
+        if (paneRef.current !== pane || chatViewRef.current || !socket.connected || term.options.disableStdin) return;
+        term.paste(paths.map((path) => `'${path.replaceAll("'", "'\\''")}'`).join(" ") + " ");
+        term.focus();
+      } catch (error) {
+        if (paneRef.current === pane) noteClipboard(error instanceof Error ? error.message : String(error));
+      }
+    };
+    const onFilePaste = (event: ClipboardEvent): void => {
+      // xterm handles text (and bracketed paste) itself. A file-only clipboard
+      // needs the upload route instead; copied paths must remain native text.
+      if (event.clipboardData?.getData("text/plain")) return;
+      const files = Array.from(event.clipboardData?.files ?? []);
+      if (files.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      uploadFiles(files);
+    };
+    const onDragOver = (event: DragEvent): void => {
+      if (!event.dataTransfer) return;
+      if (!event.dataTransfer.types.some((type) => type === "Files" || type === "text/plain")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = term.options.disableStdin ? "none" : "copy";
+    };
+    const onDrop = (event: DragEvent): void => {
+      event.preventDefault();
+      if (!event.dataTransfer || !socket.connected || term.options.disableStdin) return;
+      const files = Array.from(event.dataTransfer.files);
+      if (files.length > 0) {
+        uploadFiles(files);
+        return;
+      }
+      const text = event.dataTransfer.getData("text/plain");
+      if (text) {
+        term.paste(text);
+        term.focus();
+      }
+    };
+    host.addEventListener("paste", onFilePaste, { capture: true });
+    host.addEventListener("dragover", onDragOver);
+    host.addEventListener("drop", onDrop);
 
     // Dragging a window edge fires this every frame. Each resize of the pty makes herdr
     // reflow the pane and the program in it redraw (Claude Code repaints its whole
@@ -854,6 +917,9 @@ export function PaneTerminal({
       window.removeEventListener("focus", refit);
       document.removeEventListener("visibilitychange", onVisible);
       onData.dispose();
+      host.removeEventListener("paste", onFilePaste, { capture: true });
+      host.removeEventListener("dragover", onDragOver);
+      host.removeEventListener("drop", onDrop);
       offDisconnect();
       osc52.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
@@ -897,7 +963,7 @@ export function PaneTerminal({
     }
     const pane = paneRef.current;
     if (pane && term) socketRef.current?.resize(pane, term.cols, term.rows, true);
-    if (!autoSelected) term?.focus();
+    if (!autoSelected && !coarseRef.current) term?.focus();
   }, [chatView]);
 
   // follow the selected pane
@@ -935,7 +1001,7 @@ export function PaneTerminal({
     socket.attach(paneId, term.cols, term.rows);
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
-    if (!chatViewRef.current && !autoSelected) term.focus();
+    if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();
     return () => {
       socket.detach(paneId);
     };
@@ -948,7 +1014,7 @@ export function PaneTerminal({
   useEffect(() => {
     const wasAuto = autoSelectedRef.current;
     autoSelectedRef.current = autoSelected;
-    if (wasAuto && !autoSelected && !chatViewRef.current) termRef.current?.focus();
+    if (wasAuto && !autoSelected && !chatViewRef.current && !coarseRef.current) termRef.current?.focus();
   }, [autoSelected]);
 
   // key-bar taps go through xterm so the onData -> socket path above is reused
@@ -1044,8 +1110,12 @@ export function PaneTerminal({
     });
   }, []);
 
-  // the input line keeps a tapped grid from raising the keyboard; typing straight into it gives it back
+  // the input line keeps a tapped grid from raising the keyboard; typing straight into it gives it
+  // back. Only turning direct typing on raises it: a pane or lens picked with it on does not.
+  const directTypingRef = useRef(directTyping);
   useEffect(() => {
+    const turnedOn = directTyping && !directTypingRef.current;
+    directTypingRef.current = directTyping;
     const textarea = hostRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
     if (!textarea) return;
     if (inputLine) {
@@ -1053,7 +1123,7 @@ export function PaneTerminal({
       if (document.activeElement === textarea) textarea.blur();
     } else {
       textarea.removeAttribute("inputmode");
-      if (coarse && !chatView && directTyping && !autoSelected) termRef.current?.focus();
+      if (coarse && !chatView && turnedOn) termRef.current?.focus();
     }
   }, [inputLine, coarse, chatView, directTyping, paneId]);
 
@@ -1280,7 +1350,7 @@ export function PaneTerminal({
         <Composer
           key={paneId}
           paneId={paneId}
-          autoFocus={!autoSelected}
+          autoFocus={!autoSelected && !coarse}
           agent={agent}
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}

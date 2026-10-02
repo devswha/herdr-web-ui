@@ -18,6 +18,15 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
+it("defaults legacy records to workspace grouping and accepts only supported modes", () => {
+  expect(sanitizeSettings({}).sidebarGrouping).toBe("workspace");
+  expect(sanitizeSettings({ sidebarGrouping: "workspace" }).sidebarGrouping).toBe("workspace");
+  expect(sanitizeSettings({ sidebarGrouping: "directory" }).sidebarGrouping).toBe("directory");
+  for (const sidebarGrouping of [null, true, "folder", 1]) {
+    expect(sanitizeSettings({ sidebarGrouping }).sidebarGrouping).toBe("workspace");
+  }
+});
+
 describe("chat font size", () => {
   it("follows the density until one is chosen, and keeps a chosen one within bounds", () => {
     expect(chatFontSize(DEFAULT_SETTINGS)).toBe(14);

@@ -1383,15 +1383,20 @@ describe("pairing and identity", () => {
     } finally { rmSync(configDir, { recursive: true, force: true }); }
   });
 
-  it("a configured token still gates this PC, and identity and devices get past it", async () => {
+  it("a configured token gates this PC and its Tailscale login, and a paired device gets past it", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-pairing-token-"));
     const secured = createServer({ port: 0, stateDir: state, token: "t0k3n", tailscaleOwner: OWNER });
     const at = (headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${secured.port}/api/health?scope=bridge`, { headers }).then((r) => r.json() as Promise<{ auth: HealthAuth }>).then((b) => b.auth);
     try {
       expect(await at()).toMatchObject({ authenticated: false, reason: "token_required" });
       expect(await at({ authorization: "Bearer t0k3n" })).toMatchObject({ authenticated: true, via: "token" });
-      expect(await at(proxied(OWNER))).toMatchObject({ authenticated: true, via: "tailscale" });
-      expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "other_user" });
+      // another proxy on this PC can pass a visitor's copy of the login header on: the token is asked for anyway
+      expect(await at(proxied(OWNER))).toMatchObject({ authenticated: false, reason: "token_required" });
+      expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "token_required" });
+      expect(await at({ ...proxied(OWNER), authorization: "Bearer t0k3n" })).toMatchObject({ authenticated: true, via: "token" });
+      // health only reports the decision: the guarded routes and the upgrade must refuse the header too
+      expect((await fetch(`http://127.0.0.1:${secured.port}/api/session`, { headers: proxied(OWNER) })).status).toBe(401);
+      expect((await fetch(`http://127.0.0.1:${secured.port}/ws`, { headers: proxied(OWNER) })).status).toBe(401);
       // a pairing started with the token lets a device in without it
       const started = await fetch(`http://127.0.0.1:${secured.port}/api/devices/pair/start`, { method: "POST", headers: { ...guard, authorization: "Bearer t0k3n" } });
       const { code } = (await started.json()) as { code: string };

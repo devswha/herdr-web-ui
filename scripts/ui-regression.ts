@@ -1,7 +1,7 @@
 /** Real-browser regressions against owned herdr panes. Run after `bun run build`. */
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
@@ -16,9 +16,10 @@ import { checkTerminalCopy } from "./terminal-copy-regression.ts";
 import { checkUsageMeters } from "./usage-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
+import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { UsageService } from "../server/usage.ts";
 
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-"));
+const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
 const releases: Array<() => void> = [];
 const errors: string[] = [];
@@ -56,6 +57,8 @@ try {
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
+    // only the first load: a reload must keep what Settings stored, such as the sidebar grouping
+    if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
     for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
   }, panes);
   const page = await context.newPage();
@@ -76,8 +79,10 @@ try {
   page.setDefaultTimeout(10_000);
   page.on("pageerror", (error) => errors.push(error.message));
   const painted = new Set<string>();
+  const sockets: import("playwright-core").WebSocket[] = [];
   const inputs: Array<{ pane_id: string; text: string }> = [];
   page.on("websocket", (socket) => {
+    sockets.push(socket);
     socket.on("framereceived", ({ payload }) => {
       const message = JSON.parse(String(payload));
       if (message.type === "pty-data") painted.add(message.pane_id);
@@ -132,6 +137,7 @@ try {
   // where it can trigger image paste against the server's unrelated clipboard.
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+  await checkTerminalFileInput(page, sockets[0]!);
   const terminalInput = page.locator(".xterm-helper-textarea");
   for (const [shortcut, text] of [
     ["Control+v", "# terminal paste 한글"],
@@ -336,43 +342,43 @@ try {
   await composer.fill("draft for A");
   console.log("PASS successful sends settle after switching panes and preserve edits made after returning");
 
-  // a workspace with two panes gets a fold caret; the fold is remembered and opens again for a pane picked inside it
+  // Every directory has a fold caret, even with one pane; opening a pane reveals its folder.
   const split = await herdrRpc<{ pane: { pane_id: string } }>("pane.split", { target_pane_id: paneB, direction: "down", focus: false });
-  // the header, not a pane row, names the section: its rows are exactly what folding removes
-  const sectionB = page.locator(".workspace", { has: page.locator(".workspace-label", { hasText: "herdr-web-ui-test-browser-b" }) });
-  const toggleB = sectionB.locator(".workspace-toggle");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  const sectionB = page.locator(`.directory-group[data-directory="${join(root, "b")}"]`);
+  const toggleB = sectionB.locator(".directory-header");
   await toggleB.waitFor();
-  assert.equal(await page.locator(".workspace", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".workspace-toggle").count(), 0, "a lone pane has nothing to fold");
+  assert.equal(await page.locator(".directory-group", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".directory-header").count(), 1, "a lone pane keeps its folder header");
   await toggleB.click();
-  await until(async () => await sectionB.locator(".pane-list").count() === 0, "folded workspace hides its panes");
+  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
   assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
-  await sectionB.locator(".badge").waitFor();
   await page.reload();
   await page.locator(".conn-live").waitFor();
-  const foldedB = page.locator(".workspace.is-collapsed", { has: page.locator(".workspace-toggle[aria-expanded='false']") });
+  const foldedB = page.locator(".directory-group.is-collapsed", { has: page.locator(".directory-header[aria-expanded='false']") });
   await foldedB.waitFor();
   assert.equal(await foldedB.locator(`.pane-select[title^="${paneB} —"]`).count(), 0, "the fold survives a reload");
   await page.goto(`${origin}/?pane=${encodeURIComponent(split.pane.pane_id)}`);
   await page.locator(".conn-live").waitFor();
-  await until(async () => (await page.locator(`.pane-item.is-selected .pane-select[title^="${split.pane.pane_id} —"]`).count()) === 1, "a pane picked inside a folded workspace unfolds it");
-  assert.equal(await page.locator(".workspace.is-collapsed").count(), 0);
-  // folding the workspace of the selected pane holds: only opening a pane unfolds, not the next snapshot
+  await page.locator(`.pane-item.is-selected .pane-select[title^="${split.pane.pane_id} —"]`).waitFor();
+  assert.equal(await page.locator(".directory-group.is-collapsed").count(), 0);
+  // Status snapshots do not undo a deliberate fold of the selected folder.
   await toggleB.click();
-  await until(async () => await sectionB.locator(".pane-list").count() === 0, "the selected pane's workspace folds");
-  const badgeA = page.locator(".pane-item", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".badge");
+  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "blocked" });
-  await until(async () => await badgeA.getAttribute("data-status") === "blocked", "snapshot update after the fold");
+  await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge[data-status="blocked"]`).waitFor();
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
-  await until(async () => await badgeA.getAttribute("data-status") !== "blocked", "second snapshot update after the fold");
+  await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge:not([data-status="blocked"])`).waitFor();
   assert.equal(await sectionB.locator(".pane-list").count(), 0, "a snapshot update keeps the selected pane's workspace folded");
   assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
   await toggleB.click();
-  await until(async () => await sectionB.locator(".pane-list").count() === 1, "workspace unfolded again");
+  await sectionB.locator(".directory-contents").waitFor();
   await herdrRpc("pane.close", { pane_id: split.pane.pane_id });
-  await until(async () => await page.locator(`.pane-select[title^="${split.pane.pane_id} —"]`).count() === 0, "split pane closed");
+  await page.locator(`.pane-select[title^="${split.pane.pane_id} —"]`).waitFor({ state: "detached" });
   await selectPane(paneA);
   await composer.fill("draft for A");
-  console.log("PASS a workspace folds from its caret, stays folded across reloads, and unfolds for a pane opened inside it");
+  console.log("PASS a folder folds from its caret, stays folded across reloads, and unfolds for a pane opened inside it");
 
   let releaseImage!: () => void;
   const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
@@ -571,6 +577,28 @@ try {
   await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
+
+  // a phone reads a pane before it answers: a pane picked from the drawer raises no keyboard,
+  // and a tap on the message box does
+  const typing = (target: typeof mobilePage) => target.evaluate(() => document.activeElement?.matches("textarea, input, [contenteditable]") ?? false);
+  await mobilePage.getByRole("textbox", { name: "Message", exact: true }).blur();
+  await mobilePage.locator('button[aria-controls="workspace-drawer"]').click();
+  await mobilePage.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await mobilePage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+  await mobilePage.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await mobilePage.waitForTimeout(NO_SEND_WAIT_MS);
+  assert.equal(await typing(mobilePage), false, "a pane picked on a phone does not take the keyboard");
+  await mobilePage.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+  await mobilePage.waitForTimeout(NO_SEND_WAIT_MS);
+  assert.equal(await typing(mobilePage), false, "nor does switching its lens");
+  await mobilePage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  await mobilePage.getByRole("textbox", { name: "Message", exact: true }).tap();
+  await until(() => typing(mobilePage), "a tap on the message box takes the keyboard");
+  await mobilePage.getByRole("textbox", { name: "Message", exact: true }).blur();
+  await mobilePage.locator('button[aria-controls="workspace-drawer"]').click();
+  await mobilePage.locator(`.pane-select[title^="${paneB} —"]`).click();
+  await mobilePage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+  console.log("PASS a pane picked on a phone waits for a tap before raising the keyboard");
 
   // Claude's suggestion on a phone is the placeholder only, until Settings turns its chip on
   const promptRoute = `**/api/pane/prompt?pane_id=${encodeURIComponent(paneB)}`;

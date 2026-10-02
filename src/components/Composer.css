@@ -23,9 +23,13 @@
   margin-inline: auto;
 }
 
+/* one row, always: a second row is taken from the conversation, and a phone has none to spare.
+   What does not fit gives way in this order: the model's name shortens to a few letters, then
+   the reasoning level, then the opened context text; nothing overlaps its neighbour, and the
+   context ring at the end is never the part that is cut. */
 .composer-status {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-1);
   min-height: var(--chip-h);
@@ -37,23 +41,30 @@
 }
 
 .composer-model-info {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  min-width: 0;
-  max-width: 100%;
+  /* no box of its own: the name and the level sit in the status line itself, so the name can
+     give way before anything else does and the level never overlaps what follows */
+  display: contents;
 }
 
 .composer-model {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  flex: 0 100 auto;
+  min-width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text);
 }
 
+.composer-reasoning-short {
+  display: none;
+}
+
 .composer-reasoning {
-  flex: none;
+  flex: 0 10 auto;
+  min-width: 2ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding-inline: var(--space-1);
   border: var(--hairline) solid var(--border);
   border-radius: var(--radius-sm);
@@ -63,7 +74,8 @@
 /* the context left: a ring filled by what is used, its number on hover or a tap */
 .composer-context {
   display: inline-flex;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 14px;
   align-items: center;
   gap: var(--space-1);
   padding: 0;
@@ -78,6 +90,13 @@
 .composer-context svg {
   width: 14px;
   height: 14px;
+  flex: none;
+}
+
+.composer-context-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .composer-context-track,
@@ -467,6 +486,20 @@
   .composer-status-separator,
   .composer-status-hint {
     display: none;
+  }
+
+  /* the chip keeps the level and drops the word; a screen reader still reads the whole of it */
+  .composer-reasoning-full {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .composer-reasoning-short {
+    display: inline;
   }
 
   /* A phone fits neither half of a pi command's row, and pi writes explanations twice as long as

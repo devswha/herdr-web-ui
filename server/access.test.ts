@@ -49,12 +49,15 @@ describe("decideAccess", () => {
     expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("tailscale");
   });
 
-  it("a configured token gates everything, this PC included, and still admits identity and devices", () => {
+  it("a configured token gates everything but a paired device, this PC and its Tailscale login included", () => {
     expect(via({ tokenConfigured: true })).toBe("refused:token_required");
     expect(via({ tokenConfigured: true, tokenMatched: true })).toBe("token");
     expect(via({ tokenConfigured: true, device })).toBe("device");
-    expect(via({ tokenConfigured: true, forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("tailscale");
-    expect(via({ tokenConfigured: true, forwarded: true, tailscaleLogin: "them@example.com", owner: "me@example.com" })).toBe("refused:other_user");
+    // any proxy on this PC can pass a visitor's copy of the login header on: a token holds against it
+    expect(via({ tokenConfigured: true, forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("refused:token_required");
+    expect(via({ tokenConfigured: true, forwarded: true, tailscaleLogin: "them@example.com", owner: "me@example.com" })).toBe("refused:token_required");
+    expect(via({ tokenConfigured: true, tokenMatched: true, forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("token");
+    expect(via({ tokenConfigured: true, device, forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("device");
   });
 
   it("a paired device gets in from anywhere, with its role", () => {

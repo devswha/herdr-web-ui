@@ -68,6 +68,67 @@
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 
+.directory-group {
+  margin-bottom: var(--space-3);
+}
+
+.directory-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: var(--space-2) var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+
+.directory-header:hover,
+.directory-header:focus-visible {
+  background: var(--bg-hover);
+}
+
+.directory-header > svg {
+  flex: 0 0 auto;
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
+.directory-copy {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.directory-name,
+.directory-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-name {
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.directory-path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.directory-contents {
+  margin-left: var(--space-3);
+  border-left: var(--hairline) solid var(--border);
+  padding-left: var(--space-1);
+}
+
 .workspace.is-dragging {
   opacity: 0.55;
 }
@@ -87,7 +148,6 @@
   background: var(--bg-hover);
 }
 
-/* the fold caret: the same quiet 16px chevron the PC header uses, inside a control-sized hit box */
 .workspace-toggle {
   display: inline-flex;
   align-items: center;
@@ -114,7 +174,6 @@
   height: 16px;
 }
 
-/* a folded workspace is just its header row: no room reserved for the pane rows */
 .workspace.is-collapsed {
   margin-bottom: var(--space-1);
 }

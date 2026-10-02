@@ -1,4 +1,4 @@
-import type { OmoTask } from "../../shared/protocol.ts";
+import type { OmoRun, OmoTask } from "../../shared/protocol.ts";
 
 /** How long something has run: until now while it runs, until it ended otherwise; null when unknown. */
 export function spanMs(startedAt: string | null, endedAt: string | null, running: boolean, now: number): number | null {
@@ -9,6 +9,24 @@ export function spanMs(startedAt: string | null, endedAt: string | null, running
 
 export function taskElapsedMs(task: OmoTask, now: number): number | null {
   return spanMs(task.started_at, task.ended_at, task.status === "running", now);
+}
+
+/** A workflow that has not ended: waiting and paused ones still have steps to run. */
+export function runGoing(run: OmoRun): boolean {
+  return run.status === "running" || run.status === "pending" || run.status === "paused";
+}
+
+/**
+ * What the folded line says of everything that ended: how many, and how many of those went
+ * wrong (a failed or lost task, a failed workflow), so a failure is seen without opening it.
+ */
+export function endedSummary(tasks: OmoTask[], runs: OmoRun[]): { ended: number; failed: number } {
+  const endedTasks = tasks.filter((task) => task.status !== "running");
+  const endedRuns = runs.filter((run) => !runGoing(run));
+  return {
+    ended: endedTasks.length + endedRuns.length,
+    failed: endedTasks.filter((task) => task.status === "failed" || task.status === "lost").length + endedRuns.filter((run) => run.status === "failed").length,
+  };
 }
 
 /** How far the PC's clock is ahead of this browser's, from the time it answered with; 0 when unknown. */

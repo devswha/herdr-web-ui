@@ -12,6 +12,7 @@ import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
+export type SidebarGrouping = "workspace" | "directory";
 /** what the plan meters count: the share of a limit used, or what is left of it */
 export type UsageCount = "used" | "left";
 /** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark */
@@ -22,6 +23,8 @@ export type UsagePlacement = "footer" | "top";
 export interface Settings {
   theme: ThemeSetting;
   density: Density;
+  /** The sidebar's display grouping; workspaces themselves remain independent. */
+  sidebarGrouping: SidebarGrouping;
   /** the chrome color family, keyed as data-palette in src/styles.css */
   palette: Palette;
   /** xterm font size in px */
@@ -63,6 +66,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   density: "comfortable",
+  sidebarGrouping: "workspace",
   palette: "amber",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
@@ -135,6 +139,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   return {
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
+    sidebarGrouping: record["sidebarGrouping"] === "workspace" || record["sidebarGrouping"] === "directory" ? record["sidebarGrouping"] : DEFAULT_SETTINGS.sidebarGrouping,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])

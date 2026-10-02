@@ -625,7 +625,8 @@ export function Composer({
         {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
           <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
           <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
-            {t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}
+            <span className="composer-reasoning-full">{t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}</span>
+            <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort ?? "—"}</span>
           </span>
         </span>}
         {metadata?.context && <ContextRing context={metadata.context} />}
