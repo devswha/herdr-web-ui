@@ -22,6 +22,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#303](https://github.com/devswha/herdr-web-ui/pull/303))
 
 ### Changed
+- With an access token set (`HERDR_WEB_TOKEN`), your own Tailscale devices are asked for it too:
+  once per device, and that browser then stays signed in for a year. A paired device still gets in
+  without it, and nothing changes when no token is set. Before, the token was skipped for a request
+  that named this PC's Tailscale login, and any other proxy on the same PC (nginx, Caddy, a tunnel)
+  passes a visitor's copy of that name on unless it is told to drop it, so the token did not keep
+  such a visitor out.
 - A mirrored terminal (a Windows PC, or one with no Node for the terminal attach) sends the rows
   that changed instead of the whole screen each time, and shows what you type sooner. An agent at
   work repaints a spinner about 12 times a second: measured with gjc, that was 88 KB a second to

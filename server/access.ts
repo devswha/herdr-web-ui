@@ -3,9 +3,10 @@
  * for where it comes from (this PC, with no proxy in front), for who Tailscale says it is
  * (the PC's own login, which `tailscale serve` states in a header it strips from what it
  * receives), or for what it holds (a paired device's cookie, or the shared token). A token,
- * when one is configured, is required of everything else, this PC included: a paired device
- * and the PC's own Tailscale login still get in without it, but a plain local connection does
- * not, since the remote-PC bridge runs on a loopback port of a PC other people may use.
+ * when one is configured, is required of everything but a paired device, this PC and its own
+ * Tailscale login included: a plain local connection, since the remote-PC bridge runs on a
+ * loopback port of a PC other people may use, and the login, since any other proxy on this PC
+ * (nginx, Caddy, a tunnel) passes a visitor's copy of that header on unless told to drop it.
  * Without a token, and until the first device is paired, anything that reaches the server is
  * let in as it always was, except through a proxy
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
@@ -82,12 +83,13 @@ export function cameThroughProxy(headers: Headers): boolean {
 export function decideAccess(input: AccessInput): Access {
   if (input.tokenMatched) return { level: "full", via: "token", role: "drive" };
   if (input.device !== null) return { level: "full", via: "device", role: input.device.role, device: input.device };
+  // before the login header: a token must hold against a header a visitor can send through another proxy
+  if (input.tokenConfigured) return { level: "none", reason: "token_required" };
   // the identity header is only worth something from the local tailscaled, never from a LAN client
   if (input.loopback && input.tailscaleLogin !== null && input.owner !== null) {
     if (input.tailscaleLogin.toLowerCase() === input.owner.toLowerCase()) return { level: "full", via: "tailscale", role: "drive", login: input.tailscaleLogin };
     return { level: "none", reason: "other_user" };
   }
-  if (input.tokenConfigured) return { level: "none", reason: "token_required" };
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
   if (input.loopback && input.forwarded && (input.owner !== null || input.tagged)) return { level: "none", reason: "pairing_required" };
   // the public internet is never "open", whatever is paired
