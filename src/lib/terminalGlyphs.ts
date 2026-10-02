@@ -105,7 +105,7 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
   const boxes = new Map<string, BoxDrawing | null>();
   let boxCell = "";
   // the boxes one pass made: painted together once every span is written, when their places are known
-  let placed: { box: HTMLSpanElement; drawing: BoxDrawing }[] = [];
+  let placed: { box: HTMLSpanElement; drawing: BoxDrawing; cells: number; rowHeight: number }[] = [];
 
   /** Replaces each run of box characters in a span by one drawn box; false when it holds none that are drawn. */
   const drawBoxes = (span: HTMLSpanElement, text: string, cellWidth: number, rowHeight: number, fontSize: number): boolean => {
@@ -123,11 +123,19 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
       if (run.length === 0) return;
       const box = document.createElement("span");
       box.className = BOX_CLASS;
-      box.textContent = chars;
-      // the characters stay for the DOM's sake and are not painted; their lines are, in the text colour
-      box.style.cssText = `display:inline-block;position:relative;width:${cellWidth * run.length}px;height:${rowHeight}px;vertical-align:top;white-space:pre;letter-spacing:0;-webkit-text-fill-color:transparent`;
+      // the characters stay for the DOM's sake, unpainted, in a span of their own: the box keeps the text
+      // colour, which its lines and an underline through them are drawn in
+      const text = document.createElement("span");
+      text.className = BOX_CLASS;
+      text.textContent = chars;
+      // a block, which a decoration of the box reaches into (xterm makes every span of a row an inline-block,
+      // which it does not), cut to the cells: a font may draw these glyphs wider than a cell
+      text.style.cssText = "display:block;width:100%;height:100%;overflow:hidden;color:transparent";
+      box.append(text);
+      // an inline-block takes no underline, strikethrough or overline from the span around it: it asks for them
+      box.style.cssText = `display:inline-block;position:relative;width:${cellWidth * run.length}px;height:${rowHeight}px;vertical-align:top;white-space:pre;letter-spacing:0;text-decoration:inherit`;
       parts.push(box);
-      placed.push({ box, drawing: boxRun(run, cellWidth) });
+      placed.push({ box, drawing: boxRun(run, cellWidth), cells: run.length, rowHeight });
       boxed += 1;
       run = [];
       chars = "";
@@ -170,7 +178,9 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
       if (!(span instanceof HTMLSpanElement) || span.classList.contains(BOX_CLASS)) continue;
       const text = span.textContent ?? "";
       let shown = displayText(text);
-      if (BOX_GLYPHS.test(shown) && cellWidth > 0 && rowHeight > 0 && drawBoxes(span, shown, cellWidth, rowHeight, fontSize)) continue;
+      // the cell under the cursor keeps the font's glyph: xterm draws an underline or bar cursor as the
+      // span's own border and shadow, and a painted layer would cover them
+      if (BOX_GLYPHS.test(shown) && !span.classList.contains("xterm-cursor") && cellWidth > 0 && rowHeight > 0 && drawBoxes(span, shown, cellWidth, rowHeight, fontSize)) continue;
       const xtermSpacing = Number.parseFloat(span.style.letterSpacing);
       if (!(Math.abs(xtermSpacing) > MIN_SPACING_PX)) {
         if (shown !== text) span.textContent = shown;
@@ -218,34 +228,32 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
    * the browser rounds each element's corner its own way before painting (measured at 2x:
    * the same column's line fell a device pixel apart in a row where its cell stood alone and
    * in one where it was the fifteenth of a run). So the lines go on a layer inside the box
-   * that is put exactly on a device pixel at the column the box stands in, and are placed
-   * from there (pixelPlacement). All boxes are measured first and painted after: one layout,
-   * however many.
+   * that is put on a whole device pixel of the grid at the column the box stands in, and are
+   * placed from there (pixelPlacement). Everything is counted inside the grid (a grid shown
+   * scaled or panned is measured back to its own pixels), so every row lands alike whenever
+   * it was drawn. All boxes are measured first and painted after: one layout, however many.
    */
   const placeBoxes = (): void => {
     const made = placed;
     placed = [];
     if (made.length === 0) return;
     const cellWidth = Number.parseFloat(screen.style.width) / term.cols;
+    if (!(cellWidth > 0)) return;
     const frame = rows.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
-    // a grid shown scaled has no pixels of its own to land on: it is painted as drawn
-    const scaled = rows.offsetWidth > 0 && Math.abs(frame.width / rows.offsetWidth - 1) > 0.001;
+    const scale = rows.offsetWidth > 0 && frame.width > 0 ? frame.width / rows.offsetWidth : 1;
     const corners = made.map(({ box }) => box.getBoundingClientRect());
-    made.forEach(({ box, drawing }, index) => {
+    const snap = (value: number): number => Math.round(value * ratio) / ratio;
+    made.forEach(({ box, drawing, cells, rowHeight }, index) => {
       const corner = corners[index]!;
+      // where the box sits in the grid's own pixels, and where its column and row start there
+      const left = (corner.left - frame.left) / scale;
+      const top = (corner.top - frame.top) / scale;
+      const column = Math.round(left / cellWidth) * cellWidth;
+      const row = Math.round(top / rowHeight) * rowHeight;
       const layer = document.createElement("span");
       layer.className = BOX_CLASS;
-      const size = `width:${corner.width + 1}px;height:${corner.height}px`;
-      if (scaled || !(cellWidth > 0)) {
-        layer.style.cssText = `position:absolute;left:0;top:0;${size};background:${boxBackground(drawing)}`;
-      } else {
-        const snap = (value: number): number => Math.round(value * ratio) / ratio;
-        const column = frame.left + Math.round((corner.left - frame.left) / cellWidth) * cellWidth;
-        const left = snap(column);
-        const top = snap(corner.top);
-        layer.style.cssText = `position:absolute;left:${left - corner.left}px;top:${top - corner.top}px;${size};background:${boxBackground(drawing, pixelPlacement(column, corner.top, left, top, ratio))}`;
-      }
+      layer.style.cssText = `position:absolute;left:${snap(column) - left}px;top:${snap(row) - top}px;width:${cells * cellWidth + 1}px;height:${rowHeight}px;background:${boxBackground(drawing, pixelPlacement(column, row, snap(column), snap(row), ratio))}`;
       box.append(layer);
     });
   };

@@ -84,6 +84,10 @@ describe("box-drawing characters as painted cells", () => {
     // a shade beside a full block is another colour: not joined
     expect(boxRun([draw("█"), draw("░"), draw("█")], 8).rects).toHaveLength(3);
     expect(boxRun([draw("█"), draw("█")], 8).rects.map((r) => [r.x, r.w])).toEqual([[0, 16]]);
+    // a row as wide as the widest grid: every line joined, in one pass over its pieces
+    const wide = boxRun(Array.from({ length: 1000 }, () => draw("┼")), 8);
+    expect(wide.rects).toHaveLength(1001);
+    expect(wide.rects[0]).toEqual({ x: 0, y: 9.5, w: 8000, h: 1 });
     // an arc moves with its cell
     expect(boxRun([draw("─"), draw("╮")], 8).arcs[0]).toMatchObject({ x: 11.5, right: false, down: true });
   });

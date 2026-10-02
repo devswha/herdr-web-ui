@@ -167,20 +167,38 @@ function lineRects(arms: Arms, w: number, h: number, light: number, heavy: numbe
 /**
  * Rectangles that continue each other end to end, as one. Two that meet at half a pixel (the
  * middle of a 19px row, the edge of a 7.8px cell) are each painted with a soft edge there,
- * and the line showed a notch.
+ * and the line showed a notch. Pieces across first, then pieces down; each pass sorts the
+ * pieces of one line, so a row of a thousand cells costs no more per cell than a short one.
  */
 function joined(rects: readonly BoxRect[]): BoxRect[] {
-  const out: BoxRect[] = [];
-  const touch = (a: number, length: number, b: number): boolean => b <= a + length + 0.01 && b >= a - 0.01;
-  for (const rect of rects) {
-    const next = { ...rect };
-    const along = out.find((other) => other.alpha === next.alpha && other.y === next.y && other.h === next.h && touch(other.x, other.w, next.x));
-    const down = along ? undefined : out.find((other) => other.alpha === next.alpha && other.x === next.x && other.w === next.w && touch(other.y, other.h, next.y));
-    if (along) along.w = Math.max(along.x + along.w, next.x + next.w) - along.x;
-    else if (down) down.h = Math.max(down.y + down.h, next.y + next.h) - down.y;
-    else out.push(next);
-  }
-  return out;
+  const pass = (list: readonly BoxRect[], across: boolean): BoxRect[] => {
+    const lines = new Map<string, BoxRect[]>();
+    for (const rect of list) {
+      const key = across ? `${rect.alpha}|${rect.y}|${rect.h}` : `${rect.alpha}|${rect.x}|${rect.w}`;
+      const line = lines.get(key);
+      if (line) line.push({ ...rect });
+      else lines.set(key, [{ ...rect }]);
+    }
+    const out: BoxRect[] = [];
+    for (const line of lines.values()) {
+      line.sort((a, b) => (across ? a.x - b.x : a.y - b.y));
+      let last: BoxRect | undefined;
+      for (const rect of line) {
+        const from = across ? rect.x : rect.y;
+        const end = last === undefined ? 0 : across ? last.x + last.w : last.y + last.h;
+        if (last !== undefined && from <= end + 0.01) {
+          const to = Math.max(end, from + (across ? rect.w : rect.h));
+          if (across) last.w = to - last.x;
+          else last.h = to - last.y;
+        } else {
+          out.push(rect);
+          last = rect;
+        }
+      }
+    }
+    return out;
+  };
+  return pass(pass(rects, true), false);
 }
 
 /**
@@ -209,8 +227,10 @@ const AS_DRAWN: BoxPlacement = { x: (value) => value, y: (value) => value };
  * Edges on whole device pixels, counted from the grid and not from the element. The browser
  * paints each element from its own pixel-snapped corner, so the same column's line fell on
  * one device pixel in a row where it was a cell of its own and on the next in a row where it
- * was the fifteenth cell of a run, and an upright jogged from row to row. `left` is where the
- * element's first column starts on the page, `origin` where the browser starts painting it.
+ * was the fifteenth cell of a run, and an upright jogged from row to row. `left` and `top` are
+ * where the run's first cell starts in the grid, `origin` where its painted layer starts.
+ * All of it is counted inside the grid, so a row drawn after the grid was panned lands on
+ * the same pixels of the grid as the rows drawn before.
  */
 export function pixelPlacement(left: number, top: number, originX: number, originY: number, ratio: number): BoxPlacement {
   return {
