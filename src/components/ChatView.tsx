@@ -1,6 +1,6 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
-  ArrowDown, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, FilePen, FileSearch, Globe, ListChecks, Terminal, Wrench,
+  ArrowDown, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, FilePen, FileSearch, Globe, ListChecks, Target, Terminal, Wrench,
   type LucideProps,
 } from "lucide-react";
 
@@ -19,6 +19,7 @@ import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.
 import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
+import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
 import { useSettings } from "../lib/settings.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import { usePageVisible } from "../lib/visibility.ts";
@@ -231,6 +232,7 @@ function toolIcon(name: string): ComponentType<LucideProps> {
   if (normalized.includes("task") || normalized.includes("agent")) return Bot;
   if (normalized.includes("web")) return Globe;
   if (normalized.includes("todo")) return ListChecks;
+  if (normalized.endsWith("_goal")) return Target;
   return Wrench;
 }
 
@@ -336,6 +338,27 @@ function SkillActivityList({ parts }: { parts: ConversationPart[] }) {
   </div>;
 }
 
+/** The goal as this turn left it: like a skill, visible while the work block is folded. */
+function GoalActivity({ goal }: { goal: GoalState }) {
+  const t = useT();
+  const word: Record<GoalStatus, string> = {
+    active: t("in progress"), paused: t("paused"), blocked: t("blocked"), complete: t("complete"), budget_limited: t("out of budget"),
+  };
+  const spent = [
+    goal.timeUsedSeconds !== null && goal.timeUsedSeconds > 0 ? formatGoalTime(goal.timeUsedSeconds) : null,
+    goal.tokensUsed !== null && goal.tokensUsed > 0 ? t("{n} tokens", { n: formatTokens(goal.tokensUsed) }) : null,
+  ].filter((item) => item !== null).join(" · ");
+  return <details className={`chat-goal is-${goal.status}`}>
+    <summary><Target aria-hidden="true" /><span className="chat-goal-label">{t("Goal")}</span><span className="chat-goal-objective">{goal.objective}</span>
+      <span className="chat-goal-status">{word[goal.status]}</span><ChevronDown className="chat-skill-caret" aria-hidden="true" /></summary>
+    <div className="chat-goal-detail">
+      <p className="chat-goal-text">{goal.objective}</p>
+      {goal.blockedReason !== null && <p className="chat-goal-reason">{goal.blockedReason}</p>}
+      {spent.length > 0 && <p className="chat-goal-spent">{t("Used so far: {spent}", { spent })}</p>}
+    </div>
+  </details>;
+}
+
 /** Image files a message mentions as `@path`, the way this app attaches them: shown as thumbnails. */
 const IMAGE_MENTION = /(?:^|\s)@(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)/gi;
 
@@ -401,8 +424,10 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
   }
   const { work, answer } = splitTurn(turn.parts);
   const answerText = answer.map((part) => part.text).join("\n\n");
+  const goal = turnGoal(turn.parts);
   return <article className="chat-turn chat-turn-agent">
     <SkillActivityList parts={turn.parts} />
+    {goal !== null && <GoalActivity goal={goal} />}
     {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={last} showThinking={showThinking} />}
     {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">

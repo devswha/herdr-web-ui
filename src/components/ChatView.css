@@ -884,6 +884,41 @@
 
 .chat-skill[open] .chat-skill-caret { transform: rotate(180deg); }
 
+/* omo's goal as the turn left it: one line beside the skills, the whole objective on request */
+.chat-goal {
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: var(--space-2);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  font-size: var(--fs-xs);
+}
+.chat-goal > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+}
+.chat-goal > summary::-webkit-details-marker { display: none; }
+.chat-goal > summary > svg { width: 14px; height: 14px; flex-shrink: 0; }
+.chat-goal-label { font-weight: var(--fw-medium); }
+.chat-goal-objective { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.chat-goal-status { flex-shrink: 0; color: var(--text-dim); }
+.chat-goal.is-active .chat-goal-status, .chat-goal.is-active > summary > svg:first-child { color: var(--status-working); }
+.chat-goal.is-complete .chat-goal-status, .chat-goal.is-complete > summary > svg:first-child { color: var(--status-done); }
+.chat-goal.is-blocked, .chat-goal.is-budget_limited { border-color: var(--status-blocked); }
+.chat-goal.is-blocked .chat-goal-status, .chat-goal.is-budget_limited .chat-goal-status { color: var(--status-blocked); }
+.chat-goal[open] .chat-skill-caret { transform: rotate(180deg); }
+/* opened, the whole objective is right below: the cut copy would say it twice */
+.chat-goal[open] .chat-goal-objective { visibility: hidden; }
+.chat-goal-detail { padding: 0 var(--space-2) var(--space-2); overflow-wrap: anywhere; }
+.chat-goal-detail p { margin: 0 0 var(--space-1); }
+.chat-goal-text { white-space: pre-wrap; }
+.chat-goal-reason, .chat-goal-spent { color: var(--text-dim); }
+
 /* under the message that invoked it, on the message's side */
 .chat-turn-user .chat-skills { justify-content: flex-end; margin: 0; }
 
