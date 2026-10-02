@@ -490,7 +490,7 @@ export const ZH: Record<string, string> = {
   "Other routes": "其他方式",
   "This PC did not say how it can be reached.": "此 PC 未提供访问方式。",
   "Copy": "复制",
-  "Your own Tailscale devices get in as you. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "你自己的 Tailscale 设备会以你的身份进入。其他人的设备，或通过局域网或公网地址访问，则需要配对：请见下方“设备”。",
+  "Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "你自己的 Tailscale 设备会以你的身份进入；如果设置了访问令牌，每台设备会询问一次令牌。其他人的设备，或通过局域网或公网地址访问，则需要配对：请见下方“设备”。",
   "Access and safety": "访问与安全",
   "…": "…",
   "Alerts": "提醒",

@@ -354,7 +354,7 @@ async function phone(): Promise<number> {
   say(`On your phone: ${link(url)}`);
   // the name, not the IP, is what the HTTPS certificate is for: https://100.x.y.z would warn
   if (ip !== null) say(`Tailscale IP of this PC: ${ip}. Open the name above, not the IP: the HTTPS certificate is for the name.`);
-  say(`Scan this with a phone signed in to Tailscale${owner === null ? "" : ` as ${owner}`}; that login gets in without a code.`);
+  say(`Scan this with a phone signed in to Tailscale${owner === null ? "" : ` as ${owner}`}; that login gets in without a code (with HERDR_WEB_TOKEN set, after entering the token once).`);
   say("Anyone else on your tailnet needs a pairing code: Settings → Devices, or the pair command.");
   say(qr(url));
   return 0;

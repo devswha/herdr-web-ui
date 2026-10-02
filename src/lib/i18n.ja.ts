@@ -488,7 +488,7 @@ export const JA: Record<string, string> = {
   "Other routes": "その他の方法",
   "This PC did not say how it can be reached.": "この PC から接続方法の情報が得られませんでした。",
   "Copy": "コピー",
-  "Your own Tailscale devices get in as you. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "自分の Tailscale デバイスは本人としてアクセスできます。他のユーザーのデバイスや、LAN・パブリックアドレスからのアクセスにはペアリングが必要です。下の「デバイス」を参照してください。",
+  "Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "自分の Tailscale デバイスは本人としてアクセスできます。アクセストークンを設定している場合は、デバイスごとに一度トークンを求められます。他のユーザーのデバイスや、LAN・パブリックアドレスからのアクセスにはペアリングが必要です。下の「デバイス」を参照してください。",
   "Access and safety": "アクセスと安全性",
   "…": "…",
   "Alerts": "通知",

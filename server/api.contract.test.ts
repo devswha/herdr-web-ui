@@ -1345,6 +1345,9 @@ describe("pairing and identity", () => {
       expect(await at(proxied(OWNER))).toMatchObject({ authenticated: false, reason: "token_required" });
       expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "token_required" });
       expect(await at({ ...proxied(OWNER), authorization: "Bearer t0k3n" })).toMatchObject({ authenticated: true, via: "token" });
+      // health only reports the decision: the guarded routes and the upgrade must refuse the header too
+      expect((await fetch(`http://127.0.0.1:${secured.port}/api/session`, { headers: proxied(OWNER) })).status).toBe(401);
+      expect((await fetch(`http://127.0.0.1:${secured.port}/ws`, { headers: proxied(OWNER) })).status).toBe(401);
       // a pairing started with the token lets a device in without it
       const started = await fetch(`http://127.0.0.1:${secured.port}/api/devices/pair/start`, { method: "POST", headers: { ...guard, authorization: "Bearer t0k3n" } });
       const { code } = (await started.json()) as { code: string };

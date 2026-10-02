@@ -114,10 +114,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  /ws upgrade, needs the request to be one of: from this PC itself (no proxy in front);
  *  the PC's own Tailscale login, as `tailscale serve` states it; a paired device's cookie;
  *  the shared token (HERDR_WEB_TOKEN) as cookie or `Authorization: Bearer <token>`. With a
- *  token configured, only the last three count, this PC included. Without one, and while no
+ *  token configured, only the last two count, this PC and its Tailscale login included. Without one, and while no
  *  device is paired, anything that reaches the server is let in as before (the startup
  *  warning says so). Refusals answer 401 `unauthorized` (403 `other_user` for another Tailscale
- *  login); the upgrade is refused. Static files are always public.
+ *  login, when no token is configured); the upgrade is refused. Static files are always public.
  */
 export interface ApiError {
   error: { code: string; message: string };

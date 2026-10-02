@@ -486,7 +486,7 @@ export const KO: Record<string, string> = {
   "Other routes": "다른 방법",
   "This PC did not say how it can be reached.": "이 PC가 어떻게 접속할 수 있는지 알려주지 않았습니다.",
   "Copy": "복사",
-  "Your own Tailscale devices get in as you. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "내 Tailscale 기기는 나로 인식되어 들어옵니다. 다른 사람의 기기나 LAN·공개 주소는 페어링이 필요합니다. 아래 기기 항목을 보세요.",
+  "Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "내 Tailscale 기기는 나로 인식되어 들어옵니다. 접근 토큰을 설정했다면 기기마다 한 번 토큰을 묻습니다. 다른 사람의 기기나 LAN·공개 주소는 페어링이 필요합니다. 아래 기기 항목을 보세요.",
   "Access and safety": "접근과 안전",
   "…": "…",
   "Alerts": "알림",

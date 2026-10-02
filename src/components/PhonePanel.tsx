@@ -103,5 +103,5 @@ function Command({ command }: { command: string }) {
 
 function Sharing() {
   const t = useT();
-  return <p className="settings-hint">{t("Your own Tailscale devices get in as you. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.")} <a href={README_SAFETY} target="_blank" rel="noreferrer">{t("Access and safety")}</a></p>;
+  return <p className="settings-hint">{t("Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.")} <a href={README_SAFETY} target="_blank" rel="noreferrer">{t("Access and safety")}</a></p>;
 }
