@@ -226,8 +226,10 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
   const lastEventOf = new Map<string, number>();
   /** each pane's status as last heard, in an event or a snapshot: what the snapshot after a gap is measured against */
   const heard = new Map<string, { status: AgentStatus; agent: string | null }>();
-  /** when a pane last ended or came to the front, counted as events are: a snapshot asked for before that is no news of it */
+  /** when a pane last ended or closed, counted as events are: a snapshot asked for before that is no news of it */
   const actedOn = new Map<string, number>();
+  /** when a pane last came to the front: no replay from a snapshot asked for before that. A resync still corrects it */
+  const focusedAt = new Map<string, number>();
   /** the status subscription was closed for another pane set, or refused: a change since then may have had no event */
   let gap = false;
   /** the subscription that started after such a gap: the next reconcile's snapshot replays */
@@ -323,7 +325,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       const resynced = resync !== null && resync === statusGeneration && statusSubscription !== null;
       if (resynced) {
         recovering = false;
-        // an exit or a focus since the snapshot was asked for is newer than it too
+        // an exit since the snapshot was asked for is newer than it too. A focus is not: work that
+        // ended during the loss is still to be settled, or it would read as going on for good
         const newer = new Set([...lastEventOf, ...actedOn].filter(([, seq]) => seq > askedAt).map(([paneId]) => paneId));
         handlers.onResync?.(snapshot.panes, newer);
         // clients learn statuses from events, and some were lost: they fetch again
@@ -338,11 +341,12 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       const afterGap = !resynced && !recovering && replay !== null && replay === statusGeneration && statusSubscription !== null;
       const replaying = afterGap || leaving;
       if (resynced || afterGap) gap = false;
-      const newerThan = (paneId: string, seq: number): boolean => Math.max(lastEventOf.get(paneId) ?? 0, actedOn.get(paneId) ?? 0) > seq;
+      const newerThan = (paneId: string, seq: number): boolean => Math.max(lastEventOf.get(paneId) ?? 0, actedOn.get(paneId) ?? 0, focusedAt.get(paneId) ?? 0) > seq;
       const replays: HerdrPane[] = [];
       for (const pane of snapshot.panes) {
         // an event, an exit or a focus since the snapshot was asked for is newer than it
-        if (newerThan(pane.pane_id, askedAt)) continue;
+        const focusOnly = resynced && Math.max(lastEventOf.get(pane.pane_id) ?? 0, actedOn.get(pane.pane_id) ?? 0) <= askedAt;
+        if (newerThan(pane.pane_id, askedAt) && !focusOnly) continue;
         const before = heard.get(pane.pane_id);
         // a pane first seen, or corrected by the resync: this is what it is told as from now
         if (before === undefined || resynced) heard.set(pane.pane_id, { status: pane.agent_status, agent: pane.agent ?? null });
@@ -368,6 +372,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       for (const [paneId, seq] of lastEventOf) if (seq <= askedAt && !paneIds.includes(paneId)) lastEventOf.delete(paneId);
       for (const paneId of [...heard.keys()]) if (!paneIds.includes(paneId) && (lastEventOf.get(paneId) ?? 0) <= askedAt) heard.delete(paneId);
       for (const [paneId, seq] of actedOn) if (seq <= askedAt && !paneIds.includes(paneId)) actedOn.delete(paneId);
+      for (const [paneId, seq] of focusedAt) if (seq <= askedAt && !paneIds.includes(paneId)) focusedAt.delete(paneId);
       if (sameSet) return;
       closeStatusSubscription();
       openStatusSubscription(paneIds);
@@ -446,7 +451,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       (frame) => {
         const paneId = parseFocusFrame(frame);
         if (paneId === null) return;
-        actedOn.set(paneId, ++statusEvents);
+        focusedAt.set(paneId, ++statusEvents);
         // a finish seen at herdr's terminal is no measure for a later snapshot. Work still going on is:
         // its finish in a gap after this is news
         const told = heard.get(paneId);

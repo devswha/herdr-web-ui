@@ -467,6 +467,28 @@ describe("startStatusCollector recovery", () => {
     collector.stop();
   });
 
+  it("still resyncs a pane that only came to the front while the recovery snapshot was on its way", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working"), paneOf("w1:p2", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.status()!.start();
+    await tick(20);
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+    herdr.status()!.drop();
+    await tick();
+    herdr.hold();
+    herdr.status()!.start();
+    await tick();
+    // p1 is brought to the front, p2 exits, while the recovery snapshot is on its way
+    herdr.subscriptions.find((s) => s.types[0] === "pane.focused")!.emit({ event: "pane_focused", data: { type: "pane_focused", pane_id: "w1:p1" } });
+    herdr.lifecycle().emit({ event: "pane_exited", data: { type: "pane_exited", pane_id: "w1:p2" } });
+    herdr.answerAll();
+    await tick(20);
+    expect(log.resyncs).toEqual([{ panes: ["w1:p1", "w1:p2"], newer: ["w1:p2"] }]);
+    collector.stop();
+  });
+
   it("leaves out of the resync a pane whose event arrived while the snapshot was on its way", async () => {
     const herdr = fakeHerdr([paneOf("w1:p1", "working"), paneOf("w1:p2", "working")]);
     const { log, handlers } = recorder();
