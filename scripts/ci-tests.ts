@@ -16,6 +16,6 @@ console.log(`${suite}: ${selected.length} test files`);
 // Live process/pane probes can poll for 10s; Bun's 5s default would cut them off early.
 const child = Bun.spawn([process.execPath, "test", ...(suite === "integration" ? ["--timeout", "15000"] : []), ...selected.map((file) => `./${file}`)], {
   env: { ...process.env, HERDR_TEST_MODE: suite },
-  stdin: "inherit", stdout: "inherit", stderr: "inherit",
+  windowsHide: true, stdin: "inherit", stdout: "inherit", stderr: "inherit",
 });
 process.exit(await child.exited);

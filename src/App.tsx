@@ -18,7 +18,7 @@ import { paneStorageId, type Machine, type MachineEvent } from "../shared/machin
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
-import { alertPrefs, useSettings } from "./lib/settings.ts";
+import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
 import {
@@ -97,7 +97,7 @@ function storeSelection(machineId: string, paneId: string | null): void {
  * its chat: its terminal lens is only a notice, so a remembered choice there is not worth
  * keeping. A mirrored PC counts as having a terminal.
  */
-function storedView(paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean): PaneView {
+function storedView(paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean, defaultView: DefaultView): PaneView {
   if (!terminalAttach) return "chat";
   try {
     const stored = window.localStorage.getItem(`herdr-web-ui:view:${paneStorageId(machineId, paneId)}`);
@@ -105,6 +105,9 @@ function storedView(paneId: string, machineId: string, hasAgent: boolean | null,
   } catch {
     /* private mode */
   }
+  // Settings' choice for every pane: chat needs an agent, a shell has no conversation to show
+  if (defaultView === "chat") return hasAgent !== false ? "chat" : "terminal";
+  if (defaultView === "terminal") return "terminal";
   return hasAgent !== false && window.matchMedia?.("(pointer: coarse)").matches === true ? "chat" : "terminal";
 }
 
@@ -488,8 +491,8 @@ export function App() {
   // the lens follows the selected pane: each pane remembers its own
   useEffect(() => {
     if (selectedPaneId === null) return;
-    setViewState(storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach));
-  }, [selectedPaneId, selectedMachineId, selectedPane !== null, selectedAgent !== null, terminalAttach]);
+    setViewState(storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach, settings.defaultView));
+  }, [selectedPaneId, selectedMachineId, selectedPane !== null, selectedAgent !== null, terminalAttach, settings.defaultView]);
 
   const setView = useCallback(
     (next: PaneView) => {

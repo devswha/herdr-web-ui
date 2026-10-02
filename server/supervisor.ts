@@ -4,12 +4,13 @@
  * after an install passes its health check the supervisor exits with HANDOVER_EXIT and the
  * launcher starts the new release's supervisor. `root` is always the source checkout.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { defaultStateDir, HANDOVER_EXIT, updateStateDir } from "./update-state.ts";
 import { herdrSocketPath } from "./herdr/client.ts";
 import { Updater, type Release } from "./updater.ts";
+import { windowsProcessTable } from "./windows-processes.ts";
 
 export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
   root = resolve(root);
@@ -28,6 +29,17 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
     if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error(`Invalid update lock: ${lock}`);
     let alive = true;
     try { process.kill(pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") alive = false; }
+    if (alive && process.platform === "win32") {
+      // Forced Windows shutdown skips lock cleanup; the old PID may now belong to someone else.
+      const recordedAt = statSync(join(lock, "pid")).mtimeMs;
+      const owner = (await windowsProcessTable()).find(row => row.pid === pid);
+      if (owner?.started !== undefined && owner.started > recordedAt) {
+        if (Number(readFileSync(join(lock, "pid"), "utf8")) !== pid || statSync(join(lock, "pid")).mtimeMs !== recordedAt) {
+          throw new Error("Another server is starting. Try again.");
+        }
+        alive = false;
+      }
+    }
     if (alive) throw new Error("A managed server is already running for this checkout and port.");
     rmSync(lock, { recursive: true }); mkdirSync(lock);
   }
@@ -52,7 +64,7 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
     if (stopping) throw new Error("Server is stopping");
     const bootId = crypto.randomUUID();
     const candidate = Bun.spawn([process.execPath, "server/index.ts"], {
-      cwd: release?.directory ?? root, stdin: "ignore", stdout: "inherit", stderr: "inherit",
+      cwd: release?.directory ?? root, windowsHide: true, stdin: "ignore", stdout: "inherit", stderr: "inherit",
       env: { ...process.env, HERDR_WEB_MANAGED: "1", HERDR_WEB_BOOT_ID: bootId,
         HERDR_WEB_STATE_DIR: appStateDir, HERDR_SOCKET: socketPath,
         HERDR_WEB_REVISION: release?.revision ?? "" },

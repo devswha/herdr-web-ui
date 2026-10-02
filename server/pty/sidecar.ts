@@ -20,7 +20,7 @@ const PROBE_TIMEOUT_MS = 3000;
  */
 export function isRealNode(executable: string, env: Record<string, string | undefined> = process.env, timeoutMs = PROBE_TIMEOUT_MS): boolean {
   try {
-    const asked = Bun.spawnSync([executable, "-p", "process.versions.bun || ''"], { env, stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: timeoutMs });
+    const asked = Bun.spawnSync([executable, "-p", "process.versions.bun || ''"], { env, windowsHide: true, stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: timeoutMs });
     return asked.success && asked.stdout.toString().trim() === "";
   } catch {
     return false;

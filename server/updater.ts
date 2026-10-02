@@ -20,7 +20,7 @@ function packageVersion(directory: string): string | null {
 export function runCommand(cwd: string, argv: string[], signal?: AbortSignal, timeout = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(argv[0]!, argv.slice(1), {
-      cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
+      cwd, detached: true, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
     });
     let output = "", errors = "", failure: string | null = null;

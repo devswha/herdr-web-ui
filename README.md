@@ -80,6 +80,14 @@ curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh
 
 Linux (x64, arm64) or macOS. Installs missing herdr 0.9.0+, Bun 1.4+ and Node 18+ prerequisites for your user, then installs the app as a herdr plugin. If an existing herdr installation is older than 0.9.0, update and restart herdr yourself before rerunning the installer. With the default listen address and Tailscale running, successful HTTPS setup provides a tailnet address and QR code.
 
+Windows x64, in PowerShell:
+
+```powershell
+irm https://devswha.github.io/herdr-web-ui/install.ps1 | iex
+```
+
+Requires [Git for Windows](https://git-scm.com/download/win). Installs missing herdr and Bun for your user, then installs the same plugin. No Node or WSL is needed. Open **Phone setup** in herdr for phone access. Windows terminals use the [screen mirror](docs/remote-pcs.md#windows-pcs), with typing and a fixed grid, until herdr supports terminal attach there.
+
 <p align="center">
   <img src="docs/screenshots/install.png" width="720" alt="Installer output: Bun, Node and the herdr plugin install, then tailscale serve publishes the app and a QR code for the phone appears.">
 </p>

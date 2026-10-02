@@ -31,7 +31,7 @@ beforeEach(() => {
 });
 afterEach(() => { server.stop(true); rmSync(scratch, { recursive: true, force: true }); });
 async function run() {
-  const child = Bun.spawn([process.execPath, "scripts/plugin.ts", "phone-setup"], { cwd: ROOT, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {
+  const child = Bun.spawn([process.execPath, "scripts/plugin.ts", "phone-setup"], { cwd: ROOT, windowsHide: true, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {
     ...process.env, HOST: "127.0.0.1", HERDR_PLUGIN_ROOT: ROOT,
     HERDR_PLUGIN_CONFIG_DIR: join(scratch, "config"), HERDR_PLUGIN_STATE_DIR: join(scratch, "plugin-state"), HERDR_WEB_STATE_DIR: join(scratch, "app-state"),
   } });
@@ -63,7 +63,7 @@ it("runs the active release's setup using the original plugin configuration", as
   const release = join(updates, "release-test");
   mkdirSync(join(release, "scripts"), { recursive: true });
   writeFileSync(join(release, "scripts", "plugin.ts"), 'console.log("active release", process.argv[2], process.env.HERDR_PLUGIN_ROOT);');
-  const revision = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: ROOT }).stdout.toString().trim();
+  const revision = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: ROOT, windowsHide: true }).stdout.toString().trim();
   writeFileSync(join(updates, "current.json"), JSON.stringify({ source_revision: revision, directory: release }));
   const result = await run();
   expect(result.code, result.err).toBe(0);

@@ -16,7 +16,7 @@ function releaseSupervisor(root: string, stateDir: string): string | null {
   try {
     const saved = JSON.parse(readFileSync(join(stateDir, "current.json"), "utf8")) as { directory?: unknown; source_revision?: unknown };
     if (typeof saved.directory !== "string" || !saved.directory.startsWith(join(stateDir, "release-"))) return null;
-    const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
+    const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, windowsHide: true, encoding: "utf8" }).stdout.trim();
     if (saved.source_revision !== head) return null;
     const file = join(saved.directory, "server", "supervisor.ts");
     return existsSync(file) ? file : null;
@@ -39,7 +39,7 @@ export async function runManaged(root = resolve(import.meta.dir, "..")) {
     const file: string = fallback ? previous ?? own : releaseSupervisor(root, stateDir) ?? own;
     let ready = false;
     child = Bun.spawn([process.execPath, file], {
-      cwd: root, stdin: "ignore", stdout: "inherit", stderr: "inherit",
+      cwd: root, windowsHide: true, stdin: "ignore", stdout: "inherit", stderr: "inherit",
       env: { ...process.env, HERDR_WEB_SOURCE_ROOT: root, ...(fallback ? { HERDR_WEB_SUPERVISOR_FALLBACK: "1" } : {}) },
       ipc(message) { if (message?.type === "supervisor-ready") ready = true; },
     });

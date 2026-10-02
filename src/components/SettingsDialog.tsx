@@ -6,7 +6,7 @@ import "./SettingsDialog.css";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
@@ -377,6 +377,21 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
 
           <section className="settings-section">
             <h3>{t("Chat")}</h3>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Panes open in")}</span><span className="settings-description">{t("Every pane on this device. Switching a pane's lens keeps it there until this changes. Auto: chat for an agent on a touch screen, else the terminal.")}</span></div>
+              <div className="segmented" aria-label={t("Panes open in")}>
+                {(["auto", "chat", "terminal"] as const).map((defaultView) => (
+                  <button key={defaultView} type="button" aria-pressed={settings.defaultView === defaultView} onClick={() => {
+                    if (settings.defaultView === defaultView) return;
+                    // one choice for every pane: what each one remembered gives way to it
+                    forgetPaneViews();
+                    update({ defaultView });
+                  }}>
+                    {t(defaultView === "auto" ? "Auto" : defaultView === "chat" ? "Chat" : "Terminal")}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Show thinking")}</span><span className="settings-description">{t("Include the agent's reasoning blocks")}</span></div>
               <Toggle label={t("Show thinking")} checked={settings.showThinking} onChange={(showThinking) => update({ showThinking })} />

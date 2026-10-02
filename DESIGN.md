@@ -280,8 +280,8 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Sidebar roster row and footer
 - Top bar: **New session** only. Search lives in the command palette, not the roster.
-- Appearance's **Sidebar grouping** is **By workspace** by default, preserving the original
-  workspace headers, folds and merged single-pane rows. **By folder** opts into the grouping below.
+- Appearance's **Sidebar grouping** is **By workspace** by default, with numbered, foldable
+  workspace headers even for one pane. **By folder** opts into the grouping below.
   The choice applies immediately and persists in the browser's existing Settings record. Workspace
   and folder fold keys remain independent when switching modes; original workspace keys are retained.
 - In folder mode, within each PC, panes with the same full cwd share a folder group, including panes from
@@ -302,7 +302,7 @@ One set for both themes: the card is island black wherever it shows.
   (done = connected, working pulse = connecting/reconnecting, blocked = error). Connected says
   nothing more; every other state is written under the name, with the server's error clamped to
   two lines and complete in the tooltip.
-- Single-pane workspaces merge their workspace handle into the pane row.
+- In folder mode, single-pane workspaces merge their workspace handle into the pane row.
 - Footer holds the contextual **Install app** action, Settings with the plan meters beside it,
   product name and herdr version.
 

@@ -20,6 +20,8 @@ export type UsageCount = "used" | "left";
 export type Palette = "amber" | "report" | "charcoal";
 /** where the plan meters sit: chips beside Settings, or a panel at the top of the sidebar */
 export type UsagePlacement = "footer" | "top";
+/** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
+export type DefaultView = "auto" | "chat" | "terminal";
 
 import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcutBindings.ts";
 
@@ -68,6 +70,8 @@ export interface Settings {
   showUsage: boolean;
   usageCount: UsageCount;
   usagePlacement: UsagePlacement;
+  /** every pane's lens until switched in that pane; changing it puts every pane back on it */
+  defaultView: DefaultView;
   /** the plan meters' order by ProviderUsage.key; accounts not in it follow, the one nearest a limit first */
   usageOrder: string[];
   /** accounts left out of the plan meters, strip and popover alike, by ProviderUsage.key */
@@ -105,6 +109,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showUsage: false,
   usageCount: "used",
   usagePlacement: "footer",
+  defaultView: "auto",
   usageOrder: [],
   usageHidden: [],
   voiceInput: false,
@@ -193,6 +198,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
     usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
     usagePlacement: record["usagePlacement"] === "top" || record["usagePlacement"] === "footer" ? record["usagePlacement"] : DEFAULT_SETTINGS.usagePlacement,
+    defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
     usageOrder: usageKeys(record["usageOrder"]),
     usageHidden: usageKeys(record["usageHidden"]),
     voiceInput: typeof record["voiceInput"] === "boolean" ? record["voiceInput"] : DEFAULT_SETTINGS.voiceInput,
@@ -325,4 +331,23 @@ export function useSettings(): SettingsContextValue {
   const value = useContext(SettingsContext);
   if (value === null) throw new Error("useSettings needs a SettingsProvider above it");
   return value;
+}
+
+export const PANE_VIEW_KEY_PREFIX = "herdr-web-ui:view:";
+
+/** Forgets every pane's own lens on this device, so each opens in the default one again. */
+export function forgetPaneViews(given?: Pick<Storage, "length" | "key" | "removeItem">): number {
+  const keys: string[] = [];
+  try {
+    // inside the try: reading localStorage itself throws where storage is blocked
+    const storage = given ?? window.localStorage;
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index);
+      if (key?.startsWith(PANE_VIEW_KEY_PREFIX)) keys.push(key);
+    }
+    for (const key of keys) storage.removeItem(key);
+  } catch {
+    /* private mode: there is nothing remembered to forget */
+  }
+  return keys.length;
 }

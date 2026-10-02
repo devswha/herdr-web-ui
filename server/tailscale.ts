@@ -80,7 +80,7 @@ export function tailscaleBinary(): string | null {
 }
 
 async function run(binary: string, args: string[]): Promise<string | null> {
-  const proc = Bun.spawn([binary, ...args], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  const proc = Bun.spawn([binary, ...args], { windowsHide: true, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
   const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
   try {
     const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);

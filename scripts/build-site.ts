@@ -30,6 +30,7 @@ const copies: Array<[from: string, to: string]> = [
   ["site/index.html", "index.html"],
   // the one-line installer: curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh
   ["install.sh", "install.sh"],
+  ["install.ps1", "install.ps1"],
   ["public/favicon.ico", "favicon.ico"],
   ["public/favicon.png", "favicon.png"],
   ["public/apple-touch-icon.png", "apple-touch-icon.png"],

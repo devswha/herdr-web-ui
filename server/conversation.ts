@@ -754,7 +754,11 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     // Claude's project is the directory it started in, the process's own cwd more often than the pane's
     if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]) };
     if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId) };
-    if (agent === "gjc") return { source: "gjc-transcript", path: await gjcTranscriptPath(paneId, cwd) };
+    if (agent === "gjc") {
+      // GJC can change its own cwd without changing the pane's shell directory.
+      const sessionCwd = typeof pane.foreground_cwd === "string" && pane.foreground_cwd.length > 0 ? pane.foreground_cwd : cwd;
+      return { source: "gjc-transcript", path: await gjcTranscriptPath(paneId, sessionCwd) };
+    }
     // pi's own label only routes pi: an omo pane was taken above, by its process tree.
     if (agent === "pi") {
       const path = await piTranscriptPath(paneId);

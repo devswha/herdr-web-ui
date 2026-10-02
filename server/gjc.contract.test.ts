@@ -2,8 +2,8 @@ import { afterAll, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { herdrRpc, workspaceClose, workspaceCreate, paneRead } from "./herdr/client.ts";
-import { ConversationUnavailable, gjcTranscriptPath, transcriptPage } from "./conversation.ts";
+import { herdrRpc, herdrSocketPath, sessionSnapshot, workspaceClose, workspaceCreate, paneRead } from "./herdr/client.ts";
+import { ConversationUnavailable, gjcTranscriptPath, paneConversation, transcriptPage } from "./conversation.ts";
 
 import { gjcTerminal, isGjcProcess } from "./gjc-runtime.ts";
 import { startShellAgent } from "./shell-agent.ts";
@@ -14,17 +14,17 @@ mkdirSync(dir, { recursive: true });
 const workspaces: string[] = [];
 const script = join(home, "gjc");
 // The stand-in keeps actual descriptors open; all files and panes belong to this test.
-writeFileSync(script, "for (const path of process.argv.slice(2)) require('node:fs').openSync(path, 'r');\nconsole.log('GJC descriptor ready'); console.log(process.env.GJC_TEST_SCREEN || ''); setInterval(() => {}, 1000);\n");
+writeFileSync(script, "if (process.env.GJC_TEST_CWD) process.chdir(process.env.GJC_TEST_CWD);\nfor (const path of process.argv.slice(2)) require('node:fs').openSync(path, 'r');\nconsole.log('GJC descriptor ready'); console.log(process.env.GJC_TEST_SCREEN || ''); setInterval(() => {}, 1000);\n");
 afterAll(async () => {
   for (const workspace of workspaces) await workspaceClose(workspace);
   rmSync(home, { recursive: true, force: true });
 });
 
-async function pane(paths: string[], screen = ""): Promise<string> {
+async function pane(paths: string[], screen = "", cwd = home): Promise<string> {
   const created = await workspaceCreate({ cwd: home, label: "herdr-web-ui-test-gjc-binding" });
   workspaces.push(created.workspace.workspace_id);
   const id = created.root_pane.pane_id;
-  await herdrRpc("pane.send_text", { pane_id: id, text: `GJC_TEST_SCREEN='${screen.replaceAll("'", "'\\''")}' ${process.execPath} ${script} ${paths.join(" ")}\n` });
+  await herdrRpc("pane.send_text", { pane_id: id, text: `GJC_TEST_CWD='${cwd.replaceAll("'", "'\\''")}' GJC_TEST_SCREEN='${screen.replaceAll("'", "'\\''")}' ${process.execPath} ${script} ${paths.join(" ")}\n` });
   for (let attempt = 0; attempt < 100; attempt++) {
     const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: id });
     const process = info.process_info?.foreground_processes?.find((p) => p.argv?.includes(script));
@@ -36,6 +36,36 @@ async function pane(paths: string[], screen = ""): Promise<string> {
   }
   throw new Error("GJC stand-in did not open its descriptors");
 }
+
+it("reads the foreground GJC session after its process changes directory, not another session in the pane cwd", async () => {
+  const cwd = join(home, "project");
+  mkdirSync(cwd);
+  const path = join(dir, "foreground.jsonl"), other = join(dir, "pane-cwd.jsonl");
+  for (const [file, directory, answer] of [[path, cwd, "foreground answer"], [other, home, "wrong pane cwd answer"]]) {
+    writeFileSync(file!, JSON.stringify({ type: "session", cwd: directory }) + "\n" + JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: answer }] } }) + "\n");
+  }
+  const id = await pane([path], "", cwd);
+  await herdrRpc("pane.report_agent", { pane_id: id, source: "manual", agent: "gjc", state: "idle" });
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if ((await sessionSnapshot()).panes.find((p) => p.pane_id === id)?.agent === "gjc") break;
+    await Bun.sleep(50);
+  }
+  const metadata = (await sessionSnapshot()).panes.find((p) => p.pane_id === id)!;
+  expect(metadata.agent).toBe("gjc");
+  expect(metadata.cwd).toBe(home);
+  expect(metadata.foreground_cwd).toBe(cwd);
+  const oldHome = process.env["HOME"], oldSocket = process.env["HERDR_SOCKET"];
+  process.env["HERDR_SOCKET"] = herdrSocketPath();
+  process.env["HOME"] = home;
+  try {
+    const conversation = await paneConversation(id);
+    expect(conversation.source).toBe("gjc-transcript");
+    expect(conversation.turns[0]!.parts[0]).toMatchObject({ kind: "text", text: "foreground answer" });
+  } finally {
+    if (oldHome === undefined) delete process.env["HOME"]; else process.env["HOME"] = oldHome;
+    if (oldSocket === undefined) delete process.env["HERDR_SOCKET"]; else process.env["HERDR_SOCKET"] = oldSocket;
+  }
+});
 
 it("binds same-cwd panes to their own files regardless of which transcript was modified last", async () => {
   const a = join(dir, "a.jsonl"), b = join(dir, "b.jsonl");
@@ -136,6 +166,6 @@ it("starts the gjc this server found on its PATH, by absolute path, and waits un
     process.env["PATH"] = "/nonexistent";
     const bare = await shell();
     await expect(startShellAgent("gjc", bare, [], { timeoutMs: 1500 })).rejects.toThrow("not on this server's PATH");
-    expect((await paneRead({ paneId: bare })).text).not.toContain("gjc");
+    expect((await paneRead({ paneId: bare })).text.replaceAll(home, "")).not.toContain("gjc");
   } finally { process.env["PATH"] = path; }
 });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
@@ -284,4 +284,18 @@ it("sanitizes input modes and shortcut overrides without accepting arbitrary com
   expect(sanitizeSettings({ terminalInputMode: "bad" }).terminalInputMode).toBe("auto");
   expect(sanitizeSettings({ terminalInputMode: "line" }).terminalInputMode).toBe("line");
   expect(sanitizeSettings({ shortcutOverrides: { palette: "p", settings: null, voice: "x", unknown: "x", "next-pane": "rm -rf" } }).shortcutOverrides).toEqual({ palette: "p", settings: null });
+});
+
+describe("default lens", () => {
+  it("keeps only a known choice, auto by default", () => {
+    expect(DEFAULT_SETTINGS.defaultView).toBe("auto");
+    expect(sanitizeSettings({ defaultView: "chat" }).defaultView).toBe("chat");
+    expect(sanitizeSettings({ defaultView: "split" }).defaultView).toBe("auto");
+  });
+  it("forgets every pane's own lens and nothing else", () => {
+    const data = new Map<string, string>([["herdr-web-ui:view:local:w1:p1", "terminal"], ["herdr-web-ui:view:remote:pc:w2:p1", "chat"], ["herdr-web-ui:settings", "{}"]]);
+    const storage = { get length() { return data.size; }, key: (i: number) => [...data.keys()][i] ?? null, removeItem: (k: string) => { data.delete(k); } };
+    expect(forgetPaneViews(storage)).toBe(2);
+    expect([...data.keys()]).toEqual(["herdr-web-ui:settings"]);
+  });
 });

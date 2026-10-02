@@ -93,7 +93,7 @@ try {
   ] as const) {
     const created = await workspaceCreate({ cwd, label });
     ownedWorkspaces.push(created.workspace.workspace_id);
-    fixtures.push({ cwd, label, workspaceId: created.workspace.workspace_id, paneId: created.root_pane.pane_id });
+    fixtures.push({ cwd, label, workspaceId: created.workspace.workspace_id, workspaceNumber: created.workspace.number, paneId: created.root_pane.pane_id });
   }
   const [alpha, beta, other, lone] = fixtures;
   assert.ok(alpha && beta && other && lone);
@@ -183,8 +183,26 @@ try {
   assert.equal(await page.locator(`${otherWorkspace} .pane-list`).count(), 0);
   for (const fixture of [alpha, beta]) {
     assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .pane-subtitle`).textContent(), `${fixture.label} · project`);
-    assert.equal(await page.locator(`.workspace:has(${paneSelector(fixture.paneId)}) .workspace-toggle`).count(), 0);
+    const workspace = `.workspace:has(${paneSelector(fixture.paneId)})`;
+    assert.equal(await page.locator(`${workspace} .workspace-toggle`).getAttribute("aria-expanded"), "true");
+    assert.equal(await page.locator(`${workspace} .workspace-number`).textContent(), String(fixture.workspaceNumber));
+    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .sidebar-drag-handle`).count(), 0);
   }
+  const singleWorkspace = `.workspace:has(.workspace-label[title=${JSON.stringify(alpha.label)}])`;
+  const singleToggle = `${singleWorkspace} .workspace-toggle`;
+  await changeState(page, [{ selector: singleToggle, attribute: ["aria-expanded", "false"] },
+    { selector: `${singleWorkspace} .pane-list`, count: 0 }],
+  () => page.locator(singleToggle).click(), "single-pane workspace folds");
+  const singleFoldKey = `herdr-web-ui:workspace-collapsed:local:${alpha.workspaceId}`;
+  assert.equal(await page.evaluate((key) => localStorage.getItem(key), singleFoldKey), "1");
+  await navigate(() => page.reload(), lone.paneId);
+  await page.locator(`${singleToggle}[aria-expanded="false"]`).waitFor({ state: "attached" });
+  assert.equal(await page.locator(`${singleWorkspace} .pane-list`).count(), 0, "single-pane fold survives reload");
+  await page.locator(singleToggle).focus();
+  await changeState(page, [{ selector: singleToggle, attribute: ["aria-expanded", "true"] },
+    { selector: paneSelector(alpha.paneId) }],
+  () => page.keyboard.press("Enter"), "keyboard opens a single-pane workspace");
+  assert.equal(await page.evaluate((key) => localStorage.getItem(key), singleFoldKey), null);
   await changeState(page, [{ selector: workspaceToggle, attribute: ["aria-expanded", "true"] },
     { selector: paneSelector(split.pane.pane_id) }],
   () => page.locator(workspaceToggle).click(), "multipane workspace unfolds");

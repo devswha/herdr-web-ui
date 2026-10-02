@@ -288,13 +288,11 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
 
   const renderWorkspace = (workspace: WorkspaceInfo, visiblePanes: PaneInfo[], scope = "") => {
     if (visiblePanes.length === 0) return null;
-    // A single pane already names its workspace in the subtitle. Keep the
-    // separate workspace heading only when it groups several panes. Count the
-    // whole workspace: a folder can show one pane of a workspace that has more,
-    // and that heading is the only place to rename the workspace.
-    const merged = (workspacePaneCounts.get(workspace.workspace_id) ?? visiblePanes.length) === 1;
+    // Only folder mode merges a single-pane workspace into its row. Count the
+    // whole workspace so one split across folders keeps its rename heading.
+    const merged = byFolder && (workspacePaneCounts.get(workspace.workspace_id) ?? visiblePanes.length) === 1;
     const groupKey = `workspace:${workspace.workspace_id}`;
-    const collapsed = !byFolder && !merged && collapsedGroups.has(groupKey);
+    const collapsed = !byFolder && collapsedGroups.has(groupKey);
     return (
       <section
         className={`workspace${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`}

@@ -10,9 +10,9 @@ beforeEach(() => {
   // the active release comes back canonical; macOS's tmpdir is a symlink into /private
   root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-plugin-runtime-")));
   state = join(root, "state");
-  Bun.spawnSync(["git", "init", "-q", root]);
-  Bun.spawnSync(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-q", "--allow-empty", "-m", "fixture"], { cwd: root });
-  revision = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: root }).stdout.toString().trim();
+  Bun.spawnSync(["git", "init", "-q", root], { windowsHide: true });
+  Bun.spawnSync(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-q", "--allow-empty", "-m", "fixture"], { cwd: root, windowsHide: true });
+  revision = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: root, windowsHide: true }).stdout.toString().trim();
   updates = updateStateDir(root, 7317, state);
   release = join(updates, "release-test");
   mkdirSync(join(release, "scripts"), { recursive: true });

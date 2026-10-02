@@ -7,7 +7,25 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Native Windows x64 installation through `install.ps1`, with the same herdr plugin startup
+  and updates. Windows needs Bun and Git, without Node or WSL, and keeps using the terminal
+  screen mirror. ([#330](https://github.com/devswha/herdr-web-ui/pull/330) by @JJLiebig)
+- Settings can choose Chat, Terminal, or Auto as the default view for panes. Changing it resets
+  remembered pane views on this device. Shell panes still open in Terminal.
+  ([#325](https://github.com/devswha/herdr-web-ui/pull/325) by @Haeminway1)
+- Choose the terminal input line or direct typing on desktop as well as touch screens, and
+  customize or unbind the app's Mod+Shift shortcuts with conflict checks and reset.
+  ([#334](https://github.com/devswha/herdr-web-ui/pull/334))
+
+### Changed
+- In the sidebar's By workspace view, a workspace with one pane keeps its numbered header and
+  can be folded, renamed and reordered from that header, just like a workspace with several panes.
+  ([#332](https://github.com/devswha/herdr-web-ui/pull/332) by @beomq)
+
 ### Fixed
+- GJC conversations are resolved from the foreground process directory when it differs from
+  the pane directory. ([#333](https://github.com/devswha/herdr-web-ui/pull/333) by @Kinetic27)
 - Direct terminal input preserves rapid IME commits when punctuation arrives before composition
   timers run, with a bounded xterm 5.5 backport and Korean final-consonant regression checks.
   Native Android/Gboard checks also fixed stale editor text after Backspace breaking the next
@@ -17,11 +35,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   attachment before sending keys, and reports input failures. Unsent input lines survive pane,
   lens and mode changes; late acknowledgements preserve replacement edits. Composition keeps
   its Enter and Send button, and terminal key-bar taps wait until it finishes.
-  ([#334](https://github.com/devswha/herdr-web-ui/pull/334))
-
-### Added
-- Choose the terminal input line or direct typing on desktop as well as touch screens, and
-  customize or unbind the app's Mod+Shift shortcuts with conflict checks and reset.
   ([#334](https://github.com/devswha/herdr-web-ui/pull/334))
 
 ## [0.3.43] - 2026-10-02

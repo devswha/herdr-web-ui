@@ -62,7 +62,7 @@ const TABLE_SCRIPT = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Cim
  */
 export async function windowsProcessTable(timeoutMs = 10_000, command: string[] = ["powershell", "-NoProfile", "-NonInteractive", "-Command", TABLE_SCRIPT]): Promise<ProcessRow[]> {
   try {
-    const probe = Bun.spawn(command, { stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: timeoutMs, killSignal: "SIGKILL" });
+    const probe = Bun.spawn(command, { windowsHide: true, stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: timeoutMs, killSignal: "SIGKILL" });
     const [code, out] = await Promise.all([probe.exited, new Response(probe.stdout).text()]);
     return code === 0 ? parseProcessTable(out) : [];
   } catch { return []; }
