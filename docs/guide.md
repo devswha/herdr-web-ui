@@ -246,8 +246,8 @@ Anyone who can reach the server can type into your terminals, so what matters is
 
 | How you reach it | What gets you in |
 | --- | --- |
-| This computer only (default) | Nothing needed |
-| SSH tunnel (`ssh -L 7317:127.0.0.1:7317 host`) | Nothing needed |
+| This computer only (default) | Nothing needed. With a token set, the token |
+| SSH tunnel (`ssh -L 7317:127.0.0.1:7317 host`) | Nothing needed. With a token set, the token |
 | `tailscale serve`, your own devices | Nothing needed: your login. With a token set, the token, once per device |
 | `tailscale serve` on a tailnet you share with others | Your devices: your login (with a token set, the token once). Theirs: refused unless you pair them |
 | Your LAN (`HOST=0.0.0.0` or a LAN address) | Pair each device, or set a token |
