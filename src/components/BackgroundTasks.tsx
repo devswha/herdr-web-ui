@@ -139,9 +139,11 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   const summary = endedSummary(tasks ?? [], runs);
 
   if (count === 0 && !open && !seen && !omo) return null;
+  const label = count === 0 ? t("Background tasks") : t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count });
+  // a phone's status line has one row: there the words give way to the icon and the number
   return <span className="bg-tasks" ref={root}>
-    <button type="button" ref={toggle} className={`bg-tasks-toggle${count === 0 ? " is-idle" : ""}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
-      <Layers aria-hidden="true" />{count === 0 ? t("Background tasks") : t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count })}
+    <button type="button" ref={toggle} className={`bg-tasks-toggle${count === 0 ? " is-idle" : ""}`} aria-label={label} title={label} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      <Layers aria-hidden="true" /><span className="bg-tasks-label">{label}</span>{count > 0 && <span className="bg-tasks-count" aria-hidden="true">{count}</span>}
     </button>
     {open && <div id={id} className="menu bg-tasks-menu" role="dialog" aria-live="off" aria-label={t("Background tasks")}>
       {tasks === null && !failed && <p className="bg-tasks-note">{t("Loading…")}</p>}
