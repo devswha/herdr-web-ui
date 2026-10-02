@@ -599,4 +599,7 @@ export const JA: Record<string, string> = {
   "{name} asked to slow down. These are the last numbers.": "{name} からリクエストの制限を受けました。最後に取得した値です。",
   "{name} could not be reached.": "{name} に接続できませんでした。",
   "The server cannot open the keychain holding this sign-in.": "このサインイン情報を保存したキーチェーンをサーバーが開けません。",
+  "This message can't be shown here. The terminal has it.": "このメッセージはここに表示できません。ターミナルで確認できます。",
+  "The chat can't be shown. The terminal still works.": "チャットを表示できません。ターミナルは引き続き使えます。",
+  "Try again": "再試行",
 };

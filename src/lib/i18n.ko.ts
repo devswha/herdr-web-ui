@@ -597,4 +597,7 @@ export const KO: Record<string, string> = {
   "{name} asked to slow down. These are the last numbers.": "{name}이(가) 요청 속도 제한을 걸었습니다. 마지막으로 읽은 값입니다.",
   "{name} could not be reached.": "{name}에 연결하지 못했습니다.",
   "The server cannot open the keychain holding this sign-in.": "서버가 이 로그인 정보가 든 키체인을 열 수 없습니다.",
+  "This message can't be shown here. The terminal has it.": "이 메시지는 여기서 표시할 수 없습니다. 터미널에서 볼 수 있습니다.",
+  "The chat can't be shown. The terminal still works.": "채팅을 표시할 수 없습니다. 터미널은 계속 쓸 수 있습니다.",
+  "Try again": "다시 시도",
 };
