@@ -17,6 +17,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Choose the terminal input line or direct typing on desktop as well as touch screens, and
   customize or unbind the app's Mod+Shift shortcuts with conflict checks and reset.
   ([#334](https://github.com/devswha/herdr-web-ui/pull/334))
+- `HERDR_WEB_PASTE_DIR` saves pasted and attached files to one directory instead of
+  `.herdr-web-ui/` in each pane's project.
 
 ### Changed
 - In the sidebar's By workspace view, a workspace with one pane keeps its numbered header and

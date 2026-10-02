@@ -351,6 +351,7 @@ Attaches never use `--takeover`, so they coexist with your own herdr TUI.
 | `HERDR_WEB_PUSH_SUBJECT` | this repository's URL | VAPID contact URL or `mailto:` address |
 | `HERDR_WEB_BUNDLE_MANIFEST` | unset | Remote-PC bundle manifest (path or URL) that overrides local and published bundles |
 | `HERDR_WEB_HERDR_BIN` | `herdr` | herdr executable used for terminal attach |
+| `HERDR_WEB_PASTE_DIR` | `<pane cwd>/.herdr-web-ui` | Where pasted and attached files are saved. Set it to keep them out of your projects; an agent may then ask before reading one |
 | `CODEX_HOME` | `~/.codex` | Where Codex sessions are read |
 
 ## Updates
