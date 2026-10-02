@@ -44,17 +44,17 @@ below. The icon sets it gathers keep their own licenses, as Nerd Fonts lists the
 |---|---|---|---|---|
 | Codicons | https://github.com/microsoft/vscode-codicons | 0.0.45 | CC BY 4.0 | Microsoft Corporation |
 | Devicons | https://github.com/devicons/devicon | 2.17.0 | MIT | Copyright (c) 2015 konpa |
-| extraglyphs | https://github.com/source-foundry/Hack | - | MIT | Source Foundry Authors |
+| extraglyphs | https://github.com/source-foundry/Hack | - | MIT | Copyright 2018 Source Foundry Authors |
 | Font Awesome | https://github.com/FortAwesome/Font-Awesome | 6.5.1 | CC BY 4.0 (icons) | Fonticons, Inc. |
-| Font Awesome Extension | https://github.com/AndreLZGava/font-awesome-extension | 0.0.3 | MIT | André Zanghelini |
+| Font Awesome Extension | https://github.com/AndreLZGava/font-awesome-extension | 0.0.3 | MIT | AndreLZGava (no license file upstream; MIT as Nerd Fonts lists it) |
 | Font Logos | https://github.com/lukas-w/font-logos | 1.3.0 | The Unlicense (public domain) | each logo is a trademark of its owner |
 | MaterialDesign | https://github.com/Templarian/MaterialDesign-Font | Oct 6, 2022 | Apache 2.0 | Pictogrammers (Austin Andrews and contributors) |
-| Octicons | https://github.com/primer/octicons | 18.3.0 | MIT | GitHub Inc. |
-| Seti and original | https://github.com/jesseweed/seti-ui | 0.8.1 | MIT | Jesse Weed |
+| Octicons | https://github.com/primer/octicons | 18.3.0 | MIT | Copyright (c) 2023 GitHub Inc. |
+| Seti and original | https://github.com/jesseweed/seti-ui | 0.8.1 | MIT | Copyright (c) 2014 Jesse Weed |
 | Pomicons | https://github.com/gabrielelana/pomicons | 1.001 | SIL OFL 1.1, Reserved Font Name "Pomicons" | Gabriele Lana |
-| Powerline Extra | https://github.com/ryanoasis/powerline-extra-symbols | 1.200 | MIT | Ryan L McIntyre |
-| Powerline Symbols | https://github.com/powerline/powerline | 1.000 | MIT | Kim Silkebækken |
-| Power Symbols IEC | https://github.com/jloughry/Unicode | Feb 2015 | MIT | Joe Loughry |
+| Powerline Extra | https://github.com/ryanoasis/powerline-extra-symbols | 1.200 | MIT | Copyright (c) 2016 Ryan L McIntyre |
+| Powerline Symbols | https://github.com/powerline/powerline | 1.000 | MIT | Copyright 2013 Kim Silkebækken and other contributors |
+| Power Symbols IEC | https://github.com/jloughry/Unicode | Feb 2015 | MIT | the jloughry/Unicode authors (no license file upstream; MIT as Nerd Fonts lists it) |
 | Weather Icons | https://github.com/erikflowers/weather-icons | 2.0.10 | SIL OFL 1.1 | Erik Flowers |
 
 **Attribution (CC BY 4.0).** The Codicons glyphs are by Microsoft Corporation
@@ -92,13 +92,150 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-The Apache License 2.0 (MaterialDesign) and the SIL Open Font License 1.1 (Pomicons, Weather
-Icons) follow the Nerd Fonts license below.
+The MIT sets keep the copyright notices in the table; the MIT permission text they share is the
+one under the Nerd Fonts copyright below, and each upstream's own license file is reproduced after
+it. The Apache License 2.0 (MaterialDesign) and the SIL Open Font License 1.1 (Pomicons, Weather
+Icons) follow those.
 
 ```
 The MIT License (MIT)
 
 Copyright (c) 2014 Ryan L McIntyre
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Octicons (primer/octicons v18.3.0)
+
+```
+MIT License
+
+Copyright (c) 2023 GitHub Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Powerline Symbols (powerline/powerline)
+
+```
+Copyright 2013 Kim Silkebækken and other contributors
+https://github.com/powerline/powerline
+
+Permission is hereby granted, free of charge, to any person obtaining 
+a copy of this software and associated documentation files (the 
+"Software"), to deal in the Software without restriction, including 
+without limitation the rights to use, copy, modify, merge, publish, 
+distribute, sublicense, and/or sell copies of the Software, and to 
+permit persons to whom the Software is furnished to do so, subject to 
+the following conditions:
+
+The above copyright notice and this permission notice shall be 
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY 
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, 
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### Powerline Extra Symbols (ryanoasis/powerline-extra-symbols)
+
+```
+MIT License
+
+Copyright (c) 2016 Ryan L McIntyre
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Seti UI (jesseweed/seti-ui)
+
+```
+Copyright (c) 2014 Jesse Weed
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### Hack (source-foundry/Hack), extraglyphs
+
+```
+The work in the Hack project is Copyright 2018 Source Foundry Authors and licensed under the MIT License
+
+The work in the DejaVu project was committed to the public domain.
+
+Bitstream Vera Sans Mono Copyright 2003 Bitstream Inc. and licensed under the Bitstream Vera License with Reserved Font Names "Bitstream" and "Vera"
+
+MIT License
+
+Copyright (c) 2018 Source Foundry Authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

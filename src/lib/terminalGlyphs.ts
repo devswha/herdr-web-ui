@@ -77,8 +77,7 @@ const PRIVATE_USE = /^[\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}]/u;
 const ANY_PRIVATE_USE = /[\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}]/u;
 /** Powerline's other separators (flames, trapezoids, pixels): shapes that run from the top of the row to the bottom */
 const POWERLINE_EXTRA = /^[\ue0b8-\ue0d7]/u;
-/** how tall a Nerd Font's separator is against its font size: one drawn at row height / this fills the row */
-const ROW_TO_FONT = 1.25;
+
 /** a character that joins the one before it: a variation selector, a zero-width joiner, a combining mark */
 const JOINS = /[\p{M}\u200d\ufe00-\ufe0f]/u;
 /** the app's own icon font (PaneTerminal.css), whose late arrival makes every width measured before it wrong */
@@ -160,7 +159,9 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
     // (an icon with VS16): the runs below count a character a cell, so such a span is left as drawn
     if (JOINS.test(text)) return false;
     const chars = [...text];
-    const kinds = chars.map((char) => drawingOf(char) !== null ? "box" : oversizedIcon(char, widthOf(char), cellWidth) ? "icon" : "text");
+    // a separator is its own kind: beside an icon it shares the icon's spacing, not its fit
+    const kinds = chars.map((char) => drawingOf(char) !== null ? "box"
+      : !oversizedIcon(char, widthOf(char), cellWidth) ? "text" : POWERLINE_EXTRA.test(char) ? "shape" : "icon");
     if (!kinds.some((kind) => kind !== "text")) return false;
     const spacing = span.style.letterSpacing || "0px";
     const parts: HTMLSpanElement[] = [];
@@ -184,10 +185,10 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
           // (xterm makes every span of a row an inline-block, which it does not), cut to the cells
           glyphs.style.cssText = "display:block;width:100%;height:100%;overflow:hidden;color:transparent";
           placed.push({ box: part, drawing: boxRun(run.map((char) => drawingOf(char)!), cellWidth), cells: run.length, rowHeight });
-        } else if (POWERLINE_EXTRA.test(run[0]!) && run.every((char) => POWERLINE_EXTRA.test(char))) {
-          // a separator keeps the height of the row and is narrowed to its cell, the glyph alone transformed:
-          // the box around it keeps the cell, and a cursor's border or a background stays on it
-          const size = rowHeight / ROW_TO_FONT;
+        } else if (kinds[start] === "shape") {
+          // a separator takes the height of the row (its outline is as tall as the font's em) and is narrowed
+          // to its cell, the glyph alone transformed: the box around it keeps the cell and its background
+          const size = rowHeight;
           const squeeze = cellWidth / (widthOf(run[0]!) * (size / fontSize));
           glyphs.style.cssText = `display:block;width:${100 / squeeze}%;height:100%;font-size:${size}px;line-height:${rowHeight}px;letter-spacing:0;font-weight:inherit;transform:scaleX(${squeeze});transform-origin:0 0`;
           part.style.overflow = "hidden";
