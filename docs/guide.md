@@ -357,7 +357,7 @@ Updates need a clean checkout: `main` for a source install, or herdr's plugin ch
 | `Mod+Shift+K` | Command palette |
 | `Mod+Shift+J` | Switch Chat / Terminal |
 | `Mod+Shift+B` | Toggle sidebar |
-| `Mod+Shift+N` | New session |
+| `Mod+Shift+O` | New session (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
 

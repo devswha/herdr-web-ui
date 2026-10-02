@@ -48,3 +48,11 @@ describe("keepsArrowsForText", () => {
     expect(keepsArrowsForText(null)).toBe(false);
   });
 });
+
+describe("new session", () => {
+  it("opens with Mod+Shift+O, which a browser tab lets through, and still with Mod+Shift+N", () => {
+    const press = (key: string) => matchShortcut({ key, ctrlKey: true, metaKey: false, shiftKey: true, altKey: false }, false);
+    expect(press("O")).toBe("new-session");
+    expect(press("N")).toBe("new-session");
+  });
+});

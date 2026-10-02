@@ -6,7 +6,9 @@ export const SHORTCUTS = [
   { id: "palette", label: "Command palette", keys: ["Mod", "Shift", "K"] },
   { id: "toggle-view", label: "Switch chat / terminal", keys: ["Mod", "Shift", "J"] },
   { id: "toggle-sidebar", label: "Toggle sidebar", keys: ["Mod", "Shift", "B"] },
-  { id: "new-session", label: "New session", keys: ["Mod", "Shift", "N"] },
+  // Mod+Shift+N keeps working where the browser lets it through (the installed app), but Chrome
+  // keeps Ctrl+Shift+N for a new incognito window in a tab: O is the one shown, and works in both
+  { id: "new-session", label: "New session", keys: ["Mod", "Shift", "O"] },
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },
@@ -28,6 +30,7 @@ const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   j: "toggle-view",
   b: "toggle-sidebar",
   n: "new-session",
+  o: "new-session",
   ArrowUp: "previous-pane",
   ArrowDown: "next-pane",
   ",": "settings",

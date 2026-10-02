@@ -16,6 +16,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
 
 ### Fixed
+- New session has a shortcut that works in a browser tab: Ctrl+Shift+O (Cmd+Shift+O on a Mac).
+  Chrome keeps Ctrl+Shift+N for a new incognito window and never passed it to the page, so it
+  worked only in the installed app, where it still does.
 - Cmd+Shift+↑ and ↓ select text in the message box on a Mac again (Ctrl+Shift+↑ and ↓ in any text
   field elsewhere). The pane shortcut took them wherever the cursor was, switched panes and left
   the message behind; it now switches panes from the terminal and outside text fields only.
