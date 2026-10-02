@@ -333,6 +333,13 @@ describe("CompletionTracker", () => {
     expect(settled.current("p")).toBe("done");
     expect(settled.replayed("p", "idle", { before: "working", agent: "claude" })).toBe(true);
     expect(settled.observe("p", "idle", "claude")).toBe("done");
+    // work kept from before a loss of events is settled by the resync, and makes no finish of a later change at rest
+    const lossy = new CompletionTracker(null);
+    lossy.observe("p", "working", "codex");
+    lossy.observe("q", "working", "codex");
+    lossy.resync([{ pane_id: "p", agent_status: "idle", agent: "codex" }, { pane_id: "q", agent_status: "idle", agent: "codex" }], new Set(["q"]));
+    expect([lossy.current("p"), lossy.current("q")]).toEqual(["done", "working"]);
+    expect(lossy.replayed("p", "unknown", { before: "idle", agent: "codex" })).toBe(false);
     // work starting, or stopping for a question, is news from any state
     expect(tracker.replayed("fresh", "working", { before: "idle", agent: "claude" })).toBe(true);
     expect(tracker.replayed("fresh", "blocked", { before: "idle", agent: "claude" })).toBe(true);

@@ -770,7 +770,10 @@ export function createServer(
       push.onStatus(paneId, "idle").catch(logPushError);
     },
     onBaseline: (panes) => push.seed(panes),
-    onResync: (panes, newer) => push.resync(panes, newer),
+    onResync: (panes, newer) => {
+      push.resync(panes, newer);
+      completions.resync(panes, newer);
+    },
     onPaneEnded: (paneId) => {
       completions.forget(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });

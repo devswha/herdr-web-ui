@@ -121,7 +121,8 @@ export function parseStatusFrame(frame: EventFrame): { paneId: string; status: A
 
 export type StructureEvent =
   | { kind: "pane-ended"; paneId: string }
-  | { kind: "structure-changed" };
+  /** `closed`: the pane a `pane_closed` frame names */
+  | { kind: "structure-changed"; closed?: string };
 
 /** The pane a focus frame (`{data:{type:"pane_focused", pane_id}}`) brought to the front. */
 export function parseFocusFrame(frame: EventFrame): string | null {
@@ -135,8 +136,9 @@ export function parseStructureFrame(frame: EventFrame): StructureEvent | null {
   switch (data?.type) {
     case "pane_exited":
       return typeof data.pane_id === "string" ? { kind: "pane-ended", paneId: data.pane_id } : null;
-    case "pane_created":
     case "pane_closed":
+      return typeof data.pane_id === "string" ? { kind: "structure-changed", closed: data.pane_id } : { kind: "structure-changed" };
+    case "pane_created":
       return { kind: "structure-changed" };
     default:
       return null;
@@ -346,10 +348,13 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         else if (replaying && before.status !== pane.agent_status) replays.push(pane);
       }
       if (replays.length > 0) {
+        const generation = statusGeneration;
         // the old connection stays open through this: an event it still holds is read, and wins
         await new Promise((resolve) => setTimeout(resolve, deps.replaySettleMs));
         if (stopped) return;
-        for (const pane of replays) {
+        // the subscription closed under the wait: what was missed is of unknown length now, and the resync speaks
+        const still = !recovering && generation === statusGeneration && statusSubscription !== null;
+        for (const pane of still ? replays : []) {
           const before = heard.get(pane.pane_id);
           if (newerThan(pane.pane_id, askedAt) || before === undefined || before.status === pane.agent_status) continue;
           const agent = pane.agent ?? null;
@@ -413,6 +418,11 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         handlers.onPaneEnded(parsed.paneId);
       }
       else {
+        // closed with no exit frame: a snapshot on its way that still holds the pane is no news of it either
+        if (parsed.closed !== undefined) {
+          actedOn.set(parsed.closed, ++statusEvents);
+          heard.delete(parsed.closed);
+        }
         handlers.onStructureChange();
         scheduleReconcile();
       }

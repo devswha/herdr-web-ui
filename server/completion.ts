@@ -135,6 +135,21 @@ export class CompletionTracker {
     return busy(shown) || busy(status) || busy(before.before);
   }
 
+  /**
+   * Status events were lost for a stretch of unknown length and this snapshot is the truth
+   * now (the collector's resync), but for the `newer` panes, which had an event since. Each
+   * pane is settled against it without telling anyone, as the alerts are corrected without
+   * alerting: work kept from before the loss would otherwise make a finish of the next
+   * change the pane shows, long after it ended.
+   */
+  resync(panes: readonly { pane_id: string; agent_status: AgentStatus; agent?: string | null }[], newer: ReadonlySet<string>): void {
+    for (const pane of panes) {
+      if (newer.has(pane.pane_id)) continue;
+      this.record(pane.pane_id, this.settle(pane.pane_id, pane.agent_status, pane.agent ?? null), ++this.order);
+    }
+    this.save();
+  }
+
   /** What the pane was last reported as, if it was. */
   current(paneId: string): AgentStatus | undefined {
     return this.reported.get(paneId);

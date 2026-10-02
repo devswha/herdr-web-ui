@@ -37,7 +37,8 @@ describe("parseStructureFrame", () => {
 
   it("parses pane_created and pane_closed into a structure-changed event", () => {
     expect(parseStructureFrame({ data: { type: "pane_created" } })).toEqual({ kind: "structure-changed" });
-    expect(parseStructureFrame({ data: { type: "pane_closed", pane_id: "w1:p1" } })).toEqual({ kind: "structure-changed" });
+    expect(parseStructureFrame({ data: { type: "pane_closed", pane_id: "w1:p1" } })).toEqual({ kind: "structure-changed", closed: "w1:p1" });
+    expect(parseStructureFrame({ data: { type: "pane_closed" } })).toEqual({ kind: "structure-changed" });
   });
 
   it("rejects unknown or malformed frames", () => {
@@ -275,6 +276,44 @@ describe("startStatusCollector recovery", () => {
     // told once each, in the order they happened, and no finish before the work
     expect(log.statuses).toEqual(["w1:p1:working", "w1:p1:idle"]);
     collector.stop();
+  });
+
+  it("tells nothing of a pane closed, or once the subscription is lost, while a replay waits", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working"), paneOf("w1:p2", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, { ...herdr.deps, replaySettleMs: 40 });
+    await tick();
+    herdr.status()!.start();
+    await tick(20);
+    herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "working"), paneOf("w2:p1", "idle")]);
+    herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    // both finish in the gap; while the replay waits, p1 is closed (no exit frame)
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
+    herdr.status()!.start();
+    await tick(10);
+    herdr.lifecycle().emit({ event: "pane_closed", data: { type: "pane_closed", pane_id: "w1:p1" } });
+    await tick(60);
+    expect(log.statuses).toEqual(["w1:p2:idle (was working)"]);
+    collector.stop();
+
+    const lost = fakeHerdr([paneOf("w1:p1", "working")]);
+    const second = recorder();
+    const other = startStatusCollector(second.handlers, { ...lost.deps, replaySettleMs: 40 });
+    await tick();
+    lost.status()!.start();
+    await tick(20);
+    lost.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
+    lost.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    lost.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
+    lost.status()!.start();
+    await tick(10);
+    // herdr drops the new subscription while the replay waits: from here on nobody knows what was missed
+    lost.status()!.drop();
+    await tick(60);
+    expect(second.log.statuses).toEqual([]);
+    other.stop();
   });
 
   it("leaves out of the replay a pane that ended or came to the front while the snapshot was on its way", async () => {
