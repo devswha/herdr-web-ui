@@ -246,7 +246,7 @@ export interface PaneSplitResult {
   pane: PaneInfo;
 }
 
-/** Split a pane (`direction` defaults to herdr's own choice); answers the new pane. */
+/** Split a pane; answers the new pane. herdr requires `direction`, so an omitted one is `right`. */
 export async function paneSplit(
   options: { paneId?: string; direction?: "right" | "down"; cwd?: string },
   socketPath?: string,
@@ -255,7 +255,7 @@ export async function paneSplit(
     "pane.split",
     {
       ...(options.paneId === undefined ? {} : { target_pane_id: options.paneId }),
-      ...(options.direction === undefined ? {} : { direction: options.direction }),
+      direction: options.direction ?? "right",
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       focus: false,
     },

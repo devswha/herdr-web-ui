@@ -318,6 +318,28 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     return json({ workspace: snap.workspaces[snap.workspaces.length - 1], root_pane: pane, tab: snap.tabs[snap.tabs.length - 1] });
   }
+  if (path === "/api/tab/create" || path === "/api/pane/split") {
+    const body = await bodyOf(init, input);
+    const snap = snapshot();
+    const split = path === "/api/pane/split";
+    const source = split ? paneOf(String(body["pane_id"] ?? "")) : snap.panes.find((p) => p.workspace_id === body["workspace_id"]);
+    const workspace = snap.workspaces.find((w) => w.workspace_id === source?.workspace_id);
+    const sourceTab = snap.tabs.find((t) => t.tab_id === source?.tab_id);
+    if (!source || !workspace || !sourceTab) return error("not_found", split ? "no such pane" : "no such workspace", 404);
+    const n = (nextWorkspace++).toString(36);
+    const tabId = split ? source.tab_id : `${workspace.workspace_id}:t${n}`;
+    // a new tab or split starts as a plain shell in the same folder
+    const pane: Pane = { ...structuredClone(source), pane_id: `${workspace.workspace_id}:p${n}`, tab_id: tabId, terminal_id: `${workspace.workspace_id}:term${n}`, label: null, title: null, agent: null, agent_session: null, agent_status: "unknown", focused: false, terminal_title: null, terminal_title_stripped: null, revision: 1 };
+    snap.panes.push(pane);
+    workspace.pane_count += 1;
+    if (split) sourceTab.pane_count += 1;
+    else {
+      snap.tabs.push({ ...structuredClone(sourceTab), tab_id: tabId, number: workspace.tab_count + 1, agent_status: "unknown", focused: false, pane_count: 1 });
+      workspace.tab_count += 1;
+    }
+    structureChanged();
+    return json(split ? { pane_id: pane.pane_id } : { tab_id: tabId, pane_id: pane.pane_id });
+  }
   if (path.startsWith("/api/fs/")) return error("not_found", "the demo has no files to open", 404);
   return error("demo", `${method} ${path} is not part of the demo`, 404);
 }

@@ -269,6 +269,15 @@ describe("workspace and discovery endpoints", () => {
       });
       expect(split.status).toBe(200);
       expect(typeof ((await split.json()) as { pane_id: string }).pane_id).toBe("string");
+
+      // herdr requires a direction: one left out splits right instead of failing
+      const defaulted = await fetch(`${base()}/api/pane/split`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pane_id: created.pane_id }),
+      });
+      expect(defaulted.status).toBe(200);
+      expect(typeof ((await defaulted.json()) as { pane_id: string }).pane_id).toBe("string");
     } finally {
       await fetch(`${base()}/api/workspace/close`, {
         method: "POST",
