@@ -16,6 +16,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
 
 ### Fixed
+- Frames and tables an agent draws in the terminal have whole lines. Box-drawing characters came
+  from the font, whose glyph is shorter than a row, so an upright line broke at every row and a
+  corner did not meet its lines; a phone drew the heavy lines `━ ┃ ╋` almost like the light ones,
+  and shades `░▒▓` as a dot pattern. These characters and the block elements (`█ ▄ ▌` and the
+  like, as in a progress bar) are now drawn to the cell, edge to edge, on whole screen pixels.
+  ([#295](https://github.com/devswha/herdr-web-ui/pull/295))
 - Several lines sent to an agent from the terminal's input line, or pasted into the terminal,
   stay in its message box until sent on a Linux or macOS PC that mirrors its terminals too (one
   with no Node for the terminal attach). They went as bare lines there, and the agent sent the
