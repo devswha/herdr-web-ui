@@ -601,4 +601,7 @@ export const ZH: Record<string, string> = {
   "{name} asked to slow down. These are the last numbers.": "{name} 要求降低请求频率。显示的是上次读取的数值。",
   "{name} could not be reached.": "无法连接 {name}。",
   "The server cannot open the keychain holding this sign-in.": "服务器无法打开保存此登录信息的钥匙串。",
+  "This message can't be shown here. The terminal has it.": "此消息无法在这里显示，可在终端中查看。",
+  "The chat can't be shown. The terminal still works.": "无法显示聊天，终端仍可使用。",
+  "Try again": "重试",
 };

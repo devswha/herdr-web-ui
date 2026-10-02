@@ -16,6 +16,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
 
 ### Fixed
+- A chat message the page cannot draw no longer blanks the whole app. That message says it can't be
+  shown and the rest of the conversation stays; if the chat as a whole fails, it says so with Try
+  again, and the header, sidebar and terminal keep working.
 - New session has a shortcut that works in a browser tab: Ctrl+Shift+O (Cmd+Shift+O on a Mac).
   Chrome keeps Ctrl+Shift+N for a new incognito window and never passed it to the page, so it
   worked only in the installed app, where it still does.
