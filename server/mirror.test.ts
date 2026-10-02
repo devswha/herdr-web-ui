@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import { HerdrError } from "./herdr/client.ts";
-import { MirrorSession, mirrorFrame } from "./mirror.ts";
+import { MirrorSession, mirrorFrame, mirrorRows } from "./mirror.ts";
 
 /** A pane whose every read waits until the test answers it. */
 function pane(extra: Partial<ConstructorParameters<typeof MirrorSession>[0]> = {}) {
@@ -18,6 +18,8 @@ function pane(extra: Partial<ConstructorParameters<typeof MirrorSession>[0]> = {
     rows: 24,
     activeMs: 0,
     idleMs: 0,
+    // every screen whole unless a test asks for rows
+    wholeMs: 0,
     ...extra,
   });
   /** the nth read, once the mirror asks for it */
@@ -33,6 +35,67 @@ function pane(extra: Partial<ConstructorParameters<typeof MirrorSession>[0]> = {
 
 it("paints a screen as home, clear and rows, without a newline after the last row", () => {
   expect(mirrorFrame("a\nb\r\n\r\n")).toBe("\x1b[?25l\x1b[0m\x1b[H\x1b[2Ja\r\nb\x1b[0m");
+});
+
+it("draws only the rows that changed, each cleared in its place with line wrap off", () => {
+  expect(mirrorRows("a\r\nb\r\nc", "a\r\nB\r\nc", 24)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2KB\x1b[0m\x1b[?7h");
+  // a row that is gone is cleared, one that is new is drawn; trailing newlines are no rows
+  expect(mirrorRows("a\nb\nc\n", "a\n", 24)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2K\x1b[3;1H\x1b[0m\x1b[2K\x1b[0m\x1b[?7h");
+  // a read longer than the grid: the rows on the screen are its last ones, counted from the top of the grid
+  expect(mirrorRows("1\n2\n3\n4", "1\n2\n3\nX", 2)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2KX\x1b[0m\x1b[?7h");
+  expect(mirrorRows("1\n2\n3", "1\n2\n3\n4", 2)).toBe("\x1b[?25l\x1b[?7l\x1b[1;1H\x1b[0m\x1b[2K3\x1b[2;1H\x1b[0m\x1b[2K4\x1b[0m\x1b[?7h");
+  expect(mirrorRows("a", "a\nb", 24)).toBe("\x1b[?25l\x1b[?7l\x1b[2;1H\x1b[0m\x1b[2Kb\x1b[0m\x1b[?7h");
+});
+
+it("sends the whole screen first and after a while, and the changed rows in between", async () => {
+  let now = 1_000_000;
+  const clock = Date.now;
+  Date.now = () => now;
+  try {
+    const { session, read, frames } = pane({ wholeMs: 10_000 });
+    const screen = (spinner: string) => ["first row of the screen", "second row of the screen", `working ${spinner}`, "last row of the screen"].join("\r\n");
+    (await read(1)).resolve(screen("|"));
+    (await read(2)).resolve(screen("/"));
+    await read(3);
+    now += 10_000;
+    (await read(3)).resolve(screen("-"));
+    await read(4);
+    expect(frames).toEqual([mirrorFrame(screen("|")), mirrorRows(screen("|"), screen("/"), 24), mirrorFrame(screen("-"))]);
+    expect(frames[1]).toBe("\x1b[?25l\x1b[?7l\x1b[3;1H\x1b[0m\x1b[2Kworking /\x1b[0m\x1b[?7h");
+    // a client joining late gets the screen whole, whatever went out last
+    expect(session.current).toBe(mirrorFrame(screen("-")));
+    session.kill();
+  } finally { Date.now = clock; }
+});
+
+it("sends the whole screen when the changed rows would be longer, as when output scrolls", async () => {
+  const { session, read, frames } = pane({ wholeMs: 60_000 });
+  const before = Array.from({ length: 24 }, (_, i) => `line ${i}`).join("\r\n");
+  const scrolled = Array.from({ length: 24 }, (_, i) => `line ${i + 1}`).join("\r\n");
+  (await read(1)).resolve(before);
+  (await read(2)).resolve(scrolled);
+  (await read(3)).resolve(scrolled.replace("line 24", "line 24!"));
+  await read(4);
+  expect(frames).toEqual([mirrorFrame(before), mirrorFrame(scrolled), mirrorRows(scrolled, scrolled.replace("line 24", "line 24!"), 24)]);
+  session.kill();
+});
+
+it("reads the screen at once after something was typed, instead of waiting out an idle screen", async () => {
+  const { session, read, asked, frames } = pane({ idleMs: 60_000, activeMs: 60_000, echoMs: 0 });
+  (await read(1)).resolve("$ ");
+  // the next read is a minute away
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(asked.length).toBe(1);
+  session.write("l");
+  (await read(2)).resolve("$ l");
+  // typed again while that read was on its way: one more read follows it, not a second loop
+  session.write("s");
+  session.poke();
+  (await read(3)).resolve("$ ls");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(asked.length).toBe(3);
+  expect(frames).toEqual([mirrorFrame("$ "), mirrorFrame("$ l"), mirrorFrame("$ ls")]);
+  session.kill();
 });
 
 it("sends a screen once, and again only when it changed", async () => {
