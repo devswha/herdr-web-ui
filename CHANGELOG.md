@@ -16,6 +16,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#292](https://github.com/devswha/herdr-web-ui/pull/292))
 
 ### Fixed
+- An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
+  The server reopens its status subscription whenever the set of panes changes, and a status
+  that changed in between was never sent again: no done alert came, and a browser kept the old
+  state until its next refresh. The status is now read back once the new subscription is live
+  and told as the event it would have been. Seen as a flaky test first: with panes opening and
+  closing beside it, a pane's one status change was lost in 5 of 10 runs, and in none after.
+  ([#291](https://github.com/devswha/herdr-web-ui/pull/291))
 - Frames and tables an agent draws in the terminal have whole lines. Box-drawing characters came
   from the font, whose glyph is shorter than a row, so an upright line broke at every row and a
   corner did not meet its lines; a phone drew the heavy lines `━ ┃ ╋` almost like the light ones,
