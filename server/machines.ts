@@ -52,6 +52,18 @@ export function actionStep(action: "approve" | "answer"): string {
   return action === "approve" ? "Installing on this PC…" : "Connecting with SSH keys and ssh-agent…";
 }
 
+/**
+ * Why a bridge refused verification, read from its error envelope. Only the code is trusted:
+ * the bridge's own message carries paths of that PC and is never shown.
+ */
+function verificationFailure(status: number, body: unknown): string {
+  const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+  // a bridge older than `socket_missing` answers a missing socket with 500 internal_error and stat's ENOENT
+  if (error?.code === "socket_missing" || error?.code === "internal_error" && typeof error.message === "string" && error.message.startsWith("ENOENT")) return "herdr is not running for this session on the PC (its socket is missing). Start herdr there, then reconnect.";
+  if (error?.code === "connect_failed") return "herdr is not answering on the PC (its socket is there, but nothing listens). Restart herdr there, then reconnect.";
+  return `Bridge verification failed (${status}). Reconnect after checking the remote bridge.`;
+}
+
 async function freePort(): Promise<number> {
   const server = tcpServer();
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
@@ -396,7 +408,7 @@ export class MachineManager {
     await ssh.forward(port, descriptor.port);
     const endpoint = { url: `http://127.0.0.1:${port}`, token: descriptor.token };
     const response = await fetch(`${endpoint.url}/api/bridge`, { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(`Bridge verification failed (${response.status}). Reconnect after checking the remote bridge.`);
+    if (!response.ok) throw new Error(verificationFailure(response.status, await response.json().catch(() => null)));
     const identity: BridgeIdentity = await response.json();
     if (identity.bridge_protocol !== BRIDGE_PROTOCOL || !allowOldBundle && identity.bundle_version !== REMOTE_BUNDLE_VERSION) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
     if (identity.socket_path !== expectedSocket || !identity.socket_id || identity.herdr.protocol < 22) throw new Error("Remote bridge/socket is incompatible; update it explicitly");
