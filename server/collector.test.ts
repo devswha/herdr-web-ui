@@ -161,6 +161,57 @@ describe("startStatusCollector recovery", () => {
     collector.stop();
   });
 
+  it("tells a status that changed while the subscription was reopened for another pane set", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.status()!.start();
+    await tick();
+    const first = herdr.status()!;
+    // a pane opens elsewhere: the connection is reopened with both, and p1 finishes meanwhile
+    herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
+    herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    const second = herdr.status()!;
+    expect(second).not.toBe(first);
+    expect(second.paneIds).toEqual(["w1:p1", "w2:p1"]);
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
+    expect(log.statuses).toEqual([]);
+    second.start();
+    await tick();
+    // once, as the event would have been; a pane first seen is no change; nothing was "lost"
+    expect(log.statuses).toEqual(["w1:p1:idle"]);
+    expect(log.resyncs).toEqual([]);
+    // the same snapshot again tells nothing more, and an event since outranks an older snapshot
+    herdr.hold();
+    herdr.lifecycle().emit({ event: "pane_closed", data: { type: "pane_closed" } });
+    await tick(20);
+    second.emit(statusFrame("w1:p1", "working"));
+    herdr.answerAll();
+    await tick();
+    expect(log.statuses).toEqual(["w1:p1:idle", "w1:p1:working"]);
+    collector.stop();
+  });
+
+  it("tells a change that fell into a subscription herdr refused for a pane that had gone", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working"), paneOf("w9:p1", "idle")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    // w9:p1 closed between the snapshot and the subscribe: herdr refuses the batch, and p1 finishes meanwhile
+    herdr.setPanes([paneOf("w1:p1", "idle")]);
+    herdr.status()!.drop("pane_not_found");
+    await tick();
+    const reopened = herdr.status()!;
+    expect(reopened.paneIds).toEqual(["w1:p1"]);
+    reopened.start();
+    await tick();
+    expect(log.statuses).toEqual(["w1:p1:idle"]);
+    expect(log.resyncs).toEqual([]);
+    collector.stop();
+  });
+
   it("resubscribes after events_lost and resyncs from a snapshot taken after the start", async () => {
     const herdr = fakeHerdr([paneOf("w1:p1", "working"), paneOf("w1:p2", "working")]);
     const { log, handlers } = recorder();

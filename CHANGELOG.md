@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- An agent's finish is no longer lost when a pane opens or closes somewhere at the same moment.
+  The server reopens its status subscription whenever the set of panes changes, and a status
+  that changed in between was never sent again: no done alert came, and a browser kept the old
+  state until its next refresh. The status is now read back once the new subscription is live
+  and told as the event it would have been. Seen as a flaky test first: with panes opening and
+  closing beside it, a pane's one status change was lost in 5 of 10 runs, and in none after.
+
 ## [0.3.41] - 2026-10-02
 
 ### Added
