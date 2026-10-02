@@ -111,6 +111,27 @@ export class CompletionTracker {
     this.save();
   }
 
+  /**
+   * A status the collector read back from a snapshot around a gap between subscriptions,
+   * no event having said it: is it news? A pane never reported here (the server just
+   * started), or reported only from a snapshot taken once its work had ended, first takes
+   * what it was before, so a finish after work is a finish. Between
+   * two statuses at rest it is news only while the pane is shown as working (`unknown`
+   * under another agent's name reads as work going on): herdr reads a finish nobody saw
+   * as `done` in one place and `idle` in another, and that difference must not undo a DONE.
+   */
+  replayed(paneId: string, status: AgentStatus, before: { before: AgentStatus; agent: string | null }): boolean {
+    const busy = (value: AgentStatus): boolean => value === "working" || value === "blocked";
+    const shown = this.reported.get(paneId);
+    // never reported, or only from a snapshot taken after the work ended: the work it did is not known here yet
+    const unseenWork = busy(before.before) && !busy(status) && !this.worked.has(paneId) && !this.finished.has(paneId) && (shown === undefined || !busy(shown));
+    if (shown === undefined || unseenWork) {
+      this.observe(paneId, before.before, before.agent);
+      return true;
+    }
+    return busy(shown) || busy(status);
+  }
+
   /** What the pane was last reported as, if it was. */
   current(paneId: string): AgentStatus | undefined {
     return this.reported.get(paneId);

@@ -1464,9 +1464,12 @@ describe("token auth", () => {
         clearTimeout(timer);
         reject(new Error("the upgrade was refused despite a valid cookie"));
       });
+      // a status of some pane may be broadcast before this connection's own snapshot is read
       ws.addEventListener("message", (event) => {
+        const message = JSON.parse(String((event as MessageEvent).data)) as { type: string };
+        if (message.type !== "snapshot") return;
         clearTimeout(timer);
-        resolve(JSON.parse(String((event as MessageEvent).data)) as { type: string });
+        resolve(message);
       });
     });
     expect(first.type).toBe("snapshot");

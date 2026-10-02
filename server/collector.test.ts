@@ -225,13 +225,31 @@ describe("startStatusCollector recovery", () => {
     await tick(40);
     expect(herdr.snapshotCalls()).toBeGreaterThan(2);
     expect(log.statuses).toEqual(["w1:p1:done"]);
-    // nor after a gap: done and idle are both at rest
+    // and it is what the pane was last heard as from then on: a gap after it finds no change
     herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
     await tick(20);
     herdr.status()!.start();
     await tick();
     expect(log.statuses).toEqual(["w1:p1:done"]);
+    collector.stop();
+  });
+
+  it("tells what the snapshot that closes the subscription already shows: the event for it is lost with the connection", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.status()!.start();
+    await tick();
+    // p1 finishes and a pane opens: herdr's snapshot shows both, its event for p1 is still unread when the connection closes
+    herdr.setPanes([paneOf("w1:p1", "unknown"), paneOf("w2:p1", "idle")]);
+    herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    expect(log.statuses).toEqual(["w1:p1:unknown (was working)"]);
+    herdr.status()!.start();
+    await tick();
+    expect(log.statuses).toEqual(["w1:p1:unknown (was working)"]);
     collector.stop();
   });
 
@@ -242,9 +260,11 @@ describe("startStatusCollector recovery", () => {
     await tick();
     herdr.status()!.start();
     await tick();
-    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
+    herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "working"), paneOf("w2:p1", "idle")]);
     herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
     await tick(20);
+    // both finish in the gap
+    herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
     herdr.hold();
     herdr.status()!.start();
     await tick();
@@ -255,6 +275,48 @@ describe("startStatusCollector recovery", () => {
     await tick();
     expect(log.statuses).toEqual([]);
     collector.stop();
+  });
+
+  it("forgets what a pane was heard as once it came to the front, and recovers silently when a snapshot fails in a gap", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working"), paneOf("w1:p2", "working")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.status()!.start();
+    await tick();
+    // p1 is brought to the front; later a gap, in which both read idle
+    herdr.subscriptions.find((s) => s.types[0] === "pane.focused")!.emit({ event: "pane_focused", data: { type: "pane_focused", pane_id: "w1:p1" } });
+    herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "working"), paneOf("w2:p1", "idle")]);
+    herdr.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    herdr.setPanes([paneOf("w1:p1", "working"), paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
+    herdr.status()!.start();
+    await tick();
+    // p2's finish is told; p1 was taken in anew by the snapshot that saw the new pane, and did not change since
+    expect(log.statuses).toEqual(["w1:p2:idle (was working)"]);
+    collector.stop();
+
+    const broken = fakeHerdr([paneOf("w1:p1", "working")]);
+    const second = recorder();
+    let failing = false;
+    const snapshot = broken.deps.snapshot!;
+    const flaky = startStatusCollector(second.handlers, { ...broken.deps, snapshot: () => failing ? Promise.reject(new HerdrError("timeout", "no answer")) : snapshot() });
+    await tick();
+    broken.status()!.start();
+    await tick();
+    broken.setPanes([paneOf("w1:p1", "working"), paneOf("w2:p1", "idle")]);
+    broken.lifecycle().emit({ event: "pane_created", data: { type: "pane_created", pane_id: "w2:p1" } });
+    await tick(20);
+    // herdr stops answering snapshots inside the gap, for nobody knows how long; p1 finishes meanwhile
+    failing = true;
+    broken.status()!.start();
+    await tick(20);
+    broken.setPanes([paneOf("w1:p1", "idle"), paneOf("w2:p1", "idle")]);
+    failing = false;
+    await tick(30);
+    expect(second.log.statuses).toEqual([]);
+    expect(second.log.resyncs).toHaveLength(1);
+    flaky.stop();
   });
 
   it("recovers without telling when the reopened subscription could not connect", async () => {

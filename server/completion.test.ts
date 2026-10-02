@@ -307,4 +307,27 @@ describe("CompletionTracker", () => {
       expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ herdr: "herdr-a" });
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it("takes a status read back from a snapshot for news only where it is a change", () => {
+    const tracker = new CompletionTracker(null);
+    // a pane never reported here: it starts from what it was, so the finish is a finish
+    expect(tracker.replayed("fresh", "idle", { before: "working", agent: "claude" })).toBe(true);
+    expect(tracker.observe("fresh", "idle", "claude")).toBe("done");
+    // herdr reads that finish as idle in a snapshot and done in an event: not news, the DONE stands
+    expect(tracker.replayed("fresh", "idle", { before: "done", agent: "claude" })).toBe(false);
+    expect(tracker.current("fresh")).toBe("done");
+    // unknown under another agent's name is shown as working: its idle after a gap is the finish
+    tracker.observe("handoff", "working", "pi");
+    expect(tracker.observe("handoff", "unknown", "claude")).toBe("working");
+    expect(tracker.replayed("handoff", "idle", { before: "unknown", agent: "claude" })).toBe(true);
+    expect(tracker.observe("handoff", "idle", "claude")).toBe("done");
+    // a browser's snapshot reported the pane at rest before the replay came: the work it did is still taken in
+    const late = new CompletionTracker(null);
+    late.present(snapshot([{ id: "late", status: "unknown", agent: "codex" }]));
+    expect(late.replayed("late", "unknown", { before: "working", agent: "codex" })).toBe(true);
+    expect(late.observe("late", "unknown", "codex")).toBe("done");
+    // work starting, or stopping for a question, is news from any state
+    expect(tracker.replayed("fresh", "working", { before: "idle", agent: "claude" })).toBe(true);
+    expect(tracker.replayed("fresh", "blocked", { before: "idle", agent: "claude" })).toBe(true);
+  });
 });

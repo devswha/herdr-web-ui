@@ -32,6 +32,9 @@ import { HerdrError, sessionSnapshot, subscribeEvents, type EventFrame, type Sub
  *   that are no change (herdr reads a finish nobody saw as `done` here and `idle` there),
  *   and what was missed over an outage of unknown length (`events_lost`, a herdr that could
  *   not be reached) is corrected without alerts (`onResync`).
+ *   The snapshot that shows the pane set changed is such evidence too: the connection is
+ *   closed on its account, and an event herdr had sent but this side had not read yet goes
+ *   with it (traced: the snapshot already showed `unknown`, the event for it never came).
  *
  * Status frames are flat (`{event:"pane.agent_status_changed", data:{pane_id, agent_status, ...}}`)
  * while structure frames carry a snake_case `data.type` - both shapes below parse only
@@ -49,8 +52,10 @@ const SNAPSHOT_RETRY_MS = 5_000;
 export interface StatusCollectorHandlers {
   /**
    * `agent` is the agent herdr now sees in the pane (null: none). `replay`: no event said
-   * so; a snapshot did, right after a gap between two subscriptions, and this is what the
-   * pane was last heard as before it.
+   * so; a snapshot did, around a gap between two subscriptions, and this is what the pane
+   * was last heard as before it. herdr reads a finish nobody saw as `done` in one place and
+   * `idle` in another, so a replay between two statuses at rest may be no change at all:
+   * whoever keeps what the pane is shown as decides (CompletionTracker.replayed).
    */
   onStatus: (paneId: string, status: AgentStatus, agent: string | null, replay?: { before: AgentStatus; agent: string | null }) => void;
   /**
@@ -215,6 +220,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
   let gap = false;
   /** the subscription that started after such a gap: the next reconcile's snapshot replays */
   let replayFor: number | null = null;
+  /** the open status subscription has started: until then it has heard nothing */
+  let statusStarted = false;
 
   const STRUCTURE_SUBSCRIPTIONS = [
     { type: "pane.created" },
@@ -223,6 +230,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
   ] as const;
 
   function closeStatusSubscription(): void {
+    statusStarted = false;
     subscribedPaneIds = new Set();
     statusSubscription?.close();
     statusSubscription = null;
@@ -252,6 +260,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         onStarted: () => {
           started = true;
           if (statusSubscription !== subscription) return;
+          statusStarted = true;
           if (recovering) resyncFor = generation;
           else if (gap) replayFor = generation;
           void reconcile();
@@ -307,9 +316,15 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         // clients learn statuses from events, and some were lost: they fetch again
         handlers.onStructureChange();
       }
-      const replaying = !resynced && !recovering && replay !== null && replay === statusGeneration && statusSubscription !== null;
-      if (resynced || replaying) gap = false;
-      const busy = (status: AgentStatus): boolean => status === "working" || status === "blocked";
+      const paneIds = snapshot.panes.map((pane) => pane.pane_id);
+      const sameSet =
+        paneIds.length === subscribedPaneIds.size && paneIds.every((id) => subscribedPaneIds.has(id));
+      // the live subscription is about to be closed for another pane set: what this snapshot
+      // shows and no event has said will not be said by one any more
+      const leaving = !sameSet && statusStarted && !recovering && !resynced;
+      const afterGap = !resynced && !recovering && replay !== null && replay === statusGeneration && statusSubscription !== null;
+      const replaying = afterGap || leaving;
+      if (resynced || afterGap) gap = false;
       for (const pane of snapshot.panes) {
         // an event, an exit or a focus since the snapshot was asked for is newer than it
         if (Math.max(lastEventOf.get(pane.pane_id) ?? 0, actedOn.get(pane.pane_id) ?? 0) > askedAt) continue;
@@ -320,17 +335,12 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         if (before !== undefined && gap) continue;
         heard.set(pane.pane_id, { status: pane.agent_status, agent });
         if (!replaying || before === undefined || before.status === pane.agent_status) continue;
-        // done and idle are both at rest: herdr reads a finish nobody saw as either
-        if (!busy(before.status) && !busy(pane.agent_status)) continue;
         handlers.onStatus(pane.pane_id, pane.agent_status, agent, { before: before.status, agent: before.agent });
       }
-      const paneIds = snapshot.panes.map((pane) => pane.pane_id);
       // gone before this snapshot; a pane heard of since may be too new for it
       for (const [paneId, seq] of lastEventOf) if (seq <= askedAt && !paneIds.includes(paneId)) lastEventOf.delete(paneId);
       for (const paneId of [...heard.keys()]) if (!paneIds.includes(paneId) && (lastEventOf.get(paneId) ?? 0) <= askedAt) heard.delete(paneId);
       for (const [paneId, seq] of actedOn) if (seq <= askedAt && !paneIds.includes(paneId)) actedOn.delete(paneId);
-      const sameSet =
-        paneIds.length === subscribedPaneIds.size && paneIds.every((id) => subscribedPaneIds.has(id));
       if (sameSet) return;
       closeStatusSubscription();
       openStatusSubscription(paneIds);
@@ -339,6 +349,13 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
     } catch {
       if (resync !== null && resyncFor === null) resyncFor = resync;
       if (replay !== null && replayFor === null) replayFor = replay;
+      // a gap with a snapshot that fails in it is no short one any more: nobody knows what
+      // was missed, and it is corrected without alerts like any lost stretch
+      if (gap && !recovering) {
+        recovering = true;
+        replayFor = null;
+        if (statusStarted) resyncFor = statusGeneration;
+      }
       /* herdr unreachable or slow: retry shortly instead of waiting for the backstop */
       if (!stopped && reconcileTimer === null) {
         reconcileTimer = setTimeout(() => {
@@ -398,6 +415,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         const paneId = parseFocusFrame(frame);
         if (paneId === null) return;
         actedOn.set(paneId, ++statusEvents);
+        // seen at herdr's terminal: what it was heard as before is no measure for a later snapshot
+        heard.delete(paneId);
         onFocus(paneId);
       },
       // a focus change missed meanwhile is gone for good: the next one is heard again
