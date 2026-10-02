@@ -13,15 +13,18 @@
  * gets the bytes as they came, and so does a paste whose pane herdr could not be asked about.
  * Enter, Ctrl+C, Esc, Tab and the arrows already work there as plain bytes and stay as typed.
  *
- * A herdr elsewhere hands the bytes to the program as they are, and its mirrored panes are
- * left alone.
+ * A Linux or macOS PC mirrors too, when it has no Node for the PTY sidecar, and herdr there
+ * hands `send_text` to the program byte for byte, adding no markers even where the program
+ * turned bracketed paste on (measured, herdr 0.9.0: `cat -v` after `ESC[?2004h` showed the two
+ * lines bare). Two lines sent from the terminal's input line to gjc on such a mirror went as
+ * two messages (#269), so the same shaping applies wherever a pane is mirrored.
  */
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 
-export async function mirrorInput(text: string, windowsConsole: boolean, paneAgent: () => Promise<string | null>): Promise<string> {
+export async function mirrorInput(text: string, paneAgent: () => Promise<string | null>): Promise<string> {
   // typing is one key per frame: only a paste has a line break with more text after it
-  if (!windowsConsole || !/[\r\n][^\r\n]/.test(text)) return text;
+  if (!/[\r\n][^\r\n]/.test(text)) return text;
   // a terminal that knew the mode has wrapped it already
   if (text.includes(PASTE_START) || text.includes(PASTE_END)) return text;
   let agent: string | null;
