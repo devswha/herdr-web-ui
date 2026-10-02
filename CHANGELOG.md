@@ -41,8 +41,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a phone the status line above the message box is always one row. With a background-task
   count, a model name and a reasoning level it wrapped to two rows, three with the context text
   open, and took that room from the conversation. On a narrow screen the background-task chip now
-  shows its icon and the number, the reasoning chip the level alone, and a model name that still
-  does not fit is shortened. ([#312](https://github.com/devswha/herdr-web-ui/pull/312))
+  shows its icon and the number (the icon alone while nothing runs), the reasoning chip the level
+  alone, and a model name that still does not fit is shortened. ([#312](https://github.com/devswha/herdr-web-ui/pull/312))
 - The terminal accepts dropped file paths and uploads dropped or pasted files to
   the pane's working directory before inserting their quoted paths, without submitting them.
   ([#304](https://github.com/devswha/herdr-web-ui/pull/304) by @beomq)

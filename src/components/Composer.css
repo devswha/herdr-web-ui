@@ -25,7 +25,8 @@
 
 /* one row, always: a second row is taken from the conversation, and a phone has none to spare.
    What does not fit gives way in this order: the model's name shortens to a few letters, then
-   the opened context text shortens; nothing overlaps its neighbour. */
+   the reasoning level, then the opened context text; nothing overlaps its neighbour, and the
+   context ring at the end is never the part that is cut. */
 .composer-status {
   display: flex;
   flex-wrap: nowrap;
@@ -59,7 +60,11 @@
 }
 
 .composer-reasoning {
-  flex: none;
+  flex: 0 10 auto;
+  min-width: 2ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding-inline: var(--space-1);
   border: var(--hairline) solid var(--border);
   border-radius: var(--radius-sm);
