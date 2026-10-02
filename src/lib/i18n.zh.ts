@@ -622,7 +622,6 @@ export const ZH: Record<string, string> = {
   "paused": "已暂停",
   "complete": "已完成",
   "out of budget": "预算用尽",
-  "{n} tokens": "{n} 个 token",
   "Used so far: {spent}": "目前已用：{spent}",
   "in progress": "进行中",
   "blocked": "受阻",

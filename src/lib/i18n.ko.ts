@@ -618,7 +618,6 @@ export const KO: Record<string, string> = {
   "paused": "일시 중지",
   "complete": "완료",
   "out of budget": "예산 소진",
-  "{n} tokens": "토큰 {n}개",
   "Used so far: {spent}": "지금까지 사용: {spent}",
   "in progress": "진행 중",
   "blocked": "막힘",

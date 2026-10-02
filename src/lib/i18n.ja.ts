@@ -620,7 +620,6 @@ export const JA: Record<string, string> = {
   "paused": "一時停止",
   "complete": "完了",
   "out of budget": "予算切れ",
-  "{n} tokens": "{n} トークン",
   "Used so far: {spent}": "これまでの使用量: {spent}",
   "in progress": "進行中",
   "blocked": "ブロック中",
