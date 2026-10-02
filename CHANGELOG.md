@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- The sidebar opens a new tab in a workspace (a `+` on the workspace, or on the row when it
+  holds a single pane) and splits a pane beside itself, through `POST /api/tab/create` and
+  `POST /api/pane/split`. The new pane is selected once herdr reports it.
 - While an OmO pane has background tasks running, the chat's status line says how many, and tapping
   it lists them: what each is doing, its category and model, how long it has run, its turns, tool
   calls and tokens, and below, the tasks that ended in the last day and whether they finished,

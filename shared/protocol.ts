@@ -38,7 +38,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  * GET /api/machines -> { machines: Machine[] }; GET /api/machines/events -> MachineEvent SSE
  * POST /api/machines/setup -> SetupJob; GET/POST/DELETE /api/machines/setup/:job_id
  * PATCH /api/machines/:id { name?, enabled? }; DELETE /api/machines/:id
- * /api/machines/:id/{session,agents,pane/*,workspace/*} -> existing target-local API
+ * /api/machines/:id/{session,agents,pane/*,tab/*,workspace/*} -> existing target-local API
  * /ws?machine_id=:id -> immutable target, unchanged role + output ACK protocol
  * Legacy paths and missing machine IDs continue to mean local.
  */
@@ -95,6 +95,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
+ *  POST   /api/tab/create { workspace_id?, cwd?, label? } -> TabCreated (a new tab in the
+ *         workspace, with its root pane; the sidebar selects the new pane)
+ *  POST   /api/pane/split { pane_id?, direction?: "right" | "down", cwd? } -> PaneSplit
+ *         (splits the pane, or the focused one when pane_id is absent)
  *  POST   /api/auth        { token }     -> 204 + Set-Cookie herdr_web_token (401 invalid_token on mismatch)
  *  DELETE /api/auth                      -> 204, clears the token and the device cookies
  *  GET    /api/devices                   -> { devices: PairedDevice[] } (the paired devices; `current` marks the caller's)
@@ -396,6 +400,17 @@ export interface WorkspaceCreated {
   agent_started: boolean;
   /** The workspace still exists when its requested agent could not start. */
   error?: { code: string; message: string };
+}
+
+/** POST /api/tab/create: the tab herdr made and its root pane. */
+export interface TabCreated {
+  tab_id: string;
+  pane_id: string;
+}
+
+/** POST /api/pane/split: the pane herdr's split opened. */
+export interface PaneSplit {
+  pane_id: string;
 }
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */

@@ -24,5 +24,7 @@ export function useMachineApi() {
     fetchFileInfo: (path: string, pane: string | null) => api.fetchFileInfo(path, pane, id),
     fileUrl: (path: string, pane: string | null, download = false) => api.fileUrl(path, pane, id, download),
     createWorkspace: (request: api.CreateWorkspaceRequest) => api.createWorkspace(request, id),
+    createTab: (request: api.CreateTabRequest) => api.createTab(request, id),
+    splitPane: (request: api.SplitPaneRequest) => api.splitPane(request, id),
   }), [id]);
 }
