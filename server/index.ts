@@ -328,7 +328,7 @@ export function createServer(
     // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
     // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
     // asked only for such a block, so a one-line message never waits on it.
-    const shaped = await mirrorInput(payload, process.platform === "win32", async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
+    const shaped = await mirrorInput(payload, async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
     inTime();
     await paneSendText(paneId, shaped);
     await Bun.sleep(SUBMIT_DELAY_MS);
@@ -1445,7 +1445,7 @@ export function createServer(
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) return;
                   // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
-                  const shaped = await mirrorInput(text, process.platform === "win32", async () => (await paneContext(message.pane_id)).agent);
+                  const shaped = await mirrorInput(text, async () => (await paneContext(message.pane_id)).agent);
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);

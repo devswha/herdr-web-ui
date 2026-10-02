@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Several lines sent to an agent from the terminal's input line, or pasted into the terminal,
+  stay in its message box until sent on a Linux or macOS PC that mirrors its terminals too (one
+  with no Node for the terminal attach). They went as bare lines there, and the agent sent the
+  first line as a message of its own. Measured with gjc on a mirrored Linux pane: two lines
+  arrived as two messages, and now arrive as one.
+
 ## [0.3.41] - 2026-10-02
 
 ### Added
