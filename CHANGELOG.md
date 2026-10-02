@@ -19,7 +19,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - In an OmO, omp or pi chat, a message that invoked a skill (`/skill:name`, `$name`, or a keyword such as
   `ulw`) shows what you asked, not the whole SKILL.md the agent put before it: one such message
   filled tens of KB of the chat. The skill shows on the answer, as a loaded skill, the way Codex's
-  selected skills do.
+  selected skills do. ([#302](https://github.com/devswha/herdr-web-ui/pull/302))
 - New session has a shortcut that works in a browser tab: Ctrl+Shift+O (Cmd+Shift+O on a Mac).
   Chrome keeps Ctrl+Shift+N for a new incognito window and never passed it to the page, so it
   worked only in the installed app, where it still does.
