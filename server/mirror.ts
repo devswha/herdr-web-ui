@@ -23,6 +23,8 @@ export const MIRROR_IDLE_MS = 400;
 export const MIRROR_ECHO_MS = 15;
 /** how often the whole screen goes out while it changes: a client's screen that drifted is whole again by then */
 export const MIRROR_WHOLE_MS = 10_000;
+/** how long the screen must stay unchanged, after rows were sent, before it goes out whole once more */
+export const MIRROR_QUIET_MS = 1000;
 /** how often the pane's size is asked for: herdr announces no layout change this server listens to */
 export const MIRROR_SIZE_MS = 2000;
 /** reads in a row that herdr did not answer before the mirror ends as a terminal would */
@@ -46,6 +48,7 @@ export interface MirrorOptions {
   sizeMs?: number;
   echoMs?: number;
   wholeMs?: number;
+  quietMs?: number;
 }
 
 /**
@@ -106,6 +109,8 @@ export class MirrorSession {
   private echoing = false;
   /** rows went out since the last whole screen */
   private patched = false;
+  /** when the screen last changed */
+  private changedAt = 0;
 
   constructor(private readonly options: MirrorOptions) {
     this.exited = new Promise((resolve) => { this.finish = resolve; });
@@ -157,8 +162,9 @@ export class MirrorSession {
     if (this.closed) return;
     const changed = this.flush();
     this.delay = changed ? active : Math.min(idle, Math.ceil(this.delay * 1.5));
-    // unchanged for as long as it takes the reads to relax: the changes have stopped
-    if (!changed && this.delay >= idle && this.screen === this.sent) this.settle();
+    // by the clock, not by how far the reads have relaxed: keys that change nothing keep the reads fast
+    if (changed) this.changedAt = Date.now();
+    else if (this.screen === this.sent && Date.now() - this.changedAt >= (this.options.quietMs ?? MIRROR_QUIET_MS)) this.settle();
     if (this.poked) {
       this.poked = false;
       this.delay = active;

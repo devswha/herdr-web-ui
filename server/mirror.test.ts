@@ -20,6 +20,7 @@ function pane(extra: Partial<ConstructorParameters<typeof MirrorSession>[0]> = {
     idleMs: 0,
     // every screen whole unless a test asks for rows
     wholeMs: 0,
+    quietMs: 0,
     ...extra,
   });
   /** the nth read, once the mirror asks for it */
@@ -86,6 +87,30 @@ it("sends the screen whole once more when it goes quiet after rows", async () =>
   await read(5);
   expect(frames).toEqual([mirrorFrame(screen("|"), 24), mirrorRows(screen("|"), screen("/"), 24), mirrorFrame(screen("/"), 24)]);
   session.kill();
+});
+
+it("goes whole a second after the last change, also while keys that change nothing keep the reads coming", async () => {
+  let now = 1_000_000;
+  const clock = Date.now;
+  Date.now = () => now;
+  try {
+    const { session, read, frames } = pane({ wholeMs: 60_000, quietMs: 1000, activeMs: 60_000, idleMs: 60_000, echoMs: 0 });
+    const screen = (spinner: string) => ["first row of the screen", "second row of the screen", `working ${spinner}`, "last row of the screen"].join("\r\n");
+    (await read(1)).resolve(screen("|"));
+    session.poke();
+    (await read(2)).resolve(screen("/"));
+    // keys the program ignores: each brings a read, none a change
+    for (let n = 3; n <= 5; n++) {
+      session.poke();
+      const next = await read(n);
+      now += 400;
+      next.resolve(screen("/"));
+    }
+    session.poke();
+    await read(6);
+    expect(frames).toEqual([mirrorFrame(screen("|"), 24), mirrorRows(screen("|"), screen("/"), 24), mirrorFrame(screen("/"), 24)]);
+    session.kill();
+  } finally { Date.now = clock; }
 });
 
 it("waits for a read on the new grid after a resize, even when a paused viewer resumes first", async () => {
