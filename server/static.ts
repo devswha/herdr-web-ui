@@ -10,7 +10,8 @@
 import { existsSync } from "node:fs";
 import { join, normalize } from "node:path";
 
-const DIST_DIR = new URL("../dist", import.meta.url).pathname;
+// A URL's pathname is not a file path: on Windows it is `/C:/...`, and spaces come percent-encoded.
+const DIST_DIR = join(import.meta.dir, "..", "dist");
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

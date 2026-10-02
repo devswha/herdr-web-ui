@@ -44,11 +44,21 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   lens and mode changes; late acknowledgements preserve replacement edits. Composition keeps
   its Enter and Send button, and terminal key-bar taps wait until it finishes.
   ([#334](https://github.com/devswha/herdr-web-ui/pull/334))
+- The background tasks list stays below the app header on a short screen, such as a phone held
+  sideways, and scrolls inside the room above the message box.
+  ([#354](https://github.com/devswha/herdr-web-ui/pull/354))
 - The mobile message box sits closer to the home indicator while retaining its base spacing.
   ([#335](https://github.com/devswha/herdr-web-ui/pull/335) by @Haeminway1)
+- Adding or reconnecting a remote PC says when herdr is not running or not answering there,
+  instead of only `Bridge verification failed (500)`.
+  ([#353](https://github.com/devswha/herdr-web-ui/pull/353))
 - Shift+Enter in the live terminal sends the same newline chord as Alt+Enter, instead of plain
   Enter that submits an agent's message. Pending IME text is sent before the newline chord.
   ([#339](https://github.com/devswha/herdr-web-ui/pull/339) by @WOULDU-pres)
+- On Windows, and from an install path with a space or a non-ASCII character, the app page loads
+  instead of the "not built yet" notice. The Windows installer replaces a copy from a release
+  without Windows support, and says so when a release cannot run there.
+  ([#356](https://github.com/devswha/herdr-web-ui/pull/356))
 
 ## [0.3.43] - 2026-10-02
 

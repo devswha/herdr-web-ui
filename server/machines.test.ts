@@ -8,6 +8,8 @@ import { paneNotificationTag } from "../shared/notify-policy.ts";
 import { machinePath, paneStorageId, REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
 import { canSendSecret, sameOrigin, shellQuote, validateTarget } from "./machine-security.ts";
 import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
+import type { BridgeDescriptor } from "./bridge.ts";
+import { createServer } from "./index.ts";
 import { MachineManager } from "./machines.ts";
 import { detectHost, psQuote, UNSUPPORTED_HOST, windowsBridgeFiles } from "./remote-host.ts";
 import { decodeClixml, type SshConnection } from "./ssh.ts";
@@ -251,5 +253,81 @@ describe("host detection", () => {
     expect(psQuote("a\u2019; Write-Output injected; #")).toBe("'a\u2019\u2019; Write-Output injected; #'");
     expect(psQuote("\u2018\u201A\u201B")).toBe("'\u2018\u2018\u201A\u201A\u201B\u201B'");
     expect(() => psQuote("a\nb")).toThrow();
+  });
+});
+
+// verify() runs inside a setup that needs a real SSH host. Here its SSH forward is a loopback
+// relay, and the bridge is a real server whose herdr is absent, or a stand-in with a fixed answer.
+describe("bridge verification failures", () => {
+  const TOKEN = "a".repeat(64);
+  const GENERIC = (status: number) => `Bridge verification failed (${status}). Reconnect after checking the remote bridge.`;
+  const socketBefore = process.env["HERDR_SOCKET"];
+  const stops: (() => void)[] = [];
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const stop of stops.splice(0)) stop();
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+    if (socketBefore === undefined) delete process.env["HERDR_SOCKET"]; else process.env["HERDR_SOCKET"] = socketBefore;
+  });
+  const temp = () => { const dir = mkdtempSync(join(tmpdir(), "herdr-bridge-verify-")); dirs.push(dir); return dir; };
+  /** a bridge whose herdr socket is `socket` */
+  function bridge(socket: string): number {
+    process.env["HERDR_SOCKET"] = socket;
+    const server = createServer({ port: 0, hostname: "127.0.0.1", token: TOKEN, stateDir: temp(), machines: false, registerBridge: false, tailscaleOwner: null });
+    stops.push(() => server.stop());
+    return server.port!;
+  }
+  /** a bridge that answers /api/bridge with one fixed response */
+  function answering(status: number, body: string): number {
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(body, { status }) });
+    stops.push(() => server.stop(true));
+    return server.port!;
+  }
+  /** what the person adding the PC is told when verification of the bridge on `port` fails */
+  async function told(port: number, socket = "/home/u/.config/herdr/herdr.sock"): Promise<string> {
+    const manager = new MachineManager(temp(), {} as PushService, {} as CompletionTracker);
+    stops.push(() => manager.stop());
+    const ssh = { forward: async (local: number, remote: number) => {
+      const relay = Bun.serve({ port: local, hostname: "127.0.0.1", fetch: (request) => fetch(`http://127.0.0.1:${remote}${new URL(request.url).pathname}`, { headers: request.headers }) });
+      stops.push(() => relay.stop(true));
+    } } as unknown as SshConnection;
+    const descriptor: BridgeDescriptor = { port, token: TOKEN, pid: process.pid, socket_path: socket, bridge_protocol: 0, bundle_version: "" };
+    const verify = (manager as unknown as { verify(ssh: SshConnection, descriptor: BridgeDescriptor, socket: string): Promise<unknown> }).verify.bind(manager);
+    return verify(ssh, descriptor, socket).then(() => "verified", (error: Error) => error.message);
+  }
+
+  it("says herdr is not running when the bridge finds no socket", async () => {
+    const dir = temp();
+    const socket = join(dir, "herdr.sock");
+    const port = bridge(socket);
+    const response = await fetch(`http://127.0.0.1:${port}/api/bridge`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    const body = await response.json() as { error: { code: string; message: string } };
+    expect({ status: response.status, code: body.error.code }).toEqual({ status: 404, code: "socket_missing" });
+    expect(body.error.message).not.toContain(dir);
+    const message = await told(port, socket);
+    expect(message).toContain("herdr is not running");
+    expect(message).not.toContain(dir);
+  });
+
+  it("says herdr is not answering when the socket is there without a daemon", async () => {
+    const dir = temp();
+    const socket = join(dir, "herdr.sock");
+    writeFileSync(socket, "");
+    const message = await told(bridge(socket), socket);
+    expect(message).toContain("herdr is not answering");
+    expect(message).not.toContain(dir);
+  });
+
+  it("reads a missing socket from the 500 an installed older bridge still answers", async () => {
+    const old = JSON.stringify({ error: { code: "internal_error", message: "ENOENT: no such file or directory, stat '/home/u/.config/herdr/herdr.sock'" } });
+    const message = await told(answering(500, old));
+    expect(message).toContain("herdr is not running");
+    expect(message).not.toContain("/home/u");
+  });
+
+  it("keeps the status-only message for any other answer, without repeating its text", async () => {
+    expect(await told(answering(500, JSON.stringify({ error: { code: "internal_error", message: "EACCES: permission denied, stat '/home/u/x'" } })))).toBe(GENERIC(500));
+    expect(await told(answering(503, "<html>proxy</html>"))).toBe(GENERIC(503));
+    expect(await told(answering(500, "null"))).toBe(GENERIC(500));
   });
 });

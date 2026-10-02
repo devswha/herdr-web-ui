@@ -67,7 +67,8 @@ it.skipIf(process.platform !== "win32")("starts after its launcher exits, stops 
     // start's process has exited, but the managed server and its children must still answer.
     const health = await (await fetch(`http://127.0.0.1:${port}/api/health`)).json() as { herdr: { terminal_mirror: boolean } };
     expect(health.herdr.terminal_mirror).toBe(true);
-    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    // The "not built yet" notice is a 200 too: the page itself must come back.
+    expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toContain('<div id="root"');
     const history = await (await fetch(`http://127.0.0.1:${port}/api/pane/conversation?pane_id=history`)).json() as { source: string; turns: unknown[] };
     expect(history.source).toBe("omp-transcript");
     expect(JSON.stringify(history.turns)).toContain("saved history");

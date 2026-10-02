@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ComponentType } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 import { ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, CircleX, Layers, Workflow, type LucideProps } from "lucide-react";
 
 import "./BackgroundTasks.css";
@@ -41,6 +41,7 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   const [showEnded, setShowEnded] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const id = useId();
   const endedId = useId();
   // closed, the list forgets what was opened: it opens on what runs now every time
@@ -79,6 +80,22 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
     window.addEventListener("pointerdown", outside);
     window.addEventListener("keydown", escape);
     return () => { window.removeEventListener("pointerdown", outside); window.removeEventListener("keydown", escape); };
+  }, [open]);
+
+  // The list opens upward from the composer, whose height CSS cannot know (text, quick replies,
+  // attachments): the room above it, up to the top of the pane, is measured and bounds the list,
+  // so on a short screen the list scrolls inside that room and never runs under the app header.
+  useLayoutEffect(() => {
+    const list = menu.current;
+    const anchor = list?.offsetParent;
+    const frame = anchor?.parentElement;
+    if (!open || !list || !anchor || !frame) return;
+    const measure = (): void => list.style.setProperty("--bg-tasks-room", `${anchor.getBoundingClientRect().top - frame.getBoundingClientRect().top}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(anchor);
+    observer.observe(frame);
+    return () => observer.disconnect();
   }, [open]);
 
   const running = tasks?.filter((task) => task.status === "running") ?? [];
@@ -145,7 +162,7 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
     <button type="button" ref={toggle} className={`bg-tasks-toggle${count === 0 ? " is-idle" : ""}`} aria-label={label} title={label} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
       <Layers aria-hidden="true" /><span className="bg-tasks-label">{label}</span>{count > 0 && <span className="bg-tasks-count" aria-hidden="true">{count}</span>}
     </button>
-    {open && <div id={id} className="menu bg-tasks-menu" role="dialog" aria-live="off" aria-label={t("Background tasks")}>
+    {open && <div id={id} ref={menu} className="menu bg-tasks-menu" role="dialog" aria-live="off" aria-label={t("Background tasks")}>
       {tasks === null && !failed && <p className="bg-tasks-note">{t("Loading…")}</p>}
       {failed && tasks === null && <p className="bg-tasks-note">{t("Couldn't load the background tasks")}</p>}
       {failed && tasks !== null && <p className="bg-tasks-note" role="status">{t("Couldn't refresh: this is the list as it last read")}</p>}
