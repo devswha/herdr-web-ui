@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Picking a pane that opens in the chat lens, while a pane in the terminal lens is open, no longer
   resizes the terminal other devices share. The chat lens was already leaving the size alone when
   the page opened on the pane; a switch from the sidebar still fitted it to this device once.
+  ([#390](https://github.com/devswha/herdr-web-ui/pull/390))
 
 ## [0.3.46] - 2026-10-03
 
