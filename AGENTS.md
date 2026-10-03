@@ -14,7 +14,7 @@ Browser UI for the herdr terminal multiplexer: a React 18 + xterm.js client (`sr
 The app is only a bridge: herdr owns every pty, scrollback and agent state.
 
 - NEVER load node-pty inside Bun; it panics the runtime (oven-sh/bun#18546). All PTY work goes through the Node sidecar `server/pty/pty-host.mjs`, and the only process it runs is `herdr terminal attach <terminal_id>`.
-- NEVER pass `--takeover` to `herdr terminal attach`. Always set `HERDR_SOCKET_PATH` to the socket the RPCs use.
+- NEVER pass `--takeover` to `herdr terminal attach` on the server's own initiative: an attach, a retry or a reconnect waits for the holder instead. Only a user's explicit request for that pane, from an interact connection, may take it. Always set `HERDR_SOCKET_PATH` to the socket the RPCs use.
 - NEVER give xterm scrollback (keep `scrollback: 0`), and never rebuild the terminal from `pane.read`. The attach byte stream is the source of truth.
 - NEVER edit `shared/herdr-api.generated.ts`. Run `bun run generate:types`.
 - NEVER pool herdr RPC connections: herdr closes the socket after each response. Use one connection per call (10 s timeout). Only `events.subscribe` stays open, and a second subscribe on an open connection is silently ignored, so reopen it with the full set.

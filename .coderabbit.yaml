@@ -20,8 +20,9 @@ reviews:
   path_instructions:
     - path: 'server/**'
       instructions: >-
-        Follow .github/REVIEW.md and the AGENTS.md files. Never load node-pty in Bun or pass
-        --takeover to herdr terminal attach. Verify attach cancellation, shared
+        Follow .github/REVIEW.md and the AGENTS.md files. Never load node-pty in Bun. Pass
+        --takeover to herdr terminal attach only on a user's explicit request for
+        that pane, never on an automatic attach or retry. Verify attach cancellation, shared
         pending attaches and last-client cleanup. Observe clients must never send
         input or resize a pane. Each RPC uses a fresh socket; subscriptions alone
         stay open. Tests mutate only owned panes and use temporary state directories.
