@@ -297,10 +297,14 @@ try {
   console.log("PASS an update answer that arrives while the page is hidden releases the buttons");
 
   // the bell turns this device's alerts on, and off again (it stayed disabled once on)
-  await context.grantPermissions(["notifications"], { origin });
   const bell = page.locator(".bell-button");
+  // before the permission question is answered the bell already reads as on: in-app alerts show
+  assert.equal(await bell.getAttribute("aria-label"), "Alerts on in the app only");
+  assert.equal(await bell.getAttribute("aria-pressed"), "true");
+  await context.grantPermissions(["notifications"], { origin });
   await bell.click();
-  await until(async () => await bell.getAttribute("aria-pressed") === "true", "bell on");
+  await until(async () => await bell.getAttribute("aria-label") !== "Alerts on in the app only", "the bell's tap takes the permission");
+  assert.equal(await bell.getAttribute("aria-pressed"), "true");
   await bell.click();
   await until(async () => await bell.getAttribute("aria-pressed") === "false", "bell off");
   assert.equal(await bell.getAttribute("aria-label"), "Alerts off");
@@ -309,6 +313,28 @@ try {
   await bell.click();
   await until(async () => await bell.getAttribute("aria-pressed") === "true", "bell on again");
   console.log("PASS the bell turns alerts off and on again");
+
+  // where notifications are blocked the bell is still there, and switches the in-app alerts
+  const blocked = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await blocked.addInitScript(() => {
+    if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
+    Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" });
+  });
+  const blockedPage = await blocked.newPage();
+  await blockedPage.goto(origin);
+  const blockedBell = blockedPage.locator(".bell-button");
+  await blockedBell.waitFor();
+  assert.equal(await blockedBell.getAttribute("aria-label"), "Alerts on in the app only");
+  assert.equal(await blockedBell.getAttribute("aria-pressed"), "true");
+  await blockedBell.click();
+  await until(async () => await blockedBell.getAttribute("aria-pressed") === "false", "blocked bell off");
+  assert.equal(await blockedBell.getAttribute("aria-label"), "Alerts off");
+  assert.equal(await blockedPage.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
+  await blockedBell.click();
+  await until(async () => await blockedBell.getAttribute("aria-pressed") === "true", "blocked bell on again");
+  assert.equal(await blockedBell.getAttribute("aria-label"), "Alerts on in the app only");
+  await blocked.close();
+  console.log("PASS a device that blocks notifications keeps the bell as the switch for in-app alerts");
 
   await checkPushSettings(browser, origin);
   await checkWakeLock(browser, origin, paneA);

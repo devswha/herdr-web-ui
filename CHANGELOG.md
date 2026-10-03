@@ -23,6 +23,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   was handed on to the page, where Chrome takes it for pull-to-refresh, so reading back
   through a conversation kept ending in a reload.
   ([#413](https://github.com/devswha/herdr-web-ui/pull/413))
+- The bell says what this device does. It read as off while in-app alerts still dropped in,
+  on a browser that had not been asked for notification permission, and it was missing where
+  notifications are blocked or unsupported (plain http). It now reads **Alerts on in the app
+  only** there, and turns those alerts off and on. The first tap on a device that has not
+  answered the permission question still asks it.
 
 ## [0.3.48] - 2026-10-04
 
