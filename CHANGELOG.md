@@ -26,12 +26,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   tab opens in the workspace with its agent started the way a new session's is. Remote PCs get
   it with their next bridge update. The server half starts from
   [#362](https://github.com/devswha/herdr-web-ui/pull/362) by @WOULDU-pres.
-  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
+  ([#386](https://github.com/devswha/herdr-web-ui/pull/386))
 - A tab strip over the pane, as herdr's tab row, once a workspace has more than one pane: one
   entry per tab with the agent state as a dot, the open one underlined; a tab herdr still names
   by its number reads **Tab 2**. A tab opens the pane last viewed in it, and a tab split into
   several panes in the TUI has a picker of them beside its name.
-  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
+  ([#386](https://github.com/devswha/herdr-web-ui/pull/386))
 
 ### Changed
 - The sidebar lists one row per workspace, as herdr's Spaces sidebar does, instead of a header
@@ -40,7 +40,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   other panes are reached from the tab strip, the command palette and **Needs you**. Workspace
   headers, numbers and folds are gone; folder folds stay. **Rename pane** renames the pane the
   row shows, and a close asks first, as before.
-  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
+  ([#386](https://github.com/devswha/herdr-web-ui/pull/386))
 
 ### Fixed
 - Settings → Updates no longer leaves **Check for updates** and **Update and restart** disabled
