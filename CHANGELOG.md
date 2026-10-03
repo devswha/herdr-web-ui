@@ -15,8 +15,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   in. Remote PCs get the two with their next bridge update.
   ([#383](https://github.com/devswha/herdr-web-ui/pull/383))
 
-||||||| 6bcb9bc
-
 ### Fixed
 - Settings → Updates no longer leaves **Check for updates** and **Update and restart** disabled
   when the answer to a click arrives while the page is hidden, as when a phone sends the app to
