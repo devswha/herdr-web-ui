@@ -261,21 +261,23 @@ try {
   const idleStatus = { managed: true, auto_update: false, phase: "idle", current_revision: null, latest_revision: null, current_version: "0.0.0", latest_version: "0.0.0", available: false, checked_at: new Date().toISOString(), blocked_reason: null, error: null };
   await page.route("**/api/updates", (route) => route.fulfill({ json: idleStatus }));
   await page.route("**/api/updates/check", async (route) => { await checkGate; await route.fulfill({ json: { ok: true } }); });
+  const setPageHidden = (hidden: boolean) => page.evaluate((hidden) => {
+    if (hidden) Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    else delete (document as unknown as Record<string, unknown>).visibilityState;
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+  // the idle status poll runs every 30 s: a hide and a show restart it at once, onto the fake
+  await setPageHidden(true);
+  await setPageHidden(false);
   await page.keyboard.press("Control+Shift+Comma");
   const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
   await checkUpdates.waitFor();
   await checkUpdates.click();
   await until(() => checkUpdates.isDisabled(), "the check is pending");
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+  await setPageHidden(true);
   releaseCheck();
   await page.waitForTimeout(300);
-  await page.evaluate(() => {
-    delete (document as unknown as Record<string, unknown>).visibilityState;
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+  await setPageHidden(false);
   await until(async () => !(await checkUpdates.isDisabled()), "an answer that came while hidden releases the update buttons");
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await page.unroute("**/api/updates/check");
