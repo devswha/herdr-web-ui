@@ -48,6 +48,7 @@ import {
   worktreeCreate,
   worktreeList,
   worktreeOpen,
+  worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
@@ -1154,6 +1155,27 @@ export function createServer(
         }
       }
 
+      if (pathname === "/api/worktree/remove") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { workspace_id?: unknown; force?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.workspace_id !== "string" || payload.workspace_id.length === 0) {
+          return badRequest("missing_workspace_id", "workspace_id is required");
+        }
+        if (payload.force !== undefined && typeof payload.force !== "boolean") return badRequest("invalid_force", "force must be a boolean");
+        try {
+          const removed = await worktreeRemove(payload.workspace_id, payload.force === true);
+          return jsonResponse({ ok: true, path: removed.path, forced: removed.forced });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
       if (pathname === "/api/worktree/create" || pathname === "/api/worktree/open") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
         let payload: { workspace_id?: unknown; branch?: unknown; base?: unknown; label?: unknown; path?: unknown };
@@ -1207,7 +1229,7 @@ export function createServer(
 
       if (pathname === "/api/workspace/rename" || pathname === "/api/workspace/move" || pathname === "/api/workspace/close") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { workspace_id?: unknown; label?: unknown; insert_index?: unknown };
+        let payload: { workspace_id?: unknown; label?: unknown; insert_index?: unknown; close_group?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -1216,6 +1238,9 @@ export function createServer(
         if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
         if (typeof payload.workspace_id !== "string" || payload.workspace_id.length === 0) {
           return badRequest("missing_workspace_id", "workspace_id is required");
+        }
+        if (pathname === "/api/workspace/close" && payload.close_group !== undefined && typeof payload.close_group !== "boolean") {
+          return badRequest("invalid_close_group", "close_group must be a boolean");
         }
         if (pathname === "/api/workspace/rename" && typeof payload.label !== "string") {
           return badRequest("missing_label", "label is required");
@@ -1226,7 +1251,7 @@ export function createServer(
         try {
           if (pathname === "/api/workspace/rename") await workspaceRename(payload.workspace_id, payload.label as string);
           else if (pathname === "/api/workspace/move") await workspaceMove(payload.workspace_id, payload.insert_index as number);
-          else await workspaceClose(payload.workspace_id);
+          else await workspaceClose(payload.workspace_id, undefined, payload.close_group === true);
           return jsonResponse({ ok: true });
         } catch (error) {
           return errorResponse(error);

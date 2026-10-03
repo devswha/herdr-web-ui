@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, GripVertical, Layers, Pencil, Plus, Terminal, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, GripVertical, Layers, Pencil, Plus, Terminal, Trash2, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -98,7 +98,7 @@ interface InlineError {
 type MenuState =
   | { kind: "pane"; anchor: HTMLElement; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
   | { kind: "workspace"; anchor: HTMLElement; workspace: WorkspaceInfo; scope: string };
-interface ConfirmState { title: string; body: string; run: () => Promise<void> }
+interface ConfirmState { title: string; body: string; action?: string; run: () => Promise<void>; escalation?: { label: string; code: string; run: () => Promise<void> } }
 
 export interface SidebarProps {
   snapshot: SessionSnapshot | null;
@@ -111,7 +111,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   const { settings } = useSettings();
   const byFolder = settings.sidebarGrouping === "directory";
   const machineId = useMachineId();
-  const { closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace } = useMachineApi();
+  const { closePane, closeWorkspace, moveWorkspace, removeWorktree, renamePane, renameWorkspace } = useMachineApi();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [worktreeDialog, setWorktreeDialog] = useState<{ mode: WorktreeDialogMode; workspace: WorkspaceInfo } | null>(null);
@@ -179,6 +179,24 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     return workspaceOrder.map((id) => byId.get(id)).filter((workspace): workspace is WorkspaceInfo => workspace !== undefined);
   }, [snapshot, workspaceOrder]);
   const directories = useMemo(() => groupDirectories(orderedWorkspaces, snapshot?.panes ?? []), [orderedWorkspaces, snapshot?.panes]);
+  // herdr packs a repository's worktree workspaces under the one on its main checkout; a worktree
+  // whose repository workspace is not open stays at the top level, in its own place
+  const worktreeGroups = useMemo(() => {
+    const parentByRepo = new Map<string, WorkspaceInfo>();
+    for (const workspace of orderedWorkspaces) {
+      if (workspace.worktree && !workspace.worktree.is_linked_worktree && !parentByRepo.has(workspace.worktree.repo_key)) parentByRepo.set(workspace.worktree.repo_key, workspace);
+    }
+    const childrenOf = new Map<string, WorkspaceInfo[]>();
+    const top: WorkspaceInfo[] = [];
+    for (const workspace of orderedWorkspaces) {
+      const parent = workspace.worktree?.is_linked_worktree ? parentByRepo.get(workspace.worktree.repo_key) : undefined;
+      if (!parent) { top.push(workspace); continue; }
+      const children = childrenOf.get(parent.workspace_id) ?? [];
+      children.push(workspace);
+      childrenOf.set(parent.workspace_id, children);
+    }
+    return top.map((workspace) => ({ workspace, children: childrenOf.get(workspace.workspace_id) ?? [] }));
+  }, [orderedWorkspaces]);
   const workspacePaneCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const pane of snapshot?.panes ?? []) counts.set(pane.workspace_id, (counts.get(pane.workspace_id) ?? 0) + 1);
@@ -211,26 +229,50 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     const workspace = snapshot?.workspaces.find((candidate) => candidate.workspace_id === state.workspace.workspace_id) ?? state.workspace;
     const paneCount = workspacePaneCounts.get(workspace.workspace_id) ?? 1;
     const renameWorkspaceItem: RowMenuItem = { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, state.scope) };
+    // a worktree workspace: its checkout can be deleted; the repository's workspace: its open
+    // worktree workspaces close with it, which herdr refuses without close_group
+    const linked = workspace.worktree?.is_linked_worktree === true;
+    const worktrees = linked ? [] : (snapshot?.workspaces.filter((candidate) => candidate.worktree?.is_linked_worktree && candidate.worktree.repo_key === workspace.worktree?.repo_key) ?? []);
     // herdr's own worktree actions, from the workspace they start on (prefix+shift+g in the TUI)
-    const worktreeItems: RowMenuItem[] = [
+    const worktreeItems: RowMenuItem[] = linked ? [] : [
       { id: "new-worktree", label: t("New worktree"), icon: GitBranch, run: () => setWorktreeDialog({ mode: "create", workspace }) },
       { id: "open-worktree", label: t("Open worktree…"), icon: FolderOpen, run: () => setWorktreeDialog({ mode: "open", workspace }) },
     ];
+    const deleteItems: RowMenuItem[] = linked ? [{
+      id: "delete-worktree", label: t("Delete worktree checkout…"), icon: Trash2, danger: true,
+      run: () => setConfirm({
+        title: t("Delete the checkout of {name}?", { name: workspace.label }),
+        body: t("The folder at {path} is deleted and the workspace closes. The branch stays.", { path: workspace.worktree?.checkout_path ?? "" }),
+        action: t("Delete"),
+        run: () => leave(async () => { await removeWorktree({ workspace_id: workspace.workspace_id }); }),
+        // git refuses a checkout with unsaved changes: the refusal shows, and the action becomes a forced one
+        escalation: { label: t("Delete anyway"), code: "dirty_worktree_requires_force", run: () => leave(async () => { await removeWorktree({ workspace_id: workspace.workspace_id, force: true }); }) },
+      }),
+    }] : [];
     if (state.kind === "workspace") {
       return [
         renameWorkspaceItem,
         ...worktreeItems,
-        { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close workspace {name}?", { name: workspace.label }), body: t("{n} panes close with it, and the agents in them stop.", { n: paneCount }), run: () => leave(() => closeWorkspace(workspace.workspace_id)) }) },
+        { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => setConfirm({
+          title: t("Close workspace {name}?", { name: workspace.label }),
+          body: worktrees.length > 0 ? t("{n} panes and {m} worktree workspaces close with it; the agents in them stop, and the checkouts stay.", { n: paneCount, m: worktrees.length }) : t("{n} panes close with it, and the agents in them stop.", { n: paneCount }),
+          run: () => leave(() => closeWorkspace(workspace.workspace_id, worktrees.length > 0)),
+        }) },
+        ...deleteItems,
       ];
     }
     const pane = snapshot?.panes.find((candidate) => candidate.pane_id === state.pane.pane_id) ?? state.pane;
     const renamePaneItem: RowMenuItem = { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) };
     // the workspace's last pane takes the workspace with it
     const closeItem: RowMenuItem = paneCount === 1
-      ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop."), run: () => leave(() => closePane(pane.pane_id)) }) }
+      ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => setConfirm({
+          title: t("Close {title}?", { title: state.title }),
+          body: worktrees.length > 0 ? t("Its workspace and its {m} worktree workspaces close with it; the agents in them stop, and the checkouts stay.", { m: worktrees.length }) : t("Its workspace closes with it, and the agent and shell in it stop."),
+          run: () => leave(() => worktrees.length > 0 ? closeWorkspace(workspace.workspace_id, true) : closePane(pane.pane_id)),
+        }) }
       : { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => closePaneNow(pane.pane_id) };
     // a one-pane row has no header: it is the only place to rename its workspace
-    return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, ...worktreeItems, closeItem] : [renamePaneItem, closeItem];
+    return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, ...worktreeItems, closeItem, ...deleteItems] : [renamePaneItem, closeItem];
   };
 
   // the roster moves under an open menu: a row that left takes its menu with it, and focus
@@ -504,13 +546,20 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
               return renderWorkspace(workspace, visiblePanes, directory.key);
         })}</div>}
           </section>;
-        }) : orderedWorkspaces.map((workspace) => renderWorkspace(workspace, snapshot?.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? []))}
+        }) : worktreeGroups.map(({ workspace, children }) => (
+          <Fragment key={workspace.workspace_id}>
+            {renderWorkspace(workspace, snapshot?.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? [])}
+            {children.length > 0 && <div className="worktree-children">
+              {children.map((child) => renderWorkspace(child, snapshot?.panes.filter((pane) => pane.workspace_id === child.workspace_id) ?? []))}
+            </div>}
+          </Fragment>
+        ))}
         {inlineError && inlineError.paneId === undefined && (
           <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>
         )}
       </nav>
       {menu && <RowMenu anchor={menu.anchor} title={menu.kind === "pane" ? menu.title : menu.workspace.label} subtitle={menu.kind === "pane" ? menu.place : undefined} items={menuItems(menu)} onClose={closeMenu} />}
-      {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close")} onConfirm={confirm.run} onClose={() => setConfirm(null)} />}
+      {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.action ?? t("Close")} onConfirm={confirm.run} escalation={confirm.escalation} onClose={() => setConfirm(null)} />}
       {worktreeDialog && <WorktreeDialog mode={worktreeDialog.mode} workspace={worktreeDialog.workspace} onClose={() => setWorktreeDialog(null)} onOpened={(opened) => { setWorktreeDialog(null); actions.selectPane(opened.pane_id); }} />}
     </div>
   );

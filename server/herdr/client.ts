@@ -215,8 +215,14 @@ export async function workspaceMove(workspaceId: string, insertIndex: number, so
   await herdrRpc("workspace.move", { workspace_id: workspaceId, insert_index: insertIndex }, socketPath);
 }
 
-export async function workspaceClose(workspaceId: string, socketPath?: string): Promise<void> {
-  await herdrRpc("workspace.close", { workspace_id: workspaceId }, socketPath);
+/** closeGroup takes a repository workspace's open worktree workspaces with it; herdr refuses otherwise. */
+export async function workspaceClose(workspaceId: string, socketPath?: string, closeGroup = false): Promise<void> {
+  await herdrRpc("workspace.close", { workspace_id: workspaceId, ...(closeGroup ? { close_group: true } : {}) }, socketPath);
+}
+
+/** `git worktree remove` of the workspace's checkout; herdr closes the workspace with it and keeps the branch. */
+export async function worktreeRemove(workspaceId: string, force: boolean, socketPath?: string): Promise<{ type: "worktree_removed"; workspace_id: string; path: string; forced: boolean }> {
+  return herdrRpc("worktree.remove", { workspace_id: workspaceId, force }, socketPath);
 }
 
 /** herdr's view of one git checkout: `worktree.list` entries, and what create/open hand back. */

@@ -15,12 +15,14 @@ import type {
   PromptAnswer,
   PushKey,
   RemoteAccess,
+  RemoveWorktreeRequest,
   SessionSnapshot,
   SlashCommand,
   UsageReport,
   WorkspaceCreated,
   WorktreeListing,
   WorktreeOpened,
+  WorktreeRemoved,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { HerdrUpdateStatus, UpdateCommand, UpdateStatus } from "../../shared/update.ts";
@@ -372,8 +374,15 @@ export async function moveWorkspace(workspaceId: string, insertIndex: number, ma
   await sendJson(machinePath(machineId, "workspace/move"), "POST", { workspace_id: workspaceId, insert_index: insertIndex });
 }
 
-export async function closeWorkspace(workspaceId: string, machineId = "local"): Promise<void> {
-  await sendJson(machinePath(machineId, "workspace/close"), "POST", { workspace_id: workspaceId });
+/** closeGroup takes the repository's open worktree workspaces with it; herdr refuses to close over them otherwise. */
+export async function closeWorkspace(workspaceId: string, machineId = "local", closeGroup = false): Promise<void> {
+  await sendJson(machinePath(machineId, "workspace/close"), "POST", { workspace_id: workspaceId, ...(closeGroup ? { close_group: true } : {}) });
+}
+
+/** POST /api/worktree/remove: deletes the checkout and closes its workspace; the branch stays. */
+export async function removeWorktree(request: RemoveWorktreeRequest, machineId = "local"): Promise<WorktreeRemoved> {
+  const response = await sendJson(machinePath(machineId, "worktree/remove"), "POST", request);
+  return (await response.json()) as WorktreeRemoved;
 }
 
 /** GET /api/pane/commands: the slash commands the pane's agent understands (built-in + custom). */

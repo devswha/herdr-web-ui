@@ -3,12 +3,15 @@
  * answers no; Escape and the scrim answer no as well, and Tab stays between the two buttons. A
  * no gives the focus back to what opened the dialog; after a yes the owner decides, since the
  * row that opened it is usually gone. The action runs here, so its failure shows in the dialog.
+ * A refusal the owner named (git refusing a dirty checkout) turns the action into its escalation
+ * (Delete anyway), with the refusal's own words above it.
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 
 import "./ConfirmDialog.css";
 
+import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 
 interface Props {
@@ -17,10 +20,12 @@ interface Props {
   confirmLabel: string;
   /** resolves once the deed is done; the owner then takes the dialog down */
   onConfirm: () => Promise<void>;
+  /** when the deed is refused with this error code, the action becomes this one */
+  escalation?: { label: string; code: string; run: () => Promise<void> };
   onClose: () => void;
 }
 
-export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }: Props) {
+export function ConfirmDialog({ title, body, confirmLabel, onConfirm, escalation, onClose }: Props) {
   const t = useT();
   const id = useId();
   const surface = useRef<HTMLDivElement>(null);
@@ -30,6 +35,7 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }:
   const done = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [escalated, setEscalated] = useState(false);
 
   useLayoutEffect(() => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -61,9 +67,11 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }:
   const confirm = async (): Promise<void> => {
     setPending(true);
     setError(null);
-    try { await onConfirm(); done.current = true; }
+    const deed = escalated && escalation ? escalation.run : onConfirm;
+    try { await deed(); done.current = true; }
     catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(reason instanceof ApiError ? reason.detail : reason instanceof Error ? reason.message : String(reason));
+      if (!escalated && escalation && reason instanceof ApiError && reason.code === escalation.code) setEscalated(true);
       setPending(false);
     }
   };
@@ -78,7 +86,7 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }:
         </div>
         <footer className="modal-footer">
           <button ref={cancel} type="button" className="btn" disabled={pending} onClick={onClose}>{t("Cancel")}</button>
-          <button ref={action} type="button" className="btn btn-danger" disabled={pending} onClick={() => void confirm()}>{confirmLabel}</button>
+          <button ref={action} type="button" className="btn btn-danger" disabled={pending} onClick={() => void confirm()}>{escalated && escalation ? escalation.label : confirmLabel}</button>
         </footer>
       </div>
     </div>,

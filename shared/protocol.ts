@@ -94,13 +94,17 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         omo and gjc, which herdr cannot start, are typed into the root pane's shell)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
- *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
+ *  POST   /api/workspace/close  { workspace_id, close_group? } -> { ok: true } (close_group takes the
+ *         repository's open worktree workspaces with it; without it herdr refuses: workspace_group_close_required)
  *  POST   /api/worktree/create { workspace_id, branch, base?, label?, path? } -> WorktreeOpened
  *         (worktree.create: a git worktree of that workspace's repo, checked out under herdr's
  *         worktree directory unless `path` says where, and opened as a new workspace grouped with it)
  *  GET    /api/worktree/list?workspace_id= -> WorktreeListing (worktree.list: the repo's checkouts)
  *  POST   /api/worktree/open   { workspace_id, path | branch, label? } -> WorktreeOpened
  *         (worktree.open: an existing checkout as a workspace; already_open names the one it has)
+ *  POST   /api/worktree/remove { workspace_id, force? } -> WorktreeRemoved (worktree.remove: deletes the
+ *         checkout and closes its workspace, keeps the branch; a dirty checkout is refused without force:
+ *         dirty_worktree_requires_force)
  *  POST   /api/auth        { token }     -> 204 + Set-Cookie herdr_web_token (401 invalid_token on mismatch)
  *  DELETE /api/auth                      -> 204, clears the token and the device cookies
  *  GET    /api/devices                   -> { devices: PairedDevice[] } (the paired devices; `current` marks the caller's)
@@ -420,6 +424,18 @@ export interface WorktreeOpened {
   already_open: boolean;
   path: string;
   branch: string | null;
+}
+
+/** POST /api/worktree/remove: `git worktree remove` of the workspace's checkout; force when git refuses a dirty one. */
+export interface RemoveWorktreeRequest {
+  workspace_id: string;
+  force?: boolean;
+}
+
+export interface WorktreeRemoved {
+  ok: true;
+  path: string;
+  forced: boolean;
 }
 
 /** One checkout of a repository, from herdr's `worktree.list` (git worktree list, annotated). */

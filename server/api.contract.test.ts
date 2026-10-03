@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import type { HerdrUpdateStatus } from "../shared/update.ts";
 import { UsageService } from "./usage.ts";
@@ -373,6 +373,31 @@ describe("workspace and discovery endpoints", () => {
       const reopened = (await again.json()) as WorktreeOpened;
       expect(reopened.already_open).toBeTrue();
       expect(reopened.workspace_id).toBe(opened.workspace_id);
+
+      // a dirty checkout is refused without force, in git's words; the repository's workspace
+      // does not close over its open worktrees unless the group is meant
+      writeFileSync(join(checkout, "unsaved.txt"), "dirty\n");
+      const refused = await post("/api/worktree/remove", { workspace_id: opened.workspace_id });
+      expect(refused.status).toBe(404);
+      expect(((await refused.json()) as ApiError).error.code).toBe("dirty_worktree_requires_force");
+      const grouped = await post("/api/workspace/close", { workspace_id: parent.workspace.workspace_id });
+      expect(grouped.status).toBe(404);
+      expect(((await grouped.json()) as ApiError).error.code).toBe("workspace_group_close_required");
+      const removed = await post("/api/worktree/remove", { workspace_id: opened.workspace_id, force: true });
+      expect(removed.status).toBe(200);
+      expect((await removed.json()) as WorktreeRemoved).toMatchObject({ ok: true, forced: true });
+      expect(existsSync(checkout)).toBeFalse();
+      expect((await sessionSnapshot()).workspaces.some((workspace) => workspace.workspace_id === opened.workspace_id)).toBeFalse();
+
+      // a clean worktree closes with its repository's workspace when the group is meant; its checkout stays
+      const second = (await (await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id, branch: "herdr-web-ui-test-second", path: join(checkouts, "second") })).json()) as WorktreeOpened;
+      owned.push(second.workspace_id);
+      const closedGroup = await post("/api/workspace/close", { workspace_id: parent.workspace.workspace_id, close_group: true });
+      expect(closedGroup.status).toBe(200);
+      const left = (await sessionSnapshot()).workspaces.map((workspace) => workspace.workspace_id);
+      expect(left).not.toContain(parent.workspace.workspace_id);
+      expect(left).not.toContain(second.workspace_id);
+      expect(existsSync(join(checkouts, "second"))).toBeTrue();
     } finally {
       // the roster says what was made: a create whose answer was lost still left a child to remove
       const repoRoot = realpathSync(repo);

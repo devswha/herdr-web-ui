@@ -1,7 +1,7 @@
 /** Real-browser regressions against owned herdr panes. Run after `bun run build`. */
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { chromium } from "playwright-core";
@@ -574,6 +574,36 @@ try {
   await page.keyboard.press("Escape");
   await openWorktree.waitFor({ state: "detached" });
   console.log("PASS a worktree opens from the row menu as a grouped workspace, and Open worktree… knows it");
+
+  // In the By workspace view the worktree's row sits under its repository's, as herdr packs them.
+  // Its menu deletes the checkout: a dirty one is refused in git's words first, then deleted anyway.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  const childRow = page.locator(`.worktree-children .pane-item:has(.pane-select[title^="${worktree.pane_id} —"])`);
+  await childRow.waitFor();
+  assert.equal(await page.locator(".worktree-children").count(), 1, "one group of worktrees, under the repository's row");
+  writeFileSync(join(worktree.path, "unsaved.txt"), "dirty\n");
+  await childRow.hover();
+  await childRow.locator(".row-menu-toggle").click();
+  const childMenu = page.getByRole("menu");
+  await childMenu.waitFor();
+  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "Close", "Delete worktree checkout…"], "a worktree row's menu");
+  await childMenu.getByRole("menuitem", { name: "Delete worktree checkout…", exact: true }).click();
+  const deleteConfirm = page.getByRole("alertdialog");
+  await deleteConfirm.waitFor();
+  await deleteConfirm.getByRole("button", { name: "Delete", exact: true }).click();
+  await deleteConfirm.getByRole("button", { name: "Delete anyway", exact: true }).waitFor();
+  assert.equal(await deleteConfirm.locator(".confirm-error").count(), 1, "git's refusal shows in the confirm");
+  await deleteConfirm.getByRole("button", { name: "Delete anyway", exact: true }).click();
+  await deleteConfirm.waitFor({ state: "detached" });
+  await childRow.waitFor({ state: "detached" });
+  assert.equal(existsSync(worktree.path), false, "the checkout is gone");
+  worktreeWorkspaces.splice(worktreeWorkspaces.indexOf(worktree.workspace_id), 1);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  console.log("PASS a worktree row sits under its repository's row, and its menu deletes the checkout, asking twice for a dirty one");
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.

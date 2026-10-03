@@ -14,6 +14,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   repository's other checkouts and opens one, or goes back to the workspace it is already open
   in. Remote PCs get the two with their next bridge update.
   ([#383](https://github.com/devswha/herdr-web-ui/pull/383))
+- In the By workspace view a repository's worktree workspaces sit under its row, as herdr's own
+  sidebar keeps them. A worktree row's menu ends in **Delete worktree checkout…**, which deletes
+  the folder and closes the workspace but keeps the branch; a checkout with unsaved changes is
+  refused first, in git's words, with **Delete anyway** as the second step. Closing a repository
+  workspace over open worktrees says so and closes them with it.
 
 ### Fixed
 - Settings → Updates no longer leaves **Check for updates** and **Update and restart** disabled

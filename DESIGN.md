@@ -263,7 +263,10 @@ One set for both themes: the card is island black wherever it shows.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
-  and a failure shows inside it. A no gives the focus back to what opened it.
+  and a failure shows inside it. A no gives the focus back to what opened it. A refusal the owner
+  named (git refusing a dirty checkout) turns the action into its escalation (**Delete anyway**),
+  with the refusal's words above it. Closing a repository workspace over open worktrees says so
+  and closes the group, as herdr's `--group` does.
 
 ### Field (`.field`, `.input`, `.select`)
 - Stacked uppercase label, optional hint and `--bg-input` field. Desktop fields use `--fs-sm`;
@@ -278,7 +281,8 @@ One set for both themes: the card is island black wherever it shows.
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
   A one-pane row offers Rename workspace, Rename pane, New worktree, Open worktree…, then Close
   under a hairline; a workspace header Rename workspace, New worktree, Open worktree… and Close
-  workspace; a pane under a header Rename pane and Close. The
+  workspace; a pane under a header Rename pane and Close. A worktree workspace's row has no
+  worktree items and ends in **Delete worktree checkout…** after Close. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
@@ -333,6 +337,10 @@ One set for both themes: the card is island black wherever it shows.
   button. Connected says
   nothing more; every other state is written under the name, with the server's error clamped to
   two lines and complete in the tooltip.
+- In the By workspace view, a repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
+  sit under the row of the workspace on its main checkout, packed behind a hairline
+  (`.worktree-children`), as herdr's Spaces sidebar keeps them; a worktree whose repository
+  workspace is not open stays at the top level.
 - Single-pane workspaces merge their workspace handle into the pane row, in both groupings: one
   row, no header, number or fold. A fold stored for such a workspace is ignored until it has a
   header again.
