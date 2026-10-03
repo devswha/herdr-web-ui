@@ -46,6 +46,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   agent's working line ticks on that screen. The card's id took in the line's spinner, time and
   token count, so a tap after each tick was refused with "the prompt changed" and took several
   tries. Anything else that changes on the screen still refuses the answer.
+  ([#377](https://github.com/devswha/herdr-web-ui/pull/377), [#365](https://github.com/devswha/herdr-web-ui/pull/365) by @Haeminway1)
 
 ## [0.3.44] - 2026-10-03
 
