@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Removed
+- The plan meters no longer have a place at the top of the sidebar. **Settings → Subscription
+  usage → Where** is gone and the meters stay beside Settings, where a tap still lists every
+  limit with its reset time. A device that had chosen the top goes back to the chips.
+  ([#407](https://github.com/devswha/herdr-web-ui/pull/407))
+
 ### Fixed
 - On an iPhone the image viewer's controls and the composer stay inside the usable screen: the
   viewer is bounded by the safe-area insets and the keyboard's height, the keyboard is told from
