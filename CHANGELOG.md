@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- In the sidebar's By workspace view, a workspace with one pane is a single row again, as it was
+  before 0.3.44: no numbered header above it, and the row carries the reorder handle and names
+  its workspace on its second line. A workspace with several panes keeps its header. A fold made
+  on a one-pane workspace in 0.3.44 no longer hides its row.
+
 ## [0.3.44] - 2026-10-03
 
 ### Added
