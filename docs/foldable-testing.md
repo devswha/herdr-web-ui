@@ -17,7 +17,7 @@ Researched 2026-09-27, without a physical device. Covers the screens, what was c
 
 ## What was checked (Chrome emulation, 2026-09-27)
 
-Headless Chrome, `isMobile` + touch, Korean locale, the real app against an isolated herdr test session. Viewports: inner portrait and landscape, and cover, for both devices at both DPRs, with 80px taken off the height for browser chrome. At each: terminal, chat, drawer/sidebar, command palette, settings, new session, files.
+Headless Chrome, `isMobile` + touch, Korean locale, the real app against an isolated herdr test session. Viewports: inner portrait and landscape, and cover, for both devices at both DPRs, with 80px taken off the height for browser chrome. At each: terminal, chat, drawer/sidebar, command palette, settings, new workspace, files.
 
 Automated checks: no horizontal page scroll, no unclipped element off-screen, dialogs inside the viewport, no short label wrapped onto 2+ lines (text-node line count), the header never showing both the drawer and the sidebar-collapse toggle, and the pane title width.
 

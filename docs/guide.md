@@ -88,7 +88,7 @@ bun run start
 
 </details>
 
-**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own; a workspace with several tabs or panes shows them in a strip over the pane. Pick one, start a new agent with **New session**, or add a tab to a workspace with **New tab** (the row's **⋯** menu, the header button, or the strip's `+`).
+**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own; a workspace with several tabs or panes shows them in a strip over the pane. Pick one, start a new agent with **New workspace**, or add a tab to a workspace with **New tab** (the row's **⋯** menu, the header button, or the strip's `+`).
 
 **3. Take it with you.** Scan the installer's QR code with a phone signed in to the same Tailscale account, then install the app from the browser. See [On your phone](#on-your-phone).
 
@@ -382,7 +382,7 @@ This is for Linux and macOS. On Windows, and for a remote PC, update herdr on th
 | `Mod+Shift+K` | Command palette |
 | `Mod+Shift+J` | Switch Chat / Terminal |
 | `Mod+Shift+B` | Toggle sidebar |
-| `Mod+Shift+O` | New session (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
+| `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
 

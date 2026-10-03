@@ -101,7 +101,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   }, [selectedPaneId]);
 
   const paletteActions = useMemo<PaletteAction[]>(() => [
-    { id: "new", label: t("New session"), icon: MessageSquarePlus, shortcut: "new-session", run: actions.openNewSession },
+    { id: "new", label: t("New workspace"), icon: MessageSquarePlus, shortcut: "new-session", run: actions.openNewSession },
     // in the selected pane's workspace: nothing to add a tab to without one
     ...(selectedPaneId !== null ? [{ id: "new-tab", label: t("New tab"), icon: Plus, run: () => actions.openNewTab() }] : []),
     { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view", run: actions.toggleView },

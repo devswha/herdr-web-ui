@@ -72,9 +72,9 @@ try {
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   console.log("PASS held input survives reload, never sends on reconnect, and stays with its PC");
 
-  await page.getByRole("button", { name: "New session on QA second PC", exact: true }).click();
-  const create = page.getByRole("dialog", { name: "New session · QA second PC", exact: true });
-  await create.waitFor(); await create.getByRole("button", { name: "Close new session dialog", exact: true }).click();
+  await page.getByRole("button", { name: "New workspace on QA second PC", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "New workspace · QA second PC", exact: true });
+  await create.waitFor(); await create.getByRole("button", { name: "Close dialog", exact: true }).click();
   // Add PC lives in Settings → Remote PCs; opening it closes Settings
   await page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("button", { name: "Add PC", exact: true }).click();
