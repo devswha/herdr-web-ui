@@ -11,7 +11,7 @@ import { useInstallPrompt } from "../lib/install.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { UsageMeters } from "./UsageMeters.tsx";
-import { folderName, shortPathTitle } from "../lib/paneName.ts";
+import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { groupDirectories } from "../lib/directoryGroups.ts";
 import { useSettings, type SidebarGrouping } from "../lib/settings.ts";
@@ -289,11 +289,13 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
 
   const renderWorkspace = (workspace: WorkspaceInfo, visiblePanes: PaneInfo[], scope = "") => {
     if (visiblePanes.length === 0) return null;
-    // Only folder mode merges a single-pane workspace into its row. Count the
-    // whole workspace so one split across folders keeps its rename heading.
-    const merged = byFolder && (workspacePaneCounts.get(workspace.workspace_id) ?? visiblePanes.length) === 1;
+    // A single pane is its workspace: one row, no heading above it. Count the whole
+    // workspace: a folder can show one pane of a workspace that has more, and that
+    // heading is the only place to rename the workspace.
+    const merged = (workspacePaneCounts.get(workspace.workspace_id) ?? visiblePanes.length) === 1;
     const groupKey = `workspace:${workspace.workspace_id}`;
-    const collapsed = !byFolder && collapsedGroups.has(groupKey);
+    // A merged row has no toggle: a fold stored while it had a heading (0.3.44) must not hide it.
+    const collapsed = !byFolder && !merged && collapsedGroups.has(groupKey);
     return (
       <section
         className={`workspace${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`}
@@ -347,9 +349,13 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
             const displayTitle = displayPaneTitle(pane);
             // The group header already names one of the two: a workspace's rows name the folder, a
             // folder's rows the workspace. A workspace is usually named after its folder, and a shell
-            // titled by it: the folder shows only when neither already says it.
+            // titled by it: the folder shows only when neither already says it. A merged row has no
+            // workspace header, so it names the workspace too, unless the title already is that name.
             const folder = cwdBasename(pane.cwd);
-            const place = byFolder ? workspace.label : folder === displayTitle || folder === workspace.label ? "" : folder;
+            const said = folder === displayTitle || folder === workspace.label;
+            const place = byFolder ? workspace.label
+              : merged ? placeLine(workspace.label === displayTitle ? "" : workspace.label, said ? "" : folder)
+              : said ? "" : folder;
             const selected = pane.pane_id === selectedPaneId;
             const editing = editingPaneId === pane.pane_id;
             return (

@@ -15,6 +15,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A newer herdr installed from a shell is picked up the same way.
   ([#373](https://github.com/devswha/herdr-web-ui/pull/373))
 
+### Changed
+- In the sidebar's By workspace view, a workspace with one pane is a single row again, as it was
+  before 0.3.44: no numbered header above it, and the row carries the reorder handle and names
+  its workspace on its second line. A workspace with several panes keeps its header. A fold made
+  on a one-pane workspace in 0.3.44 no longer hides its row.
+  ([#371](https://github.com/devswha/herdr-web-ui/pull/371))
+- On a desktop the terminal no longer has a bar under it holding one keyboard button. The input
+  line or direct typing is still chosen in Settings → Terminal input mode, and a touch screen
+  keeps the button in its key bar.
+  ([#372](https://github.com/devswha/herdr-web-ui/pull/372))
+
 ### Fixed
 - An open terminal no longer says "terminal ended" when herdr hands its panes to a new server,
   as `herdr update --handoff` and `herdr server live-handoff` do. The pane is still running, so

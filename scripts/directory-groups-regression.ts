@@ -93,7 +93,7 @@ try {
   ] as const) {
     const created = await workspaceCreate({ cwd, label });
     ownedWorkspaces.push(created.workspace.workspace_id);
-    fixtures.push({ cwd, label, workspaceId: created.workspace.workspace_id, workspaceNumber: created.workspace.number, paneId: created.root_pane.pane_id });
+    fixtures.push({ cwd, label, workspaceId: created.workspace.workspace_id, paneId: created.root_pane.pane_id });
   }
   const [alpha, beta, other, lone] = fixtures;
   assert.ok(alpha && beta && other && lone);
@@ -182,31 +182,23 @@ try {
   assert.equal(await page.locator(workspaceToggle).getAttribute("aria-expanded"), "false", "legacy workspace fold is restored");
   assert.equal(await page.locator(`${otherWorkspace} .pane-list`).count(), 0);
   for (const fixture of [alpha, beta]) {
-    // The header names the workspace, so line two names only the folder, and nothing when the
-    // title already is that folder (a shell titled by its cwd).
+    // A single pane is its workspace: one row with the reorder handle, no heading or toggle above
+    // it. No header names the workspace, so line two does, with the folder unless the title
+    // already is that folder (a shell titled by its cwd).
     const title = await page.locator(`${itemSelector(fixture.paneId)} .pane-title`).textContent();
-    assert.deepEqual(await page.locator(`${itemSelector(fixture.paneId)} .pane-subtitle`).allTextContents(), title === "project" ? [] : ["project"]);
-    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .pane-meta`).textContent().then((text) => text?.includes(fixture.label)), false);
+    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .pane-subtitle`).textContent(), title === "project" ? fixture.label : `${fixture.label} · project`);
     const workspace = `.workspace:has(${paneSelector(fixture.paneId)})`;
-    assert.equal(await page.locator(`${workspace} .workspace-toggle`).getAttribute("aria-expanded"), "true");
-    assert.equal(await page.locator(`${workspace} .workspace-number`).textContent(), String(fixture.workspaceNumber));
-    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .sidebar-drag-handle`).count(), 0);
+    assert.equal(await page.locator(`${workspace} .workspace-header`).count(), 0);
+    assert.equal(await page.locator(`${workspace} .workspace-toggle`).count(), 0);
+    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .sidebar-drag-handle`).count(), 1);
   }
-  const singleWorkspace = `.workspace:has(.workspace-label[title=${JSON.stringify(alpha.label)}])`;
-  const singleToggle = `${singleWorkspace} .workspace-toggle`;
-  await changeState(page, [{ selector: singleToggle, attribute: ["aria-expanded", "false"] },
-    { selector: `${singleWorkspace} .pane-list`, count: 0 }],
-  () => page.locator(singleToggle).click(), "single-pane workspace folds");
+  // A fold stored while a single pane had a heading (0.3.44) must not hide a row that has no toggle.
   const singleFoldKey = `herdr-web-ui:workspace-collapsed:local:${alpha.workspaceId}`;
-  assert.equal(await page.evaluate((key) => localStorage.getItem(key), singleFoldKey), "1");
+  await page.evaluate((key) => localStorage.setItem(key, "1"), singleFoldKey);
   await navigate(() => page.reload(), lone.paneId);
-  await page.locator(`${singleToggle}[aria-expanded="false"]`).waitFor({ state: "attached" });
-  assert.equal(await page.locator(`${singleWorkspace} .pane-list`).count(), 0, "single-pane fold survives reload");
-  await page.locator(singleToggle).focus();
-  await changeState(page, [{ selector: singleToggle, attribute: ["aria-expanded", "true"] },
-    { selector: paneSelector(alpha.paneId) }],
-  () => page.keyboard.press("Enter"), "keyboard opens a single-pane workspace");
-  assert.equal(await page.evaluate((key) => localStorage.getItem(key), singleFoldKey), null);
+  await page.locator(paneSelector(alpha.paneId)).waitFor({ state: "visible" });
+  assert.equal(await page.locator(`.workspace:has(${paneSelector(alpha.paneId)}) .workspace-toggle`).count(), 0);
+  await page.evaluate((key) => localStorage.removeItem(key), singleFoldKey);
   await changeState(page, [{ selector: workspaceToggle, attribute: ["aria-expanded", "true"] },
     { selector: paneSelector(split.pane.pane_id) }],
   () => page.locator(workspaceToggle).click(), "multipane workspace unfolds");
