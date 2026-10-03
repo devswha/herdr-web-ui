@@ -23,6 +23,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
 - On a phone the in-app alert is one line, as wide as its text: the pane's name, then what
   happened. It was a two-line card across the screen, over the top of the conversation.
+- A plan meter beside Settings shows the limit you choose, not the one closest to running out:
+  **Settings → Subscription usage → Limit shown** is **Weekly** (the default) or **Session**, the
+  short limit that is 5 hours on Claude and Codex. Every account shows that limit, so the numbers
+  compare; a plan without it shows its nearest limit as before. Accounts you have not arranged
+  keep the order the server lists them in instead of moving as their usage does, and **Nearest
+  limit first** is gone with that sorting.
+  ([#408](https://github.com/devswha/herdr-web-ui/pull/408), [#343](https://github.com/devswha/herdr-web-ui/pull/343) by @Haeminway1)
 - The plan meters no longer have a place at the top of the sidebar. **Settings → Subscription
   usage → Where** is gone and the meters stay beside Settings, where a tap still lists every
   limit with its reset time. A device that had chosen the top goes back to the chips.
