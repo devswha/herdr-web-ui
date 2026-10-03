@@ -764,9 +764,20 @@ try {
   // is automatic, so it must not offer a sign-out action that cannot lock the app.
   assert.equal(await page.getByRole("button", { name: "Sign out", exact: true }).count(), 0);
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
-  // closed from the sidebar's X (arm, then confirm); its last pane takes the workspace with it
-  await page.locator(".pane-item.is-selected .pane-close").click();
-  await page.locator(".pane-item.is-selected .pane-close.is-armed").click();
+  // closed from the row's ⋯ menu; its last pane takes the workspace with it, so a confirm asks first
+  await page.locator(".pane-item.is-selected .row-menu-toggle").click();
+  const rowMenu = page.getByRole("menu");
+  await rowMenu.waitFor();
+  // Escape puts the menu away and the focus back on its button; Enter there opens it again
+  await page.keyboard.press("Escape");
+  await rowMenu.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "Escape returns focus to the row's ⋯");
+  await page.keyboard.press("Enter");
+  await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
+  const confirmClose = page.getByRole("alertdialog");
+  await confirmClose.waitFor();
+  await until(async () => await page.evaluate(() => document.activeElement?.textContent === "Cancel"), "the confirm starts on Cancel");
+  await confirmClose.getByRole("button", { name: "Close", exact: true }).click();
   workspaces.splice(workspaces.indexOf(created.workspace_id), 1);
   await until(async () => {
     const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));

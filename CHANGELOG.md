@@ -16,6 +16,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#373](https://github.com/devswha/herdr-web-ui/pull/373))
 
 ### Changed
+- Each sidebar row has one `⋯` button in place of a hover pencil and a two-click X. Its menu
+  renames the workspace or the pane and closes the row: a close that takes the workspace with it
+  (a one-pane row, or **Close workspace** on a workspace header) asks first, as herdr's
+  `ui.confirm_close` does, and a pane that leaves its workspace standing closes at once. On a
+  phone the menu is a bottom sheet.
 - The sidebar has no top bar. A session starts from the `+` on its PC's header, as before, or from
   the **New session** button an empty PC now shows; Mod+Shift+N and the palette still open it on
   the selected PC. **Add PC** moved to Settings → Remote PCs, above the bridge auto-update switch,

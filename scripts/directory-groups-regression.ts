@@ -369,7 +369,10 @@ try {
   const renamed = "directory-regression-renamed-alpha";
   await page.locator(itemSelector(alpha.paneId)).hover();
   await changeState(page, [{ selector: ".pane-rename-input" }],
-    () => page.locator(itemSelector(alpha.paneId)).getByTitle("Rename pane", { exact: true }).click(), "rename editor opens");
+    async () => {
+      await page.locator(`${itemSelector(alpha.paneId)} .row-menu-toggle`).click();
+      await page.getByRole("menuitem", { name: "Rename pane", exact: true }).click();
+    }, "rename editor opens");
   await page.locator(".pane-rename-input").fill(renamed);
   const renameResponse = page.waitForResponse((response) => response.request().method() === "POST"
     && new URL(response.url()).pathname.endsWith("/pane/rename")
@@ -426,7 +429,10 @@ try {
   await stateReceived(page, "a workspace split over two folders keeps its heading in both");
   assert.equal(await page.locator(otherHeader(single, away)).count(), 1);
   await changeState(page, [{ selector: ".workspace-rename-input:focus", count: 1 }, { selector: ".workspace-rename-input", count: 1 }],
-    () => page.locator(`${otherHeader(distinct, other.paneId)} .workspace-rename`).click(), "one workspace rename editor opens and keeps the focus");
+    async () => {
+      await page.locator(`${otherHeader(distinct, other.paneId)} .workspace-menu`).click();
+      await page.getByRole("menuitem", { name: "Rename workspace", exact: true }).click();
+    }, "one workspace rename editor opens and keeps the focus");
   await changeState(page, [{ selector: ".workspace-rename-input", count: 0 }],
     () => page.locator(".workspace-rename-input").press("Escape"), "workspace rename editor closes on Escape");
   await changeState(page, [{ selector: paneSelector(away), count: 0 }],
@@ -495,18 +501,21 @@ try {
   await changeState(page, [{ selector: ".settings-dialog", count: 0 }],
     () => page.keyboard.press("Escape"), "English Settings closes");
 
-  // When closing one grouped pane through its two-click confirmation, Then
+  // When closing one grouped pane through its row menu, Then
   // its sibling survives, still under the same full-path header.
   const closeOwnedPane = async (paneId: string, states: readonly State[]): Promise<void> => {
-    const close = page.locator(`${itemSelector(paneId)} .pane-close`);
-    await page.locator(itemSelector(paneId)).hover();
-    await changeState(page, [{ selector: `${itemSelector(paneId)} .pane-close.is-armed` }],
-      () => close.click(), "owned pane close armed");
+    // from the row's ⋯ menu: a pane that leaves its workspace standing closes at once, a lone
+    // pane (its row carries the workspace's drag handle) takes the workspace with it and asks first
+    const item = page.locator(itemSelector(paneId));
+    const lone = await item.locator(".pane-row > .sidebar-drag-handle").count() === 1;
+    await item.hover();
+    await item.locator(".row-menu-toggle").click();
     const response = page.waitForResponse((candidate) => candidate.request().method() === "POST"
       && new URL(candidate.url()).pathname.endsWith("/pane/close")
       && candidate.request().postDataJSON().pane_id === paneId);
     await armState(page, states);
-    await close.click();
+    await page.getByRole("menuitem", { name: "Close", exact: true }).click();
+    if (lone) await page.getByRole("alertdialog").getByRole("button", { name: "Close", exact: true }).click();
     assert.equal((await response).status(), 200);
     await stateReceived(page, "owned pane removed from directory tree");
   };

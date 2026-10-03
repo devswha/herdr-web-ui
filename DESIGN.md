@@ -261,6 +261,8 @@ One set for both themes: the card is island black wherever it shows.
   column with header, body and footer and `--shadow-pop`.
 - At `<=640px`, it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
+- A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
+  Cancel has the focus, the danger action sits at the right, and a failure shows inside it.
 
 ### Field (`.field`, `.input`, `.select`)
 - Stacked uppercase label, optional hint and `--bg-input` field. Desktop fields use `--fs-sm`;
@@ -271,6 +273,16 @@ One set for both themes: the card is island black wherever it shows.
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
   ellipsized main label and optional hint.
 - Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
+- The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
+  under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
+  A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
+  header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
+  danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
+  a grip, the row's name and place, 48px rows and a Cancel button. Escape, a press outside, a
+  scroll or a resize close it, and focus returns to the `⋯`. Arrow keys move between items.
+- Close follows herdr's `ui.confirm_close`: a close that takes the workspace with it (a one-pane
+  row, Close workspace) asks in a confirm first; a pane that leaves its workspace standing closes
+  at once. After a confirmed close, focus lands on the header's workspace-list toggle.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**.
@@ -298,12 +310,13 @@ One set for both themes: the card is island black wherever it shows.
   remembered per PC and path; opening a pane unfolds its folder, but status updates do not.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
-- A workspace header shows drag handle, number, editable label, roll-up status and rename action.
+- A workspace header shows drag handle, number, editable label, roll-up status and its `⋯`.
   Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
 - Every pane row is two lines: agent/shell mark, then the editable title alone on line one (full
   width), and the status chip followed by the pane's place on line two. Mark boxes are neutral;
-  the selected row gets the amber rail and an amber-edged mark box. Row actions rename or arm a
-  3-second, second-click close. Inline server failures stay beside their row.
+  the selected row gets the amber rail and an amber-edged mark box. The row ends in one `⋯`
+  (`.row-menu-toggle`: shown on hover, focus, selection and while its menu is open; always on
+  touch) that opens the row menu. Inline server failures stay beside their row.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
   in the row's tooltip. Line two names what the group header does not: the folder under a

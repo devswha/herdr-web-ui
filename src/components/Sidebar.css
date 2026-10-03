@@ -198,12 +198,13 @@
   flex: 0 0 auto;
 }
 
-.workspace-rename {
+.workspace-menu {
   opacity: 0;
 }
 
-.workspace-header:hover .workspace-rename,
-.workspace-header:focus-within .workspace-rename {
+.workspace-header:hover .workspace-menu,
+.workspace-header:focus-within .workspace-menu,
+.workspace-menu[aria-expanded="true"] {
   opacity: 1;
 }
 
@@ -436,19 +437,9 @@
 
 .pane-item:hover .pane-actions,
 .pane-item:focus-within .pane-actions,
-.pane-actions:has(.is-armed) {
+.pane-item.is-selected .pane-actions,
+.pane-actions:has([aria-expanded="true"]) {
   opacity: 1;
-}
-
-.pane-close.is-armed {
-  width: auto;
-  min-width: var(--control-h);
-  padding: 0 var(--space-2);
-  background: var(--danger-tint);
-  color: var(--status-blocked);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
 }
 
 .sidebar-inline-error {
@@ -521,7 +512,7 @@
   /* no hover on touch: the grip stays, quiet, and the row actions are always there */
   .sidebar-drag-handle,
   .pane-actions,
-  .workspace-rename {
+  .workspace-menu {
     opacity: 1;
   }
 }

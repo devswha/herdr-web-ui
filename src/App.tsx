@@ -14,6 +14,7 @@ import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
 import { MachineDialog } from "./components/MachineDialog.tsx";
+import { focusWorkspaceListToggle } from "./lib/focus.ts";
 import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
@@ -147,14 +148,11 @@ export function App() {
   // Add PC from Settings or the palette leaves no trigger to return focus to once its dialog
   // closes (Settings closed when it opened): the header's workspace-list toggle stands in
   const addPcFocusReturn = useRef(false);
-  const drawerToggleRef = useRef<HTMLButtonElement>(null);
-  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const closeMachineDialog = useCallback(() => {
     setMachineDialog(null);
     if (!addPcFocusReturn.current) return;
     addPcFocusReturn.current = false;
-    // once React has taken the dialog out of the top layer; the toggle the viewport shows
-    window.requestAnimationFrame(() => [drawerToggleRef.current, sidebarToggleRef.current].find((toggle) => toggle && toggle.getClientRects().length > 0)?.focus());
+    focusWorkspaceListToggle();
   }, []);
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const [health, setHealth] = useState<HealthInfo | null>(null);
@@ -618,7 +616,6 @@ export function App() {
     <MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <header className="app-header">
         <button
-          ref={drawerToggleRef}
           type="button"
           className="icon-button drawer-toggle"
           aria-label={t(drawerOpen ? "Close workspace list" : "Open workspace list")}
@@ -629,7 +626,6 @@ export function App() {
           {drawerOpen ? <X /> : <Menu />}
         </button>
         <button
-          ref={sidebarToggleRef}
           type="button"
           className="icon-button header-desktop-only sidebar-toggle"
           aria-label={t(sidebarCollapsed ? "Show workspace list" : "Hide workspace list")}
