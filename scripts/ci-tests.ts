@@ -3,7 +3,8 @@
  *
  * The integration suite runs its files side by side: a few workers take files off one
  * queue, each worker on a herdr session of its own (`<session>-<n>`), so no two files
- * ever share a herdr. HERDR_TEST_SHARDS sets the worker count; 1 is the old serial run.
+ * ever share a herdr, and none shares the plain `<session>` with the browser scripts.
+ * HERDR_TEST_SHARDS sets the worker count; 1 is the old serial run.
  */
 import { availableParallelism } from "node:os";
 
@@ -34,7 +35,9 @@ if (suite === "unit") {
 const requested = Number(process.env["HERDR_TEST_SHARDS"]);
 const shards = Math.min(selected.length, requested >= 1 ? Math.floor(requested) : Math.min(4, availableParallelism()));
 const baseSession = process.env["HERDR_TEST_SESSION"] || "herdr-web-ui-test";
-const sessions = Array.from({ length: shards }, (_, index) => (shards === 1 ? baseSession : `${baseSession}-${index + 1}`));
+// Always `<session>-<n>`, also for one worker: the plain session belongs to the browser scripts,
+// which run beside this suite in CI (scripts/ci-lanes.ts) and must never share a herdr with it.
+const sessions = Array.from({ length: shards }, (_, index) => `${baseSession}-${index + 1}`);
 // Largest first: the long files are the large ones, and one started last would run on alone.
 const queue = [...selected].sort((a, b) => Bun.file(b).size - Bun.file(a).size);
 const totals = { pass: 0, fail: 0, skip: 0 };
@@ -62,10 +65,8 @@ async function work(session: string): Promise<void> {
 }
 
 await Promise.all(sessions.map(work));
-// The sessions `<session>-<n>` exist for this run only; the plain one stays for the next, as before.
-if (shards > 1) {
-  await Promise.all(sessions.map((session) => Bun.spawn([herdr, "--session", session, "server", "stop"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).exited));
-}
+// The sessions `<session>-<n>` exist for this run only.
+await Promise.all(sessions.map((session) => Bun.spawn([herdr, "--session", session, "server", "stop"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).exited));
 console.log(`\nintegration: ${totals.pass} pass, ${totals.fail} fail, ${totals.skip} skip in ${selected.length} files, ${shards} at a time, ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
 for (const file of failed) console.log(`FAILED ${file}`);
 for (const file of unread) console.log(`NO RESULT ${file}`);
