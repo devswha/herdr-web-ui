@@ -250,6 +250,8 @@ try {
   assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
   await page.getByRole("button", { name: "Close PC setup", exact: true }).click();
   await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor({ state: "hidden" });
+  // its trigger went with Settings: focus lands on the header's workspace-list toggle instead of nowhere
+  await until(async () => await page.evaluate(() => document.activeElement?.matches(".sidebar-toggle, .drawer-toggle") ?? false), "focus returns to the workspace-list toggle after Add PC closes");
   console.log("PASS Add PC opens from Settings, and the sidebar has no top bar");
 
   // the bell turns this device's alerts on, and off again (it stayed disabled once on)

@@ -430,8 +430,8 @@ One set for both themes: the card is island black wherever it shows.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not
   per keystroke.
 - Remote PCs follows Devices: an **Add PC** row (label, one-line description, button) opens the PC
-  setup dialog and closes Settings behind it; under it, once the server has answered, the bridge
-  auto-update switch.
+  setup dialog and closes Settings behind it; when that dialog closes, focus lands on the header's
+  workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
   hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--bg-elevated` header

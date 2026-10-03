@@ -144,6 +144,18 @@ export function App() {
   const machinesRef = useRef(machines); machinesRef.current = machines;
   const [updateRemote, setUpdateRemote] = useState(false);
   const [machineDialog, setMachineDialog] = useState<Machine | "new" | null>(null);
+  // Add PC from Settings or the palette leaves no trigger to return focus to once its dialog
+  // closes (Settings closed when it opened): the header's workspace-list toggle stands in
+  const addPcFocusReturn = useRef(false);
+  const drawerToggleRef = useRef<HTMLButtonElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const closeMachineDialog = useCallback(() => {
+    setMachineDialog(null);
+    if (!addPcFocusReturn.current) return;
+    addPcFocusReturn.current = false;
+    // once React has taken the dialog out of the top layer; the toggle the viewport shows
+    window.requestAnimationFrame(() => [drawerToggleRef.current, sidebarToggleRef.current].find((toggle) => toggle && toggle.getClientRects().length > 0)?.focus());
+  }, []);
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -556,6 +568,7 @@ export function App() {
         // the new PC reports its progress in the sidebar: nothing should sit over it
         setSettingsOpen(false);
         setUpdateRemote(false);
+        addPcFocusReturn.current = true;
         setMachineDialog("new");
       },
       toggleSidebar: () => {
@@ -605,6 +618,7 @@ export function App() {
     <MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <header className="app-header">
         <button
+          ref={drawerToggleRef}
           type="button"
           className="icon-button drawer-toggle"
           aria-label={t(drawerOpen ? "Close workspace list" : "Open workspace list")}
@@ -615,6 +629,7 @@ export function App() {
           {drawerOpen ? <X /> : <Menu />}
         </button>
         <button
+          ref={sidebarToggleRef}
           type="button"
           className="icon-button header-desktop-only sidebar-toggle"
           aria-label={t(sidebarCollapsed ? "Show workspace list" : "Hide workspace list")}
@@ -745,7 +760,7 @@ export function App() {
           void load();
         }}
       /></MachineContext.Provider>
-      {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={() => setMachineDialog(null)} onConnected={(id) => { setMachineDialog(null); selectTarget(id, null); void load(); }} />}
+      {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={closeMachineDialog} onConnected={(id) => { closeMachineDialog(); selectTarget(id, null); void load(); }} />}
       <Droplet onOpen={(machineId, paneId) => {
         // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
         if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;
