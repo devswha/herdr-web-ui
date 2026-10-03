@@ -408,20 +408,38 @@ function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueF
   });
 }
 
+/**
+ * A question whose options carry a preview (AskUserQuestion's `preview`): the selected option's
+ * preview is drawn in a box to the right of the options, "Notes: press n to add notes" under it,
+ * with no "Type something" row and an unnumbered "Chat about this" (Claude Code 2.1.288).
+ * The box and the notes line are cut off each line, leaving the options as in the plain form.
+ */
+const CLAUDE_PREVIEW_HINT_RE = /\bn to add notes\b/i;
+function withoutPreview(line: string): string {
+  return line.replace(/\s{2,}[┌│└├╭╰].*$/, "").replace(/^\s*Notes:\s.*$/, "");
+}
+
 function parseClaudeQuestion(screen: string): ParsedPrompt | null {
-  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_ASK_HINT_RE.test(wrapped(lines, index)));
+  const raw = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(raw, (_, index) => CLAUDE_ASK_HINT_RE.test(wrapped(raw, index)));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
+  const preview = CLAUDE_PREVIEW_HINT_RE.test(wrapped(raw, hintIndex));
+  const lines = preview ? raw.map(withoutPreview) : raw;
+  // with a preview the options end at the rule above "Chat about this": nothing under it is theirs
+  const end = preview ? findLastIndex(lines.slice(0, hintIndex), (line) => isDivider(line)) : hintIndex;
+  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), end);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const chatIndex = rows.findIndex((row) => row.label === "Chat about this");
   const customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));
-  if (chatIndex !== rows.length - 1 || customIndex !== chatIndex - 1 || customIndex < 1) return null;
+  if (preview) {
+    // its notes are no answer of their own: no typed-answer row, the options are the menu
+    if (customIndex >= 0 || chatIndex >= 0) return null;
+  } else if (chatIndex !== rows.length - 1 || customIndex !== chatIndex - 1 || customIndex < 1) return null;
   const tabs = claudeTabs(lines, rows[0]!.lineIndex);
   const question = claudeQuestionText(lines, tabs?.index ?? -1, rows[0]!.lineIndex) ?? nearestQuestion(lines, rows[0]!.lineIndex);
   const chip = tabs === null ? claudeChip(lines, rows[0]!.lineIndex) : null;
   if (!question) return null;
-  const optionRows = rows.slice(0, customIndex);
+  const optionRows = preview ? rows : rows.slice(0, customIndex);
   const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]!));
   const current = tabs?.tabs.findIndex((tab) => !tab.answered) ?? -1;
   // a bar cut off by a narrow pane does not show how many questions there are
@@ -430,12 +448,12 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   return finishPrompt("claude", {
     kind: "question", title, question, body: null,
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
-    multi_select: multiSelect, custom_option_index: multiSelect ? null : customIndex,
+    multi_select: multiSelect, custom_option_index: multiSelect || preview ? null : customIndex,
   }, {
     responder: "claude-question", menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
-    customMenuIndex: customIndex, rejectWithEscapeIndex: null,
+    customMenuIndex: preview ? null : customIndex, rejectWithEscapeIndex: null,
   });
 }
 

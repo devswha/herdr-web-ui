@@ -709,6 +709,45 @@ cancel
   });
 });
 
+describe("Claude's question with option previews", () => {
+  // live-captured from Claude Code 2.1.288 in a 120-column herdr pane: the selected option's
+  // preview is boxed to the right of the options, and the form has no "Type something" row
+  const withPreview = `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Layout  ☐ Features  ✔ Submit  →
+
+Which layout?
+
+❯ 1. Grid                         ┌──────────────────────────────────────────┐
+  2. List                         │ ┌──┐ ┌──┐                                │
+                                  │ │  │ │  │                                │
+                                  │ └──┘ └──┘                                │
+                                  │ ┌──┐ ┌──┐                                │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel
+`;
+
+  test("reads the options without the preview box and offers no typed answer", () => {
+    const prompt = parseInteractivePrompt("claude", withPreview);
+    expect(prompt).toMatchObject({
+      kind: "question", title: "Layout · 1 of 2", question: "Which layout?",
+      options: [{ label: "Grid", description: null }, { label: "List", description: null }],
+      multi_select: false, custom_option_index: null,
+    });
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    expect(() => answerKeys(prompt!, { custom_text: "x" })).toThrow();
+  });
+
+  test("does not take an answered form above later output for an open one", () => {
+    expect(parseInteractivePrompt("claude", withPreview + "\n● Done.\n\n> ")).toBeNull();
+  });
+});
+
 describe("Claude's unnumbered menus", () => {
   // Claude Code 2.1.285 on a folder it has not seen, as herdr's pane read shows it (live)
   const trust = (selected: 0 | 1 = 0, after = "") => `
