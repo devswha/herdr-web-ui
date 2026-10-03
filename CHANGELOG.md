@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **New worktree** has an **Agent** picker, as New workspace does: the agent you choose starts in
+  the new checkout, and Shell starts none. It opens on the agent you last started. An agent that
+  cannot start leaves the worktree there, with the reason and an **Open** button. Remote PCs
+  start the agent with their next bridge update; until then they make the worktree with a shell.
+  ([#401](https://github.com/devswha/herdr-web-ui/pull/401))
+
 ### Changed
 - A new release is installed from the line that announces it: **Update** starts the install
   there, in place of **View update** and a second button in Settings. The line then shows the

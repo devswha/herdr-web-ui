@@ -103,7 +103,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id, close_group? } -> { ok: true } (close_group takes the
  *         repository's open worktree workspaces with it; without it herdr refuses: workspace_group_close_required)
- *  POST   /api/worktree/create { workspace_id, branch, base?, label?, path? } -> WorktreeOpened
+ *  POST   /api/worktree/create { workspace_id, branch, base?, label?, path?, agent?: { kind, name?, args? } } -> WorktreeOpened
  *         (worktree.create: a git worktree of that workspace's repo, checked out under herdr's
  *         worktree directory unless `path` says where, and opened as a new workspace grouped with it)
  *  GET    /api/worktree/list?workspace_id= -> WorktreeListing (worktree.list: the repo's checkouts)
@@ -425,6 +425,8 @@ export interface CreateWorktreeRequest {
   label?: string | null;
   /** an absolute checkout path; herdr's `<worktrees.directory>/<repo>/<branch>` when absent */
   path?: string | null;
+  /** started in the new workspace's root pane, as /api/workspace/create starts one */
+  agent?: { kind: string; name?: string; args?: string[] } | null;
 }
 
 /** POST /api/worktree/open: one of path or branch names the checkout. */
@@ -442,6 +444,10 @@ export interface WorktreeOpened {
   already_open: boolean;
   path: string;
   branch: string | null;
+  /** create with `agent` only: whether herdr reported it ready in the root pane */
+  agent_started?: boolean;
+  /** The worktree's workspace still exists when its requested agent could not start. */
+  error?: { code: string; message: string };
 }
 
 /** POST /api/worktree/remove: `git worktree remove` of the workspace's checkout; force when git refuses a dirty one. */

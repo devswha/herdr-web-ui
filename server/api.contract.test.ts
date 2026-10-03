@@ -569,12 +569,18 @@ describe("workspace and discovery endpoints", () => {
       const missing = await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id });
       expect(missing.status).toBe(400);
       expect(((await missing.json()) as ApiError).error.code).toBe("missing_branch");
+      const badAgent = await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id, branch: "herdr-web-ui-test-feature", path: checkout, agent: { kind: "muse", args: "--help" } });
+      expect(badAgent.status).toBe(400);
+      expect(((await badAgent.json()) as ApiError).error.code).toBe("invalid_agent");
+      expect(existsSync(checkout)).toBeFalse();
 
       const create = await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id, branch: "herdr-web-ui-test-feature", base: null, label: null, path: checkout });
       expect(create.status).toBe(200);
       const opened = (await create.json()) as WorktreeOpened;
       owned.push(opened.workspace_id);
       expect(opened.already_open).toBeFalse();
+      // no agent was asked for: the answer says nothing about one
+      expect(opened.agent_started).toBeUndefined();
       expect(opened.branch).toBe("herdr-web-ui-test-feature");
       expect(realpathSync(opened.path)).toBe(realpathSync(checkout));
       const child = (await sessionSnapshot()).workspaces.find((workspace) => workspace.workspace_id === opened.workspace_id);
@@ -606,9 +612,13 @@ describe("workspace and discovery endpoints", () => {
       expect(existsSync(checkout)).toBeFalse();
       expect((await sessionSnapshot()).workspaces.some((workspace) => workspace.workspace_id === opened.workspace_id)).toBeFalse();
 
-      // a clean worktree closes with its repository's workspace when the group is meant; its checkout stays
-      const second = (await (await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id, branch: "herdr-web-ui-test-second", path: join(checkouts, "second") })).json()) as WorktreeOpened;
+      // a clean worktree closes with its repository's workspace when the group is meant; its checkout stays.
+      // An agent asked for with the checkout starts in its pane, as one asked for with a workspace does.
+      const second = (await (await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id, branch: "herdr-web-ui-test-second", path: join(checkouts, "second"), agent: { kind: "muse" } })).json()) as WorktreeOpened;
       owned.push(second.workspace_id);
+      expect(second.error).toBeUndefined();
+      expect(second.agent_started).toBeTrue();
+      expect((await herdrRpc<{ agent: { name: string } }>("agent.get", { target: second.pane_id })).agent.name).toStartWith("muse");
       const closedGroup = await post("/api/workspace/close", { workspace_id: parent.workspace.workspace_id, close_group: true });
       expect(closedGroup.status).toBe(200);
       const left = (await sessionSnapshot()).workspaces.map((workspace) => workspace.workspace_id);

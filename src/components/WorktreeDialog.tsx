@@ -1,7 +1,8 @@
 /**
  * A git worktree from a workspace's row menu, as herdr's own prefix+shift+g makes one. "create"
  * asks for the branch and checks it out under herdr's worktree folder, with a branch and a name
- * already filled in the way herdr's own form fills them; "open" lists the repository's checkouts. Either way the checkout becomes a workspace grouped with this one,
+ * already filled in the way herdr's own form fills them, and the agent to start in the checkout
+ * (the one the last creation dialog started; Shell starts none); "open" lists the repository's checkouts. Either way the checkout becomes a workspace grouped with this one,
  * and its pane is selected. Escape and the scrim close the dialog, Tab stays inside it, and
  * focus goes back to the ⋯ afterwards. A checkout git has lost (prunable) is listed but not offered.
  */
@@ -11,8 +12,9 @@ import { GitBranch, X } from "lucide-react";
 
 import "./WorktreeDialog.css";
 
-import type { WorkspaceInfo, WorktreeEntry, WorktreeOpened } from "../../shared/protocol.ts";
+import type { AgentKind, WorkspaceInfo, WorktreeEntry, WorktreeOpened } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
+import { AgentPicker, rememberAgent, rememberedAgent } from "./AgentPicker.tsx";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
 import { suggestWorktreeBranch, worktreeLabel } from "../lib/worktreeName.ts";
@@ -32,7 +34,11 @@ const said = (reason: unknown): string => reason instanceof ApiError ? reason.de
 export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
   const t = useT();
   const id = useId();
-  const { createWorktree, listWorktrees, openWorktree } = useMachineApi();
+  const { createWorktree, fetchAgentKinds, listWorktrees, openWorktree } = useMachineApi();
+  const [agents, setAgents] = useState<AgentKind[]>([]);
+  const [agentKind, setAgentKind] = useState(rememberedAgent);
+  // the checkout whose agent did not start: it is there, and the button opens it
+  const [made, setMade] = useState<WorktreeOpened | null>(null);
   const [branch, setBranch] = useState(suggestWorktreeBranch);
   const [base, setBase] = useState("");
   // null: the name is the branch's until it is typed over
@@ -62,6 +68,8 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
       // another overlay (the palette) over this one owns the keyboard, and Escape, until it goes
       const active = document.activeElement;
       if (active && active !== document.body && !surface.current?.contains(active)) return;
+      // the agent picker's open list takes this Escape: it closes the list, not the dialog
+      if (active?.getAttribute("aria-expanded") === "true") return;
       event.stopPropagation();
       event.preventDefault();
       if (!pending) onClose();
@@ -69,6 +77,20 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose, pending]);
+  useEffect(() => {
+    if (mode !== "create") return;
+    let cancelled = false;
+    fetchAgentKinds().then(
+      (next) => {
+        if (cancelled) return;
+        setAgents(next);
+        // a remembered agent this PC cannot start falls back to a shell
+        setAgentKind((kind) => (kind && !next.some((agent) => agent.kind === kind) ? "" : kind));
+      },
+      (reason: unknown) => { if (!cancelled) setError(said(reason)); },
+    );
+    return () => { cancelled = true; };
+  }, [mode, fetchAgentKinds]);
   useEffect(() => {
     if (mode !== "open") return;
     let cancelled = false;
@@ -83,14 +105,28 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
     if (pending) return;
     setPending(status);
     setError(null);
-    try { onOpened(await request()); }
-    catch (reason: unknown) { setError(said(reason)); setPending(null); }
+    try {
+      const result = await request();
+      if (result.agent_started === false && result.error) {
+        setMade(result);
+        setError(result.error.message);
+        setPending(null);
+        return;
+      }
+      onOpened(result);
+    } catch (reason: unknown) { setError(said(reason)); setPending(null); }
   };
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
+    if (made) { onOpened(made); return; }
     const name = branch.trim();
     if (!name) return;
-    void run(t("Creating the checkout…"), () => createWorktree({ workspace_id: workspace.workspace_id, branch: name, base: base.trim() || null, label: label.trim() || null }));
+    void run(t("Creating the checkout…"), async () => {
+      const result = await createWorktree({ workspace_id: workspace.workspace_id, branch: name, base: base.trim() || null, label: label.trim() || null, agent: agentKind ? { kind: agentKind } : null });
+      // the default follows what actually started: Shell after a plain checkout, an agent only once it runs
+      if (!agentKind || result.agent_started === true) rememberAgent(agentKind);
+      return result;
+    });
   };
   const open = (entry: WorktreeEntry): void => {
     void run(t("Opening…"), () => openWorktree({ workspace_id: workspace.workspace_id, path: entry.path }));
@@ -109,6 +145,7 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
     stops[next]?.focus();
   };
 
+  const locked = pending !== null || made !== null;
   const title = mode === "create" ? t("New worktree · {name}", { name: workspace.label }) : t("Open worktree · {name}", { name: workspace.label });
   // the repository's own checkout is this workspace: the list is the other ones
   const others = entries?.filter((entry) => entry.open_workspace_id !== workspace.workspace_id) ?? null;
@@ -128,19 +165,23 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
               <p className="worktree-lead">{t("A git worktree of this repository, checked out under herdr's worktree folder and opened as a workspace next to this one.")}</p>
               <label className="field">
                 <span className="field-label">{t("Branch")}</span>
-                <input ref={first} className="input" value={branch} disabled={pending !== null} required autoComplete="off" spellCheck={false} onChange={(event) => setBranch(event.target.value)} />
+                <input ref={first} className="input" value={branch} disabled={locked} required autoComplete="off" spellCheck={false} onChange={(event) => setBranch(event.target.value)} />
                 <span className="field-hint">{t("A new branch, or an existing one to check out")}</span>
               </label>
               <label className="field">
                 <span className="field-label">{t("Start from")}</span>
-                <input className="input" value={base} disabled={pending !== null} autoComplete="off" spellCheck={false} placeholder="HEAD" onChange={(event) => setBase(event.target.value)} />
+                <input className="input" value={base} disabled={locked} autoComplete="off" spellCheck={false} placeholder="HEAD" onChange={(event) => setBase(event.target.value)} />
                 <span className="field-hint">{t("A branch, tag or commit; HEAD when empty. Ignored when the branch exists.")}</span>
               </label>
               <label className="field">
                 <span className="field-label">{t("Name")}</span>
-                <input className="input" value={label} disabled={pending !== null} autoComplete="off" onChange={(event) => setTypedLabel(event.target.value)} />
+                <input className="input" value={label} disabled={locked} autoComplete="off" onChange={(event) => setTypedLabel(event.target.value)} />
                 <span className="field-hint">{t("Workspace label; follows the branch until you change it")}</span>
               </label>
+              <div className="field">
+                <span className="field-label" id={`${id}-agent`}>{t("Agent")}</span>
+                <AgentPicker agents={agents} value={agentKind} disabled={locked} labelledBy={`${id}-agent`} onChange={setAgentKind} />
+              </div>
             </>
           ) : others === null && !error ? (
             <p className="field-hint" role="status">{t("Reading worktrees…")}</p>
@@ -167,7 +208,7 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
         </div>
         <footer className="modal-footer">
           <button type="button" className="btn btn-ghost" disabled={pending !== null} onClick={onClose}>{t("Cancel")}</button>
-          {mode === "create" && <button type="submit" className="btn btn-primary" disabled={pending !== null || !branch.trim()}>{t("Create worktree")}</button>}
+          {mode === "create" && <button type="submit" className="btn btn-primary" disabled={pending !== null || (!made && !branch.trim())}>{t(made ? "Open" : "Create worktree")}</button>}
         </footer>
       </form>
     </div>,

@@ -572,6 +572,11 @@ try {
   assert.match(suggested, /^worktree\/[a-z]+-[a-z]+-[0-9a-f]{4}$/);
   assert.equal(await newWorktree.getByLabel(/^Name/).inputValue(), suggested.replace("/", "-"));
   await newWorktree.getByLabel(/^Branch/).fill("herdr-web-ui-test-feature");
+  // the agent to start in the checkout is chosen here; the run takes a shell so nothing is launched
+  const worktreeAgent = newWorktree.getByRole("combobox", { name: "Agent" });
+  await worktreeAgent.click();
+  await page.getByRole("option", { name: "Shell", exact: true }).click();
+  assert.equal((await worktreeAgent.textContent())?.trim(), "Shell");
   assert.equal(await newWorktree.getByLabel(/^Name/).inputValue(), "herdr-web-ui-test-feature");
   const worktreeResponse = page.waitForResponse((response) => response.url().endsWith("/api/worktree/create"));
   await newWorktree.getByRole("button", { name: "Create worktree", exact: true }).click();

@@ -7,6 +7,25 @@ import { AgentMark } from "./AgentMark.tsx";
 /** The shell entry is a program name like the agents beside it, so it stays in English. */
 const SHELL_LABEL = "Shell";
 
+const LAST_AGENT_KEY = "herdr-web-ui:new-session-agent";
+
+/** The agent the last creation dialog started; "" is a plain shell. */
+export function rememberedAgent(): string {
+  try {
+    return window.localStorage.getItem(LAST_AGENT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberAgent(kind: string): void {
+  try {
+    window.localStorage.setItem(LAST_AGENT_KEY, kind);
+  } catch {
+    /* private mode: the choice simply is not remembered */
+  }
+}
+
 export interface AgentPickerProps {
   agents: AgentKind[];
   /** the chosen kind; "" is a plain shell */
