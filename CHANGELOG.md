@@ -25,6 +25,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the page's own audio, so it is heard when a macOS Focus or Do Not Disturb silences system
   notifications. Off until chosen; the tab needs one tap or key before it may play.
   ([#346](https://github.com/devswha/herdr-web-ui/pull/346) by @WOULDU-pres)
+- The guide's **Behind a reverse proxy** shows how to give the app a public HTTPS address with
+  [Portal](https://github.com/gosuda/portal-tunnel) v2.6.0 or later, behind a long random token,
+  and why a PC that runs Tailscale must never run it without that token.
+  ([#229](https://github.com/devswha/herdr-web-ui/pull/229) by @rabbitson87)
 
 ### Fixed
 - On an Android phone, dragging down at the top of a chat no longer reloads the app. The drag
