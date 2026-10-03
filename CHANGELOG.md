@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- `HERDR_WEB_PASTE_DIR` saves pasted and attached files to one directory instead of
+  `.herdr-web-ui/` in each pane's project. It is read by the server, for the panes of its own
+  PC; a remote PC keeps the default.
+  ([#357](https://github.com/devswha/herdr-web-ui/pull/357) by @hank-warren)
+
 ## [0.3.48] - 2026-10-04
 
 ### Added
