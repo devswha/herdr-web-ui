@@ -101,6 +101,23 @@ describe("port", () => {
       expect(existsSync(join(scratch, ".config", "herdr-web-ui", "plugin-port"))).toBe(false);
     } finally { await holder.stop(true); }
   });
+
+  it("follows a start that is coming up on another port instead of opening a second server", async () => {
+    // the app answers on the port the other start fell back to
+    const ours = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) });
+    // the kept port is held by someone else; its first health probe is the moment the other start writes its choice
+    const stranger = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { keep(ours.port!); return new Response(null, { status: 404 }); } });
+    try {
+      keep(stranger.port!);
+      mkdirSync(join(scratch, "state"), { recursive: true });
+      writeFileSync(join(scratch, "state", "server.pid"), `${process.pid}\n`); // the other start's record, alive
+      const started = await run("start");
+      expect(started.out).toContain(`already running at http://127.0.0.1:${ours.port}`);
+      expect(started.exitCode).toBe(0);
+      expect(readFileSync(join(scratch, "state", "server.pid"), "utf8")).toBe(`${process.pid}\n`);
+      expect(readFileSync(join(scratch, ".config", "herdr-web-ui", "plugin-port"), "utf8")).toBe(`${ours.port}\n`);
+    } finally { await Promise.all([ours.stop(true), stranger.stop(true)]); }
+  });
 });
 
 describe("stop", () => {

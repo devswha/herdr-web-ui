@@ -181,6 +181,12 @@ async function settlePort(): Promise<"ready" | "running" | "failed"> {
   // a start still coming up holds the port: wait for it rather than open a second server beside it
   const deadline = Date.now() + READY_TIMEOUT_MS;
   while (recordedPid() !== null && Date.now() < deadline) {
+    // that start may have moved to another port itself: follow its choice, or two servers end up side by side
+    const kept = portSet ? port : savedPort(PORT_FILE) ?? DEFAULT_PORT;
+    if (kept !== port) {
+      port = kept;
+      origin = originOf(port);
+    }
     if (await health()) return "running";
     await Bun.sleep(250);
   }
