@@ -1332,16 +1332,15 @@ describe("the fallback card for a blocked pane no reader knows", () => {
   ].join("\n");
   const idOf = (screen: string) => parseFallbackPrompt("claude", screen).id;
 
-  test("keeps its id while only the agent's working line ticks", () => {
+  test("keeps its id while only Claude's working line ticks", () => {
     // the spinner, the time and the token count move on every second; the prompt does not
     const first = parseFallbackPrompt("claude", underWorkingLine("✢ Tempering… (1m 55s · ↓ 10.0k tokens)"));
     expect(idOf(underWorkingLine("✻ Tempering… (1m 58s · ↓ 10.4k tokens)"))).toBe(first.id);
-    expect(idOf(underWorkingLine("· Tempering… (2h 3m 1s · ↓ 1,204 tokens)"))).toBe(first.id);
+    expect(idOf(underWorkingLine("· Tempering… (2h 3m 1s · ↑ 1,204 tokens)"))).toBe(first.id);
+    expect(idOf(underWorkingLine("* Running the tests… (5s · esc to interrupt)"))).toBe(idOf(underWorkingLine("✶ Running the tests… (9s · esc to interrupt)")));
+    expect(idOf(underWorkingLine("✢ Tempering… (5s)"))).toBe(idOf(underWorkingLine("✳ Tempering… (9s)")));
     // the card shows the line as the screen has it
     expect(first.body).toBe("✢ Tempering… (1m 55s · ↓ 10.0k tokens)");
-    // other agents draw it with a bullet or a braille spinner, and another separator
-    expect(idOf(underWorkingLine("• Working (12s • esc to interrupt)"))).toBe(idOf(underWorkingLine("• Working (47s • esc to interrupt)")));
-    expect(idOf(underWorkingLine("⠋ Thinking... (3s)"))).toBe(idOf(underWorkingLine("⠹ Thinking... (9s)")));
     // the keys card holds the line among its last ones, and as its question when nothing asks
     const keys = (working: string) => ["Apply the migration to the staging database", working, "Proceed? (y/n)"].join("\n");
     expect(idOf(keys("✢ Tempering… (5s · ↓ 1.0k tokens)"))).toBe(idOf(keys("✶ Tempering… (9s · ↓ 1.3k tokens)")));
@@ -1355,18 +1354,37 @@ describe("the fallback card for a blocked pane no reader knows", () => {
     expect(idOf(underWorkingLine("✢ Deleting staging… (5s · ↓ 1.0k tokens)"))).not.toBe(idOf(underWorkingLine("✢ Deleting production… (5s · ↓ 1.0k tokens)")));
     // the row the cursor is on: Enter would pick another one
     expect(idOf(underWorkingLine(working, 0))).not.toBe(idOf(underWorkingLine(working, 1)));
-    // a part of the line that is neither the time nor the token count
-    expect(idOf(underWorkingLine("✢ Building… (12s · 3 files)"))).not.toBe(idOf(underWorkingLine("✢ Building… (12s · 4 files)")));
-    // a time that is no working line's: in a command, in parentheses without a separator, or on
-    // a line with neither a spinner nor an ellipsis
-    expect(idOf(underWorkingLine("$ sleep 30s"))).not.toBe(idOf(underWorkingLine("$ sleep 60s")));
-    expect(idOf(underWorkingLine("Waiting… (30s timeout)"))).not.toBe(idOf(underWorkingLine("Waiting… (60s timeout)")));
-    expect(idOf(underWorkingLine("Tests passed (12s · 3 files)"))).not.toBe(idOf(underWorkingLine("Tests passed (13s · 3 files)")));
-    expect(idOf(underWorkingLine("Budget: 10.0k tokens"))).not.toBe(idOf(underWorkingLine("Budget: 90.0k tokens")));
+    // the tokens appearing or the hint going is a change of the line, once
+    expect(idOf(underWorkingLine("✢ Tempering… (5s)"))).not.toBe(idOf(underWorkingLine(working)));
     // what is asked about, named above the lines the keys card shows, under a line that ticks
     const keys = (target: string, time: string) => [`Delete ${target}`, ...Array.from({ length: 15 }, (_, i) => `detail ${i}`), `✢ Tempering… (${time} · ↓ 1.0k tokens)`, "Proceed? (y/n)"].join("\n");
     expect(idOf(keys("staging", "5s"))).toBe(idOf(keys("staging", "9s")));
     expect(idOf(keys("staging", "5s"))).not.toBe(idOf(keys("production", "9s")));
+  });
+
+  test("reads every line that is not Claude's working line to the letter", () => {
+    const differ = (one: string, other: string) => expect(idOf(underWorkingLine(one))).not.toBe(idOf(underWorkingLine(other)));
+    // a time in a command, in parentheses of another kind, or on a line with no spinner or no ellipsis
+    differ("$ sleep 30s", "$ sleep 60s");
+    differ("Waiting… (30s timeout)", "Waiting… (60s timeout)");
+    differ("Tests passed (12s · 3 files)", "Tests passed (13s · 3 files)");
+    differ("Tempering… (5s · ↓ 1.0k tokens)", "Tempering… (9s · ↓ 1.0k tokens)");
+    differ("✢ Tempering (5s · ↓ 1.0k tokens)", "✢ Tempering (9s · ↓ 1.0k tokens)");
+    // a duration that is offered, not one that has passed: anything else after the time
+    differ("✢ Restarting… (5s · downtime)", "✢ Restarting… (300s · downtime)");
+    differ("• Restart service (5s · downtime)", "• Restart service (300s · downtime)");
+    // an amount of tokens that is asked about: no arrow, or not on a working line
+    differ("✢ Purchasing… (5s · 10 tokens)", "✢ Purchasing… (5s · 100000 tokens)");
+    differ("• Purchase credits (5s · 10 tokens)", "• Purchase credits (5s · 100000 tokens)");
+    differ("Budget: 10.0k tokens", "Budget: 90.0k tokens");
+    // another program's working line is not known to be one
+    differ("• Working (12s • esc to interrupt)", "• Working (47s • esc to interrupt)");
+    differ("⠋ Thinking... (3s)", "⠹ Thinking... (9s)");
+    // bullets that mark the selected row are no spinner frames: the selection stays in the id
+    const marked = (selected: number) => ["Choose operation", ...["Delete all", "Cancel"].map((label, index) => `${index === selected ? "•" : "◦"} ${label} (5s · irreversible)`), "Use ↑/↓ then Enter"].join("\n");
+    expect(idOf(marked(0))).not.toBe(idOf(marked(1)));
+    const starred = (selected: number) => ["Choose operation", ...["Delete all…", "Cancel…"].map((label, index) => `${index === selected ? "*" : "·"} ${label}`), "Use ↑/↓ then Enter"].join("\n");
+    expect(idOf(starred(0))).not.toBe(idOf(starred(1)));
   });
 });
 

@@ -1566,32 +1566,27 @@ const MENU_WRAP_LINES = 2;
 /** a line that is an input box or quoted output rather than a prompt's own text */
 const NOT_PROMPT_TEXT_RE = /^(?:[❯›>"'“]|\$ )/;
 
-/** the frames an agent's spinner turns through, and the bullets some draw in its place */
-const SPINNER_RE = /^[·✢✳✶✻✽*•◦\u2800-\u28ff]$/u;
 /**
- * A working line's end: in parentheses, how long the agent has worked, then maybe more, each part
- * after a separator ("(1m 55s · ↓ 10.0k tokens)", "(12s • esc to interrupt)"). Without a separator
- * it is some other text in parentheses ("(30s timeout)"), which is left alone.
+ * Claude Code's working line, whole: one of its spinner's frames, what it is doing ending in an
+ * ellipsis, and in parentheses the time it has taken, then maybe the tokens it has used and the
+ * interrupt hint, each after " · ": "✢ Tempering… (1m 55s · ↓ 10.0k tokens)".
  */
-const WORKING_END_RE = /^(.*\S) \((?:\d+h ?)?(?:\d+m ?)?\d+s((?: [·•|] [^()]*)?)\)$/u;
+const WORKING_LINE_RE = /^[·✢✳✶✻✽*] (\S(?:.*\S)?…) \((?:\d+h )?(?:\d+m )?\d+s( · [↑↓] [\d.,]+[kKmM]? tokens)?( · esc to interrupt)?\)$/u;
 
 /**
- * A line as a fallback card's id reads it. An agent that waits on a prompt may still show the line
- * that says what it is working on, with a spinner, the time taken and a token count: "✢ Tempering…
- * (1m 55s · ↓ 10.0k tokens)". Those three change every second or so while the prompt stays the
- * same, and an id that took them in refused each answer tapped after a tick as stale (#365). Only
- * they are blanked, and only on a line of that shape: one that begins with a spinner or whose text
- * ends in an ellipsis, and ends in the parentheses above. The words stay, so "Deleting staging…"
- * is never "Deleting production…", and a number anywhere else on the screen (a command's
- * `sleep 30s`, a count of files) still makes another card.
+ * A line as a fallback card's id reads it. Claude Code keeps its working line on the screen while
+ * it waits on a prompt, and the line's spinner, time and token count change every second or so. An
+ * id that took them in refused each answer tapped after a tick as stale (#365). They are blanked on
+ * that line alone, and it has to be that line to the letter: a bullet or a marker that is no
+ * spinner frame, text that does not end in an ellipsis, a time followed by anything else ("5s ·
+ * downtime"), or a count without its arrow ("10 tokens") is some other line, hashed whole. The
+ * words stay, so "Deleting staging…" is never "Deleting production…".
  */
 function steadyLine(line: string): string {
-  const end = WORKING_END_RE.exec(line);
-  if (!end) return line;
-  const [, start = "", rest = ""] = end;
-  const spinner = start.length > 2 && start[1] === " " && SPINNER_RE.test(start[0]!);
-  if (!spinner && !/(?:…|\.\.\.)$/.test(start)) return line;
-  return `${spinner ? `*${start.slice(1)}` : start} (<time>${rest.replace(/[\d.,]+[kKmM]?(?= tokens\b)/g, "<n>")})`;
+  const working = WORKING_LINE_RE.exec(line);
+  if (!working) return line;
+  const [, doing, tokens, hint] = working;
+  return `* ${doing} (<time>${tokens ? " · <tokens>" : ""}${hint ?? ""})`;
 }
 
 function steadyText(text: string | null | undefined): string | null {
