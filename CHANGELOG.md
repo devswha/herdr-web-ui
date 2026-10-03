@@ -39,6 +39,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A notice the agent's runtime puts into a chat is titled by what it says. Every one read
   **Background result delivered**, also OmO's model-profile warning and gjc's incoming messages.
   Only a background result keeps that title; any other notice shows its own first line.
+  ([#418](https://github.com/devswha/herdr-web-ui/pull/418), [#344](https://github.com/devswha/herdr-web-ui/pull/344) by @Haeminway1)
 - The bell says what this device does. It read as off while in-app alerts still dropped in,
   on a browser that had not been asked for notification permission, and it was missing where
   notifications are blocked or unsupported (plain http). It now reads **Alerts on in the app
