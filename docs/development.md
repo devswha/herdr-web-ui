@@ -181,7 +181,7 @@ Release tags must not be moved or deleted. These GitHub settings are separate fr
 in the checkout.
 
 The [CodeRabbit configuration](../.coderabbit.yaml) reviews non-draft PRs, reads the committed
-[review guidelines](../.github/REVIEW.md) and any available AGENTS.md,
+[review guidelines](../.github/REVIEW.md) and the AGENTS.md files,
 and focuses on protocol, permissions and terminal lifecycle regressions. Generated output
 and media are excluded. Enable the [CodeRabbit GitHub App](https://github.com/apps/coderabbitai)
 for this repository to activate it; the YAML alone does not install the app. Reassess

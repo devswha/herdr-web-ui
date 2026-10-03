@@ -26,5 +26,6 @@ AI review is advisory; CI and maintainer review determine whether a PR can merge
   `package.json` scripts and dependency changes. Workflows must keep read-only PR
   permissions and never add a `pull_request_target` trigger.
 
-[CONTRIBUTING.md](../CONTRIBUTING.md) is the process contributors follow. Maintainers may
-keep local AGENTS.md notes, but a PR is held only to rules committed in this repository.
+[CONTRIBUTING.md](../CONTRIBUTING.md) is the process contributors follow. The
+[AGENTS.md](../AGENTS.md) files give these invariants with their reasons and the conventions
+of each directory. A PR is held only to rules committed in this repository.

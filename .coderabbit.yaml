@@ -20,7 +20,7 @@ reviews:
   path_instructions:
     - path: 'server/**'
       instructions: >-
-        Follow .github/REVIEW.md and any available AGENTS.md. Never load node-pty in Bun or pass
+        Follow .github/REVIEW.md and the AGENTS.md files. Never load node-pty in Bun or pass
         --takeover to herdr terminal attach. Verify attach cancellation, shared
         pending attaches and last-client cleanup. Observe clients must never send
         input or resize a pane. Each RPC uses a fresh socket; subscriptions alone
@@ -28,7 +28,7 @@ reviews:
         Malformed VAPID state must fail without rotating the key.
     - path: 'src/**'
       instructions: >-
-        Follow .github/REVIEW.md and any available AGENTS.md. Never queue terminal input while
+        Follow .github/REVIEW.md and the AGENTS.md files. Never queue terminal input while
         disconnected. Render the append-only PTY stream with term.write, with
         xterm scrollback zero. Keep observe and ended panes read-only. Preserve
         IME input and native clipboard behavior. Use the existing theme tokens.

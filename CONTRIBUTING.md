@@ -5,8 +5,9 @@ security problems never do: see [SECURITY.md](SECURITY.md). For a larger change,
 the approach can be agreed before you build it. Small fixes can go straight to a PR.
 
 Everything a PR is checked against is in this repository: this file, the
-[review rules](.github/REVIEW.md), the [development guide](docs/development.md) and
-[DESIGN.md](DESIGN.md). An `AGENTS.md` a maintainer keeps locally never adds rules a PR is held to.
+[review rules](.github/REVIEW.md), the [development guide](docs/development.md),
+[DESIGN.md](DESIGN.md) and the `AGENTS.md` files ([root](AGENTS.md), [server](server/AGENTS.md),
+[src](src/AGENTS.md)), which hold the invariants that people and coding agents both follow.
 Contributions are licensed under the repository's [MIT license](LICENSE). Say in the PR when code is
 adapted from another project, with its license.
 

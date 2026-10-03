@@ -117,7 +117,7 @@ herdr가 실행 중인 상태에서 **[localhost:7317](http://localhost:7317)**�
 
 ## 에이전트용 안내
 
-누군가의 설치를 돕고 있다면 [INSTALL.md](INSTALL.md)를 따르세요. 저장소를 바꿀 때는 [CONTRIBUTING.md](CONTRIBUTING.md)와 커밋된 [리뷰 규칙](.github/REVIEW.md)을 따르고, 로컬에 `AGENTS.md`가 있으면 그 지침도 따르세요.
+누군가의 설치를 돕고 있다면 [INSTALL.md](INSTALL.md)를 따르세요. 저장소를 바꿀 때는 [CONTRIBUTING.md](CONTRIBUTING.md), [리뷰 규칙](.github/REVIEW.md), [AGENTS.md](AGENTS.md)를 따르세요.
 
 <a id="development"></a>
 

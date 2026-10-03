@@ -116,7 +116,7 @@ Thanks to everyone who has contributed, including [@Yoonwoo-Ha](https://github.c
 
 ## agent instructions
 
-Helping someone install the app? Follow [INSTALL.md](INSTALL.md). For repository changes, follow [CONTRIBUTING.md](CONTRIBUTING.md) and the committed [review rules](.github/REVIEW.md), plus the local `AGENTS.md` instructions when present.
+Helping someone install the app? Follow [INSTALL.md](INSTALL.md). For repository changes, follow [CONTRIBUTING.md](CONTRIBUTING.md), the [review rules](.github/REVIEW.md) and [AGENTS.md](AGENTS.md).
 
 ## development
 
