@@ -17,6 +17,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Choose the terminal input line or direct typing on desktop as well as touch screens, and
   customize or unbind the app's Mod+Shift shortcuts with conflict checks and reset.
   ([#334](https://github.com/devswha/herdr-web-ui/pull/334))
+- A pane another web UI server has open (a Mac's server beside this PC's, on the same herdr)
+  offers Open here on its waiting notice, which takes the terminal from that server. The server it
+  was taken from waits in turn, with the same button, instead of ending the terminal.
 
 ### Changed
 - In the sidebar's By workspace view, a workspace with one pane keeps its numbered header and

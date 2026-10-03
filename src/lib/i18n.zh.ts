@@ -435,6 +435,8 @@ export const ZH: Record<string, string> = {
   "Select a pane to open its terminal": "选择一个窗格以打开其终端",
   "Reconnect": "重新连接",
   "Another app has this pane open. It connects here as soon as that app lets go.": "另一个应用正打开此窗格。它一松开，这里就会立即连接。",
+  "Open here": "在此打开",
+  "Take this pane from the other app. It disconnects there and waits in turn.": "从另一个应用接管此窗格。那边会断开连接并进入等待状态。",
   "Input held until the terminal is ready:": "终端就绪前保留的输入：",
   "{count} special key dropped": "已丢弃 {count} 个特殊按键",
   "{count} special keys dropped": "已丢弃 {count} 个特殊按键",

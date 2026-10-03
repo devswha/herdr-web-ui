@@ -75,6 +75,33 @@ it("requires attachment readiness and never replays held input after a detach", 
   client.close();
 });
 
+it("takes a held pane only from a server that knows how, while interacting with an attached pane", () => {
+  const takes = (socket: FakeSocket) => socket.sent.filter((m) => m.type === "take-over");
+  const old = new HerdrSocket("ws://test/ws");
+  old.connect();
+  const oldSocket = FakeSocket.last;
+  oldSocket.open();
+  oldSocket.receive(snapshot(["submit", "input-ready"]));
+  old.attach("w1:p1", 80, 24);
+  expect(old.canTakeOver()).toBe(false);
+  expect(old.takeOver("w1:p1")).toBe(false);
+  expect(takes(oldSocket)).toEqual([]);
+  old.close();
+
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["submit", "input-ready", "take-over"]));
+  expect(client.takeOver("w1:p1")).toBe(false);
+  client.attach("w1:p1", 80, 24);
+  expect(client.takeOver("w1:p1")).toBe(true);
+  client.setMode("observe");
+  expect(client.takeOver("w1:p1")).toBe(false);
+  expect(takes(socket)).toEqual([{ type: "take-over", pane_id: "w1:p1" }]);
+  client.close();
+});
+
 it("waits for capabilities when output precedes snapshot, and supports old bridges", () => {
   for (const features of [["input-ready"], []]) {
     const client = new HerdrSocket("ws://test/ws"); client.connect();

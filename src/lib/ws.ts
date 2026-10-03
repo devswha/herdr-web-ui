@@ -228,6 +228,18 @@ export class HerdrSocket {
     this.send({ type: "resize", pane_id: paneId, cols, rows });
   }
 
+  /** Whether this connection may take a held pane from another web bridge: a server that knows how, and not observing. */
+  canTakeOver(): boolean {
+    return this.connected && this.mode === "interact" && this.features.has("take-over");
+  }
+
+  /** Takes the pane's terminal from the other web bridge that holds it; that bridge then waits in turn. */
+  takeOver(paneId: string): boolean {
+    if (!this.canTakeOver() || !this.attached.has(paneId)) return false;
+    this.rawSend({ type: "take-over", pane_id: paneId });
+    return true;
+  }
+
   /** Sets the connection's role. Not queued: the role replays before the attaches on reconnect. */
   setMode(mode: ClientRole): void {
     this.mode = mode;
