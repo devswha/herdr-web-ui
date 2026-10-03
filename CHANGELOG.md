@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.45] - 2026-10-03
+
 ### Added
 - **Settings → herdr → Update herdr** updates herdr itself from the app, on the PC the app runs
   on (Linux and macOS). herdr refuses `herdr update` typed into one of its panes, and every
@@ -1512,7 +1514,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...HEAD
+[0.3.45]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...v0.3.45
 [0.3.44]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...v0.3.44
 [0.3.43]: https://github.com/devswha/herdr-web-ui/compare/v0.3.42...v0.3.43
 [0.3.42]: https://github.com/devswha/herdr-web-ui/compare/v0.3.41...v0.3.42
