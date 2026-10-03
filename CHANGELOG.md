@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a desktop the terminal no longer has a bar under it holding one keyboard button. The input
   line or direct typing is still chosen in Settings → Terminal input mode, and a touch screen
   keeps the button in its key bar.
+  ([#372](https://github.com/devswha/herdr-web-ui/pull/372))
 
 ## [0.3.44] - 2026-10-03
 
