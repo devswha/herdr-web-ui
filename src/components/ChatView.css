@@ -15,6 +15,9 @@
   inset: 0;
   z-index: 1;
   overflow-y: auto;
+  /* at its top, a drag down for older messages is still the transcript's: handed on to the
+     page, Android Chrome takes it for pull-to-refresh and reloads the app */
+  overscroll-behavior: contain;
   padding: var(--space-4) var(--space-4) var(--space-5);
   background: var(--bg);
   --chat-fs-2xs: calc(var(--fs-2xs) * var(--chat-scale, 1));

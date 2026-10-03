@@ -32,6 +32,8 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
     await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
     const composer = page.getByRole("textbox", { name: "Message", exact: true });
     await composer.waitFor();
+    assert.equal(await page.locator(".chat-view").evaluate((node) => getComputedStyle(node).overscrollBehaviorY), "contain",
+      "a drag past the transcript's top stays in the transcript, or Android Chrome reloads the app");
     const blur = () => page.evaluate(() => { (document.activeElement as HTMLElement)?.blur(); });
     const height = (value: number) => page.evaluate((value) => (window as ViewportQA).viewportQA.resize(value), value);
     const shell = async (keyboard: boolean, appHeight: string, pixels: number) => {
