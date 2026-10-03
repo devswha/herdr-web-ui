@@ -7,15 +7,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-<<<<<<< HEAD
-### Removed
-- The plan meters no longer have a place at the top of the sidebar. **Settings → Subscription
-  usage → Where** is gone and the meters stay beside Settings, where a tap still lists every
-  limit with its reset time. A device that had chosen the top goes back to the chips.
-  ([#407](https://github.com/devswha/herdr-web-ui/pull/407))
-
-||||||| 04292b8
-=======
 ### Changed
 - A new release is installed from the line that announces it: **Update** starts the install
   there, in place of **View update** and a second button in Settings. The line then shows the
@@ -23,8 +14,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   restarting), as Settings → Updates does, and ends on **Reload app**. An install that fails
   offers **Try again** and **Details**.
   ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
+- The plan meters no longer have a place at the top of the sidebar. **Settings → Subscription
+  usage → Where** is gone and the meters stay beside Settings, where a tap still lists every
+  limit with its reset time. A device that had chosen the top goes back to the chips.
+  ([#407](https://github.com/devswha/herdr-web-ui/pull/407))
 
->>>>>>> main
 ### Fixed
 - On an iPhone the image viewer's controls and the composer stay inside the usable screen: the
   viewer is bounded by the safe-area insets and the keyboard's height, the keyboard is told from
