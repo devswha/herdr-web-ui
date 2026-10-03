@@ -986,7 +986,8 @@ export function createServer(
           if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
-          bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : 80);
+          // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
+          bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : pathname.endsWith("/worktree/create") ? 180 : 80);
           const deviceId = access.level === "full" ? access.device?.id : undefined;
           const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : undefined);
           response.headers.set("cache-control", "no-store");

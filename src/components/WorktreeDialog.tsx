@@ -121,8 +121,12 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
     if (made) { onOpened(made); return; }
     const name = branch.trim();
     if (!name) return;
-    rememberAgent(agentKind);
-    void run(t("Creating the checkout…"), () => createWorktree({ workspace_id: workspace.workspace_id, branch: name, base: base.trim() || null, label: label.trim() || null, agent: agentKind ? { kind: agentKind } : null }));
+    void run(t("Creating the checkout…"), async () => {
+      const result = await createWorktree({ workspace_id: workspace.workspace_id, branch: name, base: base.trim() || null, label: label.trim() || null, agent: agentKind ? { kind: agentKind } : null });
+      // the default follows what actually started: Shell after a plain checkout, an agent only once it runs
+      if (!agentKind || result.agent_started === true) rememberAgent(agentKind);
+      return result;
+    });
   };
   const open = (entry: WorktreeEntry): void => {
     void run(t("Opening…"), () => openWorktree({ workspace_id: workspace.workspace_id, path: entry.path }));
