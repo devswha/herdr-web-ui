@@ -415,6 +415,8 @@ export const JA: Record<string, string> = {
   "Queue": "キュー",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "未送信: エージェントがターミナルで回答を待っています。先に回答してください。",
   "Not sent: this view only watches the pane.": "未送信: この画面はペインを閲覧するだけです。",
+  "Not sent: comments go to an agent only, and none runs in this pane now.": "未送信: コメントはエージェントにのみ送信されますが、このペインでは今エージェントが動いていません。",
+  "Not sent: update this PC to send comments.": "未送信: コメントを送るには、この PC のアプリを更新してください。",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "未送信: 前のメッセージの後で長く待ちすぎたため、何も入力されませんでした。もう一度送信してください。",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "未確認: ペインがこのメッセージを確認しませんでした。再送信する前にターミナルを確認してください。",
   "Not sent: {message}": "未送信: {message}",

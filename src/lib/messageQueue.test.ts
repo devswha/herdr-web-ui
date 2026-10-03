@@ -85,3 +85,15 @@ it("reports failed persistence without throwing away the in-memory queue", () =>
   queue.refresh("a");
   expect(queue.read("a")[0]!.text).toBe("keep me");
 });
+
+it("keeps a message that carries comments agent-only through edits and a reload, and nothing else", () => {
+  const { queue, data, storage } = fixture();
+  queue.add("a", "> quoted\ncomment", { agentOnly: true });
+  queue.add("a", "plain");
+  const [held] = queue.read("a");
+  queue.edit("a", held!.id, "> quoted\nedited");
+  expect(new MessageQueueStore(() => storage).read("a").map((m) => [m.text, m.agentOnly === true])).toEqual([["> quoted\nedited", true], ["plain", false]]);
+  // a hand-edited flag that is not exactly true reads as a plain message
+  data.set("herdr-web-ui:queue:b", JSON.stringify({ version: 1, messages: [{ id: "x", text: "t", agentOnly: "yes" }] }));
+  expect(new MessageQueueStore(() => storage).read("b")).toEqual([{ id: "x", text: "t" }]);
+});

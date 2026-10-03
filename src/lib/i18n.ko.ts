@@ -413,6 +413,8 @@ export const KO: Record<string, string> = {
   "Queue": "대기",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "보내지 않음: 에이전트가 터미널에서 답을 기다리고 있습니다. 먼저 답하세요.",
   "Not sent: this view only watches the pane.": "보내지 않음: 이 화면은 패널을 보기만 합니다.",
+  "Not sent: comments go to an agent only, and none runs in this pane now.": "보내지 않음: 댓글은 에이전트에게만 보내지는데, 지금 이 패널에서 실행 중인 에이전트가 없습니다.",
+  "Not sent: update this PC to send comments.": "보내지 않음: 댓글을 보내려면 이 PC의 앱을 업데이트하세요.",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "보내지 않음: 앞선 메시지 뒤에서 너무 오래 기다렸고 아무것도 입력되지 않았습니다. 다시 보내세요.",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "확인되지 않음: 패널이 이 메시지를 확인하지 않았습니다. 다시 보내기 전에 터미널을 확인하세요.",
   "Not sent: {message}": "보내지 않음: {message}",

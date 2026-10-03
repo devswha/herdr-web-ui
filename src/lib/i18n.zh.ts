@@ -417,6 +417,8 @@ export const ZH: Record<string, string> = {
   "Queue": "排队",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "未发送：Agent 正在终端中等待回答。请先回答。",
   "Not sent: this view only watches the pane.": "未发送：此视图仅用于查看窗格。",
+  "Not sent: comments go to an agent only, and none runs in this pane now.": "未发送：评论只发送给代理，而此窗格中现在没有运行的代理。",
+  "Not sent: update this PC to send comments.": "未发送：请更新此电脑上的应用以发送评论。",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "未发送：在前一条消息之后等待过久，且未输入任何内容。请重新发送。",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "未确认：窗格未确认此消息。重新发送前请检查终端。",
   "Not sent: {message}": "未发送：{message}",

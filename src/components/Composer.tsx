@@ -54,8 +54,10 @@ export interface ComposerProps {
   answerHint?: string | null;
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
   suggestion?: string | null;
-  /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
-  onSend: (text: string) => boolean | string | Promise<boolean | string>;
+  /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either.
+   * `agentOnly`: the text carries comments, which quote the reply: it goes to an agent only,
+   * queued or not, never typed into a shell */
+  onSend: (text: string, options?: { agentOnly?: boolean }) => boolean | string | Promise<boolean | string>;
   onAbort: () => void;
   onUploadImage: (file: File) => Promise<string>;
 }
@@ -570,7 +572,7 @@ export function Composer({
     // a polish landing before the acknowledgement would count as an edit and keep the sent message here
     dictation.forget();
     try {
-      const result = onSend(message);
+      const result = onSend(message, { agentOnly: sentIds.length > 0 });
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
     } catch {

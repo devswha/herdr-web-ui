@@ -24,7 +24,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   them first, each quoting its part, in reading order. A command or an answer to the agent's open
   question goes without them; they wait for the next message. They only ever go to an agent: when
   none runs in the pane, what is typed goes alone (a shell would run the quoted lines), and its
-  terminal output takes no comments. Comments are kept per pane on this device.
+  terminal output takes no comments. A message with comments queued during a turn keeps that
+  rule: if the agent is gone by the time it is sent, it is refused and stays in the queue rather
+  than being typed into the pane. Comments are kept per pane on this device.
+  ([#409](https://github.com/devswha/herdr-web-ui/pull/409) by @aNNdii)
 
 ### Fixed
 - On an Android phone, dragging down at the top of a chat no longer reloads the app. The drag
@@ -32,7 +35,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   through a conversation kept ending in a reload.
   ([#413](https://github.com/devswha/herdr-web-ui/pull/413))
 - Delete and other danger buttons no longer turn grey like the buttons beside them when the
-  pointer is over them.
+  pointer is over them. ([#409](https://github.com/devswha/herdr-web-ui/pull/409) by @aNNdii)
 
 ## [0.3.48] - 2026-10-04
 

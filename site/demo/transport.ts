@@ -464,7 +464,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "secret-input", "input-ready"] });
+      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "secret-input", "input-ready", "submit-agent-only"] });
     }, 20);
     this.timers.add(opening);
   }
