@@ -1,5 +1,6 @@
 /** Held messages are explicitly sent, never dispatched by reconnects or status changes. */
-export interface HeldMessage { id: string; text: string }
+/** `agentOnly`: it carries comments quoting the agent's reply, so it goes to an agent only, never a shell. */
+export interface HeldMessage { id: string; text: string; agentOnly?: true }
 type QueueStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 const newId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
@@ -57,7 +58,7 @@ export class MessageQueueStore {
           const value = item as HeldMessage;
           if (typeof value.id !== "string" || typeof value.text !== "string" || ids.has(value.id)) return false;
           ids.add(value.id); return true;
-        });
+        }).map((value: HeldMessage) => ({ id: value.id, text: value.text, ...(value.agentOnly === true ? { agentOnly: true as const } : {}) }));
       }
     } catch { /* previous versions stored a single plain-text message */ }
     this.saved.set(owner, raw);
@@ -78,9 +79,9 @@ export class MessageQueueStore {
     for (const listener of this.listeners) listener();
   }
 
-  add(owner: string, text: string): void {
+  add(owner: string, text: string, { agentOnly = false }: { agentOnly?: boolean } = {}): void {
     this.refresh(owner);
-    this.write(owner, [...this.read(owner), { id: newId(), text }]);
+    this.write(owner, [...this.read(owner), { id: newId(), text, ...(agentOnly ? { agentOnly: true as const } : {}) }]);
   }
   edit(owner: string, id: string, text: string): void {
     this.refresh(owner);

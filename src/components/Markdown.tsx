@@ -1,11 +1,15 @@
-import { useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, Copy } from "lucide-react";
+import { useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import { Check, Copy, MessageSquare, MessageSquarePlus } from "lucide-react";
 import katex from "katex";
+
+import "./BlockComments.css";
 
 import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { useT } from "../lib/i18n.ts";
+import { BlockCommentContext, blockComments, blockTarget, useBlockComment, type CommentTarget } from "../lib/blockComments.ts";
+import { CommentEditor } from "./CommentEditor.tsx";
 
 function MathExpression({ value, displayMode = false }: { value: string; displayMode?: boolean }) {
   try {
@@ -58,17 +62,27 @@ function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactiv
   })}</>;
 }
 
-function List({ block }: { block: ListBlock }) {
+/** A list; each item is commentable on its own (`ItemView`), the list as a whole is not. */
+function List({ block, path, commentable }: { block: ListBlock; path: number[]; commentable: boolean }) {
   const Tag = block.ordered ? "ol" : "ul";
   return (
     <Tag className="markdown-list" start={block.ordered ? block.start : undefined}>
-      {block.items.map((item, index) => (
-        <li key={index}>
-          <Inline nodes={item.content} />
-          {item.blocks !== undefined && <Blocks blocks={item.blocks} />}
-        </li>
-      ))}
+      {block.items.map((_, index) => <ItemView key={index} list={block} index={index} path={[...path, index]} commentable={commentable} />)}
     </Tag>
+  );
+}
+
+/** One list item: each one is a block of its own for comments, nested items included. */
+function ItemView({ list, index, path, commentable }: { list: ListBlock; index: number; path: number[]; commentable: boolean }) {
+  const item = list.items[index]!;
+  const comment = useCommentable(path, list, commentable, index);
+  return (
+    <li className={comment.className} onClick={comment.onClick}>
+      {comment.add}
+      <Inline nodes={item.content} />
+      {comment.after}
+      {item.blocks !== undefined && <Blocks blocks={item.blocks} path={path} commentable={commentable} />}
+    </li>
   );
 }
 
@@ -116,30 +130,143 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
   );
 }
 
-function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
-  return <>{blocks.map((block, index): ReactNode => {
-    const key = `${block.type}-${index}`;
-    switch (block.type) {
-      case "heading": {
-        const Tag = `h${block.level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-        return <Tag key={key}><Inline nodes={block.content} /></Tag>;
-      }
-      case "paragraph":
-        return <p key={key}>{block.lines.map((line, lineIndex) => <span key={lineIndex}><Inline nodes={line} />{lineIndex < block.lines.length - 1 && <br />}</span>)}</p>;
-      case "list": return <List key={key} block={block} />;
-      case "blockquote": return <blockquote key={key}><Blocks blocks={block.blocks} /></blockquote>;
-      case "code": return <CodeBlock key={key} language={block.language} value={block.value} />;
-      case "math": return <MathExpression key={key} value={block.value} displayMode />;
-      case "hr": return <hr key={key} />;
-      case "table": return (
-        <div className="markdown-table-wrap" key={key}>
+const NO_PATH: number[] = [];
+
+/**
+ * `path` locates the blocks inside the reply part (a list item's index is part of it), which is
+ * how a comment finds its block again. Inside a blockquote nothing is commentable on its own:
+ * the quote is one block.
+ */
+function Blocks({ blocks, path = NO_PATH, commentable = true }: { blocks: MarkdownBlock[]; path?: number[]; commentable?: boolean }) {
+  return <>{blocks.map((block, index) => <BlockView key={`${block.type}-${index}`} block={block} path={[...path, index]} commentable={commentable} />)}</>;
+}
+
+/**
+ * One block at `path`, with its "+" and comment row where it is commentable. A rule carries no
+ * comment, and a list carries them on its items.
+ */
+function BlockView({ block, path, commentable }: { block: MarkdownBlock; path: number[]; commentable: boolean }): ReactNode {
+  const comment = useCommentable(path, block, commentable && block.type !== "hr" && block.type !== "list");
+  const { className, onClick } = comment;
+  switch (block.type) {
+    case "heading": {
+      const Tag = `h${block.level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+      return <><Tag className={className} onClick={onClick}>{comment.add}<Inline nodes={block.content} /></Tag>{comment.after}</>;
+    }
+    case "paragraph":
+      return <><p className={className} onClick={onClick}>{comment.add}{block.lines.map((line, lineIndex) => <span key={lineIndex}><Inline nodes={line} />{lineIndex < block.lines.length - 1 && <br />}</span>)}</p>{comment.after}</>;
+    case "list": return <List block={block} path={path} commentable={commentable} />;
+    case "blockquote": return <><blockquote className={className} onClick={onClick}>{comment.add}<Blocks blocks={block.blocks} path={path} commentable={false} /></blockquote>{comment.after}</>;
+    case "hr": return <hr />;
+    default: {
+      const body = block.type === "code" ? <CodeBlock language={block.language} value={block.value} />
+        : block.type === "math" ? <MathExpression value={block.value} displayMode />
+        : <div className="markdown-table-wrap">
           <table><thead><tr>{block.header.map((cell, cellIndex) => <th key={cellIndex}><Inline nodes={cell} /></th>)}</tr></thead>
             <tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}><Inline nodes={cell} /></td>)}</tr>)}</tbody>
           </table>
-        </div>
-      );
+        </div>;
+      // a code block clips and a table scrolls its own box: the "+" and the bar sit on a host around
+      // it. The host is there whether or not the block is commentable, so a reply turning final (or
+      // live again) keeps the same element, and a code block the reader unfolded stays unfolded
+      return <><div className={className === undefined ? "markdown-block" : `markdown-block ${className}`} onClick={onClick}>{comment.add}{body}</div>{comment.after}</>;
     }
-  })}</>;
+  }
+}
+
+/** The block a tap chose on a touch screen: it shows its "+". One at a time, across every reply. */
+let selectedAnchor: string | null = null;
+const selectionListeners = new Set<() => void>();
+const noSubscription = () => () => {};
+
+/** Chooses the block at `anchor` (null: none) and listens for a press outside it while one is chosen. */
+function selectBlock(anchor: string | null): void {
+  if (selectedAnchor === anchor) return;
+  selectedAnchor = anchor;
+  if (anchor === null) document.removeEventListener("pointerdown", clearOutside, true);
+  else document.addEventListener("pointerdown", clearOutside, true);
+  for (const listener of selectionListeners) listener();
+}
+
+/** A press anywhere but on the chosen block lets it go; a press on another block then chooses that one. */
+function clearOutside(event: PointerEvent): void {
+  if (!(event.target instanceof Element) || event.target.closest(".is-commentable.is-selected") === null) selectBlock(null);
+}
+
+/** For `useSyncExternalStore`: `listener` runs whenever the chosen block changes. Returns the unsubscribe. */
+function subscribeSelection(listener: () => void): () => void {
+  selectionListeners.add(listener);
+  return () => { selectionListeners.delete(listener); };
+}
+
+/** A boolean snapshot: a new choice re-renders only the block that lost it and the one that got it. */
+function useIsSelected(anchor: string | null): boolean {
+  return useSyncExternalStore(anchor === null ? noSubscription : subscribeSelection, () => anchor !== null && selectedAnchor === anchor, () => false);
+}
+
+interface Commentable {
+  /** undefined where the block is not commentable */
+  className: string | undefined;
+  onClick: ((event: MouseEvent<HTMLElement>) => void) | undefined;
+  /** the "+", inside the block's element */
+  add: ReactNode;
+  /** the comment row and the editor, right after the block's content */
+  after: ReactNode;
+}
+
+/** The comment being written: kept as it was opened, so it outlives the block turning uncommentable. */
+interface Editing {
+  owner: string;
+  target: CommentTarget;
+  initialComment: string;
+}
+
+/**
+ * What makes a block commentable; nothing where it is not (outside a final answer, inside a
+ * blockquote, a rule) except an editor still open on it. With `item`, `block` is the list and the
+ * target its item `item`.
+ */
+function useCommentable(path: number[], block: MarkdownBlock, enabled: boolean, item?: number): Commentable {
+  const t = useT();
+  const reply = useContext(BlockCommentContext);
+  const key = path.join(".");
+  // `path` is a new array on every render; `key` is its value
+  const target = useMemo(() => enabled && reply !== null ? blockTarget(reply, path, block, item) : null, [enabled, reply, key, block, item]);
+  const commented = useBlockComment(reply?.owner ?? "", target);
+  const selected = useIsSelected(target?.anchor ?? null);
+  // the agent may start again while a comment is written, and the reply turn live: the editor and
+  // what is typed in it stay until it is saved or closed
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const editor = editing !== null && <CommentEditor
+    block={editing.target.block}
+    initialComment={editing.initialComment}
+    onSave={(comment) => { blockComments.save(editing.owner, editing.target, comment); setEditing(null); }}
+    onClose={() => setEditing(null)}
+  />;
+  // the same tree either way, so the editor keeps its state when the block stops being commentable
+  const after = (row: ReactNode): ReactNode => <>{row}{editor}</>;
+  if (target === null || reply === null) return { className: undefined, onClick: undefined, add: null, after: after(null) };
+  const open = (): void => setEditing({ owner: reply.owner, target, initialComment: commented?.comment ?? "" });
+  return {
+    className: `is-commentable${commented ? " is-commented" : ""}${selected ? " is-selected" : ""}`,
+    onClick: (event) => {
+      // the editor is portalled but its clicks bubble here through React, and a nested item's click
+      // bubbles to its parent item: only a click on this very block counts
+      if (!(event.target instanceof Element) || event.target.closest(".is-commentable") !== event.currentTarget) return;
+      if (!window.matchMedia("(hover: none)").matches) return;
+      if (event.target.closest("a, button, summary, input, textarea") !== null) return;
+      if ((window.getSelection()?.toString() ?? "") !== "") return;
+      selectBlock(target.anchor);
+    },
+    add: <button type="button" className="block-comment-add" aria-label={t("Comment on this part")} onClick={open}><MessageSquarePlus aria-hidden="true" /></button>,
+    after: after(commented && <button type="button" className="block-comment-row" onClick={open}><MessageSquare aria-hidden="true" /><span>{commented.comment}</span></button>),
+  };
+}
+
+/** Blocks already parsed, as the chat shows them: a comment's block in the comment editor. */
+export function MarkdownBlocks({ blocks }: { blocks: MarkdownBlock[] }) {
+  // the editor is portalled out of a reply but inherits its context: no "+" inside the editor
+  return <BlockCommentContext.Provider value={null}><div className="markdown"><Blocks blocks={blocks} /></div></BlockCommentContext.Provider>;
 }
 
 export function Markdown({ children, className }: { children: string; className?: string }) {

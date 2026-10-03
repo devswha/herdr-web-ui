@@ -26,7 +26,8 @@ import { usePageVisible } from "../lib/visibility.ts";
 import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { patchText } from "../../shared/patch.ts";
-import { machinePath } from "../../shared/machines.ts";
+import { machinePath, paneStorageId } from "../../shared/machines.ts";
+import { BlockCommentContext, replyPart, type ReplyPart } from "../lib/blockComments.ts";
 import { fileUrl } from "../lib/api.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { lineDiff } from "../lib/diff.ts";
@@ -391,11 +392,31 @@ interface TurnProps {
   /** the newest assistant turn opens its work; older ones start folded */
   last: boolean;
   showThinking: boolean;
+  /**
+   * Position in the transcript, which anchors comments on a turn without a timestamp. Pass it only
+   * for such a turn (-1 otherwise): older history prepended shifts every index, and would re-render
+   * every memoised turn for nothing.
+   */
+  index: number;
+  /**
+   * false: no comments on this turn. The scrollback drawn without an agent is not a reply: what the
+   * composer sends there is typed into the pane, a shell perhaps, and comments only go to an agent.
+   */
+  commentable?: boolean;
 }
 
-// a turn that did not change keeps its object across polls: skip re-rendering it
-const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
+/**
+ * One turn of the conversation. A turn that did not change keeps its object across polls, so the
+ * memo skips re-rendering it. The final-answer parts of a turn that is not live are commentable.
+ */
+const Turn = memo(function Turn({ paneId, turn, live, last, showThinking, index, commentable = true }: TurnProps) {
   const t = useT();
+  const machineId = useMachineId();
+  const { work, answer } = splitTurn(turn.parts);
+  // one value per final-answer part, the same objects across polls, so the memoised turn's
+  // blocks keep theirs; none while the answer is still being written
+  const replies = useMemo((): (ReplyPart | null)[] => Array.from({ length: answer.length }, (_, part) =>
+    live || !commentable ? null : replyPart(paneStorageId(machineId, paneId), turn.ts, index, part)), [machineId, paneId, turn.ts, index, live, commentable, answer.length]);
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
   if (compact !== undefined) {
@@ -422,14 +443,13 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
       <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
     </article>;
   }
-  const { work, answer } = splitTurn(turn.parts);
   const answerText = answer.map((part) => part.text).join("\n\n");
   const goal = turnGoal(turn.parts);
   return <article className="chat-turn chat-turn-agent">
     <SkillActivityList parts={turn.parts} />
     {goal !== null && <GoalActivity goal={goal} />}
     {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={last} showThinking={showThinking} />}
-    {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
+    {answer.map((part, n) => <BlockCommentContext.Provider key={n} value={replies[n] ?? null}><Markdown>{part.text}</Markdown></BlockCommentContext.Provider>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
       <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")}>MD</CopyButton>
       <CopyButton className="chat-meta-btn" text={plainText(answerText)} label={t("Copy as plain text")}>TXT</CopyButton>
@@ -438,10 +458,11 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
   </article>;
 });
 
+/** A scrollback message drawn as a turn when no agent runs in the pane: shown, but not commentable. */
 function FallbackTurn({ paneId, message }: { paneId: string; message: TranscriptMessage }) {
   if (message.role === "status") return null;
   const turn: ConversationTurn = { role: message.role === "user" ? "user" : "assistant", ts: null, parts: [{ kind: "text", text: message.text }] };
-  return <Turn paneId={paneId} turn={turn} live={false} last={false} showThinking={false} />;
+  return <Turn paneId={paneId} turn={turn} live={false} last={false} showThinking={false} index={-1} commentable={false} />;
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
@@ -777,7 +798,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} />
+              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} index={turn.ts === null ? index : -1} />
             </RenderBoundary>;
           })
         : agent !== null

@@ -9,3 +9,4 @@ bun scripts/file-viewer-regression.ts
 bun scripts/keyboard-viewport-regression.ts
 bun scripts/file-viewer-mobile-regression.ts
 bun scripts/droplet-demo-regression.ts
+bun scripts/block-comments-regression.ts

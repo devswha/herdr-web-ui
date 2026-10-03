@@ -164,6 +164,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
+    "comments comments comments"
     "attachments attachments attachments"
     "left text right";
   align-items: end;
@@ -414,6 +415,85 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* comments on blocks of the agent's replies, waiting for the next message: one pill each */
+.composer-comments {
+  grid-area: comments;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+.composer-comment {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+
+.composer-comment button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composer-comment-open {
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+}
+
+.composer-comment-open span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-comment-open svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--accent);
+}
+
+.composer-comment .composer-comment-remove {
+  padding-left: 0;
+  color: var(--text-dim);
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+}
+
+.composer-comment-remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+.composer-comment .composer-comment-open:hover,
+.composer-comment .composer-comment-remove:hover {
+  color: var(--text-strong);
+}
+
+/* a phone keeps them on one row that scrolls, so the box does not grow taller than the reply */
+@media (max-width: 640px) {
+  .composer-comments {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .composer-comment {
+    flex: none;
+  }
 }
 
 .composer-attachments {

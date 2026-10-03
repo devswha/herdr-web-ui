@@ -260,13 +260,16 @@ export class HerdrSocket {
    * as written, `payload` the same shaped for the pane's paste mode. null, sending
    * nothing, when offline.
    */
-  /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage) */
-  submit(paneId: string, text: string, payload: string, typed = false): Promise<SubmitResult> | null {
+  /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage).
+   * `agentOnly`: only an agent may get it; a server that cannot promise that gets nothing */
+  submit(paneId: string, text: string, payload: string, typed = false, agentOnly = false): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null) return null;
     return (async (): Promise<SubmitResult> => {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
       if (!this.connected || this.socket !== socket) return DISCONNECTED;
+      // an older bridge would type it into whatever runs in the pane, a shell included
+      if (agentOnly && !this.features.has("submit-agent-only")) return { ok: false, code: "agent_only_unsupported", message: "this PC's bridge cannot keep the message from a shell" };
       if (!this.features.has("submit")) {
         this.rawSend({ type: "input", pane_id: paneId, text: `${payload}\r` });
         return { ok: true };
@@ -279,7 +282,7 @@ export class HerdrSocket {
           resolve({ ok: false, code: "timeout", message: "the pane did not confirm this message in time" });
         }, SUBMIT_TIMEOUT_MS);
       });
-      this.rawSend({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}) });
+      this.rawSend({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}), ...(agentOnly ? { agent_only: true } : {}) });
       return await result;
     })();
   }
