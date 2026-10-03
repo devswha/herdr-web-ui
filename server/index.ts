@@ -1168,6 +1168,8 @@ export function createServer(
           return badRequest("missing_workspace_id", "workspace_id is required");
         }
         if (payload.force !== undefined && typeof payload.force !== "boolean") return badRequest("invalid_force", "force must be a boolean");
+        // git can take a while to delete a large checkout; Bun's default idle timeout is shorter.
+        bunServer.timeout(request, 75);
         try {
           const removed = await worktreeRemove(payload.workspace_id, payload.force === true);
           return jsonResponse({ ok: true, path: removed.path, forced: removed.forced });
@@ -1211,6 +1213,8 @@ export function createServer(
         const creating = pathname === "/api/worktree/create";
         if (creating && branch === undefined) return badRequest("missing_branch", "branch is required");
         if (!creating && branch === undefined && path === undefined) return badRequest("missing_target", "path or branch is required");
+        // a checkout of a large repository can take a while; Bun's default idle timeout is shorter.
+        if (creating) bunServer.timeout(request, 75);
         try {
           const opened = creating
             ? await worktreeCreate({ workspaceId: payload.workspace_id, branch: branch as string, base, label, path })

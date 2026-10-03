@@ -220,9 +220,12 @@ export async function workspaceClose(workspaceId: string, socketPath?: string, c
   await herdrRpc("workspace.close", { workspace_id: workspaceId, ...(closeGroup ? { close_group: true } : {}) }, socketPath);
 }
 
+/** `git worktree add` or `remove` on a large checkout can take well over the default 10 s. */
+const WORKTREE_GIT_TIMEOUT_MS = 60_000;
+
 /** `git worktree remove` of the workspace's checkout; herdr closes the workspace with it and keeps the branch. */
 export async function worktreeRemove(workspaceId: string, force: boolean, socketPath?: string): Promise<{ type: "worktree_removed"; workspace_id: string; path: string; forced: boolean }> {
-  return herdrRpc("worktree.remove", { workspace_id: workspaceId, force }, socketPath);
+  return herdrRpc("worktree.remove", { workspace_id: workspaceId, force }, socketPath, WORKTREE_GIT_TIMEOUT_MS);
 }
 
 /** herdr's view of one git checkout: `worktree.list` entries, and what create/open hand back. */
@@ -267,7 +270,7 @@ export async function worktreeCreate(
     ...(options.label === undefined ? {} : { label: options.label }),
     ...(options.path === undefined ? {} : { path: options.path }),
     focus: false,
-  }, socketPath);
+  }, socketPath, WORKTREE_GIT_TIMEOUT_MS);
 }
 
 export async function worktreeList(workspaceId: string, socketPath?: string): Promise<{ source: WorktreeSourceInfo; worktrees: WorktreeInfo[] }> {
