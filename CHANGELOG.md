@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   terminal in the app is a pane, so the server runs it instead: it installs the newest herdr and
   moves the running panes onto it. Panes and agents keep running, and open terminals reconnect.
   A newer herdr installed from a shell is picked up the same way.
+  ([#373](https://github.com/devswha/herdr-web-ui/pull/373))
 
 ### Fixed
 - An open terminal no longer says "terminal ended" when herdr hands its panes to a new server,
