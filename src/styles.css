@@ -957,6 +957,21 @@ button {
   }
 }
 
+/* A phone's keyboard is up (lib/viewport.ts): the scrim ends where the keyboard begins, as the
+   shell does. An iPhone home screen app keeps the layout viewport at full height under the
+   keyboard, so a sheet on the screen's bottom edge sat behind it, its text field included. */
+[data-keyboard] .modal-scrim {
+  bottom: auto;
+  height: var(--app-height, 100%);
+}
+
+/* the keyboard covers the home indicator: the sheet drops the room it kept for it */
+@media (max-width: 640px) {
+  [data-keyboard] .modal {
+    padding-bottom: 0;
+  }
+}
+
 /* form fields inside dialogs */
 .field {
   display: flex;
