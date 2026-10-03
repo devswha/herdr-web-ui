@@ -279,17 +279,18 @@ One set for both themes: the card is island black wherever it shows.
 - Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
-  A one-pane row offers Rename workspace, Rename pane, New worktree, Open worktree…, then Close
-  under a hairline; a workspace header Rename workspace, New worktree, Open worktree… and Close
-  workspace; a pane under a header Rename pane and Close. A worktree workspace's row has no
-  worktree items and ends in **Delete worktree checkout…** after Close. The
+  A workspace row offers Rename workspace, Rename pane (the pane the row shows), New tab, New worktree,
+  Open worktree…, then Close under a hairline (Close workspace when the workspace has several panes). A worktree workspace's row has no worktree items and ends in
+  **Delete worktree checkout…** after Close. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
-- Close follows herdr's `ui.confirm_close`: a close that takes the workspace with it (a one-pane
-  row, Close workspace) asks in a confirm first; a pane that leaves its workspace standing closes
-  at once. After a confirmed close, focus lands on the header's workspace-list toggle.
+- Close follows herdr's `ui.confirm_close`: a close takes the workspace with it, so it asks in a
+  confirm first. After a confirmed close, focus lands on the header's workspace-list toggle.
+- The tab strip's pane picker is the same menu: one item per pane of the tab, the agent's mark
+  (or the shell glyph) and the pane's title, the open pane named in the strong colour
+  (`aria-current`).
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**.
@@ -305,34 +306,39 @@ One set for both themes: the card is island black wherever it shows.
   and the PC groups. A session starts from the `+` on its PC's header, or from the **New session**
   button in the dashed **No workspaces yet** box of an empty PC. **Add PC** lives in Settings →
   Remote PCs and in the command palette. Search lives in the command palette, not the roster.
-- Appearance's **Sidebar grouping** is **By workspace** by default, with numbered, foldable
-  workspace headers and merged single-pane rows. **By folder** opts into the grouping below.
-  The choice applies immediately and persists in the browser's existing Settings record. Workspace
-  and folder fold keys remain independent when switching modes; original workspace keys are retained.
+- One row per workspace, as herdr's Spaces sidebar: no workspace headers, numbers or folds. The
+  row stands for the workspace through its *current pane*: the selected pane when it is in the
+  workspace, else the pane last viewed there, else the one herdr has in front. Its mark, title
+  and folder are that pane's; its state word is the roll-up of every pane in the workspace
+  (blocked, then working, then done, then ready), as herdr rolls a workspace up. The other panes
+  of a workspace are reached from the tab strip over the pane, the command palette and
+  **Needs you**.
+- Appearance's **Sidebar grouping** is **By workspace** by default. **By folder** opts into the
+  grouping below. The choice applies immediately and persists in the browser's existing Settings
+  record; folder folds are remembered per PC and path.
 - In folder mode, within each PC, panes with the same full cwd share a folder group, including panes from
   different workspaces. Trailing separators and Windows slash styles are normalized; case and
   symlinks are not resolved. Unknown cwd stays with its workspace rather than merging unrelated sessions.
+  A workspace whose panes sit in two folders has a row in each, opening the pane in that folder.
 - Every folder has a caret, folder glyph, basename, full-path subtitle and pane count, even for
   one pane. Its indented contents use the existing spacing and border tokens. Folder folds are
   remembered per PC and path; opening a pane unfolds its folder, but status updates do not.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
-- A workspace header shows drag handle, number, editable label, roll-up status and its `⋯`.
-  Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent. In the By workspace view
-  a repository's workspace moves past the next or previous group as one, with its worktrees, and a
-  worktree moves among its siblings only.
-- Every pane row is two lines: agent/shell mark, then the editable title alone on line one (full
-  width), and the status chip followed by the pane's place on line two. Mark boxes are neutral;
-  the selected row gets the amber rail and an amber-edged mark box. The row ends in one `⋯`
-  (`.row-menu-toggle`: shown on hover, focus, selection and while its menu is open; always on
-  touch) that opens the row menu. Inline server failures stay beside their row.
+- Every row is two lines: agent/shell mark, then the editable title alone on line one (full
+  width), and the state word followed by the row's place on line two. Mark boxes are neutral;
+  the selected row gets the amber rail and an amber-edged mark box. The row carries the
+  workspace's reorder handle in its left gutter (drag, or `Alt+↑/↓` on the handle) and ends in
+  one `⋯` (`.row-menu-toggle`: shown on hover, focus, selection and while its menu is open;
+  always on touch) that opens the row menu. Inline server failures stay beside their row. In the
+  By workspace view a repository's workspace moves past the next or previous group as one, with its
+  worktrees, and a worktree moves among its siblings only.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
-  in the row's tooltip. Line two names what the group header does not: the folder under a
-  workspace header (nothing when the title or the workspace is already that folder), the workspace under a folder
-  header. A merged single-pane row in the workspace view has no header: it names the workspace
-  and the folder, each only when the title or the other does not already say it. The palette,
-  which has no header, names the workspace and the folder, once when they are the same.
+  in the row's tooltip. Line two names what is not already said: by workspace, the workspace and
+  the folder, each only when the title or the other does not already say it; under a folder
+  header, the workspace. The palette, which has no header, names the workspace and the folder,
+  once when they are the same.
 - A PC group header is caret, monitor, name, “Host” for the local machine, a state dot
   (done = connected, working pulse = connecting/reconnecting, blocked = error), then a `+` that
   starts a session on that PC (disabled while it is offline) and, for an SSH PC, its manage
@@ -343,9 +349,6 @@ One set for both themes: the card is island black wherever it shows.
   sit under the row of the workspace on its main checkout, packed behind a hairline
   (`.worktree-children`), as herdr's Spaces sidebar keeps them; a worktree whose repository
   workspace is not open stays at the top level.
-- Single-pane workspaces merge their workspace handle into the pane row, in both groupings: one
-  row, no header, number or fold. A fold stored for such a workspace is ignored until it has a
-  header again.
 - Footer holds the contextual **Install app** action, Settings with the plan meters beside it,
   product name and herdr version.
 
@@ -372,6 +375,23 @@ One set for both themes: the card is island black wherever it shows.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
+- As **New tab** (from a row's `⋯` menu, the header's New tab, the strip's `+` or the palette),
+  the same dialog is titled `New tab · <workspace>`, shows the workspace's folder as a fact in a
+  dashed box (`.new-session-folder`: a worktree's checkout, else the folder of the pane in front)
+  instead of asking for one, and its name is the tab's (optional; the placeholder is the number
+  herdr gives it). Submit calls `POST /api/tab/create` with the same agent launch.
+
+### Tab strip (`.tab-strip`)
+- herdr's tab row, over the pane: shown once the selected pane's workspace has more than one
+  pane (a second tab, or a tab split in the TUI), never for a lone pane. One `role="tab"` per tab
+  in herdr's order, named by its label, or **Tab n** while herdr still names it by its number;
+  a 7px dot before the name in the state's colour for working, blocked and done. The open tab
+  (the selected pane's) is underlined 2px in `--accent` and in the strong colour; the others are
+  dim. Arrow keys move between tabs. A tab opens the pane last viewed in it, else the one herdr
+  has focused there, else its first; a tab with several panes has a chevron beside its name that
+  opens a pane picker (the row menu). The strip ends in a `+` that opens the New tab dialog.
+- `--control-h` tall on a hairline over `--bg-panel`, scrolling sideways without a scrollbar;
+  touch grows the buttons to `--touch-target`. The same strip on a phone.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
@@ -384,6 +404,9 @@ One set for both themes: the card is island black wherever it shows.
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills
   the context slot.
+- Beside the view switch, on a desktop only, a ghost **New tab** button (`.new-tab-button`, plus
+  sign and the words) opens the New tab dialog for the selected pane's workspace; a phone has the
+  action in the row's `⋯` menu and the strip's `+`.
 - The segmented Chat/Terminal view switch lives in the header. There is no floating view-toggle pill.
 - Connection is one quiet chip: a dot plus the written live/reconnecting/disconnected state;
   reconnecting pulses the dot. On phones the chip keeps only its dot.

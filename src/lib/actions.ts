@@ -13,6 +13,11 @@ export interface AppActions {
   setView: (view: PaneView) => void;
   toggleView: () => void;
   openNewSession: () => void;
+  /**
+   * The New tab dialog for a workspace: the named one (a sidebar row's menu, on its own PC),
+   * else the selected pane's. Nothing happens without a workspace to add the tab to.
+   */
+  openNewTab: (target?: { machineId: string; workspaceId: string }) => void;
   openPalette: () => void;
   openSettings: () => void;
   /** the Add PC dialog, from Settings → Remote PCs and the palette; Settings closes first */

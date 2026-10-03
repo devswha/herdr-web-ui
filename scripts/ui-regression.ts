@@ -476,7 +476,7 @@ try {
   await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge[data-status="blocked"]`).waitFor();
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
   await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge:not([data-status="blocked"])`).waitFor();
-  assert.equal(await sectionB.locator(".pane-list").count(), 0, "a snapshot update keeps the selected pane's workspace folded");
+  assert.equal(await sectionB.locator(".workspace-list").count(), 0, "a snapshot update keeps the selected pane's workspace folded");
   assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
   await toggleB.click();
   await sectionB.locator(".directory-contents").waitFor();
@@ -602,7 +602,7 @@ try {
   await childRow.locator(".row-menu-toggle").click();
   const childMenu = page.getByRole("menu");
   await childMenu.waitFor();
-  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "Close", "Delete worktree checkout…"], "a worktree row's menu");
+  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "New tab", "Close", "Delete worktree checkout…"], "a worktree row's menu");
   await childMenu.getByRole("menuitem", { name: "Delete worktree checkout…", exact: true }).click();
   const deleteConfirm = page.getByRole("alertdialog");
   await deleteConfirm.waitFor();
@@ -618,6 +618,42 @@ try {
   await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   console.log("PASS a worktree row sits under its repository's row, and its menu deletes the checkout, asking twice for a dirty one");
+
+  // A second tab from the row's ⋯ menu: the dialog is New tab, with the workspace's folder shown
+  // and not asked for; the new pane opens, the workspace stays one row, and a strip over the pane
+  // lists both tabs from then on. The header's New tab opens the same dialog on a desktop.
+  // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
+  await until(() => painted.has(created.pane_id), "created pane paint");
+  await page.locator(".pane-item.is-selected .row-menu-toggle").click();
+  await page.getByRole("menuitem", { name: "New tab", exact: true }).click();
+  const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
+  await tabDialog.waitFor();
+  assert.equal(await tabDialog.locator(".new-session-folder").textContent(), root, "the folder is the workspace's, shown");
+  assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 0, "the folder is not asked for");
+  await tabDialog.getByLabel(/^Name/).fill("second");
+  const tabResponse = page.waitForResponse((response) => response.url().endsWith("/api/tab/create"));
+  await tabDialog.getByRole("button", { name: "Start session", exact: true }).click();
+  const createdTab = await (await tabResponse).json() as WorkspaceCreated;
+  assert.equal(createdTab.workspace_id, created.workspace_id, "the tab joins the workspace");
+  await tabDialog.waitFor({ state: "hidden" });
+  await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the new tab's pane is selected, and the row shows it");
+  assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).count(), 0, "the workspace stays one row");
+  const strip = page.locator(".tab-strip");
+  await strip.waitFor();
+  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["Tab 1", "second"]);
+  assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "second");
+  await strip.getByRole("tab", { name: "Tab 1", exact: true }).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab opens its pane again");
+  assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "Tab 1");
+  // reopened right after a creation: its fields are live and Escape puts it away at once
+  await page.locator(".new-tab-button").click();
+  await tabDialog.waitFor();
+  assert.equal(await tabDialog.getByRole("button", { name: "Start session", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
+  await page.keyboard.press("Escape");
+  await tabDialog.waitFor({ state: "hidden" });
+  await herdrRpc("pane.close", { pane_id: createdTab.pane_id });
+  await strip.waitFor({ state: "detached" });
+  console.log("PASS a second tab is made from the row's menu, listed in a strip over the pane, and opened from it");
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.

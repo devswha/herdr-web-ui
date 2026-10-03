@@ -153,8 +153,8 @@ try {
   const screenshot = async (name: string): Promise<void> => {
     if (evidence) await page.screenshot({ path: join(evidence, `directory-groups-${name}.png`), animations: "disabled" });
   };
-  const otherWorkspace = `.workspace:has(.workspace-label[title=${JSON.stringify(other.label)}])`;
-  const workspaceToggle = `${otherWorkspace} .workspace-toggle`;
+  // the workspace with two panes in one tab: one row, whose strip and pane picker reach the second
+  const otherWorkspace = `.workspace:has(${paneSelector(other.paneId)}), .workspace:has(${paneSelector(split.pane.pane_id)})`;
   const grouping = '.settings-dialog .segmented[aria-label="Sidebar grouping"]';
   const switchGrouping = async (mode: "workspace" | "directory", states: readonly State[]): Promise<void> => {
     const documentIdentity = await page.evaluate(() => performance.timeOrigin);
@@ -177,10 +177,14 @@ try {
   };
 
   await navigate(() => page.goto(`${origin}/?pane=${encodeURIComponent(lone.paneId)}`), lone.paneId);
-  await page.locator(workspaceToggle).waitFor({ state: "attached" });
+  await page.locator(paneSelector(other.paneId)).waitFor({ state: "attached" });
   assert.equal(await page.locator(".directory-group").count(), 0, "workspace is the default grouping");
-  assert.equal(await page.locator(workspaceToggle).getAttribute("aria-expanded"), "false", "legacy workspace fold is restored");
-  assert.equal(await page.locator(`${otherWorkspace} .pane-list`).count(), 0);
+  // one row per workspace, as herdr's Spaces sidebar: the split pane has no row of its own, the
+  // workspace's row shows the pane herdr has in front, and nothing folds a workspace any more
+  assert.equal(await page.locator(otherWorkspace).count(), 1, "a workspace with two panes is one row");
+  assert.equal(await page.locator(paneSelector(split.pane.pane_id)).count(), 0);
+  assert.equal(await page.locator(".workspace-toggle").count(), 0, "a legacy workspace fold has nothing to fold");
+  assert.equal(await page.locator(".tab-strip").count(), 0, "no strip over a lone pane's workspace");
   for (const fixture of [alpha, beta]) {
     // A single pane is its workspace: one row with the reorder handle, no heading or toggle above
     // it. No header names the workspace, so line two does, with the folder unless the title
@@ -199,9 +203,18 @@ try {
   await page.locator(paneSelector(alpha.paneId)).waitFor({ state: "visible" });
   assert.equal(await page.locator(`.workspace:has(${paneSelector(alpha.paneId)}) .workspace-toggle`).count(), 0);
   await page.evaluate((key) => localStorage.removeItem(key), singleFoldKey);
-  await changeState(page, [{ selector: workspaceToggle, attribute: ["aria-expanded", "true"] },
-    { selector: paneSelector(split.pane.pane_id) }],
-  () => page.locator(workspaceToggle).click(), "multipane workspace unfolds");
+  // the second pane of a split tab is reached from the strip over the pane: its tab carries a
+  // picker, which lists both panes and opens the other one; the row then shows that pane
+  await changeState(page, [{ selector: paneSelector(other.paneId), attribute: ["aria-current", "true"] }, { selector: '.tab-strip [role="tab"]', count: 1 }],
+    () => page.locator(paneSelector(other.paneId)).click(), "selecting the split workspace shows its strip");
+  assert.equal(await page.locator('.tab-strip [role="tab"]').textContent(), "Tab 1", "a tab herdr named by its number reads as Tab 1");
+  await page.locator(".tab-strip-panes").click();
+  const picker = page.getByRole("menu", { name: "Panes in Tab 1", exact: true });
+  await picker.waitFor();
+  assert.equal(await picker.getByRole("menuitem").count(), 2);
+  assert.equal(await picker.locator('[role="menuitem"][aria-current="true"]').count(), 1, "the picker marks the open pane");
+  await changeState(page, [{ selector: `${paneSelector(split.pane.pane_id)}[aria-current="true"]` }, { selector: paneSelector(other.paneId), count: 0 }],
+    () => picker.getByRole("menuitem").last().click(), "the picker opens the split pane, and the row follows it");
   for (const width of [1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
     if (await page.locator(".drawer-toggle").isVisible()
@@ -209,14 +222,12 @@ try {
       await changeState(page, [{ selector: "#workspace-drawer.is-open" }],
         () => page.locator(".drawer-toggle").click(), `workspace drawer opens at ${width}`);
     }
-    assert.equal(await page.locator(workspaceToggle).isVisible(), true);
     assert.equal(await page.locator(paneSelector(split.pane.pane_id)).isVisible(), true);
     assert.equal(await page.locator(".directory-group").count(), 0);
     await screenshot(`workspace-${width}`);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await changeState(page, [{ selector: workspaceToggle, attribute: ["aria-expanded", "false"] }],
-    () => page.locator(workspaceToggle).click(), "workspace folded independently");
+  if (await page.locator(".drawer-toggle").isVisible() && await page.locator(".drawer-toggle").getAttribute("aria-expanded") === "true") await page.locator(".drawer-toggle").click();
   await switchGrouping("directory", [
     { selector: `${shared} .workspace`, count: 2 },
     { selector: `${distinct} ${paneSelector(split.pane.pane_id)}` },
@@ -227,23 +238,24 @@ try {
   for (const mode of ["workspace", "directory", "workspace", "directory"] as const) {
     await switchGrouping(mode, mode === "workspace" ? [
       { selector: ".directory-group", count: 0 },
-      { selector: workspaceToggle, attribute: ["aria-expanded", "false"] },
-      { selector: `${otherWorkspace} .pane-list`, count: 0 },
+      { selector: otherWorkspace, count: 1 },
     ] : [
       { selector: `${distinct} > .directory-header`, attribute: ["aria-expanded", "false"] },
       { selector: `${distinct} .directory-contents`, count: 0 },
       { selector: ".workspace-toggle", count: 0 },
     ]);
     assert.deepEqual(await page.evaluate((keys) => keys.map((key) => localStorage.getItem(key)),
-      [workspaceFoldKey, directoryFoldKey]), ["1", "1"], "mode toggles preserve both fold keys");
+      [workspaceFoldKey, directoryFoldKey]), ["1", "1"], "mode toggles preserve the folder fold and leave a legacy key alone");
   }
+  await changeState(page, [{ selector: paneSelector(lone.paneId), attribute: ["aria-current", "true"] }],
+    () => page.locator(paneSelector(lone.paneId)).click(), "lone pane selected again before the reload");
   await navigate(() => page.reload(), lone.paneId);
   await page.locator(`${distinct} > .directory-header[aria-expanded="false"]`).waitFor({ state: "attached" });
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarGrouping), "directory");
   assert.deepEqual(await page.evaluate((keys) => keys.map((key) => localStorage.getItem(key)),
     [workspaceFoldKey, directoryFoldKey]), ["1", "1"], "reload preserves grouping and independent folds");
-  await changeState(page, [{ selector: `${distinct} ${paneSelector(split.pane.pane_id)}` }],
-    () => page.locator(`${distinct} > .directory-header`).click(), "folder unfolds without touching workspace fold");
+  await changeState(page, [{ selector: `${distinct} .workspace`, count: 1 }],
+    () => page.locator(`${distinct} > .directory-header`).click(), "folder unfolds without touching the legacy key");
   assert.equal(await page.evaluate((key) => localStorage.getItem(key), workspaceFoldKey), "1");
 
   // A deliberate fold of the selected pane must survive switching away and
@@ -253,20 +265,18 @@ try {
   await changeState(page, [{ selector: `${distinct} > .directory-header`, attribute: ["aria-expanded", "false"] }],
     () => page.locator(`${distinct} > .directory-header`).click(), "selected directory deliberately folded");
   await switchGrouping("workspace", [
-    { selector: workspaceToggle, attribute: ["aria-expanded", "true"] },
+    { selector: ".directory-group", count: 0 },
     { selector: paneSelector(other.paneId), attribute: ["aria-current", "true"] },
   ]);
   assert.equal(await page.evaluate((key) => localStorage.getItem(key), directoryFoldKey), "1",
     "revealing a selection in workspace mode preserves its directory fold");
-  await changeState(page, [{ selector: workspaceToggle, attribute: ["aria-expanded", "false"] }],
-    () => page.locator(workspaceToggle).click(), "selected workspace deliberately folded");
   await switchGrouping("directory", [
     { selector: `${distinct} > .directory-header`, attribute: ["aria-expanded", "false"] },
     { selector: `${distinct} .directory-contents`, count: 0 },
   ]);
   await switchGrouping("workspace", [
-    { selector: workspaceToggle, attribute: ["aria-expanded", "false"] },
-    { selector: `${otherWorkspace} .pane-list`, count: 0 },
+    { selector: ".directory-group", count: 0 },
+    { selector: otherWorkspace, count: 1 },
   ]);
   assert.deepEqual(await page.evaluate((keys) => keys.map((key) => localStorage.getItem(key)),
     [workspaceFoldKey, directoryFoldKey]), ["1", "1"], "selected-pane mode toggles do not clear stored folds");
@@ -274,12 +284,12 @@ try {
     () => page.locator(paneSelector(lone.paneId)).click(), "selection outside folded workspace");
   assert.equal(await page.evaluate((key) => localStorage.getItem(key), workspaceFoldKey), "1");
   await navigate(() => page.reload(), lone.paneId);
-  await page.locator(`${workspaceToggle}[aria-expanded="false"]`).waitFor({ state: "attached" });
+  await page.locator(paneSelector(other.paneId)).waitFor({ state: "attached" });
   assert.equal(await page.locator(".directory-group").count(), 0, "workspace preference also survives reload");
   await switchGrouping("directory", [
     { selector: `${distinct} > .directory-header`, attribute: ["aria-expanded", "false"] },
   ]);
-  await changeState(page, [{ selector: `${distinct} ${paneSelector(split.pane.pane_id)}` }],
+  await changeState(page, [{ selector: `${distinct} ${paneSelector(other.paneId)}` }],
     () => page.locator(`${distinct} > .directory-header`).click(), "restore directory scenario");
   await changeState(page, [{ selector: paneSelector(split.pane.pane_id), count: 0 }],
     () => herdrRpc("pane.close", { pane_id: split.pane.pane_id }), "remove only the owned split fixture");
@@ -414,30 +424,29 @@ try {
   }, "selected shell returns to the shared folder");
   console.log("PASS clicked selection, keyboard workspace reorder and selected cwd-change reveal");
 
-  // When one workspace's panes sit in two folders, each folder shows one of them. Then both
-  // copies keep the workspace heading (the only place to rename it), and its rename opens one
-  // editor that keeps the focus: two would take it from each other and close on the blur.
-  const otherHeader = (folder: string, paneId: string): string => `${folder} .workspace:has(${paneSelector(paneId)}) .workspace-header`;
+  // When one workspace's panes sit in two folders, each folder shows a row for it, opening the
+  // pane in that folder. Then renaming the workspace from one row opens one editor that keeps
+  // the focus: two would take it from each other and close on the blur.
   let away = "";
   await armState(page, [
-    { selector: otherHeader(distinct, other.paneId), count: 1 },
-    { selector: `${single} .workspace-header`, count: 1 },
+    { selector: `${single} .workspace`, count: 2 },
   ]);
   away = (await herdrRpc<{ pane: { pane_id: string } }>("pane.split", {
     target_pane_id: other.paneId, direction: "down", focus: false, cwd: loneCwd,
   })).pane.pane_id;
-  await stateReceived(page, "a workspace split over two folders keeps its heading in both");
-  assert.equal(await page.locator(otherHeader(single, away)).count(), 1);
+  await stateReceived(page, "a workspace split over two folders has a row in both");
+  assert.equal(await page.locator(`${single} ${paneSelector(away)}`).count(), 1);
+  assert.equal(await page.locator(`${distinct} ${paneSelector(other.paneId)}`).count(), 1);
   await changeState(page, [{ selector: ".workspace-rename-input:focus", count: 1 }, { selector: ".workspace-rename-input", count: 1 }],
     async () => {
-      await page.locator(`${otherHeader(distinct, other.paneId)} .workspace-menu`).click();
+      await page.locator(`${single} ${itemSelector(away)} .row-menu-toggle`).click();
       await page.getByRole("menuitem", { name: "Rename workspace", exact: true }).click();
     }, "one workspace rename editor opens and keeps the focus");
   await changeState(page, [{ selector: ".workspace-rename-input", count: 0 }],
     () => page.locator(".workspace-rename-input").press("Escape"), "workspace rename editor closes on Escape");
   await changeState(page, [{ selector: paneSelector(away), count: 0 }],
     () => herdrRpc("pane.close", { pane_id: away }), "remove only the owned second-folder pane");
-  console.log("PASS a workspace shown under two folders keeps its heading and one rename editor");
+  console.log("PASS a workspace shown under two folders has a row in each and one rename editor");
 
   // Capture each requested viewport with the drawer actually open on mobile.
   for (const width of [1280, 768, 375]) {
@@ -504,10 +513,8 @@ try {
   // When closing one grouped pane through its row menu, Then
   // its sibling survives, still under the same full-path header.
   const closeOwnedPane = async (paneId: string, states: readonly State[]): Promise<void> => {
-    // from the row's ⋯ menu: a pane that leaves its workspace standing closes at once, a lone
-    // pane (its row carries the workspace's drag handle) takes the workspace with it and asks first
+    // from the row's ⋯ menu: a lone pane takes the workspace with it, so a confirm asks first
     const item = page.locator(itemSelector(paneId));
-    const lone = await item.locator(".pane-row > .sidebar-drag-handle").count() === 1;
     await item.hover();
     await item.locator(".row-menu-toggle").click();
     const response = page.waitForResponse((candidate) => candidate.request().method() === "POST"
@@ -515,7 +522,7 @@ try {
       && candidate.request().postDataJSON().pane_id === paneId);
     await armState(page, states);
     await page.getByRole("menuitem", { name: "Close", exact: true }).click();
-    if (lone) await page.getByRole("alertdialog").getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Close", exact: true }).click();
     assert.equal((await response).status(), 200);
     await stateReceived(page, "owned pane removed from directory tree");
   };

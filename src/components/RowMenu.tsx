@@ -3,11 +3,11 @@
  * portal at fixed coordinates: the roster scrolls, and a menu inside it would be cut off at the
  * list's edge. At phone width it is the modal primitive, which is already a bottom sheet there.
  * Escape, a press outside, focus leaving it (the palette opening over it, a Tab out) and, on a
- * desktop, a scroll or a resize close it. Focus goes back to the button when the menu goes,
+ * desktop, a scroll of what holds the button or a resize close it. Focus goes back to the button when the menu goes,
  * unless what an item mounted (a rename field, a confirm) takes it first: the button is focused
  * in a layout cleanup, before a new field's autoFocus and a dialog's own focus.
  */
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 
@@ -19,9 +19,13 @@ export interface RowMenuItem {
   id: string;
   label: string;
   icon: LucideIcon;
+  /** drawn in the icon's place when given: an agent's mark, which is not a lucide icon */
+  glyph?: ReactNode;
   /** a hairline above this item */
   divider?: boolean;
   danger?: boolean;
+  /** the item that stands for what is open now (a pane picker's current pane) */
+  current?: boolean;
   run: () => void;
 }
 
@@ -46,6 +50,8 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
   const [sheet] = useState(() => window.matchMedia(SHEET_QUERY).matches);
   const surface = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
+  // where the button was when the menu was placed: a scroll that leaves it there is not a reason to close
+  const placedAt = useRef<{ top: number; left: number } | null>(null);
 
   useLayoutEffect(() => () => { if (anchor.isConnected) anchor.focus({ preventScroll: true }); }, [anchor]);
 
@@ -55,6 +61,7 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
     const menu = surface.current;
     if (!menu || !anchor.isConnected) { onClose(); return; }
     const rect = anchor.getBoundingClientRect();
+    placedAt.current = { top: rect.top, left: rect.left };
     const left = Math.max(EDGE, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
     const below = rect.bottom + GAP;
     const top = below + menu.offsetHeight + EDGE <= window.innerHeight ? below : Math.max(EDGE, rect.top - GAP - menu.offsetHeight);
@@ -78,16 +85,25 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
       if (surface.current?.contains(target) || anchor.contains(target)) return;
       onClose();
     };
+    // only a scroll that moves the button out from under the menu: a terminal printing in the
+    // pane scrolls too, and the click that opened the menu can scroll the roster a little
+    // (the browser brings a focused button into view) without the button going anywhere
+    const onScroll = (): void => {
+      const was = placedAt.current;
+      const rect = anchor.getBoundingClientRect();
+      if (was && Math.abs(rect.top - was.top) < 1 && Math.abs(rect.left - was.left) < 1) return;
+      onClose();
+    };
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("pointerdown", onPointer, true);
     if (!sheet) {
-      window.addEventListener("scroll", onClose, true);
+      window.addEventListener("scroll", onScroll, true);
       window.addEventListener("resize", onClose);
     }
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("pointerdown", onPointer, true);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onClose);
     };
   }, [anchor, onClose, sheet]);
@@ -133,8 +149,8 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
             {subtitle && <span className="row-sheet-subtitle">{subtitle}</span>}
           </div>
           {items.map((item) => (
-            <button key={item.id} type="button" className={`row-sheet-item${item.danger ? " is-danger" : ""}${item.divider ? " has-divider" : ""}`} onMouseDown={keepFocus} onClick={() => run(item)}>
-              <item.icon aria-hidden="true" />
+            <button key={item.id} type="button" className={`row-sheet-item${item.danger ? " is-danger" : ""}${item.divider ? " has-divider" : ""}`} aria-current={item.current ? "true" : undefined} onMouseDown={keepFocus} onClick={() => run(item)}>
+              {item.glyph ?? <item.icon aria-hidden="true" />}
               {item.label}
             </button>
           ))}
@@ -150,8 +166,8 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.divider && <span className="row-menu-divider" role="separator" />}
-          <button type="button" role="menuitem" className={`menu-item${item.danger ? " is-danger" : ""}`} onMouseDown={keepFocus} onClick={() => run(item)}>
-            <item.icon aria-hidden="true" />
+          <button type="button" role="menuitem" className={`menu-item${item.danger ? " is-danger" : ""}`} aria-current={item.current ? "true" : undefined} onMouseDown={keepFocus} onClick={() => run(item)}>
+            {item.glyph ?? <item.icon aria-hidden="true" />}
             <span className="menu-item-main">{item.label}</span>
           </button>
         </Fragment>

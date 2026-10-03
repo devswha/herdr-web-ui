@@ -7,7 +7,7 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo, HerdrPane }
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
-import { knownStatus, STATUS_WORD } from "../lib/status.ts";
+import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
@@ -20,15 +20,12 @@ import { useSettings, type SidebarGrouping } from "../lib/settings.ts";
 
 const ERROR_NOTE_MS = 5000;
 
-/** Folder folds belong to a PC and full path, not an individual workspace. */
-const collapsedKey = (machineId: string, groupKey: string) => {
-  const workspace = groupKey.startsWith("workspace:");
-  return `herdr-web-ui:${workspace ? "workspace" : "directory"}-collapsed:${machineId}:${groupKey.slice(workspace ? "workspace:".length : "folder:".length)}`;
-};
-function storedCollapsed(machineId: string, directoryKeys: string[]): Set<string> {
+/** Folder folds belong to a PC and full path (the group's key), not an individual workspace. */
+const collapsedKey = (machineId: string, groupKey: string) => `herdr-web-ui:directory-collapsed:${machineId}:${groupKey}`;
+function storedCollapsed(machineId: string, groupKeys: string[]): Set<string> {
   const collapsed = new Set<string>();
   try {
-    for (const id of directoryKeys) if (localStorage.getItem(collapsedKey(machineId, id)) === "1") collapsed.add(id);
+    for (const key of groupKeys) if (localStorage.getItem(collapsedKey(machineId, key)) === "1") collapsed.add(key);
   } catch { /* storage denied: nothing is folded */ }
   return collapsed;
 }
@@ -36,7 +33,7 @@ function storedCollapsed(machineId: string, directoryKeys: string[]): Set<string
 /** shell prompt titles: `user@host:` is chrome, the path after it is the information */
 const SHELL_PREFIX = /^[^:@\s]+@[^:@\s]+:/;
 /** Herdr's agent glyph and spinner are already represented by the row mark and badge. */
-const AGENT_CHROME = /^\u03c0\s*[^\p{L}\p{N}\s]?\s*/u;
+const AGENT_CHROME = /^π\s*[^\p{L}\p{N}\s]?\s*/u;
 
 function stripPaneChrome(title: string, agent: string | null | undefined): string {
   const shellStripped = title.replace(SHELL_PREFIX, "");
@@ -90,14 +87,12 @@ function cwdBasename(cwd: string | null | undefined): string {
 }
 
 interface InlineError {
-  paneId?: string;
+  workspaceId?: string;
   message: string;
 }
 
-/** The row whose ⋯ menu is open: a pane's row, or the header of a workspace with several panes. */
-type MenuState =
-  | { kind: "pane"; anchor: HTMLElement; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
-  | { kind: "workspace"; anchor: HTMLElement; workspace: WorkspaceInfo; scope: string };
+/** The row whose ⋯ menu is open: a workspace, seen through the pane its row shows. */
+interface MenuState { anchor: HTMLElement; workspace: WorkspaceInfo; pane: PaneInfo; scope: string; title: string; place: string }
 interface ConfirmState { title: string; body: string; action?: string; run: () => Promise<void>; escalation?: { label: string; code: string; run: () => Promise<void> } }
 
 export interface SidebarProps {
@@ -106,6 +101,12 @@ export interface SidebarProps {
   actions: AppActions;
 }
 
+/**
+ * One row per workspace, as herdr's Spaces sidebar: the row shows the workspace's current pane
+ * (the selected one when it is in the workspace, else the one last viewed there, else the one
+ * herdr has in front) and opens it. The panes of a workspace are picked from the tab strip
+ * over the pane, the palette and Needs you; the row's state is the roll-up of all of them.
+ */
 export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   const t = useT();
   const { settings } = useSettings();
@@ -122,8 +123,15 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   const [workspaceOrder, setWorkspaceOrder] = useState<string[]>([]);
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<InlineError | null>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot ? [...snapshot.workspaces.map((workspace) => `workspace:${workspace.workspace_id}`), ...groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => `folder:${group.key}`)] : []));
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot ? groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => group.key) : []));
   const unfoldedFor = useRef<Partial<Record<SidebarGrouping, string>>>({});
+  // the pane each workspace was last seen on: its row keeps showing and opening that one
+  const lastViewed = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    const pane = selectedPaneId ? snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) : undefined;
+    if (pane) lastViewed.current.set(pane.workspace_id, pane.pane_id);
+  }, [selectedPaneId, snapshot]);
 
   const setGroupCollapsed = (groupKey: string, collapsed: boolean): void => {
     setCollapsedGroups((current) => {
@@ -153,24 +161,21 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     setWorkspaceOrder((current) => current.join("\u0000") === serverOrder.join("\u0000") ? current : serverOrder);
     // New folders bring their stored fold state after reconnecting or creating a session.
     setCollapsedGroups((current) => {
-      const keys = [...serverOrder.map((id) => `workspace:${id}`), ...groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => `folder:${group.key}`)];
-      const stored = storedCollapsed(machineId, keys.filter((id) => !current.has(id)));
+      const keys = groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => group.key);
+      const stored = storedCollapsed(machineId, keys.filter((key) => !current.has(key)));
       return stored.size === 0 ? current : new Set([...current, ...stored]);
     });
   }, [snapshot, machineId]);
 
-  // Reveal a newly selected pane once per mode; toggling back preserves its deliberate fold.
+  // Reveal a newly selected pane's folder once; toggling back preserves its deliberate fold.
   useEffect(() => {
-    if (!selectedPaneId || !snapshot) return;
-    const pane = snapshot.panes.find((pane) => pane.pane_id === selectedPaneId);
-    if (!pane) return;
-    const directory = byFolder ? groupDirectories(snapshot.workspaces, snapshot.panes).find((group) => group.workspaces.some((entry) => entry.panes.some((pane) => pane.pane_id === selectedPaneId))) : null;
-    if (byFolder && !directory) return;
-    const groupKey = directory ? `folder:${directory.key}` : `workspace:${pane.workspace_id}`;
-    const opened = JSON.stringify([machineId, selectedPaneId, groupKey]);
+    if (!byFolder || !selectedPaneId || !snapshot) return;
+    const directory = groupDirectories(snapshot.workspaces, snapshot.panes).find((group) => group.workspaces.some((entry) => entry.panes.some((pane) => pane.pane_id === selectedPaneId)));
+    if (!directory) return;
+    const opened = JSON.stringify([machineId, selectedPaneId, directory.key]);
     if (unfoldedFor.current[settings.sidebarGrouping] === opened) return;
     unfoldedFor.current[settings.sidebarGrouping] = opened;
-    setGroupCollapsed(groupKey, false);
+    setGroupCollapsed(directory.key, false);
   }, [selectedPaneId, snapshot, machineId, settings.sidebarGrouping, byFolder]);
 
   const orderedWorkspaces = useMemo(() => {
@@ -197,26 +202,23 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     }
     return top.map((workspace) => ({ workspace, children: childrenOf.get(workspace.workspace_id) ?? [] }));
   }, [orderedWorkspaces]);
-  const workspacePaneCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const pane of snapshot?.panes ?? []) counts.set(pane.workspace_id, (counts.get(pane.workspace_id) ?? 0) + 1);
-    return counts;
-  }, [snapshot?.panes]);
 
-  const noteError = (message: string, paneId?: string): void => setInlineError({ message, paneId });
+  const noteError = (message: string, workspaceId?: string): void => setInlineError({ message, workspaceId });
 
-  const closePaneNow = (paneId: string): void => {
-    setInlineError(null);
-    void closePane(paneId).catch((reason: unknown) => {
-      noteError(t("Close failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
-    });
+  /** the pane a workspace's row shows and opens, among the panes the row stands for */
+  const currentPane = (workspace: WorkspaceInfo, panes: PaneInfo[]): PaneInfo => {
+    const pick = (id: string | null | undefined) => (id ? panes.find((pane) => pane.pane_id === id) : undefined);
+    return pick(selectedPaneId)
+      ?? pick(lastViewed.current.get(workspace.workspace_id))
+      ?? pick(snapshot?.layouts?.find((layout) => layout.tab_id === workspace.active_tab_id)?.focused_pane_id)
+      ?? panes.find((pane) => pane.focused)
+      ?? panes[0]!;
   };
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  // A close that takes the workspace with it asks first, as herdr's ui.confirm_close does; a
-  // pane that leaves its workspace standing closes at once, as herdr's tab menu does. The row is
-  // gone afterwards, so focus moves to the header's workspace-list toggle.
+  // A close takes the workspace with it, so it asks first, as herdr's ui.confirm_close does.
+  // The row is gone afterwards, so focus moves to the header's workspace-list toggle.
   const leave = async (close: () => Promise<void>): Promise<void> => {
     await close();
     setConfirm(null);
@@ -224,19 +226,27 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   };
 
   const menuItems = (state: MenuState): RowMenuItem[] => {
-    // the roster may have moved on since the menu opened (a sibling closed from another client):
+    // the roster may have moved on since the menu opened (a pane closed from another client):
     // what an item does follows the latest snapshot, not what the row showed at the click
     const workspace = snapshot?.workspaces.find((candidate) => candidate.workspace_id === state.workspace.workspace_id) ?? state.workspace;
-    const paneCount = workspacePaneCounts.get(workspace.workspace_id) ?? 1;
-    const renameWorkspaceItem: RowMenuItem = { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, state.scope) };
+    const panes = snapshot?.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? [];
+    const paneCount = Math.max(1, panes.length);
+    // the pane the row showed may have closed under the open menu: the items then act on the
+    // pane the row shows now, never on an id herdr no longer has
+    const pane = panes.find((candidate) => candidate.pane_id === state.pane.pane_id) ?? (panes.length > 0 ? currentPane(workspace, panes) : state.pane);
     // a worktree workspace: its checkout can be deleted; the repository's workspace: its open
     // worktree workspaces close with it, which herdr refuses without close_group
     const linked = workspace.worktree?.is_linked_worktree === true;
     const worktrees = linked ? [] : (snapshot?.workspaces.filter((candidate) => candidate.worktree?.is_linked_worktree && candidate.worktree.repo_key === workspace.worktree?.repo_key) ?? []);
-    // herdr's own worktree actions, from the workspace they start on (prefix+shift+g in the TUI)
-    const worktreeItems: RowMenuItem[] = linked ? [] : [
-      { id: "new-worktree", label: t("New worktree"), icon: GitBranch, run: () => setWorktreeDialog({ mode: "create", workspace }) },
-      { id: "open-worktree", label: t("Open worktree…"), icon: FolderOpen, run: () => setWorktreeDialog({ mode: "open", workspace }) },
+    // herdr's own actions on a workspace: rename, a new tab (prefix+c), its worktrees (prefix+shift+g), close
+    const items: RowMenuItem[] = [
+      { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, state.scope) },
+      { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) },
+      { id: "new-tab", label: t("New tab"), icon: Plus, run: () => actions.openNewTab({ machineId, workspaceId: workspace.workspace_id }) },
+      ...(linked ? [] : [
+        { id: "new-worktree", label: t("New worktree"), icon: GitBranch, run: () => setWorktreeDialog({ mode: "create", workspace }) },
+        { id: "open-worktree", label: t("Open worktree…"), icon: FolderOpen, run: () => setWorktreeDialog({ mode: "open", workspace }) },
+      ] satisfies RowMenuItem[]),
     ];
     const deleteItems: RowMenuItem[] = linked ? [{
       id: "delete-worktree", label: t("Delete worktree checkout…"), icon: Trash2, danger: true,
@@ -249,39 +259,27 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
         escalation: { label: t("Delete anyway"), code: "dirty_worktree_requires_force", run: () => leave(async () => { await removeWorktree({ workspace_id: workspace.workspace_id, force: true }); }) },
       }),
     }] : [];
-    if (state.kind === "workspace") {
-      return [
-        renameWorkspaceItem,
-        ...worktreeItems,
-        { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => setConfirm({
-          title: t("Close workspace {name}?", { name: workspace.label }),
-          body: worktrees.length > 0 ? t("{n} panes and {m} worktree workspaces close with it; the agents in them stop, and the checkouts stay.", { n: paneCount, m: worktrees.length }) : t("{n} panes close with it, and the agents in them stop.", { n: paneCount }),
-          run: () => leave(() => closeWorkspace(workspace.workspace_id, worktrees.length > 0)),
-        }) },
-        ...deleteItems,
-      ];
-    }
-    const pane = snapshot?.panes.find((candidate) => candidate.pane_id === state.pane.pane_id) ?? state.pane;
-    const renamePaneItem: RowMenuItem = { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) };
-    // the workspace's last pane takes the workspace with it
+    // a lone pane takes its workspace with it; a row with several panes closes them all; a
+    // repository's open worktree workspaces go with either
     const closeItem: RowMenuItem = paneCount === 1
       ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => setConfirm({
           title: t("Close {title}?", { title: state.title }),
           body: worktrees.length > 0 ? t("Its workspace and its {m} worktree workspaces close with it; the agents in them stop, and the checkouts stay.", { m: worktrees.length }) : t("Its workspace closes with it, and the agent and shell in it stop."),
           run: () => leave(() => worktrees.length > 0 ? closeWorkspace(workspace.workspace_id, true) : closePane(pane.pane_id)),
         }) }
-      : { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => closePaneNow(pane.pane_id) };
-    // a one-pane row has no header: it is the only place to rename its workspace
-    return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, ...worktreeItems, closeItem, ...deleteItems] : [renamePaneItem, closeItem];
+      : { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => setConfirm({
+          title: t("Close workspace {name}?", { name: workspace.label }),
+          body: worktrees.length > 0 ? t("{n} panes and {m} worktree workspaces close with it; the agents in them stop, and the checkouts stay.", { n: paneCount, m: worktrees.length }) : t("{n} panes close with it, and the agents in them stop.", { n: paneCount }),
+          run: () => leave(() => closeWorkspace(workspace.workspace_id, worktrees.length > 0)),
+        }) };
+    return [...items, closeItem, ...deleteItems];
   };
 
   // the roster moves under an open menu: a row that left takes its menu with it, and focus
   // goes where a closed row's focus goes
   useEffect(() => {
     if (!menu) return;
-    const alive = menu.kind === "pane"
-      ? snapshot?.panes.some((pane) => pane.pane_id === menu.pane.pane_id)
-      : snapshot?.workspaces.some((workspace) => workspace.workspace_id === menu.workspace.workspace_id);
+    const alive = snapshot?.workspaces.some((workspace) => workspace.workspace_id === menu.workspace.workspace_id);
     if (alive && menu.anchor.isConnected) return;
     setMenu(null);
     focusWorkspaceListToggle();
@@ -292,11 +290,11 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     setPaneLabel(pane.label ?? "");
   };
 
-  const savePaneRename = (paneId: string): void => {
+  const savePaneRename = (pane: PaneInfo): void => {
     const label = paneLabel.trim();
     setEditingPaneId(null);
-    void renamePane(paneId, label).catch((reason: unknown) => {
-      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
+    void renamePane(pane.pane_id, label).catch((reason: unknown) => {
+      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), pane.workspace_id);
     });
   };
 
@@ -311,7 +309,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     const label = workspaceLabel.trim();
     setEditingWorkspaceId(null);
     void renameWorkspace(workspaceId, label).catch((reason: unknown) => {
-      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }));
+      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), workspaceId);
     });
   };
 
@@ -388,34 +386,23 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     moveVisible(workspaceId, event.key === "ArrowUp" ? -1 : 1);
   };
 
-  const dragHandle = (workspace: WorkspaceInfo, draggable: boolean) => (
-    <button
-      type="button"
-      className="sidebar-drag-handle"
-      aria-label={t("Reorder workspace {name}", { name: workspace.label })}
-      title={t("Drag to reorder · Alt+↑/↓")}
-      draggable={draggable}
-      onDragStart={(event) => onDragStart(event, workspace.workspace_id)}
-      onDragEnd={() => setDragWorkspaceId(null)}
-      onKeyDown={(event) => onHandleKeyDown(event, workspace.workspace_id)}
-    >
-      <GripVertical aria-hidden="true" />
-    </button>
-  );
-
   const renderWorkspace = (workspace: WorkspaceInfo, visiblePanes: PaneInfo[], scope = "") => {
     if (visiblePanes.length === 0) return null;
-    // A single pane is its workspace: one row, no heading above it. Count the whole
-    // workspace: a folder can show one pane of a workspace that has more, and that
-    // heading is the only place to rename the workspace.
-    const merged = (workspacePaneCounts.get(workspace.workspace_id) ?? visiblePanes.length) === 1;
-    const groupKey = `workspace:${workspace.workspace_id}`;
-    // A merged row has no toggle: a fold stored while it had a heading (0.3.44) must not hide it.
-    const collapsed = !byFolder && !merged && collapsedGroups.has(groupKey);
-    const workspaceMenuOpen = menu?.kind === "workspace" && menu.workspace.workspace_id === workspace.workspace_id && menu.scope === scope;
+    const pane = currentPane(workspace, visiblePanes);
+    const fullTitle = paneTitle(pane);
+    const displayTitle = displayPaneTitle(pane);
+    // Under a folder header the row names the workspace. By workspace it names the workspace
+    // and the folder, each only when the title or the other does not already say it.
+    const folder = cwdBasename(pane.cwd);
+    const said = folder === displayTitle || folder === workspace.label;
+    const place = byFolder ? workspace.label : placeLine(workspace.label === displayTitle ? "" : workspace.label, said ? "" : folder);
+    const selected = visiblePanes.some((candidate) => candidate.pane_id === selectedPaneId);
+    const editingPane = editingPaneId === pane.pane_id;
+    const editingWorkspace = editingWorkspaceId === `${scope}\u0000${workspace.workspace_id}`;
+    const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id && menu.scope === scope;
     return (
-      <section
-        className={`workspace${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`}
+      <li
+        className={`workspace pane-item${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${selected ? " is-selected" : ""}`}
         key={workspace.workspace_id}
         onDragOver={(event) => {
           event.preventDefault();
@@ -423,136 +410,88 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
         }}
         onDrop={(event) => onDrop(event, workspace.workspace_id)}
       >
-        {!merged && (
-          <header
-            className="workspace-header"
+        <div className="pane-row">
+          <button
+            type="button"
+            className="sidebar-drag-handle"
+            aria-label={t("Reorder workspace {name}", { name: workspace.label })}
+            title={t("Drag to reorder · Alt+↑/↓")}
             draggable
             onDragStart={(event) => onDragStart(event, workspace.workspace_id)}
             onDragEnd={() => setDragWorkspaceId(null)}
+            onKeyDown={(event) => onHandleKeyDown(event, workspace.workspace_id)}
           >
-            {dragHandle(workspace, false)}
-            {!byFolder && <button type="button" className="workspace-toggle" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand workspace {name}", { name: workspace.label }) : t("Collapse workspace {name}", { name: workspace.label })} title={collapsed ? t("Show panes") : t("Hide panes")} onClick={(event) => { event.stopPropagation(); setGroupCollapsed(groupKey, !collapsed); }}>
-              {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-            </button>}
-            <span className="workspace-number">{workspace.number}</span>
-            {editingWorkspaceId === `${scope}\u0000${workspace.workspace_id}` ? (
-              <input
-                className="input workspace-rename-input"
-                aria-label={t("Workspace name")}
-                autoFocus
-                value={workspaceLabel}
-                onChange={(event) => setWorkspaceLabel(event.target.value)}
-                onBlur={() => setEditingWorkspaceId(null)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") saveWorkspaceRename(workspace.workspace_id);
-                  if (event.key === "Escape") setEditingWorkspaceId(null);
-                }}
-              />
-            ) : (
-              <span className="workspace-label" title={workspace.label} onDoubleClick={() => beginWorkspaceRename(workspace, scope)}>
-                {workspace.label}
+            <GripVertical aria-hidden="true" />
+          </button>
+          <div
+            className="pane-select"
+            role="button"
+            tabIndex={0}
+            aria-current={selected ? "true" : undefined}
+            title={`${pane.pane_id} — ${fullTitle}${pane.cwd ? ` — ${pane.cwd}` : ""}`}
+            onClick={() => actions.selectPane(pane.pane_id)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              actions.selectPane(pane.pane_id);
+            }}
+          >
+            <span className={`agent-mark-holder${pane.agent ? "" : " is-shell"}`} title={pane.agent ?? t("Shell")}>
+              {pane.agent ? <AgentMark agent={pane.agent} size={22} /> : <Terminal aria-hidden="true" />}
+            </span>
+            <span className="pane-copy">
+              <span className="pane-primary">
+                {editingPane ? (
+                  <input
+                    className="input pane-rename-input"
+                    aria-label={t("Pane name")}
+                    autoFocus
+                    value={paneLabel}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => setPaneLabel(event.target.value)}
+                    onBlur={() => setEditingPaneId(null)}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === "Enter") savePaneRename(pane);
+                      if (event.key === "Escape") setEditingPaneId(null);
+                    }}
+                  />
+                ) : (
+                  <span className="pane-title">{displayTitle}</span>
+                )}
               </span>
-            )}
-            <StatusBadge status={workspace.agent_status} />
-            <button type="button" className="sidebar-row-action row-menu-toggle workspace-menu" aria-label={t("More for workspace {name}", { name: workspace.label })} aria-haspopup="menu" aria-expanded={workspaceMenuOpen} onClick={(event) => workspaceMenuOpen ? setMenu(null) : setMenu({ kind: "workspace", anchor: event.currentTarget, workspace, scope })}>
+              {editingWorkspace ? (
+                <input
+                  className="input pane-rename-input workspace-rename-input"
+                  aria-label={t("Workspace name")}
+                  autoFocus
+                  value={workspaceLabel}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => setWorkspaceLabel(event.target.value)}
+                  onBlur={() => setEditingWorkspaceId(null)}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Enter") saveWorkspaceRename(workspace.workspace_id);
+                    if (event.key === "Escape") setEditingWorkspaceId(null);
+                  }}
+                />
+              ) : (
+                <span className="pane-meta">
+                  {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge status={rollupStatus(visiblePanes.map((candidate) => candidate.agent_status))} />}
+                  <BackgroundBadge count={(pane as HerdrPane).background_tasks} />
+                  {place && <span className="pane-subtitle">{place}</span>}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="pane-actions">
+            <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => menuOpen ? setMenu(null) : setMenu({ anchor: event.currentTarget, workspace, pane, scope, title: displayTitle, place: place || workspace.label })}>
               <Ellipsis aria-hidden="true" />
             </button>
-          </header>
-        )}
-
-        {!collapsed && <ul className="pane-list">
-          {visiblePanes.map((pane) => {
-            const fullTitle = paneTitle(pane);
-            const displayTitle = displayPaneTitle(pane);
-            // The group header already names one of the two: a workspace's rows name the folder, a
-            // folder's rows the workspace. A workspace is usually named after its folder, and a shell
-            // titled by it: the folder shows only when neither already says it. A merged row has no
-            // workspace header, so it names the workspace too, unless the title already is that name.
-            const folder = cwdBasename(pane.cwd);
-            const said = folder === displayTitle || folder === workspace.label;
-            const place = byFolder ? workspace.label
-              : merged ? placeLine(workspace.label === displayTitle ? "" : workspace.label, said ? "" : folder)
-              : said ? "" : folder;
-            const selected = pane.pane_id === selectedPaneId;
-            const editing = editingPaneId === pane.pane_id;
-            const paneMenuOpen = menu?.kind === "pane" && menu.pane.pane_id === pane.pane_id;
-            return (
-              <li className={`pane-item${selected ? " is-selected" : ""}`} key={pane.pane_id}>
-                <div className="pane-row">
-                  {merged && dragHandle(workspace, true)}
-                  <div
-                    className="pane-select"
-                    role="button"
-                    tabIndex={0}
-                    aria-current={selected ? "true" : undefined}
-                    title={`${pane.pane_id} — ${fullTitle}${pane.cwd ? ` — ${pane.cwd}` : ""}`}
-                    onClick={() => actions.selectPane(pane.pane_id)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      actions.selectPane(pane.pane_id);
-                    }}
-                  >
-                    <span className={`agent-mark-holder${pane.agent ? "" : " is-shell"}`} title={pane.agent ?? t("Shell")}>
-                      {pane.agent ? <AgentMark agent={pane.agent} size={22} /> : <Terminal aria-hidden="true" />}
-                    </span>
-                    <span className="pane-copy">
-                      <span className="pane-primary">
-                        {editing ? (
-                          <input
-                            className="input pane-rename-input"
-                            aria-label={t("Pane name")}
-                            autoFocus
-                            value={paneLabel}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => setPaneLabel(event.target.value)}
-                            onBlur={() => setEditingPaneId(null)}
-                            onKeyDown={(event) => {
-                              event.stopPropagation();
-                              if (event.key === "Enter") savePaneRename(pane.pane_id);
-                              if (event.key === "Escape") setEditingPaneId(null);
-                            }}
-                          />
-                        ) : (
-                          <span className="pane-title">{displayTitle}</span>
-                        )}
-                      </span>
-                      {merged && editingWorkspaceId === `${scope}\u0000${workspace.workspace_id}` ? (
-                        <input
-                          className="input pane-rename-input workspace-rename-input"
-                          aria-label={t("Workspace name")}
-                          autoFocus
-                          value={workspaceLabel}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) => setWorkspaceLabel(event.target.value)}
-                          onBlur={() => setEditingWorkspaceId(null)}
-                          onKeyDown={(event) => {
-                            event.stopPropagation();
-                            if (event.key === "Enter") saveWorkspaceRename(workspace.workspace_id);
-                            if (event.key === "Escape") setEditingWorkspaceId(null);
-                          }}
-                        />
-                      ) : (
-                        <span className="pane-meta">
-                          {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge status={pane.agent_status} />}
-                          <BackgroundBadge count={(pane as HerdrPane).background_tasks} />
-                          {place && <span className="pane-subtitle">{place}</span>}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="pane-actions">
-                    <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={paneMenuOpen} onClick={(event) => paneMenuOpen ? setMenu(null) : setMenu({ kind: "pane", anchor: event.currentTarget, pane, workspace, scope, title: displayTitle, place: place || workspace.label })}>
-                      <Ellipsis aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-                {inlineError?.paneId === pane.pane_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>}
-              </li>
-            );
-          })}
-        </ul>}
-      </section>
+          </div>
+        </div>
+        {inlineError?.workspaceId === workspace.workspace_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>}
+      </li>
     );
   };
 
@@ -567,32 +506,33 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
           </div>
         )}
         {byFolder ? directories.map((directory) => {
-          const collapsed = collapsedGroups.has(`folder:${directory.key}`);
+          const collapsed = collapsedGroups.has(directory.key);
           const name = directory.path ? cwdBasename(directory.path) : directory.workspaces[0]?.workspace.label;
           return <section className={`directory-group${collapsed ? " is-collapsed" : ""}`} key={directory.key} data-directory={directory.path ?? directory.key}>
-            <button type="button" className="directory-header" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand folder {name}", { name: directory.path ?? name ?? "" }) : t("Collapse folder {name}", { name: directory.path ?? name ?? "" })} title={directory.path ?? name} onClick={() => setGroupCollapsed(`folder:${directory.key}`, !collapsed)}>
+            <button type="button" className="directory-header" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand folder {name}", { name: directory.path ?? name ?? "" }) : t("Collapse folder {name}", { name: directory.path ?? name ?? "" })} title={directory.path ?? name} onClick={() => setGroupCollapsed(directory.key, !collapsed)}>
               {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
               <Folder aria-hidden="true" />
               <span className="directory-copy"><span className="directory-name">{name}</span>{directory.path && <span className="directory-path">{directory.path}</span>}</span>
               <span className="workspace-number">{directory.paneCount}</span>
             </button>
-            {!collapsed && <div className="directory-contents">{directory.workspaces.map(({ workspace, panes: visiblePanes }) => {
-              return renderWorkspace(workspace, visiblePanes, directory.key);
-        })}</div>}
+            {!collapsed && <div className="directory-contents"><ul className="workspace-list">{directory.workspaces.map(({ workspace, panes: visiblePanes }) => renderWorkspace(workspace, visiblePanes, directory.key))}</ul></div>}
           </section>;
-        }) : worktreeGroups.map(({ workspace, children }) => (
+        }) : <ul className="workspace-list">{worktreeGroups.map(({ workspace, children }) => (
           <Fragment key={workspace.workspace_id}>
             {renderWorkspace(workspace, snapshot?.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? [])}
-            {children.length > 0 && <div className="worktree-children">
+            {/* a repository's worktree workspaces, packed under its row as herdr keeps them; a list of
+                their own, beside the row rather than inside it, so a hover or focus on a child row
+                does not light the repository's */}
+            {children.length > 0 && <li className="worktree-children"><ul className="workspace-list">
               {children.map((child) => renderWorkspace(child, snapshot?.panes.filter((pane) => pane.workspace_id === child.workspace_id) ?? []))}
-            </div>}
+            </ul></li>}
           </Fragment>
-        ))}
-        {inlineError && inlineError.paneId === undefined && (
+        ))}</ul>}
+        {inlineError && inlineError.workspaceId === undefined && (
           <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>
         )}
       </nav>
-      {menu && <RowMenu anchor={menu.anchor} title={menu.kind === "pane" ? menu.title : menu.workspace.label} subtitle={menu.kind === "pane" ? menu.place : undefined} items={menuItems(menu)} onClose={closeMenu} />}
+      {menu && <RowMenu anchor={menu.anchor} title={menu.title} subtitle={menu.place} items={menuItems(menu)} onClose={closeMenu} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.action ?? t("Close")} onConfirm={confirm.run} escalation={confirm.escalation} onClose={() => setConfirm(null)} />}
       {worktreeDialog && <WorktreeDialog mode={worktreeDialog.mode} workspace={worktreeDialog.workspace} onClose={() => setWorktreeDialog(null)} onOpened={(opened) => { setWorktreeDialog(null); actions.selectPane(opened.pane_id); }} />}
     </div>

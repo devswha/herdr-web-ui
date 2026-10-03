@@ -20,12 +20,35 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   refused first, in git's words, with **Delete anyway** as the second step. Closing a repository
   workspace over open worktrees says so and closes them with it.
   ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
+- **New tab**, as herdr's prefix+c: a workspace row's **⋯** menu, the header's **New tab** button
+  on a desktop, the command palette and the tab strip's `+` open the session dialog as *New tab*,
+  with the folder fixed to the workspace's and the agent and an optional tab name to choose. The
+  tab opens in the workspace with its agent started the way a new session's is. Remote PCs get
+  it with their next bridge update. The server half starts from
+  [#362](https://github.com/devswha/herdr-web-ui/pull/362) by @WOULDU-pres.
+  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
+- A tab strip over the pane, as herdr's tab row, once a workspace has more than one pane: one
+  entry per tab with the agent state as a dot, the open one underlined; a tab herdr still names
+  by its number reads **Tab 2**. A tab opens the pane last viewed in it, and a tab split into
+  several panes in the TUI has a picker of them beside its name.
+  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
+
+### Changed
+- The sidebar lists one row per workspace, as herdr's Spaces sidebar does, instead of a header
+  with a row per pane. The row shows the workspace's current pane (the selected one, else the one
+  last viewed there, else the one herdr has in front) and the roll-up of its agents' states; its
+  other panes are reached from the tab strip, the command palette and **Needs you**. Workspace
+  headers, numbers and folds are gone; folder folds stay. **Rename pane** renames the pane the
+  row shows, and a close asks first, as before.
+  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
 
 ### Fixed
 - Settings → Updates no longer leaves **Check for updates** and **Update and restart** disabled
   when the answer to a click arrives while the page is hidden, as when a phone sends the app to
   the background. The status poll pauses with the page; the click's answer now lands anyway.
   ([#381](https://github.com/devswha/herdr-web-ui/pull/381))
+
+||||||| parent of 0e72096 (feat(sidebar): one row per workspace, New tab in its menu, and a tab strip over the pane)
 
 ## [0.3.45] - 2026-10-03
 

@@ -38,6 +38,13 @@
 
 .tree-state-empty .tree-state { padding: 0; }
 
+/* one row per workspace, as herdr's Spaces sidebar; the row's menu and strip reach its panes */
+.workspace-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* a repository's worktree workspaces sit under its own row, packed behind a hairline, as
    herdr's Spaces sidebar keeps them */
 .worktree-children {
@@ -119,51 +126,6 @@
   opacity: 0.55;
 }
 
-.workspace-header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: var(--control-h);
-  padding: 0 var(--space-1) 0 var(--space-4);
-  border-radius: var(--radius-md);
-}
-
-.workspace-header:hover,
-.workspace-header:focus-within {
-  background: var(--bg-hover);
-}
-
-.workspace-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: var(--control-h);
-  height: var(--control-h);
-  margin-left: calc(-1 * var(--space-2));
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.workspace-toggle:hover,
-.workspace-toggle:focus-visible {
-  color: var(--text-strong);
-}
-
-.workspace-toggle svg {
-  width: 16px;
-  height: 16px;
-}
-
-.workspace.is-collapsed {
-  margin-bottom: var(--space-1);
-}
-
 .workspace-number {
   display: inline-flex;
   align-items: center;
@@ -179,41 +141,11 @@
   font-size: var(--fs-2xs);
 }
 
-.workspace-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 0;
-  overflow: hidden;
-  background: transparent;
-  border: 0;
-  color: var(--text-strong);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: text;
-}
-
 .workspace-rename-input {
   flex: 1 1 auto;
   min-width: 0;
   height: calc(var(--control-h) - var(--space-1));
   padding: 0 var(--space-2);
-}
-
-.workspace-header .badge {
-  flex: 0 0 auto;
-}
-
-.workspace-menu {
-  opacity: 0;
-}
-
-.workspace-header:hover .workspace-menu,
-.workspace-header:focus-within .workspace-menu,
-.workspace-menu[aria-expanded="true"] {
-  opacity: 1;
 }
 
 .sidebar-drag-handle,
@@ -247,9 +179,7 @@
 }
 
 .pane-item:hover .sidebar-drag-handle,
-.pane-item:focus-within .sidebar-drag-handle,
-.workspace-header:hover .sidebar-drag-handle,
-.workspace-header:focus-within .sidebar-drag-handle {
+.pane-item:focus-within .sidebar-drag-handle {
   opacity: 1;
 }
 
@@ -520,10 +450,7 @@
   /* no hover on touch: the grip stays, quiet, and the row actions are always there */
   .sidebar-drag-handle,
   .pane-actions,
-  .workspace-menu {
-    opacity: 1;
   }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .workspace,
