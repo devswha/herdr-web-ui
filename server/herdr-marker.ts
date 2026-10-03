@@ -5,6 +5,17 @@
  * does not say whether the daemon is there: Windows hands a dead process's pid to the next
  * one, so after a reboot another program, or another session's herdr, can hold it.
  */
+/**
+ * On Linux and macOS a herdr that was killed, or lost to a reboot, leaves its socket file
+ * behind, and the kernel refuses a connection to it (live-verified, herdr 0.9.0 and 0.9.3;
+ * `herdr server` starts over such a file). Any other failure, a daemon that is slow or a
+ * file that may not be read, is not proof that the daemon is gone.
+ */
+export async function refusedSocket(path: string): Promise<boolean> {
+  try { (await Bun.connect({ unix: path, socket: { data() {} } })).end(); return false; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ECONNREFUSED"; }
+}
+
 export interface MarkerOwner { pid: number; startedMs: number | null }
 export function markerOwner(marker: string): MarkerOwner | null {
   const [pidText, startText] = marker.trim().split(":");
