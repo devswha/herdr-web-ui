@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the new checkout, and Shell starts none. It opens on the agent you last started. An agent that
   cannot start leaves the worktree there, with the reason and an **Open** button. Remote PCs
   start the agent with their next bridge update; until then they make the worktree with a shell.
+  ([#401](https://github.com/devswha/herdr-web-ui/pull/401))
 
 ### Fixed
 - Claude conversations on Linux can be read without the Herdr integration hook when Claude's
