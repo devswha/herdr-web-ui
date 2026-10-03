@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- **New session** is **New workspace**: the `+` on a PC's header, the button of an empty PC, the
+  command palette action and the Settings → Shortcuts row create a herdr workspace, and say so
+  now, beside **New tab**. The dialog's buttons are **Start**, **Open** and **Close dialog** in
+  both of its forms. The shortcut and saved settings are unchanged.
+  ([#389](https://github.com/devswha/herdr-web-ui/pull/389))
 - **New worktree** opens with a branch and a name already filled in, as herdr's own form does:
   a `worktree/brave-valley-07f8` style branch, selected so typing replaces it, and a name that
   follows the branch until you change it.
