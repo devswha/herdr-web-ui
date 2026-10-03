@@ -254,6 +254,34 @@ try {
   await until(async () => await page.evaluate(() => document.activeElement?.matches(".sidebar-toggle, .drawer-toggle") ?? false), "focus returns to the workspace-list toggle after Add PC closes");
   console.log("PASS Add PC opens from Settings, and the sidebar has no top bar");
 
+  // An update request answered while the page is hidden (a phone app sent to the background) must
+  // still release the buttons: the status poll stops with the page, the request does not.
+  let releaseCheck!: () => void;
+  const checkGate = new Promise<void>((resolve) => { releaseCheck = resolve; });
+  const idleStatus = { managed: true, auto_update: false, phase: "idle", current_revision: null, latest_revision: null, current_version: "0.0.0", latest_version: "0.0.0", available: false, checked_at: new Date().toISOString(), blocked_reason: null, error: null };
+  await page.route("**/api/updates", (route) => route.fulfill({ json: idleStatus }));
+  await page.route("**/api/updates/check", async (route) => { await checkGate; await route.fulfill({ json: { ok: true } }); });
+  await page.keyboard.press("Control+Shift+Comma");
+  const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
+  await checkUpdates.waitFor();
+  await checkUpdates.click();
+  await until(() => checkUpdates.isDisabled(), "the check is pending");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  releaseCheck();
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    delete (document as unknown as Record<string, unknown>).visibilityState;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await until(async () => !(await checkUpdates.isDisabled()), "an answer that came while hidden releases the update buttons");
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await page.unroute("**/api/updates/check");
+  await page.unroute("**/api/updates");
+  console.log("PASS an update answer that arrives while the page is hidden releases the buttons");
+
   // the bell turns this device's alerts on, and off again (it stayed disabled once on)
   await context.grantPermissions(["notifications"], { origin });
   const bell = page.locator(".bell-button");
