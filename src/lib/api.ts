@@ -19,7 +19,7 @@ import type {
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
-import type { UpdateCommand, UpdateStatus } from "../../shared/update.ts";
+import type { HerdrUpdateStatus, UpdateCommand, UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 
@@ -39,6 +39,17 @@ export function fetchUpdateStatus(): Promise<UpdateStatus> {
 
 export async function requestUpdate(command: UpdateCommand): Promise<void> {
   const url = `/api/updates/${command}`;
+  const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
+  if (!response.ok) throw await errorFrom(url, response);
+}
+
+/** Settings → Updates: herdr itself, on the PC the server runs on. */
+export function fetchHerdrUpdate(): Promise<HerdrUpdateStatus> {
+  return getJson<HerdrUpdateStatus>("/api/herdr/update");
+}
+
+export async function requestHerdrUpdate(): Promise<void> {
+  const url = "/api/herdr/update";
   const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
   if (!response.ok) throw await errorFrom(url, response);
 }

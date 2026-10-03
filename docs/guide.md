@@ -361,6 +361,16 @@ An update is built and typechecked in a private checkout while the current serve
 
 Updates need a clean checkout: `main` for a source install, or herdr's plugin checkout. Local changes block an update, and they are never overwritten. More in [app updates](app-updates.md).
 
+### Updating herdr
+
+herdr itself is updated from **Settings → herdr → Update herdr**. herdr refuses `herdr update` typed into one of its panes ("run `herdr update` outside herdr"), and every terminal in the app is a pane, so the server runs it instead, for the herdr on the PC the app runs on:
+
+- It installs the newest herdr and moves the running panes onto it with a live handoff. Panes and agents keep running, and open terminals reconnect.
+- If a newer herdr was already installed from a shell, the running server is still the old one: Settings says so, and the button only moves the panes.
+- What herdr printed is shown under the button. A herdr installed with Homebrew, mise or Nix is updated with that tool, and herdr's message names the command.
+
+This is for Linux and macOS. On Windows, and for a remote PC, update herdr on that PC.
+
 ## Keyboard shortcuts
 
 `Mod` is **⌘** on macOS and **Ctrl** elsewhere. Every shortcut adds Shift, so the terminal keeps its own Ctrl keys.
