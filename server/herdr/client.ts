@@ -219,6 +219,68 @@ export async function workspaceClose(workspaceId: string, socketPath?: string): 
   await herdrRpc("workspace.close", { workspace_id: workspaceId }, socketPath);
 }
 
+/** herdr's view of one git checkout: `worktree.list` entries, and what create/open hand back. */
+export interface WorktreeInfo {
+  path: string;
+  branch: string | null;
+  label: string;
+  is_linked_worktree: boolean;
+  is_bare: boolean;
+  is_detached: boolean;
+  is_prunable: boolean;
+  open_workspace_id: string | null;
+}
+
+export interface WorktreeSourceInfo {
+  repo_key: string;
+  repo_name: string;
+  repo_root: string;
+  source_checkout_path: string;
+  source_workspace_id: string | null;
+}
+
+export interface WorktreeOpenResult {
+  type: "worktree_created" | "worktree_opened";
+  workspace: WorkspaceInfo;
+  tab: TabInfo;
+  root_pane: PaneInfo;
+  worktree: WorktreeInfo;
+  /** worktree_opened only: the checkout was a workspace before the call */
+  already_open?: boolean;
+}
+
+/** A git worktree of the workspace's repository, opened as a new workspace grouped with it. */
+export async function worktreeCreate(
+  options: { workspaceId: string; branch: string; base?: string; label?: string; path?: string },
+  socketPath?: string,
+): Promise<WorktreeOpenResult> {
+  return herdrRpc("worktree.create", {
+    workspace_id: options.workspaceId,
+    branch: options.branch,
+    ...(options.base === undefined ? {} : { base: options.base }),
+    ...(options.label === undefined ? {} : { label: options.label }),
+    ...(options.path === undefined ? {} : { path: options.path }),
+    focus: false,
+  }, socketPath);
+}
+
+export async function worktreeList(workspaceId: string, socketPath?: string): Promise<{ source: WorktreeSourceInfo; worktrees: WorktreeInfo[] }> {
+  return herdrRpc("worktree.list", { workspace_id: workspaceId }, socketPath);
+}
+
+export async function worktreeOpen(
+  options: { workspaceId: string; path?: string; branch?: string; label?: string },
+  socketPath?: string,
+): Promise<WorktreeOpenResult> {
+  return herdrRpc("worktree.open", {
+    workspace_id: options.workspaceId,
+    ...(options.path === undefined ? {} : { path: options.path }),
+    ...(options.branch === undefined ? {} : { branch: options.branch }),
+    ...(options.label === undefined ? {} : { label: options.label }),
+    focus: false,
+  }, socketPath);
+}
+
 export interface PaneReadOptions {
   paneId: string;
   source?: ReadSource;

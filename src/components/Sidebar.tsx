@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Ellipsis, Folder, GripVertical, Layers, Pencil, Plus, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, GripVertical, Layers, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -11,6 +11,7 @@ import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
+import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
@@ -113,6 +114,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   const { closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace } = useMachineApi();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [worktreeDialog, setWorktreeDialog] = useState<{ mode: WorktreeDialogMode; workspace: WorkspaceInfo } | null>(null);
   const [editingPaneId, setEditingPaneId] = useState<string | null>(null);
   const [paneLabel, setPaneLabel] = useState("");
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
@@ -209,9 +211,15 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     const workspace = snapshot?.workspaces.find((candidate) => candidate.workspace_id === state.workspace.workspace_id) ?? state.workspace;
     const paneCount = workspacePaneCounts.get(workspace.workspace_id) ?? 1;
     const renameWorkspaceItem: RowMenuItem = { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, state.scope) };
+    // herdr's own worktree actions, from the workspace they start on (prefix+shift+g in the TUI)
+    const worktreeItems: RowMenuItem[] = [
+      { id: "new-worktree", label: t("New worktree"), icon: GitBranch, run: () => setWorktreeDialog({ mode: "create", workspace }) },
+      { id: "open-worktree", label: t("Open worktree…"), icon: FolderOpen, run: () => setWorktreeDialog({ mode: "open", workspace }) },
+    ];
     if (state.kind === "workspace") {
       return [
         renameWorkspaceItem,
+        ...worktreeItems,
         { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close workspace {name}?", { name: workspace.label }), body: t("{n} panes close with it, and the agents in them stop.", { n: paneCount }), run: () => leave(() => closeWorkspace(workspace.workspace_id)) }) },
       ];
     }
@@ -222,7 +230,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
       ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop."), run: () => leave(() => closePane(pane.pane_id)) }) }
       : { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => closePaneNow(pane.pane_id) };
     // a one-pane row has no header: it is the only place to rename its workspace
-    return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, closeItem] : [renamePaneItem, closeItem];
+    return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, ...worktreeItems, closeItem] : [renamePaneItem, closeItem];
   };
 
   // the roster moves under an open menu: a row that left takes its menu with it, and focus
@@ -503,6 +511,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
       </nav>
       {menu && <RowMenu anchor={menu.anchor} title={menu.kind === "pane" ? menu.title : menu.workspace.label} subtitle={menu.kind === "pane" ? menu.place : undefined} items={menuItems(menu)} onClose={closeMenu} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close")} onConfirm={confirm.run} onClose={() => setConfirm(null)} />}
+      {worktreeDialog && <WorktreeDialog mode={worktreeDialog.mode} workspace={worktreeDialog.workspace} onClose={() => setWorktreeDialog(null)} onOpened={(opened) => { setWorktreeDialog(null); actions.selectPane(opened.pane_id); }} />}
     </div>
   );
 }

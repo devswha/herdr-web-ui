@@ -1,13 +1,13 @@
 /** Real-browser regressions against owned herdr panes. Run after `bun run build`. */
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
-import type { WorkspaceCreated } from "../shared/protocol.ts";
+import type { WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkNeedsInput } from "./needs-input-regression.ts";
@@ -27,6 +27,7 @@ import { UsageService } from "../server/usage.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
+const worktreeWorkspaces: string[] = [];
 const releases: Array<() => void> = [];
 const errors: string[] = [];
 let server: ReturnType<typeof createServer> | undefined;
@@ -504,6 +505,44 @@ try {
   assert.equal(createRequests, 1);
   console.log("PASS session creation stays pending and opens one owned workspace");
 
+  // A git worktree from a workspace row's ⋯ menu, as herdr's prefix+shift+g makes one: a new
+  // workspace next to the repository's, selected; Open worktree… then lists it as already open.
+  const repo = join(root, "repo");
+  mkdirSync(repo);
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "user.name=herdr-web-ui test", "-c", "user.email=test@example.invalid", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  assert.equal(git("init", "-q", "-b", "main").exitCode, 0, "git init");
+  writeFileSync(join(repo, "README.md"), "worktree fixture\n");
+  assert.equal(git("add", "README.md").exitCode, 0);
+  assert.equal(git("commit", "-q", "-m", "fixture").exitCode, 0, "git commit");
+  const repoWorkspace = await workspaceCreate({ cwd: repo, label: "herdr-web-ui-test-repo" });
+  workspaces.push(repoWorkspace.workspace.workspace_id);
+  const repoRow = page.locator(`.pane-item:has(.pane-select[title^="${repoWorkspace.root_pane.pane_id} —"])`);
+  await repoRow.waitFor();
+  await repoRow.hover();
+  await repoRow.locator(".row-menu-toggle").click();
+  await page.getByRole("menuitem", { name: "New worktree", exact: true }).click();
+  const newWorktree = page.getByRole("dialog", { name: /^New worktree/ });
+  await newWorktree.waitFor();
+  await newWorktree.getByLabel(/^Branch/).fill("herdr-web-ui-test-feature");
+  const worktreeResponse = page.waitForResponse((response) => response.url().endsWith("/api/worktree/create"));
+  await newWorktree.getByRole("button", { name: "Create worktree", exact: true }).click();
+  const worktree = await (await worktreeResponse).json() as WorktreeOpened;
+  worktreeWorkspaces.push(worktree.workspace_id);
+  assert.equal(worktree.branch, "herdr-web-ui-test-feature");
+  await newWorktree.waitFor({ state: "detached" });
+  await until(async () => (await page.locator(`.pane-select[title^="${worktree.pane_id} —"]`).getAttribute("aria-current")) === "true", "the worktree's pane is selected");
+  await repoRow.hover();
+  await repoRow.locator(".row-menu-toggle").click();
+  await page.getByRole("menuitem", { name: "Open worktree…", exact: true }).click();
+  const openWorktree = page.getByRole("dialog", { name: /^Open worktree/ });
+  await openWorktree.waitFor();
+  const entry = openWorktree.locator(".worktree-row", { hasText: "herdr-web-ui-test-feature" });
+  await entry.waitFor();
+  assert.equal(await entry.locator(".pill").count(), 1, "the open checkout is marked as open");
+  await page.keyboard.press("Escape");
+  await openWorktree.waitFor({ state: "detached" });
+  console.log("PASS a worktree opens from the row menu as a grouped workspace, and Open worktree… knows it");
+
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.
   await selectPane(paneB);
@@ -843,6 +882,11 @@ try {
   for (const release of releases) release();
   await browser?.close();
   server?.stop();
+  // a worktree checkout the run made goes with it: herdr removes the checkout, then its workspace
+  for (const id of worktreeWorkspaces) {
+    await herdrRpc("worktree.remove", { workspace_id: id, force: true }).catch(() => undefined);
+    await workspaceClose(id).catch(() => undefined);
+  }
   for (const id of workspaces) await workspaceClose(id);
   rmSync(root, { recursive: true, force: true });
 }

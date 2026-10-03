@@ -95,6 +95,12 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
+ *  POST   /api/worktree/create { workspace_id, branch, base?, label?, path? } -> WorktreeOpened
+ *         (worktree.create: a git worktree of that workspace's repo, checked out under herdr's
+ *         worktree directory unless `path` says where, and opened as a new workspace grouped with it)
+ *  GET    /api/worktree/list?workspace_id= -> WorktreeListing (worktree.list: the repo's checkouts)
+ *  POST   /api/worktree/open   { workspace_id, path | branch, label? } -> WorktreeOpened
+ *         (worktree.open: an existing checkout as a workspace; already_open names the one it has)
  *  POST   /api/auth        { token }     -> 204 + Set-Cookie herdr_web_token (401 invalid_token on mismatch)
  *  DELETE /api/auth                      -> 204, clears the token and the device cookies
  *  GET    /api/devices                   -> { devices: PairedDevice[] } (the paired devices; `current` marks the caller's)
@@ -389,6 +395,52 @@ export interface AgentKind {
 }
 
 /** POST /api/workspace/create: the workspace herdr made and the pane the agent (if any) runs in. */
+/** POST /api/worktree/create: branch is the new checkout's branch (created from base, or HEAD, unless it exists). */
+export interface CreateWorktreeRequest {
+  workspace_id: string;
+  branch: string;
+  base?: string | null;
+  label?: string | null;
+  /** an absolute checkout path; herdr's `<worktrees.directory>/<repo>/<branch>` when absent */
+  path?: string | null;
+}
+
+/** POST /api/worktree/open: one of path or branch names the checkout. */
+export interface OpenWorktreeRequest {
+  workspace_id: string;
+  path?: string | null;
+  branch?: string | null;
+  label?: string | null;
+}
+
+/** The workspace a worktree is open in, and its root pane. `already_open` when open before the call. */
+export interface WorktreeOpened {
+  workspace_id: string;
+  pane_id: string;
+  already_open: boolean;
+  path: string;
+  branch: string | null;
+}
+
+/** One checkout of a repository, from herdr's `worktree.list` (git worktree list, annotated). */
+export interface WorktreeEntry {
+  path: string;
+  branch: string | null;
+  label: string;
+  is_linked_worktree: boolean;
+  is_bare: boolean;
+  is_detached: boolean;
+  is_prunable: boolean;
+  /** the herdr workspace this checkout is open in, if any */
+  open_workspace_id: string | null;
+}
+
+/** GET /api/worktree/list: the repository the workspace is in, and every checkout of it. */
+export interface WorktreeListing {
+  source: { repo_key: string; repo_name: string; repo_root: string; source_checkout_path: string; source_workspace_id: string | null };
+  worktrees: WorktreeEntry[];
+}
+
 export interface WorkspaceCreated {
   workspace_id: string;
   pane_id: string;

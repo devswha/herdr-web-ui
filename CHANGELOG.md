@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- A workspace row's **⋯** menu has **New worktree** and **Open worktree…**, as herdr's own
+  worktree keys do. New worktree checks a branch out as a git worktree under herdr's worktree
+  folder and opens it as a workspace next to the repository's; Open worktree… lists the
+  repository's other checkouts and opens one, or goes back to the workspace it is already open
+  in. Remote PCs get the two with their next bridge update.
+
 ## [0.3.45] - 2026-10-03
 
 ### Added

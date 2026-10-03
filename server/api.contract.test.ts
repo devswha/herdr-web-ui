@@ -1,14 +1,14 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { chmodSync, mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import type { HerdrUpdateStatus } from "../shared/update.ts";
 import { UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
-import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
+import { herdrRpc, ping, sessionSnapshot, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
@@ -333,6 +333,54 @@ describe("workspace and discovery endpoints", () => {
     expect(await close.json()).toEqual({ ok: true });
     workspaceId = null;
   }, 20_000);
+
+  it("creates a worktree of an owned repository as a grouped workspace, lists it, and opens it again", async () => {
+    // a repository with one commit: a worktree needs a branch to start from
+    const repo = mkdtempSync(join(tmpdir(), "herdr-web-ui-worktree-"));
+    const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "user.name=herdr-web-ui test", "-c", "user.email=test@example.invalid", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+    expect(git("init", "-q", "-b", "main").exitCode).toBe(0);
+    writeFileSync(join(repo, "README.md"), "worktree fixture\n");
+    expect(git("add", "README.md").exitCode).toBe(0);
+    expect(git("commit", "-q", "-m", "fixture").exitCode).toBe(0);
+    const parent = await workspaceCreate({ cwd: repo, label: "herdr-web-ui-test-worktree-parent" });
+    const owned = [parent.workspace.workspace_id];
+    // the checkout lives under the test's own folders, never under the user's worktree directory
+    const checkouts = `${repo}-checkouts`;
+    const checkout = join(checkouts, "feature");
+    const post = (path: string, body: unknown) => fetch(`${base()}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    try {
+      const missing = await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id });
+      expect(missing.status).toBe(400);
+      expect(((await missing.json()) as ApiError).error.code).toBe("missing_branch");
+
+      const create = await post("/api/worktree/create", { workspace_id: parent.workspace.workspace_id, branch: "herdr-web-ui-test-feature", base: null, label: null, path: checkout });
+      expect(create.status).toBe(200);
+      const opened = (await create.json()) as WorktreeOpened;
+      owned.push(opened.workspace_id);
+      expect(opened.already_open).toBeFalse();
+      expect(opened.branch).toBe("herdr-web-ui-test-feature");
+      expect(realpathSync(opened.path)).toBe(realpathSync(checkout));
+      const child = (await sessionSnapshot()).workspaces.find((workspace) => workspace.workspace_id === opened.workspace_id);
+      expect(child?.worktree?.is_linked_worktree).toBeTrue();
+
+      const list = await fetch(`${base()}/api/worktree/list?workspace_id=${encodeURIComponent(parent.workspace.workspace_id)}`);
+      expect(list.status).toBe(200);
+      const listing = (await list.json()) as WorktreeListing;
+      expect(listing.worktrees.some((entry) => entry.branch === "herdr-web-ui-test-feature" && entry.open_workspace_id === opened.workspace_id)).toBeTrue();
+
+      const again = await post("/api/worktree/open", { workspace_id: parent.workspace.workspace_id, path: checkout });
+      expect(again.status).toBe(200);
+      const reopened = (await again.json()) as WorktreeOpened;
+      expect(reopened.already_open).toBeTrue();
+      expect(reopened.workspace_id).toBe(opened.workspace_id);
+    } finally {
+      const [, worktreeWorkspace] = owned;
+      if (worktreeWorkspace) await herdrRpc("worktree.remove", { workspace_id: worktreeWorkspace, force: true }).catch(() => undefined);
+      for (const id of owned) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
+      rmSync(checkouts, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("starts another agent of a kind whose name is already taken", async () => {
     // muse stands in for the agent: herdr answers agent.start once the launch is typed into the

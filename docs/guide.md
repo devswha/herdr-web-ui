@@ -238,6 +238,8 @@ Agents waiting for an answer appear in **Needs you** at the top of the sidebar, 
 those on collapsed PCs. Choose a row to open its pane on the correct PC. The shortcut
 disappears when the agent resumes or the PC disconnects; workspace order stays unchanged.
 
+A workspace row's **⋯** menu offers **New worktree** and **Open worktree…**, as herdr's own worktree keys do: the first checks a branch out as a git worktree under herdr's worktree folder and opens it as a workspace next to the repository's, the second lists the repository's other checkouts and opens one. A worktree workspace closes like any other; its checkout stays on disk.
+
 Open Settings → Remote PCs and choose **Add PC** (the command palette has it too), then enter an SSH alias or `user@host` for a Linux or macOS computer. The setup dialog walks you through the host fingerprint, the password or key passphrase, and an explicit install approval. The PC's workspaces then join the sidebar, and chat, files, terminal input and alerts all follow the PC you pick.
 
 - **SSH runs on the server**, as the web server's account, with its OpenSSH configuration and agent. The browser never opens SSH itself.

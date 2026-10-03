@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
+import type { CreateWorktreeRequest, OpenWorktreeRequest } from "../../shared/protocol.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
 /** Bound functions retain their owner across an async upload or a fast PC switch. */
@@ -17,6 +18,9 @@ export function useMachineApi() {
     fetchPaneOmoActivity: (pane: string) => api.fetchPaneOmoActivity(pane, id),
     closePane: (pane: string) => api.closePane(pane, id),
     closeWorkspace: (workspace: string) => api.closeWorkspace(workspace, id),
+    createWorktree: (request: CreateWorktreeRequest) => api.createWorktree(request, id),
+    listWorktrees: (workspace: string) => api.listWorktrees(workspace, id),
+    openWorktree: (request: OpenWorktreeRequest) => api.openWorktree(request, id),
     renamePane: (pane: string, label: string) => api.renamePane(pane, label, id),
     renameWorkspace: (workspace: string, label: string) => api.renameWorkspace(workspace, label, id),
     moveWorkspace: (workspace: string, index: number) => api.moveWorkspace(workspace, index, id),

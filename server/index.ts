@@ -45,6 +45,9 @@ import {
   workspaceCreate,
   workspaceMove,
   workspaceRename,
+  worktreeCreate,
+  worktreeList,
+  worktreeOpen,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
@@ -870,7 +873,7 @@ export function createServer(
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const access = decideAccess({
         loopback: ip !== null && isLoopbackAddress(ip.address),
@@ -915,7 +918,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|pane\/|workspace\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : 80);
@@ -1132,6 +1135,65 @@ export function createServer(
               },
             });
           }
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      // A worktree is a git checkout herdr opens as a workspace grouped with its repository's.
+      // The workspace names the repository; herdr finds the checkout root from its folder.
+      if (pathname === "/api/worktree/list") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        const workspaceId = url.searchParams.get("workspace_id") ?? "";
+        if (workspaceId === "") return badRequest("missing_workspace_id", "workspace_id is required");
+        try {
+          const listing = await worktreeList(workspaceId);
+          return jsonResponse({ source: listing.source, worktrees: listing.worktrees });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/worktree/create" || pathname === "/api/worktree/open") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { workspace_id?: unknown; branch?: unknown; base?: unknown; label?: unknown; path?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.workspace_id !== "string" || payload.workspace_id.length === 0) {
+          return badRequest("missing_workspace_id", "workspace_id is required");
+        }
+        // the client sends null for "not given": an empty string is not given either
+        const text = (value: unknown, name: string): string | undefined => {
+          if (value === undefined || value === null) return undefined;
+          if (typeof value !== "string") throw badRequest(`invalid_${name}`, `${name} must be a string`);
+          const trimmed = value.trim();
+          return trimmed === "" ? undefined : trimmed;
+        };
+        let branch: string | undefined, base: string | undefined, label: string | undefined, path: string | undefined;
+        try {
+          branch = text(payload.branch, "branch"); base = text(payload.base, "base"); label = text(payload.label, "label"); path = text(payload.path, "path");
+        } catch (response) {
+          return response as Response;
+        }
+        if (path !== undefined && !isAbsolute(path)) return badRequest("invalid_path", "path must be absolute");
+        const creating = pathname === "/api/worktree/create";
+        if (creating && branch === undefined) return badRequest("missing_branch", "branch is required");
+        if (!creating && branch === undefined && path === undefined) return badRequest("missing_target", "path or branch is required");
+        try {
+          const opened = creating
+            ? await worktreeCreate({ workspaceId: payload.workspace_id, branch: branch as string, base, label, path })
+            : await worktreeOpen({ workspaceId: payload.workspace_id, path, branch, label });
+          return jsonResponse({
+            workspace_id: opened.workspace.workspace_id,
+            pane_id: opened.root_pane.pane_id,
+            already_open: opened.already_open === true,
+            path: opened.worktree.path,
+            branch: opened.worktree.branch,
+          });
         } catch (error) {
           return errorResponse(error);
         }
