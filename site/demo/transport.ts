@@ -139,10 +139,15 @@ function agentOf(paneId: string): string {
 
 const now = () => new Date().toISOString();
 
+/** The demo agent's chat in a pane; a pane without one has no agent to take a message. */
+function chatOf(paneId: string) {
+  const key = keyOfPane.get(paneId);
+  return key ? chats.get(key) : undefined;
+}
+
 /** A message sent from a chat: the user's turn now, the demo's answer a moment later. */
 function submitToChat(paneId: string, text: string): void {
-  const key = keyOfPane.get(paneId);
-  const chat = key ? chats.get(key) : undefined;
+  const chat = chatOf(paneId);
   if (!chat) return;
   chat.turns.push({ role: "user", ts: now(), parts: [{ kind: "text", text }] });
   setStatus(paneId, "working");
@@ -483,7 +488,7 @@ class DemoSocket extends EventTarget {
   }
 
   send(raw: string): void {
-    let message: { type: string; pane_id?: string; text?: string; keys?: string[]; id?: number; mode?: string };
+    let message: { type: string; pane_id?: string; text?: string; keys?: string[]; id?: number; mode?: string; agent_only?: boolean };
     try { message = JSON.parse(raw); } catch { return; }
     switch (message.type) {
       case "role": this.push({ type: "role-ack", mode: message.mode === "observe" ? "observe" : "interact" }); break;
@@ -496,6 +501,11 @@ class DemoSocket extends EventTarget {
         break;
       case "submit":
         if (message.pane_id && message.text !== undefined && message.id !== undefined) {
+          // like the bridge: a message only an agent may get is refused where none runs
+          if (message.agent_only && !chatOf(message.pane_id)) {
+            this.push({ type: "submit-result", id: message.id, pane_id: message.pane_id, ok: false, code: "agent_only", message: "no agent runs in this pane, and this message is only sent to one; nothing was typed" });
+            break;
+          }
           submitToChat(message.pane_id, message.text);
           this.push({ type: "submit-result", id: message.id, pane_id: message.pane_id, ok: true });
         }
