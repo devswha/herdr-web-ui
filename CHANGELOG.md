@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - **New worktree** opens with a branch and a name already filled in, as herdr's own form does:
   a `worktree/brave-valley-07f8` style branch, selected so typing replaces it, and a name that
   follows the branch until you change it.
+  ([#388](https://github.com/devswha/herdr-web-ui/pull/388))
 
 ## [0.3.46] - 2026-10-03
 
