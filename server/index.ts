@@ -1482,7 +1482,8 @@ export function createServer(
               client.data.attached.add(message.pane_id);
               let attachment: PaneAttachment;
               try {
-                attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe");
+                // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
+                attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe" || message.keep_size === true);
               } catch (error) {
                 client.data.attached.delete(message.pane_id);
                 throw error;
@@ -1515,11 +1516,11 @@ export function createServer(
               if (client.data.closing) break;
               if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
               if (attachment.mirror) break;
-              if (client.data.mode === "interact") {
+              if (client.data.mode === "interact" && message.keep_size !== true) {
                 // an operator's viewport owns the shared grid
                 resizePty(message.pane_id, geometry.cols, geometry.rows);
               } else {
-                // an observer adopts whatever grid the operators left behind
+                // an observer, or a grid the chat lens covers, adopts the grid the operators left behind
                 send(client, {
                   type: "pane-geometry",
                   pane_id: message.pane_id,
@@ -1612,6 +1613,14 @@ export function createServer(
               if (!geometry) {
                 send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
                 break;
+              }
+              // the pty is still being created (an attach from the chat lens, then the switch to the
+              // terminal lens before the terminal was looked up): the resize waits for it. Dropped,
+              // it would leave the pty at the pane's own grid under a terminal fitted to another.
+              const creating = attachments.has(message.pane_id) ? undefined : pendingAttachments.get(message.pane_id);
+              if (creating && client.data.attached.has(message.pane_id)) {
+                try { await creating; } catch { break; }
+                if (client.data.closing || client.data.mode !== "interact" || !client.data.attached.has(message.pane_id)) break;
               }
               resizePty(message.pane_id, geometry.cols, geometry.rows);
               break;

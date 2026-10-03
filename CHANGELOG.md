@@ -31,6 +31,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   as `herdr update --handoff` and `herdr server live-handoff` do. The pane is still running, so
   the terminal attaches to it again for everyone viewing it.
   ([#370](https://github.com/devswha/herdr-web-ui/pull/370))
+- Cmd+Backspace on macOS sends Ctrl+U in the live terminal, deleting the input back to
+  the start of the line instead of a single character. Pending IME text keeps its order.
+  ([#347](https://github.com/devswha/herdr-web-ui/pull/347) by @WOULDU-pres)
+- Opening a pane in the chat lens leaves its terminal at the size it has. A phone's chat lens, its
+  keyboard included, no longer narrows the pane for a desktop showing it; switching to the terminal
+  lens still fits the pane to that device. A remote PC gets this with its next bridge update.
+  ([#363](https://github.com/devswha/herdr-web-ui/pull/363) by @WOULDU-pres)
 - An OmO pane that has not been asked anything yet, or has just run `/new`, shows an empty chat
   instead of "Conversation unavailable". OmO writes its session file only with the first message,
   so the chat found no conversation until then and offered the terminal output instead.
@@ -64,8 +71,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#358](https://github.com/devswha/herdr-web-ui/pull/358))
 
 ### Fixed
-- Cmd+Backspace on macOS sends Ctrl+U in the live terminal, deleting the input back to
-  the start of the line instead of a single character. Pending IME text keeps its order.
 - GJC conversations are resolved from the foreground process directory when it differs from
   the pane directory. ([#333](https://github.com/devswha/herdr-web-ui/pull/333) by @Kinetic27)
 - Direct terminal input preserves rapid IME commits when punctuation arrives before composition

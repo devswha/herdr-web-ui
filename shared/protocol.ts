@@ -497,7 +497,8 @@ export interface PushPayload {
 export type ClientRole = "interact" | "observe";
 
 export type ClientMessage =
-  | { type: "attach"; pane_id: string; cols: number; rows: number; flow_control?: "ack" }
+  /** keep_size: the grid is covered (the chat lens), so the attach leaves the shared pty's size as it is */
+  | { type: "attach"; pane_id: string; cols: number; rows: number; flow_control?: "ack"; keep_size?: boolean }
   | { type: "detach"; pane_id: string }
   | { type: "input"; pane_id: string; text: string }
   | { type: "keys"; pane_id: string; keys: string[] }

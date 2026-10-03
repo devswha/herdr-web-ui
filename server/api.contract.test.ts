@@ -858,6 +858,66 @@ describe("WebSocket roles and status push", () => {
     }
   }, 40_000);
 
+  it("leaves the shared pty's size alone for an attach whose grid the chat lens covers", async () => {
+    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-keep-size" });
+    const paneId = created.root_pane.pane_id;
+    const chat = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const otherChat = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const observer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const operator = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    // an observer re-attaching is told the grid the shared pty has now
+    const grid = async () => {
+      observer.seen.length = 0;
+      observer.send({ type: "attach", pane_id: paneId, cols: 30, rows: 10 });
+      return observer.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "observer geometry", 5000);
+    };
+    try {
+      observer.send({ type: "role", mode: "observe" });
+      await observer.waitFor((m) => m.type === "role-ack", "role-ack", 5000);
+
+      // a phone's chat lens attaches first: the pty starts at the pane's own grid, not 40x20
+      chat.send({ type: "attach", pane_id: paneId, cols: 40, rows: 20, keep_size: true });
+      await chat.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "chat pty-data", 15_000);
+      const own = await grid();
+      expect([own.cols, own.rows]).not.toEqual([40, 20]);
+      // and the chat lens is told that grid, to draw the screen it reads as the pty does
+      expect(await chat.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "chat geometry", 5000)).toMatchObject({ cols: own.cols, rows: own.rows });
+
+      // another covered attach to the running pty resizes nothing either
+      otherChat.send({ type: "attach", pane_id: paneId, cols: 33, rows: 11, keep_size: true });
+      await otherChat.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "other chat pty-data", 15_000);
+      expect(await grid()).toMatchObject({ cols: own.cols, rows: own.rows });
+
+      // a terminal lens still drives it: the same check sees a real resize
+      operator.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+      await operator.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "operator pty-data", 15_000);
+      expect(await grid()).toMatchObject({ cols: 100, rows: 30 });
+    } finally {
+      for (const socket of [chat, otherChat, observer, operator]) socket.close();
+      await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+    }
+  }, 60_000);
+
+  it("applies a resize that arrives while a covered attach is still creating the pty", async () => {
+    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-keep-size-switch" });
+    const paneId = created.root_pane.pane_id;
+    const phone = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    try {
+      // the chat lens attaches, and the user switches to the terminal lens before the terminal
+      // was looked up: both frames are on the server before the pty exists
+      phone.send({ type: "attach", pane_id: paneId, cols: 40, rows: 20, keep_size: true });
+      phone.send({ type: "resize", pane_id: paneId, cols: 91, rows: 27 });
+      // the terminal lens's grid is the pty's, not the pane's own one the covered attach left it at
+      expect(await phone.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 91, "the resize applied after creation", 15_000)).toMatchObject({ cols: 91, rows: 27 });
+      await phone.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
+      phone.send({ type: "input", pane_id: paneId, text: "clear; echo size=$(stty size)\r" });
+      await phone.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId && String(m.data).includes("size=27 91"), "the shell sees the terminal lens's grid", 15_000);
+    } finally {
+      phone.close();
+      await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+    }
+  }, 60_000);
+
   it("rejects an unknown role mode with an in-band error", async () => {
     const client = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     try {
