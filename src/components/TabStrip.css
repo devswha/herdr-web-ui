@@ -81,6 +81,22 @@
   margin-left: calc(-1 * var(--space-2));
 }
 
+/* the + stays at the strip's end while the tabs scroll under it: more tabs than fit must not
+   take it off the screen */
+.tab-strip-add {
+  position: sticky;
+  right: 0;
+  background: var(--bg-panel);
+  /* the strip's own end padding, in the panel's colour: no tab shows past the + */
+  box-shadow: var(--space-3) 0 0 var(--bg-panel);
+}
+
+/* over the shared hover below: the hover tint sits on the panel's colour, never on a tab */
+.tab-strip .tab-strip-add:hover,
+.tab-strip .tab-strip-add:focus-visible {
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)) var(--bg-panel);
+}
+
 .tab-strip-panes:hover,
 .tab-strip-panes:focus-visible,
 .tab-strip-add:hover,
@@ -104,5 +120,14 @@
 
   .tab-strip-tab {
     min-height: var(--touch-target);
+  }
+
+  /* at touch size the picker pulled over its tab would take taps meant for the name */
+  .tab-strip-panes {
+    margin-left: 0;
+  }
+
+  .tab-strip-item:has(.tab-strip-panes) .tab-strip-tab {
+    padding-right: var(--space-1);
   }
 }

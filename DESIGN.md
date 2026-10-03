@@ -390,8 +390,11 @@ One set for both themes: the card is island black wherever it shows.
   dim. Arrow keys move between tabs. A tab opens the pane last viewed in it, else the one herdr
   has focused there, else its first; a tab with several panes has a chevron beside its name that
   opens a pane picker (the row menu). The strip ends in a `+` that opens the New tab dialog.
+  The open tab is scrolled into view when the selection comes from elsewhere (the sidebar, the
+  palette, an alert), and the `+` stays at the strip's end while the tabs scroll under it.
 - `--control-h` tall on a hairline over `--bg-panel`, scrolling sideways without a scrollbar;
-  touch grows the buttons to `--touch-target`. The same strip on a phone.
+  touch grows the buttons to `--touch-target`, and puts the pane picker beside its tab's name
+  instead of pulling it over the name's padding. The same strip on a phone.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch

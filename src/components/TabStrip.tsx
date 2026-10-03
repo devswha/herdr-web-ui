@@ -5,7 +5,7 @@
  * focused there, else its first. The app shows one pane at a time, so a tab with several panes
  * carries a picker of them beside its name.
  */
-import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { ChevronDown, Plus, Terminal } from "lucide-react";
 
 import "./TabStrip.css";
@@ -51,7 +51,22 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     if (picker && !tabs.some((tab) => tab.tab_id === picker.tab.tab_id)) setPicker(null);
   });
 
-  if (panes.length < 2) return null;
+  // the open tab is in view: a pane opened from the sidebar, the palette or an alert can be on a
+  // tab scrolled out of a phone's strip. Only the strip scrolls, never the page around it.
+  const strip = useRef<HTMLDivElement>(null);
+  const shown = panes.length >= 2;
+  useLayoutEffect(() => {
+    const row = strip.current;
+    const open = row?.querySelector<HTMLElement>(".tab-strip-item.is-active");
+    if (!row || !open) return;
+    const view = row.getBoundingClientRect();
+    const item = open.getBoundingClientRect();
+    const end = row.querySelector<HTMLElement>(".tab-strip-add")?.getBoundingClientRect().left ?? view.right;
+    if (item.left < view.left) row.scrollLeft -= view.left - item.left;
+    else if (item.right > end) row.scrollLeft += item.right - end;
+  }, [selectedPane.tab_id, tabs.length, shown]);
+
+  if (!shown) return null;
 
   const panesOf = (tab: HerdrTab): PaneInfo[] => panes.filter((pane) => pane.tab_id === tab.tab_id);
   const paneFor = (tab: HerdrTab): PaneInfo | undefined => {
@@ -89,7 +104,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
 
   return (
     <>
-      <div className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} onKeyDown={onKeyDown}>
+      <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} onKeyDown={onKeyDown}>
         {tabs.map((tab) => {
           const active = tab.tab_id === selectedPane.tab_id;
           const own = panesOf(tab);
