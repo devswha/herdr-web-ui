@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.47] - 2026-10-03
+
 ### Added
 - A tab is renamed and closed from the tab strip, as herdr's prefix+shift+t and prefix+shift+x.
   With a mouse: an **x** on the open tab and on the one under the pointer, a double-click on the
@@ -16,6 +18,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   is the workspace's last one, which closes the workspace with it. Remote PCs get the two with
   their next bridge update.
   ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
+
+### Changed
+- **New session** is **New workspace**: the `+` on a PC's header, the button of an empty PC, the
+  command palette action and the Settings → Shortcuts row create a herdr workspace, and say so
+  now, beside **New tab**. The dialog's buttons are **Start**, **Open** and **Close dialog** in
+  both of its forms. The shortcut and saved settings are unchanged.
+  ([#389](https://github.com/devswha/herdr-web-ui/pull/389))
+- **New worktree** opens with a branch and a name already filled in, as herdr's own form does:
+  a `worktree/brave-valley-07f8` style branch, selected so typing replaces it, and a name that
+  follows the branch until you change it.
+  ([#388](https://github.com/devswha/herdr-web-ui/pull/388))
 
 ### Fixed
 - In the iPhone home screen app, a dialog with a text field stays above the keyboard: the command
@@ -32,19 +45,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A tab herdr names by its number reads **Tab n** by its place in the strip: after a tab before
   it closed, it showed as a bare number.
   ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
-
-### Changed
-- **New session** is **New workspace**: the `+` on a PC's header, the button of an empty PC, the
-  command palette action and the Settings → Shortcuts row create a herdr workspace, and say so
-  now, beside **New tab**. The dialog's buttons are **Start**, **Open** and **Close dialog** in
-  both of its forms. The shortcut and saved settings are unchanged.
-  ([#389](https://github.com/devswha/herdr-web-ui/pull/389))
-- **New worktree** opens with a branch and a name already filled in, as herdr's own form does:
-  a `worktree/brave-valley-07f8` style branch, selected so typing replaces it, and a name that
-  follows the branch until you change it.
-  ([#388](https://github.com/devswha/herdr-web-ui/pull/388))
-
-### Fixed
 - Picking a pane that opens in the chat lens, while a pane in the terminal lens is open, no longer
   resizes the terminal other devices share. The chat lens was already leaving the size alone when
   the page opened on the pane; a switch from the sidebar still fitted it to this device once.
@@ -1604,7 +1604,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...HEAD
+[0.3.47]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...v0.3.47
 [0.3.46]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...v0.3.46
 [0.3.45]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...v0.3.45
 [0.3.44]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...v0.3.44
