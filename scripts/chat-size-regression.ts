@@ -5,6 +5,9 @@ import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { herdrRpc, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
+/** how long a resize that should not happen gets to show up */
+const NO_RESIZE_WAIT_MS = 400;
+
 type Frame = { dir: "in" | "out"; type: string; keep_size?: boolean };
 const framesOf = (page: Page) => page.evaluate(() => (window as unknown as { frames_: Frame[] }).frames_);
 
@@ -154,6 +157,8 @@ export async function checkPaneSwitchKeepsTerminalSize(browser: Browser, origin:
     await other.locator(`.pane-select[title^="${agentPane} — "]`).click();
     await other.locator(".terminal-stack.is-chat").waitFor({ state: "attached" });
     await attached(other, 2);
+    // a resize that should not happen gets this long to show up: the grid's ResizeObserver waits 120 ms
+    await Bun.sleep(NO_RESIZE_WAIT_MS);
     const sent = (await framesOf(other)).slice(before).filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
     assert.deepEqual(sent, [{ dir: "out", type: "attach", keep_size: true }], "the picked pane attaches in its own lens");
     assert.equal(await size(), desktopSize, "picking a chat-lens pane leaves the desktop's grid");
