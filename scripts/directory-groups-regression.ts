@@ -211,10 +211,12 @@ try {
   await page.locator(".tab-strip-panes").click();
   const picker = page.getByRole("menu", { name: "Panes in Tab 1", exact: true });
   await picker.waitFor();
-  assert.equal(await picker.getByRole("menuitem").count(), 2);
+  // both panes, then the tab's own Rename tab and Close tab
+  assert.deepEqual((await picker.getByRole("menuitem").allTextContents()).slice(2), ["Rename tab", "Close tab"]);
+  assert.equal(await picker.getByRole("menuitem").count(), 4);
   assert.equal(await picker.locator('[role="menuitem"][aria-current="true"]').count(), 1, "the picker marks the open pane");
   await changeState(page, [{ selector: `${paneSelector(split.pane.pane_id)}[aria-current="true"]` }, { selector: paneSelector(other.paneId), count: 0 }],
-    () => picker.getByRole("menuitem").last().click(), "the picker opens the split pane, and the row follows it");
+    () => picker.getByRole("menuitem").nth(1).click(), "the picker opens the split pane, and the row follows it");
   for (const width of [1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
     if (await page.locator(".drawer-toggle").isVisible()

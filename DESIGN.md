@@ -390,6 +390,22 @@ One set for both themes: the card is island black wherever it shows.
   dim. Arrow keys move between tabs. A tab opens the pane last viewed in it, else the one herdr
   has focused there, else its first; a tab with several panes has a chevron beside its name that
   opens a pane picker (the row menu). The strip ends in a `+` that opens the New tab dialog.
+- A tab is renamed and closed on the strip, as herdr's prefix+shift+t and prefix+shift+x. With
+  a mouse: a 20px `x` (`.tab-strip-close`) after the name, visible on the open tab and on the
+  one under the pointer or the focus, its place kept in every tab so widths do not move; a
+  double-click on the name swaps it for a field (`.tab-strip-rename`: Enter saves, Escape and a
+  blur leave the name, an empty field changes nothing because herdr would keep the empty name);
+  a right-click opens the tab's menu under its left edge; the middle button closes. With keys
+  on a focused tab: F2 and Delete. On a touch screen there is no `x`: the open tab carries the
+  chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
+  several, then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+- A close is immediate, as herdr's, and the tab beside it opens. It asks first (the confirm
+  dialog) only when it costs more than the tab: an agent in it is working or blocked, or it is
+  the workspace's last tab, which takes the workspace with it. A refusal shows in the dialog, or
+  as a line of `--status-blocked` text at the strip's end for six seconds.
+- The underline runs under the whole tab (`.tab-strip-item.is-active`), its `x` included. A tab
+  herdr names itself reads **Tab n** by its place in the row: herdr relabels it when a tab
+  before it closes.
 - `--control-h` tall on a hairline over `--bg-panel`, scrolling sideways without a scrollbar;
   touch grows the buttons to `--touch-target`. The same strip on a phone.
 

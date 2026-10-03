@@ -203,6 +203,16 @@ export async function tabCreate(
   );
 }
 
+/** herdr keeps the label as given: an empty one leaves the tab without a name, so callers refuse it. */
+export async function tabRename(tabId: string, label: string, socketPath?: string): Promise<void> {
+  await herdrRpc("tab.rename", { tab_id: tabId, label }, socketPath);
+}
+
+/** Closes the tab and every pane in it; a workspace's last tab takes the workspace with it. */
+export async function tabClose(tabId: string, socketPath?: string): Promise<void> {
+  await herdrRpc("tab.close", { tab_id: tabId }, socketPath);
+}
+
 export async function agentStart(
   options: { name: string; kind: string; paneId: string; args?: string[]; timeoutMs?: number },
   socketPath?: string,

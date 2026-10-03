@@ -370,6 +370,16 @@ export async function createTab(request: CreateTabRequest, machineId = "local"):
   return (await response.json()) as TabCreated;
 }
 
+/** POST /api/tab/rename: the tab's name in herdr; an empty one is refused. */
+export async function renameTab(tabId: string, label: string, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "tab/rename"), "POST", { tab_id: tabId, label });
+}
+
+/** POST /api/tab/close: the tab and every pane in it; a workspace's last tab takes the workspace with it. */
+export async function closeTab(tabId: string, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "tab/close"), "POST", { tab_id: tabId });
+}
+
 export async function renameWorkspace(workspaceId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "workspace/rename"), "POST", { workspace_id: workspaceId, label });
 }

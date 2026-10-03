@@ -4,25 +4,30 @@
  * that opens the New tab dialog. A tab opens the pane last viewed in it, else the one herdr has
  * focused there, else its first. The app shows one pane at a time, so a tab with several panes
  * carries a picker of them beside its name.
+ *
+ * A tab is renamed and closed here, as herdr's prefix+shift+t and prefix+shift+x. With a mouse:
+ * an x on the tab under the pointer and on the open one, a double-click on the name to type a
+ * new one, a right-click for the menu. On a touch screen the open tab's chevron opens the same
+ * menu as a sheet. With keys: F2 and Delete on a focused tab. A close asks first only when it
+ * costs more than the tab: an agent still at work in it, or the workspace's last tab.
  */
-import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { ChevronDown, Plus, Terminal } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { ChevronDown, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./TabStrip.css";
 
 import type { HerdrTab, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
+import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
-import { useMachineId } from "../lib/machineContext.tsx";
+import { customTabLabel, tabLabel } from "../lib/tabName.ts";
+import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { knownStatus } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { displayPaneTitle } from "./Sidebar.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 
-/** herdr names a tab by its number until it is renamed ("2"): the strip says so in words. */
-export function tabLabel(tab: Pick<HerdrTab, "label" | "number">, t: (key: string, vars?: Record<string, string | number>) => string): string {
-  const label = tab.label.trim();
-  return label === "" || label === String(tab.number) ? t("Tab {n}", { n: tab.number }) : label;
-}
+const said = (reason: unknown): string => reason instanceof ApiError ? reason.detail : reason instanceof Error ? reason.message : String(reason);
 
 /** the pane each tab was last seen on, per PC: a tab clicked again opens where it was left */
 const lastViewed = new Map<string, string>();
@@ -38,18 +43,48 @@ export interface TabStripProps {
 export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab }: TabStripProps) {
   const t = useT();
   const machineId = useMachineId();
+  const { closeTab, renameTab } = useMachineApi();
+  const strip = useRef<HTMLDivElement>(null);
   const [picker, setPicker] = useState<{ anchor: HTMLElement; tab: HerdrTab } | null>(null);
+  const [editing, setEditing] = useState<{ tabId: string; value: string } | null>(null);
+  // the name just sent, shown until herdr's snapshot carries it
+  const [sent, setSent] = useState<{ tabId: string; label: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ tab: HerdrTab; title: string; body: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // the tab whose name field just went: its button takes the focus back in the same commit, so the next key lands on it
+  const refocus = useRef<string | null>(null);
   const panes = snapshot.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
   const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id).sort((a, b) => a.number - b.number);
+  const nameOf = (tab: HerdrTab): string => sent?.tabId === tab.tab_id ? sent.label : tabLabel(tab, t, tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id) + 1);
 
   useEffect(() => {
     lastViewed.set(`${machineId}:${selectedPane.tab_id}`, selectedPane.pane_id);
   }, [machineId, selectedPane.tab_id, selectedPane.pane_id]);
 
-  // a picker whose tab left (closed in the TUI) goes with it
+  // a picker, a name field or a question whose tab left (closed in the TUI) goes with it
   useEffect(() => {
-    if (picker && !tabs.some((tab) => tab.tab_id === picker.tab.tab_id)) setPicker(null);
+    const here = (tabId: string): boolean => tabs.some((tab) => tab.tab_id === tabId);
+    if (picker && !here(picker.tab.tab_id)) setPicker(null);
+    if (editing && !here(editing.tabId)) setEditing(null);
+    if (confirm && !here(confirm.tab.tab_id)) setConfirm(null);
+    if (sent && tabs.find((tab) => tab.tab_id === sent.tabId)?.label.trim() === sent.label) setSent(null);
   });
+  useLayoutEffect(() => {
+    if (editing || !refocus.current) return;
+    strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(refocus.current)}"]`)?.focus();
+    refocus.current = null;
+  }, [editing]);
+  // a name herdr never showed back (renamed again elsewhere) does not stay on the tab
+  useEffect(() => {
+    if (!sent) return;
+    const timer = window.setTimeout(() => setSent(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [sent]);
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   if (panes.length < 2) return null;
 
@@ -63,68 +98,161 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
       ?? own[0];
   };
 
-  // arrows move between the tabs; Enter or Space on one opens it, as any button
+  const focusTab = (tabId: string): void => {
+    window.requestAnimationFrame(() => strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(tabId)}"]`)?.focus());
+  };
+
+  const beginRename = (tab: HerdrTab): void => {
+    setError(null);
+    setEditing({ tabId: tab.tab_id, value: sent?.tabId === tab.tab_id ? sent.label : customTabLabel(tab, tabs.indexOf(tab) + 1) ?? "" });
+  };
+  // an empty name is not sent: herdr would keep it, and its own tab row would show nothing
+  const saveRename = (tab: HerdrTab): void => {
+    const label = editing?.value.trim() ?? "";
+    refocus.current = tab.tab_id;
+    setEditing(null);
+    if (label === "" || label === nameOf(tab)) return;
+    setSent({ tabId: tab.tab_id, label });
+    void renameTab(tab.tab_id, label).catch((reason: unknown) => {
+      setSent((current) => current?.tabId === tab.tab_id ? null : current);
+      setError(t("Rename failed: {reason}", { reason: said(reason) }));
+    });
+  };
+
+  // the tab beside a closed one takes its place: the open pane moves there, and the focus with it
+  const close = async (tab: HerdrTab): Promise<void> => {
+    const index = tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id);
+    const beside = tabs[index + 1] ?? tabs[index - 1];
+    await closeTab(tab.tab_id);
+    if (!beside) return;
+    const pane = paneFor(beside);
+    if (tab.tab_id === selectedPane.tab_id && pane) onSelectPane(pane.pane_id);
+    focusTab(beside.tab_id);
+  };
+  const requestClose = (tab: HerdrTab): void => {
+    setError(null);
+    const busy = panesOf(tab).some((pane) => { const status = knownStatus(pane.agent_status); return status === "working" || status === "blocked"; });
+    if (tabs.length > 1 && !busy) {
+      void close(tab).catch((reason: unknown) => setError(t("Close failed: {reason}", { reason: said(reason) })));
+      return;
+    }
+    setConfirm({
+      tab,
+      title: t("Close tab {name}?", { name: nameOf(tab) }),
+      body: tabs.length > 1
+        ? t("An agent in it is still at work, and stops with the tab.")
+        : t("It is the last tab of {workspace}: the workspace closes with it, and the agents and shells in it stop.", { workspace: workspace.label }),
+    });
+  };
+
+  // arrows move between the tabs; Enter or Space on one opens it, as any button; F2 names it, Delete closes it
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
     const buttons = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')];
     const index = buttons.indexOf(document.activeElement as HTMLElement);
     if (index < 0) return;
+    if (event.key === "F2" || event.key === "Delete") {
+      const tab = tabs.find((candidate) => candidate.tab_id === buttons[index]?.dataset["tabId"]);
+      if (!tab) return;
+      event.preventDefault();
+      if (event.key === "F2") beginRename(tab); else requestClose(tab);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
     const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowLeft" ? -1 : 1) + buttons.length) % buttons.length;
     buttons[next]?.focus();
   };
 
-  const openPicker = (event: MouseEvent<HTMLButtonElement>, tab: HerdrTab): void => {
+  const openPicker = (event: MouseEvent<HTMLElement>, tab: HerdrTab): void => {
     setPicker(picker?.tab.tab_id === tab.tab_id ? null : { anchor: event.currentTarget, tab });
   };
 
-  const pickerItems = (tab: HerdrTab): RowMenuItem[] => panesOf(tab).map((pane) => ({
-    id: pane.pane_id,
-    label: displayPaneTitle(pane),
-    icon: Terminal,
-    glyph: pane.agent ? <AgentMark agent={pane.agent} size={16} /> : undefined,
-    current: pane.pane_id === selectedPane.pane_id,
-    run: () => onSelectPane(pane.pane_id),
-  }));
+  // a tab's menu: its panes when it has several, then its name and its close
+  const pickerItems = (tab: HerdrTab): RowMenuItem[] => {
+    // the tab may have changed under the open menu: the items act on what it is now
+    const now = tabs.find((candidate) => candidate.tab_id === tab.tab_id) ?? tab;
+    const own = panesOf(now);
+    return [
+      ...(own.length > 1 ? own.map((pane) => ({
+        id: pane.pane_id,
+        label: displayPaneTitle(pane),
+        icon: Terminal,
+        glyph: pane.agent ? <AgentMark agent={pane.agent} size={16} /> : undefined,
+        current: pane.pane_id === selectedPane.pane_id,
+        run: () => onSelectPane(pane.pane_id),
+      })) : []),
+      { id: "rename-tab", label: t("Rename tab"), icon: Pencil, divider: own.length > 1, run: () => beginRename(now) },
+      { id: "close-tab", label: t("Close tab"), icon: X, danger: true, divider: true, run: () => requestClose(now) },
+    ];
+  };
 
   return (
     <>
-      <div className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} onKeyDown={onKeyDown}>
+      <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} onKeyDown={onKeyDown}>
         {tabs.map((tab) => {
           const active = tab.tab_id === selectedPane.tab_id;
           const own = panesOf(tab);
           const status = knownStatus(tab.agent_status);
           const pickerOpen = picker?.tab.tab_id === tab.tab_id;
+          const name = nameOf(tab);
           return (
-            <div className={`tab-strip-item${active ? " is-active" : ""}`} key={tab.tab_id}>
-              <button
-                type="button"
-                role="tab"
-                className="tab-strip-tab"
-                aria-selected={active}
-                tabIndex={active ? 0 : -1}
-                title={own.length === 1 && own[0] ? displayPaneTitle(own[0]) : t("{n} panes", { n: own.length })}
-                onClick={() => {
-                  const pane = paneFor(tab);
-                  if (pane && pane.pane_id !== selectedPane.pane_id) onSelectPane(pane.pane_id);
-                }}
-              >
-                {(status === "working" || status === "blocked" || status === "done") && <span className="tab-strip-dot" data-status={status} aria-hidden="true" />}
-                <span className="tab-strip-label">{tabLabel(tab, t)}</span>
-              </button>
-              {own.length > 1 && (
-                <button type="button" className="tab-strip-panes" aria-label={t("Panes in {tab}", { tab: tabLabel(tab, t) })} aria-haspopup="menu" aria-expanded={pickerOpen} onClick={(event) => openPicker(event, tab)}>
-                  <ChevronDown aria-hidden="true" />
+            <div className={`tab-strip-item${active ? " is-active" : ""}${own.length > 1 ? " has-panes" : ""}${editing?.tabId === tab.tab_id ? " is-editing" : ""}`} key={tab.tab_id}>
+              {editing?.tabId === tab.tab_id ? (
+                <input
+                  className="input tab-strip-rename"
+                  aria-label={t("Tab name")}
+                  autoFocus
+                  size={Math.max(8, editing.value.length + 1)}
+                  maxLength={80}
+                  placeholder={name}
+                  value={editing.value}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onChange={(event) => setEditing({ tabId: tab.tab_id, value: event.target.value })}
+                  onBlur={() => setEditing(null)}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Enter") saveRename(tab);
+                    if (event.key === "Escape") { refocus.current = tab.tab_id; setEditing(null); }
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  role="tab"
+                  className="tab-strip-tab"
+                  data-tab-id={tab.tab_id}
+                  aria-selected={active}
+                  tabIndex={active ? 0 : -1}
+                  title={own.length === 1 && own[0] ? displayPaneTitle(own[0]) : t("{n} panes", { n: own.length })}
+                  onClick={() => {
+                    const pane = paneFor(tab);
+                    if (pane && pane.pane_id !== selectedPane.pane_id) onSelectPane(pane.pane_id);
+                  }}
+                  onDoubleClick={() => beginRename(tab)}
+                  onContextMenu={(event) => { event.preventDefault(); openPicker(event, tab); }}
+                  // the middle button closes a tab, as it does a browser's
+                  onAuxClick={(event) => { if (event.button === 1) { event.preventDefault(); requestClose(tab); } }}
+                >
+                  {(status === "working" || status === "blocked" || status === "done") && <span className="tab-strip-dot" data-status={status} aria-hidden="true" />}
+                  <span className="tab-strip-label">{name}</span>
                 </button>
               )}
+              <button type="button" className="tab-strip-panes" aria-label={own.length > 1 ? t("Panes in {tab}", { tab: name }) : t("Actions for {tab}", { tab: name })} aria-haspopup="menu" aria-expanded={pickerOpen} onClick={(event) => openPicker(event, tab)}>
+                <ChevronDown aria-hidden="true" />
+              </button>
+              <button type="button" className="tab-strip-close" aria-label={t("Close tab {name}", { name })} title={t("Close tab")} onClick={() => requestClose(tab)}>
+                <X aria-hidden="true" />
+              </button>
             </div>
           );
         })}
         <button type="button" className="tab-strip-add" aria-label={t("New tab")} title={t("New tab")} onClick={onNewTab}>
           <Plus aria-hidden="true" />
         </button>
+        {error && <span className="tab-strip-error" role="alert">{error}</span>}
       </div>
-      {picker && <RowMenu anchor={picker.anchor} title={t("Panes in {tab}", { tab: tabLabel(picker.tab, t) })} items={pickerItems(picker.tab)} onClose={() => setPicker(null)} />}
+      {picker && <RowMenu anchor={picker.anchor} title={panesOf(picker.tab).length > 1 ? t("Panes in {tab}", { tab: nameOf(picker.tab) }) : nameOf(picker.tab)} items={pickerItems(picker.tab)} align="start" onClose={() => setPicker(null)} />}
+      {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close tab")} onConfirm={async () => { await close(confirm.tab); setConfirm(null); }} onClose={() => setConfirm(null)} />}
     </>
   );
 }

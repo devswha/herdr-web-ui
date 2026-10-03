@@ -23,6 +23,11 @@
   flex: 0 0 auto;
 }
 
+/* the underline runs under the whole tab, its x included */
+.tab-strip-item.is-active {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
 .tab-strip-tab {
   display: inline-flex;
   align-items: center;
@@ -30,7 +35,6 @@
   padding: 0 var(--space-3);
   background: transparent;
   border: 0;
-  border-bottom: 2px solid transparent;
   color: var(--text-dim);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
@@ -44,8 +48,18 @@
 }
 
 .tab-strip-tab[aria-selected="true"] {
-  border-bottom-color: var(--accent);
   color: var(--text-strong);
+}
+
+/* the name being typed, in the tab's own place */
+.tab-strip-rename {
+  align-self: center;
+  width: auto;
+  min-width: 0;
+  height: var(--chip-h);
+  margin: 0 var(--space-2);
+  padding: 0 var(--space-1);
+  font-size: var(--fs-sm);
 }
 
 .tab-strip-dot {
@@ -59,8 +73,9 @@
 .tab-strip-dot[data-status="blocked"] { background: var(--status-blocked); }
 .tab-strip-dot[data-status="done"] { background: var(--status-done); }
 
-/* the pane picker of a split tab, and the + : small square buttons on the strip's centre line */
+/* a tab's menu, its x, and the + : small square buttons on the strip's centre line */
 .tab-strip-panes,
+.tab-strip-close,
 .tab-strip-add {
   display: inline-flex;
   align-items: center;
@@ -77,12 +92,60 @@
   cursor: pointer;
 }
 
+/* the menu shows on a tab with several panes (it lists them); a touch screen shows it on the
+   open tab too, where it stands in for the x, the double-click and the right-click */
 .tab-strip-panes {
+  display: none;
   margin-left: calc(-1 * var(--space-2));
+}
+
+.tab-strip-item.has-panes .tab-strip-panes {
+  display: inline-flex;
+}
+
+/* the x keeps its place in every tab, so a tab does not change width under the pointer; it
+   shows on the open tab, and on the one the pointer or the focus is in */
+.tab-strip-close {
+  width: 20px;
+  height: 20px;
+  margin: 0 var(--space-1) 0 calc(-1 * var(--space-2));
+  visibility: hidden;
+}
+
+.tab-strip-item.has-panes .tab-strip-close {
+  margin-left: 0;
+}
+
+.tab-strip-item.is-active .tab-strip-close,
+.tab-strip-item:hover .tab-strip-close,
+.tab-strip-item:focus-within .tab-strip-close {
+  visibility: visible;
+}
+
+/* while the name is typed the field stands alone: a press on the x would put it away first */
+.tab-strip-item.is-editing .tab-strip-close,
+.tab-strip-item.is-editing .tab-strip-panes {
+  display: none;
+}
+
+.tab-strip-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-strip-error {
+  align-self: center;
+  flex: 0 0 auto;
+  margin-left: var(--space-2);
+  color: var(--status-blocked);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
 }
 
 .tab-strip-panes:hover,
 .tab-strip-panes:focus-visible,
+.tab-strip-close:hover,
+.tab-strip-close:focus-visible,
 .tab-strip-add:hover,
 .tab-strip-add:focus-visible {
   background: var(--bg-hover);
@@ -95,6 +158,11 @@
   height: 16px;
 }
 
+.tab-strip-close:hover,
+.tab-strip-close:focus-visible {
+  color: var(--status-blocked);
+}
+
 @media (pointer: coarse) {
   .tab-strip-panes,
   .tab-strip-add {
@@ -104,5 +172,14 @@
 
   .tab-strip-tab {
     min-height: var(--touch-target);
+  }
+
+  .tab-strip-item.is-active .tab-strip-panes {
+    display: inline-flex;
+  }
+
+  /* a finger closes a tab from its menu: an x this small beside the name would be hit by mistake */
+  .tab-strip-close {
+    display: none;
   }
 }

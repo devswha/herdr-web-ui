@@ -7,6 +7,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- A tab is renamed and closed from the tab strip, as herdr's prefix+shift+t and prefix+shift+x.
+  With a mouse: an **x** on the open tab and on the one under the pointer, a double-click on the
+  name to type a new one, a right-click for a menu with **Rename tab** and **Close tab**. With
+  keys on a focused tab: F2 and Delete. On a phone the open tab carries a chevron that opens
+  the same menu. A close asks first only when an agent in the tab is still working or the tab
+  is the workspace's last one, which closes the workspace with it. Remote PCs get the two with
+  their next bridge update.
+
+### Fixed
+- A tab herdr names by its number reads **Tab n** by its place in the strip: after a tab before
+  it closed, it showed as a bare number.
+
 ## [0.3.46] - 2026-10-03
 
 ### Added
