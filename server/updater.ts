@@ -170,7 +170,7 @@ export class Updater {
           return;
         }
         attempted = revision;
-        this.patch({ phase: "building" });
+        this.patch({ phase: "building", step: "download" });
         stage = mkdtempSync(join(this.options.stateDir, "release-"));
         const run = (args: string[], timeout?: number) => runCommand(stage!, args, this.controller.signal, timeout);
         await run(["git", "clone", "--quiet", "--no-checkout", "--no-hardlinks", this.options.root, "."]);
@@ -178,14 +178,17 @@ export class Updater {
         await run(["git", "checkout", "--quiet", "--detach", revision]);
         // The clone's origin must keep pointing at the user's chosen upstream.
         await run(["git", "remote", "set-url", "origin", await this.git("remote", "get-url", "origin")]);
+        this.patch({ step: "dependencies" });
         await run([process.execPath, "install", "--frozen-lockfile"], 180_000);
+        this.patch({ step: "typecheck" });
         await run([process.execPath, "run", "typecheck"], 120_000);
+        this.patch({ step: "build" });
         await run([process.execPath, "run", "build"], 120_000);
         const reason = await this.sourceBlock();
         if (reason) throw new Error(reason);
         this.controller.signal.throwIfAborted();
         const next = { directory: stage, revision, source_revision: this.sourceRevision };
-        this.patch({ phase: "restarting" });
+        this.patch({ phase: "restarting", step: "restart" });
         const previous = this.release;
         await this.options.activate(next, () => {
           const file = join(this.options.stateDir, "current.json");
@@ -208,7 +211,7 @@ export class Updater {
         try { await this.options.afterInstall?.(next); }
         catch (error) { console.error("afterInstall failed", error); }
       }
-      this.patch({ phase: "idle" });
+      this.patch({ phase: "idle", step: null });
     } catch (error) {
       if (attempted && !this.controller.signal.aborted) {
         this.failedRevision = attempted;
@@ -216,7 +219,7 @@ export class Updater {
           writeFileSync(join(this.options.stateDir, "failed.json"), JSON.stringify({ revision: attempted }), { mode: 0o600 });
         } catch { /* the in-memory guard still prevents repeated automatic restarts */ }
       }
-      this.patch({ phase: "error", error: error instanceof Error ? error.message : String(error) });
+      this.patch({ phase: "error", step: null, error: error instanceof Error ? error.message : String(error) });
     } finally {
       if (stage) rmSync(stage, { recursive: true, force: true });
       this.busy = false;

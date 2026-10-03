@@ -7,6 +7,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- A new release is installed from the line that announces it: **Update** starts the install
+  there, in place of **View update** and a second button in Settings. The line then shows the
+  install's step and a bar (downloading, installing dependencies, checking, building,
+  restarting), as Settings → Updates does, and ends on **Reload app**. An install that fails
+  offers **Try again** and **Details**.
+
+### Fixed
+- The line saying a PC needs a bridge update (or setup approval) to reconnect can be closed. A PC
+  whose bridge could not be updated kept it open on every screen, which on a phone took a row
+  for good. The PC's row in the sidebar still says what it needs, and the line returns the next
+  time that PC needs something after having connected.
+
 ## [0.3.47] - 2026-10-03
 
 ### Added
