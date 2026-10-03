@@ -28,6 +28,9 @@ import { updateRequestAllowed } from "./update-api.ts";
 /** a download of herdr's binary (about 30 MB) on a slow link, then the handoff */
 const UPDATE_TIMEOUT_MS = 10 * 60_000;
 const STATUS_TIMEOUT_MS = 5_000;
+/** how often, and how far apart, herdr's status is asked again after an update before it counts as unreadable */
+const STATUS_TRIES = 5;
+const STATUS_RETRY_MS = 500;
 /** the versions shown are read from `herdr status`, a process each time: one read serves the polls of this long */
 const STATUS_CACHE_MS = 2_000;
 /** how long a herdr told to stop at its timeout is given before it is killed */
@@ -46,6 +49,8 @@ export interface HerdrUpdaterOptions {
   timeoutMs?: number;
   /** KILL_GRACE_MS; tests shorten it */
   killGraceMs?: number;
+  /** STATUS_RETRY_MS; tests shorten it */
+  statusRetryMs?: number;
 }
 
 interface HerdrVersions {
@@ -170,7 +175,9 @@ export class HerdrUpdater {
     if (!this.supported) return { supported: false, phase: "idle", ...none, output: null, finished_at: null };
     const versions = await this.readVersions();
     return {
-      supported: versions !== null,
+      // a status that cannot be read hides the controls only before any update: during one
+      // and after it, its progress, what herdr said and the button to try again stay
+      supported: versions !== null || this.running || this.finishedAt !== null,
       phase: this.phase,
       ...(versions ? { server_version: versions.server, binary_version: versions.binary, stale: versions.stale } : none),
       output: this.output,
@@ -202,9 +209,18 @@ export class HerdrUpdater {
   private async run(): Promise<{ ok: boolean; output: string }> {
     const update = await this.exec(["update", "--handoff"], this.options.timeoutMs ?? UPDATE_TIMEOUT_MS);
     if (update.code !== 0) return { ok: false, output: update.output };
-    // installed, by this run or an earlier one from a shell, and the server still the old one
-    const versions = await this.readVersions(true);
-    if (!versions?.stale || !versions.handoff || !versions.binaryPath || !versions.binary) return { ok: true, output: update.output };
+    // installed, by this run or an earlier one from a shell, and the server still the old one.
+    // The status may not answer for a moment right after a handoff; one that never does is no
+    // proof that the server runs the new binary.
+    let versions = await this.readVersions(true);
+    for (let tries = 1; versions === null && tries < STATUS_TRIES; tries++) {
+      await Bun.sleep(this.options.statusRetryMs ?? STATUS_RETRY_MS);
+      versions = await this.readVersions(true);
+    }
+    if (versions === null) {
+      return { ok: false, output: [update.output, "herdr's status could not be read after the update: the running server may still be the old one. Update again to check."].filter(Boolean).join("\n") };
+    }
+    if (!versions.stale || !versions.handoff || !versions.binaryPath || !versions.binary) return { ok: true, output: update.output };
     const handoff = await this.exec(
       ["server", "live-handoff", "--import-exe", versions.binaryPath, "--expected-version", versions.binary],
       this.options.timeoutMs ?? UPDATE_TIMEOUT_MS,
