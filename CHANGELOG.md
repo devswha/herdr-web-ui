@@ -12,6 +12,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   `.herdr-web-ui/` in each pane's project. It is read by the server, for the panes of its own
   PC; a remote PC keeps the default.
   ([#357](https://github.com/devswha/herdr-web-ui/pull/357) by @hank-warren)
+- The Antigravity plan meter appears on Linux, where the CLI has no keychain and keeps its
+  sign-in in `~/.gemini/antigravity-cli/antigravity-oauth-token` (or under
+  `ANTIGRAVITY_APP_DATA_DIR`). When a keychain item and the file both exist, the later-expiring
+  one is used, as the Claude meter already does.
+  ([#399](https://github.com/devswha/herdr-web-ui/pull/399) by @diogo7dias)
 
 ## [0.3.48] - 2026-10-04
 
