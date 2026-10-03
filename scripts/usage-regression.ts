@@ -58,12 +58,12 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await page.keyboard.press("Escape");
     await strip.waitFor();
 
-    // three chips and "+4" past four accounts, the one nearest its limit first and red; two Codex accounts apart
+    // three chips and "+4" past four accounts, in the server's order, each its plan's week; one near its limit is red; two Codex accounts apart
     assert.equal(await page.locator(".usage-chip").count(), 3);
     assert.equal(await page.locator(".usage-more").textContent(), "+4");
     assert.equal(await strip.getAttribute("aria-label"),
-      "Subscription usage: Codex · me@work.example 91%, Claude · me@example.com 63%, Codex · me@example.com 30%, Cursor 20%, Copilot · me 0%, Grok 0%, Antigravity —");
-    assert.equal(await page.locator(".usage-chip").first().evaluate((chip) => chip.classList.contains("is-high")), true);
+      "Subscription usage: Claude · me@example.com 63%, Codex · me@work.example 91%, Codex · me@example.com 30%, Cursor 20%, Copilot · me 0%, Grok 0%, Antigravity —");
+    assert.equal(await page.locator(".usage-chip").nth(1).evaluate((chip) => chip.classList.contains("is-high")), true);
     assert.equal(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth), true, "the chips fit beside Settings");
     const [settings, meters] = await Promise.all([page.locator(".sidebar-footer-row .sidebar-footer-action").boundingBox(), strip.boundingBox()]);
     assert.ok(settings && meters && settings.x + settings.width <= meters.x, "Settings and the meters do not overlap");
@@ -73,7 +73,7 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await popover.waitFor();
     assert.equal(await popover.locator(".usage-provider").count(), 7);
     assert.equal(await popover.getByRole("meter").count(), 9);
-    assert.equal(await popover.locator(".usage-account").first().textContent(), "me@work.example");
+    assert.equal(await popover.locator(".usage-account").first().textContent(), "me@example.com");
     assert.equal(await popover.locator(".usage-row.is-high").count(), 1);
     assert.equal(await popover.locator(".usage-note.is-problem").count(), 1, "only the expired sign-in reads as an error");
     if (process.env.UI_EVIDENCE_DIR) {
@@ -107,11 +107,12 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     if (process.env.UI_EVIDENCE_DIR) {
       await page.locator(".settings-section", { has: page.getByRole("heading", { name: "Subscription usage", exact: true }) }).screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-settings.png") });
     }
-    await page.getByRole("button", { name: "Nearest limit first", exact: true }).click();
+    // the session instead of the week: an account without one keeps the limit it has
+    await page.locator('.segmented[aria-label="Limit shown"]').getByRole("button", { name: "Session", exact: true }).click();
     await page.keyboard.press("Escape");
-    assert.match(await strip.getAttribute("aria-label") ?? "", /^Subscription usage: Claude · me@example.com 37% left, Codex · me@example.com 70% left, Cursor 80% left,/);
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}") as { usageHidden?: string[]; usageCount?: string });
-    assert.deepEqual([stored.usageHidden, stored.usageCount], [["codex:work"], "left"]);
+    assert.match(await strip.getAttribute("aria-label") ?? "", /^Subscription usage: Claude · me@example.com 58% left, Cursor 80% left, Codex · me@example.com 70% left,/);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}") as { usageHidden?: string[]; usageCount?: string; usageGlance?: string });
+    assert.deepEqual([stored.usageHidden, stored.usageCount, stored.usageGlance], [["codex:work"], "left", "session"]);
 
     // turned off in Settings: gone, and no longer asked for
     await settingsButton.click();
@@ -156,63 +157,4 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await phone.close();
   }
   console.log("PASS plan meters beside Settings: accounts, order, hiding, used or left, overflow, popover, refresh, Escape, off switch and phone fit");
-
-  // at the top of the list on a phone: one poller, each account told apart, the PCs still in reach
-  const top = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: "en-US" });
-  try {
-    const asked = await staged(top);
-    await top.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showUsage: true, usagePlacement: "top" })));
-    const page = await top.newPage();
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(origin);
-    await page.getByRole("button", { name: "Open workspace list", exact: true }).click();
-    const panel = page.getByRole("region", { name: "Subscription usage", exact: true });
-    await panel.waitFor();
-    assert.equal(await page.locator(".usage-strip").count(), 0, "the strip beside Settings gives way to the panel");
-    assert.equal(asked.length, 1, "only the panel asks for usage");
-    const rows = panel.locator(".usage-panel-row");
-    assert.equal(await rows.count(), 7);
-    assert.match(await rows.nth(0).textContent() ?? "", /me@work\.example/, "two Codex accounts are told apart");
-    assert.match(await rows.nth(2).textContent() ?? "", /me@example\.com/);
-    assert.equal(await rows.evaluateAll((all) => all.every((row) => row.scrollWidth <= row.clientWidth)), true, "each row fits the phone");
-    // a slowed-down or signed-out account says so in its row, as the footer chip dims: not only once opened
-    assert.equal(await panel.locator(".usage-panel-row.has-problem").count(), 2);
-    assert.deepEqual(await panel.locator(".usage-panel-problem").allTextContents(),
-      ["Grok asked to slow down. These are the last numbers.", "Sign-in expired. Open Antigravity to renew it."]);
-    assert.equal(await panel.locator(".usage-panel-problem.is-problem").count(), 1, "only the expired sign-in reads as an error");
-    assert.equal(await panel.getByRole("button", { name: /Grok asked to slow down.*Sign-in expired\. Open Antigravity/ }).count(), 1, "the reasons are in the rows' accessible name");
-    assert.equal(await panel.locator(".usage-panel-row.has-problem .usage-panel-value").first().evaluate((el) => Number(getComputedStyle(el).opacity) < 1), true, "old numbers dim");
-
-    const toggle = panel.locator(".usage-panel-rows");
-    await toggle.click();
-    assert.equal(await toggle.getAttribute("aria-expanded"), "true");
-    const detail = page.locator(`[id="${await toggle.getAttribute("aria-controls")}"]`);
-    assert.equal(await detail.getByRole("meter").count(), 9);
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    const list = await page.locator(".machine-list").boundingBox();
-    assert.ok(list && list.height >= 200, `the PCs keep room under the open panel (${list?.height}px)`);
-    if (process.env.UI_EVIDENCE_DIR) {
-      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
-      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-panel-phone-open.png") });
-    }
-    await toggle.click();
-    if (process.env.UI_EVIDENCE_DIR) {
-      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-panel-phone.png") });
-      // the accounts with a problem sit at the bottom of the panel's scroll
-      await panel.evaluate((node) => { node.scrollTop = node.scrollHeight; });
-      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-panel-phone-problems.png") });
-    }
-
-    // back beside Settings: the panel stops asking and the strip takes over
-    await page.locator(".sidebar-footer-row .sidebar-footer-action").click();
-    await page.getByRole("button", { name: "Beside Settings", exact: true }).click();
-    await page.keyboard.press("Escape");
-    await page.locator(".usage-strip").waitFor();
-    assert.equal(await page.locator(".usage-panel").count(), 0);
-    assert.deepEqual(errors, []);
-  } finally {
-    await top.close();
-  }
-  console.log("PASS plan meters at the top of the list: one poller, accounts apart, phone fit, open panel leaves the PCs room, back beside Settings");
 }

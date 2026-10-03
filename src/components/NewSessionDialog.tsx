@@ -5,12 +5,10 @@ import "./NewSessionDialog.css";
 
 import type { AgentKind } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
-import { AgentPicker } from "./AgentPicker.tsx";
+import { AgentPicker, rememberAgent, rememberedAgent } from "./AgentPicker.tsx";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
-
-const LAST_AGENT_KEY = "herdr-web-ui:new-session-agent";
 
 /** The dialog as New tab: the workspace the tab joins, whose folder it uses, and the number herdr will give it. */
 export interface NewTabTarget {
@@ -28,14 +26,6 @@ export interface NewSessionDialogProps {
   tab?: NewTabTarget | null;
   onClose: () => void;
   onCreated: (paneId: string) => void;
-}
-
-function rememberedAgent(): string {
-  try {
-    return window.localStorage.getItem(LAST_AGENT_KEY) ?? "";
-  } catch {
-    return "";
-  }
 }
 
 function directoryBasename(value: string): string {
@@ -109,11 +99,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
     setPending(true);
     setError(null);
     try {
-      try {
-        window.localStorage.setItem(LAST_AGENT_KEY, agentKind);
-      } catch {
-        /* private mode: the choice simply is not remembered */
-      }
+      rememberAgent(agentKind);
       const agent = agentKind ? { kind: agentKind } : null;
       // a tab keeps the workspace's folder, which the dialog shows and does not ask for
       const result = tab

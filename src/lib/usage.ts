@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderUsage, UsageProviderId, UsageReport, UsageWindow } from "../../shared/protocol.ts";
 import { fetchUsage } from "./api.ts";
-import type { UsageCount } from "./settings.ts";
+import type { UsageCount, UsageGlance } from "./settings.ts";
 import { t } from "./i18n.ts";
 import { usePageVisible } from "./visibility.ts";
 
@@ -26,9 +26,17 @@ export const WINDOW_LABEL: Readonly<Record<UsageWindow["kind"], string>> = {
   month: "Monthly",
 };
 
-/** The limit closest to running out: the one a glance at the sidebar has to show. */
+/** The limit closest to running out: what a chip shows when the plan has no limit of the chosen kind. */
 export function tightestWindow(usage: ProviderUsage): UsageWindow | null {
   return usage.windows.reduce<UsageWindow | null>((tightest, window) => tightest === null || window.used_percent > tightest.used_percent ? window : tightest, null);
+}
+
+/**
+ * The limit a chip shows: the plan-wide one of the kind chosen in Settings (the week, or the
+ * short session), never a model's own. A plan without it shows its limit closest to running out.
+ */
+export function glanceWindow(usage: ProviderUsage, glance: UsageGlance): UsageWindow | null {
+  return usage.windows.find((window) => window.kind === glance && window.scope === null) ?? tightestWindow(usage);
 }
 
 export function windowLabel(window: UsageWindow): string {
@@ -65,51 +73,19 @@ export function formatResetIn(resetsAt: string | null, now: number): string | nu
   return t("{d}d {h}h", { d: Math.floor(hours / 24), h: hours % 24 });
 }
 
-/** "1d 3h", "3h 12m", "12m" until a reset, in the same short units in every language; null when unknown or past. */
-export function formatResetShort(resetsAt: string | null, now: number): string | null {
-  if (resetsAt === null) return null;
-  const minutes = Math.ceil((Date.parse(resetsAt) - now) / 60_000);
-  if (!Number.isFinite(minutes) || minutes <= 0) return null;
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ${minutes % 60}m`;
-  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
-}
-
-/** When a reset falls, in this device's time: "15:00" today, "10/4 15:00" on another day; null when unknown. */
-export function formatResetAt(resetsAt: string | null, now: number): string | null {
-  if (resetsAt === null) return null;
-  const at = new Date(Date.parse(resetsAt));
-  if (Number.isNaN(at.getTime())) return null;
-  const today = new Date(now);
-  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-  const sameDay = at.getFullYear() === today.getFullYear() && at.getMonth() === today.getMonth() && at.getDate() === today.getDate();
-  return sameDay ? time : `${at.getMonth() + 1}/${at.getDate()} ${time}`;
-}
-
-/** How much of a limit is left, as a colour: plenty (half or more), getting low (a fifth to half), low. */
-export type LeftLevel = "ok" | "mid" | "low";
-export function leftLevel(window: UsageWindow): LeftLevel {
-  const left = 100 - window.used_percent;
-  return left >= 50 ? "ok" : left >= 20 ? "mid" : "low";
-}
-
 /** Percent as the meters print it: whole numbers, except the tenth that keeps a sliver above 0 visible. */
 export function formatPercent(value: number): string {
   return value > 0 && value < 1 ? `${value.toFixed(1)}%` : `${Math.round(value)}%`;
 }
 
-/**
- * The accounts in the user's order (`order`, by key), then the rest: a limit near its end first,
- * otherwise the server's order.
- */
+/** The accounts in the user's order (`order`, by key), then the rest as the server lists them. */
 export function orderProviders(providers: readonly ProviderUsage[], order: readonly string[] = []): ProviderUsage[] {
   const rank = new Map(order.map((key, index) => [key, index]));
   return [...providers].sort((a, b) => {
     const ranked = [rank.get(a.key), rank.get(b.key)];
     if (ranked[0] !== undefined && ranked[1] !== undefined) return ranked[0] - ranked[1];
     if (ranked[0] !== undefined || ranked[1] !== undefined) return ranked[0] !== undefined ? -1 : 1;
-    return (tightestWindow(b)?.used_percent ?? -1) - (tightestWindow(a)?.used_percent ?? -1);
+    return 0;
   });
 }
 

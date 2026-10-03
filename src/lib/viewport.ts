@@ -16,61 +16,76 @@
  * The visual height is published only while the soft keyboard is up. An iPhone home
  * screen app (standalone, black-translucent status bar) reports a visual viewport
  * shorter than the screen with no keyboard at all, which left a band as tall as the
- * status bar under the composer. Without a keyboard the shell is 100dvh.
+ * status bar under the composer. Without a keyboard the shell is 100dvh unless
+ * the missing height matches the measured standalone top safe area.
  */
 
 const viewport = window.visualViewport;
 const root = document.documentElement;
 
-const syncHeight = (): void => {
-  if (!viewport) return;
-  if (root.hasAttribute("data-keyboard")) root.style.setProperty("--app-height", `${Math.round(viewport.height)}px`);
-  else root.style.removeProperty("--app-height");
-  if (document.querySelector(".app") !== null) window.scrollTo(0, 0);
-};
-
-if (viewport) {
-  // A focused field removed with its pane need not report focusout: the keyboard
-  // closing (a resize) re-reads focus, so the flag cannot outlive it.
-  viewport.addEventListener("resize", () => syncKeyboard());
-  viewport.addEventListener("scroll", syncHeight);
-}
-
 /**
- * Marks the page while a phone's soft keyboard is up, so the composer drops the
- * home-indicator space the keyboard covers (Composer.css) and the shell follows the
- * visual viewport. Viewport sizes do not tell: iOS Safari 26 resizes both viewports
- * with the keyboard. A touch device with a text field focused has its keyboard up -
- * except xterm's own hidden field, which the app focuses on its own and which raises
- * a keyboard only in direct typing (PaneTerminal marks that with data-direct-typing).
- *
- * A field can keep its focus with the keyboard down, though: an iPhone home screen app back
- * from another app (a dictation keyboard records in its own), or a keyboard closed from its
- * own key. Taken for an open keyboard, the shell kept the idle visual height, the screen less
- * its status bar, and left that band under the composer. So the keyboard also has to take room:
- * the visual viewport is well short of the screen, more than a status bar and a toolbar are.
+ * Focus is necessary, not sufficient: dismissal and hardware keyboards leave the
+ * field focused. Accept keyboard geometry where available, or detect a
+ * substantial viewport occlusion relative to the large CSS viewport or a remembered
+ * unobstructed height. Comparing visualViewport with innerHeight alone misses browsers
+ * that resize both. The relative cutoff excludes ordinary browser/status-bar insets;
+ * Safari has no exact keyboard-visibility API, so small floating keyboards cannot be
+ * inferred this way. xterm's automatically focused helper only counts in direct typing.
  */
 const touch = window.matchMedia("(pointer: coarse)");
+const keyboard = (navigator as Navigator & {
+  virtualKeyboard?: EventTarget & { boundingRect: DOMRectReadOnly };
+}).virtualKeyboard;
+const largeViewport = document.createElement("div");
+largeViewport.style.cssText = "position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;contain:strict";
+largeViewport.setAttribute("aria-hidden", "true");
+root.append(largeViewport);
+const topInset = document.createElement("div");
+topInset.style.cssText = "position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top, 0px);visibility:hidden;pointer-events:none;contain:strict";
+topInset.setAttribute("aria-hidden", "true");
+root.append(topInset);
+// Width separates portrait and landscape. Retain the baseline when a keyboard
+// shrinks all three viewports, but not when a split view shrinks the large
+// viewport while leaving only its ordinary visual inset.
+const unobstructedHeights = new Map<number, { large: number; height: number }>();
 const typing = (element: Element | null): boolean =>
   (element instanceof HTMLTextAreaElement && (!element.classList.contains("xterm-helper-textarea") || element.closest("[data-direct-typing]") !== null))
   || (element instanceof HTMLInputElement && !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color"].includes(element.type))
   || (element instanceof HTMLElement && element.isContentEditable);
-/** shorter than the screen by more than this: no status bar or toolbar, a keyboard */
-const KEYBOARD_MIN = 150;
-const keyboardRoom = (): boolean => {
-  if (!viewport) return true;
-  const landscape = window.innerWidth > window.innerHeight;
-  const screenHeight = landscape ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
-  return viewport.height < screenHeight - KEYBOARD_MIN;
-};
 const syncKeyboard = (): void => {
-  root.toggleAttribute("data-keyboard", touch.matches && typing(document.activeElement) && keyboardRoom());
-  syncHeight();
+  const width = window.innerWidth;
+  const height = viewport?.height ?? window.innerHeight;
+  const large = largeViewport.getBoundingClientRect().height;
+  const remembered = unobstructedHeights.get(width);
+  const resizedWindow = remembered && large < remembered.large && height < large && large - height <= large * 0.2;
+  const reference = Math.max(large, resizedWindow ? 0 : remembered?.height ?? 0, window.innerHeight);
+  const focused = touch.matches && typing(document.activeElement);
+  const visible = focused && ((keyboard?.boundingRect.height ?? 0) > 0
+    || !!viewport && viewport.scale === 1 && reference - height > reference * 0.2);
+  if (!visible) unobstructedHeights.set(width, { large, height: resizedWindow ? Math.max(large, height, window.innerHeight) : Math.max(reference, height) });
+  root.toggleAttribute("data-keyboard", visible);
+  if (visible && viewport) root.style.setProperty("--app-height", `${Math.round(height)}px`);
+  else {
+    // Only correct the standalone status region when the screen-to-CSS gap
+    // agrees with the measured top safe area.
+    const inset = topInset.getBoundingClientRect().height;
+    const missing = window.screen.height - largeViewport.getBoundingClientRect().height;
+    if (window.matchMedia("(display-mode: standalone)").matches && inset > 0
+      && Math.abs(missing - inset) < 2 && window.screen.height > window.innerWidth)
+      root.style.setProperty("--app-height", `${Math.round(window.screen.height)}px`);
+    else root.style.removeProperty("--app-height");
+  }
+  if (document.querySelector(".app") !== null) window.scrollTo(0, 0);
 };
+viewport?.addEventListener("resize", syncKeyboard);
+viewport?.addEventListener("scroll", syncKeyboard);
+window.addEventListener("resize", syncKeyboard);
+window.addEventListener("orientationchange", syncKeyboard);
+touch.addEventListener("change", syncKeyboard);
+keyboard?.addEventListener("geometrychange", syncKeyboard);
 document.addEventListener("focusin", syncKeyboard);
 // focus moving from one field to the next blurs first: read where it landed
 document.addEventListener("focusout", () => window.setTimeout(syncKeyboard, 0));
-touch.addEventListener("change", syncKeyboard);
-// The key bar preserves xterm focus while switching modes, so focusin need not fire.
+// Switching xterm direct typing leaves its helper focused; observe the mode change.
 new MutationObserver(syncKeyboard).observe(root, { attributes: true, subtree: true, attributeFilter: ["data-direct-typing"] });
 syncKeyboard();

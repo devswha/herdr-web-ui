@@ -36,6 +36,17 @@ Tests run against a herdr session of their own, `herdr-web-ui-test`. The first r
 
 Browser checks look for Chrome at `/opt/google/chrome/chrome`; set `CHROME_PATH` otherwise. After a herdr upgrade, refresh the generated wire types with `bun run generate:types --refresh` (and `--check` to verify).
 
+For isolated phone viewer and keyboard layout regressions (no herdr session; the demo runner builds the real client locally):
+
+```bash
+bun scripts/file-viewer-mobile-regression.ts  # 8 viewport cases × tall/wide images
+bun scripts/keyboard-viewport-regression.ts   # keyboard, rotation and measured standalone status inset
+bun scripts/keyboard-viewport-demo-regression.ts # original real-app viewport suite on disposable demo fixtures
+bun scripts/droplet-demo-regression.ts        # real-app alerts below the header, keyboard and landscape
+```
+
+`FILE_VIEWER_CASE=landscape-notch` selects a viewer case; `FILE_VIEWER_CSS=/path/to/before.css` compares another stylesheet. These checks use Chromium mobile emulation and synthetic safe-area/keyboard geometry; they cannot verify actual iOS Safari keyboard dismissal or notch insets. The existing `bun scripts/file-viewer-regression.ts` separately checks history with an owned herdr pane. The original `scripts/mobile-viewport-regression.ts` exports `checkMobileViewport` for the real-app `bun run test:ui` suite; it also checks the command palette and xterm focus transitions. The demo runners build the real client into a temporary directory, inject the committed fictional-session transport and serve it only on loopback; they do not use a live herdr session or download website media. They exercise real-app viewport and alert geometry, but not live herdr connectivity.
+
 ## README media
 
 `bun run build && bun scripts/readme-media/capture.ts` regenerates the stills and demos in `docs/screenshots/` from a staged, fictional session in its own herdr session (`herdr-web-ui-demo`). Pass `shots` or `video` to redo only one of them. It needs ffmpeg.

@@ -21,6 +21,24 @@
   font-size: var(--fs-xs);
 }
 
+/* the text takes the room, the buttons keep to the end of the line and wrap under it on a phone */
+.update-notice > span {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.update-notice-dismiss {
+  margin-inline-end: calc(var(--space-2) * -1);
+}
+
+.update-progress {
+  max-width: 32rem;
+}
+
+.update-notice .update-progress {
+  max-width: none;
+}
+
 .update-output {
   margin: 0;
   padding: var(--space-2) var(--space-3);

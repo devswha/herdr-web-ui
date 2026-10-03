@@ -100,9 +100,6 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
     <div className="usage-accounts">
       <div className="usage-accounts-head">
         <span id="usage-accounts-title">{t("Accounts")}</span>
-        {settings.usageOrder.length > 0 && (
-          <button type="button" className="usage-accounts-reset" onClick={() => update({ usageOrder: [] })}>{t("Nearest limit first")}</button>
-        )}
       </div>
       <ol aria-labelledby="usage-accounts-title">
         {ordered.map((usage, index) => {
@@ -485,11 +482,11 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
             )}
             {settings.showUsage && (
               <div className="settings-row">
-                <span className="settings-label">{t("Where")}</span>
-                <div className="segmented" aria-label={t("Where")}>
-                  {(["footer", "top"] as const).map((usagePlacement) => (
-                    <button key={usagePlacement} type="button" aria-pressed={settings.usagePlacement === usagePlacement} onClick={() => update({ usagePlacement })}>
-                      {t(usagePlacement === "top" ? "Top of the list" : "Beside Settings")}
+                <div><span className="settings-label">{t("Limit shown")}</span><span className="settings-description">{t("The limit each chip shows. Session is the short one, 5 hours on Claude and Codex. A plan without the chosen limit shows the one closest to running out.")}</span></div>
+                <div className="segmented" aria-label={t("Limit shown")}>
+                  {(["week", "session"] as const).map((usageGlance) => (
+                    <button key={usageGlance} type="button" aria-pressed={settings.usageGlance === usageGlance} onClick={() => update({ usageGlance })}>
+                      {t(usageGlance === "week" ? "Weekly" : "Session")}
                     </button>
                   ))}
                 </div>

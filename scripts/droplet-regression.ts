@@ -58,12 +58,31 @@ export async function checkDroplet(browser: Browser, origin: string): Promise<vo
     await card.waitFor({ state: "visible" });
     assert.match((await card.getAttribute("aria-label")) ?? "", /Needs input/);
     assert.equal(await droplet.getAttribute("data-kind"), "blocked");
-    // it hangs under the top edge, centred, inside the screen
+    // the compact drop and expanded card clear both native UI and header controls
     await Bun.sleep(1_000);
     const box = (await card.boundingBox())!;
-    assert.ok(box.y >= 12 && box.y < 40, `card top ${box.y}`);
+    const clearance = await page.evaluate(() => {
+      const probe = document.querySelector(".droplet-probe")!;
+      const safeTop = Number.parseFloat(getComputedStyle(probe).paddingTop) || 0;
+      return Math.max(safeTop, document.querySelector(".app-header")?.getBoundingClientRect().bottom ?? 0) + 12;
+    });
+    assert.ok(Math.abs(box.y - clearance) <= 2, `card top ${box.y}, clearance ${clearance}`);
     assert.ok(Math.abs(box.x + box.width / 2 - 195) <= 1, `card centre ${box.x + box.width / 2}`);
-    assert.ok(box.width <= 390 - 32 && box.width > 300, `card width ${box.width}`);
+    // the phone layout's card: one line, as wide as its text, and the shape under it the same width
+    assert.ok(box.height === 44 && box.width < 300, `phone card ${box.width}x${box.height}`);
+    const shape = (await page.locator(".droplet-blob").boundingBox())!;
+    assert.ok(Math.abs(shape.width - box.width) <= 1, `shape width ${shape.width}, card width ${box.width}`);
+    const title = (await card.locator(".droplet-title").boundingBox())!;
+    const detail = (await card.locator(".droplet-detail").boundingBox())!;
+    assert.ok(detail.x >= title.x + title.width && Math.abs(title.y + title.height / 2 - (detail.y + detail.height / 2)) <= 3, `title ${JSON.stringify(title)}, detail ${JSON.stringify(detail)}`);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await Bun.sleep(100);
+    const landscape = (await card.boundingBox())!;
+    assert.ok(landscape.height === 64 && landscape.width > 300, `past the phone layout the card keeps two lines: ${landscape.width}x${landscape.height}`);
+    const landscapeHeader = await page.locator(".app-header").boundingBox();
+    assert.ok(landscape.y >= (landscapeHeader?.y ?? 0) + (landscapeHeader?.height ?? 0) + 11, `landscape card top ${landscape.y}`);
+    assert.ok(landscape.x >= 0 && landscape.x + landscape.width <= 844, `landscape card bounds ${landscape.x}, ${landscape.width}`);
+    await page.setViewportSize({ width: 390, height: 844 });
     if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "droplet-phone.png") });
     await card.tap();
     await droplet.waitFor({ state: "detached" });

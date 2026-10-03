@@ -175,6 +175,9 @@ describe("quick replies row", () => {
     expect(DEFAULT_SETTINGS.usageCount).toBe("used");
     expect(sanitizeSettings({ usageCount: "left" }).usageCount).toBe("left");
     expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("used");
+    expect(DEFAULT_SETTINGS.usageGlance).toBe("week");
+    expect(sanitizeSettings({ usageGlance: "session" }).usageGlance).toBe("session");
+    expect(sanitizeSettings({ usageGlance: "nearest" }).usageGlance).toBe("week");
     expect(sanitizeSettings({ usageOrder: ["codex:a", 3, "codex:a", "", "claude:b"] }).usageOrder).toEqual(["codex:a", "claude:b"]);
     expect(sanitizeSettings({ usageHidden: Array.from({ length: 100 }, (_, index) => `k${index}`) }).usageHidden).toHaveLength(64);
     expect(sanitizeSettings({ usageHidden: "codex:a" }).usageHidden).toEqual([]);
@@ -269,14 +272,6 @@ describe("agent marks", () => {
     const settings = sanitizeSettings({ claudeMark: "mascot", codexMark: "app" });
     expect(settings).not.toHaveProperty("claudeMark");
     expect(settings).not.toHaveProperty("codexMark");
-  });
-});
-
-describe("plan meter placement", () => {
-  it("sits beside Settings until the top of the list is chosen", () => {
-    expect(DEFAULT_SETTINGS.usagePlacement).toBe("footer");
-    expect(sanitizeSettings({ usagePlacement: "top" }).usagePlacement).toBe("top");
-    expect(sanitizeSettings({ usagePlacement: "left" }).usagePlacement).toBe("footer");
   });
 });
 

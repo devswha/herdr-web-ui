@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
-import { formatPercent, formatResetAt, formatResetIn, formatResetShort, leftLevel, meterPercent, meterText, moveInOrder, orderProviders, tightestWindow, usageName, windowLabel } from "./usage.ts";
+import { formatPercent, formatResetIn, glanceWindow, meterPercent, meterText, moveInOrder, orderProviders, tightestWindow, usageName, windowLabel } from "./usage.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const window = (used_percent: number, kind: UsageWindow["kind"] = "week", scope: string | null = null): UsageWindow => ({ kind, scope, used_percent, resets_at: null });
@@ -14,15 +14,24 @@ describe("usage meters", () => {
     expect(tightestWindow(provider("claude", []))).toBeNull();
   });
 
-  it("puts the provider nearest a limit first, and one without numbers last", () => {
-    const order = orderProviders([provider("claude", []), provider("codex", [window(40)]), provider("copilot", [window(90, "month")])]);
-    expect(order.map((usage) => usage.id)).toEqual(["copilot", "codex", "claude"]);
+  it("shows the chosen limit of the whole plan, and the closest to running out where a plan has none", () => {
+    const claude = provider("claude", [window(80, "session"), window(30), window(95, "week", "Sonnet")]);
+    expect(glanceWindow(claude, "week")).toEqual(window(30));
+    expect(glanceWindow(claude, "session")).toEqual(window(80, "session"));
+    expect(glanceWindow(provider("codex", [window(30)]), "session")).toEqual(window(30));
+    expect(glanceWindow(provider("cursor", [window(20, "month"), window(60, "month", "Premium")]), "week")).toEqual(window(60, "month", "Premium"));
+    expect(glanceWindow(provider("grok", []), "week")).toBeNull();
   });
 
-  it("follows the user's order first, then the nearest limit", () => {
+  it("keeps the server's order until the user arranges the accounts", () => {
+    const order = orderProviders([provider("claude", []), provider("codex", [window(40)]), provider("copilot", [window(90, "month")])]);
+    expect(order.map((usage) => usage.id)).toEqual(["claude", "codex", "copilot"]);
+  });
+
+  it("follows the user's order first, then the server's", () => {
     const providers = [provider("claude", [window(10)]), provider("codex", [window(40)], "a@x"), provider("codex", [window(90)], "b@x"), provider("grok", [window(50)])];
     const keys = (order: string[]) => orderProviders(providers, order).map((usage) => usage.key);
-    expect(keys([])).toEqual(["codex:b@x", "grok", "codex:a@x", "claude"]);
+    expect(keys([])).toEqual(["claude", "codex:a@x", "codex:b@x", "grok"]);
     expect(keys(["claude", "codex:a@x", "gone"])).toEqual(["claude", "codex:a@x", "codex:b@x", "grok"]);
   });
 
@@ -63,30 +72,5 @@ describe("usage meters", () => {
     expect(windowLabel(window(1, "week", "Sonnet"))).toBe("Weekly · Sonnet");
     expect(windowLabel(window(1, "month", "Premium"))).toBe("Monthly · Premium");
     expect(windowLabel(window(1, "month", "Cursor models"))).toBe("Monthly · Cursor models");
-  });
-});
-
-describe("the top panel's reset and colour", () => {
-  const at = (iso: string) => Date.parse(iso);
-  it("says the time left in the same short units in every language", () => {
-    const now = at("2026-10-03T10:00:00Z");
-    expect(formatResetShort("2026-10-04T13:00:00Z", now)).toBe("1d 3h");
-    expect(formatResetShort("2026-10-03T13:12:00Z", now)).toBe("3h 12m");
-    expect(formatResetShort("2026-10-03T10:12:00Z", now)).toBe("12m");
-    expect(formatResetShort("2026-10-03T09:00:00Z", now)).toBeNull();
-  });
-  it("names the reset's local time, with the date when it is not today", () => {
-    const now = at("2026-10-03T10:00:00");
-    expect(formatResetAt("2026-10-03T15:05:00", now)).toBe("15:05");
-    expect(formatResetAt("2026-10-04T09:00:00", now)).toBe("10/4 09:00");
-    expect(formatResetAt(null, now)).toBeNull();
-  });
-  it("colours by what is left", () => {
-    const window = (used: number) => ({ used_percent: used }) as Parameters<typeof leftLevel>[0];
-    expect(leftLevel(window(10))).toBe("ok");
-    expect(leftLevel(window(50))).toBe("ok");
-    expect(leftLevel(window(51))).toBe("mid");
-    expect(leftLevel(window(80))).toBe("mid");
-    expect(leftLevel(window(81))).toBe("low");
   });
 });

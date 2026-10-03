@@ -178,6 +178,67 @@ async function paneContext(paneId: string): Promise<{ agent: string | null; cwd:
   return { agent: pane.agent ?? pane.agent_session?.agent ?? null, cwd };
 }
 
+type AgentPayload = { kind?: unknown; name?: unknown; args?: unknown };
+
+/** What is wrong with a request's `agent`, in the API's words; null when it can be started. */
+function agentFault(agent: AgentPayload | undefined): string | null {
+  if (agent === undefined) return null;
+  if (typeof agent !== "object" || typeof agent.kind !== "string" || agent.kind.length === 0) return "agent.kind is required";
+  if ((agent.name !== undefined && typeof agent.name !== "string")
+    || (agent.args !== undefined && (!Array.isArray(agent.args) || !agent.args.every((arg) => typeof arg === "string")))) {
+    return "agent.name must be a string and agent.args must be an array of strings";
+  }
+  return null;
+}
+
+/**
+ * Starts a checked `agent` in a pane herdr just made. A failure is answered, not thrown: the
+ * workspace, tab or worktree around the pane is there either way.
+ */
+async function agentLaunch(paneId: string, agent: AgentPayload): Promise<{ agent_started: true } | { agent_started: false; error: { code: string; message: string } }> {
+  try {
+    const kind = agent.kind as string;
+    const args = agent.args as string[] | undefined;
+    if (isShellAgentKind(kind)) await startShellAgent(kind, paneId, args);
+    else {
+      const given = typeof agent.name === "string" && agent.name.length > 0 ? agent.name : null;
+      // herdr refuses a name another agent holds. Two creations at once can pick the same
+      // free one: the refused one picks again. It also refuses a pane whose shell is not up
+      // yet (`agent_pane_busy`, herdr 0.9.3), which a pane made a moment ago can be.
+      const shellDeadline = Date.now() + 10_000;
+      for (let attempt = 1; ; ) {
+        try {
+          await agentStart({
+            name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((running) => running.name)),
+            kind,
+            paneId,
+            ...(args === undefined ? {} : { args }),
+            timeoutMs: 60_000,
+          });
+          break;
+        } catch (error) {
+          if (!(error instanceof HerdrError)) throw error;
+          if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
+            await Bun.sleep(100);
+            continue;
+          }
+          if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
+          attempt += 1;
+        }
+      }
+    }
+    return { agent_started: true };
+  } catch (error) {
+    return {
+      agent_started: false,
+      error: {
+        code: error instanceof HerdrError ? error.code : "agent_start_failed",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
 interface SocketData {
   deviceId?: string;
   readOnly?: boolean;
@@ -925,7 +986,8 @@ export function createServer(
           if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
-          bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : 80);
+          // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
+          bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : pathname.endsWith("/worktree/create") ? 180 : 80);
           const deviceId = access.level === "full" ? access.device?.id : undefined;
           const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : undefined);
           response.headers.set("cache-control", "no-store");
@@ -1087,13 +1149,8 @@ export function createServer(
         const cwd = payload.cwd === undefined ? undefined : expandedDirectory(payload.cwd);
         if (payload.cwd !== undefined && cwd === null) return badRequest("invalid_cwd", "cwd must be an existing directory");
         if (payload.label !== undefined && typeof payload.label !== "string") return badRequest("missing_label", "label must be a string");
-        if (payload.agent !== undefined && (typeof payload.agent !== "object" || typeof payload.agent.kind !== "string" || payload.agent.kind.length === 0)) {
-          return badRequest("invalid_agent", "agent.kind is required");
-        }
-        if (payload.agent && ((payload.agent.name !== undefined && typeof payload.agent.name !== "string")
-          || (payload.agent.args !== undefined && (!Array.isArray(payload.agent.args) || !payload.agent.args.every((arg) => typeof arg === "string"))))) {
-          return badRequest("invalid_agent", "agent.name must be a string and agent.args must be an array of strings");
-        }
+        const fault = agentFault(payload.agent);
+        if (fault !== null) return badRequest("invalid_agent", fault);
         // agent.start can legitimately take a minute; Bun's default idle timeout is shorter.
         if (payload.agent) bunServer.timeout(request, 75);
         try {
@@ -1108,48 +1165,7 @@ export function createServer(
           if (!payload.agent) {
             return jsonResponse({ workspace_id: workspaceId, pane_id: created.root_pane.pane_id, agent_started: false });
           }
-          try {
-            const kind = payload.agent.kind as string;
-            if (isShellAgentKind(kind)) await startShellAgent(kind, created.root_pane.pane_id, payload.agent.args as string[] | undefined);
-            else {
-              const given = typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : null;
-              // herdr refuses a name another agent holds. Two creations at once can pick the same
-              // free one: the refused one picks again. It also refuses a pane whose shell is not up
-              // yet (`agent_pane_busy`, herdr 0.9.3), which a pane made a moment ago can be.
-              const shellDeadline = Date.now() + 10_000;
-              for (let attempt = 1; ; ) {
-                try {
-                  await agentStart({
-                    name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((agent) => agent.name)),
-                    kind,
-                    paneId: created.root_pane.pane_id,
-                    ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
-                    timeoutMs: 60_000,
-                  });
-                  break;
-                } catch (error) {
-                  if (!(error instanceof HerdrError)) throw error;
-                  if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
-                    await Bun.sleep(100);
-                    continue;
-                  }
-                  if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
-                  attempt += 1;
-                }
-              }
-            }
-            return jsonResponse({ workspace_id: workspaceId, pane_id: created.root_pane.pane_id, agent_started: true });
-          } catch (error) {
-            return jsonResponse({
-              workspace_id: workspaceId,
-              pane_id: created.root_pane.pane_id,
-              agent_started: false,
-              error: {
-                code: error instanceof HerdrError ? error.code : "agent_start_failed",
-                message: error instanceof Error ? error.message : String(error),
-              },
-            });
-          }
+          return jsonResponse({ workspace_id: workspaceId, pane_id: created.root_pane.pane_id, ...(await agentLaunch(created.root_pane.pane_id, payload.agent)) });
         } catch (error) {
           return errorResponse(error);
         }
@@ -1194,7 +1210,7 @@ export function createServer(
 
       if (pathname === "/api/worktree/create" || pathname === "/api/worktree/open") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { workspace_id?: unknown; branch?: unknown; base?: unknown; label?: unknown; path?: unknown };
+        let payload: { workspace_id?: unknown; branch?: unknown; base?: unknown; label?: unknown; path?: unknown; agent?: AgentPayload | null };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -1225,10 +1241,15 @@ export function createServer(
         }
         if (path !== undefined && !isAbsolute(path)) return badRequest("invalid_path", "path must be absolute");
         const creating = pathname === "/api/worktree/create";
+        // a new checkout can start an agent in its pane, as a new workspace can; null is "not given"
+        const agent = creating ? payload.agent ?? undefined : undefined;
+        const fault = agentFault(agent);
+        if (fault !== null) return badRequest("invalid_agent", fault);
         if (creating && branch === undefined) return badRequest("missing_branch", "branch is required");
         if (!creating && branch === undefined && path === undefined) return badRequest("missing_target", "path or branch is required");
         // a checkout of a large repository can take a while; Bun's default idle timeout is shorter.
-        if (creating) bunServer.timeout(request, 75);
+        // and agent.start after it can take a minute more.
+        if (creating) bunServer.timeout(request, agent ? 150 : 75);
         try {
           const opened = creating
             ? await worktreeCreate({ workspaceId: payload.workspace_id, branch: branch as string, base, label, path })
@@ -1239,6 +1260,7 @@ export function createServer(
             already_open: opened.already_open === true,
             path: opened.worktree.path,
             branch: opened.worktree.branch,
+            ...(agent ? await agentLaunch(opened.root_pane.pane_id, agent) : {}),
           });
         } catch (error) {
           return errorResponse(error);
