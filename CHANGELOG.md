@@ -10,9 +10,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - On a phone the header shows the pane's title again: the desktop **New tab** button was not
   hidden there, took the title's room, and pushed a narrow phone's page wider than its screen.
+  ([#392](https://github.com/devswha/herdr-web-ui/pull/392))
 - The tab strip keeps the open tab in view when a pane is opened from the sidebar, the palette
   or an alert, its `+` stays at the end of the strip however many tabs there are, and on a touch
   screen a split tab's pane picker no longer overlaps the tab's name.
+  ([#392](https://github.com/devswha/herdr-web-ui/pull/392))
 
 ### Changed
 - **New session** is **New workspace**: the `+` on a PC's header, the button of an empty PC, the
