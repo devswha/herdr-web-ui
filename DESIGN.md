@@ -260,6 +260,9 @@ One set for both themes: the card is island black wherever it shows.
 - `.modal-scrim` centers an `aria-modal` dialog at `--z-modal`; `.modal` is a capped scrollable
   column with header, body and footer and `--shadow-pop`.
 - At `<=640px`, it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
+- While a phone's keyboard is up (`data-keyboard`), the scrim is `--app-height` tall instead of the
+  whole screen, so a sheet and its text field sit above the keyboard, and the sheet drops its
+  safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
