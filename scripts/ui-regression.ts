@@ -624,6 +624,8 @@ try {
   // lists both tabs from then on. The header's New tab opens the same dialog on a desktop.
   // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
   await until(() => painted.has(created.pane_id), "created pane paint");
+  await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the created workspace is selected again");
   await page.locator(".pane-item.is-selected .row-menu-toggle").click();
   await page.getByRole("menuitem", { name: "New tab", exact: true }).click();
   const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
