@@ -777,6 +777,15 @@ try {
   const confirmClose = page.getByRole("alertdialog");
   await confirmClose.waitFor();
   await until(async () => await page.evaluate(() => document.activeElement?.textContent === "Cancel"), "the confirm starts on Cancel");
+  // a no gives the focus back to the row's ⋯; Tab stays inside the confirm
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Close", "Tab moves to the confirm's action");
+  await page.keyboard.press("Escape");
+  await confirmClose.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "cancelling the confirm returns focus to the row's ⋯");
+  await page.keyboard.press("Enter");
+  await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await confirmClose.waitFor();
   await confirmClose.getByRole("button", { name: "Close", exact: true }).click();
   workspaces.splice(workspaces.indexOf(created.workspace_id), 1);
   await until(async () => {

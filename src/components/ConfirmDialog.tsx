@@ -1,9 +1,10 @@
 /**
  * A yes-or-no question before something that cannot be undone. Cancel takes the focus, so Enter
- * answers no; Escape and the scrim answer no as well. The action runs here, so its failure shows
- * in the dialog and not beside a row that may be gone.
+ * answers no; Escape and the scrim answer no as well, and Tab stays between the two buttons. A
+ * no gives the focus back to what opened the dialog; after a yes the owner decides, since the
+ * row that opened it is usually gone. The action runs here, so its failure shows in the dialog.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 
 import "./ConfirmDialog.css";
@@ -21,25 +22,41 @@ interface Props {
 
 export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }: Props) {
   const t = useT();
+  const id = useId();
   const cancel = useRef<HTMLButtonElement>(null);
+  const action = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const done = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useLayoutEffect(() => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => { if (!done.current && opener.current?.isConnected) opener.current.focus({ preventScroll: true }); };
+  }, []);
   useEffect(() => { window.requestAnimationFrame(() => cancel.current?.focus()); }, []);
+  // Escape is this dialog's while it is up, even while the deed runs and cannot be undone
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape" || pending) return;
+      if (event.key !== "Escape") return;
       event.stopPropagation();
-      onClose();
+      event.preventDefault();
+      if (!pending) onClose();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose, pending]);
 
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    (document.activeElement === cancel.current ? action.current : cancel.current)?.focus();
+  };
+
   const confirm = async (): Promise<void> => {
     setPending(true);
     setError(null);
-    try { await onConfirm(); }
+    try { await onConfirm(); done.current = true; }
     catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : String(reason));
       setPending(false);
@@ -48,15 +65,15 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }:
 
   return createPortal(
     <div className="modal-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onClose(); }}>
-      <div className="modal confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body">
-        <header className="modal-header"><h2 className="modal-title" id="confirm-dialog-title">{title}</h2></header>
+      <div className="modal confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`} onKeyDown={onKeyDown}>
+        <header className="modal-header"><h2 className="modal-title" id={`${id}-title`}>{title}</h2></header>
         <div className="modal-body">
-          <p className="confirm-body" id="confirm-dialog-body">{body}</p>
+          <p className="confirm-body" id={`${id}-body`}>{body}</p>
           {error && <p className="confirm-error" role="alert">{error}</p>}
         </div>
         <footer className="modal-footer">
           <button ref={cancel} type="button" className="btn" disabled={pending} onClick={onClose}>{t("Cancel")}</button>
-          <button type="button" className="btn btn-danger" disabled={pending} onClick={() => void confirm()}>{confirmLabel}</button>
+          <button ref={action} type="button" className="btn btn-danger" disabled={pending} onClick={() => void confirm()}>{confirmLabel}</button>
         </footer>
       </div>
     </div>,

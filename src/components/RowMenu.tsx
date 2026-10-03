@@ -2,11 +2,12 @@
  * The ⋯ menu of a sidebar row. On a desktop it is a popover under its button, drawn through a
  * portal at fixed coordinates: the roster scrolls, and a menu inside it would be cut off at the
  * list's edge. At phone width it is the modal primitive, which is already a bottom sheet there.
- * Escape, a press outside, a scroll or a resize close it. Focus goes back to the button when the
- * menu goes, unless what an item mounted (a rename field, a confirm) takes it first: the button
- * is focused in a layout cleanup, before a new field's autoFocus and a dialog's own focus.
+ * Escape, a press outside, focus leaving it (the palette opening over it, a Tab out) and, on a
+ * desktop, a scroll or a resize close it. Focus goes back to the button when the menu goes,
+ * unless what an item mounted (a rename field, a confirm) takes it first: the button is focused
+ * in a layout cleanup, before a new field's autoFocus and a dialog's own focus.
  */
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 
@@ -103,6 +104,12 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
     else if (event.key === "Tab") { event.preventDefault(); onClose(); }
   };
 
+  const onBlur = (event: FocusEvent<HTMLDivElement>): void => {
+    const next = event.relatedTarget as Node | null;
+    if (next && (surface.current?.contains(next) || anchor.contains(next))) return;
+    onClose();
+  };
+
   const run = (item: RowMenuItem): void => {
     onClose();
     item.run();
@@ -111,7 +118,7 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
   if (sheet) {
     return createPortal(
       <div className="modal-scrim">
-        <div ref={surface} className="modal row-sheet" role="dialog" aria-modal="true" aria-label={title} onKeyDown={onKeyDown}>
+        <div ref={surface} className="modal row-sheet" role="dialog" aria-modal="true" aria-label={title} onKeyDown={onKeyDown} onBlur={onBlur}>
           <span className="row-sheet-grip" aria-hidden="true" />
           <div className="row-sheet-head">
             <span className="row-sheet-title">{title}</span>
@@ -131,7 +138,7 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
   }
 
   return createPortal(
-    <div ref={surface} className="menu row-menu" role="menu" aria-label={title} style={place ?? { visibility: "hidden" }} onKeyDown={onKeyDown}>
+    <div ref={surface} className="menu row-menu" role="menu" aria-label={title} style={place ?? { visibility: "hidden" }} onKeyDown={onKeyDown} onBlur={onBlur}>
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.divider && <span className="row-menu-divider" role="separator" />}

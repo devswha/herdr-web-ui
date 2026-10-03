@@ -95,8 +95,8 @@ interface InlineError {
 
 /** The row whose ⋯ menu is open: a pane's row, or the header of a workspace with several panes. */
 type MenuState =
-  | { kind: "pane"; anchor: HTMLElement; pane: PaneInfo; workspace: WorkspaceInfo; merged: boolean; scope: string; title: string; place: string }
-  | { kind: "workspace"; anchor: HTMLElement; workspace: WorkspaceInfo; scope: string; paneCount: number };
+  | { kind: "pane"; anchor: HTMLElement; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
+  | { kind: "workspace"; anchor: HTMLElement; workspace: WorkspaceInfo; scope: string };
 interface ConfirmState { title: string; body: string; run: () => Promise<void> }
 
 export interface SidebarProps {
@@ -204,23 +204,38 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   };
 
   const menuItems = (state: MenuState): RowMenuItem[] => {
+    // the roster may have moved on since the menu opened (a sibling closed from another client):
+    // what an item does follows the latest snapshot, not what the row showed at the click
+    const workspace = snapshot?.workspaces.find((candidate) => candidate.workspace_id === state.workspace.workspace_id) ?? state.workspace;
+    const paneCount = workspacePaneCounts.get(workspace.workspace_id) ?? 1;
+    const renameWorkspaceItem: RowMenuItem = { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, state.scope) };
     if (state.kind === "workspace") {
-      const { workspace, scope, paneCount } = state;
       return [
-        { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, scope) },
+        renameWorkspaceItem,
         { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close workspace {name}?", { name: workspace.label }), body: t("{n} panes close with it, and the agents in them stop.", { n: paneCount }), run: () => leave(() => closeWorkspace(workspace.workspace_id)) }) },
       ];
     }
-    const { pane, workspace, merged, scope, title } = state;
+    const pane = snapshot?.panes.find((candidate) => candidate.pane_id === state.pane.pane_id) ?? state.pane;
     const renamePaneItem: RowMenuItem = { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) };
-    const closeItem: RowMenuItem = merged
-      ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close {title}?", { title }), body: t("Its workspace closes with it, and the agent and shell in it stop."), run: () => leave(() => closePane(pane.pane_id)) }) }
+    // the workspace's last pane takes the workspace with it
+    const closeItem: RowMenuItem = paneCount === 1
+      ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop."), run: () => leave(() => closePane(pane.pane_id)) }) }
       : { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => closePaneNow(pane.pane_id) };
     // a one-pane row has no header: it is the only place to rename its workspace
-    return merged
-      ? [{ id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, scope) }, renamePaneItem, closeItem]
-      : [renamePaneItem, closeItem];
+    return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, closeItem] : [renamePaneItem, closeItem];
   };
+
+  // the roster moves under an open menu: a row that left takes its menu with it, and focus
+  // goes where a closed row's focus goes
+  useEffect(() => {
+    if (!menu) return;
+    const alive = menu.kind === "pane"
+      ? snapshot?.panes.some((pane) => pane.pane_id === menu.pane.pane_id)
+      : snapshot?.workspaces.some((workspace) => workspace.workspace_id === menu.workspace.workspace_id);
+    if (alive && menu.anchor.isConnected) return;
+    setMenu(null);
+    focusWorkspaceListToggle();
+  });
 
   const beginPaneRename = (pane: PaneInfo): void => {
     setEditingPaneId(pane.pane_id);
@@ -355,7 +370,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
               </span>
             )}
             <StatusBadge status={workspace.agent_status} />
-            <button type="button" className="sidebar-row-action row-menu-toggle workspace-menu" aria-label={t("More for workspace {name}", { name: workspace.label })} aria-haspopup="menu" aria-expanded={workspaceMenuOpen} onClick={(event) => workspaceMenuOpen ? setMenu(null) : setMenu({ kind: "workspace", anchor: event.currentTarget, workspace, scope, paneCount: workspacePaneCounts.get(workspace.workspace_id) ?? visiblePanes.length })}>
+            <button type="button" className="sidebar-row-action row-menu-toggle workspace-menu" aria-label={t("More for workspace {name}", { name: workspace.label })} aria-haspopup="menu" aria-expanded={workspaceMenuOpen} onClick={(event) => workspaceMenuOpen ? setMenu(null) : setMenu({ kind: "workspace", anchor: event.currentTarget, workspace, scope })}>
               <Ellipsis aria-hidden="true" />
             </button>
           </header>
@@ -443,7 +458,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
                     </span>
                   </div>
                   <div className="pane-actions">
-                    <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={paneMenuOpen} onClick={(event) => paneMenuOpen ? setMenu(null) : setMenu({ kind: "pane", anchor: event.currentTarget, pane, workspace, merged, scope, title: displayTitle, place: place || workspace.label })}>
+                    <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={paneMenuOpen} onClick={(event) => paneMenuOpen ? setMenu(null) : setMenu({ kind: "pane", anchor: event.currentTarget, pane, workspace, scope, title: displayTitle, place: place || workspace.label })}>
                       <Ellipsis aria-hidden="true" />
                     </button>
                   </div>

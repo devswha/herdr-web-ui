@@ -262,7 +262,8 @@ One set for both themes: the card is island black wherever it shows.
 - At `<=640px`, it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
-  Cancel has the focus, the danger action sits at the right, and a failure shows inside it.
+  Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
+  and a failure shows inside it. A no gives the focus back to what opened it.
 
 ### Field (`.field`, `.input`, `.select`)
 - Stacked uppercase label, optional hint and `--bg-input` field. Desktop fields use `--fs-sm`;
@@ -278,8 +279,9 @@ One set for both themes: the card is island black wherever it shows.
   A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
   header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
-  a grip, the row's name and place, 48px rows and a Cancel button. Escape, a press outside, a
-  scroll or a resize close it, and focus returns to the `⋯`. Arrow keys move between items.
+  a grip, the row's name and place, 48px rows and a Cancel button. Escape, a press outside and
+  focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
+  `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
 - Close follows herdr's `ui.confirm_close`: a close that takes the workspace with it (a one-pane
   row, Close workspace) asks in a confirm first; a pane that leaves its workspace standing closes
   at once. After a confirmed close, focus lands on the header's workspace-list toggle.
