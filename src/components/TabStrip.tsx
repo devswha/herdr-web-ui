@@ -105,7 +105,21 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     return () => window.clearTimeout(timer);
   }, [error]);
 
-  if (panes.length < 2) return null;
+  // the open tab is in view: a pane opened from the sidebar, the palette or an alert can be on a
+  // tab scrolled out of a phone's strip. Only the strip scrolls, never the page around it.
+  const shown = panes.length >= 2;
+  useLayoutEffect(() => {
+    const row = strip.current;
+    const open = row?.querySelector<HTMLElement>(".tab-strip-item.is-active");
+    if (!row || !open) return;
+    const view = row.getBoundingClientRect();
+    const item = open.getBoundingClientRect();
+    const end = row.querySelector<HTMLElement>(".tab-strip-add")?.getBoundingClientRect().left ?? view.right;
+    if (item.left < view.left) row.scrollLeft -= view.left - item.left;
+    else if (item.right > end) row.scrollLeft += item.right - end;
+  }, [selectedPane.tab_id, tabs.length, shown]);
+
+  if (!shown) return null;
 
   const panesOf = (tab: HerdrTab): PaneInfo[] => panes.filter((pane) => pane.tab_id === tab.tab_id);
   const paneFor = (tab: HerdrTab): PaneInfo | undefined => {

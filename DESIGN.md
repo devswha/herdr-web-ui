@@ -303,7 +303,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), **Needs you**
-  and the PC groups. A session starts from the `+` on its PC's header, or from the **New session**
+  and the PC groups. A workspace starts from the `+` on its PC's header, or from the **New workspace**
   button in the dashed **No workspaces yet** box of an empty PC. **Add PC** lives in Settings →
   Remote PCs and in the command palette. Search lives in the command palette, not the roster.
 - One row per workspace, as herdr's Spaces sidebar: no workspace headers, numbers or folds. The
@@ -369,7 +369,7 @@ One set for both themes: the card is island black wherever it shows.
   percent large (`--fs-xl`) as tall as those three lines. The bar is coloured by what is left:
   `--meter-ok` from half, `--meter-mid` from a fifth, `--meter-low` under it (the percent too).
 
-### New session dialog
+### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
   the selected pane cwd and name is an optional workspace label.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
@@ -390,6 +390,8 @@ One set for both themes: the card is island black wherever it shows.
   dim. Arrow keys move between tabs. A tab opens the pane last viewed in it, else the one herdr
   has focused there, else its first; a tab with several panes has a chevron beside its name that
   opens a pane picker (the row menu). The strip ends in a `+` that opens the New tab dialog.
+  The open tab is scrolled into view when the selection comes from elsewhere (the sidebar, the
+  palette, an alert), and the `+` stays at the strip's end while the tabs scroll under it.
 - A tab is renamed and closed on the strip, as herdr's prefix+shift+t and prefix+shift+x. With
   a mouse: a 20px `x` (`.tab-strip-close`) after the name, visible on the open tab and on the
   one under the pointer or the focus, its place kept in every tab so widths do not move; a
@@ -407,7 +409,8 @@ One set for both themes: the card is island black wherever it shows.
   herdr names itself reads **Tab n** by its place in the row: herdr relabels it when a tab
   before it closes.
 - `--control-h` tall on a hairline over `--bg-panel`, scrolling sideways without a scrollbar;
-  touch grows the buttons to `--touch-target`. The same strip on a phone.
+  touch grows the buttons to `--touch-target`, and puts the pane picker beside its tab's name
+  instead of pulling it over the name's padding. The same strip on a phone.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
@@ -492,7 +495,7 @@ One set for both themes: the card is island black wherever it shows.
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
   lead an empty query; arrows cycle, Enter activates and Escape closes.
-- Actions cover new session, lens/sidebar/theme, settings, notifications, lock and refresh, with
+- Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog

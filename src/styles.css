@@ -546,8 +546,10 @@ button {
   flex: 0 0 auto;
 }
 
+/* under the header, so .btn's own display (further down) does not bring it back on a phone,
+   where it took the pane title's room */
 @media (max-width: 768px) {
-  .new-tab-button {
+  .app-header .new-tab-button {
     display: none;
   }
 }

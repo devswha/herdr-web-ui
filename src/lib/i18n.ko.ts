@@ -86,7 +86,7 @@ export const KO: Record<string, string> = {
   "Command palette": "명령 팔레트",
   "Switch chat / terminal": "채팅 / 터미널 전환",
   "Toggle sidebar": "사이드바 토글",
-  "New session": "새 세션",
+  "New workspace": "새 워크스페이스",
   "Previous pane": "이전 패널",
   "Next pane": "다음 패널",
 
@@ -190,7 +190,7 @@ export const KO: Record<string, string> = {
   "Reconnecting…": "재연결 중…",
   "Disconnected": "연결 끊김",
   "Connection error": "연결 오류",
-  "New session on {name}": "{name}에 새 세션",
+  "New workspace on {name}": "{name}에 새 워크스페이스",
   "Add PC": "PC 추가",
   "PCs and workspaces": "PC와 워크스페이스",
   "Loading PCs…": "PC 불러오는 중…",
@@ -245,8 +245,8 @@ export const KO: Record<string, string> = {
   "Actions": "동작",
   "No matching panes or actions": "일치하는 패널이나 동작이 없습니다",
 
-  // ---- new session ----
-  "Close new session dialog": "새 세션 창 닫기",
+  // ---- new workspace ----
+  "Close dialog": "창 닫기",
   "Agent": "에이전트",
   "Directory": "폴더",
   "Browse": "찾아보기",
@@ -255,8 +255,8 @@ export const KO: Record<string, string> = {
   "Optional workspace label": "워크스페이스 이름 (선택)",
   "Cancel": "취소",
   "Starting…": "시작 중…",
-  "Open session": "세션 열기",
-  "Start session": "세션 시작",
+  "Open": "열기",
+  "Start": "시작",
   "Starting {agent}… up to 60s": "{agent} 시작 중… 최대 60초",
   "Starting shell…": "셸 시작 중…",
   "Directory not found": "폴더를 찾을 수 없습니다",

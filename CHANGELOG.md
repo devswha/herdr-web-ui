@@ -18,9 +18,29 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
 
 ### Fixed
+- On a phone the header shows the pane's title again: the desktop **New tab** button was not
+  hidden there, took the title's room, and pushed a narrow phone's page wider than its screen.
+  ([#392](https://github.com/devswha/herdr-web-ui/pull/392))
+- The tab strip keeps the open tab in view when a pane is opened from the sidebar, the palette
+  or an alert, its `+` stays at the end of the strip however many tabs there are, and on a touch
+  screen a split tab's pane picker no longer overlaps the tab's name.
+  ([#392](https://github.com/devswha/herdr-web-ui/pull/392))
 - A tab herdr names by its number reads **Tab n** by its place in the strip: after a tab before
   it closed, it showed as a bare number.
   ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
+
+### Changed
+- **New session** is **New workspace**: the `+` on a PC's header, the button of an empty PC, the
+  command palette action and the Settings → Shortcuts row create a herdr workspace, and say so
+  now, beside **New tab**. The dialog's buttons are **Start**, **Open** and **Close dialog** in
+  both of its forms. The shortcut and saved settings are unchanged.
+  ([#389](https://github.com/devswha/herdr-web-ui/pull/389))
+
+### Fixed
+- Picking a pane that opens in the chat lens, while a pane in the terminal lens is open, no longer
+  resizes the terminal other devices share. The chat lens was already leaving the size alone when
+  the page opened on the pane; a switch from the sidebar still fitted it to this device once.
+  ([#390](https://github.com/devswha/herdr-web-ui/pull/390))
 
 ## [0.3.46] - 2026-10-03
 

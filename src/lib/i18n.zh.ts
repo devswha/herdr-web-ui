@@ -90,7 +90,7 @@ export const ZH: Record<string, string> = {
   "Command palette": "命令面板",
   "Switch chat / terminal": "切换聊天 / 终端",
   "Toggle sidebar": "切换侧边栏",
-  "New session": "新建会话",
+  "New workspace": "新建工作区",
   "Previous pane": "上一个窗格",
   "Next pane": "下一个窗格",
 
@@ -194,7 +194,7 @@ export const ZH: Record<string, string> = {
   "Reconnecting…": "正在重连…",
   "Disconnected": "已断开连接",
   "Connection error": "连接错误",
-  "New session on {name}": "在 {name} 上新建会话",
+  "New workspace on {name}": "在 {name} 上新建工作区",
   "Add PC": "添加 PC",
   "PCs and workspaces": "PC 和工作区",
   "Loading PCs…": "正在加载 PC…",
@@ -249,8 +249,8 @@ export const ZH: Record<string, string> = {
   "Actions": "操作",
   "No matching panes or actions": "没有匹配的窗格或操作",
 
-  // ---- new session ----
-  "Close new session dialog": "关闭新建会话对话框",
+  // ---- new workspace ----
+  "Close dialog": "关闭对话框",
   "Agent": "Agent",
   "Directory": "目录",
   "Browse": "浏览",
@@ -259,8 +259,8 @@ export const ZH: Record<string, string> = {
   "Optional workspace label": "工作区名称（可选）",
   "Cancel": "取消",
   "Starting…": "正在启动…",
-  "Open session": "打开会话",
-  "Start session": "启动会话",
+  "Open": "打开",
+  "Start": "启动",
   "Starting {agent}… up to 60s": "正在启动 {agent}… 最多 60 秒",
   "Starting shell…": "正在启动 Shell…",
   "Directory not found": "找不到目录",

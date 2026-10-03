@@ -88,7 +88,7 @@ export const JA: Record<string, string> = {
   "Command palette": "コマンドパレット",
   "Switch chat / terminal": "チャット / ターミナルを切り替え",
   "Toggle sidebar": "サイドバーの切り替え",
-  "New session": "新しいセッション",
+  "New workspace": "新しいワークスペース",
   "Previous pane": "前のペイン",
   "Next pane": "次のペイン",
 
@@ -192,7 +192,7 @@ export const JA: Record<string, string> = {
   "Reconnecting…": "再接続しています…",
   "Disconnected": "切断されました",
   "Connection error": "接続エラー",
-  "New session on {name}": "{name} で新しいセッション",
+  "New workspace on {name}": "{name} で新しいワークスペース",
   "Add PC": "PC を追加",
   "PCs and workspaces": "PC とワークスペース",
   "Loading PCs…": "PC を読み込んでいます…",
@@ -247,8 +247,8 @@ export const JA: Record<string, string> = {
   "Actions": "操作",
   "No matching panes or actions": "一致するペインや操作はありません",
 
-  // ---- new session ----
-  "Close new session dialog": "新しいセッションのダイアログを閉じる",
+  // ---- new workspace ----
+  "Close dialog": "ダイアログを閉じる",
   "Agent": "エージェント",
   "Directory": "ディレクトリ",
   "Browse": "参照",
@@ -257,8 +257,8 @@ export const JA: Record<string, string> = {
   "Optional workspace label": "ワークスペースのラベル (任意)",
   "Cancel": "キャンセル",
   "Starting…": "起動しています…",
-  "Open session": "セッションを開く",
-  "Start session": "セッションを開始",
+  "Open": "開く",
+  "Start": "開始",
   "Starting {agent}… up to 60s": "{agent} を起動しています… 最大 60 秒",
   "Starting shell…": "シェルを起動しています…",
   "Directory not found": "ディレクトリが見つかりません",
