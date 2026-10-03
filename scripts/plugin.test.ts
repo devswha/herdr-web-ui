@@ -102,6 +102,17 @@ describe("port", () => {
     } finally { await holder.stop(true); }
   });
 
+  it("does not take another program's 200 on the port for the app", async () => {
+    const stranger = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("<html>not us</html>", { headers: { "content-type": "text/html" } }) });
+    try {
+      writeFileSync(join(configDir, ".env"), `PORT=${stranger.port}\n`);
+      const started = await run("start");
+      expect(started.out).not.toContain("already running");
+      expect(started.exitCode).toBe(1);
+      expect(started.err).toContain(`port ${stranger.port} on 127.0.0.1 cannot be opened`);
+    } finally { await stranger.stop(true); }
+  });
+
   it("follows a start that is coming up on another port instead of opening a second server", async () => {
     // the app answers on the port the other start fell back to
     const ours = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) });

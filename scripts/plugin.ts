@@ -132,7 +132,10 @@ function qr(text: string): string {
 async function health(): Promise<boolean> {
   try {
     const response = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(1500) });
-    return response.ok;
+    if (!response.ok) return false;
+    // the port may hold another program's 200 (a kept port that went stale): only the app's answer counts
+    const body = await response.json() as { ok?: unknown };
+    return body.ok === true;
   } catch {
     return false;
   }
