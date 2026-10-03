@@ -19,6 +19,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the folder and closes the workspace but keeps the branch; a checkout with unsaved changes is
   refused first, in git's words, with **Delete anyway** as the second step. Closing a repository
   workspace over open worktrees says so and closes them with it.
+  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
 
 ### Fixed
 - Settings → Updates no longer leaves **Check for updates** and **Update and restart** disabled
