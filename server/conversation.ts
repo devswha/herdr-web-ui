@@ -38,7 +38,7 @@ import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, cod
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
-import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { piTranscriptPath } from "./pi.ts";
 import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
@@ -231,6 +231,14 @@ export class ConversationUnavailable extends Error {
   constructor(reason: string) {
     super(reason);
     this.name = "ConversationUnavailable";
+  }
+}
+
+/** The pane's agent holds a session it has not written yet: a conversation with no turns, not a missing one. */
+export class ConversationNotStarted extends ConversationUnavailable {
+  constructor(readonly sessionId: string) {
+    super("session_not_written");
+    this.name = "ConversationNotStarted";
   }
 }
 
@@ -742,9 +750,7 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
   const paneId = pane.pane_id;
   const agent = pane.agent ?? pane.agent_session?.agent ?? "";
   if ((agent === "omo" || agent === "pi" || agent === "claude") && await paneRunsOmo(paneId)) {
-    const path = await omoTranscriptForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes);
-    if (!path) throw new ConversationUnavailable("no_session_path");
-    return { source: "omo-transcript", path };
+    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes) };
   }
   try {
     if (agent === "codex") {
@@ -769,10 +775,15 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     throw new ConversationUnavailable("no_recognized_transcript");
   } catch (error) {
     if (!(error instanceof ConversationUnavailable) || !(await paneRunsOmo(paneId))) throw error;
-    const path = await omoTranscriptForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes);
-    if (!path) throw new ConversationUnavailable("no_session_path");
-    return { source: "omo-transcript", path };
+    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes) };
   }
+}
+
+async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[]): Promise<string> {
+  const session = await omoSessionForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes);
+  if (session.pending !== null) throw new ConversationNotStarted(session.pending);
+  if (!session.path) throw new ConversationUnavailable("no_session_path");
+  return session.path;
 }
 
 /**
@@ -794,8 +805,19 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
   if (typeof pane.cwd !== "string" || pane.cwd.length === 0) throw new ConversationUnavailable("no_recognized_transcript");
 
-  const { source, path } = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
-  return transcriptPage(source, path, page, codexHome);
+  let resolved: { source: RecognizedConversation["source"]; path: string };
+  try {
+    resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
+  } catch (error) {
+    if (!(error instanceof ConversationNotStarted)) throw error;
+    // nothing comes before a conversation not begun: a cursor for older pages is another one's
+    if (page.before !== undefined || page.since !== undefined) throw new HistoryChanged();
+    // the chat says there is nothing yet; the session's first prompt writes the file and
+    // the next poll's history_id differs, so the chat takes it whole
+    const id = `unwritten:${error.sessionId}`;
+    return { source: "omo-transcript", turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
+  }
+  return transcriptPage(resolved.source, resolved.path, page, codexHome);
 }
 
 /** One page of a resolved transcript (paneConversation's `page`). */

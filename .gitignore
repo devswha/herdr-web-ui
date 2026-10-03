@@ -17,3 +17,6 @@ _site/
 
 # film footage and renders, made by scripts/film/
 _film/
+
+# one-off screenshot and probe scripts kept inside the repo so imports resolve
+scripts/*.tmp.ts

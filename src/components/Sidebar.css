@@ -6,37 +6,8 @@
   background: var(--bg-panel);
 }
 
-/* one gutter (--space-3) for the top bar, the list and the footer: the New session button,
-   every row's hover fill and the footer buttons share the same left and right edge */
-.sidebar-topbar {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border-bottom: var(--hairline) solid var(--border);
-}
-
-.sidebar-new-session {
-  width: 100%;
-  border-style: dashed;
-}
-
-/* the PC sidebar: New session takes the room, Add PC sits beside it */
-.sidebar-topbar-row {
-  flex-direction: row;
-}
-
-.sidebar-topbar-row .sidebar-new-session {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
-}
-
-.sidebar-add-pc {
-  flex: 0 0 auto;
-}
-
+/* one gutter (--space-3) for the list and the footer: every row's hover fill and the footer
+   buttons share the same left and right edge */
 .sidebar-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -52,12 +23,34 @@
   font-size: var(--fs-sm);
 }
 
+/* an empty PC: the words, and the one thing to do about them */
 .tree-state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   margin: var(--space-2) 0;
   padding: var(--space-4);
   border: var(--hairline) dashed var(--border);
   border-radius: var(--radius-md);
   text-align: center;
+}
+
+.tree-state-empty .tree-state { padding: 0; }
+
+/* one row per workspace, as herdr's Spaces sidebar; the row's menu and strip reach its panes */
+.workspace-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* a repository's worktree workspaces sit under its own row, packed behind a hairline, as
+   herdr's Spaces sidebar keeps them */
+.worktree-children {
+  margin-left: var(--space-3);
+  padding-left: var(--space-1);
+  border-left: var(--hairline) solid var(--border);
 }
 
 .workspace {
@@ -133,51 +126,6 @@
   opacity: 0.55;
 }
 
-.workspace-header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: var(--control-h);
-  padding: 0 var(--space-1) 0 var(--space-4);
-  border-radius: var(--radius-md);
-}
-
-.workspace-header:hover,
-.workspace-header:focus-within {
-  background: var(--bg-hover);
-}
-
-.workspace-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: var(--control-h);
-  height: var(--control-h);
-  margin-left: calc(-1 * var(--space-2));
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.workspace-toggle:hover,
-.workspace-toggle:focus-visible {
-  color: var(--text-strong);
-}
-
-.workspace-toggle svg {
-  width: 16px;
-  height: 16px;
-}
-
-.workspace.is-collapsed {
-  margin-bottom: var(--space-1);
-}
-
 .workspace-number {
   display: inline-flex;
   align-items: center;
@@ -193,40 +141,11 @@
   font-size: var(--fs-2xs);
 }
 
-.workspace-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 0;
-  overflow: hidden;
-  background: transparent;
-  border: 0;
-  color: var(--text-strong);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: text;
-}
-
 .workspace-rename-input {
   flex: 1 1 auto;
   min-width: 0;
   height: calc(var(--control-h) - var(--space-1));
   padding: 0 var(--space-2);
-}
-
-.workspace-header .badge {
-  flex: 0 0 auto;
-}
-
-.workspace-rename {
-  opacity: 0;
-}
-
-.workspace-header:hover .workspace-rename,
-.workspace-header:focus-within .workspace-rename {
-  opacity: 1;
 }
 
 .sidebar-drag-handle,
@@ -260,9 +179,7 @@
 }
 
 .pane-item:hover .sidebar-drag-handle,
-.pane-item:focus-within .sidebar-drag-handle,
-.workspace-header:hover .sidebar-drag-handle,
-.workspace-header:focus-within .sidebar-drag-handle {
+.pane-item:focus-within .sidebar-drag-handle {
   opacity: 1;
 }
 
@@ -458,19 +375,9 @@
 
 .pane-item:hover .pane-actions,
 .pane-item:focus-within .pane-actions,
-.pane-actions:has(.is-armed) {
+.pane-item.is-selected .pane-actions,
+.pane-actions:has([aria-expanded="true"]) {
   opacity: 1;
-}
-
-.pane-close.is-armed {
-  width: auto;
-  min-width: var(--control-h);
-  padding: 0 var(--space-2);
-  background: var(--danger-tint);
-  color: var(--status-blocked);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
 }
 
 .sidebar-inline-error {
@@ -542,8 +449,7 @@
 
   /* no hover on touch: the grip stays, quiet, and the row actions are always there */
   .sidebar-drag-handle,
-  .pane-actions,
-  .workspace-rename {
+  .pane-actions {
     opacity: 1;
   }
 }

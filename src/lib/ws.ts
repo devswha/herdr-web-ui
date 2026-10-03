@@ -20,6 +20,8 @@ const DISCONNECTED: SubmitResult = { ok: false, code: "disconnected", message: "
 interface AttachState {
   cols: number;
   rows: number;
+  /** the chat lens covers the grid: attaches (a reconnect's too) leave the shared pty's size alone */
+  keepSize: boolean;
 }
 
 function defaultUrl(): string {
@@ -92,7 +94,7 @@ export class HerdrSocket {
       // arrive - the UI would stay stuck in the old role while the header pill lies
       this.rawSend({ type: "role", mode: this.mode });
       for (const [paneId, state] of this.attached) {
-        this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack" });
+        this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack", ...(state.keepSize ? { keep_size: true } : {}) });
       }
     });
 
@@ -185,11 +187,11 @@ export class HerdrSocket {
     return () => { this.disconnectHandlers.delete(handler); };
   }
 
-  attach(paneId: string, cols: number, rows: number): void {
+  attach(paneId: string, cols: number, rows: number, keepSize = false): void {
     this.outputSeen.delete(paneId);
     this.inputReady.delete(paneId);
-    this.attached.set(paneId, { cols, rows });
-    this.send({ type: "attach", pane_id: paneId, cols, rows, flow_control: "ack" });
+    this.attached.set(paneId, { cols, rows, keepSize });
+    this.send({ type: "attach", pane_id: paneId, cols, rows, flow_control: "ack", ...(keepSize ? { keep_size: true } : {}) });
     if (this.outputStopped) {
       this.outputStopped = false;
       this.connect();
@@ -224,8 +226,15 @@ export class HerdrSocket {
       if (!force && state.cols === cols && state.rows === rows) return;
       state.cols = cols;
       state.rows = rows;
+      state.keepSize = false;
     }
     this.send({ type: "resize", pane_id: paneId, cols, rows });
+  }
+
+  /** The chat lens covers the grid again: a reconnect attaches without resizing, until the next resize. */
+  keepSize(paneId: string): void {
+    const state = this.attached.get(paneId);
+    if (state) state.keepSize = true;
   }
 
   /** Sets the connection's role. Not queued: the role replays before the attaches on reconnect. */

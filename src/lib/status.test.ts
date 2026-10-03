@@ -1,6 +1,20 @@
 import { describe, expect, it } from "bun:test";
 
-import { statusEdgeRead } from "./status.ts";
+import { rollupStatus, statusEdgeRead } from "./status.ts";
+
+describe("rollupStatus", () => {
+  it("rolls a workspace's panes up as herdr does: blocked, then working, then done, then ready", () => {
+    expect(rollupStatus(["idle", "blocked", "working"])).toBe("blocked");
+    expect(rollupStatus(["done", "working"])).toBe("working");
+    expect(rollupStatus(["idle", "done"])).toBe("done");
+    expect(rollupStatus(["idle", undefined])).toBe("idle");
+  });
+
+  it("is unknown only when no pane says more", () => {
+    expect(rollupStatus([undefined, "unknown", "something-new"])).toBe("unknown");
+    expect(rollupStatus([])).toBe("unknown");
+  });
+});
 
 describe("statusEdgeRead", () => {
   it("reads at once when a turn starts or ends", () => {

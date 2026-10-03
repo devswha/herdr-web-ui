@@ -37,19 +37,45 @@ draw();
 writeFileSync(out, "");
 `;
 
+/**
+ * A numbered menu under the line an agent keeps showing while it waits: the spinner, the time and
+ * the token count move on five times a second. No reader knows the screen, so the card is the
+ * fallback one, whose id covers the whole screen. The row's number is its key.
+ */
+const TICKING = `
+const { appendFileSync, writeFileSync } = require("node:fs");
+const [out] = process.argv.slice(2);
+const frames = ["✢", "✳", "✶", "✻", "✽"];
+let tick = 0;
+const draw = () => process.stdout.write("\\u001b[2J\\u001b[H" + [
+  frames[tick % frames.length] + " Tempering… (" + (55 + tick) + "s · ↓ " + (10 + tick / 10).toFixed(1) + "k tokens)", "",
+  "Which environment?", "", "  1. Staging", "  2. Production", "", "Enter a number, or Esc to cancel",
+].join("\\r\\n"));
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => {
+  const key = chunk.toString("utf8");
+  if (key === "1" || key === "2") appendFileSync(out, (key === "1" ? "Staging" : "Production") + "\\n");
+});
+setInterval(() => { tick += 1; draw(); }, 200);
+draw();
+writeFileSync(out, "");
+`;
+
 interface Menu { pane: string; log: string }
 let trust: Menu;
 let guessed: Menu;
 let drifting: Menu;
+let ticking: Menu;
 
-async function menu(label: string, head: string[], rows: string[], drift = false): Promise<Menu> {
+async function menu(label: string, head: string[], rows: string[], drift = false, script = "menu.js"): Promise<Menu> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
     "workspace.create", { label: `herdr-web-ui-test-prompt-${label}`, cwd: root, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   const log = join(root, `${label}.log`);
   const spec = JSON.stringify({ head, rows, drift });
-  await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "claude")}' '${join(root, "menu.js")}' '${log}' '${spec}'\n` });
+  await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "claude")}' '${join(root, script)}' '${log}' '${spec}'\n` });
   for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
   expect(existsSync(log)).toBe(true);
   await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "claude", state: "blocked" });
@@ -65,7 +91,7 @@ async function confirmed(target: Menu): Promise<string[]> {
   return chosen(target);
 }
 
-async function card(target: Menu): Promise<{ id: string; kind: string; title: string; question: string; options: { label: string }[] }> {
+async function card(target: Menu): Promise<{ id: string; kind: string; title: string; question: string; body: string | null; fallback?: true; options: { label: string }[] }> {
   for (let i = 0; i < 100; i++) {
     const { prompt } = await (await fetch(`${base()}/api/pane/prompt?pane_id=${encodeURIComponent(target.pane)}`)).json() as { prompt: any };
     if (prompt) return prompt;
@@ -85,12 +111,14 @@ async function answer(target: Menu, promptId: string, optionIndex: number): Prom
 beforeAll(async () => {
   server = createServer({ port: 0, stateDir: join(root, "push") });
   writeFileSync(join(root, "menu.js"), MENU);
+  writeFileSync(join(root, "tick.js"), TICKING);
   copyFileSync(process.execPath, join(root, "claude"));
   chmodSync(join(root, "claude"), 0o755);
   trust = await menu("trust", [" Accessing workspace:", "", " Quick safety check: Is this a project you created or one you trust?"], ["No, exit", "Yes, I trust this folder"]);
   // the first row reaches past the rule, the only line off the rows, so the second reads as its wrapped tail
   guessed = await menu("guessed", ["─".repeat(35), " Trust?"], ["Yes, trust and enable all hooks", "Yes, trust this folder", "No, exit"]);
   drifting = await menu("drifting", [" Accessing workspace:", "", " Quick safety check: Is this a project you created or one you trust?"], ["No, exit", "Yes, I trust this folder", "Yes, and enable its hooks"], true);
+  ticking = await menu("ticking", [], [], false, "tick.js");
 }, 30_000);
 
 afterAll(async () => {
@@ -124,6 +152,21 @@ describe("answers to Claude's unnumbered menus", () => {
     expect(response.status).toBe(409);
     await Bun.sleep(300);
     expect(chosen(drifting)).toEqual([]);
+  });
+
+  it("takes an answer to a fallback card whose screen only ticked since it was read", async () => {
+    const prompt = await card(ticking);
+    expect(prompt.fallback).toBe(true);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Staging", "Production", "Enter", "Esc"]);
+    // the working line has moved on several times: another time, spinner and token count
+    let later = prompt;
+    for (let i = 0; i < 40 && later.body === prompt.body; i++) { await Bun.sleep(100); later = await card(ticking); }
+    expect(later.body).not.toBe(prompt.body);
+    // and it is still the card that was read: the answer tapped on it goes through
+    expect(later.id).toBe(prompt.id);
+    const response = await answer(ticking, prompt.id, 1);
+    expect(response.status).toBe(200);
+    expect(await confirmed(ticking)).toEqual(["Production"]);
   });
 });
 

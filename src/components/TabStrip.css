@@ -1,0 +1,108 @@
+/* herdr's tab row, over the pane: quiet names on a hairline, the open one underlined in amber */
+.tab-strip {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  background: var(--bg-panel);
+  border-bottom: var(--hairline) solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-strip-item {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+}
+
+.tab-strip-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab-strip-tab:hover,
+.tab-strip-tab:focus-visible {
+  color: var(--text-strong);
+}
+
+.tab-strip-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text-strong);
+}
+
+.tab-strip-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+}
+
+.tab-strip-dot[data-status="working"] { background: var(--status-working); }
+.tab-strip-dot[data-status="blocked"] { background: var(--status-blocked); }
+.tab-strip-dot[data-status="done"] { background: var(--status-done); }
+
+/* the pane picker of a split tab, and the + : small square buttons on the strip's centre line */
+.tab-strip-panes,
+.tab-strip-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.tab-strip-panes {
+  margin-left: calc(-1 * var(--space-2));
+}
+
+.tab-strip-panes:hover,
+.tab-strip-panes:focus-visible,
+.tab-strip-add:hover,
+.tab-strip-add:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.tab-strip-panes svg,
+.tab-strip-add svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (pointer: coarse) {
+  .tab-strip-panes,
+  .tab-strip-add {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+
+  .tab-strip-tab {
+    min-height: var(--touch-target);
+  }
+}

@@ -175,7 +175,7 @@ code, or the exact command still to run. Who gets in:
 Tell the user the HTTPS address. Until a device is paired, and with no token set, a LAN or proxied
 address is open to anyone who reaches it, as before; the server warns on startup.
 
-Other PCs over SSH are added from the web UI (**Add PC**), not by an install step here.
+Other PCs over SSH are added from the web UI (Settings → Remote PCs → **Add PC**), not by an install step here.
 
 ## Configuration
 

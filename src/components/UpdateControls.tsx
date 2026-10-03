@@ -1,3 +1,4 @@
+import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import "./UpdateControls.css";
 import { useT } from "../lib/i18n.ts";
@@ -29,6 +30,31 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
     </>}
     {status?.checked_at && <p className="settings-hint">Last checked {new Date(status.checked_at).toLocaleString()}</p>}
     {needsReload && <p className="settings-hint">{t("The server was updated. Save any unsent drafts, then")} <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button></p>}
+  </section>;
+}
+
+/**
+ * herdr itself. `herdr update` typed into a pane is refused by herdr, and every terminal here is
+ * a pane: the server runs it instead and moves the running panes onto the new version.
+ */
+export function HerdrUpdateControls({ enabled }: { enabled: boolean }) {
+  const t = useT();
+  const { status, error, busy, request } = useHerdrUpdate(enabled);
+  // Windows, an older server, a herdr that does not answer: nothing to offer
+  if (!status?.supported) return null;
+  const version = status.server_version ?? status.binary_version;
+  const stale = status.stale && !!status.binary_version && !!status.server_version;
+  return <section className="settings-section settings-herdr-update">
+    <h3>herdr</h3>
+    {version && <p className="settings-hint">{t("Running herdr {version}", { version })}</p>}
+    {stale && <p className="settings-hint">{t("herdr {installed} is installed, but the running server is {running}. Updating moves your panes onto the installed version.", { installed: status.binary_version ?? "", running: status.server_version ?? "" })}</p>}
+    <p className="settings-hint">{t("Installs the newest herdr on the PC this app runs on and moves its running panes onto it. Panes and agents keep running, and open terminals reconnect.")}</p>
+    <div className="update-actions">
+      <button type="button" className={stale ? "btn btn-primary" : "btn"} disabled={busy} onClick={() => void request()}>{t("Update herdr")}</button>
+    </div>
+    {(error || busy) && <p className="settings-hint" role="status">{error ?? t("Updating herdr…")}</p>}
+    {/* herdr's own words: what it installed, or why it did not */}
+    {!busy && status.output && <pre className="update-output" data-failed={status.phase === "error" || undefined}>{status.output}</pre>}
   </section>;
 }
 

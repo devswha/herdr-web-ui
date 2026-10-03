@@ -49,7 +49,8 @@ function herdr {
 function Invoke-WebRequest {
     if ($args[0] -ne 'https://bun.sh/install.ps1') { throw "Unexpected download: $args" }
     if ($state.failBun) { return @{ Content = 'param($Version)' } }
-    @{ Content = 'param($Version) $state.bunVersion = $Version' }
+    # as Bun's installer does: the session is left with the user's PATH and nothing of the machine's
+    @{ Content = 'param($Version) $state.bunVersion = $Version; $env:PATH = "C:\Users\someone\.bun\bin"' }
 }
 
 try {
@@ -67,6 +68,7 @@ try {
     $state.bunVersion = '1.3.0'
     & $installer -Ref ''
     Assert ($state.bunVersion -eq '1.4.2') 'An old Bun must be updated through its installer'
+    Assert ($env:PATH.EndsWith($originalPath)) "Bun's installer must not leave the session without the machine PATH"
     $state.bunVersion = '1.3.0'; $state.failBun = $true
     $failed = $false
     try { & $installer -Ref '' } catch { $failed = $_.Exception.Message -match 'Needs Bun' }

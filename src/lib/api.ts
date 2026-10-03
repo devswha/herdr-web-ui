@@ -1,25 +1,34 @@
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  ConversationResponse,
+  CreateWorktreeRequest,
+  CreateTabRequest,
+  CreateWorkspaceRequest,
   DirectoryListing,
   FileInfo,
-  ConversationResponse,
   HealthAuth,
   InteractivePrompt,
   OmoActivity,
+  OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
   PaneReadResult,
   PromptAnswer,
   PushKey,
   RemoteAccess,
+  RemoveWorktreeRequest,
   SessionSnapshot,
   SlashCommand,
+  TabCreated,
   UsageReport,
   WorkspaceCreated,
+  WorktreeListing,
+  WorktreeOpened,
+  WorktreeRemoved,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
-import type { UpdateCommand, UpdateStatus } from "../../shared/update.ts";
+import type { HerdrUpdateStatus, UpdateCommand, UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 
@@ -43,6 +52,17 @@ export async function requestUpdate(command: UpdateCommand): Promise<void> {
   if (!response.ok) throw await errorFrom(url, response);
 }
 
+/** Settings → Updates: herdr itself, on the PC the server runs on. */
+export function fetchHerdrUpdate(): Promise<HerdrUpdateStatus> {
+  return getJson<HerdrUpdateStatus>("/api/herdr/update");
+}
+
+export async function requestHerdrUpdate(): Promise<void> {
+  const url = "/api/herdr/update";
+  const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
+  if (!response.ok) throw await errorFrom(url, response);
+}
+
 /**
  * A non-2xx answer from the herdr-web-ui API. `code` is the server's error-envelope
  * code when it sent one, so callers can branch on `status` (401 = the token gate)
@@ -51,12 +71,15 @@ export async function requestUpdate(command: UpdateCommand): Promise<void> {
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
+  /** the server's own words, without the URL and status the message starts with */
+  readonly detail: string;
 
   constructor(url: string, status: number, detail: string, code: string | null) {
     super(`${url} failed (${status}): ${detail}`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -312,11 +335,7 @@ export function fileUrl(path: string, paneId: string | null, machineId = "local"
   return machinePath(machineId, `fs/file?${fileQuery(path, paneId)}${download ? "&download=1" : ""}`);
 }
 
-export interface CreateWorkspaceRequest {
-  cwd?: string | null;
-  label?: string | null;
-  agent?: { kind: string; name?: string; args?: string[] } | null;
-}
+export type { CreateTabRequest, CreateWorkspaceRequest } from "../../shared/protocol.ts";
 
 /**
  * POST /api/workspace/create: a new herdr workspace (and an agent started in its root
@@ -328,6 +347,29 @@ export async function createWorkspace(request: CreateWorkspaceRequest, machineId
   return (await response.json()) as WorkspaceCreated;
 }
 
+/** POST /api/worktree/create: a git worktree of the workspace's repository, opened as a workspace grouped with it. */
+export async function createWorktree(request: CreateWorktreeRequest, machineId = "local"): Promise<WorktreeOpened> {
+  const response = await sendJson(machinePath(machineId, "worktree/create"), "POST", request);
+  return (await response.json()) as WorktreeOpened;
+}
+
+/** GET /api/worktree/list: every checkout of the workspace's repository, with the workspace each is open in. */
+export function listWorktrees(workspaceId: string, machineId = "local"): Promise<WorktreeListing> {
+  return getJson<WorktreeListing>(`${machinePath(machineId, "worktree/list")}?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+
+/** POST /api/worktree/open: an existing checkout as a workspace; the one it already has when it is open. */
+export async function openWorktree(request: OpenWorktreeRequest, machineId = "local"): Promise<WorktreeOpened> {
+  const response = await sendJson(machinePath(machineId, "worktree/open"), "POST", request);
+  return (await response.json()) as WorktreeOpened;
+}
+
+/** POST /api/tab/create: another tab in an existing workspace, with the same agent launch. */
+export async function createTab(request: CreateTabRequest, machineId = "local"): Promise<TabCreated> {
+  const response = await sendJson(machinePath(machineId, "tab/create"), "POST", request);
+  return (await response.json()) as TabCreated;
+}
+
 export async function renameWorkspace(workspaceId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "workspace/rename"), "POST", { workspace_id: workspaceId, label });
 }
@@ -337,8 +379,15 @@ export async function moveWorkspace(workspaceId: string, insertIndex: number, ma
   await sendJson(machinePath(machineId, "workspace/move"), "POST", { workspace_id: workspaceId, insert_index: insertIndex });
 }
 
-export async function closeWorkspace(workspaceId: string, machineId = "local"): Promise<void> {
-  await sendJson(machinePath(machineId, "workspace/close"), "POST", { workspace_id: workspaceId });
+/** closeGroup takes the repository's open worktree workspaces with it; herdr refuses to close over them otherwise. */
+export async function closeWorkspace(workspaceId: string, machineId = "local", closeGroup = false): Promise<void> {
+  await sendJson(machinePath(machineId, "workspace/close"), "POST", { workspace_id: workspaceId, ...(closeGroup ? { close_group: true } : {}) });
+}
+
+/** POST /api/worktree/remove: deletes the checkout and closes its workspace; the branch stays. */
+export async function removeWorktree(request: RemoveWorktreeRequest, machineId = "local"): Promise<WorktreeRemoved> {
+  const response = await sendJson(machinePath(machineId, "worktree/remove"), "POST", request);
+  return (await response.json()) as WorktreeRemoved;
 }
 
 /** GET /api/pane/commands: the slash commands the pane's agent understands (built-in + custom). */

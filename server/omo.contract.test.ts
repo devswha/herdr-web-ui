@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import { labelOmoPanes } from "./conversation.ts";
-import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { isOmoProcess, omoSessionForPane, omoTranscriptForPane } from "./omo.ts";
+import { createServer } from "./index.ts";
+import type { ConversationResponse } from "../shared/protocol.ts";
 import { startShellAgent } from "./shell-agent.ts";
 import { processStartedAt } from "./process-start.ts";
 
@@ -100,15 +102,16 @@ it("starts omo through the pane's shell and waits until omo is its foreground pr
   await expect(startShellAgent("omo", await shell(), [], { command: "true", timeoutMs: 1500 })).rejects.toThrow("omo did not start");
 });
 
+// omo keeps no descriptor on its session file; it publishes a holder record instead
+const hold = async (paneId: string, id: string) => {
+  const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: paneId });
+  const pid = info.process_info!.foreground_processes!.find((process) => isOmoProcess(process.argv ?? []))!.pid;
+  const holders = join(dir, "session-holders", encodeURIComponent(id));
+  mkdirSync(holders, { recursive: true });
+  writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, bootAtMs: 0, processStartedAtMs: Math.floor(processStartedAt(pid)! / 1000) * 1000, cwd: root }));
+};
+
 it("binds each omo pane in a shared cwd to the session its process holds", async () => {
-  // omo keeps no descriptor on its session file; it publishes a holder record instead
-  const hold = async (paneId: string, id: string) => {
-    const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: paneId });
-    const pid = info.process_info!.foreground_processes!.find((process) => isOmoProcess(process.argv ?? []))!.pid;
-    const holders = join(dir, "session-holders", encodeURIComponent(id));
-    mkdirSync(holders, { recursive: true });
-    writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, bootAtMs: 0, processStartedAtMs: Math.floor(processStartedAt(pid)! / 1000) * 1000, cwd: root }));
-  };
   const first = await pane();
   const second = await pane();
   const afterNew = await pane("launch-session");
@@ -131,6 +134,50 @@ it("binds each omo pane in a shared cwd to the session its process holds", async
     entry.pane_id === reportedBefore ? { ...entry, agent_session: { agent: "omo", kind: "path", source: "herdr:omo", value: reported } } : entry);
   expect(await omoTranscriptForPane(reportedBefore, root, panes, root)).toBe(heldSinceReport);
 });
+it("tells a held session omo has not written yet from an older one", async () => {
+  // omo writes the file with the first prompt; a launch id can name the session before /new
+  const started = await pane();
+  const afterNew = await pane("launched-before-new");
+  session("launched-before-new");
+  await hold(started, "unwritten-first");
+  await hold(afterNew, "unwritten-after-new");
+  // a file whose name only contains the held id is another session's
+  writeFileSync(join(dir, "unwritten-first-copy.jsonl"), JSON.stringify({ type: "session", id: "copied", cwd: root, timestamp: new Date().toISOString() }) + "\n");
+  const panes = (await sessionSnapshot()).panes;
+  expect(await omoSessionForPane(started, root, panes, root)).toEqual({ path: null, pending: "unwritten-first" });
+  expect(await omoSessionForPane(afterNew, root, panes, root)).toEqual({ path: null, pending: "unwritten-after-new" });
+  const written = session("unwritten-first");
+  expect(await omoSessionForPane(started, root, panes, root)).toEqual({ path: realpathSync(written), pending: null });
+});
+
+it("serves a held omo session as an empty conversation until its file is written", async () => {
+  const paneId = await pane();
+  await hold(paneId, "unwritten-http");
+  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "server-state"), machines: false });
+  const home = process.env["HOME"];
+  // the conversation route reads omo's store under HOME
+  process.env["HOME"] = root;
+  const read = (query = "") => fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}${query}`);
+  try {
+    const pending = await read();
+    expect(pending.status).toBe(200);
+    expect(await pending.json()).toEqual({ source: "omo-transcript", turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: "unwritten:unwritten-http" });
+    // a cursor from the conversation before /new has no page here
+    expect((await read("&before=stale:0")).status).toBe(409);
+    writeFileSync(join(dir, "2026-10-03T00-00-00-000Z_unwritten-http.jsonl"), [
+      { type: "session", id: "unwritten-http", cwd: root, timestamp: new Date().toISOString() },
+      { type: "message", id: "u1", parentId: null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: "first message" }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    const written = await (await read()).json() as ConversationResponse;
+    expect(written.source).toBe("omo-transcript");
+    expect(written.history_id).not.toBe("unwritten:unwritten-http");
+    expect(written.turns.map((turn) => turn.role)).toEqual(["user"]);
+  } finally {
+    process.env["HOME"] = home;
+    server.stop();
+  }
+});
+
 it("ignores the background task logs omo holds open outside its session store", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "herdr-omo-task-log-"));
   const store = join(cwd, ".omo", "agent", "sessions", `-${cwd.replaceAll("/", "-")}--`);

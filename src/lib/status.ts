@@ -18,6 +18,18 @@ export function knownStatus(status?: AgentStatus): KnownStatus {
   return (status !== undefined && KNOWN[status]) || "unknown";
 }
 
+/** herdr's roll-up order: a blocked agent colours the whole workspace, then a working one, then done. */
+const ROLLUP: readonly KnownStatus[] = ["blocked", "working", "done", "idle"];
+
+/**
+ * One state for a row that stands for several panes, as herdr rolls a workspace's agents up:
+ * blocked wins, then working, then done, then ready; unknown only when no pane says more.
+ */
+export function rollupStatus(statuses: ReadonlyArray<AgentStatus | undefined>): KnownStatus {
+  const known = statuses.map((status) => knownStatus(status));
+  return ROLLUP.find((state) => known.includes(state)) ?? "unknown";
+}
+
 /**
  * Whether a pushed status change should read the conversation now instead of at the next poll:
  * a turn starts or ends when the pane enters or leaves `working`, and the chat's last block
