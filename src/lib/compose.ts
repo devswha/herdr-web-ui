@@ -89,13 +89,21 @@ const TERMINAL_ONLY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
   tree: ["pi", "omp"],
 };
 
+/**
+ * Whether `text` is a slash command: a "/" and a command name (letters, digits, `_ : . -`) as the
+ * first word. A path ("/Users/me/x.ts fails") or "//" is text.
+ */
+export function isSlashCommand(text: string): boolean {
+  return /^\/[\w:.-]+(?:\s|$)/.test(text.trimStart());
+}
+
 /** The command `text` types, if it is one of those: its name, or null. Case and arguments aside,
  * a message only has to *be* the command — prose that merely mentions it, or a word that only
  * begins like it (`/treemap`), is not one. */
 export function terminalOnlyCommand(agent: string | null, text: string): string | null {
   if (agent === null) return null;
   const trimmed = text.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  if (!isSlashCommand(trimmed)) return null;
   const [word] = trimmed.slice(1).toLowerCase().split(/\s+/);
   const agents = TERMINAL_ONLY_COMMANDS[word ?? ""];
   return agents !== undefined && agents.includes(agent) ? (word ?? null) : null;

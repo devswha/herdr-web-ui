@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
+import { Clock, FileText, MessageSquare, Paperclip, SendHorizontal, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -36,6 +36,8 @@ import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { useT } from "../lib/i18n.ts";
+import { blockComments, blockContent, commentTarget, outgoingMessage, quoteFor, useBlockComments, type BlockComment } from "../lib/blockComments.ts";
+import { CommentEditor } from "./CommentEditor.tsx";
 
 export interface ComposerProps {
   connected: boolean;
@@ -208,6 +210,21 @@ export function Composer({
   const draftKey = `herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`;
   const { text, sending } = useSyncExternalStore(composerDrafts.subscribe, () => composerDrafts.read(draftKey));
   const setText = useCallback((value: string | ((previous: string) => string)) => composerDrafts.set(draftKey, value), [draftKey]);
+  // comments on blocks of the agent's replies (lib/blockComments.ts) go out with the next message
+  const commentOwner = paneStorageId(machineId, paneId);
+  const comments = useBlockComments(commentOwner);
+  // an open question reads the text as its answer, and without an agent the text is typed into
+  // whatever runs in the pane (a shell, perhaps): the comments wait for a message to the agent
+  const outgoing = outgoingMessage(comments, text, { answering: answerHint !== null, agent: agent !== null });
+  // the comment as it was opened: a send acknowledged meanwhile must not close the editor on what is being typed
+  const [editedComment, setEditedComment] = useState<BlockComment | null>(null);
+  const pillsRef = useRef<HTMLDivElement>(null);
+  /** Before the pill for `anchor` goes: the focus moves to a pill beside it, or to the message box. */
+  const keepFocusInPills = (anchor: string): void => {
+    const pill = [...pillsRef.current?.children ?? []].find((node) => (node as HTMLElement).dataset.anchor === anchor);
+    const beside = pill?.nextElementSibling ?? pill?.previousElementSibling;
+    (beside?.querySelector<HTMLElement>(".composer-comment-open") ?? textareaRef.current)?.focus({ preventScroll: true });
+  };
   const mounted = useRef(true);
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
@@ -238,6 +255,9 @@ export function Composer({
   const trigger = useMemo(() => activeTrigger(text, caret, { skills: agent === "codex" }), [agent, caret, text]);
   /** a command the agent runs but the chat cannot finish, while it is what the box holds */
   const terminalOnly = useMemo(() => terminalOnlyCommand(agent, text), [agent, text]);
+  // a note from the last send comes first; then what the comments have to say
+  const shownNote = note ?? (outgoing.tooLong ? t("Too long to send. Shorten the message or remove comments.")
+    : blockComments.isUnsaved(commentOwner) ? t("Comments could not be saved. They are lost on reload.") : null);
   const uploading = attachments.some((attachment) => attachment.state === "uploading");
   const agentLabel = agentDisplayLabel(agent);
   // the agent's suggestion stands in the empty box as it does in its own input, until anything is typed
@@ -524,11 +544,13 @@ export function Composer({
 
   const send = useCallback(() => {
     if (composingRef.current) return;
-    if (!connected || uploading || sending || text.trim().length === 0) return;
+    if (!connected || uploading || sending || !outgoing.sendable) return;
     const sent = text;
     const sentAttachments = attachments;
+    const { message, sentIds, commentsHeld } = outgoing;
     const settle = (result: boolean | string): void => {
       const acknowledged = result === true ? composerDrafts.settle(draftKey, sent) : null;
+      if (result === true) blockComments.remove(commentOwner, sentIds);
       if (!mounted.current) return;
       if (typeof result === "string") setNote(result);
       if (acknowledged === null) return;
@@ -538,7 +560,9 @@ export function Composer({
       setCaret(rest.length);
       textRef.current = rest;
       caretRef.current = rest.length;
-      setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.") : null);
+      setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.")
+        : commentsHeld !== null ? t(commentsHeld === "no-agent" ? "Comments stay here: they are only sent to an agent."
+          : commentsHeld === "answer" ? "Comments stay here: they are not sent with an answer." : "Comments stay here: they are not sent with a command.") : null);
       for (const attachment of sentAttachments) URL.revokeObjectURL(attachment.previewUrl);
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
     };
@@ -546,14 +570,14 @@ export function Composer({
     // a polish landing before the acknowledgement would count as an edit and keep the sent message here
     dictation.forget();
     try {
-      const result = onSend(text);
+      const result = onSend(message);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
     } catch {
       composerDrafts.end(draftKey);
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [attachments, connected, dictation.forget, draftKey, onSend, sending, text, uploading]);
+  }, [attachments, commentOwner, connected, dictation.forget, draftKey, onSend, outgoing, sending, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
@@ -769,6 +793,26 @@ export function Composer({
           </div>
         )}
 
+        {comments.length > 0 && (
+          <div ref={pillsRef} className="composer-comments" aria-label={t("Comments")}>
+            {comments.map((comment) => {
+              const quote = quoteFor(blockContent(comment.block));
+              return (
+                // keyed by its block: an edit gets a new id, and the pill that opened the editor keeps the focus
+                <div className="composer-comment" key={comment.anchor} data-anchor={comment.anchor}>
+                  <button type="button" className="composer-comment-open" title={quote} onClick={() => setEditedComment(comment)}>
+                    <MessageSquare aria-hidden="true" />
+                    <span>{quoteFor(quote, 30)}</span>
+                  </button>
+                  <button type="button" className="composer-comment-remove" aria-label={t("Remove comment")} title={t("Remove comment")} onClick={() => { keepFocusInPills(comment.anchor); blockComments.remove(commentOwner, [comment.id]); }}>
+                    <X aria-hidden="true" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {attachments.length > 0 && (
           <div className="composer-attachments" aria-label={t("Attached files")}>
             {attachments.map((attachment) => (
@@ -851,7 +895,7 @@ export function Composer({
               className="composer-queue-button"
               aria-label={t("Queue message")}
               title={t("Queue as the next message")}
-              disabled={!connected || uploading || sending || text.trim().length === 0}
+              disabled={!connected || uploading || sending || !outgoing.sendable}
               onClick={send}
             >
               <Clock aria-hidden="true" />
@@ -875,7 +919,7 @@ export function Composer({
               className="composer-action composer-send"
               aria-label={t("Send message")}
               title={t("Send message")}
-              disabled={!connected || uploading || sending || text.trim().length === 0}
+              disabled={!connected || uploading || sending || !outgoing.sendable}
               onClick={send}
             >
               <SendHorizontal aria-hidden="true" />
@@ -883,11 +927,23 @@ export function Composer({
           ) : null}
         </div>
       </div>
-      {note && <div className="composer-note" role="alert">{note}</div>}
+      {shownNote && <div className="composer-note" role="alert">{shownNote}</div>}
+      {/* outside the surface: it takes drops, and a file dropped on the portalled editor would
+          bubble there through React and start an upload */}
+      {editedComment && <CommentEditor
+        block={editedComment.block}
+        initialComment={editedComment.comment}
+        onSave={(value) => {
+          if (value.trim() === "") keepFocusInPills(editedComment.anchor);
+          blockComments.save(commentOwner, commentTarget(editedComment), value);
+          setEditedComment(null);
+        }}
+        onClose={() => setEditedComment(null)}
+      />}
       {/* said while typing, before the send: after it the browser is already open and the reader is
           already in the state the words describe. Not a block — the text still goes, and pi runs the
           command in the terminal the way its own palette would */}
-      {!note && terminalOnly !== null && (
+      {!shownNote && terminalOnly !== null && (
         <div className="composer-hint">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
       )}
       {/* above the whole composer: inside the surface it would cover the agent status line */}

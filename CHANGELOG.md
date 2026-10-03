@@ -17,12 +17,22 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   `ANTIGRAVITY_APP_DATA_DIR`). When a keychain item and the file both exist, the later-expiring
   one is used, as the Claude meter already does.
   ([#399](https://github.com/devswha/herdr-web-ui/pull/399) by @diogo7dias)
+- Comment on single parts of an agent's final reply in the chat: a paragraph, a heading, a list
+  item, a code block, a table or a formula. Point at a part (or tap it on a phone) and its comment
+  button appears; the comment is written in a small dialog that quotes the part. Commented parts
+  are marked in the chat and collect as pills above the message box, and the next message sends
+  them first, each quoting its part, in reading order. A command or an answer to the agent's open
+  question goes without them; they wait for the next message. They only ever go to an agent: when
+  none runs in the pane, what is typed goes alone (a shell would run the quoted lines), and its
+  terminal output takes no comments. Comments are kept per pane on this device.
 
 ### Fixed
 - On an Android phone, dragging down at the top of a chat no longer reloads the app. The drag
   was handed on to the page, where Chrome takes it for pull-to-refresh, so reading back
   through a conversation kept ending in a reload.
   ([#413](https://github.com/devswha/herdr-web-ui/pull/413))
+- Delete and other danger buttons no longer turn grey like the buttons beside them when the
+  pointer is over them.
 
 ## [0.3.48] - 2026-10-04
 

@@ -20,6 +20,8 @@
   overscroll-behavior: contain;
   padding: var(--space-4) var(--space-4) var(--space-5);
   background: var(--bg);
+  /* blocks of a reply place their comment "+" by the room beside the column (BlockComments.css) */
+  container: chat / inline-size;
   --chat-fs-2xs: calc(var(--fs-2xs) * var(--chat-scale, 1));
   --chat-fs-xs: calc(var(--fs-xs) * var(--chat-scale, 1));
   --chat-fs-sm: calc(var(--fs-sm) * var(--chat-scale, 1));
