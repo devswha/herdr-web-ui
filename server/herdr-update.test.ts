@@ -21,7 +21,7 @@ interface StandIn {
 }
 
 /** A herdr whose `update` prints `says` and exits with `code`; a live handoff brings the server to the binary's version. */
-function standIn(says: string, code = 0, options: { handoffCode?: number; sleep?: number } = {}): StandIn {
+function standIn(says: string, code = 0, options: { handoffCode?: number; sleep?: number; ignoreTerm?: boolean } = {}): StandIn {
   const dir = mkdtempSync(join(root, "herdr-"));
   const path = join(dir, "herdr");
   const calls = join(dir, "calls");
@@ -41,6 +41,7 @@ function standIn(says: string, code = 0, options: { handoffCode?: number; sleep?
     `  "status --json") echo "warning: herdr integrations need updating" >&2; cat '${statusFile}' ;;`,
     '  "update --handoff")',
     `    { echo "env=\${HERDR_ENV-unset} pane=\${HERDR_PANE_ID-unset} socket=\${HERDR_SOCKET_PATH-unset} web=\${HERDR_WEB_STATE_DIR-unset}"; if [ -t 0 ]; then echo stdin=tty; else echo stdin=closed; fi; } > '${seen}'`,
+    options.ignoreTerm ? "    trap '' TERM" : "    :",
     options.sleep ? `    sleep ${options.sleep}` : "    :",
     // herdr reports progress on stderr, with colors on a terminal
     `    printf '%s\\n' '${says}' >&2`,
@@ -166,6 +167,18 @@ describe("updating herdr from the app", () => {
     const status = await finished(updater);
     expect(status.phase).toBe("error");
     expect(status.output).toContain("did not finish");
+  });
+
+  it("kills a herdr that ignores being stopped, and is free for the next update", async () => {
+    const herdr = standIn("never printed", 0, { sleep: 30, ignoreTerm: true });
+    const updater = new HerdrUpdater({ bin: herdr.path, timeoutMs: 200, killGraceMs: 200 });
+    const startedAt = Date.now();
+    updater.start();
+    const status = await finished(updater);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(status.phase).toBe("error");
+    expect(updater.start()).toBe("started");
+    await finished(updater);
   });
 
   it("offers nothing on Windows, where herdr has no live handoff", async () => {

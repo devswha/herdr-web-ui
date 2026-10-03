@@ -13,12 +13,17 @@ export function useHerdrUpdate(enabled: boolean) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  // the component's own lifetime, not the poll's: a page hidden while the request is on its way
+  // (a phone app sent to the background) stops the poll, and the answer must still land
   const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const visible = usePageVisible();
   useEffect(() => {
     if (!enabled) { setStatus(null); setPending(false); setError(null); return; }
     if (!visible) return;
-    mounted.current = true;
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
     async function poll() {
@@ -31,7 +36,7 @@ export function useHerdrUpdate(enabled: boolean) {
       if (!stopped) timer = setTimeout(() => void poll(), delay);
     }
     void poll();
-    return () => { stopped = true; mounted.current = false; clearTimeout(timer); };
+    return () => { stopped = true; clearTimeout(timer); };
   }, [enabled, refresh, visible]);
 
   const request = useCallback(async () => {

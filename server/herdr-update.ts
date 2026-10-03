@@ -30,6 +30,8 @@ const UPDATE_TIMEOUT_MS = 10 * 60_000;
 const STATUS_TIMEOUT_MS = 5_000;
 /** the versions shown are read from `herdr status`, a process each time: one read serves the polls of this long */
 const STATUS_CACHE_MS = 2_000;
+/** how long a herdr told to stop at its timeout is given before it is killed */
+const KILL_GRACE_MS = 2_000;
 /** how long the output of a herdr that has exited is still read */
 const PIPE_GRACE_MS = 250;
 /** herdr's last words, as much as the app shows */
@@ -42,6 +44,8 @@ export interface HerdrUpdaterOptions {
   socketPath?: string;
   platform?: NodeJS.Platform;
   timeoutMs?: number;
+  /** KILL_GRACE_MS; tests shorten it */
+  killGraceMs?: number;
 }
 
 interface HerdrVersions {
@@ -131,7 +135,13 @@ export class HerdrUpdater {
     const stdout = read(proc.stdout as ReadableStream<Uint8Array>);
     const stderr = read(proc.stderr as ReadableStream<Uint8Array>);
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; proc.kill(); }, timeoutMs);
+    let killer: ReturnType<typeof setTimeout> | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill();
+      // one that ignores the request would keep the updater busy for good
+      killer = setTimeout(() => proc.kill("SIGKILL"), this.options.killGraceMs ?? KILL_GRACE_MS);
+    }, timeoutMs);
     try {
       const code = await proc.exited;
       await Promise.race([Promise.all([stdout.done, stderr.done]), Bun.sleep(PIPE_GRACE_MS)]);
@@ -140,6 +150,7 @@ export class HerdrUpdater {
       return { code, output, stdout: stdout.text() };
     } finally {
       clearTimeout(timer);
+      clearTimeout(killer);
       stdout.cancel();
       stderr.cancel();
     }
