@@ -14,7 +14,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   start the agent with their next bridge update; until then they make the worktree with a shell.
   ([#401](https://github.com/devswha/herdr-web-ui/pull/401))
 
+### Changed
+- A new release is installed from the line that announces it: **Update** starts the install
+  there, in place of **View update** and a second button in Settings. The line then shows the
+  install's step and a bar (downloading, installing dependencies, checking, building,
+  restarting), as Settings → Updates does, and ends on **Reload app**. An install that fails
+  offers **Try again** and **Details**.
+  ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
+
 ### Fixed
+- On an iPhone the image viewer's controls and the composer stay inside the usable screen: the
+  viewer is bounded by the safe-area insets and the keyboard's height, the keyboard is told from
+  the viewport's geometry rather than from focus alone, and in-app alerts stay below the header.
+  ([#400](https://github.com/devswha/herdr-web-ui/pull/400) by @Haeminway1)
+- A Linux or macOS PC whose herdr was lost to a restart or a kill connects again. herdr leaves
+  its socket file behind, the bridge took that file for a running herdr and did not start, and
+  **Update** ended in "Bridge did not start" each time. The bridge now starts herdr when nothing
+  listens on that socket. PCs get this with their next bridge update.
 - The Windows installer tries herdr's download once more when it fails, and says so when it fails
   again: herdr's installer gives up on a connection that stays under 1 KB/s for 30 seconds, and
   the install ended there with a message about security software.
@@ -28,6 +44,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Reading a Codex conversation on a phone no longer scrolls the same idle agent's
   terminal on the desktop as the conversation refreshes.
   ([#393](https://github.com/devswha/herdr-web-ui/pull/393) by @JJLiebig)
+- A question card is read from the bottom of the pane even when its terminal was scrolled up
+  into its history. A scrolled omo or pi pane showed every later question as the last-resort card
+  with only Enter and Esc, since the menu drawn at the bottom was out of the scrolled view.
+  ([#402](https://github.com/devswha/herdr-web-ui/pull/402) by @nahwan-kim)
+- The line saying a PC needs a bridge update (or setup approval) to reconnect can be closed. A PC
+  whose bridge could not be updated kept it open on every screen, which on a phone took a row
+  for good. The PC's row in the sidebar still says what it needs, and the line returns the next
+  time that PC needs something after having connected.
+  ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
 
 ## [0.3.47] - 2026-10-03
 

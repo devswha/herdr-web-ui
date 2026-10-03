@@ -13,7 +13,16 @@ export interface UpdateStatus {
   checked_at: string | null;
   blocked_reason: string | null;
   error: string | null;
+  /**
+   * What a running install is doing; null outside one. Absent from a supervisor older than this
+   * field: an update is always run by the version being replaced.
+   */
+  step?: UpdateStep | null;
 }
+
+/** An install's steps, in the order it takes them. */
+export const UPDATE_STEPS = ["download", "dependencies", "typecheck", "build", "restart"] as const;
+export type UpdateStep = typeof UPDATE_STEPS[number];
 
 export type UpdateCommand = "check" | "install";
 
