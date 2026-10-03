@@ -89,11 +89,18 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
   // button sits on must not leave between the tap and the first step
   const [started, setStarted] = useState(false);
   useEffect(() => { if (!busy) setStarted(false); }, [busy]);
+  const failed = error !== null || (status?.phase === "error" && !!status.error);
+  // that same check can be what fails, and then nothing is available either: the line stays for
+  // the install asked for here. A background check that fails alone is Settings' to report.
+  const [attempted, setAttempted] = useState(false);
+  useEffect(() => { if (!busy && !failed) setAttempted(false); }, [busy, failed]);
   const installing = status?.phase === "building" || status?.phase === "restarting";
-  if (!needsReload && !status?.available && !installing && !started) return null;
-  if (installing || started) {
+  // Try again after such a failure looks for the release again, and the line waits with it
+  const looking = attempted && busy;
+  if (!needsReload && !status?.available && !installing && !started && !looking && !(attempted && failed)) return null;
+  if (installing || started || looking) {
     return <div className="update-notice is-progress" role="status">
-      <UpdateProgress status={status} fallback={t(installing ? status?.phase === "building" ? "Installing dependencies and building…" : "Restarting the bridge…" : "Starting the update…")} />
+      <UpdateProgress status={status} fallback={t(installing ? status?.phase === "building" ? "Installing dependencies and building…" : "Restarting the bridge…" : started ? "Starting the update…" : "Checking for updates…")} />
     </div>;
   }
   if (needsReload) {
@@ -102,10 +109,11 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
       <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button>
     </div>;
   }
-  const failed = error !== null || (status?.phase === "error" && !!status.error);
+  // without a release in reach the server refuses an install: ask it to look again first
+  const retry = status?.available ? "install" : "check";
   return <div className="update-notice" role="status">
     <span>{failed ? t("The update could not be installed.") : status?.latest_version ? t("herdr web ui v{version} is available.", { version: status.latest_version }) : t("A herdr web ui update is available.")}</span>
     {failed && <button type="button" className="btn btn-ghost" onClick={onOpen}>{t("Details")}</button>}
-    <button type="button" className="btn btn-primary" disabled={busy} onClick={() => { setStarted(true); void request("install"); }}>{t(failed ? "Try again" : "Update")}</button>
+    <button type="button" className="btn btn-primary" disabled={busy} onClick={() => { setAttempted(true); setStarted(retry === "install"); void request(retry); }}>{t(failed ? "Try again" : "Update")}</button>
   </div>;
 }

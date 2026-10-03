@@ -25,11 +25,17 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
       current_version: "0.0.1", latest_version: "9.9.9", available: true, checked_at: new Date().toISOString(), blocked_reason: null, error: null, step: null,
     };
     let installs = 0;
+    let checks = 0;
     await page.route("**/api/updates", (route) => route.fulfill({ json: status }));
     await page.route("**/api/updates/install", async (route) => {
       installs += 1;
       // as the updater does: an install starts with a check, which reports nothing available yet
       status = { ...status, phase: "checking", available: false };
+      await route.fulfill({ status: 202, json: { accepted: true } });
+    });
+    await page.route("**/api/updates/check", async (route) => {
+      checks += 1;
+      status = { ...status, phase: "idle", available: true, error: null };
       await route.fulfill({ status: 202, json: { accepted: true } });
     });
     const pc: Machine = { id: "qa-pc", name: "QA PC", kind: "ssh", target: { destination: "qa@example.invalid" }, enabled: true, state: "error", error: null, action_required: "update_bridge", snapshot: null };
@@ -73,8 +79,16 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     await page.getByRole("button", { name: "Try again", exact: true }).click();
     await page.getByText("Starting the update…", { exact: true }).waitFor();
     assert.equal(installs, 2, "Try again asks for the install again");
+    // the check an install starts with fails: nothing is available any more, and the line still says so
+    status = { ...status, phase: "error", available: false, error: "git fetch failed: fixture" };
+    await page.getByText("The update could not be installed.", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Details", exact: true }).waitFor();
+    // the server refuses an install with nothing available: Try again looks for the release again
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await page.getByText("herdr web ui v9.9.9 is available.", { exact: true }).waitFor();
+    assert.deepEqual([checks, installs], [1, 2], "Try again after a failed check asks for a check, not an install");
     status = { ...status, phase: "idle", available: false, error: null };
-    await page.getByText("Starting the update…", { exact: true }).waitFor({ state: "hidden" });
+    await page.getByText("herdr web ui v9.9.9 is available.", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await page.locator(".update-notice").count(), 0, "an installed update leaves no line");
     console.log("PASS a release installs from its line with one button and shows its steps");
 
