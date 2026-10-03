@@ -130,6 +130,18 @@ function keychainFound(result: SignIn | "locked" | null, source: string, account
   return [result === "locked" ? { source, locked: true, account } : { ...result, account: result.account ?? account, source }];
 }
 
+/**
+ * A keychain item and a credentials file for the same sign-in. A CLI refreshes the file alone when it
+ * cannot write the keychain (started outside the desktop session), so the item can hold a token that
+ * expired hours ago: the later one wins. An item that names no expiry is not known to be older, and stays.
+ */
+function keychainOrFile(keychain: SignIn | "locked" | null, file: SignIn | null, source: string, account: Account | null = null): Found[] {
+  const item = keychain && keychain !== "locked" ? keychain : null;
+  const fileIsLater = file != null && item != null && file.expiresAt != null && item.expiresAt != null && file.expiresAt > item.expiresAt;
+  if (item && !fileIsLater) return keychainFound(item, source, account);
+  return file ? [{ ...file, account: file.account ?? account, source }] : keychainFound(keychain, source, account);
+}
+
 function parseJson(source: string | null): unknown {
   if (source === null) return null;
   try { return JSON.parse(source); } catch { return null; }
@@ -282,13 +294,7 @@ const claude: UsageProvider = {
       const account = claudeAccount(home.config);
       const keychain = await fromKeychain(ctx, home.service, user ? [user, undefined] : [undefined], claudeSignIn);
       const file = claudeSignIn(readText(join(home.dir, ".credentials.json")));
-      // Claude Code refreshes the file alone when it cannot write the keychain (started outside the
-      // desktop session), so the item can hold a token that expired hours ago: the later one wins.
-      // An item that names no expiry is not known to be older, and stays.
-      const item = keychain && keychain !== "locked" ? keychain : null;
-      const fileIsLater = file != null && item != null && file.expiresAt != null && item.expiresAt != null && file.expiresAt > item.expiresAt;
-      if (item && !fileIsLater) return keychainFound(item, home.source, account);
-      return file ? [{ ...file, account, source: home.source }] : keychainFound(keychain, home.source, account);
+      return keychainOrFile(keychain, file, home.source, account);
     }));
     return found.flat();
   },
@@ -581,13 +587,22 @@ const grok: UsageProvider = {
   },
 };
 
-// ---- Antigravity (Google's Gemini and third-party model quota): keychain `gemini` / `antigravity` ----
+// ---- Antigravity (Google's Gemini and third-party model quota): keychain `gemini` / `antigravity`,
+// or the CLI's `antigravity-oauth-token` file where there is no keychain (Linux) ----
 
-function antigravitySignIn(value: string): SignIn | null {
+function antigravitySignIn(value: string | null): SignIn | null {
+  if (value === null) return null;
   const encoded = value.startsWith("go-keyring-base64:") ? Buffer.from(value.slice("go-keyring-base64:".length), "base64").toString("utf8") : value;
-  const token = record(record(parseJson(encoded))["token"]);
+  const root = record(parseJson(encoded));
+  const token = record(root["token"]);
   const access = text(token["access_token"]);
-  return access ? { token: access, expiresAt: epochMs(token["expiry"]) } : null;
+  if (!access) return null;
+  const idToken = text(root["id_token"]);
+  const claims = idToken ? jwtClaims(idToken) : {};
+  const email = text(claims["email"]);
+  const sub = text(claims["sub"]);
+  const account = sub || email ? { id: sub ?? email!, label: email } : null;
+  return { token: access, expiresAt: epochMs(token["expiry"]), account };
 }
 
 const ANTIGRAVITY_BUCKETS: Record<string, { kind: UsageWindow["kind"]; scope: string | null }> = {
@@ -599,7 +614,11 @@ const ANTIGRAVITY_BUCKETS: Record<string, { kind: UsageWindow["kind"]; scope: st
 
 const antigravity: UsageProvider = {
   id: "antigravity",
-  signIns: async (ctx) => keychainFound(await fromKeychain(ctx, "gemini", ["antigravity"], antigravitySignIn), "keychain"),
+  async signIns(ctx) {
+    const dir = ctx.env["ANTIGRAVITY_APP_DATA_DIR"] || join(ctx.home, ".gemini", "antigravity-cli");
+    const file = antigravitySignIn(readText(join(dir, "antigravity-oauth-token")));
+    return keychainOrFile(await fromKeychain(ctx, "gemini", ["antigravity"], antigravitySignIn), file, "keychain");
+  },
   async read(ctx, signIn) {
     const init: RequestInit = {
       method: "POST",

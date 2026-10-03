@@ -383,6 +383,45 @@ describe("providers", () => {
       { kind: "session", scope: "Other models", used_percent: 100, resets_at: "2026-09-29T15:00:00.000Z" },
     ]);
   });
+
+  it("reads Antigravity from its token file on Linux", async () => {
+    write(join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), {
+      token: { access_token: "ya29-file", expiry: new Date(NOW + HOUR).toISOString() },
+      id_token: jwt({ email: "user@example.com", sub: "sub-123" }),
+    });
+    replies.set("https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary", { body: { response: { groups: [{ buckets: [
+      { bucketId: "gemini-5h", remainingFraction: 0.8, resetTime: "2026-09-29T16:00:00Z" },
+    ] }] } } });
+    const [usage] = (await new UsageService(context("linux"), only("antigravity")).report()).providers;
+    expect(usage).toMatchObject({
+      id: "antigravity",
+      key: "antigravity:sub-123",
+      account: "user@example.com",
+      windows: [
+        { kind: "session", scope: null, used_percent: 20, resets_at: "2026-09-29T16:00:00.000Z" },
+      ],
+    });
+  });
+
+  it.each([
+    { name: "the token file when it expires after the keychain item", file: NOW + 8 * HOUR, item: NOW - HOUR, bearer: "file" },
+    { name: "the keychain item when the token file is older", file: NOW - HOUR, item: NOW + 8 * HOUR, bearer: "item" },
+  ])("reads $name for Antigravity", async ({ file, item, bearer }) => {
+    const token = (access: string, expiry: number) => JSON.stringify({ token: { access_token: access, expiry: new Date(expiry).toISOString() } });
+    keychain.set("gemini|antigravity", { status: "found", value: token("item", item) });
+    write(join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), token("file", file));
+    replies.set("https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary", { body: { response: { groups: [] } } });
+    await new UsageService(context("darwin"), only("antigravity")).report();
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe(`Bearer ${bearer}`);
+  });
+
+  it("reads the Antigravity token file from ANTIGRAVITY_APP_DATA_DIR", async () => {
+    const dir = join(home, "agy-data");
+    write(join(dir, "antigravity-oauth-token"), { token: { access_token: "custom", expiry: new Date(NOW + HOUR).toISOString() } });
+    replies.set("https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary", { body: { response: { groups: [] } } });
+    await new UsageService({ ...context("linux"), env: { USER: "me", ANTIGRAVITY_APP_DATA_DIR: dir } }, only("antigravity")).report();
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer custom");
+  });
 });
 
 describe("the service", () => {
