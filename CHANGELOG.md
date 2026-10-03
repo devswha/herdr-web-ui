@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.44] - 2026-10-03
+
 ### Added
 - Native Windows x64 installation through `install.ps1`, with the same herdr plugin startup
   and updates. Windows needs Bun and Git, without Node or WSL, and keeps using the terminal
@@ -68,7 +70,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - After `/new` in an OmO pane, the chat stops showing the conversation before it: OmO writes the
   new session's file only with its first message, and until then the chat shows what a fresh OmO
   shows. ([#351](https://github.com/devswha/herdr-web-ui/pull/351) by @WOULDU-pres)
-||||||| 8c5c10d
 - On a Windows PC, an omo pane shows omo's mark instead of Claude's, and its chat finds the
   conversation: process words with `bun.exe`, backslashes and a drive letter read as omo, and the
   session folder is named as omo's engine names a Windows folder.
@@ -1459,7 +1460,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...HEAD
+[0.3.44]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...v0.3.44
 [0.3.43]: https://github.com/devswha/herdr-web-ui/compare/v0.3.42...v0.3.43
 [0.3.42]: https://github.com/devswha/herdr-web-ui/compare/v0.3.41...v0.3.42
 [0.3.41]: https://github.com/devswha/herdr-web-ui/compare/v0.3.40...v0.3.41
