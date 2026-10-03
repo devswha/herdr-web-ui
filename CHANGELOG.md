@@ -15,6 +15,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   offers **Try again** and **Details**.
 
 ### Fixed
+- On an iPhone the image viewer's controls and the composer stay inside the usable screen: the
+  viewer is bounded by the safe-area insets and the keyboard's height, the keyboard is told from
+  the viewport's geometry rather than from focus alone, and in-app alerts stay below the header.
+  ([#400](https://github.com/devswha/herdr-web-ui/pull/400) by @Haeminway1)
 - A Linux or macOS PC whose herdr was lost to a restart or a kill connects again. herdr leaves
   its socket file behind, the bridge took that file for a running herdr and did not start, and
   **Update** ended in "Bridge did not start" each time. The bridge now starts herdr when nothing
@@ -32,6 +36,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Reading a Codex conversation on a phone no longer scrolls the same idle agent's
   terminal on the desktop as the conversation refreshes.
   ([#393](https://github.com/devswha/herdr-web-ui/pull/393) by @JJLiebig)
+- A question card is read from the bottom of the pane even when its terminal was scrolled up
+  into its history. A scrolled omo or pi pane showed every later question as the last-resort card
+  with only Enter and Esc, since the menu drawn at the bottom was out of the scrolled view.
+  ([#402](https://github.com/devswha/herdr-web-ui/pull/402) by @nahwan-kim)
 - The line saying a PC needs a bridge update (or setup approval) to reconnect can be closed. A PC
   whose bridge could not be updated kept it open on every screen, which on a phone took a row
   for good. The PC's row in the sidebar still says what it needs, and the line returns the next

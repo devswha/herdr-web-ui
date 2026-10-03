@@ -99,9 +99,10 @@ try {
   await preview.waitFor({ state: "hidden" });
   await videoLink.click();
   await preview.waitFor();
-  // Mobile previews fill the viewport; the backdrop is exposed on desktop.
+  // A press on the backdrop itself closes the viewer. On a touch device the viewer fills the
+  // scrim edge to edge, so the press is sent to the scrim rather than aimed at an exposed pixel.
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.locator(".file-viewer-scrim").click({ position: { x: 1, y: 1 } });
+  await page.locator(".file-viewer-scrim").evaluate((scrim) => scrim.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
   await preview.waitFor({ state: "hidden" });
   await page.setViewportSize({ width: 390, height: 844 });
   console.log("PASS Forward restores the viewer; X, Escape and scrim close consume its entry");
