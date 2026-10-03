@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexCallFailed, codexHistoryTail, codexRolloutPath, forgetHistoryChains, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
+import { codexCallFailed, codexHistoryTail, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
 const ts = "2026-09-22T01:00:00.000Z";
@@ -12,6 +12,22 @@ const message = (role: string, text: string, phase?: string) => item({
   type: "message", role, content: [{ type: role === "user" ? "input_text" : "output_text", text }], ...(phase ? { phase } : {}),
 });
 const jsonl = (...records: unknown[]) => records.map((record) => JSON.stringify(record)).join("\n");
+
+describe("a Codex process's own store", () => {
+  it("reads CODEX_HOME from the process's environment, and nothing from one without it", async () => {
+    // not a system binary: macOS shows no environment of those (Codex is not one)
+    const sleeper = (env: Record<string, string | undefined>) =>
+      Bun.spawn([process.execPath, "-e", "console.log('up'); await Bun.sleep(5000)"], { env, stdout: "pipe" });
+    const withHome = sleeper({ ...process.env, CODEX_HOME: "/tmp/harness-codex-test" });
+    const without = sleeper(Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "CODEX_HOME")));
+    try {
+      // both have started (exec'd) before their environment is read
+      for (const child of [withHome, without]) await child.stdout.getReader().read();
+      expect(await processCodexHome(withHome.pid)).toBe("/tmp/harness-codex-test");
+      expect(await processCodexHome(without.pid)).toBeNull();
+    } finally { withHome.kill(); without.kill(); }
+  });
+});
 
 describe("Codex conversation records", () => {
   it("hides injected context, metadata and developer messages while preserving the real request", () => {

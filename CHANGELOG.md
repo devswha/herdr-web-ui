@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- The chat of a Codex pane started with its own `CODEX_HOME` (a launcher that keeps one store
+  per profile) shows its conversation. Before, the server looked for every rollout under its own
+  `CODEX_HOME` or `~/.codex`, found none for that pane and fell back to the terminal scrollback.
+  The store is now read from the pane's Codex process (its environment), for the conversation,
+  images, tool output and queued questions; a configured Codex home still wins.
 - A table in the chat that is wider than the reply scrolls sideways in its own box. Before, it
   squeezed every column to fit, down to a letter or two, so words and file paths broke after
   any letter. A column is now never narrower than its longest word.

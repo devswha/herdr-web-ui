@@ -245,6 +245,48 @@ export function parseCodexTranscript(text: string, maxTurns = 100): Conversation
 
 export const defaultCodexHome = (): string => process.env["CODEX_HOME"] || join(homedir(), ".codex");
 
+/**
+ * The CODEX_HOME in a process's environment: /proc on Linux, `ps -E` (same user only) on macOS.
+ * Read on every call: a pid can be reused by another Codex started with another store.
+ */
+export async function processCodexHome(pid: number): Promise<string | null> {
+  let home: string | null = null;
+  try {
+    if (process.platform === "linux") {
+      home = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").find((entry) => entry.startsWith("CODEX_HOME="))?.slice(11) || null;
+    } else if (process.platform === "darwin") {
+      const child = Bun.spawn(["/bin/ps", "-E", "-ww", "-p", String(pid), "-o", "command="], { stdout: "pipe", stderr: "ignore" });
+      const timer = setTimeout(() => child.kill(), 3000);
+      try {
+        // the environment follows the arguments, so the last match is the environment's; ponytail:
+        // a CODEX_HOME with a space is not read, and with none in the environment an argument
+        // spelled CODEX_HOME=/path would be taken. /proc on Linux has neither problem
+        const text = await new Response(child.stdout).text();
+        await child.exited;
+        home = [...text.matchAll(/(?:^|\s)CODEX_HOME=(\S+)/g)].at(-1)?.[1] ?? null;
+      } finally { clearTimeout(timer); }
+    }
+  } catch { home = null; }
+  if (home !== null && !isAbsolute(home)) home = null;
+  return home;
+}
+
+/**
+ * The store a pane's Codex writes to. A launcher can start Codex with its own CODEX_HOME (a
+ * harness keeps one per profile), so a single store for the whole server misses those panes:
+ * an explicit `configured` store wins, then the pane's Codex process's own, then the default.
+ */
+export async function paneCodexHome(paneId: string, configured?: string): Promise<string> {
+  if (configured) return configured;
+  try {
+    for (const { pid } of (await codexProcessesOf(paneId)).list) {
+      const home = await processCodexHome(pid);
+      if (home) return home;
+    }
+  } catch { /* herdr busy: the default store */ }
+  return defaultCodexHome();
+}
+
 /** The session_meta payload on a rollout's first line, or null when the file is not a rollout. */
 function rolloutHeader(path: string): RecordValue | null {
   const fd = openSync(path, "r");
