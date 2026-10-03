@@ -357,7 +357,7 @@ Attaches never use `--takeover`, so they coexist with your own herdr TUI.
 
 ## Updates
 
-`bun run start` and the plugin look for a newer **release** 10 seconds after start and then every 5 minutes. A release is a `vX.Y.Z` tag ([changelog](../CHANGELOG.md)); commits between releases never reach installs. When a new version is out, the header names it, and **Settings → Updates** installs it. To install releases without asking, set `HERDR_WEB_AUTO_UPDATE=1`.
+`bun run start` and the plugin look for a newer **release** 10 seconds after start and then every 5 minutes. A release is a `vX.Y.Z` tag ([changelog](../CHANGELOG.md)); commits between releases never reach installs. When a new version is out, a line under the header names it, and its **Update** button installs it and shows the install's steps; **Settings → Updates** has the same controls and the full error when an install fails. To install releases without asking, set `HERDR_WEB_AUTO_UPDATE=1`.
 
 An update is built and typechecked in a private checkout while the current server keeps serving. The new server must pass a health check, or the previous build comes back. herdr and your agents keep running, and a **Reload app** notice lets you save drafts before the new frontend loads.
 
