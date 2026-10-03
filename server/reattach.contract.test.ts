@@ -39,6 +39,16 @@ async function until(check: () => boolean | Promise<boolean>, label: string, tim
   }
 }
 
+const root = mkdtempSync(join(tmpdir(), "herdr-reattach-"));
+const sockets: WebSocket[] = [];
+/** set once this file spawns the handoff session: it is stopped and deleted again, whatever herdr supports */
+let started = false;
+let handoffs = false;
+let previousSocket: string | undefined;
+let server: ReturnType<typeof createServer>;
+// a short relookup, for the server that does not come back
+let quick: ReturnType<typeof createServer>;
+
 /** a fresh server for the session: one left by an earlier run would bring its workspaces back */
 async function startSession(): Promise<void> {
   if (await answers()) await cli("server", "stop");
@@ -46,23 +56,33 @@ async function startSession(): Promise<void> {
   await cli("session", "delete", SESSION);
   mkdirSync(dirname(socket), { recursive: true });
   const log = join(dirname(socket), "test-server.log");
+  started = true;
   Bun.spawn([herdr, "--session", SESSION, "server"], { stdin: "ignore", stdout: Bun.file(log), stderr: Bun.file(log), env }).unref();
   await until(async () => existsSync(socket) && await answers(), `handoff session started (see ${log})`, 15_000);
 }
 
-const handoffs = await (async () => {
-  if (process.env["HERDR_TEST_MODE"] === "unit" || !Bun.which(herdr)) return false;
+// registered before the session starts, so a start that fails still cleans up after itself
+afterAll(async () => {
+  for (const ws of sockets) ws.close();
+  if (handoffs) {
+    server.stop();
+    quick.stop();
+    if (previousSocket === undefined) delete process.env["HERDR_SOCKET"];
+    else process.env["HERDR_SOCKET"] = previousSocket;
+  }
+  if (started) {
+    if (await answers()) await cli("server", "stop");
+    await until(async () => !(await answers()), "handoff session stopped").catch(() => {});
+    await cli("session", "delete", SESSION);
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+if (process.env["HERDR_TEST_MODE"] !== "unit" && Bun.which(herdr)) {
   await startSession();
   const pong = await herdrRpc<{ capabilities?: { live_handoff?: boolean } }>("ping", {}, socket);
-  return pong.capabilities?.live_handoff === true;
-})();
-
-const root = mkdtempSync(join(tmpdir(), "herdr-reattach-"));
-const sockets: WebSocket[] = [];
-let previousSocket: string | undefined;
-let server: ReturnType<typeof createServer>;
-// a short relookup, for the server that does not come back
-let quick: ReturnType<typeof createServer>;
+  handoffs = pong.capabilities?.live_handoff === true;
+}
 
 beforeAll(() => {
   if (!handoffs) return;
@@ -71,20 +91,6 @@ beforeAll(() => {
   process.env["HERDR_SOCKET"] = socket;
   server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
   quick = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root, attachRelookupForMs: 1_000 });
-});
-
-afterAll(async () => {
-  for (const ws of sockets) ws.close();
-  if (handoffs) {
-    server.stop();
-    quick.stop();
-    if (previousSocket === undefined) delete process.env["HERDR_SOCKET"];
-    else process.env["HERDR_SOCKET"] = previousSocket;
-    if (await answers()) await cli("server", "stop");
-    await until(async () => !(await answers()), "handoff session stopped").catch(() => {});
-    await cli("session", "delete", SESSION);
-  }
-  rmSync(root, { recursive: true, force: true });
 });
 
 function connect(port: number, paneId: string) {
