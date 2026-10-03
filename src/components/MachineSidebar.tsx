@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Download, Monitor, Plus, Settings, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Monitor, Plus, Settings, SlidersHorizontal, X } from "lucide-react";
 import type { Machine, MachineState, MachineUpdate } from "../../shared/machines.ts";
 import { MachineContext } from "../lib/machineContext.tsx";
 import { answerMachineSetup, machineRequest } from "../lib/api.ts";
 import { describeProgress } from "../lib/bridgeProgress.ts";
+import { keepDismissed, noticeKey, readDismissed, waitingMachines, writeDismissed } from "../lib/machineNotice.ts";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { Sidebar } from "./Sidebar.tsx";
@@ -160,6 +161,13 @@ function MachineActionNotice({ machine, onSetup }: { machine: Machine; onSetup(m
 /** The app-wide line for PCs that wait on the user, so a closed drawer on a phone still says so. */
 export function MachineActionBanner({ machines, onSetup }: { machines: Machine[]; onSetup(machine: Machine, update?: boolean): void }) {
   const t = useT();
+  // a PC that cannot be updated right now would hold this line open for good: it can be closed,
+  // and the PC's own row in the sidebar keeps saying what it needs
+  const [dismissed, setDismissed] = useState(readDismissed);
+  useEffect(() => {
+    const kept = keepDismissed(dismissed, machines);
+    if (kept.length !== dismissed.length) { setDismissed(kept); writeDismissed(kept); }
+  }, [machines, dismissed]);
   const running = machines.find((machine) => machine.updating);
   if (running?.updating) {
     const view = describeProgress(running.updating.progress);
@@ -167,7 +175,7 @@ export function MachineActionBanner({ machines, onSetup }: { machines: Machine[]
       <span>{t("Updating the bridge on {name}", { name: running.name })}{view ? ` · ${t(view.label)}${view.percent === null ? "" : ` ${view.percent}%`}` : "…"}</span>
     </div>;
   }
-  const waiting = machines.filter((machine) => machine.action_required);
+  const waiting = waitingMachines(machines, dismissed);
   const first = waiting[0];
   if (!first) return null;
   const update = first.action_required === "update_bridge";
@@ -175,5 +183,6 @@ export function MachineActionBanner({ machines, onSetup }: { machines: Machine[]
   return <div className="update-notice" role="status">
     <span>{t(update ? "{name} needs a bridge update to reconnect{others}." : "{name} needs setup approval to reconnect{others}.", { name: first.name, others })}</span>
     <button type="button" className="btn" onClick={() => update ? void machineRequest(`/${encodeURIComponent(first.id)}/update-bridge`, "POST").catch(() => onSetup(first, true)) : onSetup(first, false)}>{t(update ? "Update bridge" : "Set up…")}</button>
+    <button type="button" className="icon-button update-notice-dismiss" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={() => { const next = [...dismissed, ...waiting.map(noticeKey)]; setDismissed(next); writeDismissed(next); }}><X /></button>
   </div>;
 }

@@ -8,6 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- A new release is installed from the line that announces it: **Update** starts the install
+  there, in place of **View update** and a second button in Settings. The line then shows the
+  install's step and a bar (downloading, installing dependencies, checking, building,
+  restarting), as Settings → Updates does, and ends on **Reload app**. An install that fails
+  offers **Try again** and **Details**.
+  ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
 - On a phone the in-app alert is one line, as wide as its text: the pane's name, then what
   happened. It was a two-line card across the screen, over the top of the conversation.
 
@@ -37,6 +43,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   into its history. A scrolled omo or pi pane showed every later question as the last-resort card
   with only Enter and Esc, since the menu drawn at the bottom was out of the scrolled view.
   ([#402](https://github.com/devswha/herdr-web-ui/pull/402) by @nahwan-kim)
+- The line saying a PC needs a bridge update (or setup approval) to reconnect can be closed. A PC
+  whose bridge could not be updated kept it open on every screen, which on a phone took a row
+  for good. The PC's row in the sidebar still says what it needs, and the line returns the next
+  time that PC needs something after having connected.
+  ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
 
 ## [0.3.47] - 2026-10-03
 
