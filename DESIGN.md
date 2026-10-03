@@ -414,11 +414,14 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
-  (required), where to start from (HEAD when empty, ignored for a branch that exists) and an
-  optional name, then checks the branch out under herdr's worktree folder and opens it as a
+  (required), where to start from (HEAD when empty, ignored for a branch that exists) and a
+  name, then checks the branch out under herdr's worktree folder and opens it as a
   workspace grouped with the repository's; its pane is selected. **Open worktree…** lists the
   repository's other checkouts as rows (branch, mono path, an **Already open** pill), and a row
   opens or returns to that workspace. herdr's own words explain a refusal, inside the dialog.
+- The branch arrives filled in as herdr's own form fills it (`worktree/brave-valley-07f8`:
+  adjective, noun, four hex digits) and selected, so typing replaces it. The name is the branch
+  with its slashes as dashes and follows the branch until it is typed over.
 
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills

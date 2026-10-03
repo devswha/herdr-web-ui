@@ -257,6 +257,7 @@ export const ZH: Record<string, string> = {
   "absolute path or ~/…": "绝对路径或 ~/…",
   "Name": "名称",
   "Optional workspace label": "工作区名称（可选）",
+  "Workspace label; follows the branch until you change it": "工作区名称；修改之前跟随分支名",
   "Cancel": "取消",
   "Starting…": "正在启动…",
   "Open": "打开",

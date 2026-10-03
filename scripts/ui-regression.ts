@@ -565,7 +565,12 @@ try {
   await page.getByRole("menuitem", { name: "New worktree", exact: true }).click();
   const newWorktree = page.getByRole("dialog", { name: /^New worktree/ });
   await newWorktree.waitFor();
+  // the branch and the name arrive filled in, as herdr's own form fills them, and the name follows the branch
+  const suggested = await newWorktree.getByLabel(/^Branch/).inputValue();
+  assert.match(suggested, /^worktree\/[a-z]+-[a-z]+-[0-9a-f]{4}$/);
+  assert.equal(await newWorktree.getByLabel(/^Name/).inputValue(), suggested.replace("/", "-"));
   await newWorktree.getByLabel(/^Branch/).fill("herdr-web-ui-test-feature");
+  assert.equal(await newWorktree.getByLabel(/^Name/).inputValue(), "herdr-web-ui-test-feature");
   const worktreeResponse = page.waitForResponse((response) => response.url().endsWith("/api/worktree/create"));
   await newWorktree.getByRole("button", { name: "Create worktree", exact: true }).click();
   const worktree = await (await worktreeResponse).json() as WorktreeOpened;

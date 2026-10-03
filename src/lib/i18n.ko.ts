@@ -253,6 +253,7 @@ export const KO: Record<string, string> = {
   "absolute path or ~/…": "절대 경로 또는 ~/…",
   "Name": "이름",
   "Optional workspace label": "워크스페이스 이름 (선택)",
+  "Workspace label; follows the branch until you change it": "워크스페이스 이름. 직접 바꾸기 전까지 브랜치를 따릅니다",
   "Cancel": "취소",
   "Starting…": "시작 중…",
   "Open": "열기",
