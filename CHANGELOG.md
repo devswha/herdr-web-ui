@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - An open terminal no longer says "terminal ended" when herdr hands its panes to a new server,
   as `herdr update --handoff` and `herdr server live-handoff` do. The pane is still running, so
   the terminal attaches to it again for everyone viewing it.
+  ([#370](https://github.com/devswha/herdr-web-ui/pull/370))
 
 ## [0.3.44] - 2026-10-03
 
