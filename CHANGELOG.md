@@ -47,6 +47,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   when the answer to a click arrives while the page is hidden, as when a phone sends the app to
   the background. The status poll pauses with the page; the click's answer now lands anyway.
   ([#381](https://github.com/devswha/herdr-web-ui/pull/381))
+- The Windows installer finishes on a PC that has no Bun yet. Bun's own installer left the
+  PowerShell session without the system PATH, so the next step stopped with `git` not recognized
+  or herdr's `program not found`, and installing Bun by hand first was the only way through.
+  ([#385](https://github.com/devswha/herdr-web-ui/pull/385))
 
 ## [0.3.45] - 2026-10-03
 
