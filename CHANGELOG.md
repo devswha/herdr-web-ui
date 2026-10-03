@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The guide's **Behind a reverse proxy** shows how to give the app a public HTTPS address with
+  [Portal](https://github.com/gosuda/portal-tunnel) v2.6.1 or later, behind a long random token
+  and with a visitor's `Tailscale-User-Login` header dropped.
+  ([#229](https://github.com/devswha/herdr-web-ui/pull/229) by @rabbitson87)
+
 ### Fixed
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
