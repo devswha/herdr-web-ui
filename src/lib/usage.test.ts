@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
-import { formatPercent, formatResetIn, meterPercent, meterText, moveInOrder, orderProviders, tightestWindow, usageName, windowLabel } from "./usage.ts";
+import { formatPercent, formatResetIn, glanceWindow, meterPercent, meterText, moveInOrder, orderProviders, tightestWindow, usageName, windowLabel } from "./usage.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const window = (used_percent: number, kind: UsageWindow["kind"] = "week", scope: string | null = null): UsageWindow => ({ kind, scope, used_percent, resets_at: null });
@@ -14,15 +14,24 @@ describe("usage meters", () => {
     expect(tightestWindow(provider("claude", []))).toBeNull();
   });
 
-  it("puts the provider nearest a limit first, and one without numbers last", () => {
-    const order = orderProviders([provider("claude", []), provider("codex", [window(40)]), provider("copilot", [window(90, "month")])]);
-    expect(order.map((usage) => usage.id)).toEqual(["copilot", "codex", "claude"]);
+  it("shows the chosen limit of the whole plan, and the closest to running out where a plan has none", () => {
+    const claude = provider("claude", [window(80, "session"), window(30), window(95, "week", "Sonnet")]);
+    expect(glanceWindow(claude, "week")).toEqual(window(30));
+    expect(glanceWindow(claude, "session")).toEqual(window(80, "session"));
+    expect(glanceWindow(provider("codex", [window(30)]), "session")).toEqual(window(30));
+    expect(glanceWindow(provider("cursor", [window(20, "month"), window(60, "month", "Premium")]), "week")).toEqual(window(60, "month", "Premium"));
+    expect(glanceWindow(provider("grok", []), "week")).toBeNull();
   });
 
-  it("follows the user's order first, then the nearest limit", () => {
+  it("keeps the server's order until the user arranges the accounts", () => {
+    const order = orderProviders([provider("claude", []), provider("codex", [window(40)]), provider("copilot", [window(90, "month")])]);
+    expect(order.map((usage) => usage.id)).toEqual(["claude", "codex", "copilot"]);
+  });
+
+  it("follows the user's order first, then the server's", () => {
     const providers = [provider("claude", [window(10)]), provider("codex", [window(40)], "a@x"), provider("codex", [window(90)], "b@x"), provider("grok", [window(50)])];
     const keys = (order: string[]) => orderProviders(providers, order).map((usage) => usage.key);
-    expect(keys([])).toEqual(["codex:b@x", "grok", "codex:a@x", "claude"]);
+    expect(keys([])).toEqual(["claude", "codex:a@x", "codex:b@x", "grok"]);
     expect(keys(["claude", "codex:a@x", "gone"])).toEqual(["claude", "codex:a@x", "codex:b@x", "grok"]);
   });
 

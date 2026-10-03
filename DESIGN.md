@@ -354,8 +354,8 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Plan meters (`.usage*`)
 - Beside Settings, one button holding up to four chips (three and `+N` past that), one per
-  account in the user's order: provider mark, mono `--fs-2xs` percent of the limit closest to
-  running out (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
+  account in the user's order: provider mark, mono `--fs-2xs` percent of the limit chosen in
+  Settings, the plan's week or its session (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
   filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
   chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
@@ -510,9 +510,9 @@ One set for both themes: the card is island black wherever it shows.
   setup dialog and closes Settings behind it; when that dialog closes, focus lands on the header's
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
-- Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
-  hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--bg-elevated` header
-  with **Nearest limit first** at its right once the user has ordered, then one 38px row per account
+- Subscription usage: the on switch with one description, then (when on) Used / Remaining,
+  Weekly / Session and one hairline card of accounts (`.usage-accounts`, `--radius-md`): an
+  uppercase `--bg-elevated` header, then one 38px row per account
   (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
   a move that cannot happen keeps its column but is not shown). A hidden account's row fades and
   its eye closes; it stays listed so it can be shown again.

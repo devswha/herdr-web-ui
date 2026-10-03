@@ -58,12 +58,12 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await page.keyboard.press("Escape");
     await strip.waitFor();
 
-    // three chips and "+4" past four accounts, the one nearest its limit first and red; two Codex accounts apart
+    // three chips and "+4" past four accounts, in the server's order, each its plan's week; one near its limit is red; two Codex accounts apart
     assert.equal(await page.locator(".usage-chip").count(), 3);
     assert.equal(await page.locator(".usage-more").textContent(), "+4");
     assert.equal(await strip.getAttribute("aria-label"),
-      "Subscription usage: Codex · me@work.example 91%, Claude · me@example.com 63%, Codex · me@example.com 30%, Cursor 20%, Copilot · me 0%, Grok 0%, Antigravity —");
-    assert.equal(await page.locator(".usage-chip").first().evaluate((chip) => chip.classList.contains("is-high")), true);
+      "Subscription usage: Claude · me@example.com 63%, Codex · me@work.example 91%, Codex · me@example.com 30%, Cursor 20%, Copilot · me 0%, Grok 0%, Antigravity —");
+    assert.equal(await page.locator(".usage-chip").nth(1).evaluate((chip) => chip.classList.contains("is-high")), true);
     assert.equal(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth), true, "the chips fit beside Settings");
     const [settings, meters] = await Promise.all([page.locator(".sidebar-footer-row .sidebar-footer-action").boundingBox(), strip.boundingBox()]);
     assert.ok(settings && meters && settings.x + settings.width <= meters.x, "Settings and the meters do not overlap");
@@ -73,7 +73,7 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await popover.waitFor();
     assert.equal(await popover.locator(".usage-provider").count(), 7);
     assert.equal(await popover.getByRole("meter").count(), 9);
-    assert.equal(await popover.locator(".usage-account").first().textContent(), "me@work.example");
+    assert.equal(await popover.locator(".usage-account").first().textContent(), "me@example.com");
     assert.equal(await popover.locator(".usage-row.is-high").count(), 1);
     assert.equal(await popover.locator(".usage-note.is-problem").count(), 1, "only the expired sign-in reads as an error");
     if (process.env.UI_EVIDENCE_DIR) {
@@ -107,11 +107,12 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     if (process.env.UI_EVIDENCE_DIR) {
       await page.locator(".settings-section", { has: page.getByRole("heading", { name: "Subscription usage", exact: true }) }).screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-settings.png") });
     }
-    await page.getByRole("button", { name: "Nearest limit first", exact: true }).click();
+    // the session instead of the week: an account without one keeps the limit it has
+    await page.locator('.segmented[aria-label="Limit shown"]').getByRole("button", { name: "Session", exact: true }).click();
     await page.keyboard.press("Escape");
-    assert.match(await strip.getAttribute("aria-label") ?? "", /^Subscription usage: Claude · me@example.com 37% left, Codex · me@example.com 70% left, Cursor 80% left,/);
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}") as { usageHidden?: string[]; usageCount?: string });
-    assert.deepEqual([stored.usageHidden, stored.usageCount], [["codex:work"], "left"]);
+    assert.match(await strip.getAttribute("aria-label") ?? "", /^Subscription usage: Claude · me@example.com 58% left, Cursor 80% left, Codex · me@example.com 70% left,/);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}") as { usageHidden?: string[]; usageCount?: string; usageGlance?: string });
+    assert.deepEqual([stored.usageHidden, stored.usageCount, stored.usageGlance], [["codex:work"], "left", "session"]);
 
     // turned off in Settings: gone, and no longer asked for
     await settingsButton.click();

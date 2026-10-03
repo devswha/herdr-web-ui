@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderUsage, UsageProviderId, UsageReport, UsageWindow } from "../../shared/protocol.ts";
 import { fetchUsage } from "./api.ts";
-import type { UsageCount } from "./settings.ts";
+import type { UsageCount, UsageGlance } from "./settings.ts";
 import { t } from "./i18n.ts";
 import { usePageVisible } from "./visibility.ts";
 
@@ -26,9 +26,17 @@ export const WINDOW_LABEL: Readonly<Record<UsageWindow["kind"], string>> = {
   month: "Monthly",
 };
 
-/** The limit closest to running out: the one a glance at the sidebar has to show. */
+/** The limit closest to running out: what a chip shows when the plan has no limit of the chosen kind. */
 export function tightestWindow(usage: ProviderUsage): UsageWindow | null {
   return usage.windows.reduce<UsageWindow | null>((tightest, window) => tightest === null || window.used_percent > tightest.used_percent ? window : tightest, null);
+}
+
+/**
+ * The limit a chip shows: the plan-wide one of the kind chosen in Settings (the week, or the
+ * short session), never a model's own. A plan without it shows its limit closest to running out.
+ */
+export function glanceWindow(usage: ProviderUsage, glance: UsageGlance): UsageWindow | null {
+  return usage.windows.find((window) => window.kind === glance && window.scope === null) ?? tightestWindow(usage);
 }
 
 export function windowLabel(window: UsageWindow): string {
@@ -70,17 +78,14 @@ export function formatPercent(value: number): string {
   return value > 0 && value < 1 ? `${value.toFixed(1)}%` : `${Math.round(value)}%`;
 }
 
-/**
- * The accounts in the user's order (`order`, by key), then the rest: a limit near its end first,
- * otherwise the server's order.
- */
+/** The accounts in the user's order (`order`, by key), then the rest as the server lists them. */
 export function orderProviders(providers: readonly ProviderUsage[], order: readonly string[] = []): ProviderUsage[] {
   const rank = new Map(order.map((key, index) => [key, index]));
   return [...providers].sort((a, b) => {
     const ranked = [rank.get(a.key), rank.get(b.key)];
     if (ranked[0] !== undefined && ranked[1] !== undefined) return ranked[0] - ranked[1];
     if (ranked[0] !== undefined || ranked[1] !== undefined) return ranked[0] !== undefined ? -1 : 1;
-    return (tightestWindow(b)?.used_percent ?? -1) - (tightestWindow(a)?.used_percent ?? -1);
+    return 0;
   });
 }
 

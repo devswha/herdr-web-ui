@@ -5,8 +5,8 @@ import "./UsageMeters.css";
 
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
 import { useT, type Translate } from "../lib/i18n.ts";
-import { useSettings, type UsageCount } from "../lib/settings.ts";
-import { formatPercent, formatResetIn, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, tightestWindow, usageName, useUsage, windowLabel } from "../lib/usage.ts";
+import { useSettings, type UsageCount, type UsageGlance } from "../lib/settings.ts";
+import { formatPercent, formatResetIn, glanceWindow, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage, windowLabel } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 
 /** chips the strip beside Settings holds before the rest fold into "+N" */
@@ -31,8 +31,8 @@ function isError(usage: ProviderUsage): boolean {
   return usage.problem === "expired" || usage.problem === "failed";
 }
 
-function Chip({ usage, count }: { usage: ProviderUsage; count: UsageCount }) {
-  const window = tightestWindow(usage);
+function Chip({ usage, count, glance }: { usage: ProviderUsage; count: UsageCount; glance: UsageGlance }) {
+  const window = glanceWindow(usage, glance);
   return (
     <span className={`usage-chip${level(window)}${usage.problem ? " has-problem" : ""}`}>
       <AgentMark agent={PROVIDER_MARK[usage.id]} size={14} />
@@ -77,7 +77,7 @@ function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; co
 
 /**
  * The plan limits of the subscriptions signed in on the server's PC, beside Settings: per
- * provider its logo and the limit closest to running out; the whole strip opens every limit
+ * provider its logo and the limit chosen in Settings (week or session); the whole strip opens every limit
  * with its reset time.
  */
 export function UsageMeters() {
@@ -123,7 +123,7 @@ export function UsageMeters() {
   const folded = shown.length > MAX_CHIPS ? shown.length - (MAX_CHIPS - 1) : 0;
   const chips = folded > 0 ? shown.slice(0, MAX_CHIPS - 1) : shown;
   const summary = shown.map((usage) => {
-    const window = tightestWindow(usage);
+    const window = glanceWindow(usage, settings.usageGlance);
     return `${usageName(usage)} ${window ? meterText(window, count) : "—"}`;
   }).join(", ");
 
@@ -138,7 +138,7 @@ export function UsageMeters() {
         title={summary}
         onClick={() => setOpen(!open)}
       >
-        {chips.map((usage) => <Chip key={usage.key} usage={usage} count={count} />)}
+        {chips.map((usage) => <Chip key={usage.key} usage={usage} count={count} glance={settings.usageGlance} />)}
         {folded > 0 && <span className="usage-more">+{folded}</span>}
       </button>
       {open && (
