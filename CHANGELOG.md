@@ -42,6 +42,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   instead of "Conversation unavailable". OmO writes its session file only with the first message,
   so the chat found no conversation until then and offered the terminal output instead.
   ([#360](https://github.com/devswha/herdr-web-ui/pull/360) by @nahwan-kim)
+- An answer tapped on a prompt card for a screen the app does not know goes through while the
+  agent's working line ticks on that screen. The card's id took in the line's spinner, time and
+  token count, so a tap after each tick was refused with "the prompt changed" and took several
+  tries. Anything else that changes on the screen still refuses the answer.
 
 ## [0.3.44] - 2026-10-03
 

@@ -1323,6 +1323,51 @@ describe("the fallback card for a blocked pane no reader knows", () => {
     const footer = (end: string) => `Pick\n\n❯ 1. One\n  2. Two\n\n ${end}\n`;
     expect(parseFallbackPrompt("gjc", footer("Enter to select")).id).not.toBe(parseFallbackPrompt("gjc", footer("Enter to select · done")).id);
   });
+
+  /** a numbered menu under the line an agent keeps showing while it waits */
+  const underWorkingLine = (working: string, cursor = 0) => [
+    working, "", "Run the tests?", "",
+    ...["Yes", "No"].map((label, index) => `${index === cursor ? "❯" : " "} ${index + 1}. ${label}`),
+    "", "Enter to select · ↑/↓ to navigate · Esc to cancel",
+  ].join("\n");
+  const idOf = (screen: string) => parseFallbackPrompt("claude", screen).id;
+
+  test("keeps its id while only the agent's working line ticks", () => {
+    // the spinner, the time and the token count move on every second; the prompt does not
+    const first = parseFallbackPrompt("claude", underWorkingLine("✢ Tempering… (1m 55s · ↓ 10.0k tokens)"));
+    expect(idOf(underWorkingLine("✻ Tempering… (1m 58s · ↓ 10.4k tokens)"))).toBe(first.id);
+    expect(idOf(underWorkingLine("· Tempering… (2h 3m 1s · ↓ 1,204 tokens)"))).toBe(first.id);
+    // the card shows the line as the screen has it
+    expect(first.body).toBe("✢ Tempering… (1m 55s · ↓ 10.0k tokens)");
+    // other agents draw it with a bullet or a braille spinner, and another separator
+    expect(idOf(underWorkingLine("• Working (12s • esc to interrupt)"))).toBe(idOf(underWorkingLine("• Working (47s • esc to interrupt)")));
+    expect(idOf(underWorkingLine("⠋ Thinking... (3s)"))).toBe(idOf(underWorkingLine("⠹ Thinking... (9s)")));
+    // the keys card holds the line among its last ones, and as its question when nothing asks
+    const keys = (working: string) => ["Apply the migration to the staging database", working, "Proceed? (y/n)"].join("\n");
+    expect(idOf(keys("✢ Tempering… (5s · ↓ 1.0k tokens)"))).toBe(idOf(keys("✶ Tempering… (9s · ↓ 1.3k tokens)")));
+    const asked = (working: string) => ["Pick one", "", "❯ 1. One", "  2. Two", working, "Enter to select"].join("\n");
+    expect(idOf(asked("✢ Tempering… (5s · ↓ 1.0k tokens)"))).toBe(idOf(asked("✶ Tempering… (9s · ↓ 1.3k tokens)")));
+  });
+
+  test("makes another card of anything else that changed, on a working line too", () => {
+    const working = "✢ Tempering… (5s · ↓ 1.0k tokens)";
+    // what the agent is doing: the words stay in the id
+    expect(idOf(underWorkingLine("✢ Deleting staging… (5s · ↓ 1.0k tokens)"))).not.toBe(idOf(underWorkingLine("✢ Deleting production… (5s · ↓ 1.0k tokens)")));
+    // the row the cursor is on: Enter would pick another one
+    expect(idOf(underWorkingLine(working, 0))).not.toBe(idOf(underWorkingLine(working, 1)));
+    // a part of the line that is neither the time nor the token count
+    expect(idOf(underWorkingLine("✢ Building… (12s · 3 files)"))).not.toBe(idOf(underWorkingLine("✢ Building… (12s · 4 files)")));
+    // a time that is no working line's: in a command, in parentheses without a separator, or on
+    // a line with neither a spinner nor an ellipsis
+    expect(idOf(underWorkingLine("$ sleep 30s"))).not.toBe(idOf(underWorkingLine("$ sleep 60s")));
+    expect(idOf(underWorkingLine("Waiting… (30s timeout)"))).not.toBe(idOf(underWorkingLine("Waiting… (60s timeout)")));
+    expect(idOf(underWorkingLine("Tests passed (12s · 3 files)"))).not.toBe(idOf(underWorkingLine("Tests passed (13s · 3 files)")));
+    expect(idOf(underWorkingLine("Budget: 10.0k tokens"))).not.toBe(idOf(underWorkingLine("Budget: 90.0k tokens")));
+    // what is asked about, named above the lines the keys card shows, under a line that ticks
+    const keys = (target: string, time: string) => [`Delete ${target}`, ...Array.from({ length: 15 }, (_, i) => `detail ${i}`), `✢ Tempering… (${time} · ↓ 1.0k tokens)`, "Proceed? (y/n)"].join("\n");
+    expect(idOf(keys("staging", "5s"))).toBe(idOf(keys("staging", "9s")));
+    expect(idOf(keys("staging", "5s"))).not.toBe(idOf(keys("production", "9s")));
+  });
 });
 
 describe("Claude's suggestion on a prompt poll", () => {

@@ -204,9 +204,11 @@ function finishPrompt(
   agent: string,
   input: Omit<InteractivePrompt, "id" | "agent">,
   internal: Omit<ParsedPrompt, keyof InteractivePrompt>,
+  /** fields as the id reads them, where that is not as the card shows them (a fallback card's ticking working line) */
+  hashed: Partial<Pick<InteractivePrompt, "question" | "body">> = {},
 ): ParsedPrompt {
   const id = createHash("sha256")
-    .update(JSON.stringify({ agent, ...input }))
+    .update(JSON.stringify({ agent, ...input, ...hashed }))
     .digest("hex")
     .slice(0, 12);
   // Hash all approval details before applying the display cap. Cursor movement
@@ -1564,6 +1566,38 @@ const MENU_WRAP_LINES = 2;
 /** a line that is an input box or quoted output rather than a prompt's own text */
 const NOT_PROMPT_TEXT_RE = /^(?:[❯›>"'“]|\$ )/;
 
+/** the frames an agent's spinner turns through, and the bullets some draw in its place */
+const SPINNER_RE = /^[·✢✳✶✻✽*•◦\u2800-\u28ff]$/u;
+/**
+ * A working line's end: in parentheses, how long the agent has worked, then maybe more, each part
+ * after a separator ("(1m 55s · ↓ 10.0k tokens)", "(12s • esc to interrupt)"). Without a separator
+ * it is some other text in parentheses ("(30s timeout)"), which is left alone.
+ */
+const WORKING_END_RE = /^(.*\S) \((?:\d+h ?)?(?:\d+m ?)?\d+s((?: [·•|] [^()]*)?)\)$/u;
+
+/**
+ * A line as a fallback card's id reads it. An agent that waits on a prompt may still show the line
+ * that says what it is working on, with a spinner, the time taken and a token count: "✢ Tempering…
+ * (1m 55s · ↓ 10.0k tokens)". Those three change every second or so while the prompt stays the
+ * same, and an id that took them in refused each answer tapped after a tick as stale (#365). Only
+ * they are blanked, and only on a line of that shape: one that begins with a spinner or whose text
+ * ends in an ellipsis, and ends in the parentheses above. The words stay, so "Deleting staging…"
+ * is never "Deleting production…", and a number anywhere else on the screen (a command's
+ * `sleep 30s`, a count of files) still makes another card.
+ */
+function steadyLine(line: string): string {
+  const end = WORKING_END_RE.exec(line);
+  if (!end) return line;
+  const [, start = "", rest = ""] = end;
+  const spinner = start.length > 2 && start[1] === " " && SPINNER_RE.test(start[0]!);
+  if (!spinner && !/(?:…|\.\.\.)$/.test(start)) return line;
+  return `${spinner ? `*${start.slice(1)}` : start} (<time>${rest.replace(/[\d.,]+[kKmM]?(?= tokens\b)/g, "<n>")})`;
+}
+
+function steadyText(text: string | null | undefined): string | null {
+  return text === null || text === undefined ? null : text.split("\n").map(steadyLine).join("\n");
+}
+
 export function parseFallbackPrompt(agent: string, screen: string): InteractivePrompt {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const shown = lines.flatMap((line, index) => cleanLine(line) && !isDivider(line) ? [index] : []);
@@ -1578,18 +1612,19 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       { label: "Enter", steps: keySteps([KEY.enter]) },
       { label: "Esc", steps: keySteps([KEY.escape]) },
     ];
+    const body = withoutLine(above, question);
     return screenCard(lines, shown, finishPrompt(agent, {
       // the body is every other line above the rows, so a changed command above a same-looking
       // menu is another card; the display cap applies after the hash
       kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? "The agent is waiting for your answer.",
-      body: withoutLine(above, question),
+      body,
       options: choices.map(({ label }) => ({ label, description: null })),
       multi_select: false, custom_option_index: null,
     }, {
       responder: "fallback-menu", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
       checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
       optionSteps: choices.map(({ steps }) => steps),
-    }));
+    }, steadyFields(question, body)));
   }
   const last = shown.slice(-16).map((index) => cleanLine(lines[index]!));
   // letters and arrows only for the prompt's own last lines, never while an input box ends the
@@ -1605,24 +1640,31 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
     { label: "Enter", steps: keySteps([KEY.enter]) },
     { label: "Esc", steps: keySteps([KEY.escape]) },
   ];
+  const body = withoutLine(last, question);
   return screenCard(lines, shown, finishPrompt(agent, {
     kind: "menu", fallback: true, title: "Waiting for input", question: question ?? "The agent is waiting for input.",
-    body: withoutLine(last, question),
+    body,
     options: choices.map(({ label }) => ({ label, description: null })),
     multi_select: false, custom_option_index: null,
   }, {
     responder: "fallback-keys", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     optionSteps: choices.map(({ steps }) => steps),
-  }));
+  }, steadyFields(question, body)));
+}
+
+/** A fallback card's question and body as its id reads them: with a working line's ticking parts blanked. */
+function steadyFields(question: string | undefined, body: string | null): Partial<Pick<InteractivePrompt, "question" | "body">> {
+  return { ...(question === undefined ? {} : { question: steadyLine(question) }), body: steadyText(body) };
 }
 
 /**
  * A fallback card's id covers the whole visible screen, not just the lines it shows: a changed
- * command, footer or wrapped label anywhere on it makes an answer to the old card stale.
+ * command, footer or wrapped label anywhere on it makes an answer to the old card stale. A working
+ * line's spinner, time and token count are the one thing it leaves out (steadyLine).
  */
 function screenCard(lines: string[], shown: number[], parsed: ParsedPrompt): InteractivePrompt {
-  const screen = shown.map((index) => cleanLine(lines[index]!)).join("\n");
+  const screen = shown.map((index) => steadyLine(cleanLine(lines[index]!))).join("\n");
   parsed.id = createHash("sha256").update(JSON.stringify({ card: parsed.id, screen })).digest("hex").slice(0, 12);
   return publicPrompt(parsed);
 }
