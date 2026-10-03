@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Download, Folder, GripVertical, Layers, Pencil, Plus, Settings, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, GripVertical, Layers, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -7,10 +7,8 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo, HerdrPane }
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
-import { useInstallPrompt } from "../lib/install.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
-import { UsageMeters } from "./UsageMeters.tsx";
 import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { groupDirectories } from "../lib/directoryGroups.ts";
@@ -97,11 +95,9 @@ export interface SidebarProps {
   snapshot: SessionSnapshot | null;
   selectedPaneId: string | null;
   actions: AppActions;
-  version: string | null;
-  embedded?: boolean;
 }
 
-export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded = false }: SidebarProps) {
+export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   const t = useT();
   const { settings } = useSettings();
   const byFolder = settings.sidebarGrouping === "directory";
@@ -118,7 +114,6 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot ? [...snapshot.workspaces.map((workspace) => `workspace:${workspace.workspace_id}`), ...groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => `folder:${group.key}`)] : []));
   const armTimer = useRef<number | null>(null);
   const unfoldedFor = useRef<Partial<Record<SidebarGrouping, string>>>({});
-  const { canInstall, install } = useInstallPrompt();
 
   const setGroupCollapsed = (groupKey: string, collapsed: boolean): void => {
     setCollapsedGroups((current) => {
@@ -431,7 +426,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
   };
 
   return (
-    <div className={embedded ? "machine-workspaces" : "sidebar-shell"}>
+    <div className="machine-workspaces">
       <nav className="sidebar-list" aria-label={t("Herdr workspaces")}>
         {!snapshot && <p className="tree-state" role="status">{t("Loading workspaces…")}</p>}
         {snapshot && snapshot.workspaces.length === 0 && (
@@ -460,25 +455,6 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
         )}
       </nav>
 
-      {!embedded && <footer className="sidebar-footer">
-        {canInstall && (
-          <button type="button" className="btn btn-ghost sidebar-footer-action" onClick={() => void install().catch((reason: unknown) => noteError(reason instanceof Error ? reason.message : String(reason)))}>
-            <Download aria-hidden="true" />
-            {t("Install app")}
-          </button>
-        )}
-        <div className="sidebar-footer-row">
-          <button type="button" className="btn btn-ghost sidebar-footer-action" onClick={actions.openSettings}>
-            <Settings aria-hidden="true" />
-            {t("Settings")}
-          </button>
-          <UsageMeters />
-        </div>
-        <div className="sidebar-brandline">
-          <span className="sidebar-app-name">herdr web ui</span>
-          <span className="pill">herdr {version ?? "offline"}</span>
-        </div>
-      </footer>}
     </div>
   );
 }
