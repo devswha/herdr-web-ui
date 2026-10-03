@@ -24,3 +24,21 @@ export function unmanagedUpdateStatus(): UpdateStatus {
     blocked_reason: "Start with bun run start or the herdr plugin to enable updates.",
   };
 }
+
+/**
+ * herdr itself, updated from the app (server/herdr-update.ts): the server runs
+ * `herdr update --handoff` for the herdr it talks to, on its own PC.
+ */
+export interface HerdrUpdateStatus {
+  /** false where the server offers no herdr update (Windows, a herdr that does not answer): the controls stay hidden */
+  supported: boolean;
+  phase: "idle" | "updating" | "error";
+  /** the running herdr server, and the herdr binary installed beside it */
+  server_version: string | null;
+  binary_version: string | null;
+  /** the installed binary is newer than the running server: an update moves the panes onto it */
+  stale: boolean;
+  /** what herdr printed on the last run, its tail; null before any run and while one runs */
+  output: string | null;
+  finished_at: string | null;
+}

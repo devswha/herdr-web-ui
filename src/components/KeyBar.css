@@ -80,8 +80,3 @@
     transition: none;
   }
 }
-
-@media (pointer: fine) and (min-width: 769px) {
-  .key-bar { display: flex; }
-  .key-bar .key:not([data-key="direct"]) { display: none; }
-}

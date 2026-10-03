@@ -21,6 +21,7 @@ import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
+import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { UsageService } from "../server/usage.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
@@ -216,6 +217,7 @@ try {
     "a pending IME commit must precede Shift+Enter without a delayed duplicate");
   console.log("PASS terminal Shift+Enter sends a newline chord once and preserves Enter, Alt+Enter and IME");
   console.log("PASS pending IME commit precedes Shift+Enter without duplicate text");
+  await checkCommandBackspace(browser, origin, paneA);
   // a pane shortcut switches panes and types nothing: xterm used to send ESC[1;6B / ESC[1;6A too
   const selectedTitle = () => page.locator(".pane-item.is-selected .pane-select").getAttribute("title");
   for (const key of ["Control+Shift+ArrowDown", "Control+Shift+ArrowUp"]) {

@@ -21,7 +21,7 @@ import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PushTestControls } from "./PushTestControls.tsx";
-import { UpdateControls } from "./UpdateControls.tsx";
+import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -558,6 +558,7 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
           </section>}
 
           <UpdateControls updates={updates} bridgesFollow={pcSettings?.auto_update_bridges === true} />
+          <HerdrUpdateControls enabled={open} />
         </div>
       </section>
     </div>

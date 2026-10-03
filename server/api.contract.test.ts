@@ -1,9 +1,11 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated } from "../shared/protocol.ts";
+import { HerdrUpdater } from "./herdr-update.ts";
+import type { HerdrUpdateStatus } from "../shared/update.ts";
 import { UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
@@ -121,7 +123,56 @@ describe("update API", () => {
         });
         expect(response.status).toBe(401);
       }
+      for (const method of ["GET", "POST"]) {
+        const response = await fetch(`http://localhost:${protectedServer.port}/api/herdr/update`, { method, headers: { "x-herdr-update": "1" } });
+        expect(response.status).toBe(401);
+      }
     } finally { protectedServer.stop(); rmSync(protectedState, { recursive: true, force: true }); }
+  });
+
+  it("offers no herdr update on a server started without the updater", async () => {
+    const response = await fetch(`${base()}/api/herdr/update`);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json() as HerdrUpdateStatus).toMatchObject({ supported: false, phase: "idle", output: null });
+    expect((await fetch(`${base()}/api/herdr/update`, { method: "POST" })).status).toBe(403);
+    const refused = await fetch(`${base()}/api/herdr/update`, { method: "POST", headers: { "x-herdr-update": "1" } });
+    expect(refused.status).toBe(409);
+    expect((await refused.json() as ApiError).error.code).toBe("herdr_update_unsupported");
+  });
+
+  it("updates herdr through the server and reports what herdr said", async () => {
+    // a stand-in: the real `herdr update` would replace the herdr on PATH and hand its server off
+    const state = mkdtempSync(join(tmpdir(), "herdr-update-api-"));
+    const standIn = join(state, "herdr");
+    writeFileSync(standIn, [
+      "#!/bin/sh",
+      `echo "$*" >> '${join(state, "calls")}'`,
+      'case "$1" in',
+      `  status) echo '{"client":{"version":"0.9.3","binary":"${standIn}"},"server":{"running":true,"version":"0.9.3","capabilities":{"live_handoff":true}},"update":{"server_binary_stale":false}}' ;;`,
+      "  update) echo 'already up to date (0.9.3)' >&2 ;;",
+      "  *) exit 2 ;;",
+      "esac",
+      "",
+    ].join("\n"));
+    chmodSync(standIn, 0o755);
+    const server = createServer({ port: 0, stateDir: state, token: "", herdrUpdate: new HerdrUpdater({ bin: standIn }) });
+    const url = `http://localhost:${server.port}/api/herdr/update`;
+    try {
+      expect(await (await fetch(url)).json() as HerdrUpdateStatus).toMatchObject({ supported: true, phase: "idle", server_version: "0.9.3", binary_version: "0.9.3", stale: false });
+      expect((await fetch(url, { method: "POST" })).status).toBe(403);
+      expect(existsSync(join(state, "calls")) ? readFileSync(join(state, "calls"), "utf8") : "").not.toContain("update --handoff");
+      const accepted = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
+      expect(accepted.status).toBe(202);
+      const deadline = Date.now() + 10_000;
+      let status = await (await fetch(url)).json() as HerdrUpdateStatus;
+      while (status.phase === "updating" || status.finished_at === null) {
+        if (Date.now() >= deadline) throw new Error("Timed out: the herdr update finished");
+        await Bun.sleep(20);
+        status = await (await fetch(url)).json() as HerdrUpdateStatus;
+      }
+      expect(status).toMatchObject({ phase: "idle", output: "already up to date (0.9.3)" });
+      expect(readFileSync(join(state, "calls"), "utf8")).toContain("update --handoff");
+    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
   });
 });
 

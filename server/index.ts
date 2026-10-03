@@ -57,6 +57,7 @@ import { mirrorInput } from "./mirror-input.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
+import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
 import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
@@ -244,6 +245,8 @@ export function createServer(
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
     updates?: UpdateService;
+    /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
+    herdrUpdate?: HerdrUpdater;
     /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
     usage?: UsageService;
     /** voice input's key, provider and models; tests pass one with their own env and fetch */
@@ -959,6 +962,7 @@ export function createServer(
       if (pathname === "/api/updates" || pathname.startsWith("/api/updates/")) {
         return handleUpdateRequest(request, pathname, options.updates);
       }
+      if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
       // a long clip can keep the provider silent past Bun's 10 s idle limit before the first line
@@ -1768,7 +1772,7 @@ export function createServer(
 }
 
 if (import.meta.main) {
-  const instance = createServer({ updates: connectUpdater(), registerBridge: true });
+  const instance = createServer({ updates: connectUpdater(), herdrUpdate: new HerdrUpdater(), registerBridge: true });
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;

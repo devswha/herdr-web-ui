@@ -751,9 +751,19 @@ export function PaneTerminal({
       shiftEnter = !term.options.disableStdin && key === "\r" && event.key === "Enter" && event.shiftKey
         && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing && event.keyCode !== 229;
     });
+    // Let xterm finish pending IME text before remapping the key's following data.
+    // Cmd+Backspace uses the terminal's Ctrl+U line-deletion shortcut on macOS.
+    let commandBackspace = false;
+    const onCommandBackspace = term.onKey(({ key, domEvent: event }) => {
+      commandBackspace = !term.options.disableStdin && isMac && key === "\x7f" && event.type === "keydown"
+        && event.key === "Backspace" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+        && !event.isComposing && event.keyCode !== 229;
+    });
     const onData = term.onData((data) => {
       if (shiftEnter && data === "\r") data = "\x1b\r";
       shiftEnter = false;
+      if (commandBackspace && data === "\x7f") data = "\x15";
+      commandBackspace = false;
       const current = paneRef.current;
       if (!current || observeRef.current || secretRef.current !== null || heldRef.current) return;
       let input = data;
@@ -941,6 +951,7 @@ export function PaneTerminal({
       window.removeEventListener("focus", refit);
       document.removeEventListener("visibilitychange", onVisible);
       onShiftEnter.dispose();
+      onCommandBackspace.dispose();
       onData.dispose();
       host.removeEventListener("paste", onFilePaste, { capture: true });
       host.removeEventListener("dragover", onDragOver);
@@ -1414,7 +1425,7 @@ export function PaneTerminal({
       )}
       {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
       {paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing} onKey={pressKey} ctrlArmed={ctrlArmed} onToggleCtrl={toggleCtrl}
-        directTyping={directTyping} onToggleDirect={toggleDirect} />}
+        {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>
   );
 }

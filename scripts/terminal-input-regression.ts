@@ -32,7 +32,13 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     });
   });
   const line = page.getByRole("textbox", { name: "Terminal input line", exact: true });
-  const direct = page.getByRole("button", { name: "Type straight into the terminal", exact: true });
+  // A desktop has no key bar: the input mode is a Settings choice there.
+  const setMode = async (mode: "line" | "direct") => {
+    await page.keyboard.press("Control+Shift+Comma");
+    await page.getByRole("combobox", { name: "Terminal input mode", exact: true }).selectOption(mode);
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  };
+  const remountLine = async () => { await setMode("direct"); await setMode("line"); };
   const until = async (check: () => boolean | Promise<boolean>) => {
     const deadline = Date.now() + 10_000;
     while (!(await check())) { assert(Date.now() < deadline, "input regression timed out"); await new Promise((r) => setTimeout(r, 25)); }
@@ -40,9 +46,10 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   try {
     await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+    assert.equal(await page.locator(".key-bar").isVisible(), false, "a desktop shows no key bar under the terminal");
+    assert.equal(await page.getByRole("button", { name: "Type straight into the terminal", exact: true }).count(), 0);
     await line.fill("draft 한글 😀");
-    await direct.click();
-    await direct.click();
+    await remountLine();
     assert.equal(await line.inputValue(), "draft 한글 😀");
     await page.reload();
     await line.waitFor();
@@ -58,16 +65,14 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
     await page.waitForTimeout(100);
     assert.equal(sent.length, 0, "unfinished composition must not submit via button");
-    // Leaving during composition must not leave the mode/key guard stuck.
+    // Leaving during composition must not leave the composition guard stuck.
     await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
-    await direct.click();
-    await direct.click();
+    await remountLine();
     await line.waitFor();
     await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
     await until(() => !!acknowledge);
-    await direct.click();
-    await direct.click();
+    await remountLine();
     assert.equal(await page.getByRole("button", { name: "Send to the terminal", exact: true }).isDisabled(), true, "pending send survives remount");
     await line.fill("");
     await line.fill("draft 한글 😀");
@@ -112,7 +117,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
 
     // A screen can arrive before attachment readiness; do not send or auto-replay typing.
     delayReady = true;
-    await direct.click();
+    await setMode("direct");
     await page.reload();
     await page.locator(".xterm-helper-textarea").waitFor();
     await until(() => !!ready);
