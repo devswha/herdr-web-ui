@@ -173,7 +173,13 @@ main() {
     tries=0
     until bun "$root/scripts/plugin.ts" status </dev/null | grep -q '^running'; do
       tries=$((tries + 1))
-      [ "$tries" -lt 25 ] || { say "did not start within 25 s; see: herdr plugin log list"; break; }
+      [ "$tries" -lt 25 ] || {
+        say "did not start within 25 s; see: herdr plugin log list"
+        # the start ran inside herdr, so what it said is in herdr's plugin log, not on this terminal
+        # shellcheck disable=SC2016 # JavaScript, not shell
+        herdr plugin log list 2>/dev/null </dev/null | bun -e 'const logs = JSON.parse(await Bun.stdin.text()).result.logs.filter((log) => log.plugin_id === process.argv[1] && log.stderr); if (logs.length > 0) console.error(logs.at(-1).stderr.trim())' "$PLUGIN" || true
+        break
+      }
       sleep 1
     done
   else

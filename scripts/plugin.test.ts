@@ -20,7 +20,7 @@ async function status(): Promise<{ out: string; err: string; exitCode: number }>
 async function run(command: string): Promise<{ out: string; err: string; exitCode: number }> {
   const bin = join(scratch, "bin");
   const env: Record<string, string | undefined> = { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}`, HOME: scratch, HERDR_PLUGIN_STATE_DIR: join(scratch, "state") };
-  for (const key of ["HERDR_PLUGIN_CONFIG_DIR", "PORT", "HOST", "HERDR_WEB_TOKEN"]) delete env[key];
+  for (const key of ["HERDR_PLUGIN_CONFIG_DIR", "PORT", "HOST", "HERDR_WEB_TOKEN", "HERDR_WEB_STATE_DIR", "XDG_CONFIG_HOME"]) delete env[key];
   const child = Bun.spawn(["bun", "scripts/plugin.ts", command], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
   const [out, err, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { out, err, exitCode };
@@ -67,6 +67,67 @@ describe("plugin settings files", () => {
   it("says where settings go when there are none", async () => {
     const run = await status();
     expect(run.out).toContain(`config: none (settings go in ${join(scratch, ".config", "herdr-web-ui", "env")})`);
+  });
+});
+
+describe("port", () => {
+  const keep = (port: number) => {
+    mkdirSync(join(scratch, ".config", "herdr-web-ui"), { recursive: true });
+    writeFileSync(join(scratch, ".config", "herdr-web-ui", "plugin-port"), `${port}\n`);
+  };
+
+  it("reports the port an earlier start fell back to", async () => {
+    keep(3);
+    expect((await status()).out).toContain("down http://127.0.0.1:3");
+  });
+
+  it("lets a PORT the user set win over the kept one", async () => {
+    keep(3);
+    writeFileSync(join(configDir, ".env"), "PORT=1\n");
+    expect((await status()).out).toContain("down http://127.0.0.1:1");
+  });
+
+  it("does not start on another port when the PORT the user set cannot be opened, and says so", async () => {
+    // holds the port without answering as the app would
+    const holder = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null, { status: 404 }) });
+    try {
+      writeFileSync(join(configDir, ".env"), `PORT=${holder.port}\n`);
+      const started = await run("start");
+      expect(started.exitCode).toBe(1);
+      expect(started.err).toContain(`port ${holder.port} on 127.0.0.1 cannot be opened`);
+      expect(started.err).toContain(`Set another PORT in ${join(configDir, ".env")}`);
+      expect(readFileSync(join(scratch, "state", "server.log"), "utf8")).toContain(`start: port ${holder.port} on 127.0.0.1 cannot be opened`);
+      expect(existsSync(join(scratch, "state", "server.pid"))).toBe(false);
+      expect(existsSync(join(scratch, ".config", "herdr-web-ui", "plugin-port"))).toBe(false);
+    } finally { await holder.stop(true); }
+  });
+
+  it("does not take another program's 200 on the port for the app", async () => {
+    const stranger = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("<html>not us</html>", { headers: { "content-type": "text/html" } }) });
+    try {
+      writeFileSync(join(configDir, ".env"), `PORT=${stranger.port}\n`);
+      const started = await run("start");
+      expect(started.out).not.toContain("already running");
+      expect(started.exitCode).toBe(1);
+      expect(started.err).toContain(`port ${stranger.port} on 127.0.0.1 cannot be opened`);
+    } finally { await stranger.stop(true); }
+  });
+
+  it("follows a start that is coming up on another port instead of opening a second server", async () => {
+    // the app answers on the port the other start fell back to
+    const ours = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) });
+    // the kept port is held by someone else; its first health probe is the moment the other start writes its choice
+    const stranger = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { keep(ours.port!); return new Response(null, { status: 404 }); } });
+    try {
+      keep(stranger.port!);
+      mkdirSync(join(scratch, "state"), { recursive: true });
+      writeFileSync(join(scratch, "state", "server.pid"), `${process.pid}\n`); // the other start's record, alive
+      const started = await run("start");
+      expect(started.out).toContain(`already running at http://127.0.0.1:${ours.port}`);
+      expect(started.exitCode).toBe(0);
+      expect(readFileSync(join(scratch, "state", "server.pid"), "utf8")).toBe(`${process.pid}\n`);
+      expect(readFileSync(join(scratch, ".config", "herdr-web-ui", "plugin-port"), "utf8")).toBe(`${ours.port}\n`);
+    } finally { await Promise.all([ours.stop(true), stranger.stop(true)]); }
   });
 });
 

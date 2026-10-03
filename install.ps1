@@ -100,7 +100,16 @@ if ($server.running) {
         if ($status -match '^running ') { $ready = $true; break }
         Start-Sleep -Seconds 1
     }
-    if (-not $ready) { throw 'The app did not start within 25 seconds. See: herdr plugin log list' }
+    if (-not $ready) {
+        # The start ran inside herdr, so what it said is in herdr's plugin log, not on this terminal.
+        $why = ''
+        try {
+            $failed = (& herdr plugin log list | ConvertFrom-Json).result.logs |
+                Where-Object { $_.plugin_id -eq $pluginId -and $_.stderr } | Select-Object -Last 1
+            if ($failed) { $why = "`n" + $failed.stderr.Trim() }
+        } catch { $why = '' } # the reason is a help, not a step: without it the pointer below still stands
+        throw "The app did not start within 25 seconds.$why`nSee: herdr plugin log list"
+    }
     Write-Host ($status | Where-Object { $_ -match '^running ' })
 } else { Write-Host 'herdr web ui: starts with herdr. Open a new terminal and run: herdr' }
 Write-Host 'herdr web ui: open Phone setup in herdr for phone access.'
