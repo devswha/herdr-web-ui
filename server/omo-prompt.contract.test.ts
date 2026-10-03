@@ -58,6 +58,8 @@ process.stdin.on("data", (chunk) => {
   } else if (tab === questions.length && data.includes("\\r")) appendFileSync(out, "submitted\\n");
   draw();
 });
+// earlier output in the pane's history, for its viewport to scroll back to
+process.stdout.write(" earlier output\\r\\n".repeat(80));
 draw();
 writeFileSync(out, "");
 `;
@@ -111,6 +113,10 @@ describe("answers to omo's form of several questions", () => {
     expect(prompt).toMatchObject({ title: "Question 1 of 2", steps: [{ label: "표시 위치", answered: false, current: true }, { label: "월 한도", answered: false, current: false }] });
     expect(prompt!.options.map((option) => option.label)).toEqual(["설정", "사이드바"]);
     expect((await answer(prompt!.id, 1)).status).toBe(200);
+
+    // the pane's viewport scrolled up into its history, a whole screen: the form is out of view
+    const { pane: { scroll } } = await herdrRpc<{ pane: { scroll: { offset_from_bottom: number; viewport_rows: number } } }>("pane.scroll", { pane_id: pane, offset_from_bottom: 60 });
+    expect(scroll.offset_from_bottom).toBeGreaterThanOrEqual(scroll.viewport_rows);
 
     // the answer's 200 comes once the next question shows: read at once, it is that one
     const second = await card();

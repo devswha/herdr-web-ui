@@ -16,10 +16,10 @@ export type Density = "compact" | "comfortable";
 export type SidebarGrouping = "workspace" | "directory";
 /** what the plan meters count: the share of a limit used, or what is left of it */
 export type UsageCount = "used" | "left";
+/** the limit a plan meter shows: the plan's week, or its short session (5 hours on Claude and Codex) */
+export type UsageGlance = "week" | "session";
 /** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark */
 export type Palette = "amber" | "report" | "charcoal";
-/** where the plan meters sit: chips beside Settings, or a panel at the top of the sidebar */
-export type UsagePlacement = "footer" | "top";
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -69,10 +69,10 @@ export interface Settings {
   /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
   showUsage: boolean;
   usageCount: UsageCount;
-  usagePlacement: UsagePlacement;
+  usageGlance: UsageGlance;
   /** every pane's lens until switched in that pane; changing it puts every pane back on it */
   defaultView: DefaultView;
-  /** the plan meters' order by ProviderUsage.key; accounts not in it follow, the one nearest a limit first */
+  /** the plan meters' order by ProviderUsage.key; accounts not in it follow as the server lists them */
   usageOrder: string[];
   /** accounts left out of the plan meters, strip and popover alike, by ProviderUsage.key */
   usageHidden: string[];
@@ -108,7 +108,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showSuggestionChip: false,
   showUsage: false,
   usageCount: "used",
-  usagePlacement: "footer",
+  usageGlance: "week",
   defaultView: "auto",
   usageOrder: [],
   usageHidden: [],
@@ -197,7 +197,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     showSuggestionChip: typeof record["showSuggestionChip"] === "boolean" ? record["showSuggestionChip"] : DEFAULT_SETTINGS.showSuggestionChip,
     showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
     usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
-    usagePlacement: record["usagePlacement"] === "top" || record["usagePlacement"] === "footer" ? record["usagePlacement"] : DEFAULT_SETTINGS.usagePlacement,
+    usageGlance: record["usageGlance"] === "week" || record["usageGlance"] === "session" ? record["usageGlance"] : DEFAULT_SETTINGS.usageGlance,
     defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
     usageOrder: usageKeys(record["usageOrder"]),
     usageHidden: usageKeys(record["usageHidden"]),

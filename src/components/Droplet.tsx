@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { flickVelocity, onDroplet, type PressSample, type QueuedDroplet } from "../lib/droplet.ts";
 import { useT } from "../lib/i18n.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import "./Droplet.css";
 
 /**
- * The in-app alert (lib/droplet.ts): a drop falls from the top edge and spreads into a card,
- * like the iPhone's Dynamic Island. It hangs from the safe area's top, so a phone with an
- * island, one with a notch, and a desktop window all take the same path: no device is
- * guessed. One shows at a time; a newer one folds the current one away and takes its place.
+ * The in-app alert (lib/droplet.ts): a pill appears and spreads into a card,
+ * below the native safe area and app header, without imitating the physical camera cutout.
+ * One shows at a time; a newer one folds the current one away and takes its place.
  * A tap opens the pane, a flick up puts it away, and it leaves by itself after a while.
  */
 
@@ -35,6 +34,10 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
   const [current, setCurrent] = useState<QueuedDroplet | null>(null);
   const [phase, setPhase] = useState<Phase>("in");
   const [drag, setDrag] = useState(0);
+  const [top, setTop] = useState<number | null>(null);
+  const [fit, setFit] = useState<number | null>(null);
+  const probe = useRef<HTMLDivElement | null>(null);
+  const card = useRef<HTMLButtonElement | null>(null);
   const pending = useRef<QueuedDroplet | null>(null);
   const currentRef = useRef(current); currentRef.current = current;
   const phaseRef = useRef(phase); phaseRef.current = phase;
@@ -43,6 +46,35 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
   // a press that dragged ends in a click on a mouse: that click is not a tap
   const dragged = useRef(false);
   const press = useRef<{ id: number; y: number; samples: PressSample[]; moved: boolean } | null>(null);
+
+  useLayoutEffect(() => {
+    const header = document.querySelector<HTMLElement>(".app-header");
+    const measure = () => {
+      const safeTop = Number.parseFloat(getComputedStyle(probe.current!).paddingTop) || 0;
+      setTop(Math.max(safeTop, header?.getBoundingClientRect().bottom ?? 0) + 12);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (header) observer.observe(header);
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  // the phone layout's card is as wide as its text: the shape under it takes that width
+  useLayoutEffect(() => {
+    const element = card.current;
+    if (!element) return;
+    const measure = () => setFit(Math.ceil(element.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [current]);
 
   const clearHold = () => {
     if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
@@ -125,11 +157,12 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
     hold(DROPLET_HOLD_MS);
   };
 
-  if (!current) return null;
+  if (!current) return <div ref={probe} className="droplet-probe" aria-hidden="true" />;
   const what = t(current.kind === "blocked" ? "Needs input" : current.kind === "done" ? "Finished" : "terminal ended");
   const detail = current.machine ? `${current.machine} · ${what}` : what;
   return (
-    <div className="droplet" role="status" aria-live="polite" data-phase={phase} data-kind={current.kind} data-dragging={drag !== 0 ? "" : undefined} style={{ "--droplet-drag": `${drag}px` } as CSSProperties} key={current.id}>
+    <div className="droplet" role="status" aria-live="polite" data-phase={phase} data-kind={current.kind} data-dragging={drag !== 0 ? "" : undefined} style={{ "--droplet-drag": `${drag}px`, "--droplet-top": `${top ?? 12}px`, ...(fit === null ? {} : { "--droplet-fit": `${fit}px` }), visibility: top === null ? "hidden" : "visible" } as CSSProperties} key={current.id}>
+      <div ref={probe} className="droplet-probe" aria-hidden="true" />
       <svg className="droplet-defs" width="0" height="0" aria-hidden="true" focusable="false">
         <filter id="droplet-goo" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
           <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blur" />
@@ -138,11 +171,11 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
         </filter>
       </svg>
       <div className="droplet-goo" aria-hidden="true">
-        <span className="droplet-anchor" />
         <span className="droplet-blob" />
       </div>
       <button
         type="button"
+        ref={card}
         className="droplet-card"
         aria-label={`${current.title}, ${detail}. ${t("Open pane")}`}
         onClick={() => {

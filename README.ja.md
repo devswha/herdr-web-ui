@@ -116,7 +116,7 @@ herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を�
 
 ## エージェント向けの手順
 
-アプリのインストールを支援する場合は、[INSTALL.md](INSTALL.md) に従ってください。リポジトリを変更する場合は、[CONTRIBUTING.md](CONTRIBUTING.md) とリポジトリ内の[レビュールール](.github/REVIEW.md)に従い、ローカルの `AGENTS.md` があればその指示にも従ってください。
+アプリのインストールを支援する場合は、[INSTALL.md](INSTALL.md) に従ってください。リポジトリを変更する場合は、[CONTRIBUTING.md](CONTRIBUTING.md)、[レビュールール](.github/REVIEW.md)、[AGENTS.md](AGENTS.md) に従ってください。
 
 <a id="development"></a>
 

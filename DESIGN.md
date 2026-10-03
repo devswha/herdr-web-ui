@@ -52,9 +52,6 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Done/tint | `--status-done-tint` | `rgba(147, 195, 107, 0.14)` | `rgba(47, 99, 23, 0.12)` |
 | Danger/tint | `--danger-tint` | `rgba(255, 123, 112, 0.12)` | `rgba(168, 35, 35, 0.1)` |
 | Danger/text | `--danger-text` | `#ffd9d4` | `#8f1d1d` |
-| Meter/plenty | `--meter-ok` | `var(--status-done)` | `var(--status-done)` |
-| Meter/getting low | `--meter-mid` | `#e2b93b` | `#865900` |
-| Meter/low | `--meter-low` | `var(--status-blocked)` | `var(--status-blocked)` |
 | Overlay/scrim | `--scrim` | `rgba(8, 6, 4, 0.55)` | `rgba(40, 32, 22, 0.35)` |
 | Drawer shadow | `--shadow-drawer` | `0 0 40px rgba(0, 0, 0, 0.6)` | `0 0 40px rgba(40, 32, 22, 0.22)` |
 | Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
@@ -357,8 +354,8 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Plan meters (`.usage*`)
 - Beside Settings, one button holding up to four chips (three and `+N` past that), one per
-  account in the user's order: provider mark, mono `--fs-2xs` percent of the limit closest to
-  running out (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
+  account in the user's order: provider mark, mono `--fs-2xs` percent of the limit chosen in
+  Settings, the plan's week or its session (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
   filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
   chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
@@ -366,11 +363,6 @@ One set for both themes: the card is island black wherever it shows.
   footer and scrolling when it outgrows the sidebar: per account its mark, name and plan pill with
   the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
   note is dim, red for an expired sign-in or a failed request.
-- At the top of the sidebar (Settings → Where), a panel with one row per account: mark, provider
-  and plan (the account only when two of one provider show), a 5px bar, the limit's window and its
-  reset as `1d 3h (10/4 15:00)` (time left in short units, then the local date and time), and the
-  percent large (`--fs-xl`) as tall as those three lines. The bar is coloured by what is left:
-  `--meter-ok` from half, `--meter-mid` from a fifth, `--meter-low` under it (the percent too).
 
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
@@ -425,6 +417,9 @@ One set for both themes: the card is island black wherever it shows.
 - The branch arrives filled in as herdr's own form fills it (`worktree/brave-valley-07f8`:
   adjective, noun, four hex digits) and selected, so typing replaces it. The name is the branch
   with its slashes as dashes and follows the branch until it is typed over.
+- **Agent** is the New workspace dialog's picker, under the name: the agent last started, Shell
+  for none. It starts in the checkout's pane once the checkout is made. One that fails to start
+  leaves the worktree there: the dialog says why, locks its fields, and its button reads **Open**.
 
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills
@@ -515,9 +510,9 @@ One set for both themes: the card is island black wherever it shows.
   setup dialog and closes Settings behind it; when that dialog closes, focus lands on the header's
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
-- Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
-  hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--bg-elevated` header
-  with **Nearest limit first** at its right once the user has ordered, then one 38px row per account
+- Subscription usage: the on switch with one description, then (when on) Used / Remaining,
+  Weekly / Session and one hairline card of accounts (`.usage-accounts`, `--radius-md`): an
+  uppercase `--bg-elevated` header, then one 38px row per account
   (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
   a move that cannot happen keeps its column but is not shown). A hidden account's row fades and
   its eye closes; it stays listed so it can be shown again.
@@ -534,6 +529,9 @@ One set for both themes: the card is island black wherever it shows.
   choice) or ends drops a card from the top edge: a black drop falls from above the safe area,
   spreads into the card, and its text shows. It hangs from `env(safe-area-inset-top)` only, so a
   Dynamic Island, a notch and a desktop window take the same path; no device is guessed.
+- In the phone layout (768px and under) the card is one line, 44px high and as wide as its text
+  (340px at most): the pane's name, then what happened. A long name is cut short, what happened is
+  not, and the dot is left out. Wider than that it is the two-line card, 64px high.
 - One at a time; a newer one folds the current one away first. Tap opens the pane; a drag or flick
   up puts it away; it leaves by itself 3.6s after its text shows, and waits while touched.
 - Not for the pane already open, and not while the app is hidden (system notifications cover that).

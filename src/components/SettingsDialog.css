@@ -279,19 +279,6 @@
   text-transform: uppercase;
 }
 
-.usage-accounts-reset {
-  padding: 2px var(--space-1);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
-  letter-spacing: normal;
-  text-transform: none;
-  cursor: pointer;
-}
-
 .usage-accounts ol {
   margin: 0;
   padding: 0;
@@ -349,12 +336,6 @@
 /* a hidden account stays in the list, faded, so it can be shown again */
 .usage-accounts-row.is-hidden > :not(.usage-accounts-actions) {
   opacity: 0.45;
-}
-
-@media (hover: hover) {
-  .usage-accounts-reset:hover {
-    background: var(--bg-hover);
-  }
 }
 
 @media (pointer: fine) {

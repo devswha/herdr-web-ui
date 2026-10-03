@@ -7,6 +7,8 @@ import { HERDR_SOCKET_PATH } from "../shared/protocol.ts";
 
 let directory: string, upstream: string, root: string, stateDir: string;
 let updater: Updater;
+/** every install step the updater published, in order, repeats left out */
+let steps: Array<string | null>;
 const git = (cwd: string, ...args: string[]) => runCommand(cwd, ["git", ...args]);
 async function commit(contents: string, failBuild = false) {
   writeFileSync(join(upstream, "build-fixture.ts"), failBuild ? "throw new Error('fixture build failure');" :
@@ -36,7 +38,9 @@ beforeEach(async () => {
   await runCommand(upstream, [process.execPath, "install"]);
   await commit("first");
   await git(directory, "clone", "-q", upstream, root);
-  updater = new Updater({ root, stateDir, autoUpdate: false, publish() {}, activate: async (_next, persist) => persist() });
+  steps = [];
+  updater = new Updater({ root, stateDir, autoUpdate: false, activate: async (_next, persist) => persist(),
+    publish(status) { const step = status.step ?? null; if (steps.at(-1) !== step) steps.push(step); } });
   await updater.initialize();
 });
 
@@ -105,8 +109,10 @@ describe("managed source updates with real Git repositories and builds", () => {
     expect(updater.status.available).toBe(true);
     expect(updater.status.current_revision).toBe(original);
     expect(readdirSync(stateDir).filter(name => name.startsWith("release-"))).toHaveLength(0);
+    expect(steps).toEqual([null]);
     await updater.request("install");
     expect(updater.status.error).toBeNull();
+    expect(steps).toEqual([null, "download", "dependencies", "typecheck", "build", "restart", null]);
     expect(updater.status.current_revision).toBe(target);
     expect(readFileSync(join(updater.release!.directory, "dist/index.html"), "utf8")).toBe("second");
     expect(await git(root, "rev-parse", "HEAD")).toBe(original);
@@ -217,6 +223,8 @@ describe("managed source updates with real Git repositories and builds", () => {
     await updater.request("install");
     expect(updater.status.phase).toBe("error");
     expect(updater.status.error).toContain("fixture build failure");
+    // the failed step is not left standing as if it still ran
+    expect(steps).toEqual([null, "download", "dependencies", "typecheck", "build", null]);
     expect(updater.release).toBe(original);
     expect(readdirSync(stateDir).filter(name => name.startsWith("release-"))).toHaveLength(0);
   });

@@ -7,7 +7,57 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- `HERDR_WEB_PASTE_DIR` saves pasted and attached files to one directory instead of
+  `.herdr-web-ui/` in each pane's project. It is read by the server, for the panes of its own
+  PC; a remote PC keeps the default.
+  ([#357](https://github.com/devswha/herdr-web-ui/pull/357) by @hank-warren)
+
+## [0.3.48] - 2026-10-04
+
+### Added
+- **New worktree** has an **Agent** picker, as New workspace does: the agent you choose starts in
+  the new checkout, and Shell starts none. It opens on the agent you last started. An agent that
+  cannot start leaves the worktree there, with the reason and an **Open** button. Remote PCs
+  start the agent with their next bridge update; until then they make the worktree with a shell.
+  ([#401](https://github.com/devswha/herdr-web-ui/pull/401))
+
+### Changed
+- A new release is installed from the line that announces it: **Update** starts the install
+  there, in place of **View update** and a second button in Settings. The line then shows the
+  install's step and a bar (downloading, installing dependencies, checking, building,
+  restarting), as Settings → Updates does, and ends on **Reload app**. An install that fails
+  offers **Try again** and **Details**.
+  ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
+- On a phone the in-app alert is one line, as wide as its text: the pane's name, then what
+  happened. It was a two-line card across the screen, over the top of the conversation.
+  ([#406](https://github.com/devswha/herdr-web-ui/pull/406))
+- A plan meter beside Settings shows the limit you choose, not the one closest to running out:
+  **Settings → Subscription usage → Limit shown** is **Weekly** (the default) or **Session**, the
+  short limit that is 5 hours on Claude and Codex. Every account shows that limit, so the numbers
+  compare; a plan without it shows its nearest limit as before. Accounts you have not arranged
+  keep the order the server lists them in instead of moving as their usage does, and **Nearest
+  limit first** is gone with that sorting.
+  ([#408](https://github.com/devswha/herdr-web-ui/pull/408), [#343](https://github.com/devswha/herdr-web-ui/pull/343) by @Haeminway1)
+- The plan meters no longer have a place at the top of the sidebar. **Settings → Subscription
+  usage → Where** is gone and the meters stay beside Settings, where a tap still lists every
+  limit with its reset time. A device that had chosen the top goes back to the chips.
+  ([#407](https://github.com/devswha/herdr-web-ui/pull/407))
+
 ### Fixed
+- On an iPhone the image viewer's controls and the composer stay inside the usable screen: the
+  viewer is bounded by the safe-area insets and the keyboard's height, the keyboard is told from
+  the viewport's geometry rather than from focus alone, and in-app alerts stay below the header.
+  ([#400](https://github.com/devswha/herdr-web-ui/pull/400) by @Haeminway1)
+- A Linux or macOS PC whose herdr was lost to a restart or a kill connects again. herdr leaves
+  its socket file behind, the bridge took that file for a running herdr and did not start, and
+  **Update** ended in "Bridge did not start" each time. The bridge now starts herdr when nothing
+  listens on that socket. PCs get this with their next bridge update.
+  ([#405](https://github.com/devswha/herdr-web-ui/pull/405))
+- The Windows installer tries herdr's download once more when it fails, and says so when it fails
+  again: herdr's installer gives up on a connection that stays under 1 KB/s for 30 seconds, and
+  the install ended there with a message about security software.
+  ([#403](https://github.com/devswha/herdr-web-ui/pull/403))
 - Claude conversations on Linux can be read without the Herdr integration hook when Claude's
   native PID record identifies the live interactive session. Reused PIDs, invalid records and
   multiple Claude processes stay unresolved instead of selecting a same-directory conversation.
@@ -18,6 +68,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Reading a Codex conversation on a phone no longer scrolls the same idle agent's
   terminal on the desktop as the conversation refreshes.
   ([#393](https://github.com/devswha/herdr-web-ui/pull/393) by @JJLiebig)
+- A question card is read from the bottom of the pane even when its terminal was scrolled up
+  into its history. A scrolled omo or pi pane showed every later question as the last-resort card
+  with only Enter and Esc, since the menu drawn at the bottom was out of the scrolled view.
+  ([#402](https://github.com/devswha/herdr-web-ui/pull/402) by @nahwan-kim)
+- The line saying a PC needs a bridge update (or setup approval) to reconnect can be closed. A PC
+  whose bridge could not be updated kept it open on every screen, which on a phone took a row
+  for good. The PC's row in the sidebar still says what it needs, and the line returns the next
+  time that PC needs something after having connected.
+  ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
 
 ## [0.3.47] - 2026-10-03
 
@@ -1616,7 +1675,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.48...HEAD
+[0.3.48]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...v0.3.47
 [0.3.46]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...v0.3.46
 [0.3.45]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...v0.3.45

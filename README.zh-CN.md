@@ -112,7 +112,7 @@ herdr plugin install devswha/herdr-web-ui
 
 ## 智能体操作指南
 
-正在协助他人安装应用？请遵循 [INSTALL.md](INSTALL.md)。修改仓库时，请遵循 [CONTRIBUTING.md](CONTRIBUTING.md) 和仓库中的[审查规则](.github/REVIEW.md)，以及本地 `AGENTS.md` 中的说明（如有）。
+正在协助他人安装应用？请遵循 [INSTALL.md](INSTALL.md)。修改仓库时，请遵循 [CONTRIBUTING.md](CONTRIBUTING.md)、[审查规则](.github/REVIEW.md)和 [AGENTS.md](AGENTS.md)。
 
 ## 开发
 
