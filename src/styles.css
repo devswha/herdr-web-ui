@@ -6,8 +6,8 @@
  * `[data-theme="light"]` overrides the color group only (src/lib/settings.ts sets
  * the attribute); `[data-density="compact"]` overrides the type scale and row
  * heights. The base blocks are the amber palette, the default and the look before
- * settings load; `[data-palette]` blocks override them for the opt-in report and
- * charcoal palettes. xterm cannot read CSS custom properties, so the --term-* group
+ * settings load; `[data-palette]` blocks override them for the opt-in report,
+ * charcoal and catppuccin palettes. xterm cannot read CSS custom properties, so the --term-* group
  * is mirrored in settings.ts `terminalTheme()`.
  * Component-scoped rules live beside their component (Sidebar.css,
  * PaneTerminal.css, ...); this file owns the app shell, the header and the
@@ -306,6 +306,86 @@
   --term-selection: #dedad3;
 }
 
+/* Catppuccin (catppuccin.com/palette): Mocha in dark, Latte in light, mapped by the
+   Catppuccin style guide and its Zed port's surfaces - the content (chat canvas, terminal)
+   on Base, the chrome (sidebar, header, tabs) and popovers on Mantle, dimmed text in
+   Subtext1, a Surface0 hover in Mocha and a Crust one in Latte (the darkest Subtext1 stays
+   AA on). Surface borders, Mauve for the accent, Blue/Maroon/Green for working/input/done,
+   a Rosewater cursor and the style guide's Overlay2-at-25% selection. Mocha uses palette
+   colors; only the primary hover (Mauve lightened) and the tints are derived. Maroon, not
+   Red, keeps input readable on a hovered row. Latte's accents sit under 4.5:1 on its own
+   surfaces, so the style guide's "legibility first" applies: each keeps its hue and is
+   darkened until it passes AA (Mauve 17%, Red 18%, Blue 22%, Green 37%). */
+[data-theme="dark"][data-palette="catppuccin"] {
+  --bg: #1e1e2e;
+  --bg-panel: #181825;
+  --bg-elevated: #181825;
+  --bg-hover: #313244;
+  --bg-input: #11111b;
+  --border: #313244;
+  --border-strong: #45475a;
+  --text: #cdd6f4;
+  --text-dim: #bac2de;
+  --text-strong: #cdd6f4;
+  --accent: #cba6f7;
+  --accent-tint: rgba(203, 166, 247, 0.12);
+  --primary: #cba6f7;
+  --primary-hover: #d3b3f8;
+  --primary-text: #11111b;
+  --primary-tint: rgba(203, 166, 247, 0.16);
+  --status-idle: #a6adc8;
+  --status-working: #89b4fa;
+  --status-blocked: #eba0ac;
+  --status-done: #a6e3a1;
+  --status-working-tint: rgba(137, 180, 250, 0.14);
+  --status-blocked-tint: rgba(235, 160, 172, 0.14);
+  --status-done-tint: rgba(166, 227, 161, 0.14);
+  --danger-tint: rgba(235, 160, 172, 0.12);
+  --danger-text: #f2cdcd;
+  --scrim: rgba(17, 17, 27, 0.6);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --term-bg: #1e1e2e;
+  --term-fg: #cdd6f4;
+  --term-cursor: #f5e0dc;
+  --term-selection: #3b3d4f;
+}
+
+[data-theme="light"][data-palette="catppuccin"] {
+  --bg: #eff1f5;
+  --bg-panel: #e6e9ef;
+  --bg-elevated: #e6e9ef;
+  --bg-hover: #dce0e8;
+  --bg-input: #eff1f5;
+  --border: #ccd0da;
+  --border-strong: #bcc0cc;
+  --text: #4c4f69;
+  --text-dim: #5c5f77;
+  --text-strong: #4c4f69;
+  --accent: #712fc6;
+  --accent-tint: rgba(113, 47, 198, 0.1);
+  --primary: #712fc6;
+  --primary-hover: #8839ef;
+  --primary-text: #eff1f5;
+  --primary-tint: rgba(113, 47, 198, 0.14);
+  --status-idle: #5c5f77;
+  --status-working: #1750bf;
+  --status-blocked: #ac0c2f;
+  --status-done: #28651b;
+  --status-working-tint: rgba(23, 80, 191, 0.12);
+  --status-blocked-tint: rgba(172, 12, 47, 0.12);
+  --status-done-tint: rgba(40, 101, 27, 0.12);
+  --danger-tint: rgba(172, 12, 47, 0.1);
+  --danger-text: #ac0c2f;
+  --scrim: rgba(76, 79, 105, 0.35);
+  --shadow-drawer: 0 0 40px rgba(76, 79, 105, 0.22);
+  --shadow-pop: 0 16px 48px rgba(76, 79, 105, 0.16), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(76, 79, 105, 0.07);
+  --term-bg: #eff1f5;
+  --term-fg: #4c4f69;
+  --term-cursor: #dc8a78;
+  --term-selection: #d2d4dc;
+}
+
 [data-density="compact"] {
   --fs-2xs: 10px;
   --fs-xs: 11px;
@@ -445,7 +525,9 @@ button {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg-panel);
+  /* the terminal's own colour, not the panel's: a palette may set the two apart (catppuccin),
+     and the rows the grid leaves over must not show as a band of another colour */
+  background: var(--term-bg);
   padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 

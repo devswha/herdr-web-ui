@@ -17,6 +17,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   `ANTIGRAVITY_APP_DATA_DIR`). When a keychain item and the file both exist, the later-expiring
   one is used, as the Claude meter already does.
   ([#399](https://github.com/devswha/herdr-web-ui/pull/399) by @diogo7dias)
+- **Settings → Appearance → Colors → Catppuccin**: the [Catppuccin](https://catppuccin.com/palette/) palette,
+  Mocha in dark and Latte in light, laid out as Catppuccin's Zed theme does. Latte's accent and
+  agent-state colors are darkened just enough to stay readable on its light surfaces.
+  ([#414](https://github.com/devswha/herdr-web-ui/pull/414) by @aNNdii)
 
 ### Fixed
 - On an Android phone, dragging down at the top of a chat no longer reloads the app. The drag
