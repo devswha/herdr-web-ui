@@ -449,8 +449,10 @@
 
   /* no hover on touch: the grip stays, quiet, and the row actions are always there */
   .sidebar-drag-handle,
-  .pane-actions,
+  .pane-actions {
+    opacity: 1;
   }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .workspace,

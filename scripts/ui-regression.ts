@@ -651,6 +651,11 @@ try {
   assert.equal(await tabDialog.getByRole("button", { name: "Start session", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");
   await tabDialog.waitFor({ state: "hidden" });
+  // the PC's + is New session again, not a tab in the workspace the last dialog was for
+  await page.getByRole("button", { name: /^New session on / }).click();
+  await page.getByRole("dialog", { name: /^New session/ }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog", { name: /^New session/ }).waitFor({ state: "hidden" });
   await herdrRpc("pane.close", { pane_id: createdTab.pane_id });
   await strip.waitFor({ state: "detached" });
   console.log("PASS a second tab is made from the row's menu, listed in a strip over the pane, and opened from it");

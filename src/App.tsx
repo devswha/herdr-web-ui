@@ -564,13 +564,15 @@ export function App() {
       openNewTab: (target) => {
         const machineId = target?.machineId ?? selectionRef.current.machineId;
         const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
-        const workspaceId = target?.workspaceId ?? roster?.panes.find((pane) => pane.pane_id === selectionRef.current.paneId)?.workspace_id;
+        // pane ids repeat across PCs: the selected pane counts only on the PC the tab is for
+        const selectedPaneId = selectionRef.current.machineId === machineId ? selectionRef.current.paneId : null;
+        const workspaceId = target?.workspaceId ?? roster?.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
         const workspace = roster?.workspaces.find((candidate) => candidate.workspace_id === workspaceId);
         if (!roster || !workspace) return;
         // the tab's folder is the workspace's: a worktree's checkout, else where the pane in
         // front (the selected one, else the one herdr has in front, else the first) is
         const panes = roster.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
-        const inFront = panes.find((pane) => pane.pane_id === selectionRef.current.paneId)
+        const inFront = panes.find((pane) => pane.pane_id === selectedPaneId)
           ?? panes.find((pane) => pane.pane_id === roster.layouts?.find((layout) => layout.tab_id === workspace.active_tab_id)?.focused_pane_id)
           ?? panes[0];
         setDrawerOpen(false);
@@ -740,7 +742,7 @@ export function App() {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
         </aside>
 
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
