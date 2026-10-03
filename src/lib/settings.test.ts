@@ -272,14 +272,6 @@ describe("agent marks", () => {
   });
 });
 
-describe("plan meter placement", () => {
-  it("sits beside Settings until the top of the list is chosen", () => {
-    expect(DEFAULT_SETTINGS.usagePlacement).toBe("footer");
-    expect(sanitizeSettings({ usagePlacement: "top" }).usagePlacement).toBe("top");
-    expect(sanitizeSettings({ usagePlacement: "left" }).usagePlacement).toBe("footer");
-  });
-});
-
 it("sanitizes input modes and shortcut overrides without accepting arbitrary commands", () => {
   expect(sanitizeSettings({ terminalInputMode: "bad" }).terminalInputMode).toBe("auto");
   expect(sanitizeSettings({ terminalInputMode: "line" }).terminalInputMode).toBe("line");

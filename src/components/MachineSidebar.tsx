@@ -8,7 +8,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { NeedsInput } from "./NeedsInput.tsx";
-import { UsageMeters, UsagePanel } from "./UsageMeters.tsx";
+import { UsageMeters } from "./UsageMeters.tsx";
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
 
@@ -30,7 +30,6 @@ export function MachineSidebar(props: Props) {
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
   // no top bar: a workspace starts from its PC's header, and Add PC lives in Settings → Remote PCs
   return <div className="sidebar-shell">
-    <UsagePanel />
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
       <NeedsInput machines={props.machines} selectedMachineId={props.selectedMachineId} selectedPaneId={props.selectedPaneId} onSelect={props.onSelect} />
       {props.machines.map((machine) => <MachineGroup key={machine.id} {...props} machine={machine} />)}
