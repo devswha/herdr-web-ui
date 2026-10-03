@@ -583,6 +583,20 @@ try {
   const childRow = page.locator(`.worktree-children .pane-item:has(.pane-select[title^="${worktree.pane_id} —"])`);
   await childRow.waitFor();
   assert.equal(await page.locator(".worktree-children").count(), 1, "one group of worktrees, under the repository's row");
+  // reorder is group-aware: the repository's row moves up past the group before it, as one, and
+  // its lone worktree has no sibling to move among, so nothing is sent for it
+  const moves: number[] = [];
+  await page.route("**/api/workspace/move", async (route) => { moves.push(route.request().postDataJSON().insert_index as number); await route.continue(); });
+  const orderBefore = (await herdrRpc<{ snapshot: { workspaces: { workspace_id: string }[] } }>("session.snapshot", {})).snapshot.workspaces.map((workspace) => workspace.workspace_id);
+  await repoRow.locator(".sidebar-drag-handle").focus();
+  await page.keyboard.press("Alt+ArrowUp");
+  await until(() => moves.length === 1, "the repository's row moved up as a group");
+  assert.equal(moves[0], orderBefore.indexOf(repoWorkspace.workspace.workspace_id) - 1, "it lands before the group above it");
+  await childRow.locator(".sidebar-drag-handle").focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await page.waitForTimeout(400);
+  assert.equal(moves.length, 1, "a lone worktree has nowhere to move");
+  await page.unroute("**/api/workspace/move");
   writeFileSync(join(worktree.path, "unsaved.txt"), "dirty\n");
   await childRow.hover();
   await childRow.locator(".row-menu-toggle").click();

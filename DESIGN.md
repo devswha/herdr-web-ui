@@ -318,7 +318,9 @@ One set for both themes: the card is island black wherever it shows.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
 - A workspace header shows drag handle, number, editable label, roll-up status and its `⋯`.
-  Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
+  Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent. In the By workspace view
+  a repository's workspace moves past the next or previous group as one, with its worktrees, and a
+  worktree moves among its siblings only.
 - Every pane row is two lines: agent/shell mark, then the editable title alone on line one (full
   width), and the status chip followed by the pane's place on line two. Mark boxes are neutral;
   the selected row gets the amber rail and an amber-edged mark box. The row ends in one `⋯`

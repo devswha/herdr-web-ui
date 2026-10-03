@@ -344,14 +344,48 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     if (payload.machine_id !== machineId || typeof payload.workspace_id !== "string") return;
     const sourceId = dragWorkspaceId ?? payload.workspace_id;
     setDragWorkspaceId(null);
-    reorderWorkspace(sourceId, workspaceOrder.indexOf(targetWorkspaceId));
+    const index = dropIndex(sourceId, targetWorkspaceId);
+    if (index !== null) reorderWorkspace(sourceId, index);
+  };
+
+  // The roster shows groups: a repository's workspace moves past the next or previous group as
+  // one (herdr keeps its worktrees packed behind it), and a worktree moves among its siblings.
+  // The index herdr gets is the edge of the group the move lands on. By folder keeps the flat order.
+  const moveVisible = (workspaceId: string, direction: -1 | 1): void => {
+    if (byFolder) { reorderWorkspace(workspaceId, workspaceOrder.indexOf(workspaceId) + direction); return; }
+    const groupIndex = worktreeGroups.findIndex((group) => group.workspace.workspace_id === workspaceId);
+    if (groupIndex >= 0) {
+      const target = worktreeGroups[groupIndex + direction];
+      if (!target) return;
+      const edge = direction === 1 ? (target.children[target.children.length - 1] ?? target.workspace) : target.workspace;
+      reorderWorkspace(workspaceId, workspaceOrder.indexOf(edge.workspace_id));
+      return;
+    }
+    const parent = worktreeGroups.find((group) => group.children.some((child) => child.workspace_id === workspaceId));
+    if (!parent) return;
+    const sibling = parent.children[parent.children.findIndex((child) => child.workspace_id === workspaceId) + direction];
+    if (sibling) reorderWorkspace(workspaceId, workspaceOrder.indexOf(sibling.workspace_id));
+  };
+
+  /** where a dropped workspace lands, in the flat order, or nowhere when the drop crosses a group's edge */
+  const dropIndex = (sourceId: string, targetId: string): number | null => {
+    if (byFolder) return workspaceOrder.indexOf(targetId);
+    const sourceGroup = worktreeGroups.find((group) => group.workspace.workspace_id === sourceId);
+    if (sourceGroup) {
+      const targetGroup = worktreeGroups.find((group) => group.workspace.workspace_id === targetId || group.children.some((child) => child.workspace_id === targetId));
+      if (!targetGroup || targetGroup === sourceGroup) return null;
+      const movingDown = workspaceOrder.indexOf(sourceId) < workspaceOrder.indexOf(targetGroup.workspace.workspace_id);
+      const edge = movingDown ? (targetGroup.children[targetGroup.children.length - 1] ?? targetGroup.workspace) : targetGroup.workspace;
+      return workspaceOrder.indexOf(edge.workspace_id);
+    }
+    const parent = worktreeGroups.find((group) => group.children.some((child) => child.workspace_id === sourceId));
+    return parent && parent.children.some((child) => child.workspace_id === targetId) ? workspaceOrder.indexOf(targetId) : null;
   };
 
   const onHandleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, workspaceId: string): void => {
     if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
     event.preventDefault();
-    const current = workspaceOrder.indexOf(workspaceId);
-    reorderWorkspace(workspaceId, current + (event.key === "ArrowUp" ? -1 : 1));
+    moveVisible(workspaceId, event.key === "ArrowUp" ? -1 : 1);
   };
 
   const dragHandle = (workspace: WorkspaceInfo, draggable: boolean) => (
