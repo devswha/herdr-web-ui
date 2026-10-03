@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer } from "./index.ts";
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
@@ -12,14 +12,19 @@ import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
  * exited ends it. A pane that lives on is attached again for the same clients; a pane that is
  * gone, or a server that does not come back, still ends the terminal.
  *
- * The handoff runs on a session of its own: replacing the shared test server would cut every
- * other suite's attach, and a failed one would leave them no herdr.
+ * The handoff runs on a herdr of its own: replacing the shared test server would cut every
+ * other suite's attach, and a failed one would leave them no herdr. That herdr keeps its
+ * sessions in a config directory under /tmp, made for this run: a session directory holds
+ * herdr's sockets, the longest of them `herdr-handoff-<pid>.sock`, and a Unix socket path
+ * ends at 107 bytes (103 on macOS). Under CI's own config directory a second session name
+ * was already too long for it, and the server died as it started.
  */
-const SESSION = `${process.env["HERDR_TEST_SESSION"] || "herdr-web-ui-test"}-handoff`;
-const socket = join(process.env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr", "sessions", SESSION, "herdr.sock");
+const SESSION = "handoff";
+const config = mkdtempSync(process.platform === "win32" ? join(tmpdir(), "hwu-") : "/tmp/hwu-");
+const socket = join(config, "herdr", "sessions", SESSION, "herdr.sock");
 const herdr = process.env["HERDR_WEB_HERDR_BIN"] || Bun.which("herdr") || "herdr";
 // run from inside a herdr pane, this process carries that pane's HERDR_* variables
-const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("HERDR_")));
+const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("HERDR_"))), XDG_CONFIG_HOME: config };
 
 async function cli(...args: string[]): Promise<{ code: number; output: string }> {
   const proc = Bun.spawn([herdr, "--session", SESSION, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env });
@@ -41,7 +46,7 @@ async function until(check: () => boolean | Promise<boolean>, label: string, tim
 
 const root = mkdtempSync(join(tmpdir(), "herdr-reattach-"));
 const sockets: WebSocket[] = [];
-/** set once this file spawns the handoff session: it is stopped and deleted again, whatever herdr supports */
+/** set once this file spawns its herdr: it is stopped again, whatever herdr supports */
 let started = false;
 let handoffs = false;
 let previousSocket: string | undefined;
@@ -49,19 +54,21 @@ let server: ReturnType<typeof createServer>;
 // a short relookup, for the server that does not come back
 let quick: ReturnType<typeof createServer>;
 
-/** a fresh server for the session: one left by an earlier run would bring its workspaces back */
 async function startSession(): Promise<void> {
-  if (await answers()) await cli("server", "stop");
-  await until(async () => !(await answers()), "old handoff session stopped");
-  await cli("session", "delete", SESSION);
   mkdirSync(dirname(socket), { recursive: true });
   const log = join(dirname(socket), "test-server.log");
   started = true;
   Bun.spawn([herdr, "--session", SESSION, "server"], { stdin: "ignore", stdout: Bun.file(log), stderr: Bun.file(log), env }).unref();
-  await until(async () => existsSync(socket) && await answers(), `handoff session started (see ${log})`, 15_000);
+  try {
+    await until(async () => existsSync(socket) && await answers(), "handoff session started", 15_000);
+  } catch (error) {
+    // the directory goes with the run: what herdr said goes into the failure
+    const said = existsSync(log) ? readFileSync(log, "utf8").slice(-2_000) : "";
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${said}`);
+  }
 }
 
-// registered before the session starts, so a start that fails still cleans up after itself
+// registered before the server starts, so a start that fails still cleans up after itself
 afterAll(async () => {
   for (const ws of sockets) ws.close();
   if (handoffs) {
@@ -73,12 +80,13 @@ afterAll(async () => {
   if (started) {
     if (await answers()) await cli("server", "stop");
     await until(async () => !(await answers()), "handoff session stopped").catch(() => {});
-    await cli("session", "delete", SESSION);
   }
+  rmSync(config, { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
 });
 
-if (process.env["HERDR_TEST_MODE"] !== "unit" && Bun.which(herdr)) {
+// a herdr that cannot `terminal attach` (Windows) has no attach to end
+if (process.env["HERDR_TEST_MODE"] !== "unit" && process.platform !== "win32" && Bun.which(herdr)) {
   await startSession();
   const pong = await herdrRpc<{ capabilities?: { live_handoff?: boolean } }>("ping", {}, socket);
   handoffs = pong.capabilities?.live_handoff === true;
