@@ -836,6 +836,15 @@
   border-radius: var(--radius-lg);
 }
 
+/* a notice named by its own first line: one line, cut short, between the divider rules */
+.chat-notice-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* a runtime notice is job output, not prose: verbatim, wrapped, and bounded like a whole tool output */
 .chat-notice-text {
   margin-bottom: 0;

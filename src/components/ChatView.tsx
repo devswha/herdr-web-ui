@@ -393,6 +393,13 @@ interface TurnProps {
   showThinking: boolean;
 }
 
+/** what a runtime notice was: a background result by name, anything else by its own first line */
+function noticeLabel(t: ReturnType<typeof useT>, notice: Extract<ConversationPart, { kind: "notice" }>): string {
+  if (notice.source === undefined || notice.source === "async-result") return t("Background result delivered");
+  const first = notice.text.split("\n").find((line) => line.trim().length > 0)?.trim() ?? notice.source;
+  return first.length > 96 ? `${first.slice(0, 95)}…` : first;
+}
+
 // a turn that did not change keeps its object across polls: skip re-rendering it
 const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
   const t = useT();
@@ -408,7 +415,7 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
   const notice = turn.parts.find((part): part is Extract<ConversationPart, { kind: "notice" }> => part.kind === "notice");
   if (notice !== undefined) {
     return <details className="chat-compact chat-notice">
-      <summary>{t("Background result delivered")}{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
+      <summary><span className="chat-notice-label">{noticeLabel(t, notice)}</span>{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
       <pre className="chat-compact-text chat-notice-text">{notice.text}</pre>
     </details>;
   }

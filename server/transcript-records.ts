@@ -82,11 +82,12 @@ export const MAX_TURNS = 100;
  * in the user's seat: the answer before it is final and the work after it is a new turn.
  * Merging across it buried that answer in the work block. The envelope is chrome.
  */
-export function piNotice(value: unknown): string | null {
+export function piNotice(value: unknown): Extract<ConversationPart, { kind: "notice" }> | null {
   const entry = record(value);
   if (entry.type !== "custom_message" || entry.display === false || typeof entry.content !== "string") return null;
   const text = entry.content.trim().replace(/^<system-notice>\s*/, "").replace(/\s*<\/system-notice>$/, "").trim();
-  return text.length > 0 ? text : null;
+  if (text.length === 0) return null;
+  return typeof entry.customType === "string" ? { kind: "notice", text, source: entry.customType } : { kind: "notice", text };
 }
 
 /** The one-line summary a collapsed tool chip shows. */
@@ -131,7 +132,7 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
     const timestamp = (entry as { timestamp?: string }).timestamp;
     const notice = piNotice(entry);
     if (notice !== null) {
-      turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "notice", text: notice }] });
+      turns.push({ role: "user", ts: timestamp ?? null, parts: [notice] });
       continue;
     }
     // pi folds old context into a summary of its own accord and on /compact. The entry is a

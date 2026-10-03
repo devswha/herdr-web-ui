@@ -279,8 +279,9 @@ export type ConversationPart =
   | { kind: "image"; media_type: string; ref: string }
   /** the summary a compaction left; the conversation before it is what it sums up */
   | { kind: "compact"; text: string }
-  /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it */
-  | { kind: "notice"; text: string };
+  /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it.
+   * `source`: the runtime's name for it (pi's customType, e.g. "async-result", "irc:incoming", "omo-model-profile:unavailable") */
+  | { kind: "notice"; text: string; source?: string };
 
 /** Latest model settings actually recorded by this agent. */
 export interface ConversationMetadata {
