@@ -49,9 +49,10 @@ bun run test:unit
 (`CHROME_PATH`, default `/opt/google/chrome/chrome`):
 
 ```bash
-bun run test:integration   # starts its own `herdr-web-ui-test` session; stop it with
+bun run test:integration   # runs the files 4 at a time on `herdr-web-ui-test-1` to `-4`, which it
+                           # stops itself; HERDR_TEST_SHARDS=1 runs them one by one on `-1`
+bun run test:ui            # builds, then browser regression on `herdr-web-ui-test`; stop it with
                            # herdr --session herdr-web-ui-test server stop
-bun run test:ui            # builds, then browser regression
 ```
 
 `bun test` runs the unit and integration suites together. Remote-PC changes also have
