@@ -2,7 +2,7 @@
 // herdr owns the terminal processes and no disconnect should terminate their work.
 import { createServer } from "./index.ts";
 import { bridgeIdentity, descriptorPath, registerBridge } from "./bridge.ts";
-import { parseProcessLine, staleMarker } from "./herdr-marker.ts";
+import { parseProcessLine, refusedSocket, staleMarker } from "./herdr-marker.ts";
 import { psQuote } from "./powershell.ts";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
@@ -75,8 +75,10 @@ try {
     // A socket that exists but cannot answer is an operator problem, not permission
     // to replace the daemon. Only absent sockets permit starting a new server.
     // on Windows the socket is a marker file `pid:start` that a killed herdr leaves behind;
-    // its pid says whether a daemon is really there
-    if (existsSync(process.env["HERDR_SOCKET"]!) && !(windows && staleWindowsMarker(process.env["HERDR_SOCKET"]!))) throw error;
+    // its pid says whether a daemon is really there. Elsewhere a killed herdr (or a reboot)
+    // leaves the socket file, and a refused connection says nobody listens on it
+    const socket = process.env["HERDR_SOCKET"]!;
+    if (existsSync(socket) && !(windows ? staleWindowsMarker(socket) : await refusedSocket(socket))) throw error;
     // a Windows bundle carries no herdr: its installer is herdr's own, and setup ran it
     const herdr = process.env["HERDR_WEB_HERDR_BIN"] || join(bundle, "bin/herdr");
     if (windows && !existsSync(herdr)) throw new Error(`herdr is not installed at ${herdr}; install it with herdr.dev/install.cmd`);

@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A Linux or macOS PC whose herdr was lost to a restart or a kill connects again. herdr leaves
+  its socket file behind, the bridge took that file for a running herdr and did not start, and
+  **Update** ended in "Bridge did not start" each time. The bridge now starts herdr when nothing
+  listens on that socket. PCs get this with their next bridge update.
 - The Windows installer tries herdr's download once more when it fails, and says so when it fails
   again: herdr's installer gives up on a connection that stays under 1 KB/s for 30 seconds, and
   the install ended there with a message about security software.
