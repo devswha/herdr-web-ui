@@ -21,6 +21,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A question card is read from the bottom of the pane even when its terminal was scrolled up
   into its history. A scrolled omo or pi pane showed every later question as the last-resort card
   with only Enter and Esc, since the menu drawn at the bottom was out of the scrolled view.
+  ([#402](https://github.com/devswha/herdr-web-ui/pull/402) by @nahwan-kim)
 
 ## [0.3.47] - 2026-10-03
 
