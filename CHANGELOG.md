@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- In the iPhone home screen app, a dialog with a text field stays above the keyboard: the command
+  palette, and the other bottom sheets, ended at the bottom of the screen, behind the keyboard, and
+  a palette with few results was hidden whole.
+  ([#395](https://github.com/devswha/herdr-web-ui/pull/395))
 - On a phone the header shows the pane's title again: the desktop **New tab** button was not
   hidden there, took the title's room, and pushed a narrow phone's page wider than its screen.
   ([#392](https://github.com/devswha/herdr-web-ui/pull/392))

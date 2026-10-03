@@ -121,6 +121,10 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
 
+  [data-keyboard] .command-palette {
+    padding-bottom: 0;
+  }
+
   .palette-search {
     position: sticky;
     top: 0;
