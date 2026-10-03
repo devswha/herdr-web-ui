@@ -284,7 +284,7 @@ One set for both themes: the card is island black wherever it shows.
 ### Sidebar roster row and footer
 - Top bar: **New session** only. Search lives in the command palette, not the roster.
 - Appearance's **Sidebar grouping** is **By workspace** by default, with numbered, foldable
-  workspace headers even for one pane. **By folder** opts into the grouping below.
+  workspace headers and merged single-pane rows. **By folder** opts into the grouping below.
   The choice applies immediately and persists in the browser's existing Settings record. Workspace
   and folder fold keys remain independent when switching modes; original workspace keys are retained.
 - In folder mode, within each PC, panes with the same full cwd share a folder group, including panes from
@@ -305,13 +305,16 @@ One set for both themes: the card is island black wherever it shows.
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
   in the row's tooltip. Line two names what the group header does not: the folder under a
   workspace header (nothing when the title or the workspace is already that folder), the workspace under a folder
-  header. The palette, which has no header, names the workspace and the folder, once when they
-  are the same.
+  header. A merged single-pane row in the workspace view has no header: it names the workspace
+  and the folder, each only when the title or the other does not already say it. The palette,
+  which has no header, names the workspace and the folder, once when they are the same.
 - A PC group header is caret, monitor, name, “This PC” for the local machine and a state dot
   (done = connected, working pulse = connecting/reconnecting, blocked = error). Connected says
   nothing more; every other state is written under the name, with the server's error clamped to
   two lines and complete in the tooltip.
-- In folder mode, single-pane workspaces merge their workspace handle into the pane row.
+- Single-pane workspaces merge their workspace handle into the pane row, in both groupings: one
+  row, no header, number or fold. A fold stored for such a workspace is ignored until it has a
+  header again.
 - Footer holds the contextual **Install app** action, Settings with the plan meters beside it,
   product name and herdr version.
 
