@@ -48,6 +48,8 @@ const root = mkdtempSync(join(tmpdir(), "herdr-reattach-"));
 const sockets: WebSocket[] = [];
 /** set once this file spawns its herdr: it is stopped again, whatever herdr supports */
 let started = false;
+/** the server this file spawned; a handoff replaces it with one of another pid */
+let serverPid = 0;
 let handoffs = false;
 let previousSocket: string | undefined;
 let server: ReturnType<typeof createServer>;
@@ -58,7 +60,9 @@ async function startSession(): Promise<void> {
   mkdirSync(dirname(socket), { recursive: true });
   const log = join(dirname(socket), "test-server.log");
   started = true;
-  Bun.spawn([herdr, "--session", SESSION, "server"], { stdin: "ignore", stdout: Bun.file(log), stderr: Bun.file(log), env }).unref();
+  const proc = Bun.spawn([herdr, "--session", SESSION, "server"], { stdin: "ignore", stdout: Bun.file(log), stderr: Bun.file(log), env });
+  serverPid = proc.pid;
+  proc.unref();
   try {
     await until(async () => existsSync(socket) && await answers(), "handoff session started", 15_000);
   } catch (error) {
@@ -146,6 +150,27 @@ async function attached(port: number, paneId: string) {
 }
 
 describe.skipIf(!handoffs)("a pane herdr hands off to a new server", () => {
+  // first: it stops the server this file spawned, which the handoff below replaces
+  it("ends within the relookup window when herdr takes the lookup and never answers", async () => {
+    const paneId = await pane("stall");
+    const client = await attached(quick.port, paneId);
+    const terminal = await terminalOf(paneId);
+    await until(async () => (await attaches(terminal!)) === 1, "the attach runs");
+    // a stopped herdr still accepts connections on its socket, and answers none of them
+    process.kill(serverPid, "SIGSTOP");
+    try {
+      const killed = Bun.spawn(["pkill", "-f", `^[^ ]*herdr terminal attach ${terminal}$`]);
+      await killed.exited;
+      const startedAt = Date.now();
+      // the 1 s window, not the RPC's own 10 s
+      await until(() => client.state.exits === 1, "pty-exit once the relookup window ran out", 6_000);
+      expect(Date.now() - startedAt).toBeLessThan(4_000);
+    } finally {
+      process.kill(serverPid, "SIGCONT");
+    }
+    await until(answers, "herdr answers again");
+  }, 20_000);
+
   it("is attached again under its new terminal, for the same client, without ending", async () => {
     const paneId = await pane("handoff");
     const client = await attached(server.port, paneId);

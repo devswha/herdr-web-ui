@@ -465,8 +465,8 @@ export function createServer(
     for (const client of clients) send(client, message);
   }
 
-  async function terminalInfoFor(paneId: string): Promise<{ terminalId: string; rect: { width: number; height: number } | null }> {
-    const snapshot = await sessionSnapshot();
+  async function terminalInfoFor(paneId: string, timeoutMs?: number): Promise<{ terminalId: string; rect: { width: number; height: number } | null }> {
+    const snapshot = await sessionSnapshot(undefined, timeoutMs);
     const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
     if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
     // herdr (0.9.3+) could not restore it after a restart: its terminal has no process
@@ -712,7 +712,9 @@ export function createServer(
           attachment.relookup = setTimeout(relookup, ATTACH_RELOOKUP_MS);
         };
         const relookup = (): void => {
-          terminalInfoFor(paneId).then(({ terminalId: now }) => {
+          // a herdr that takes the request and never answers must not hold the terminal past the
+          // deadline: the lookup gets what is left of it, not the RPC's own 10 s
+          terminalInfoFor(paneId, Math.max(1, deadline - Date.now())).then(({ terminalId: now }) => {
             if (attachments.get(paneId) !== attachment) return;
             if (now === attachedTerminal) return again();
             if (attachment.clients.size === 0) {
@@ -733,7 +735,7 @@ export function createServer(
           }, (error: unknown) => {
             if (attachments.get(paneId) !== attachment) return;
             if (error instanceof HerdrError && PANE_GONE_CODES.has(error.code)) return finish();
-            // herdr is between servers (server_unavailable, connect_failed): ask again
+            // herdr is between servers (server_unavailable, connect_failed) or not answering (timeout): ask again
             again();
           });
         };
