@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Settings → Updates no longer leaves **Check for updates** and **Update and restart** disabled
+  when the answer to a click arrives while the page is hidden, as when a phone sends the app to
+  the background. The status poll pauses with the page; the click's answer now lands anyway.
+  ([#381](https://github.com/devswha/herdr-web-ui/pull/381))
+
 ## [0.3.45] - 2026-10-03
 
 ### Added
