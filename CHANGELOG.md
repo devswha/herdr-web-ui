@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   before 0.3.44: no numbered header above it, and the row carries the reorder handle and names
   its workspace on its second line. A workspace with several panes keeps its header. A fold made
   on a one-pane workspace in 0.3.44 no longer hides its row.
+  ([#371](https://github.com/devswha/herdr-web-ui/pull/371))
 
 ## [0.3.44] - 2026-10-03
 
