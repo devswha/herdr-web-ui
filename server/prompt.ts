@@ -1586,12 +1586,21 @@ const WORKING_LINE_RE = /^[·✢✳✶✻✽*] (\S(?:.*\S)?…) \((?:\d+h )?(?:\
  * line and every other agent's screen. The words stay in the id, so "Deleting staging…" is never
  * "Deleting production…".
  */
-function steadyReader(agent: string, shown: string[]): (line: string) => string {
-  const working = agent === "claude" ? shown.filter((line) => WORKING_LINE_RE.test(line)) : [];
-  const [line] = working;
-  if (working.length !== 1 || line === undefined) return (other) => other;
+function steadyReader(agent: string, shown: string[]): SteadyReader {
+  const working = agent === "claude" ? shown.flatMap((line, at) => WORKING_LINE_RE.test(line) ? [at] : []) : [];
+  const [at] = working;
+  if (working.length !== 1 || at === undefined) return { read: (other) => other, working: null };
+  const line = shown[at]!;
   const steady = line.replace(WORKING_LINE_RE, (_all, doing: string, hint: string | undefined) => `* ${doing} (<time> · <tokens>${hint ?? ""})`);
-  return (other) => other === line ? steady : other;
+  return { read: (other) => other === line ? steady : other, working: at };
+}
+
+interface SteadyReader {
+  read(line: string): string;
+  /** which of the shown lines was read as the working line; it goes into the id beside the text, so
+   * that a screen holding the blanked form as its own text ("* Tempering… (<time> · <tokens>)") is
+   * another card */
+  working: number | null;
 }
 
 export function parseFallbackPrompt(agent: string, screen: string): InteractivePrompt {
@@ -1621,7 +1630,7 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       responder: "fallback-menu", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
       checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
       optionSteps: choices.map(({ steps }) => steps),
-    }, steadyFields(question, body, steady)));
+    }, steadyFields(question, body, steady.read)));
   }
   const last = shown.slice(-16).map((index) => cleanLine(lines[index]!));
   // letters and arrows only for the prompt's own last lines, never while an input box ends the
@@ -1647,7 +1656,7 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
     responder: "fallback-keys", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     optionSteps: choices.map(({ steps }) => steps),
-  }, steadyFields(question, body, steady)));
+  }, steadyFields(question, body, steady.read)));
 }
 
 /** A fallback card's question and body as its id reads them: with the working line's ticking parts blanked. */
@@ -1660,9 +1669,9 @@ function steadyFields(question: string | undefined, body: string | null, steady:
  * command, footer or wrapped label anywhere on it makes an answer to the old card stale. A working
  * line's spinner, time and token count are the one thing it leaves out (steadyReader).
  */
-function screenCard(lines: string[], shown: number[], steady: (line: string) => string, parsed: ParsedPrompt): InteractivePrompt {
-  const screen = shown.map((index) => steady(cleanLine(lines[index]!))).join("\n");
-  parsed.id = createHash("sha256").update(JSON.stringify({ card: parsed.id, screen })).digest("hex").slice(0, 12);
+function screenCard(lines: string[], shown: number[], steady: SteadyReader, parsed: ParsedPrompt): InteractivePrompt {
+  const screen = shown.map((index) => steady.read(cleanLine(lines[index]!))).join("\n");
+  parsed.id = createHash("sha256").update(JSON.stringify({ card: parsed.id, screen, ...(steady.working === null ? {} : { working: steady.working }) })).digest("hex").slice(0, 12);
   return publicPrompt(parsed);
 }
 

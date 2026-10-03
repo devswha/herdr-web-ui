@@ -1385,6 +1385,16 @@ describe("the fallback card for a blocked pane no reader knows", () => {
     differ("✢ Tempering… (5s · ↓ 1.0k tokens)", "✻ Tempering… (9s · ↓ 1.3k tokens)", "gjc");
   });
 
+  test("tells the working line from a line that holds its blanked form as text", () => {
+    // a fixture or a note about this very rule, shown on the screen: its text is what is asked about
+    const about = (line: string) => ["Remove this exact line from the fixture?", line, "", "1. Yes", "2. No", "", "Enter a number, or Esc to cancel"].join("\n");
+    expect(idOf(about("✢ Tempering… (55s · ↓ 10.0k tokens)"))).not.toBe(idOf(about("* Tempering… (<time> · <tokens>)")));
+    expect(idOf(about("✢ Tempering… (55s · ↓ 10.0k tokens · esc to interrupt)"))).not.toBe(idOf(about("* Tempering… (<time> · <tokens> · esc to interrupt)")));
+    // and from the same line one row further down
+    const moved = (before: string[]) => [...before, "✢ Tempering… (55s · ↓ 10.0k tokens)", "", "1. Yes", "2. No", "", "Enter a number, or Esc to cancel"].join("\n");
+    expect(idOf(moved(["Run it?"]))).not.toBe(idOf(moved(["Run it?", "Run it?"])));
+  });
+
   test("keeps the marker of the selected row in the id, whatever the rows look like", () => {
     const rows = (selected: number, on: string, off: string, tail: string) =>
       ["Choose operation", ...["Delete all", "Cancel"].map((label, index) => `${index === selected ? on : off} ${label}${tail}`), "Use ↑/↓ then Enter"].join("\n");
