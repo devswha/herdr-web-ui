@@ -11,6 +11,12 @@ function Run-Tool([string]$Tool, [string[]]$Arguments) {
     & $Tool @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Tool failed (exit $LASTEXITCODE). Fix the error above and run this again." }
 }
+function Run-HerdrInstaller([string]$Installer) {
+    # Its errors join its output, so a failed download can be told from a silent stop. Under Stop,
+    # Windows PowerShell would end this script at the first line curl writes to stderr.
+    $ErrorActionPreference = 'Continue'
+    & $Installer 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; $line }
+}
 
 # The official installers keep these user-local directories on PATH for future terminals.
 $env:PATH = "$env:USERPROFILE\.bun\bin;$env:LOCALAPPDATA\Programs\Herdr\bin;$env:PATH"
@@ -22,9 +28,18 @@ if (-not (Get-Command herdr -ErrorAction SilentlyContinue)) {
     $installer = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName() + '.cmd')
     try {
         Invoke-WebRequest 'https://herdr.dev/install.cmd' -UseBasicParsing -OutFile $installer
-        # Seen stopping without a message of its own on a PC with banking security software.
-        try { Run-Tool $installer @() }
-        catch { throw "herdr's installer did not finish. If it showed no error, security software may have stopped it: install herdr from https://herdr.dev, then run this again." }
+        # herdr's installer gives up on a download that stays under 1 KB/s for 30 seconds.
+        $download = 'curl: \(\d+\)|Failed to download'
+        $output = @(Run-HerdrInstaller $installer)
+        if ($LASTEXITCODE -ne 0 -and ($output -match $download)) {
+            Write-Host "herdr web ui: herdr's download did not finish; trying once more"
+            $output = @(Run-HerdrInstaller $installer)
+        }
+        if ($LASTEXITCODE -ne 0) {
+            if ($output -match $download) { throw "herdr could not be downloaded: the connection was too slow or was cut off (curl's message is above). Run this again, on another network if it keeps failing, or install herdr from https://herdr.dev first." }
+            # Seen stopping without a message of its own on a PC with banking security software.
+            throw "herdr's installer did not finish. If it showed no error, security software may have stopped it: install herdr from https://herdr.dev, then run this again."
+        }
     } finally { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue }
 }
 $herdrVersion = (Run-Tool herdr @('--version')) -replace '^herdr\s+', '' -replace '-.*$', ''

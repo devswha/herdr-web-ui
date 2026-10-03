@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- The Windows installer tries herdr's download once more when it fails, and says so when it fails
+  again: herdr's installer gives up on a connection that stays under 1 KB/s for 30 seconds, and
+  the install ended there with a message about security software.
 - Claude conversations on Linux can be read without the Herdr integration hook when Claude's
   native PID record identifies the live interactive session. Reused PIDs, invalid records and
   multiple Claude processes stay unresolved instead of selecting a same-directory conversation.
