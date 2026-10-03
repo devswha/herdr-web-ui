@@ -36,9 +36,13 @@ function storedName(name: string | undefined): { base: string; extension: string
 
 /** Where a pane's attachments go: `HERDR_WEB_PASTE_DIR` when set, else `<cwd>/.herdr-web-ui`. */
 export function pasteDirectory(cwd: string | null | undefined): string {
-  const override = process.env["HERDR_WEB_PASTE_DIR"];
-  // the plugin's env file is not a shell: expand a leading ~ here
-  if (override) return override === "~" || override.startsWith("~/") ? resolve(homedir(), override.slice(2)) : resolve(override);
+  const override = process.env["HERDR_WEB_PASTE_DIR"]?.trim();
+  if (override) {
+    // the plugin's env file is not a shell: expand a leading ~ here, before either separator.
+    // The separators are dropped with it: a leading one would make the rest an absolute path
+    const home = /^~(?:[\\/]+(.*))?$/s.exec(override);
+    return home ? resolve(homedir(), home[1] ?? "") : resolve(override);
+  }
   return join(cwd ?? join(tmpdir(), "herdr-web-ui"), ".herdr-web-ui");
 }
 
