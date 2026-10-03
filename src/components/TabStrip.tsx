@@ -57,7 +57,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // tabs whose close is on its way: a second press, or a held Delete, does not send another
   const closing = useRef(new Set<string>());
   // a close that herdr has done but the snapshot does not show yet: the closed tab, and the one beside it
-  const closed = useRef<{ tabId: string; beside: string | null } | null>(null);
+  const closed = useRef<{ tabId: string; beside: string } | null>(null);
   // what is on screen now, for a close that answers after the selection or the PC has moved on
   const latest = useRef({ machineId, tabId: selectedPane.tab_id });
   latest.current = { machineId, tabId: selectedPane.tab_id };
@@ -90,7 +90,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     closed.current = null;
     const active = document.activeElement;
     if (active && active !== document.body && !strip.current?.contains(active)) return;
-    const beside = was.beside ? strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(was.beside)}"]`) : null;
+    const beside = strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(was.beside)}"]`);
     if (beside) beside.focus(); else focusWorkspaceListToggle();
   });
   // a name herdr never showed back (renamed again elsewhere) does not stay on the tab
@@ -148,8 +148,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     finally { closing.current.delete(tab.tab_id); }
     // the answer may come after another tab, or another PC, was picked: the open pane then stays
     if (latest.current.machineId !== machineId) return;
-    closed.current = { tabId: tab.tab_id, beside: beside?.tab_id ?? null };
-    if (!beside) return;
+    // the last tab took its workspace, and the strip, with it: focus goes where a closed row's goes
+    if (!beside) { focusWorkspaceListToggle(); return; }
+    closed.current = { tabId: tab.tab_id, beside: beside.tab_id };
     const pane = paneFor(beside);
     if (latest.current.tabId === tab.tab_id && pane) onSelectPane(pane.pane_id);
     if (strip.current?.contains(document.activeElement) || document.activeElement === document.body) focusTab(beside.tab_id);
