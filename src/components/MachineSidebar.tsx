@@ -28,7 +28,7 @@ export function MachineSidebar(props: Props) {
   const t = useT();
   const { canInstall, installed, install, help } = useInstallPrompt();
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
-  // no top bar: a session starts from its PC's header, and Add PC lives in Settings → Remote PCs
+  // no top bar: a workspace starts from its PC's header, and Add PC lives in Settings → Remote PCs
   return <div className="sidebar-shell">
     <UsagePanel />
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
@@ -79,7 +79,7 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
         {machine.kind === "local" && <span className="machine-kind" title={t("The computer this app runs on")}>{t("Host")}</span>}
         <span className={`machine-dot is-${machine.state}`} title={t(STATE_WORD[machine.state])} aria-hidden="true" />
       </button>
-      <button className="sidebar-row-action" disabled={!online} aria-label={t("New session on {name}", { name: machine.name })} title={t("New session")} onClick={() => props.onNew(machine.id)}><Plus aria-hidden="true" /></button>
+      <button className="sidebar-row-action" disabled={!online} aria-label={t("New workspace on {name}", { name: machine.name })} title={t("New workspace")} onClick={() => props.onNew(machine.id)}><Plus aria-hidden="true" /></button>
       {machine.kind === "ssh" && <button className="sidebar-row-action" aria-label={t("Manage {name}", { name: machine.name })} title={t("Manage PC")} aria-expanded={editing} onClick={() => { setEditing(!editing); setConfirmDelete(false); }}><SlidersHorizontal aria-hidden="true" /></button>}
     </header>
     {/* connected is the norm and says nothing new; every other state is spelled out */}

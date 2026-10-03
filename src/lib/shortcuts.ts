@@ -10,7 +10,7 @@ export const SHORTCUTS = [
   { id: "toggle-sidebar", label: "Toggle sidebar", keys: ["Mod", "Shift", "B"] },
   // Mod+Shift+N keeps working where the browser lets it through (the installed app), but Chrome
   // keeps Ctrl+Shift+N for a new incognito window in a tab: O is the one shown, and works in both
-  { id: "new-session", label: "New session", keys: ["Mod", "Shift", "O"] },
+  { id: "new-session", label: "New workspace", keys: ["Mod", "Shift", "O"] },
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },

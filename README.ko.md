@@ -91,7 +91,7 @@ Linux(x64, arm64)와 macOS를 지원합니다. herdr 0.9.0 이상, Bun 1.4 이�
 herdr plugin install devswha/herdr-web-ui
 ```
 
-herdr가 실행 중인 상태에서 **[localhost:7317](http://localhost:7317)**을 여세요. pane을 고르거나 **New session**으로 에이전트를 시작합니다. 폰에서 쓰려면 설치 스크립트가 보여 준 QR 코드를 찍고 앱을 홈 화면에 추가하세요. [빠른 시작 →](docs/guide.md#quick-start)
+herdr가 실행 중인 상태에서 **[localhost:7317](http://localhost:7317)**을 여세요. pane을 고르거나 **New workspace**로 에이전트를 시작합니다. 폰에서 쓰려면 설치 스크립트가 보여 준 QR 코드를 찍고 앱을 홈 화면에 추가하세요. [빠른 시작 →](docs/guide.md#quick-start)
 
 서버는 기본적으로 `127.0.0.1`에서만 받습니다. 다른 기기에서 접속하려면 [폰 설정](docs/guide.md#on-your-phone)과 [접근과 보안](docs/guide.md#access-and-safety)을 보세요.
 

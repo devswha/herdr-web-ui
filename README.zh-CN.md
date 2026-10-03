@@ -92,7 +92,7 @@ curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh
 herdr plugin install devswha/herdr-web-ui
 ```
 
-在 herdr 运行时，打开 **[localhost:7317](http://localhost:7317)**。选择一个窗格，或点击 **New session（新建会话）** 启动智能体。要在手机上使用，请扫描安装程序提供的二维码，并将应用添加到主屏幕。[快速入门 →](docs/guide.md#quick-start)
+在 herdr 运行时，打开 **[localhost:7317](http://localhost:7317)**。选择一个窗格，或点击 **New workspace（新建工作区）** 启动智能体。要在手机上使用，请扫描安装程序提供的二维码，并将应用添加到主屏幕。[快速入门 →](docs/guide.md#quick-start)
 
 服务器默认监听 `127.0.0.1`。如需从其他设备访问，请参阅[手机设置](docs/guide.md#on-your-phone)和[访问与安全](docs/guide.md#access-and-safety)。
 
