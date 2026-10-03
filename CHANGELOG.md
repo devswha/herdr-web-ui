@@ -15,10 +15,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the same menu. A close asks first only when an agent in the tab is still working or the tab
   is the workspace's last one, which closes the workspace with it. Remote PCs get the two with
   their next bridge update.
+  ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
 
 ### Fixed
 - A tab herdr names by its number reads **Tab n** by its place in the strip: after a tab before
   it closed, it showed as a bare number.
+  ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
 
 ## [0.3.46] - 2026-10-03
 
