@@ -3,7 +3,8 @@
  * and folds away when it leaves. The card's text is a separate layer over the shape.
  *
  * Geometry clears the measured native safe area and app header; neither the compact drop nor
- * the expanded card overlaps the header controls.
+ * the expanded card overlaps the header controls. In the phone layout the card is one line and
+ * as wide as its text: Droplet.tsx measures it into --droplet-fit, which the shape follows.
  * The card is island black in both themes, so its colors are the --droplet-* group.
  */
 
@@ -171,6 +172,53 @@
 .droplet[data-kind="blocked"] { --droplet-tone: var(--droplet-blocked); }
 .droplet[data-kind="done"] { --droplet-tone: var(--droplet-done); }
 .droplet[data-kind="ended"] { --droplet-tone: var(--droplet-text-dim); }
+
+@media (max-width: 768px) {
+  .droplet {
+    --droplet-max: min(340px, calc(100vw - 2 * var(--space-4) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    --droplet-w: var(--droplet-fit, var(--droplet-max));
+    --droplet-h: 44px;
+    --droplet-drop: 32px;
+    --droplet-radius: 22px;
+  }
+
+  .droplet-card {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-2);
+    width: max-content;
+    max-width: var(--droplet-max);
+    padding: 0 var(--space-4) 0 var(--space-2);
+  }
+
+  .droplet-mark {
+    width: 28px;
+    height: 28px;
+  }
+
+  .droplet-mark svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .droplet-text {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .droplet-title {
+    min-width: 0;
+  }
+
+  .droplet-detail {
+    flex: none;
+    font-size: var(--fs-sm);
+  }
+
+  .droplet-dot {
+    display: none;
+  }
+}
 
 @keyframes droplet-spread {
   from { width: var(--droplet-drop); height: var(--droplet-drop); border-radius: calc(var(--droplet-drop) / 2); }

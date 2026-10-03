@@ -534,6 +534,9 @@ One set for both themes: the card is island black wherever it shows.
   choice) or ends drops a card from the top edge: a black drop falls from above the safe area,
   spreads into the card, and its text shows. It hangs from `env(safe-area-inset-top)` only, so a
   Dynamic Island, a notch and a desktop window take the same path; no device is guessed.
+- In the phone layout (768px and under) the card is one line, 44px high and as wide as its text
+  (340px at most): the pane's name, then what happened. A long name is cut short, what happened is
+  not, and the dot is left out. Wider than that it is the two-line card, 64px high.
 - One at a time; a newer one folds the current one away first. Tap opens the pane; a drag or flick
   up puts it away; it leaves by itself 3.6s after its text shows, and waits while touched.
 - Not for the pane already open, and not while the app is hidden (system notifications cover that).

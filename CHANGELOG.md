@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- On a phone the in-app alert is one line, as wide as its text: the pane's name, then what
+  happened. It was a two-line card across the screen, over the top of the conversation.
+
 ### Fixed
 - On an iPhone the image viewer's controls and the composer stay inside the usable screen: the
   viewer is bounded by the safe-area insets and the keyboard's height, the keyboard is told from
