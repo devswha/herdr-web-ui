@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- An OmO pane that has not been asked anything yet, or has just run `/new`, shows an empty chat
+  instead of "Conversation unavailable". OmO writes its session file only with the first message,
+  so the chat found no conversation until then and offered the terminal output instead.
+  ([#360](https://github.com/devswha/herdr-web-ui/pull/360) by @nahwan-kim)
+
 ## [0.3.44] - 2026-10-03
 
 ### Added
@@ -35,9 +41,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#358](https://github.com/devswha/herdr-web-ui/pull/358))
 
 ### Fixed
-- An OmO pane that has not been asked anything yet, or has just run `/new`, shows an empty chat
-  instead of "Conversation unavailable". OmO writes its session file only with the first message,
-  so the chat found no conversation until then and offered the terminal output instead.
 - GJC conversations are resolved from the foreground process directory when it differs from
   the pane directory. ([#333](https://github.com/devswha/herdr-web-ui/pull/333) by @Kinetic27)
 - Direct terminal input preserves rapid IME commits when punctuation arrives before composition
