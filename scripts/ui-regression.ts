@@ -224,8 +224,15 @@ try {
   await checkCommandBackspace(browser, origin, paneA);
   // a pane shortcut switches panes and types nothing: xterm used to send ESC[1;6B / ESC[1;6A too
   const selectedTitle = () => page.locator(".pane-item.is-selected .pane-select").getAttribute("title");
-  for (const key of ["Control+Shift+ArrowDown", "Control+Shift+ArrowUp"]) {
+  // A pane just picked shows the lens of the pane before it for a moment, and the message box
+  // of that lens can take the focus back: the key waits until the terminal still has it two frames on.
+  const focusTerminal = () => until(async () => {
     await terminalInput.focus();
+    return page.evaluate(() => new Promise<boolean>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() =>
+      resolve(document.activeElement?.classList.contains("xterm-helper-textarea") ?? false)))));
+  }, "the terminal holds the focus");
+  for (const key of ["Control+Shift+ArrowDown", "Control+Shift+ArrowUp"]) {
+    await focusTerminal();
     const beforeSwitch = inputs.length;
     await page.keyboard.press(key);
     await until(async () => !(await selectedTitle())?.startsWith(`${paneA} —`), `${key} leaves the pane`);
