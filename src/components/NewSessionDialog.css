@@ -36,6 +36,33 @@
   flex: none;
 }
 
+/* New tab: the folder is the workspace's, shown as a fact in a dashed box, not asked for */
+.new-session-folder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: var(--hairline) dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.new-session-folder svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.new-session-folder span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (pointer: coarse) {
   .new-session-modal .input,
   .new-session-modal .select,

@@ -30,9 +30,9 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>터미널 pane의 Claude Code를 같은 세션 그대로 채팅으로, 이어서 폰으로 · 실제 화면 녹화 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56초 영상</a></sub></p>
 
-**에이전트와 평소 대화하듯. 데스크톱에서도, 폰에서도.**
+**Claude Code와 Codex를 폰에서.**
 
-[herdr](https://github.com/herdrdev/herdr)를 브라우저와 폰에서 쓰는 클라이언트입니다. 이미 돌리고 있는 세션을 열어 에이전트가 무엇을 하는지 읽고, 어디서든 답할 수 있습니다.
+[herdr](https://github.com/herdrdev/herdr)를 브라우저와 폰에서 쓰는 클라이언트입니다. 컴퓨터에서 돌아가는 에이전트 세션을 그대로, 데스크톱에서든 폰에서든 채팅으로 읽고 답합니다. 필요할 때는 터미널로 넘어갑니다.
 
 <table>
   <tr>
@@ -56,7 +56,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
     <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="Add PC로 SSH를 통해 Linux PC에 연결하고 브리지를 설치하면, 그 PC의 세션이 터미널과 함께 사이드바에 들어옵니다."></a>
       <br><b>모든 PC를 사이드바 하나에</b>
-      <br><sub>Linux와 macOS 머신을 SSH로 추가합니다. <a href="docs/remote-pcs.md">원격 PC →</a></sub>
+      <br><sub>Linux, macOS, Windows 머신을 SSH로 추가합니다. <a href="docs/remote-pcs.md">원격 PC →</a></sub>
     </td>
   </tr>
 </table>

@@ -75,6 +75,26 @@ it("requires attachment readiness and never replays held input after a detach", 
   client.close();
 });
 
+it("attaches a grid the chat lens covers without resizing the shared pty, on a reconnect too, until it drives the size again", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  const lastAttach = () => socket.sent.filter((m) => m.type === "attach").at(-1);
+  // attached before the socket opened: the open replays it, as a reconnect does
+  client.attach("w1:p1", 40, 20, true);
+  socket.open();
+  expect(lastAttach()).toEqual({ type: "attach", pane_id: "w1:p1", cols: 40, rows: 20, flow_control: "ack", keep_size: true });
+  // the terminal lens is shown and resizes: from then on it drives the size
+  client.resize("w1:p1", 100, 30, true);
+  socket.open();
+  expect(lastAttach()).toEqual({ type: "attach", pane_id: "w1:p1", cols: 100, rows: 30, flow_control: "ack" });
+  // the chat lens covers it again
+  client.keepSize("w1:p1");
+  socket.open();
+  expect(lastAttach()).toEqual({ type: "attach", pane_id: "w1:p1", cols: 100, rows: 30, flow_control: "ack", keep_size: true });
+  client.close();
+});
+
 it("waits for capabilities when output precedes snapshot, and supports old bridges", () => {
   for (const features of [["input-ready"], []]) {
     const client = new HerdrSocket("ws://test/ws"); client.connect();

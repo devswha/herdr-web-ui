@@ -43,14 +43,28 @@ if (viewport) {
  * with the keyboard. A touch device with a text field focused has its keyboard up -
  * except xterm's own hidden field, which the app focuses on its own and which raises
  * a keyboard only in direct typing (PaneTerminal marks that with data-direct-typing).
+ *
+ * A field can keep its focus with the keyboard down, though: an iPhone home screen app back
+ * from another app (a dictation keyboard records in its own), or a keyboard closed from its
+ * own key. Taken for an open keyboard, the shell kept the idle visual height, the screen less
+ * its status bar, and left that band under the composer. So the keyboard also has to take room:
+ * the visual viewport is well short of the screen, more than a status bar and a toolbar are.
  */
 const touch = window.matchMedia("(pointer: coarse)");
 const typing = (element: Element | null): boolean =>
   (element instanceof HTMLTextAreaElement && (!element.classList.contains("xterm-helper-textarea") || element.closest("[data-direct-typing]") !== null))
   || (element instanceof HTMLInputElement && !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color"].includes(element.type))
   || (element instanceof HTMLElement && element.isContentEditable);
+/** shorter than the screen by more than this: no status bar or toolbar, a keyboard */
+const KEYBOARD_MIN = 150;
+const keyboardRoom = (): boolean => {
+  if (!viewport) return true;
+  const landscape = window.innerWidth > window.innerHeight;
+  const screenHeight = landscape ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+  return viewport.height < screenHeight - KEYBOARD_MIN;
+};
 const syncKeyboard = (): void => {
-  root.toggleAttribute("data-keyboard", touch.matches && typing(document.activeElement));
+  root.toggleAttribute("data-keyboard", touch.matches && typing(document.activeElement) && keyboardRoom());
   syncHeight();
 };
 document.addEventListener("focusin", syncKeyboard);

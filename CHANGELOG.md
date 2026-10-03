@@ -7,6 +7,109 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.46] - 2026-10-03
+
+### Added
+- A workspace row's **⋯** menu has **New worktree** and **Open worktree…**, as herdr's own
+  worktree keys do. New worktree checks a branch out as a git worktree under herdr's worktree
+  folder and opens it as a workspace next to the repository's; Open worktree… lists the
+  repository's other checkouts and opens one, or goes back to the workspace it is already open
+  in. Remote PCs get the two with their next bridge update.
+  ([#383](https://github.com/devswha/herdr-web-ui/pull/383))
+- In the By workspace view a repository's worktree workspaces sit under its row, as herdr's own
+  sidebar keeps them. A worktree row's menu ends in **Delete worktree checkout…**, which deletes
+  the folder and closes the workspace but keeps the branch; a checkout with unsaved changes is
+  refused first, in git's words, with **Delete anyway** as the second step. Closing a repository
+  workspace over open worktrees says so and closes them with it.
+  ([#384](https://github.com/devswha/herdr-web-ui/pull/384))
+- **New tab**, as herdr's prefix+c: a workspace row's **⋯** menu, the header's **New tab** button
+  on a desktop, the command palette and the tab strip's `+` open the session dialog as *New tab*,
+  with the folder fixed to the workspace's and the agent and an optional tab name to choose. The
+  tab opens in the workspace with its agent started the way a new session's is. Remote PCs get
+  it with their next bridge update. The server half starts from
+  [#362](https://github.com/devswha/herdr-web-ui/pull/362) by @WOULDU-pres.
+  ([#386](https://github.com/devswha/herdr-web-ui/pull/386))
+- A tab strip over the pane, as herdr's tab row, once a workspace has more than one pane: one
+  entry per tab with the agent state as a dot, the open one underlined; a tab herdr still names
+  by its number reads **Tab 2**. A tab opens the pane last viewed in it, and a tab split into
+  several panes in the TUI has a picker of them beside its name.
+  ([#386](https://github.com/devswha/herdr-web-ui/pull/386))
+
+### Changed
+- The sidebar lists one row per workspace, as herdr's Spaces sidebar does, instead of a header
+  with a row per pane. The row shows the workspace's current pane (the selected one, else the one
+  last viewed there, else the one herdr has in front) and the roll-up of its agents' states; its
+  other panes are reached from the tab strip, the command palette and **Needs you**. Workspace
+  headers, numbers and folds are gone; folder folds stay. **Rename pane** renames the pane the
+  row shows, and a close asks first, as before.
+  ([#386](https://github.com/devswha/herdr-web-ui/pull/386))
+
+### Fixed
+- Settings → Updates no longer leaves **Check for updates** and **Update and restart** disabled
+  when the answer to a click arrives while the page is hidden, as when a phone sends the app to
+  the background. The status poll pauses with the page; the click's answer now lands anyway.
+  ([#381](https://github.com/devswha/herdr-web-ui/pull/381))
+- The Windows installer finishes on a PC that has no Bun yet. Bun's own installer left the
+  PowerShell session without the system PATH, so the next step stopped with `git` not recognized
+  or herdr's `program not found`, and installing Bun by hand first was the only way through.
+  ([#385](https://github.com/devswha/herdr-web-ui/pull/385))
+
+## [0.3.45] - 2026-10-03
+
+### Added
+- **Settings → herdr → Update herdr** updates herdr itself from the app, on the PC the app runs
+  on (Linux and macOS). herdr refuses `herdr update` typed into one of its panes, and every
+  terminal in the app is a pane, so the server runs it instead: it installs the newest herdr and
+  moves the running panes onto it. Panes and agents keep running, and open terminals reconnect.
+  A newer herdr installed from a shell is picked up the same way.
+  ([#373](https://github.com/devswha/herdr-web-ui/pull/373))
+
+### Changed
+- Each sidebar row has one `⋯` button in place of a hover pencil and a two-click X. Its menu
+  renames the workspace or the pane and closes the row: a close that takes the workspace with it
+  (a one-pane row, or **Close workspace** on a workspace header) asks first, as herdr's
+  `ui.confirm_close` does, and a pane that leaves its workspace standing closes at once. On a
+  phone the menu is a bottom sheet.
+  ([#379](https://github.com/devswha/herdr-web-ui/pull/379))
+- The sidebar has no top bar. A session starts from the `+` on its PC's header, as before, or from
+  the **New session** button an empty PC now shows; Mod+Shift+N and the palette still open it on
+  the selected PC. **Add PC** moved to Settings → Remote PCs, above the bridge auto-update switch,
+  and the command palette has it too.
+  ([#378](https://github.com/devswha/herdr-web-ui/pull/378))
+- In the sidebar's By workspace view, a workspace with one pane is a single row again, as it was
+  before 0.3.44: no numbered header above it, and the row carries the reorder handle and names
+  its workspace on its second line. A workspace with several panes keeps its header. A fold made
+  on a one-pane workspace in 0.3.44 no longer hides its row.
+  ([#371](https://github.com/devswha/herdr-web-ui/pull/371))
+- On a desktop the terminal no longer has a bar under it holding one keyboard button. The input
+  line or direct typing is still chosen in Settings → Terminal input mode, and a touch screen
+  keeps the button in its key bar.
+  ([#372](https://github.com/devswha/herdr-web-ui/pull/372))
+
+### Fixed
+- An open terminal no longer says "terminal ended" when herdr hands its panes to a new server,
+  as `herdr update --handoff` and `herdr server live-handoff` do. The pane is still running, so
+  the terminal attaches to it again for everyone viewing it.
+  ([#370](https://github.com/devswha/herdr-web-ui/pull/370))
+- Cmd+Backspace on macOS sends Ctrl+U in the live terminal, deleting the input back to
+  the start of the line instead of a single character. Pending IME text keeps its order.
+  ([#347](https://github.com/devswha/herdr-web-ui/pull/347) by @WOULDU-pres)
+- Opening a pane in the chat lens leaves its terminal at the size it has. A phone's chat lens, its
+  keyboard included, no longer narrows the pane for a desktop showing it; switching to the terminal
+  lens still fits the pane to that device. A remote PC gets this with its next bridge update.
+  ([#363](https://github.com/devswha/herdr-web-ui/pull/363) by @WOULDU-pres)
+- An OmO pane that has not been asked anything yet, or has just run `/new`, shows an empty chat
+  instead of "Conversation unavailable". OmO writes its session file only with the first message,
+  so the chat found no conversation until then and offered the terminal output instead.
+  ([#360](https://github.com/devswha/herdr-web-ui/pull/360) by @nahwan-kim)
+- An answer tapped on a prompt card for a screen the app does not know goes through while the
+  agent's working line ticks on that screen. The card's id took in the line's spinner, time and
+  token count, so a tap after each tick was refused with "the prompt changed" and took several
+  tries. Anything else that changes on the screen still refuses the answer.
+  ([#377](https://github.com/devswha/herdr-web-ui/pull/377), [#365](https://github.com/devswha/herdr-web-ui/pull/365) by @Haeminway1)
+
+## [0.3.44] - 2026-10-03
+
 ### Added
 - Native Windows x64 installation through `install.ps1`, with the same herdr plugin startup
   and updates. Windows needs Bun and Git, without Node or WSL, and keeps using the terminal
@@ -64,6 +167,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   instead of the "not built yet" notice. The Windows installer replaces a copy from a release
   without Windows support, and says so when a release cannot run there.
   ([#356](https://github.com/devswha/herdr-web-ui/pull/356))
+- On an iPhone home screen app, a text field that keeps its focus with the keyboard down no
+  longer leaves a status-bar band under the message box.
+  ([#349](https://github.com/devswha/herdr-web-ui/pull/349) by @Haeminway1)
+- After `/new` in an OmO pane, the chat stops showing the conversation before it: OmO writes the
+  new session's file only with its first message, and until then the chat shows what a fresh OmO
+  shows. ([#351](https://github.com/devswha/herdr-web-ui/pull/351) by @WOULDU-pres)
+- On a Windows PC, an omo pane shows omo's mark instead of Claude's, and its chat finds the
+  conversation: process words with `bun.exe`, backslashes and a drive letter read as omo, and the
+  session folder is named as omo's engine names a Windows folder.
+  ([#342](https://github.com/devswha/herdr-web-ui/pull/342) by @Haeminway1)
+- The chat lens finds an omo pane's conversation when its process keeps its sessions outside
+  `~/.omo/agent` (`OMO_CODING_AGENT_DIR`, `SENPI_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR`).
+  ([#350](https://github.com/devswha/herdr-web-ui/pull/350) by @Haeminway1)
 
 ## [0.3.43] - 2026-10-02
 
@@ -1447,7 +1563,10 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...HEAD
+[0.3.46]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...v0.3.46
+[0.3.45]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...v0.3.45
+[0.3.44]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...v0.3.44
 [0.3.43]: https://github.com/devswha/herdr-web-ui/compare/v0.3.42...v0.3.43
 [0.3.42]: https://github.com/devswha/herdr-web-ui/compare/v0.3.41...v0.3.42
 [0.3.41]: https://github.com/devswha/herdr-web-ui/compare/v0.3.40...v0.3.41

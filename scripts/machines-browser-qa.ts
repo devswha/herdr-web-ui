@@ -75,7 +75,9 @@ try {
   await page.getByRole("button", { name: "New session on QA second PC", exact: true }).click();
   const create = page.getByRole("dialog", { name: "New session · QA second PC", exact: true });
   await create.waitFor(); await create.getByRole("button", { name: "Close new session dialog", exact: true }).click();
-  await page.getByRole("button", { name: "Add PC", exact: true }).click();
+  // Add PC lives in Settings → Remote PCs; opening it closes Settings
+  await page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("button", { name: "Add PC", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Add PC", exact: true }); await dialog.waitFor();
   await page.screenshot({ path: join(evidence, "desktop-add-pc-dark.png") });
   await dialog.getByRole("button", { name: "Close PC setup" }).click();
@@ -88,11 +90,13 @@ try {
   await page.getByRole("button", { name: "Open workspace list", exact: true }).click();
   await page.waitForFunction(() => Math.abs(document.querySelector(".sidebar.is-open")!.getBoundingClientRect().x) < 1);
   await page.screenshot({ path: join(evidence, "mobile-light.png") });
-  await page.getByRole("button", { name: "Add PC", exact: true }).click();
+  await page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("button", { name: "Add PC", exact: true }).click();
   await page.screenshot({ path: join(evidence, "mobile-add-pc-light.png") });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   await page.getByRole("button", { name: "Close PC setup" }).click();
-  await page.getByRole("button", { name: "Close workspace list", exact: true }).click();
+  // Settings closed the drawer when it opened, and Add PC closed Settings: open the drawer again
+  await page.getByRole("button", { name: "Open workspace list", exact: true }).click();
   await page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await settings.getByRole("button", { name: "Dark", exact: true }).click();

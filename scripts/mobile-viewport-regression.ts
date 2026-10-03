@@ -54,7 +54,14 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
     await shell(false, "", 844);
     await height(780);
     await shell(false, "", 844);
+    // focused with the keyboard down (back from a dictation app, or closed by its own key):
+    // no keyboard sizing, so no status-bar band under the composer
     await composer.focus();
+    await shell(false, "", 844);
+    await height(500);
+    await shell(true, "500px", 500);
+    await height(795);
+    await shell(false, "", 844);
     await height(500);
     await shell(true, "500px", 500);
     // The delayed focusout check must see the next text field, not clear the keyboard flag.

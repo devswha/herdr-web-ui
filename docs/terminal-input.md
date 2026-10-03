@@ -7,11 +7,12 @@ input boundary; the terminal screen is still rendered from the attach stream.
 
 Settings → Appearance → Terminal input mode offers Automatic, Input line and Direct typing.
 Automatic keeps the existing device preference: a touch screen uses the input line unless the
-user previously chose direct typing; a fine pointer uses direct typing. The keyboard button
-switches modes on desktop and touch screens. Settings → Shortcuts can change each app action's
-Mod+Shift key or return its keys to the terminal. The hold-to-dictate binding remains fixed.
-Conflicts include the legacy New session alias, and Reset restores the defaults. Browser-reserved
-keys still depend on the browser and installed-app mode.
+user previously chose direct typing; a fine pointer uses direct typing. The key bar's keyboard
+button switches modes too, on a touch screen only: a desktop changes the mode in Settings.
+Settings → Shortcuts can change each app action's Mod+Shift key or return its keys to the
+terminal. The hold-to-dictate binding remains fixed. Conflicts include the legacy New session
+alias, and Reset restores the defaults. Browser-reserved keys still depend on the browser and
+installed-app mode.
 
 The input line keeps its unsent text per `paneStorageId(machineId, paneId)`, including across
 lens changes and reloads. Storage refusal falls back to memory for view changes. Pending sends

@@ -30,9 +30,9 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>ターミナルのペインで動く Claude Code。同じセッションをチャットで、さらにスマートフォンで操作 · 実際の動作を収録 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒の紹介動画</a></sub></p>
 
-**エージェントとのやり取りを、読みやすいチャットで。パソコンでもスマートフォンでも。**
+**Claude Code と Codex を、スマートフォンから。**
 
-[herdr](https://github.com/herdrdev/herdr) のブラウザ・スマートフォン向けクライアントです。すでに実行中のセッションを開き、エージェントの作業を確認して、どこからでも返答できます。
+[herdr](https://github.com/herdrdev/herdr) のブラウザ・スマートフォン向けクライアントです。自分のコンピューターで実行中の同じエージェントセッションを、パソコンでもスマートフォンでもチャットで読んで返答できます。必要なときはターミナルも使えます。
 
 <table>
   <tr>
@@ -56,7 +56,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
     <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="「PC を追加」で SSH 経由で Linux PC に接続してブリッジをインストールすると、そのセッションがサイドバーに加わり、ターミナルがその PC で動きます。"></a>
       <br><b>すべての PC を、ひとつのサイドバーに</b>
-      <br><sub>SSH で Linux や macOS のマシンを追加。<a href="docs/remote-pcs.md">リモート PC →</a></sub>
+      <br><sub>SSH で Linux、macOS、Windows のマシンを追加。<a href="docs/remote-pcs.md">リモート PC →</a></sub>
     </td>
   </tr>
 </table>

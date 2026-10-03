@@ -435,6 +435,15 @@ button {
   display: none;
 }
 
+/* the pane and, over it, its workspace's tab strip when there is more than one pane to pick */
+.pane-column {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
 .terminal-host {
   position: relative;
   flex: 1 1 auto;
@@ -530,6 +539,17 @@ button {
 /* the switch keeps its size; the pane title (.context) is the header's one flexible item */
 .view-switch {
   flex: 0 0 auto;
+}
+
+/* New tab beside the switch, on a desktop: a phone has it in the row's menu */
+.new-tab-button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 768px) {
+  .new-tab-button {
+    display: none;
+  }
 }
 
 .header-meta {

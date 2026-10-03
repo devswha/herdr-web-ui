@@ -158,8 +158,8 @@ export async function ping(socketPath?: string): Promise<HerdrIdentity> {
   return { version: result.version, protocol: result.protocol, terminal_attach: attach, ...(attach ? {} : { terminal_mirror: true }) };
 }
 
-export async function sessionSnapshot(socketPath?: string): Promise<SessionSnapshot> {
-  const result = await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {}, socketPath);
+export async function sessionSnapshot(socketPath?: string, timeoutMs?: number): Promise<SessionSnapshot> {
+  const result = await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {}, socketPath, timeoutMs);
   return result.snapshot;
 }
 
@@ -181,6 +181,24 @@ export async function workspaceCreate(
   return herdrRpc(
     "workspace.create",
     { ...(options.cwd === undefined ? {} : { cwd: options.cwd }), ...(options.label === undefined ? {} : { label: options.label }), focus: false },
+    socketPath,
+  );
+}
+
+export interface TabCreateResult {
+  type: "tab_created";
+  tab: TabInfo;
+  root_pane: PaneInfo;
+}
+
+/** Another tab in an existing workspace. Without `cwd` herdr uses the workspace's folder. */
+export async function tabCreate(
+  options: { workspaceId: string; cwd?: string; label?: string },
+  socketPath?: string,
+): Promise<TabCreateResult> {
+  return herdrRpc(
+    "tab.create",
+    { workspace_id: options.workspaceId, ...(options.cwd === undefined ? {} : { cwd: options.cwd }), ...(options.label === undefined ? {} : { label: options.label }), focus: false },
     socketPath,
   );
 }
@@ -215,8 +233,79 @@ export async function workspaceMove(workspaceId: string, insertIndex: number, so
   await herdrRpc("workspace.move", { workspace_id: workspaceId, insert_index: insertIndex }, socketPath);
 }
 
-export async function workspaceClose(workspaceId: string, socketPath?: string): Promise<void> {
-  await herdrRpc("workspace.close", { workspace_id: workspaceId }, socketPath);
+/** closeGroup takes a repository workspace's open worktree workspaces with it; herdr refuses otherwise. */
+export async function workspaceClose(workspaceId: string, socketPath?: string, closeGroup = false): Promise<void> {
+  await herdrRpc("workspace.close", { workspace_id: workspaceId, ...(closeGroup ? { close_group: true } : {}) }, socketPath);
+}
+
+/** `git worktree add` or `remove` on a large checkout can take well over the default 10 s. */
+const WORKTREE_GIT_TIMEOUT_MS = 60_000;
+
+/** `git worktree remove` of the workspace's checkout; herdr closes the workspace with it and keeps the branch. */
+export async function worktreeRemove(workspaceId: string, force: boolean, socketPath?: string): Promise<{ type: "worktree_removed"; workspace_id: string; path: string; forced: boolean }> {
+  return herdrRpc("worktree.remove", { workspace_id: workspaceId, force }, socketPath, WORKTREE_GIT_TIMEOUT_MS);
+}
+
+/** herdr's view of one git checkout: `worktree.list` entries, and what create/open hand back. */
+export interface WorktreeInfo {
+  path: string;
+  branch: string | null;
+  label: string;
+  is_linked_worktree: boolean;
+  is_bare: boolean;
+  is_detached: boolean;
+  is_prunable: boolean;
+  open_workspace_id: string | null;
+}
+
+export interface WorktreeSourceInfo {
+  repo_key: string;
+  repo_name: string;
+  repo_root: string;
+  source_checkout_path: string;
+  source_workspace_id: string | null;
+}
+
+export interface WorktreeOpenResult {
+  type: "worktree_created" | "worktree_opened";
+  workspace: WorkspaceInfo;
+  tab: TabInfo;
+  root_pane: PaneInfo;
+  worktree: WorktreeInfo;
+  /** worktree_opened only: the checkout was a workspace before the call */
+  already_open?: boolean;
+}
+
+/** A git worktree of the workspace's repository, opened as a new workspace grouped with it. */
+export async function worktreeCreate(
+  options: { workspaceId: string; branch: string; base?: string; label?: string; path?: string },
+  socketPath?: string,
+): Promise<WorktreeOpenResult> {
+  return herdrRpc("worktree.create", {
+    workspace_id: options.workspaceId,
+    branch: options.branch,
+    ...(options.base === undefined ? {} : { base: options.base }),
+    ...(options.label === undefined ? {} : { label: options.label }),
+    ...(options.path === undefined ? {} : { path: options.path }),
+    focus: false,
+  }, socketPath, WORKTREE_GIT_TIMEOUT_MS);
+}
+
+export async function worktreeList(workspaceId: string, socketPath?: string): Promise<{ source: WorktreeSourceInfo; worktrees: WorktreeInfo[] }> {
+  return herdrRpc("worktree.list", { workspace_id: workspaceId }, socketPath);
+}
+
+export async function worktreeOpen(
+  options: { workspaceId: string; path?: string; branch?: string; label?: string },
+  socketPath?: string,
+): Promise<WorktreeOpenResult> {
+  return herdrRpc("worktree.open", {
+    workspace_id: options.workspaceId,
+    ...(options.path === undefined ? {} : { path: options.path }),
+    ...(options.branch === undefined ? {} : { branch: options.branch }),
+    ...(options.label === undefined ? {} : { label: options.label }),
+    focus: false,
+  }, socketPath);
 }
 
 export interface PaneReadOptions {

@@ -30,9 +30,9 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 
 <p align="center"><sub>在终端窗格中运行 Claude Code，同一会话切换为聊天，再到手机上继续 · 实机录制 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒演示影片</a></sub></p>
 
-**在电脑和手机上，随时与智能体对话。**
+**在手机上使用 Claude Code 和 Codex。**
 
-[herdr](https://github.com/herdrdev/herdr) 的浏览器与手机客户端。打开已经运行的会话，查看智能体正在做什么，无论身在何处都能回复。
+[herdr](https://github.com/herdrdev/herdr) 的浏览器与手机客户端。无论在电脑还是手机上，都能以聊天方式阅读并回复你电脑上正在运行的同一批智能体会话，需要时可切换到终端。
 
 <table>
   <tr>
@@ -56,7 +56,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
     <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="“添加电脑”通过 SSH 连接一台 Linux 电脑并安装 bridge，它的会话加入侧边栏，终端在那台电脑上运行。"></a>
       <br><b>一个侧边栏，管理所有电脑</b>
-      <br><sub>通过 SSH 添加 Linux 和 macOS 电脑。<a href="docs/remote-pcs.md">远程电脑 →</a></sub>
+      <br><sub>通过 SSH 添加 Linux、macOS 和 Windows 电脑。<a href="docs/remote-pcs.md">远程电脑 →</a></sub>
     </td>
   </tr>
 </table>
