@@ -41,7 +41,9 @@ import {
   paneSendText,
   ping,
   sessionSnapshot,
+  tabClose,
   tabCreate,
+  tabRename,
   workspaceClose,
   workspaceCreate,
   workspaceMove,
@@ -1268,6 +1270,35 @@ export function createServer(
           if (pathname === "/api/workspace/rename") await workspaceRename(payload.workspace_id, payload.label as string);
           else if (pathname === "/api/workspace/move") await workspaceMove(payload.workspace_id, payload.insert_index as number);
           else await workspaceClose(payload.workspace_id, undefined, payload.close_group === true);
+          return jsonResponse({ ok: true });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it
+      if (pathname === "/api/tab/rename" || pathname === "/api/tab/close") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { tab_id?: unknown; label?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.tab_id !== "string" || payload.tab_id.length === 0) return badRequest("missing_tab_id", "tab_id is required");
+        try {
+          if (pathname === "/api/tab/rename") {
+            // herdr would keep an empty label as the tab's name, and its own tab row would show nothing
+            const label = typeof payload.label === "string" ? payload.label.trim() : "";
+            if (label === "") return badRequest("missing_label", "label is required");
+            await tabRename(payload.tab_id, label);
+            // no pane event follows a rename, so the clients are told here
+            broadcastAll({ type: "session-changed" });
+          } else {
+            // herdr emits pane.closed for the tab's panes, and the collector tells the clients
+            await tabClose(payload.tab_id);
+          }
           return jsonResponse({ ok: true });
         } catch (error) {
           return errorResponse(error);

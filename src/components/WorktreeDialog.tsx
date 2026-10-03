@@ -1,7 +1,7 @@
 /**
  * A git worktree from a workspace's row menu, as herdr's own prefix+shift+g makes one. "create"
- * asks for the branch and checks it out under herdr's worktree folder; "open" lists the
- * repository's checkouts. Either way the checkout becomes a workspace grouped with this one,
+ * asks for the branch and checks it out under herdr's worktree folder, with a branch and a name
+ * already filled in the way herdr's own form fills them; "open" lists the repository's checkouts. Either way the checkout becomes a workspace grouped with this one,
  * and its pane is selected. Escape and the scrim close the dialog, Tab stays inside it, and
  * focus goes back to the ⋯ afterwards. A checkout git has lost (prunable) is listed but not offered.
  */
@@ -15,6 +15,7 @@ import type { WorkspaceInfo, WorktreeEntry, WorktreeOpened } from "../../shared/
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
+import { suggestWorktreeBranch, worktreeLabel } from "../lib/worktreeName.ts";
 
 export type WorktreeDialogMode = "create" | "open";
 
@@ -32,9 +33,11 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
   const t = useT();
   const id = useId();
   const { createWorktree, listWorktrees, openWorktree } = useMachineApi();
-  const [branch, setBranch] = useState("");
+  const [branch, setBranch] = useState(suggestWorktreeBranch);
   const [base, setBase] = useState("");
-  const [label, setLabel] = useState("");
+  // null: the name is the branch's until it is typed over
+  const [typedLabel, setTypedLabel] = useState<string | null>(null);
+  const label = typedLabel ?? worktreeLabel(branch);
   const [entries, setEntries] = useState<WorktreeEntry[] | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +50,11 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
     return () => { if (opener.current?.isConnected) opener.current.focus({ preventScroll: true }); };
   }, []);
   useEffect(() => {
-    window.requestAnimationFrame(() => (first.current ?? surface.current?.querySelector<HTMLElement>(".worktree-row, .btn"))?.focus());
+    window.requestAnimationFrame(() => {
+      (first.current ?? surface.current?.querySelector<HTMLElement>(".worktree-row, .btn"))?.focus();
+      // the suggested branch is selected, so typing a branch replaces it
+      first.current?.select();
+    });
   }, [mode, entries]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -131,8 +138,8 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
               </label>
               <label className="field">
                 <span className="field-label">{t("Name")}</span>
-                <input className="input" value={label} disabled={pending !== null} autoComplete="off" placeholder={branch.trim() || undefined} onChange={(event) => setLabel(event.target.value)} />
-                <span className="field-hint">{t("Optional workspace label")}</span>
+                <input className="input" value={label} disabled={pending !== null} autoComplete="off" onChange={(event) => setTypedLabel(event.target.value)} />
+                <span className="field-hint">{t("Workspace label; follows the branch until you change it")}</span>
               </label>
             </>
           ) : others === null && !error ? (

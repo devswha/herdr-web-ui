@@ -2,6 +2,8 @@
 $ErrorActionPreference = 'Stop'
 $installer = Join-Path $PSScriptRoot '..\install.ps1'
 $originalPath = $env:PATH
+$originalLocalAppData = $env:LOCALAPPDATA
+$originalUserProfile = $env:USERPROFILE
 $state = @{ installed = $false; installs = 0; uninstalls = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false; windowsRelease = $true }
 # A real directory: the installer reads the installed copy to tell whether it can run on Windows.
 $pluginRoot = Join-Path ([IO.Path]::GetTempPath()) "herdr plugin with spaces $PID"
@@ -47,6 +49,8 @@ function herdr {
     }
 }
 function Invoke-WebRequest {
+    # herdr's installer, as the stand-in the test wrote: -OutFile is the last argument
+    if ($args[0] -eq 'https://herdr.dev/install.cmd') { Set-Content -LiteralPath $args[-1] -Value $state.herdrInstaller -Encoding Ascii; return }
     if ($args[0] -ne 'https://bun.sh/install.ps1') { throw "Unexpected download: $args" }
     if ($state.failBun) { return @{ Content = 'param($Version)' } }
     # as Bun's installer does: the session is left with the user's PATH and nothing of the machine's
@@ -93,7 +97,42 @@ try {
     & $installer -Ref ''
     Assert ($state.uninstalls -eq 1 -and $state.installs -eq $installs + 1 -and $state.started) 'A copy without Windows support must be replaced and started'
     Write-Host 'PASS native installer release selection, rerun, Bun bootstrap, explicit ref, stopped herdr, install failure and a copy without Windows support'
+
+    # A PC without herdr: its installer is a stand-in .cmd, and nothing of this PC's own herdr is in reach.
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) "herdr-installer-test-$PID"
+    New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+    $runs = Join-Path $scratch 'runs.txt'
+    $marker = Join-Path $scratch 'second-run'
+    $herdrStandIn = ${function:herdr}
+    Remove-Item Function:\herdr
+    $env:PATH = "$env:SystemRoot\System32"; $env:LOCALAPPDATA = $scratch; $env:USERPROFILE = $scratch
+    Assert (-not (Get-Command herdr -ErrorAction SilentlyContinue)) 'The herdr installer cases need a session without herdr'
+    $slow = 'echo curl: (28) Operation too slow. Less than 1024 bytes/sec transferred the last 30 seconds 1>&2'
+    $attempts = { @(Get-Content -LiteralPath $runs -ErrorAction SilentlyContinue).Count }
+
+    $state.herdrInstaller = "@echo off`r`necho run>>`"$runs`"`r`n$slow`r`nexit /b 1"
+    $message = ''
+    try { & $installer -Ref '' } catch { $message = $_.Exception.Message }
+    Assert ($message -match 'could not be downloaded' -and (& $attempts) -eq 2) "A download that fails twice must be tried twice and named as a download: $message"
+
+    Remove-Item -LiteralPath $runs -Force
+    $state.herdrInstaller = "@echo off`r`necho run>>`"$runs`"`r`nexit /b 1"
+    $message = ''
+    try { & $installer -Ref '' } catch { $message = $_.Exception.Message }
+    Assert ($message -match 'security software' -and (& $attempts) -eq 1) "A stop without a download error must not be retried: $message"
+
+    # The second try succeeds: the script goes on to ask herdr its version, and this session has none.
+    Remove-Item -LiteralPath $runs -Force
+    $state.herdrInstaller = "@echo off`r`necho run>>`"$runs`"`r`nif exist `"$marker`" exit /b 0`r`necho.>`"$marker`"`r`n$slow`r`nexit /b 1"
+    $message = ''
+    try { & $installer -Ref '' } catch { $message = $_.Exception.Message }
+    Assert ($message -and $message -notmatch 'could not be downloaded|did not finish' -and (& $attempts) -eq 2) "A download that succeeds on the second try must carry on: $message"
+    Write-Host 'PASS herdr installer: a failed download is retried once and named, a silent stop is not retried'
 } finally {
     $env:PATH = $originalPath
+    $env:LOCALAPPDATA = $originalLocalAppData
+    $env:USERPROFILE = $originalUserProfile
+    if ($herdrStandIn) { Set-Item Function:\herdr $herdrStandIn }
+    if ($scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $pluginRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

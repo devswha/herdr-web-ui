@@ -278,6 +278,29 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     return json({ ok: true });
   }
+  if (path === "/api/tab/rename") {
+    const body = await bodyOf(init, input);
+    const tab = snapshot().tabs.find((t) => t.tab_id === body["tab_id"]);
+    if (!tab) return error("tab_not_found", "no such tab", 404);
+    const label = String(body["label"] ?? "").trim();
+    if (label === "") return error("missing_label", "label is required", 400);
+    tab.label = label;
+    structureChanged();
+    return json({ ok: true });
+  }
+  if (path === "/api/tab/close") {
+    const body = await bodyOf(init, input);
+    const snap = snapshot();
+    const tab = snap.tabs.find((t) => t.tab_id === body["tab_id"]);
+    if (!tab) return error("tab_not_found", "no such tab", 404);
+    snap.panes = snap.panes.filter((p) => p.tab_id !== tab.tab_id);
+    snap.tabs = snap.tabs.filter((t) => t.tab_id !== tab.tab_id);
+    snap.layouts = snap.layouts.filter((l) => l.tab_id !== tab.tab_id);
+    // a workspace's last tab takes the workspace with it
+    if (!snap.tabs.some((t) => t.workspace_id === tab.workspace_id)) snap.workspaces = snap.workspaces.filter((w) => w.workspace_id !== tab.workspace_id);
+    structureChanged();
+    return json({ ok: true });
+  }
   if (path === "/api/workspace/rename") {
     const body = await bodyOf(init, input);
     const workspace = snapshot().workspaces.find((w) => w.workspace_id === body["workspace_id"]);

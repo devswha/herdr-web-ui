@@ -13,12 +13,71 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   PC; a remote PC keeps the default.
   ([#357](https://github.com/devswha/herdr-web-ui/pull/357) by @hank-warren)
 
+### Fixed
+- A Linux or macOS PC whose herdr was lost to a restart or a kill connects again. herdr leaves
+  its socket file behind, the bridge took that file for a running herdr and did not start, and
+  **Update** ended in "Bridge did not start" each time. The bridge now starts herdr when nothing
+  listens on that socket. PCs get this with their next bridge update.
+- The Windows installer tries herdr's download once more when it fails, and says so when it fails
+  again: herdr's installer gives up on a connection that stays under 1 KB/s for 30 seconds, and
+  the install ended there with a message about security software.
+- Claude conversations on Linux can be read without the Herdr integration hook when Claude's
+  native PID record identifies the live interactive session. Reused PIDs, invalid records and
+  multiple Claude processes stay unresolved instead of selecting a same-directory conversation.
+  ([#376](https://github.com/devswha/herdr-web-ui/pull/376) by @WOULDU-pres)
+- Codex conversations recognize renamed executables and recover missing Linux process arguments,
+  preserving resume and process-bound session identity when an answer is no longer on screen.
+  ([#376](https://github.com/devswha/herdr-web-ui/pull/376) by @WOULDU-pres)
+- Reading a Codex conversation on a phone no longer scrolls the same idle agent's
+  terminal on the desktop as the conversation refreshes.
+  ([#393](https://github.com/devswha/herdr-web-ui/pull/393) by @JJLiebig)
+- A question card is read from the bottom of the pane even when its terminal was scrolled up
+  into its history. A scrolled omo or pi pane showed every later question as the last-resort card
+  with only Enter and Esc, since the menu drawn at the bottom was out of the scrolled view.
+  ([#402](https://github.com/devswha/herdr-web-ui/pull/402) by @nahwan-kim)
+
+## [0.3.47] - 2026-10-03
+
+### Added
+- A tab is renamed and closed from the tab strip, as herdr's prefix+shift+t and prefix+shift+x.
+  With a mouse: an **x** on the open tab and on the one under the pointer, a double-click on the
+  name to type a new one, a right-click for a menu with **Rename tab** and **Close tab**. With
+  keys on a focused tab: F2 and Delete. On a phone the open tab carries a chevron that opens
+  the same menu. A close asks first only when an agent in the tab is still working or the tab
+  is the workspace's last one, which closes the workspace with it. Remote PCs get the two with
+  their next bridge update.
+  ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
+
 ### Changed
 - **New session** is **New workspace**: the `+` on a PC's header, the button of an empty PC, the
   command palette action and the Settings → Shortcuts row create a herdr workspace, and say so
   now, beside **New tab**. The dialog's buttons are **Start**, **Open** and **Close dialog** in
   both of its forms. The shortcut and saved settings are unchanged.
   ([#389](https://github.com/devswha/herdr-web-ui/pull/389))
+- **New worktree** opens with a branch and a name already filled in, as herdr's own form does:
+  a `worktree/brave-valley-07f8` style branch, selected so typing replaces it, and a name that
+  follows the branch until you change it.
+  ([#388](https://github.com/devswha/herdr-web-ui/pull/388))
+
+### Fixed
+- In the iPhone home screen app, a dialog with a text field stays above the keyboard: the command
+  palette, and the other bottom sheets, ended at the bottom of the screen, behind the keyboard, and
+  a palette with few results was hidden whole.
+  ([#395](https://github.com/devswha/herdr-web-ui/pull/395))
+- On a phone the header shows the pane's title again: the desktop **New tab** button was not
+  hidden there, took the title's room, and pushed a narrow phone's page wider than its screen.
+  ([#392](https://github.com/devswha/herdr-web-ui/pull/392))
+- The tab strip keeps the open tab in view when a pane is opened from the sidebar, the palette
+  or an alert, its `+` stays at the end of the strip however many tabs there are, and on a touch
+  screen a split tab's pane picker no longer overlaps the tab's name.
+  ([#392](https://github.com/devswha/herdr-web-ui/pull/392))
+- A tab herdr names by its number reads **Tab n** by its place in the strip: after a tab before
+  it closed, it showed as a bare number.
+  ([#391](https://github.com/devswha/herdr-web-ui/pull/391))
+- Picking a pane that opens in the chat lens, while a pane in the terminal lens is open, no longer
+  resizes the terminal other devices share. The chat lens was already leaving the size alone when
+  the page opened on the pane; a switch from the sidebar still fitted it to this device once.
+  ([#390](https://github.com/devswha/herdr-web-ui/pull/390))
 
 ## [0.3.46] - 2026-10-03
 
@@ -1574,7 +1633,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...HEAD
+[0.3.47]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...v0.3.47
 [0.3.46]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...v0.3.46
 [0.3.45]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...v0.3.45
 [0.3.44]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...v0.3.44

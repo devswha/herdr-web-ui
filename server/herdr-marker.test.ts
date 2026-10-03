@@ -1,5 +1,7 @@
 import { expect, it } from "bun:test";
-import { markerOwner, parseProcessLine, staleMarker } from "./herdr-marker.ts";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { markerOwner, parseProcessLine, refusedSocket, staleMarker } from "./herdr-marker.ts";
 
 // a real marker and the process behind it, read from a Windows PC (herdr 0.9.3)
 const MARKER = "26540:1790829888292852700";
@@ -39,4 +41,20 @@ it("falls back to the name when either start is unknown, and never calls an unre
   expect(staleMarker(MARKER, () => ({ name: "herdr", startedMs: null }))).toBe(false);
   expect(staleMarker("26540", () => DAEMON)).toBe(false);
   expect(staleMarker("garbage", () => null)).toBe(false);
+});
+
+it.skipIf(process.platform === "win32")("calls a socket file refused only once the process listening on it was killed", async () => {
+  // /tmp, not the per-user TMPDIR: macOS's is long enough to pass the 104-byte sun_path limit
+  const dir = mkdtempSync("/tmp/herdr-refused-");
+  try {
+    const path = join(dir, "herdr.sock");
+    expect(await refusedSocket(path)).toBe(false);
+    const listener = Bun.spawn([process.execPath, "-e", "Bun.listen({ unix: process.argv[1], socket: { data() {} } }); console.log('ready');", path], { stdout: "pipe", stderr: "inherit" });
+    try {
+      await listener.stdout.getReader().read();
+      expect(await refusedSocket(path)).toBe(false);
+    } finally { listener.kill("SIGKILL"); await listener.exited; }
+    expect(existsSync(path)).toBe(true);
+    expect(await refusedSocket(path)).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -132,7 +132,32 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
     await height(795);
     await shell(false, "", 844);
     if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "viewport-idle.png") });
+
+    // A sheet with a text field ends where the keyboard begins: an iPhone home screen app keeps
+    // the layout viewport at full height, so a sheet on its bottom edge would sit under the keyboard.
+    await page.getByRole("button", { name: "Command palette", exact: true }).click();
+    const search = page.locator(".palette-search input");
+    await search.focus();
+    await height(500);
+    await shell(true, "500px", 500);
+    const sheet = () => page.evaluate(() => {
+      const edges = (selector: string) => { const r = document.querySelector(selector)!.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
+      return { scrim: edges(".modal-scrim"), palette: edges(".command-palette"), search: edges(".palette-search input") };
+    });
+    for (const query of ["", "no pane or action is named like this"]) {
+      await search.fill(query);
+      const at = await sheet();
+      assert.equal(at.scrim.bottom, 500, `the scrim ends at the keyboard (${JSON.stringify(at)})`);
+      assert.ok(at.palette.top >= 0 && at.palette.bottom <= 500, `the palette is above the keyboard (${JSON.stringify(at)})`);
+      assert.ok(at.search.top >= 0 && at.search.bottom <= 500, `its search field is above the keyboard (${JSON.stringify(at)})`);
+    }
+    if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "viewport-sheet-keyboard.png") });
+    await page.keyboard.press("Escape");
+    await page.locator(".command-palette").waitFor({ state: "hidden" });
+    await blur();
+    await height(795);
+    await shell(false, "", 844);
     assert.deepEqual(errors, []);
-    console.log("PASS viewport contract: idle, keyboard resize, field handoff, blur, rotation, xterm modes and pointer changes");
+    console.log("PASS viewport contract: idle, keyboard resize, field handoff, blur, rotation, xterm modes, pointer changes and a sheet above the keyboard");
   } finally { await context.close(); }
 }

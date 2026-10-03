@@ -1827,7 +1827,7 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
     return { agent, status, prompt: known.prompt };
   }
   // herdr says the agent waits on the user and no reader knows the screen: the fallback card
-  const screen = known.screen ?? (await paneRead({ paneId, source: "visible", format: "text" })).text;
+  const screen = known.screen ?? await liveScreen(paneId);
   // Codex's collapsed question queue reads blocked while its main prompt takes a message
   if (agent === "codex" && codexQuestionsCollapsed(screen)) {
     fallbackLogged.delete(paneId);
@@ -1839,6 +1839,15 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
     console.warn(`prompt: ${agent} pane ${paneId} is blocked on a screen no reader knows; fallback card (${prompt.options.length} options)`);
   }
   return { agent, status, prompt };
+}
+
+/**
+ * The pane's live screen as text: herdr's bottom buffer, whatever part of the history the pane's
+ * viewport shows. A pane scrolled up (a drag or the wheel in a terminal) stays scrolled while the
+ * agent draws its next menu at the bottom, out of that viewport.
+ */
+async function liveScreen(paneId: string): Promise<string> {
+  return (await paneRead({ paneId, source: "detection", format: "text" })).text;
 }
 
 /** omo's form on a screen, by a line of its key hint: worth a look in the pane's session. */
@@ -1882,16 +1891,16 @@ async function readKnownPrompt(
   panes: HerdrPane[] = [],
 ): Promise<{ prompt: InteractivePrompt | null; screen?: string }> {
   if (!["claude", "omp", "codex", "omo", "pi", ""].includes(agent)) return { prompt: null };
-  const screen = await paneRead({ paneId, source: "visible", format: "text" });
+  const screen = await liveScreen(paneId);
   // omo's form reads its text from the session's call, the screen showing where the form stands
-  const omoAsk = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen.text)
+  const omoAsk = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)
     ? await omoAskFor(paneId, pane.cwd, panes) : null;
   // a pane herdr names claude, or not at all, is omo's only on evidence: herdr reports it waiting
   // on the user, or the session's pending call is the form on screen
   const omoTrusted = (agent !== "claude" && agent !== "") || pane.agent_status === "blocked";
-  const prompt = parseInteractivePrompt(agent, screen.text, omoAsk, omoTrusted);
-  const count = agent === "codex" && prompt === null ? queuedQuestionCount(screen.text) : 0;
-  if (count === 0 || !pane.cwd) return { prompt, screen: screen.text };
+  const prompt = parseInteractivePrompt(agent, screen, omoAsk, omoTrusted);
+  const count = agent === "codex" && prompt === null ? queuedQuestionCount(screen) : 0;
+  if (count === 0 || !pane.cwd) return { prompt, screen };
   let rollout = queueRollouts.get(paneId);
   if (!rollout || Date.now() - rollout.at > QUEUE_ROLLOUT_MS) {
     rollout = { path: await codexTranscriptPath(paneId, pane.cwd, codexHome), at: Date.now() };
@@ -1903,11 +1912,11 @@ async function readKnownPrompt(
     const front = queueFronts.get(paneId);
     if (front && front.rollout !== rollout.path) queueFronts.delete(paneId);
     return {
-      prompt: rollout.path ? codexQueuedPrompt(screen.text, await unansweredCodexQuestions(rollout.path), front?.rollout === rollout.path ? front : null) : null,
-      screen: screen.text,
+      prompt: rollout.path ? codexQueuedPrompt(screen, await unansweredCodexQuestions(rollout.path), front?.rollout === rollout.path ? front : null) : null,
+      screen,
     };
   } catch {
-    return { prompt: null, screen: screen.text }; // the rollout went away
+    return { prompt: null, screen }; // the rollout went away
   }
 }
 
@@ -1921,7 +1930,7 @@ async function closeQueue(paneId: string, answered: string): Promise<void> {
   const since = Date.now();
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await Bun.sleep(100);
-    const screen = (await paneRead({ paneId, source: "visible", format: "text" })).text;
+    const screen = await liveScreen(paneId);
     const shown = parsePrompt("codex", screen);
     if (shown?.responder === "codex-async-question") {
       // the question just answered, a moment ago; still there after 600ms, it is its twin
@@ -1952,11 +1961,11 @@ function sameText(shown: string, asked: string): boolean {
  */
 async function openQueuedQuestion(paneId: string, queued: ParsedPrompt): Promise<InteractivePrompt | null> {
   // the key only once the screen still shows the questions' count, nothing of the user's queued
-  if (queuedQuestionCount((await paneRead({ paneId, source: "visible", format: "text" })).text) === 0) return null;
+  if (queuedQuestionCount(await liveScreen(paneId)) === 0) return null;
   await paneSendKeys(paneId, [KEY.openQueue]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await Bun.sleep(100);
-    const opened = parsePrompt("codex", (await paneRead({ paneId, source: "visible", format: "text" })).text);
+    const opened = parsePrompt("codex", await liveScreen(paneId));
     if (opened?.responder !== "codex-async-question") continue;
     if (sameText(opened.question, queued.question) && opened.options.length === queued.options.length
       && opened.options.every((option, index) => sameText(option.label, queued.options[index]!.label))) return publicPrompt(opened);
@@ -1973,7 +1982,7 @@ async function openQueuedQuestion(paneId: string, queued: ParsedPrompt): Promise
 
 /** Closes Codex's queue if a question shows open in it. */
 async function closeOpenQuestion(paneId: string): Promise<void> {
-  const screen = (await paneRead({ paneId, source: "visible", format: "text" })).text;
+  const screen = await liveScreen(paneId);
   if (parsePrompt("codex", screen)?.responder === "codex-async-question") await paneSendKeys(paneId, [KEY.closeQueue]);
 }
 

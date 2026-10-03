@@ -35,6 +35,8 @@ interface Props {
   title: string;
   subtitle?: string;
   items: RowMenuItem[];
+  /** which edge of the button the popover lines up with: its right one (a row's ⋯), or its left one (a tab) */
+  align?: "start" | "end";
   onClose: () => void;
 }
 
@@ -45,7 +47,7 @@ const POPOVER_ITEMS = '[role="menuitem"]';
 // the sheet is modal: its Cancel is one of the stops
 const SHEET_ITEMS = '.row-sheet-item, .row-sheet-cancel';
 
-export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
+export function RowMenu({ anchor, title, subtitle, items, align = "end", onClose }: Props) {
   const t = useT();
   const [sheet] = useState(() => window.matchMedia(SHEET_QUERY).matches);
   const surface = useRef<HTMLDivElement>(null);
@@ -55,18 +57,18 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
 
   useLayoutEffect(() => () => { if (anchor.isConnected) anchor.focus({ preventScroll: true }); }, [anchor]);
 
-  // under the button, right edges aligned; above it when the screen ends first
+  // under the button, right edges aligned (left ones for a tab); above it when the screen ends first
   useLayoutEffect(() => {
     if (sheet) return;
     const menu = surface.current;
     if (!menu || !anchor.isConnected) { onClose(); return; }
     const rect = anchor.getBoundingClientRect();
     placedAt.current = { top: rect.top, left: rect.left };
-    const left = Math.max(EDGE, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
+    const left = Math.max(EDGE, Math.min(align === "start" ? rect.left : rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
     const below = rect.bottom + GAP;
     const top = below + menu.offsetHeight + EDGE <= window.innerHeight ? below : Math.max(EDGE, rect.top - GAP - menu.offsetHeight);
     setPlace({ top, left });
-  }, [anchor, onClose, sheet]);
+  }, [align, anchor, onClose, sheet]);
 
   useEffect(() => {
     const first = surface.current?.querySelector<HTMLElement>(sheet ? SHEET_ITEMS : POPOVER_ITEMS);

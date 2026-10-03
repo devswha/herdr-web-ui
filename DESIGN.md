@@ -260,6 +260,9 @@ One set for both themes: the card is island black wherever it shows.
 - `.modal-scrim` centers an `aria-modal` dialog at `--z-modal`; `.modal` is a capped scrollable
   column with header, body and footer and `--shadow-pop`.
 - At `<=640px`, it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
+- While a phone's keyboard is up (`data-keyboard`), the scrim is `--app-height` tall instead of the
+  whole screen, so a sheet and its text field sit above the keyboard, and the sheet drops its
+  safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
@@ -390,16 +393,38 @@ One set for both themes: the card is island black wherever it shows.
   dim. Arrow keys move between tabs. A tab opens the pane last viewed in it, else the one herdr
   has focused there, else its first; a tab with several panes has a chevron beside its name that
   opens a pane picker (the row menu). The strip ends in a `+` that opens the New tab dialog.
+  The open tab is scrolled into view when the selection comes from elsewhere (the sidebar, the
+  palette, an alert), and the `+` stays at the strip's end while the tabs scroll under it.
+- A tab is renamed and closed on the strip, as herdr's prefix+shift+t and prefix+shift+x. With
+  a mouse: a 20px `x` (`.tab-strip-close`) after the name, visible on the open tab and on the
+  one under the pointer or the focus, its place kept in every tab so widths do not move; a
+  double-click on the name swaps it for a field (`.tab-strip-rename`: Enter saves, Escape and a
+  blur leave the name, an empty field changes nothing because herdr would keep the empty name);
+  a right-click opens the tab's menu under its left edge; the middle button closes. With keys
+  on a focused tab: F2 and Delete. On a touch screen there is no `x`: the open tab carries the
+  chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
+  several, then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+- A close is immediate, as herdr's, and the tab beside it opens. It asks first (the confirm
+  dialog) only when it costs more than the tab: an agent in it is working or blocked, or it is
+  the workspace's last tab, which takes the workspace with it. A refusal shows in the dialog, or
+  as a line of `--status-blocked` text at the strip's end for six seconds.
+- The underline runs under the whole tab (`.tab-strip-item.is-active`), its `x` included. A tab
+  herdr names itself reads **Tab n** by its place in the row: herdr relabels it when a tab
+  before it closes.
 - `--control-h` tall on a hairline over `--bg-panel`, scrolling sideways without a scrollbar;
-  touch grows the buttons to `--touch-target`. The same strip on a phone.
+  touch grows the buttons to `--touch-target`, and puts the pane picker beside its tab's name
+  instead of pulling it over the name's padding. The same strip on a phone.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
-  (required), where to start from (HEAD when empty, ignored for a branch that exists) and an
-  optional name, then checks the branch out under herdr's worktree folder and opens it as a
+  (required), where to start from (HEAD when empty, ignored for a branch that exists) and a
+  name, then checks the branch out under herdr's worktree folder and opens it as a
   workspace grouped with the repository's; its pane is selected. **Open worktree…** lists the
   repository's other checkouts as rows (branch, mono path, an **Already open** pill), and a row
   opens or returns to that workspace. herdr's own words explain a refusal, inside the dialog.
+- The branch arrives filled in as herdr's own form fills it (`worktree/brave-valley-07f8`:
+  adjective, noun, four hex digits) and selected, so typing replaces it. The name is the branch
+  with its slashes as dashes and follows the branch until it is typed over.
 
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills

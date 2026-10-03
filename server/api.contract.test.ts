@@ -8,7 +8,7 @@ import { HerdrUpdater } from "./herdr-update.ts";
 import type { HerdrUpdateStatus } from "../shared/update.ts";
 import { UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
-import { herdrRpc, ping, sessionSnapshot, workspaceCreate, workspaceClose } from "./herdr/client.ts";
+import { herdrRpc, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
@@ -208,7 +208,7 @@ describe("phone access", () => {
 describe("mutation body validation", () => {
   it("rejects non-object JSON without touching herdr or losing the error envelope", async () => {
     for (const path of [
-      "/api/workspace/create", "/api/tab/create", "/api/workspace/rename", "/api/workspace/move", "/api/workspace/close",
+      "/api/workspace/create", "/api/tab/create", "/api/tab/rename", "/api/tab/close", "/api/workspace/rename", "/api/workspace/move", "/api/workspace/close",
       "/api/pane/rename", "/api/pane/input", "/api/pane/keys", "/api/pane/close", "/api/pane/image",
       "/api/pane/scroll",
     ]) {
@@ -236,6 +236,64 @@ describe("mutation body validation", () => {
       expect(response.status).toBe(400);
       expect(((await response.json()) as ApiError).error.code).toBe(code);
     }
+  });
+});
+
+// herdr's prefix+shift+t and prefix+shift+x, against a real herdr.
+describe("tab rename and close", () => {
+  const post = (path: string, body: unknown) => fetch(`${base()}/api/tab/${path}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const tabsOf = async (workspaceId: string) => (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot.tabs.filter((t) => t.workspace_id === workspaceId);
+
+  it("validates the tab and the label before touching herdr", async () => {
+    for (const path of ["rename", "close"]) {
+      for (const tab_id of [undefined, null, "", 1, true]) {
+        const res = await post(path, { tab_id, label: "name" });
+        expect(res.status).toBe(400);
+        expect(((await res.json()) as ApiError).error.code).toBe("missing_tab_id");
+      }
+      expect((await fetch(`${base()}/api/tab/${path}`)).status).toBe(400);
+      const missing = await post(path, { tab_id: "unknown:t9", label: "name" });
+      expect(missing.status).toBe(404);
+      expect(((await missing.json()) as ApiError).error.code).toBe("tab_not_found");
+    }
+    // herdr would keep an empty label as the tab's name
+    for (const label of [undefined, null, "", "   ", 3]) {
+      const res = await post("rename", { tab_id: "unknown:t9", label });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as ApiError).error.code).toBe("missing_label");
+    }
+  });
+
+  it("renames a tab, closes one beside another, and takes the workspace with its last tab", async () => {
+    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-rename-close" });
+    const id = owned.workspace.workspace_id;
+    let closed = false;
+    try {
+      const second = await tabCreate({ workspaceId: id });
+      const renamed = await post("rename", { tab_id: second.tab.tab_id, label: "  build  " });
+      expect(renamed.status).toBe(200);
+      expect(await renamed.json()).toEqual({ ok: true });
+      expect((await tabsOf(id)).find((t) => t.tab_id === second.tab.tab_id)?.label).toBe("build");
+      // the local-PC alias reaches both
+      const alias = await fetch(`${base()}/api/machines/local/tab/rename`, {
+        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ tab_id: second.tab.tab_id, label: "tests" }),
+      });
+      expect(alias.status).toBe(200);
+      expect((await tabsOf(id)).find((t) => t.tab_id === second.tab.tab_id)?.label).toBe("tests");
+
+      expect((await post("close", { tab_id: owned.tab.tab_id })).status).toBe(200);
+      const left = await tabsOf(id);
+      expect(left.map((t) => t.tab_id)).toEqual([second.tab.tab_id]);
+      const snapshot = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
+      expect(snapshot.panes.some((p) => p.pane_id === owned.root_pane.pane_id)).toBe(false);
+      expect(snapshot.panes.some((p) => p.pane_id === second.root_pane.pane_id)).toBe(true);
+
+      expect((await post("close", { tab_id: second.tab.tab_id })).status).toBe(200);
+      closed = !(await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot.workspaces.some((w) => w.workspace_id === id);
+      expect(closed).toBe(true);
+    } finally { if (!closed) await workspaceClose(id); }
   });
 });
 
@@ -314,7 +372,7 @@ describe("tab creation", () => {
       const created = await res.json() as WorkspaceCreated;
       expect(created).toMatchObject({ workspace_id: owned.workspace.workspace_id, agent_started: false });
       expect(created.pane_id).not.toBe(owned.root_pane.pane_id);
-      expect((await fetch(`${base()}/api/machines/local/tab/close`)).status).toBe(404);
+      expect((await fetch(`${base()}/api/machines/local/tab/move`)).status).toBe(404);
     } finally { await workspaceClose(owned.workspace.workspace_id); }
   });
 
@@ -2053,7 +2111,7 @@ it("refuses cross-origin changes while allowing same-origin and CLI requests", a
   const base = `http://127.0.0.1:${instance.port}`;
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-origin" });
   try {
-    for (const path of ["pane/input", "pane/keys", "pane/close", "workspace/create", "tab/create", "push/subscribe"]) {
+    for (const path of ["pane/input", "pane/keys", "pane/close", "workspace/create", "tab/create", "tab/rename", "tab/close", "push/subscribe"]) {
       const response = await fetch(`${base}/api/${path}`, { method: "POST", headers: { origin: "http://other.example", "content-type": "text/plain" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, text: "must not type", keys: ["Enter"] }) });
       expect(response.status).toBe(403);
       expect(await response.json()).toMatchObject({ error: { code: "invalid_origin" } });

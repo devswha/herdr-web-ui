@@ -88,7 +88,7 @@ bun run start
 
 </details>
 
-**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own; a workspace with several tabs or panes shows them in a strip over the pane. Pick one, start a new agent with **New workspace**, or add a tab to a workspace with **New tab** (the row's **⋯** menu, the header button, or the strip's `+`).
+**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own; a workspace with several tabs or panes shows them in a strip over the pane. Pick one, start a new agent with **New workspace**, or add a tab to a workspace with **New tab** (the row's **⋯** menu, the header button, or the strip's `+`). A tab is renamed with a double-click on its name and closed with its **x** (or a right-click for both); on a phone the open tab's chevron opens the same menu.
 
 **3. Take it with you.** Scan the installer's QR code with a phone signed in to the same Tailscale account, then install the app from the browser. See [On your phone](#on-your-phone).
 
@@ -238,7 +238,7 @@ Agents waiting for an answer appear in **Needs you** at the top of the sidebar, 
 those on collapsed PCs. Choose a row to open its pane on the correct PC. The shortcut
 disappears when the agent resumes or the PC disconnects; workspace order stays unchanged.
 
-A workspace row's **⋯** menu offers **New worktree** and **Open worktree…**, as herdr's own worktree keys do: the first checks a branch out as a git worktree under herdr's worktree folder and opens it as a workspace next to the repository's, the second lists the repository's other checkouts and opens one. In the By workspace view a worktree workspace sits under its repository's row. Its menu ends in **Delete worktree checkout…**, which deletes the folder and closes the workspace but keeps the branch; a checkout with unsaved changes is refused first, in git's words, with **Delete anyway** as the second step. Closing the repository's workspace closes its open worktree workspaces with it and leaves their checkouts on disk.
+A workspace row's **⋯** menu offers **New worktree** and **Open worktree…**, as herdr's own worktree keys do: the first checks a branch out as a git worktree under herdr's worktree folder and opens it as a workspace next to the repository's, the second lists the repository's other checkouts and opens one. New worktree opens with a branch (`worktree/brave-valley-07f8` style) and a name already filled in, as herdr's own form does; type over either. In the By workspace view a worktree workspace sits under its repository's row. Its menu ends in **Delete worktree checkout…**, which deletes the folder and closes the workspace but keeps the branch; a checkout with unsaved changes is refused first, in git's words, with **Delete anyway** as the second step. Closing the repository's workspace closes its open worktree workspaces with it and leaves their checkouts on disk.
 
 Open Settings → Remote PCs and choose **Add PC** (the command palette has it too), then enter an SSH alias or `user@host` for a Linux or macOS computer. The setup dialog walks you through the host fingerprint, the password or key passphrase, and an explicit install approval. The PC's workspaces then join the sidebar, and chat, files, terminal input and alerts all follow the PC you pick.
 

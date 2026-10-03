@@ -16,12 +16,13 @@ import { checkTerminalCopy } from "./terminal-copy-regression.ts";
 import { checkUsageMeters } from "./usage-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
+import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
-import { checkChatKeepsTerminalSize } from "./chat-size-regression.ts";
+import { checkChatKeepsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { UsageService } from "../server/usage.ts";
 
@@ -316,10 +317,12 @@ try {
   await checkUsageMeters(browser, origin);
   await checkNotificationStartup(browser, origin, paneA, paneB);
   await checkMobileViewport(browser, origin, paneB);
+  await checkMobileTabs(browser, origin);
   await checkDefaultView(browser, origin);
   await checkComposerReconnect(browser, origin, paneB);
   await checkDroplet(browser, origin);
   await checkChatKeepsTerminalSize(browser, origin);
+  await checkPaneSwitchKeepsTerminalSize(browser, origin);
 
   const report = (state: string) => herdrRpc("pane.report_agent", {
     pane_id: paneA, source: "manual", agent: "claude", state,
@@ -562,7 +565,12 @@ try {
   await page.getByRole("menuitem", { name: "New worktree", exact: true }).click();
   const newWorktree = page.getByRole("dialog", { name: /^New worktree/ });
   await newWorktree.waitFor();
+  // the branch and the name arrive filled in, as herdr's own form fills them, and the name follows the branch
+  const suggested = await newWorktree.getByLabel(/^Branch/).inputValue();
+  assert.match(suggested, /^worktree\/[a-z]+-[a-z]+-[0-9a-f]{4}$/);
+  assert.equal(await newWorktree.getByLabel(/^Name/).inputValue(), suggested.replace("/", "-"));
   await newWorktree.getByLabel(/^Branch/).fill("herdr-web-ui-test-feature");
+  assert.equal(await newWorktree.getByLabel(/^Name/).inputValue(), "herdr-web-ui-test-feature");
   const worktreeResponse = page.waitForResponse((response) => response.url().endsWith("/api/worktree/create"));
   await newWorktree.getByRole("button", { name: "Create worktree", exact: true }).click();
   const worktree = await (await worktreeResponse).json() as WorktreeOpened;
@@ -665,9 +673,94 @@ try {
   await page.getByRole("dialog", { name: /^New workspace/ }).waitFor();
   await page.keyboard.press("Escape");
   await page.getByRole("dialog", { name: /^New workspace/ }).waitFor({ state: "hidden" });
-  await herdrRpc("pane.close", { pane_id: createdTab.pane_id });
-  await strip.waitFor({ state: "detached" });
   console.log("PASS a second tab is made from the row's menu, listed in a strip over the pane, and opened from it");
+
+  // A tab is renamed and closed from the strip, as herdr's prefix+shift+t and prefix+shift+x.
+  const tabsInHerdr = async () => (await sessionSnapshot()).tabs.filter((tab) => tab.workspace_id === created.workspace_id).map((tab) => tab.label);
+  await strip.getByRole("tab", { name: "Tab 1", exact: true }).dblclick();
+  const tabName = strip.getByLabel("Tab name", { exact: true });
+  await tabName.waitFor();
+  await tabName.fill("  first  ");
+  await page.keyboard.press("Enter");
+  await until(async () => (await tabsInHerdr()).join() === "first,second", "herdr has the tab's new name, trimmed");
+  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["first", "second"]);
+  await until(async () => await strip.getByRole("tab", { name: "first", exact: true }).evaluate((tab) => tab === document.activeElement), "the renamed tab has the focus back");
+  // F2 opens the field on the focused tab; Escape leaves the name alone, and so does an empty one
+  await page.keyboard.press("F2");
+  await tabName.fill("discarded");
+  // an IME's committing Enter is the composition's: the field stays, and nothing is sent
+  await tabName.dispatchEvent("keydown", { key: "Enter", isComposing: true, bubbles: true });
+  assert.equal(await tabName.count(), 1, "an IME's Enter does not save the name");
+  await page.keyboard.press("Escape");
+  await tabName.waitFor({ state: "detached" });
+  await page.keyboard.press("F2");
+  await tabName.fill("   ");
+  await page.keyboard.press("Enter");
+  await tabName.waitFor({ state: "detached" });
+  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["first", "second"]);
+  assert.equal((await tabsInHerdr()).join(), "first,second");
+  // a right-click opens the tab's menu
+  await strip.getByRole("tab", { name: "second", exact: true }).click({ button: "right" });
+  const tabMenu = page.getByRole("menu", { name: "second", exact: true });
+  await tabMenu.waitFor();
+  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Close tab"]);
+  await tabMenu.getByRole("menuitem", { name: "Rename tab", exact: true }).click();
+  await tabName.fill("build");
+  await page.keyboard.press("Enter");
+  await until(async () => (await tabsInHerdr()).join() === "first,build", "the menu's rename reaches herdr");
+  // on a touch screen the open tab carries a chevron in place of the x: the same menu, as a sheet
+  const tabPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const tabPhonePage = await tabPhone.newPage();
+  tabPhonePage.on("pageerror", (error) => errors.push(error.message));
+  await tabPhonePage.goto(`${origin}/?pane=${encodeURIComponent(createdTab.pane_id)}`);
+  const phoneStrip = tabPhonePage.locator(".tab-strip");
+  await phoneStrip.getByRole("tab", { name: "build", exact: true, selected: true }).waitFor();
+  assert.equal(await phoneStrip.locator(".tab-strip-close:visible").count(), 0, "no x under a finger");
+  assert.equal(await phoneStrip.locator(".tab-strip-panes:visible").count(), 1, "only the open tab has the chevron");
+  await phoneStrip.getByRole("button", { name: "Actions for build", exact: true }).tap();
+  const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
+  await tabSheet.waitFor();
+  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Rename tab", "Close tab"]);
+  await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
+  await tabSheet.waitFor({ state: "detached" });
+  await tabPhone.close();
+  // a tab whose agent is at work asks before it closes; a no leaves it
+  await herdrRpc("pane.report_agent", { pane_id: createdTab.pane_id, source: "manual", agent: "codex", state: "working" });
+  await strip.locator('.tab-strip-dot[data-status="working"]').waitFor();
+  await strip.getByRole("tab", { name: "build", exact: true }).hover();
+  await strip.getByRole("button", { name: "Close tab build", exact: true }).click();
+  const closeTabDialog = page.getByRole("alertdialog", { name: "Close tab build?", exact: true });
+  await closeTabDialog.waitFor();
+  await closeTabDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await closeTabDialog.waitFor({ state: "detached" });
+  assert.equal((await tabsInHerdr()).join(), "first,build");
+  // a tab whose agent has finished closes at once from its x, and the tab beside it opens
+  await herdrRpc("pane.report_agent", { pane_id: createdTab.pane_id, source: "manual", agent: "codex", state: "idle" });
+  await strip.locator('.tab-strip-dot[data-status="working"]').waitFor({ state: "detached" });
+  await herdrRpc("tab.create", { workspace_id: created.workspace_id, label: "third", focus: false });
+  const third = strip.getByRole("tab", { name: "third", exact: true });
+  await third.click();
+  await until(async () => (await third.getAttribute("aria-selected")) === "true", "the third tab is open");
+  // a held Delete is one press: its repeats close nothing
+  await third.dispatchEvent("keydown", { key: "Delete", repeat: true, bubbles: true });
+  await page.waitForTimeout(300);
+  assert.equal((await tabsInHerdr()).join(), "first,build,third");
+  await strip.getByRole("button", { name: "Close tab third", exact: true }).click();
+  await until(async () => (await tabsInHerdr()).join() === "first,build", "the x closed the tab");
+  await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the tab beside the closed one is open");
+  // Delete on a focused tab that is not the open one closes it; the strip goes with it (one
+  // pane left), the open pane stays, and the focus goes where a closed row's goes
+  await strip.getByRole("tab", { name: "first", exact: true }).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab is open");
+  await strip.getByRole("tab", { name: "first", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await until(async () => await strip.getByRole("tab", { name: "build", exact: true }).evaluate((tab) => tab === document.activeElement), "the arrow moved the focus to the other tab");
+  await page.keyboard.press("Delete");
+  await strip.waitFor({ state: "detached" });
+  assert.equal((await tabsInHerdr()).join(), "first", "herdr closed the tab and kept the other");
+  assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current"), "true", "the open pane stays");
+  await until(async () => await page.evaluate(() => document.activeElement?.matches(".app-header .drawer-toggle, .app-header .sidebar-toggle") === true), "the focus is not left on the page");
+  console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its x and Delete, asking first while its agent works");
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.
