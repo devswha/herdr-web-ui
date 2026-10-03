@@ -158,8 +158,8 @@ export async function ping(socketPath?: string): Promise<HerdrIdentity> {
   return { version: result.version, protocol: result.protocol, terminal_attach: attach, ...(attach ? {} : { terminal_mirror: true }) };
 }
 
-export async function sessionSnapshot(socketPath?: string): Promise<SessionSnapshot> {
-  const result = await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {}, socketPath);
+export async function sessionSnapshot(socketPath?: string, timeoutMs?: number): Promise<SessionSnapshot> {
+  const result = await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {}, socketPath, timeoutMs);
   return result.snapshot;
 }
 
