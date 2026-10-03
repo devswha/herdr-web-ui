@@ -48,8 +48,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the background. The status poll pauses with the page; the click's answer now lands anyway.
   ([#381](https://github.com/devswha/herdr-web-ui/pull/381))
 
-||||||| parent of 0e72096 (feat(sidebar): one row per workspace, New tab in its menu, and a tab strip over the pane)
-
 ## [0.3.45] - 2026-10-03
 
 ### Added
