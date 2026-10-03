@@ -425,6 +425,9 @@ One set for both themes: the card is island black wherever it shows.
 - The branch arrives filled in as herdr's own form fills it (`worktree/brave-valley-07f8`:
   adjective, noun, four hex digits) and selected, so typing replaces it. The name is the branch
   with its slashes as dashes and follows the branch until it is typed over.
+- **Agent** is the New workspace dialog's picker, under the name: the agent last started, Shell
+  for none. It starts in the checkout's pane once the checkout is made. One that fails to start
+  leaves the worktree there: the dialog says why, locks its fields, and its button reads **Open**.
 
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills
