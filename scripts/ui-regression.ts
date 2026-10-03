@@ -680,6 +680,9 @@ try {
   // F2 opens the field on the focused tab; Escape leaves the name alone, and so does an empty one
   await page.keyboard.press("F2");
   await tabName.fill("discarded");
+  // an IME's committing Enter is the composition's: the field stays, and nothing is sent
+  await tabName.dispatchEvent("keydown", { key: "Enter", isComposing: true, bubbles: true });
+  assert.equal(await tabName.count(), 1, "an IME's Enter does not save the name");
   await page.keyboard.press("Escape");
   await tabName.waitFor({ state: "detached" });
   await page.keyboard.press("F2");
@@ -723,16 +726,33 @@ try {
   await closeTabDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await closeTabDialog.waitFor({ state: "detached" });
   assert.equal((await tabsInHerdr()).join(), "first,build");
-  // a tab whose agent has finished closes at once, and the tab beside it takes its place
+  // a tab whose agent has finished closes at once from its x, and the tab beside it opens
   await herdrRpc("pane.report_agent", { pane_id: createdTab.pane_id, source: "manual", agent: "codex", state: "idle" });
   await strip.locator('.tab-strip-dot[data-status="working"]').waitFor({ state: "detached" });
-  await strip.getByRole("tab", { name: "build", exact: true }).click();
-  await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the second tab is open");
-  await strip.getByRole("button", { name: "Close tab build", exact: true }).click();
+  await herdrRpc("tab.create", { workspace_id: created.workspace_id, label: "third", focus: false });
+  const third = strip.getByRole("tab", { name: "third", exact: true });
+  await third.click();
+  await until(async () => (await third.getAttribute("aria-selected")) === "true", "the third tab is open");
+  // a held Delete is one press: its repeats close nothing
+  await third.dispatchEvent("keydown", { key: "Delete", repeat: true, bubbles: true });
+  await page.waitForTimeout(300);
+  assert.equal((await tabsInHerdr()).join(), "first,build,third");
+  await strip.getByRole("button", { name: "Close tab third", exact: true }).click();
+  await until(async () => (await tabsInHerdr()).join() === "first,build", "the x closed the tab");
+  await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the tab beside the closed one is open");
+  // Delete on a focused tab that is not the open one closes it; the strip goes with it (one
+  // pane left), the open pane stays, and the focus goes where a closed row's goes
+  await strip.getByRole("tab", { name: "first", exact: true }).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab is open");
+  await strip.getByRole("tab", { name: "first", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await until(async () => await strip.getByRole("tab", { name: "build", exact: true }).evaluate((tab) => tab === document.activeElement), "the arrow moved the focus to the other tab");
+  await page.keyboard.press("Delete");
   await strip.waitFor({ state: "detached" });
-  await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the tab beside the closed one is open");
   assert.equal((await tabsInHerdr()).join(), "first", "herdr closed the tab and kept the other");
-  console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its x, asking first while its agent works");
+  assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current"), "true", "the open pane stays");
+  await until(async () => await page.evaluate(() => document.activeElement?.matches(".app-header .drawer-toggle, .app-header .sidebar-toggle") === true), "the focus is not left on the page");
+  console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its x and Delete, asking first while its agent works");
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.

@@ -18,6 +18,7 @@ import "./TabStrip.css";
 
 import type { HerdrTab, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
+import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { useT } from "../lib/i18n.ts";
 import { customTabLabel, tabLabel } from "../lib/tabName.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
@@ -53,6 +54,13 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const [error, setError] = useState<string | null>(null);
   // the tab whose name field just went: its button takes the focus back in the same commit, so the next key lands on it
   const refocus = useRef<string | null>(null);
+  // tabs whose close is on its way: a second press, or a held Delete, does not send another
+  const closing = useRef(new Set<string>());
+  // a close that herdr has done but the snapshot does not show yet: the closed tab, and the one beside it
+  const closed = useRef<{ tabId: string; beside: string | null } | null>(null);
+  // what is on screen now, for a close that answers after the selection or the PC has moved on
+  const latest = useRef({ machineId, tabId: selectedPane.tab_id });
+  latest.current = { machineId, tabId: selectedPane.tab_id };
   const panes = snapshot.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
   const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id).sort((a, b) => a.number - b.number);
   const nameOf = (tab: HerdrTab): string => sent?.tabId === tab.tab_id ? sent.label : tabLabel(tab, t, tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id) + 1);
@@ -74,6 +82,17 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(refocus.current)}"]`)?.focus();
     refocus.current = null;
   }, [editing]);
+  // once the snapshot has lost a closed tab, the focus it held goes to the tab beside it, or,
+  // when the strip went with it (one pane left), where a closed row's focus goes
+  useLayoutEffect(() => {
+    const was = closed.current;
+    if (!was || tabs.some((tab) => tab.tab_id === was.tabId)) return;
+    closed.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && !strip.current?.contains(active)) return;
+    const beside = was.beside ? strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(was.beside)}"]`) : null;
+    if (beside) beside.focus(); else focusWorkspaceListToggle();
+  });
   // a name herdr never showed back (renamed again elsewhere) does not stay on the tab
   useEffect(() => {
     if (!sent) return;
@@ -123,11 +142,17 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const close = async (tab: HerdrTab): Promise<void> => {
     const index = tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id);
     const beside = tabs[index + 1] ?? tabs[index - 1];
-    await closeTab(tab.tab_id);
+    if (closing.current.has(tab.tab_id)) return;
+    closing.current.add(tab.tab_id);
+    try { await closeTab(tab.tab_id); }
+    finally { closing.current.delete(tab.tab_id); }
+    // the answer may come after another tab, or another PC, was picked: the open pane then stays
+    if (latest.current.machineId !== machineId) return;
+    closed.current = { tabId: tab.tab_id, beside: beside?.tab_id ?? null };
     if (!beside) return;
     const pane = paneFor(beside);
-    if (tab.tab_id === selectedPane.tab_id && pane) onSelectPane(pane.pane_id);
-    focusTab(beside.tab_id);
+    if (latest.current.tabId === tab.tab_id && pane) onSelectPane(pane.pane_id);
+    if (strip.current?.contains(document.activeElement) || document.activeElement === document.body) focusTab(beside.tab_id);
   };
   const requestClose = (tab: HerdrTab): void => {
     setError(null);
@@ -151,6 +176,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     const index = buttons.indexOf(document.activeElement as HTMLElement);
     if (index < 0) return;
     if (event.key === "F2" || event.key === "Delete") {
+      // a held key is one press: the focus moves to the tab beside a closed one
+      if (event.repeat) { event.preventDefault(); return; }
       const tab = tabs.find((candidate) => candidate.tab_id === buttons[index]?.dataset["tabId"]);
       if (!tab) return;
       event.preventDefault();
@@ -211,6 +238,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
                   onBlur={() => setEditing(null)}
                   onKeyDown={(event) => {
                     event.stopPropagation();
+                    // an IME's Enter and Escape are the composition's, not the field's
+                    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
                     if (event.key === "Enter") saveRename(tab);
                     if (event.key === "Escape") { refocus.current = tab.tab_id; setEditing(null); }
                   }}
