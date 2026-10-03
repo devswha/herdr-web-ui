@@ -263,7 +263,10 @@ One set for both themes: the card is island black wherever it shows.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
-  and a failure shows inside it. A no gives the focus back to what opened it.
+  and a failure shows inside it. A no gives the focus back to what opened it. A refusal the owner
+  named (git refusing a dirty checkout) turns the action into its escalation (**Delete anyway**),
+  with the refusal's words above it. Closing a repository workspace over open worktrees says so
+  and closes the group, as herdr's `--group` does.
 
 ### Field (`.field`, `.input`, `.select`)
 - Stacked uppercase label, optional hint and `--bg-input` field. Desktop fields use `--fs-sm`;
@@ -276,8 +279,10 @@ One set for both themes: the card is island black wherever it shows.
 - Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
-  A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
-  header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
+  A one-pane row offers Rename workspace, Rename pane, New worktree, Open worktree…, then Close
+  under a hairline; a workspace header Rename workspace, New worktree, Open worktree… and Close
+  workspace; a pane under a header Rename pane and Close. A worktree workspace's row has no
+  worktree items and ends in **Delete worktree checkout…** after Close. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
@@ -313,7 +318,9 @@ One set for both themes: the card is island black wherever it shows.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
 - A workspace header shows drag handle, number, editable label, roll-up status and its `⋯`.
-  Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
+  Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent. In the By workspace view
+  a repository's workspace moves past the next or previous group as one, with its worktrees, and a
+  worktree moves among its siblings only.
 - Every pane row is two lines: agent/shell mark, then the editable title alone on line one (full
   width), and the status chip followed by the pane's place on line two. Mark boxes are neutral;
   the selected row gets the amber rail and an amber-edged mark box. The row ends in one `⋯`
@@ -332,6 +339,10 @@ One set for both themes: the card is island black wherever it shows.
   button. Connected says
   nothing more; every other state is written under the name, with the server's error clamped to
   two lines and complete in the tooltip.
+- In the By workspace view, a repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
+  sit under the row of the workspace on its main checkout, packed behind a hairline
+  (`.worktree-children`), as herdr's Spaces sidebar keeps them; a worktree whose repository
+  workspace is not open stays at the top level.
 - Single-pane workspaces merge their workspace handle into the pane row, in both groupings: one
   row, no header, number or fold. A fold stored for such a workspace is ignored until it has a
   header again.
@@ -361,6 +372,14 @@ One set for both themes: the card is island black wherever it shows.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
+
+### Worktree dialog (`.worktree-modal`)
+- From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
+  (required), where to start from (HEAD when empty, ignored for a branch that exists) and an
+  optional name, then checks the branch out under herdr's worktree folder and opens it as a
+  workspace grouped with the repository's; its pane is selected. **Open worktree…** lists the
+  repository's other checkouts as rows (branch, mono path, an **Already open** pill), and a row
+  opens or returns to that workspace. herdr's own words explain a refusal, inside the dialog.
 
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills

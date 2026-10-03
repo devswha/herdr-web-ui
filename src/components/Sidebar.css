@@ -38,6 +38,14 @@
 
 .tree-state-empty .tree-state { padding: 0; }
 
+/* a repository's worktree workspaces sit under its own row, packed behind a hairline, as
+   herdr's Spaces sidebar keeps them */
+.worktree-children {
+  margin-left: var(--space-3);
+  padding-left: var(--space-1);
+  border-left: var(--hairline) solid var(--border);
+}
+
 .workspace {
   display: flex;
   flex-direction: column;

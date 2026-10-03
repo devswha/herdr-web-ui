@@ -1,22 +1,28 @@
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  ConversationResponse,
+  CreateWorktreeRequest,
   DirectoryListing,
   FileInfo,
-  ConversationResponse,
   HealthAuth,
   InteractivePrompt,
   OmoActivity,
+  OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
   PaneReadResult,
   PromptAnswer,
   PushKey,
   RemoteAccess,
+  RemoveWorktreeRequest,
   SessionSnapshot,
   SlashCommand,
   UsageReport,
   WorkspaceCreated,
+  WorktreeListing,
+  WorktreeOpened,
+  WorktreeRemoved,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { HerdrUpdateStatus, UpdateCommand, UpdateStatus } from "../../shared/update.ts";
@@ -62,12 +68,15 @@ export async function requestHerdrUpdate(): Promise<void> {
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
+  /** the server's own words, without the URL and status the message starts with */
+  readonly detail: string;
 
   constructor(url: string, status: number, detail: string, code: string | null) {
     super(`${url} failed (${status}): ${detail}`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -339,6 +348,23 @@ export async function createWorkspace(request: CreateWorkspaceRequest, machineId
   return (await response.json()) as WorkspaceCreated;
 }
 
+/** POST /api/worktree/create: a git worktree of the workspace's repository, opened as a workspace grouped with it. */
+export async function createWorktree(request: CreateWorktreeRequest, machineId = "local"): Promise<WorktreeOpened> {
+  const response = await sendJson(machinePath(machineId, "worktree/create"), "POST", request);
+  return (await response.json()) as WorktreeOpened;
+}
+
+/** GET /api/worktree/list: every checkout of the workspace's repository, with the workspace each is open in. */
+export function listWorktrees(workspaceId: string, machineId = "local"): Promise<WorktreeListing> {
+  return getJson<WorktreeListing>(`${machinePath(machineId, "worktree/list")}?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+
+/** POST /api/worktree/open: an existing checkout as a workspace; the one it already has when it is open. */
+export async function openWorktree(request: OpenWorktreeRequest, machineId = "local"): Promise<WorktreeOpened> {
+  const response = await sendJson(machinePath(machineId, "worktree/open"), "POST", request);
+  return (await response.json()) as WorktreeOpened;
+}
+
 export async function renameWorkspace(workspaceId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "workspace/rename"), "POST", { workspace_id: workspaceId, label });
 }
@@ -348,8 +374,15 @@ export async function moveWorkspace(workspaceId: string, insertIndex: number, ma
   await sendJson(machinePath(machineId, "workspace/move"), "POST", { workspace_id: workspaceId, insert_index: insertIndex });
 }
 
-export async function closeWorkspace(workspaceId: string, machineId = "local"): Promise<void> {
-  await sendJson(machinePath(machineId, "workspace/close"), "POST", { workspace_id: workspaceId });
+/** closeGroup takes the repository's open worktree workspaces with it; herdr refuses to close over them otherwise. */
+export async function closeWorkspace(workspaceId: string, machineId = "local", closeGroup = false): Promise<void> {
+  await sendJson(machinePath(machineId, "workspace/close"), "POST", { workspace_id: workspaceId, ...(closeGroup ? { close_group: true } : {}) });
+}
+
+/** POST /api/worktree/remove: deletes the checkout and closes its workspace; the branch stays. */
+export async function removeWorktree(request: RemoveWorktreeRequest, machineId = "local"): Promise<WorktreeRemoved> {
+  const response = await sendJson(machinePath(machineId, "worktree/remove"), "POST", request);
+  return (await response.json()) as WorktreeRemoved;
 }
 
 /** GET /api/pane/commands: the slash commands the pane's agent understands (built-in + custom). */
