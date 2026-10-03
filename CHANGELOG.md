@@ -21,6 +21,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   restarting), as Settings → Updates does, and ends on **Reload app**. An install that fails
   offers **Try again** and **Details**.
   ([#397](https://github.com/devswha/herdr-web-ui/pull/397))
+- On a phone the in-app alert is one line, as wide as its text: the pane's name, then what
+  happened. It was a two-line card across the screen, over the top of the conversation.
 
 ### Fixed
 - On an iPhone the image viewer's controls and the composer stay inside the usable screen: the
