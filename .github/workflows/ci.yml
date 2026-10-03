@@ -62,6 +62,9 @@ jobs:
       HERDR_TEST_SESSION: ci-${{ github.run_id }}-${{ github.run_attempt }}
       XDG_CONFIG_HOME: ${{ github.workspace }}/.ci-config
       HERDR_WEB_STATE_DIR: ${{ github.workspace }}/.ci-state
+      # One integration file at a time: four at once on the runner's four cores made the
+      # timing-bound contract tests fail in turn. Raise it again once they hold under load.
+      HERDR_TEST_SHARDS: 1
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
