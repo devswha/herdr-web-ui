@@ -35,7 +35,9 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
   const [phase, setPhase] = useState<Phase>("in");
   const [drag, setDrag] = useState(0);
   const [top, setTop] = useState<number | null>(null);
+  const [fit, setFit] = useState<number | null>(null);
   const probe = useRef<HTMLDivElement | null>(null);
+  const card = useRef<HTMLButtonElement | null>(null);
   const pending = useRef<QueuedDroplet | null>(null);
   const currentRef = useRef(current); currentRef.current = current;
   const phaseRef = useRef(phase); phaseRef.current = phase;
@@ -62,6 +64,17 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
       window.visualViewport?.removeEventListener("resize", measure);
     };
   }, []);
+
+  // the phone layout's card is as wide as its text: the shape under it takes that width
+  useLayoutEffect(() => {
+    const element = card.current;
+    if (!element) return;
+    const measure = () => setFit(Math.ceil(element.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [current]);
 
   const clearHold = () => {
     if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
@@ -148,7 +161,7 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
   const what = t(current.kind === "blocked" ? "Needs input" : current.kind === "done" ? "Finished" : "terminal ended");
   const detail = current.machine ? `${current.machine} · ${what}` : what;
   return (
-    <div className="droplet" role="status" aria-live="polite" data-phase={phase} data-kind={current.kind} data-dragging={drag !== 0 ? "" : undefined} style={{ "--droplet-drag": `${drag}px`, "--droplet-top": `${top ?? 12}px`, visibility: top === null ? "hidden" : "visible" } as CSSProperties} key={current.id}>
+    <div className="droplet" role="status" aria-live="polite" data-phase={phase} data-kind={current.kind} data-dragging={drag !== 0 ? "" : undefined} style={{ "--droplet-drag": `${drag}px`, "--droplet-top": `${top ?? 12}px`, ...(fit === null ? {} : { "--droplet-fit": `${fit}px` }), visibility: top === null ? "hidden" : "visible" } as CSSProperties} key={current.id}>
       <div ref={probe} className="droplet-probe" aria-hidden="true" />
       <svg className="droplet-defs" width="0" height="0" aria-hidden="true" focusable="false">
         <filter id="droplet-goo" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
@@ -162,6 +175,7 @@ export function Droplet({ onOpen }: { onOpen: (machineId: string, paneId: string
       </div>
       <button
         type="button"
+        ref={card}
         className="droplet-card"
         aria-label={`${current.title}, ${detail}. ${t("Open pane")}`}
         onClick={() => {
