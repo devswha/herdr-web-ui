@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- An open terminal no longer says "terminal ended" when herdr hands its panes to a new server,
+  as `herdr update --handoff` and `herdr server live-handoff` do. The pane is still running, so
+  the terminal attaches to it again for everyone viewing it.
+  ([#370](https://github.com/devswha/herdr-web-ui/pull/370))
 - An OmO pane that has not been asked anything yet, or has just run `/new`, shows an empty chat
   instead of "Conversation unavailable". OmO writes its session file only with the first message,
   so the chat found no conversation until then and offered the terminal output instead.

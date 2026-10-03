@@ -105,6 +105,18 @@ const ATTACH_REFUSING_RE = /terminal attach failed[^\r\n]*\s*$/;
 /** how long a refusal's exit is waited for before its output is taken for the pane's own */
 const ATTACH_REFUSAL_EXIT_MS = 2_000;
 const ATTACH_HELD_MESSAGE = "Another web bridge has this pane open. It connects here as soon as that bridge lets go.";
+/**
+ * How long a pane whose attach herdr ended is looked up again before its terminal is taken for
+ * ended. A live handoff (`herdr update --handoff`, `herdr server live-handoff`) moves every pane
+ * to a new server under a new terminal id and cuts each attach with "server shut down", the
+ * words a pane that exited gets too. Measured on herdr 0.9.3: the socket answers
+ * server_unavailable for ~200 ms, then the pane is back under its new terminal; an exited
+ * pane is gone from the snapshot within ~30 ms.
+ */
+const ATTACH_RELOOKUP_FOR_MS = 5_000;
+const ATTACH_RELOOKUP_MS = 100;
+/** what a pane lookup answers for a pane that has no terminal to attach any more */
+const PANE_GONE_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal"]);
 /** The gap between a composer message's text and its Enter (see submitText). */
 export const SUBMIT_DELAY_MS = 120;
 /**
@@ -196,6 +208,8 @@ interface PaneAttachment {
   held?: boolean;
   /** the next try at a held terminal; a closed attachment cancels it */
   heldRetry?: ReturnType<typeof setTimeout>;
+  /** the next look for the terminal a pane lives on after herdr ended its attach; a closed attachment cancels it */
+  relookup?: ReturnType<typeof setTimeout>;
 }
 
 function send(client: Client, message: ServerMessage): number {
@@ -244,6 +258,8 @@ export function createServer(
     attachRetryForMs?: number;
     /** ATTACH_HELD_RETRY_MS; tests shorten it */
     attachHeldRetryMs?: number;
+    /** ATTACH_RELOOKUP_FOR_MS; tests shorten it */
+    attachRelookupForMs?: number;
     /** whether herdr can `terminal attach`; unset, its ping says, and this runtime's PTY sidecar has to be runnable. Tests give a Windows herdr's answer, at once or as late as a ping's. */
     terminalAttach?: boolean | (() => Promise<boolean>);
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer. */
@@ -263,6 +279,7 @@ export function createServer(
   };
   const retryFor = options.attachRetryForMs ?? ATTACH_RETRY_FOR_MS;
   const heldRetry = options.attachHeldRetryMs ?? ATTACH_HELD_RETRY_MS;
+  const relookupFor = options.attachRelookupForMs ?? ATTACH_RELOOKUP_FOR_MS;
   /** attachments still resolving their terminal, so concurrent attaches share one pty */
   const pendingAttachments = new Map<string, Promise<PaneAttachment>>();
   // herdr releases its exclusive attach slot only after the old process exits.
@@ -448,8 +465,8 @@ export function createServer(
     for (const client of clients) send(client, message);
   }
 
-  async function terminalInfoFor(paneId: string): Promise<{ terminalId: string; rect: { width: number; height: number } | null }> {
-    const snapshot = await sessionSnapshot();
+  async function terminalInfoFor(paneId: string, timeoutMs?: number): Promise<{ terminalId: string; rect: { width: number; height: number } | null }> {
+    const snapshot = await sessionSnapshot(undefined, timeoutMs);
     const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
     if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
     // herdr (0.9.3+) could not restore it after a restart: its terminal has no process
@@ -468,6 +485,7 @@ export function createServer(
     if (!attachment) return;
     attachments.delete(paneId);
     clearTimeout(attachment.heldRetry);
+    clearTimeout(attachment.relookup);
     // its members hold nothing on this pane any more (a pty that exited leaves them on
     // the "terminal ended" screen): a stale entry would read as a live claim in
     // releaseUnclaimed and keep a later, empty pty on this pane running
@@ -581,6 +599,8 @@ export function createServer(
     };
     let retries = 0;
     let refusedSince: number | null = null;
+    /** the terminal attached to: a pane keeps its id across a server handoff, its terminal does not */
+    let attachedTerminal = terminalId;
     const start = (): PtySession => {
       let output = ""; // this attach's own last words: herdr's refusal is in them
       // its first bytes wait ATTACH_HOLD_MS: a refusal (herdr's setup, teardown and message)
@@ -677,12 +697,53 @@ export function createServer(
           return;
         }
         release();
-        broadcast(paneId, { type: "pty-exit", pane_id: paneId, code });
-        closeAttachment(paneId);
+        const finish = (): void => {
+          broadcast(paneId, { type: "pty-exit", pane_id: paneId, code });
+          closeAttachment(paneId);
+        };
+        // a refusal whose exit never came ended this try itself, on a terminal that is still there
+        if (retired) return finish();
+        // herdr ended the attach, maybe not the pane: after a live handoff the pane lives on under
+        // a new terminal, and the same clients attach to that one. A pane that is gone, or still
+        // on this terminal once the lookups run out, ended.
+        const deadline = Date.now() + relookupFor;
+        const again = (): void => {
+          if (Date.now() >= deadline) return finish();
+          attachment.relookup = setTimeout(relookup, ATTACH_RELOOKUP_MS);
+        };
+        const relookup = (): void => {
+          // a herdr that takes the request and never answers must not hold the terminal past the
+          // deadline: the lookup gets what is left of it, not the RPC's own 10 s
+          terminalInfoFor(paneId, Math.max(1, deadline - Date.now())).then(({ terminalId: now }) => {
+            if (attachments.get(paneId) !== attachment) return;
+            if (now === attachedTerminal) return again();
+            if (attachment.clients.size === 0) {
+              closeAttachment(paneId);
+              return;
+            }
+            attachedTerminal = now;
+            // a new terminal gets the whole read-race budget
+            refusedSince = null;
+            retries = 0;
+            try {
+              attachment.pty = start();
+            } catch (error) {
+              const message = spawnFailure(paneId, error);
+              broadcast(paneId, { type: "error", code: "command_failed", message });
+              finish();
+            }
+          }, (error: unknown) => {
+            if (attachments.get(paneId) !== attachment) return;
+            if (error instanceof HerdrError && PANE_GONE_CODES.has(error.code)) return finish();
+            // herdr is between servers (server_unavailable, connect_failed) or not answering (timeout): ask again
+            again();
+          });
+        };
+        relookup();
       };
       const session = new PtySession({
         command: process.env["HERDR_WEB_HERDR_BIN"] || "herdr",
-        args: ["terminal", "attach", terminalId],
+        args: ["terminal", "attach", attachedTerminal],
         // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET: the stream must reach
         // the same session the RPCs talk to, or a named session's terminals are
         // looked up on the default socket and the attach dies.
@@ -1519,9 +1580,11 @@ export function createServer(
               }
               if (paneQueues.has(message.pane_id)) {
                 const text = message.text;
+                // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
+                const pty = attachment.pty;
                 void serialize(message.pane_id, () => {
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
-                  if (attachments.get(message.pane_id) !== attachment || !attachment.clients.has(client) || !attachment.ready || attachment.held) { inputFailed(); return; }
+                  if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty || !attachment.clients.has(client) || !attachment.ready || attachment.held) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
