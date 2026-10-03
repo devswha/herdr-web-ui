@@ -28,6 +28,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   notifications are blocked or unsupported (plain http). It now reads **Alerts on in the app
   only** there, and turns those alerts off and on. The first tap on a device that has not
   answered the permission question still asks it.
+  ([#416](https://github.com/devswha/herdr-web-ui/pull/416))
 
 ## [0.3.48] - 2026-10-04
 
