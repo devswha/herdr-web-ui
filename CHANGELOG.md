@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   folder and opens it as a workspace next to the repository's; Open worktree… lists the
   repository's other checkouts and opens one, or goes back to the workspace it is already open
   in. Remote PCs get the two with their next bridge update.
+  ([#383](https://github.com/devswha/herdr-web-ui/pull/383))
 
 ## [0.3.45] - 2026-10-03
 
