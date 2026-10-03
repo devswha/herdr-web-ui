@@ -131,6 +131,9 @@ export const KO: Record<string, string> = {
   "Alerts off on this device — tap to turn them on": "이 기기에서 알림이 꺼져 있습니다. 누르면 켜집니다",
   "Alerts on in this tab": "이 탭에서 알림 켜짐",
   "Alerts on while this tab is open. Tap to turn them off": "이 탭이 열려 있는 동안 알림이 옵니다. 누르면 꺼집니다",
+  "Alerts on in the app only": "앱 안에서만 알림 켜짐",
+  "Alerts show while the app is open. Tap to allow them when it is closed too": "앱이 열려 있는 동안 알림이 뜹니다. 누르면 앱을 닫았을 때도 받도록 허용할 수 있습니다",
+  "Alerts show while the app is open. Tap to turn them off": "앱이 열려 있는 동안 알림이 뜹니다. 누르면 꺼집니다",
   "Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app). Tap to turn them off": "이 탭이 열려 있는 동안 알림이 옵니다 (앱을 닫은 뒤의 알림은 https가 필요하고, iPhone에서는 홈 화면 앱이어야 합니다). 누르면 꺼집니다",
 
   // ---- sidebar ----

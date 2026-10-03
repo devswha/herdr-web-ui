@@ -135,6 +135,9 @@ export const ZH: Record<string, string> = {
   "Alerts off on this device — tap to turn them on": "此设备上的提醒已关闭。点按可开启",
   "Alerts on in this tab": "此标签页的提醒已开启",
   "Alerts on while this tab is open. Tap to turn them off": "此标签页打开期间会收到提醒。点按可关闭",
+  "Alerts on in the app only": "仅在应用内开启提醒",
+  "Alerts show while the app is open. Tap to allow them when it is closed too": "应用打开期间会显示提醒。点按可允许在应用关闭时也收到提醒",
+  "Alerts show while the app is open. Tap to turn them off": "应用打开期间会显示提醒。点按可关闭",
   "Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app). Tap to turn them off": "此标签页打开期间会收到提醒（关闭应用后的提醒需要 https，在 iPhone 上还需使用主屏幕应用）。点按可关闭",
 
   // ---- sidebar ----

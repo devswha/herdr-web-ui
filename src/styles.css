@@ -669,9 +669,8 @@ button {
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
-/* the bell while notifications are live: the accent reads as "on"; a plain
-   .icon-button is the idle/asking state. The button is disabled once granted:
-   browsers cannot re-ask, and the title explains the state */
+/* the bell while alerts reach this device (pushed, in this tab, or in the app only):
+   the accent reads as "on"; a plain .icon-button is off. The title explains the state */
 .bell-button.is-on {
   color: var(--accent);
   border-color: var(--accent);

@@ -36,6 +36,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A start that fails says what the server said: the installers and the Windows start showed only
   where the log was. A server that exits is reported at once instead of after 20 seconds.
   ([#415](https://github.com/devswha/herdr-web-ui/pull/415))
+- The bell says what this device does. It read as off while in-app alerts still dropped in,
+  on a browser that had not been asked for notification permission, and it was missing where
+  notifications are blocked or unsupported (plain http). It now reads **Alerts on in the app
+  only** there, and turns those alerts off and on. The first tap on a device that has not
+  answered the permission question still asks it.
+  ([#416](https://github.com/devswha/herdr-web-ui/pull/416))
 
 ## [0.3.48] - 2026-10-04
 

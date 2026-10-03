@@ -131,7 +131,7 @@ export function App() {
   const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
-  // the bell's switch for this device: off drops its push subscription and silences tab alerts
+  // the bell's switch for this device: off drops its push subscription and silences tab and in-app alerts
   const alertsOn = settings.alertsOn;
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
@@ -365,10 +365,12 @@ export function App() {
   }, []);
 
   const enableNotifications = useCallback(async () => {
-    const next = notificationState() === "granted" ? "granted" : await requestNotificationPermission();
+    // in-app alerts need no permission: the switch goes on whatever the browser answers
+    updateSettings({ alertsOn: true });
+    const current = notificationState();
+    const next = current === "default" ? await requestNotificationPermission() : current;
     setNotifications(next);
     if (next !== "granted") return false;
-    updateSettings({ alertsOn: true });
     try {
       const endpoint = await ensurePushSubscription(alertsRef.current);
       setPushOn(endpoint !== null);
@@ -525,11 +527,18 @@ export function App() {
     [selectedPaneId, selectedMachineId],
   );
 
+  // The bell says what this device does, whatever the browser's permission: in-app alerts need
+  // none, so they count as on. A device that has not answered the permission question is asked
+  // by the bell's tap; one that has answered gets a plain switch.
   const bell: { label: string; title: string; on: boolean; run: () => Promise<unknown> } =
-    notifications !== "granted"
-      ? { label: t("Enable notifications"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
-      : !alertsOn
-        ? { label: t("Alerts off"), title: t("Alerts off on this device — tap to turn them on"), on: false, run: enableNotifications }
+    !alertsOn
+      ? { label: t("Alerts off"), title: t("Alerts off on this device — tap to turn them on"), on: false, run: enableNotifications }
+      : notifications !== "granted"
+        ? !settings.alertInApp
+          ? { label: t("Enable notifications"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
+          : notifications === "default"
+            ? { label: t("Alerts on in the app only"), title: t("Alerts show while the app is open. Tap to allow them when it is closed too"), on: true, run: enableNotifications }
+            : { label: t("Alerts on in the app only"), title: t("Alerts show while the app is open. Tap to turn them off"), on: true, run: disableNotifications }
         : pushOn
           ? { label: t("Alerts on"), title: t("Alerts on — pushed to this device, even with the app closed. Tap to turn them off"), on: true, run: disableNotifications }
           : {
@@ -541,7 +550,8 @@ export function App() {
               on: true,
               run: disableNotifications,
             };
-  const bellVisible = notifications !== "unsupported" && notifications !== "denied";
+  // hidden only where it could do nothing: no system notifications and in-app alerts off
+  const bellVisible = notifications === "default" || notifications === "granted" || settings.alertInApp;
 
   useEffect(() => {
     document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
@@ -602,11 +612,11 @@ export function App() {
       },
       toggleTheme: () => updateSettings({ theme: resolvedTheme === "dark" ? "light" : "dark" }),
       lock: canSignOut ? () => void lock() : null,
-      enableNotifications: bellVisible && !bell.on ? () => void enableNotifications() : null,
+      enableNotifications: bellVisible && bell.run === enableNotifications ? () => void enableNotifications() : null,
       refresh: () => void load(),
       openFiles: selectedPaneId !== null ? () => { setDrawerOpen(false); setFilesOpen(true); } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications, load],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load],
   );
 
   useShortcuts(actions, locked === false);

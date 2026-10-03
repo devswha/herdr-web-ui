@@ -133,6 +133,9 @@ export const JA: Record<string, string> = {
   "Alerts off on this device — tap to turn them on": "このデバイスでは通知がオフです。タップするとオンになります",
   "Alerts on in this tab": "このタブで通知オン",
   "Alerts on while this tab is open. Tap to turn them off": "このタブを開いている間は通知が届きます。タップするとオフになります",
+  "Alerts on in the app only": "アプリ内のみ通知オン",
+  "Alerts show while the app is open. Tap to allow them when it is closed too": "アプリを開いている間は通知が表示されます。タップすると、閉じているときの通知も許可できます",
+  "Alerts show while the app is open. Tap to turn them off": "アプリを開いている間は通知が表示されます。タップするとオフになります",
   "Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app). Tap to turn them off": "このタブを開いている間は通知が届きます (アプリを閉じた後の通知には https が必要で、iPhone ではホーム画面のアプリである必要があります)。タップするとオフになります",
 
   // ---- sidebar ----
