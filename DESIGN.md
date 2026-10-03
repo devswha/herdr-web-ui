@@ -279,7 +279,7 @@ One set for both themes: the card is island black wherever it shows.
   A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
   header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
-  a grip, the row's name and place, 48px rows and a Cancel button. Escape, a press outside and
+  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
 - Close follows herdr's `ui.confirm_close`: a close that takes the workspace with it (a one-pane

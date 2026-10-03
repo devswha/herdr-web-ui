@@ -37,7 +37,9 @@ interface Props {
 const SHEET_QUERY = "(max-width: 640px)";
 const GAP = 4;
 const EDGE = 8;
-const ITEM = '[role="menuitem"], .row-sheet-item';
+const POPOVER_ITEMS = '[role="menuitem"]';
+// the sheet is modal: its Cancel is one of the stops
+const SHEET_ITEMS = '.row-sheet-item, .row-sheet-cancel';
 
 export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
   const t = useT();
@@ -60,9 +62,9 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
   }, [anchor, onClose, sheet]);
 
   useEffect(() => {
-    const first = surface.current?.querySelector<HTMLElement>(ITEM);
+    const first = surface.current?.querySelector<HTMLElement>(sheet ? SHEET_ITEMS : POPOVER_ITEMS);
     window.requestAnimationFrame(() => first?.focus());
-  }, []);
+  }, [sheet]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -91,7 +93,7 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
   }, [anchor, onClose, sheet]);
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    const buttons = [...(surface.current?.querySelectorAll<HTMLElement>(ITEM) ?? [])];
+    const buttons = [...(surface.current?.querySelectorAll<HTMLElement>(sheet ? SHEET_ITEMS : POPOVER_ITEMS) ?? [])];
     const index = buttons.indexOf(document.activeElement as HTMLElement);
     const move = (next: number): void => {
       event.preventDefault();
@@ -101,6 +103,8 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
     else if (event.key === "ArrowUp") move(index - 1);
     else if (event.key === "Home") move(0);
     else if (event.key === "End") move(buttons.length - 1);
+    // Tab stays inside the sheet, which is modal; it leaves the popover, which then goes
+    else if (event.key === "Tab" && sheet) move(index + (event.shiftKey ? -1 : 1));
     else if (event.key === "Tab") { event.preventDefault(); onClose(); }
   };
 

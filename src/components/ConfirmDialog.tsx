@@ -23,6 +23,7 @@ interface Props {
 export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }: Props) {
   const t = useT();
   const id = useId();
+  const surface = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const action = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -35,6 +36,9 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }:
     return () => { if (!done.current && opener.current?.isConnected) opener.current.focus({ preventScroll: true }); };
   }, []);
   useEffect(() => { window.requestAnimationFrame(() => cancel.current?.focus()); }, []);
+  // both buttons disable while the deed runs, which would drop the focus into the page: the
+  // dialog itself holds it, and Tab stays put until the dialog goes
+  useEffect(() => { if (pending) surface.current?.focus(); }, [pending]);
   // Escape is this dialog's while it is up, even while the deed runs and cannot be undone
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -50,6 +54,7 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }:
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== "Tab") return;
     event.preventDefault();
+    if (pending) return;
     (document.activeElement === cancel.current ? action.current : cancel.current)?.focus();
   };
 
@@ -65,7 +70,7 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }:
 
   return createPortal(
     <div className="modal-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onClose(); }}>
-      <div className="modal confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`} onKeyDown={onKeyDown}>
+      <div ref={surface} className="modal confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`} tabIndex={-1} onKeyDown={onKeyDown}>
         <header className="modal-header"><h2 className="modal-title" id={`${id}-title`}>{title}</h2></header>
         <div className="modal-body">
           <p className="confirm-body" id={`${id}-body`}>{body}</p>
