@@ -1568,34 +1568,36 @@ const NOT_PROMPT_TEXT_RE = /^(?:[❯›>"'“]|\$ )/;
 
 /**
  * Claude Code's working line, whole: one of its spinner's frames, what it is doing ending in an
- * ellipsis, and in parentheses the time it has taken, then maybe the tokens it has used and the
- * interrupt hint, each after " · ": "✢ Tempering… (1m 55s · ↓ 10.0k tokens)".
+ * ellipsis, and in parentheses the time it has taken and the tokens it has used, then maybe the
+ * interrupt hint: "✢ Tempering… (1m 55s · ↓ 10.0k tokens)".
  */
-const WORKING_LINE_RE = /^[·✢✳✶✻✽*] (\S(?:.*\S)?…) \((?:\d+h )?(?:\d+m )?\d+s( · [↑↓] [\d.,]+[kKmM]? tokens)?( · esc to interrupt)?\)$/u;
+const WORKING_LINE_RE = /^[·✢✳✶✻✽*] (\S(?:.*\S)?…) \((?:\d+h )?(?:\d+m )?\d+s · [↑↓] [\d.,]+[kKmM]? tokens( · esc to interrupt)?\)$/u;
 
 /**
- * A line as a fallback card's id reads it. Claude Code keeps its working line on the screen while
- * it waits on a prompt, and the line's spinner, time and token count change every second or so. An
- * id that took them in refused each answer tapped after a tick as stale (#365). They are blanked on
- * that line alone, and it has to be that line to the letter: a bullet or a marker that is no
- * spinner frame, text that does not end in an ellipsis, a time followed by anything else ("5s ·
- * downtime"), or a count without its arrow ("10 tokens") is some other line, hashed whole. The
- * words stay, so "Deleting staging…" is never "Deleting production…".
+ * How a fallback card's id reads a line of the screen. Claude Code keeps its working line on the
+ * screen while it waits on a prompt, and the line's spinner, time and token count change every
+ * second or so. An id that took them in refused each answer tapped after a tick as stale (#365).
+ *
+ * They are blanked on that one line, and only when it is known to be it: the pane runs Claude,
+ * the line is its working line to the letter, token count with its arrow included, and no other
+ * line of the screen has that shape. Without the token count a time in parentheses may be one
+ * that is offered ("Restart service… (300s)"), and two such lines may be a menu's rows with their
+ * marker ("· Delete all…" / "* Cancel…"): those screens are hashed as they are, like every other
+ * line and every other agent's screen. The words stay in the id, so "Deleting staging…" is never
+ * "Deleting production…".
  */
-function steadyLine(line: string): string {
-  const working = WORKING_LINE_RE.exec(line);
-  if (!working) return line;
-  const [, doing, tokens, hint] = working;
-  return `* ${doing} (<time>${tokens ? " · <tokens>" : ""}${hint ?? ""})`;
-}
-
-function steadyText(text: string | null | undefined): string | null {
-  return text === null || text === undefined ? null : text.split("\n").map(steadyLine).join("\n");
+function steadyReader(agent: string, shown: string[]): (line: string) => string {
+  const working = agent === "claude" ? shown.filter((line) => WORKING_LINE_RE.test(line)) : [];
+  const [line] = working;
+  if (working.length !== 1 || line === undefined) return (other) => other;
+  const steady = line.replace(WORKING_LINE_RE, (_all, doing: string, hint: string | undefined) => `* ${doing} (<time> · <tokens>${hint ?? ""})`);
+  return (other) => other === line ? steady : other;
 }
 
 export function parseFallbackPrompt(agent: string, screen: string): InteractivePrompt {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const shown = lines.flatMap((line, index) => cleanLine(line) && !isDivider(line) ? [index] : []);
+  const steady = steadyReader(agent, shown.map((index) => cleanLine(lines[index]!)));
   const menu = fallbackMenu(lines, shown);
   if (menu) {
     const above = shown.filter((index) => index < menu.start).map((index) => cleanLine(lines[index]!));
@@ -1608,7 +1610,7 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       { label: "Esc", steps: keySteps([KEY.escape]) },
     ];
     const body = withoutLine(above, question);
-    return screenCard(lines, shown, finishPrompt(agent, {
+    return screenCard(lines, shown, steady, finishPrompt(agent, {
       // the body is every other line above the rows, so a changed command above a same-looking
       // menu is another card; the display cap applies after the hash
       kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? "The agent is waiting for your answer.",
@@ -1619,7 +1621,7 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       responder: "fallback-menu", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
       checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
       optionSteps: choices.map(({ steps }) => steps),
-    }, steadyFields(question, body)));
+    }, steadyFields(question, body, steady)));
   }
   const last = shown.slice(-16).map((index) => cleanLine(lines[index]!));
   // letters and arrows only for the prompt's own last lines, never while an input box ends the
@@ -1636,7 +1638,7 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
     { label: "Esc", steps: keySteps([KEY.escape]) },
   ];
   const body = withoutLine(last, question);
-  return screenCard(lines, shown, finishPrompt(agent, {
+  return screenCard(lines, shown, steady, finishPrompt(agent, {
     kind: "menu", fallback: true, title: "Waiting for input", question: question ?? "The agent is waiting for input.",
     body,
     options: choices.map(({ label }) => ({ label, description: null })),
@@ -1645,21 +1647,21 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
     responder: "fallback-keys", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     optionSteps: choices.map(({ steps }) => steps),
-  }, steadyFields(question, body)));
+  }, steadyFields(question, body, steady)));
 }
 
-/** A fallback card's question and body as its id reads them: with a working line's ticking parts blanked. */
-function steadyFields(question: string | undefined, body: string | null): Partial<Pick<InteractivePrompt, "question" | "body">> {
-  return { ...(question === undefined ? {} : { question: steadyLine(question) }), body: steadyText(body) };
+/** A fallback card's question and body as its id reads them: with the working line's ticking parts blanked. */
+function steadyFields(question: string | undefined, body: string | null, steady: (line: string) => string): Partial<Pick<InteractivePrompt, "question" | "body">> {
+  return { ...(question === undefined ? {} : { question: steady(question) }), body: body === null ? null : body.split("\n").map(steady).join("\n") };
 }
 
 /**
  * A fallback card's id covers the whole visible screen, not just the lines it shows: a changed
  * command, footer or wrapped label anywhere on it makes an answer to the old card stale. A working
- * line's spinner, time and token count are the one thing it leaves out (steadyLine).
+ * line's spinner, time and token count are the one thing it leaves out (steadyReader).
  */
-function screenCard(lines: string[], shown: number[], parsed: ParsedPrompt): InteractivePrompt {
-  const screen = shown.map((index) => steadyLine(cleanLine(lines[index]!))).join("\n");
+function screenCard(lines: string[], shown: number[], steady: (line: string) => string, parsed: ParsedPrompt): InteractivePrompt {
+  const screen = shown.map((index) => steady(cleanLine(lines[index]!))).join("\n");
   parsed.id = createHash("sha256").update(JSON.stringify({ card: parsed.id, screen })).digest("hex").slice(0, 12);
   return publicPrompt(parsed);
 }
