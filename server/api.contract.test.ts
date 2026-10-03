@@ -374,8 +374,14 @@ describe("workspace and discovery endpoints", () => {
       expect(reopened.already_open).toBeTrue();
       expect(reopened.workspace_id).toBe(opened.workspace_id);
     } finally {
-      const [, worktreeWorkspace] = owned;
-      if (worktreeWorkspace) await herdrRpc("worktree.remove", { workspace_id: worktreeWorkspace, force: true }).catch(() => undefined);
+      // the roster says what was made: a create whose answer was lost still left a child to remove
+      const repoRoot = realpathSync(repo);
+      const children = new Set(owned.slice(1));
+      const snapshot = await sessionSnapshot().catch(() => null);
+      for (const workspace of snapshot?.workspaces ?? []) {
+        if (workspace.worktree?.is_linked_worktree && workspace.worktree.repo_root === repoRoot) children.add(workspace.workspace_id);
+      }
+      for (const id of children) await herdrRpc("worktree.remove", { workspace_id: id, force: true }).catch(() => undefined);
       for (const id of owned) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
       rmSync(checkouts, { recursive: true, force: true });
       rmSync(repo, { recursive: true, force: true });

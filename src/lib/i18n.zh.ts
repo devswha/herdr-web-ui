@@ -176,6 +176,7 @@ export const ZH: Record<string, string> = {
   "No other worktrees of this repository.": "此仓库没有其他工作树。",
   "Already open": "已打开",
   "Opening…": "正在打开…",
+  "Checkout missing": "检出缺失",
   "Detached HEAD": "游离 HEAD",
   "Close": "关闭",
   "Close {title}?": "关闭 {title}？",

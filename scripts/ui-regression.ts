@@ -1,12 +1,12 @@
 /** Real-browser regressions against owned herdr panes. Run after `bun run build`. */
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdtempSync, mkdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
-import { herdrRpc, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
+import { herdrRpc, sessionSnapshot, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 import type { WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
@@ -28,6 +28,8 @@ import { UsageService } from "../server/usage.ts";
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
 const worktreeWorkspaces: string[] = [];
+// the repository the worktree step makes, for the cleanup to find what the step made
+let repo: string | null = null;
 const releases: Array<() => void> = [];
 const errors: string[] = [];
 let server: ReturnType<typeof createServer> | undefined;
@@ -507,7 +509,7 @@ try {
 
   // A git worktree from a workspace row's ⋯ menu, as herdr's prefix+shift+g makes one: a new
   // workspace next to the repository's, selected; Open worktree… then lists it as already open.
-  const repo = join(root, "repo");
+  repo = join(root, `herdr-web-ui-test-repo-${process.pid.toString(36)}`);
   mkdirSync(repo);
   const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "user.name=herdr-web-ui test", "-c", "user.email=test@example.invalid", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   assert.equal(git("init", "-q", "-b", "main").exitCode, 0, "git init");
@@ -882,11 +884,21 @@ try {
   for (const release of releases) release();
   await browser?.close();
   server?.stop();
-  // a worktree checkout the run made goes with it: herdr removes the checkout, then its workspace
+  // a worktree checkout the run made goes with it: herdr removes the checkout, then its workspace.
+  // The roster says what was made, so a create whose answer never arrived is removed too.
+  if (repo) {
+    const repoRoot = realpathSync(repo);
+    const snapshot = await sessionSnapshot().catch(() => null);
+    for (const workspace of snapshot?.workspaces ?? []) {
+      if (workspace.worktree?.is_linked_worktree && workspace.worktree.repo_root === repoRoot && !worktreeWorkspaces.includes(workspace.workspace_id)) worktreeWorkspaces.push(workspace.workspace_id);
+    }
+  }
   for (const id of worktreeWorkspaces) {
     await herdrRpc("worktree.remove", { workspace_id: id, force: true }).catch(() => undefined);
     await workspaceClose(id).catch(() => undefined);
   }
+  // herdr keeps the repository's folder under its worktree directory once the checkout is gone: only an empty one is ours to drop
+  if (repo) try { rmdirSync(join(homedir(), ".herdr", "worktrees", basename(repo))); } catch { /* not there, or not empty: not ours */ }
   for (const id of workspaces) await workspaceClose(id);
   rmSync(root, { recursive: true, force: true });
 }

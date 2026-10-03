@@ -2,9 +2,10 @@
  * A git worktree from a workspace's row menu, as herdr's own prefix+shift+g makes one. "create"
  * asks for the branch and checks it out under herdr's worktree folder; "open" lists the
  * repository's checkouts. Either way the checkout becomes a workspace grouped with this one,
- * and its pane is selected. Escape and the scrim close the dialog; focus goes back to the ⋯.
+ * and its pane is selected. Escape and the scrim close the dialog, Tab stays inside it, and
+ * focus goes back to the ⋯ afterwards. A checkout git has lost (prunable) is listed but not offered.
  */
-import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { GitBranch, X } from "lucide-react";
 
@@ -51,6 +52,9 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
+      // another overlay (the palette) over this one owns the keyboard, and Escape, until it goes
+      const active = document.activeElement;
+      if (active && active !== document.body && !surface.current?.contains(active)) return;
       event.stopPropagation();
       event.preventDefault();
       if (!pending) onClose();
@@ -87,6 +91,16 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
   const closeFromScrim = (event: MouseEvent<HTMLDivElement>): void => {
     if (!pending && event.target === event.currentTarget) onClose();
   };
+  // modal: Tab and Shift+Tab stay among the dialog's own fields and buttons
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLFormElement>): void => {
+    if (event.key !== "Tab" || !surface.current) return;
+    const stops = [...surface.current.querySelectorAll<HTMLElement>("input:not(:disabled), button:not(:disabled)")];
+    if (stops.length === 0) return;
+    const index = stops.indexOf(document.activeElement as HTMLElement);
+    const next = event.shiftKey ? (index <= 0 ? stops.length - 1 : index - 1) : (index < 0 || index === stops.length - 1 ? 0 : index + 1);
+    event.preventDefault();
+    stops[next]?.focus();
+  };
 
   const title = mode === "create" ? t("New worktree · {name}", { name: workspace.label }) : t("Open worktree · {name}", { name: workspace.label });
   // the repository's own checkout is this workspace: the list is the other ones
@@ -94,7 +108,7 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
 
   return createPortal(
     <div className="modal-scrim" onMouseDown={closeFromScrim}>
-      <form ref={surface} className="modal worktree-modal" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} onSubmit={submit}>
+      <form ref={surface} className="modal worktree-modal" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} onSubmit={submit} onKeyDown={onKeyDown}>
         <header className="modal-header">
           <h2 className="modal-title" id={`${id}-title`}>{title}</h2>
           <button type="button" className="icon-button" aria-label={t("Close worktree dialog")} disabled={pending !== null} onClick={onClose}>
@@ -129,13 +143,13 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
             <ul className="worktree-list">
               {others.map((entry) => (
                 <li key={entry.path}>
-                  <button type="button" className="worktree-row" disabled={pending !== null} onClick={() => open(entry)}>
+                  <button type="button" className="worktree-row" disabled={pending !== null || entry.is_prunable} onClick={() => open(entry)}>
                     <GitBranch aria-hidden="true" />
                     <span className="worktree-copy">
                       <span className="worktree-branch">{entry.branch ?? (entry.is_detached ? t("Detached HEAD") : entry.label)}</span>
                       <span className="worktree-path">{entry.path}</span>
                     </span>
-                    {entry.open_workspace_id && <span className="pill">{t("Already open")}</span>}
+                    {entry.open_workspace_id ? <span className="pill">{t("Already open")}</span> : entry.is_prunable && <span className="pill">{t("Checkout missing")}</span>}
                   </button>
                 </li>
               ))}

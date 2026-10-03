@@ -359,6 +359,9 @@ One set for both themes: the card is island black wherever it shows.
 ### New session dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
   the selected pane cwd and name is an optional workspace label.
+- Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
+  agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
+  explicit before the created pane opens.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
@@ -367,9 +370,6 @@ One set for both themes: the card is island black wherever it shows.
   workspace grouped with the repository's; its pane is selected. **Open worktree…** lists the
   repository's other checkouts as rows (branch, mono path, an **Already open** pill), and a row
   opens or returns to that workspace. herdr's own words explain a refusal, inside the dialog.
-- Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
-  agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
-  explicit before the created pane opens.
 
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills

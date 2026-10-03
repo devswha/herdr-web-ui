@@ -172,6 +172,7 @@ export const KO: Record<string, string> = {
   "No other worktrees of this repository.": "이 저장소에 다른 워크트리가 없습니다.",
   "Already open": "이미 열림",
   "Opening…": "여는 중…",
+  "Checkout missing": "체크아웃 없음",
   "Detached HEAD": "분리된 HEAD",
   "Close": "닫기",
   "Close {title}?": "{title}을(를) 닫을까요?",

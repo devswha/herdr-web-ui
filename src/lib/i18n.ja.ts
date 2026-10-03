@@ -174,6 +174,7 @@ export const JA: Record<string, string> = {
   "No other worktrees of this repository.": "このリポジトリに他のワークツリーはありません。",
   "Already open": "開いています",
   "Opening…": "開いています…",
+  "Checkout missing": "チェックアウトがありません",
   "Detached HEAD": "分離した HEAD",
   "Close": "閉じる",
   "Close {title}?": "{title} を閉じますか？",

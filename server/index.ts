@@ -1173,11 +1173,17 @@ export function createServer(
           const trimmed = value.trim();
           return trimmed === "" ? undefined : trimmed;
         };
-        let branch: string | undefined, base: string | undefined, label: string | undefined, path: string | undefined;
+        let branch: string | undefined, base: string | undefined, label: string | undefined;
         try {
-          branch = text(payload.branch, "branch"); base = text(payload.base, "base"); label = text(payload.label, "label"); path = text(payload.path, "path");
+          branch = text(payload.branch, "branch"); base = text(payload.base, "base"); label = text(payload.label, "label");
         } catch (response) {
           return response as Response;
+        }
+        // a checkout path is taken as git names it, spaces and all
+        let path: string | undefined;
+        if (payload.path !== undefined && payload.path !== null) {
+          if (typeof payload.path !== "string") return badRequest("invalid_path", "path must be a string");
+          if (payload.path !== "") path = payload.path;
         }
         if (path !== undefined && !isAbsolute(path)) return badRequest("invalid_path", "path must be absolute");
         const creating = pathname === "/api/worktree/create";
