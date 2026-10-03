@@ -59,8 +59,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // a close that herdr has done but the snapshot does not show yet: the closed tab, and the one beside it
   const closed = useRef<{ tabId: string; beside: string } | null>(null);
   // what is on screen now, for a close that answers after the selection or the PC has moved on
-  const latest = useRef({ machineId, tabId: selectedPane.tab_id });
-  latest.current = { machineId, tabId: selectedPane.tab_id };
+  const latest = useRef({ machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id });
+  latest.current = { machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id };
   const panes = snapshot.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
   const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id).sort((a, b) => a.number - b.number);
   const nameOf = (tab: HerdrTab): string => sent?.tabId === tab.tab_id ? sent.label : tabLabel(tab, t, tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id) + 1);
@@ -160,8 +160,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     closing.current.add(tab.tab_id);
     try { await closeTab(tab.tab_id); }
     finally { closing.current.delete(tab.tab_id); }
-    // the answer may come after another tab, or another PC, was picked: the open pane then stays
-    if (latest.current.machineId !== machineId) return;
+    // the answer may come after another tab, workspace or PC was picked: the open pane, and the focus, then stay
+    if (latest.current.machineId !== machineId || latest.current.workspaceId !== workspace.workspace_id) return;
     // the last tab took its workspace, and the strip, with it: focus goes where a closed row's goes
     if (!beside) { focusWorkspaceListToggle(); return; }
     closed.current = { tabId: tab.tab_id, beside: beside.tab_id };
