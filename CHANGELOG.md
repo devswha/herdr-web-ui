@@ -23,6 +23,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   was handed on to the page, where Chrome takes it for pull-to-refresh, so reading back
   through a conversation kept ending in a reload.
   ([#413](https://github.com/devswha/herdr-web-ui/pull/413))
+- The app starts on a PC where port 7317 cannot be opened. On Windows with Hyper-V, WSL2 or Docker
+  that port can sit in a range Windows reserves, and the first install ended in "did not start
+  within 25 seconds" with nothing listening. With no `PORT` set, the app now takes the next of
+  17317, 27317, 37317 and 47317 that opens, says which, and keeps it for later starts. A `PORT`
+  you set is never changed: a start says at once that it cannot be opened, and why.
+  ([#415](https://github.com/devswha/herdr-web-ui/pull/415))
+- A start that fails says what the server said: the installers and the Windows start showed only
+  where the log was. A server that exits is reported at once instead of after 20 seconds.
+  ([#415](https://github.com/devswha/herdr-web-ui/pull/415))
 
 ## [0.3.48] - 2026-10-04
 

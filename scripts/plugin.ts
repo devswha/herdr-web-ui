@@ -9,6 +9,10 @@
  * already answering on the port is left alone, which is what makes it safe as
  * both a startup hook and a hand-invoked action.
  *
+ * The port is settled here, before the server is spawned: with no PORT set, a default that cannot
+ * be opened gives way to the next one that can (scripts/plugin-port.ts), and that choice is kept
+ * for later starts and for `status`, `pair` and `phone`.
+ *
  * Two pieces of herdr's runtime environment have to be translated:
  * - herdr injects HERDR_SOCKET_PATH; the server reads HERDR_SOCKET. Without the
  *   mapping a named session's plugin would talk to the default socket.
@@ -17,7 +21,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -25,6 +29,7 @@ import qrcode from "qrcode-generator";
 
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import type { RemoteAccess } from "../shared/protocol.ts";
+import { canBind, FALLBACK_PORTS, freePort, savedPort } from "./plugin-port.ts";
 import { activePluginScript } from "./plugin-runtime.ts";
 import { parseTailscale, parseTailscaleIp, parseTailscaleOwner, readTailscale, tailscaleBinary } from "../server/tailscale.ts";
 import { windowsArgv, windowsProcessTable } from "../server/windows-processes.ts";
@@ -89,9 +94,16 @@ const fileVars = CONFIG_FILES.map(readEnvFile);
 const shadowed = fileVars.length === 2 ? Object.keys(fileVars[0]!).filter((key) => key in fileVars[1]! && fileVars[0]![key] !== fileVars[1]![key]) : [];
 const env = { ...process.env, ...Object.assign({}, ...fileVars) as Record<string, string> };
 const PATH_KEY = platform() === "win32" ? Object.keys(env).sort().find(key => key.toLowerCase() === "path") ?? "PATH" : "PATH";
-const port = Number(env["PORT"] ?? DEFAULT_PORT);
+/** the app's own state, as the server finds it (server/update-state.ts): the same path with or without herdr's env */
+const APP_STATE_DIR = env["HERDR_WEB_STATE_DIR"] || join(env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr-web-ui");
+/** the port a start took because the default could not be opened; absent while the default serves */
+const PORT_FILE = join(APP_STATE_DIR, "plugin-port");
+/** a PORT the user set is theirs: it is never swapped for another */
+const portSet = (env["PORT"] ?? "") !== "";
+let port = portSet ? Number(env["PORT"]) : savedPort(PORT_FILE) ?? DEFAULT_PORT;
 const host = env["HOST"] ?? "127.0.0.1";
-const origin = `http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${port}`;
+const originOf = (value: number): string => `http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${value}`;
+let origin = originOf(port);
 
 /**
  * herdr's PATH plus where the one-line installer (install.sh) puts Bun, Node and herdr: herdr may
@@ -120,7 +132,10 @@ function qr(text: string): string {
 async function health(): Promise<boolean> {
   try {
     const response = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(1500) });
-    return response.ok;
+    if (!response.ok) return false;
+    // the port may hold another program's 200 (a kept port that went stale): only the app's answer counts
+    const body = await response.json() as { ok?: unknown };
+    return body.ok === true;
   } catch {
     return false;
   }
@@ -144,6 +159,59 @@ function warnShadowed(): void {
   process.stdout.write(`both env and .env in ${CONFIG_DIR} set ${shadowed.join(", ")}; .env wins. Merge them into one file.\n`);
 }
 
+/**
+ * A start's failure, in full to herdr's plugin log and in one line to server.log: the Windows
+ * launcher runs this in a hidden console, so the log is all it can show.
+ */
+function failStart(message: string, detail = ""): number {
+  process.stderr.write(`${message}${detail}\n`);
+  appendFileSync(LOG_FILE, `start: ${message}\n`);
+  return 1;
+}
+
+/** What the server wrote since `offset`: its own error is in the last lines. */
+function logSince(offset: number): string {
+  const lines = readFileSync(LOG_FILE).subarray(offset).toString("utf8").split("\n").filter((line) => line.trim() !== "");
+  return lines.length === 0 ? "(nothing)" : lines.slice(-15).join("\n");
+}
+
+/**
+ * Leaves `port` on one the server can open, or says why none is. Returns "running" when the port
+ * was held by a server of ours that came up meanwhile.
+ */
+async function settlePort(): Promise<"ready" | "running" | "failed"> {
+  if (await canBind(host, port)) return "ready";
+  // a start still coming up holds the port: wait for it rather than open a second server beside it
+  const deadline = Date.now() + READY_TIMEOUT_MS;
+  while (recordedPid() !== null && Date.now() < deadline) {
+    // that start may have moved to another port itself: follow its choice, or two servers end up side by side
+    const kept = portSet ? port : savedPort(PORT_FILE) ?? DEFAULT_PORT;
+    if (kept !== port) {
+      port = kept;
+      origin = originOf(port);
+    }
+    if (await health()) return "running";
+    await Bun.sleep(250);
+  }
+  const settings = CONFIG_FILES.at(-1) ?? join(CONFIG_DIR, "env");
+  const blocked = platform() === "win32"
+    ? `port ${port} on ${host} cannot be opened: another program has it, or Windows reserves it for Hyper-V, WSL2 or Docker (netsh interface ipv4 show excludedportrange protocol=tcp lists the reserved ranges).`
+    : `port ${port} on ${host} cannot be opened: another program has it.`;
+  if (portSet) {
+    failStart(`${blocked} Set another PORT in ${settings}`);
+    return "failed";
+  }
+  const free = await freePort(port, DEFAULT_PORT, (candidate) => canBind(host, candidate));
+  if (free === null) {
+    failStart(`${blocked} Neither can ${[DEFAULT_PORT, ...FALLBACK_PORTS].filter((candidate) => candidate !== port).join(", ")}. Put PORT=<a free port> in ${settings}`);
+    return "failed";
+  }
+  process.stdout.write(`${blocked} Using port ${free} instead; to choose one yourself, put PORT=<port> in ${settings}\n`);
+  port = free;
+  origin = originOf(port);
+  return "ready";
+}
+
 async function start(): Promise<number> {
   warnShadowed();
   if (await health()) {
@@ -151,7 +219,23 @@ async function start(): Promise<number> {
     return 0;
   }
   mkdirSync(STATE_DIR, { recursive: true });
+  const settled = await settlePort();
+  if (settled === "failed") return 1;
+  if (settled === "running") {
+    process.stdout.write(`herdr web ui already running at ${origin}\n`);
+    return 0;
+  }
+  if (!portSet) {
+    // kept, so the address a phone or a bookmark holds survives a restart
+    if (port === DEFAULT_PORT) rmSync(PORT_FILE, { force: true });
+    else {
+      mkdirSync(APP_STATE_DIR, { recursive: true, mode: 0o700 });
+      writeFileSync(`${PORT_FILE}.tmp`, `${port}\n`, { mode: 0o600 });
+      renameSync(`${PORT_FILE}.tmp`, PORT_FILE);
+    }
+  }
   const log = openSync(LOG_FILE, "a");
+  const logged = statSync(LOG_FILE).size;
   const child = spawn(process.execPath, [join(ROOT, "server", "managed.ts")], {
     cwd: ROOT,
     detached: true,
@@ -175,7 +259,8 @@ async function start(): Promise<number> {
   writeFileSync(PID_FILE, `${child.pid}\n`, { mode: 0o600 });
 
   const deadline = Date.now() + READY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  // a server that has exited will not answer: its last words are in the log now
+  while (Date.now() < deadline && child.exitCode === null) {
     if (await health()) {
       process.stdout.write(`herdr web ui listening at ${origin}\n`);
       if ((env["HERDR_WEB_TOKEN"] ?? "") === "") {
@@ -185,8 +270,10 @@ async function start(): Promise<number> {
     }
     await Bun.sleep(250);
   }
-  process.stderr.write(`server did not answer ${origin}/api/health within ${READY_TIMEOUT_MS / 1000}s; see ${LOG_FILE}\n`);
-  return 1;
+  const why = child.exitCode === null
+    ? `server did not answer ${origin}/api/health within ${READY_TIMEOUT_MS / 1000}s`
+    : `the server stopped (exit ${child.exitCode}) before it answered ${origin}/api/health`;
+  return failStart(why, `; ${LOG_FILE} ends with:\n${logSince(logged)}`);
 }
 
 /**
@@ -406,8 +493,7 @@ async function phone(): Promise<number> {
 
 /** The marketplace action has a real pane, so its address, QR and pairing code stay visible. */
 async function phoneSetup(): Promise<number> {
-  const stateDir = env["HERDR_WEB_STATE_DIR"] ?? join(env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr-web-ui");
-  const active = activePluginScript(ROOT, port, stateDir);
+  const active = activePluginScript(ROOT, port, APP_STATE_DIR);
   if (active !== join(resolve(ROOT), "scripts", "plugin.ts") && resolve(active) !== resolve(import.meta.filename)) {
     const child = Bun.spawn([process.execPath, active, "phone-setup"], { cwd: ROOT, windowsHide: true, env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return await child.exited;
