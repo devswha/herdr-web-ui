@@ -303,7 +303,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), **Needs you**
-  and the PC groups. A session starts from the `+` on its PC's header, or from the **New session**
+  and the PC groups. A workspace starts from the `+` on its PC's header, or from the **New workspace**
   button in the dashed **No workspaces yet** box of an empty PC. **Add PC** lives in Settings →
   Remote PCs and in the command palette. Search lives in the command palette, not the roster.
 - One row per workspace, as herdr's Spaces sidebar: no workspace headers, numbers or folds. The
@@ -369,7 +369,7 @@ One set for both themes: the card is island black wherever it shows.
   percent large (`--fs-xl`) as tall as those three lines. The bar is coloured by what is left:
   `--meter-ok` from half, `--meter-mid` from a fifth, `--meter-low` under it (the percent too).
 
-### New session dialog
+### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
   the selected pane cwd and name is an optional workspace label.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
@@ -476,7 +476,7 @@ One set for both themes: the card is island black wherever it shows.
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
   lead an empty query; arrows cycle, Enter activates and Escape closes.
-- Actions cover new session, lens/sidebar/theme, settings, notifications, lock and refresh, with
+- Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog

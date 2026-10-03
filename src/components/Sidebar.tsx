@@ -502,7 +502,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
         {snapshot && snapshot.workspaces.length === 0 && (
           <div className="tree-state-empty">
             <p className="tree-state" role="status">{t("No workspaces yet")}</p>
-            <button type="button" className="btn" onClick={actions.openNewSession}><Plus aria-hidden="true" />{t("New session")}</button>
+            <button type="button" className="btn" onClick={actions.openNewSession}><Plus aria-hidden="true" />{t("New workspace")}</button>
           </div>
         )}
         {byFolder ? directories.map((directory) => {

@@ -10,7 +10,7 @@ Automatic keeps the existing device preference: a touch screen uses the input li
 user previously chose direct typing; a fine pointer uses direct typing. The key bar's keyboard
 button switches modes too, on a touch screen only: a desktop changes the mode in Settings.
 Settings → Shortcuts can change each app action's Mod+Shift key or return its keys to the
-terminal. The hold-to-dictate binding remains fixed. Conflicts include the legacy New session
+terminal. The hold-to-dictate binding remains fixed. Conflicts include the legacy New workspace
 alias, and Reset restores the defaults. Browser-reserved keys still depend on the browser and
 installed-app mode.
 

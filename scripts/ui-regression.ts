@@ -526,15 +526,15 @@ try {
     await createGate;
     await route.continue();
   });
-  await page.getByRole("button", { name: /^New session on / }).click();
-  const dialog = page.getByRole("dialog", { name: /^New session/ });
+  await page.getByRole("button", { name: /^New workspace on / }).click();
+  const dialog = page.getByRole("dialog", { name: /^New workspace/ });
   await dialog.getByLabel(/^Directory/).fill(root);
   await dialog.getByLabel(/^Name/).fill("herdr-web-ui-test-browser-created");
-  await dialog.getByRole("button", { name: "Start session", exact: true }).click();
+  await dialog.getByRole("button", { name: "Start", exact: true }).click();
   await until(() => createRequests === 1, "creation started");
   await page.keyboard.press("Escape");
   assert.equal(await dialog.isVisible(), true, "in-flight creation cannot be dismissed");
-  assert.equal(await dialog.getByRole("button", { name: "Close new session dialog" }).isDisabled(), true);
+  assert.equal(await dialog.getByRole("button", { name: "Close dialog" }).isDisabled(), true);
   const createdResponse = page.waitForResponse((response) => response.url().endsWith("/api/workspace/create"));
   releaseCreate();
   const created = await (await createdResponse).json() as WorkspaceCreated;
@@ -641,7 +641,7 @@ try {
   assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 0, "the folder is not asked for");
   await tabDialog.getByLabel(/^Name/).fill("second");
   const tabResponse = page.waitForResponse((response) => response.url().endsWith("/api/tab/create"));
-  await tabDialog.getByRole("button", { name: "Start session", exact: true }).click();
+  await tabDialog.getByRole("button", { name: "Start", exact: true }).click();
   const createdTab = await (await tabResponse).json() as WorkspaceCreated;
   assert.equal(createdTab.workspace_id, created.workspace_id, "the tab joins the workspace");
   await tabDialog.waitFor({ state: "hidden" });
@@ -657,14 +657,14 @@ try {
   // reopened right after a creation: its fields are live and Escape puts it away at once
   await page.locator(".new-tab-button").click();
   await tabDialog.waitFor();
-  assert.equal(await tabDialog.getByRole("button", { name: "Start session", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
+  assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");
   await tabDialog.waitFor({ state: "hidden" });
-  // the PC's + is New session again, not a tab in the workspace the last dialog was for
-  await page.getByRole("button", { name: /^New session on / }).click();
-  await page.getByRole("dialog", { name: /^New session/ }).waitFor();
+  // the PC's + is New workspace again, not a tab in the workspace the last dialog was for
+  await page.getByRole("button", { name: /^New workspace on / }).click();
+  await page.getByRole("dialog", { name: /^New workspace/ }).waitFor();
   await page.keyboard.press("Escape");
-  await page.getByRole("dialog", { name: /^New session/ }).waitFor({ state: "hidden" });
+  await page.getByRole("dialog", { name: /^New workspace/ }).waitFor({ state: "hidden" });
   await herdrRpc("pane.close", { pane_id: createdTab.pane_id });
   await strip.waitFor({ state: "detached" });
   console.log("PASS a second tab is made from the row's menu, listed in a strip over the pane, and opened from it");
