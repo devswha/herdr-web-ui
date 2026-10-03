@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type {
   PaneReadResult,
   ReadFormat,
@@ -332,10 +333,13 @@ export async function paneRead(options: PaneReadOptions, socketPath?: string): P
   const { paneId, source = "visible", format = "text", lines, stripAnsi, timeoutMs } = options;
   // Escape sequences must survive for xterm.js, so an ansi read defaults to strip_ansi:false.
   const strip = stripAnsi ?? format !== "ansi";
-  const params: Record<string, unknown> = { pane_id: paneId, source, format, strip_ansi: strip };
+  // Recent text reads can scroll an idle agent's TUI to harvest history. ANSI reads
+  // only snapshot stored rows, so automatic polling must convert those to text locally.
+  const passiveText = format === "text" && (source === "recent" || source === "recent_unwrapped");
+  const params: Record<string, unknown> = { pane_id: paneId, source, format: passiveText ? "ansi" : format, strip_ansi: strip };
   if (lines !== undefined) params["lines"] = lines;
   const result = await herdrRpc<{ read: PaneReadResult }>("pane.read", params, socketPath, timeoutMs);
-  return result.read;
+  return passiveText ? { ...result.read, format, text: strip ? stripVTControlCharacters(result.read.text) : result.read.text } : result.read;
 }
 
 /** A cell in a pane's whole history: rows count from the top of the scrollback. */

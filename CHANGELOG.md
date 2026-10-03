@@ -15,6 +15,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   offers **Try again** and **Details**.
 
 ### Fixed
+- The Windows installer tries herdr's download once more when it fails, and says so when it fails
+  again: herdr's installer gives up on a connection that stays under 1 KB/s for 30 seconds, and
+  the install ended there with a message about security software.
+- Claude conversations on Linux can be read without the Herdr integration hook when Claude's
+  native PID record identifies the live interactive session. Reused PIDs, invalid records and
+  multiple Claude processes stay unresolved instead of selecting a same-directory conversation.
+  ([#376](https://github.com/devswha/herdr-web-ui/pull/376) by @WOULDU-pres)
+- Codex conversations recognize renamed executables and recover missing Linux process arguments,
+  preserving resume and process-bound session identity when an answer is no longer on screen.
+  ([#376](https://github.com/devswha/herdr-web-ui/pull/376) by @WOULDU-pres)
+- Reading a Codex conversation on a phone no longer scrolls the same idle agent's
+  terminal on the desktop as the conversation refreshes.
+  ([#393](https://github.com/devswha/herdr-web-ui/pull/393) by @JJLiebig)
 - The line saying a PC needs a bridge update (or setup approval) to reconnect can be closed. A PC
   whose bridge could not be updated kept it open on every screen, which on a phone took a row
   for good. The PC's row in the sidebar still says what it needs, and the line returns the next
