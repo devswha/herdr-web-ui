@@ -7,7 +7,7 @@
  * unless what an item mounted (a rename field, a confirm) takes it first: the button is focused
  * in a layout cleanup, before a new field's autoFocus and a dialog's own focus.
  */
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 
@@ -113,6 +113,10 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
     if (next && (surface.current?.contains(next) || anchor.contains(next))) return;
     onClose();
   };
+  // Safari on a Mac does not focus a clicked button, so the press would blur the focused item
+  // with no relatedTarget, close the menu, and the click would land on nothing: the press keeps
+  // the focus where it is, and the click still comes
+  const keepFocus = (event: ReactMouseEvent<HTMLButtonElement>): void => event.preventDefault();
 
   const run = (item: RowMenuItem): void => {
     onClose();
@@ -129,12 +133,12 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
             {subtitle && <span className="row-sheet-subtitle">{subtitle}</span>}
           </div>
           {items.map((item) => (
-            <button key={item.id} type="button" className={`row-sheet-item${item.danger ? " is-danger" : ""}${item.divider ? " has-divider" : ""}`} onClick={() => run(item)}>
+            <button key={item.id} type="button" className={`row-sheet-item${item.danger ? " is-danger" : ""}${item.divider ? " has-divider" : ""}`} onMouseDown={keepFocus} onClick={() => run(item)}>
               <item.icon aria-hidden="true" />
               {item.label}
             </button>
           ))}
-          <button type="button" className="btn row-sheet-cancel" onClick={onClose}>{t("Cancel")}</button>
+          <button type="button" className="btn row-sheet-cancel" onMouseDown={keepFocus} onClick={onClose}>{t("Cancel")}</button>
         </div>
       </div>,
       document.body,
@@ -146,7 +150,7 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.divider && <span className="row-menu-divider" role="separator" />}
-          <button type="button" role="menuitem" className={`menu-item${item.danger ? " is-danger" : ""}`} onClick={() => run(item)}>
+          <button type="button" role="menuitem" className={`menu-item${item.danger ? " is-danger" : ""}`} onMouseDown={keepFocus} onClick={() => run(item)}>
             <item.icon aria-hidden="true" />
             <span className="menu-item-main">{item.label}</span>
           </button>
