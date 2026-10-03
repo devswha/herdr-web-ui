@@ -432,17 +432,13 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
 
   return (
     <div className={embedded ? "machine-workspaces" : "sidebar-shell"}>
-      {!embedded && <div className="sidebar-topbar">
-        <button type="button" className="btn sidebar-new-session" onClick={actions.openNewSession}>
-          <Plus aria-hidden="true" />
-          {t("New session")}
-        </button>
-      </div>}
-
       <nav className="sidebar-list" aria-label={t("Herdr workspaces")}>
         {!snapshot && <p className="tree-state" role="status">{t("Loading workspaces…")}</p>}
         {snapshot && snapshot.workspaces.length === 0 && (
-          <p className="tree-state tree-state-empty" role="status">{t("No workspaces yet")}</p>
+          <div className="tree-state-empty">
+            <p className="tree-state" role="status">{t("No workspaces yet")}</p>
+            <button type="button" className="btn" onClick={actions.openNewSession}><Plus aria-hidden="true" />{t("New session")}</button>
+          </div>
         )}
         {byFolder ? directories.map((directory) => {
           const collapsed = collapsedGroups.has(`folder:${directory.key}`);

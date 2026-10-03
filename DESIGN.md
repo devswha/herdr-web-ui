@@ -282,7 +282,10 @@ One set for both themes: the card is island black wherever it shows.
 - Mono metadata at `--chip-h`. The herdr version is a sidebar-footer pill; offline is the one header pill and uses danger tokens.
 
 ### Sidebar roster row and footer
-- Top bar: **New session** only. Search lives in the command palette, not the roster.
+- No top bar. The sidebar opens with the plan panel (when Settings puts it there), **Needs you**
+  and the PC groups. A session starts from the `+` on its PC's header, or from the **New session**
+  button in the dashed **No workspaces yet** box of an empty PC. **Add PC** lives in Settings →
+  Remote PCs and in the command palette. Search lives in the command palette, not the roster.
 - Appearance's **Sidebar grouping** is **By workspace** by default, with numbered, foldable
   workspace headers and merged single-pane rows. **By folder** opts into the grouping below.
   The choice applies immediately and persists in the browser's existing Settings record. Workspace
@@ -308,8 +311,10 @@ One set for both themes: the card is island black wherever it shows.
   header. A merged single-pane row in the workspace view has no header: it names the workspace
   and the folder, each only when the title or the other does not already say it. The palette,
   which has no header, names the workspace and the folder, once when they are the same.
-- A PC group header is caret, monitor, name, “This PC” for the local machine and a state dot
-  (done = connected, working pulse = connecting/reconnecting, blocked = error). Connected says
+- A PC group header is caret, monitor, name, “Host” for the local machine, a state dot
+  (done = connected, working pulse = connecting/reconnecting, blocked = error), then a `+` that
+  starts a session on that PC (disabled while it is offline) and, for an SSH PC, its manage
+  button. Connected says
   nothing more; every other state is written under the name, with the server's error clamped to
   two lines and complete in the tooltip.
 - Single-pane workspaces merge their workspace handle into the pane row, in both groupings: one
@@ -326,7 +331,7 @@ One set for both themes: the card is island black wherever it shows.
   chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
-  footer and scrolling past the sidebar's top bar: per account its mark, name and plan pill with
+  footer and scrolling when it outgrows the sidebar: per account its mark, name and plan pill with
   the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
   note is dim, red for an expired sign-in or a failed request.
 - At the top of the sidebar (Settings → Where), a panel with one row per account: mark, provider
@@ -424,6 +429,9 @@ One set for both themes: the card is island black wherever it shows.
   platform-resolved table.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not
   per keystroke.
+- Remote PCs follows Devices: an **Add PC** row (label, one-line description, button) opens the PC
+  setup dialog and closes Settings behind it; under it, once the server has answered, the bridge
+  auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
   hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--bg-elevated` header

@@ -242,6 +242,16 @@ try {
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   console.log("PASS settings shortcut and theme");
 
+  // Add PC lives in Settings → Remote PCs, not in the sidebar; opening it closes Settings behind it
+  assert.equal(await page.locator(".sidebar").getByRole("button", { name: "Add PC", exact: true }).count(), 0, "the sidebar has no Add PC button");
+  await page.keyboard.press("Control+Shift+Comma");
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add PC", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor();
+  assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
+  await page.getByRole("button", { name: "Close PC setup", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor({ state: "hidden" });
+  console.log("PASS Add PC opens from Settings, and the sidebar has no top bar");
+
   // the bell turns this device's alerts on, and off again (it stayed disabled once on)
   await context.grantPermissions(["notifications"], { origin });
   const bell = page.locator(".bell-button");
@@ -474,7 +484,7 @@ try {
     await createGate;
     await route.continue();
   });
-  await page.getByRole("button", { name: "New session", exact: true }).click();
+  await page.getByRole("button", { name: /^New session on / }).click();
   const dialog = page.getByRole("dialog", { name: /^New session/ });
   await dialog.getByLabel(/^Directory/).fill(root);
   await dialog.getByLabel(/^Name/).fill("herdr-web-ui-test-browser-created");

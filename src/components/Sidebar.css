@@ -6,37 +6,8 @@
   background: var(--bg-panel);
 }
 
-/* one gutter (--space-3) for the top bar, the list and the footer: the New session button,
-   every row's hover fill and the footer buttons share the same left and right edge */
-.sidebar-topbar {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border-bottom: var(--hairline) solid var(--border);
-}
-
-.sidebar-new-session {
-  width: 100%;
-  border-style: dashed;
-}
-
-/* the PC sidebar: New session takes the room, Add PC sits beside it */
-.sidebar-topbar-row {
-  flex-direction: row;
-}
-
-.sidebar-topbar-row .sidebar-new-session {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
-}
-
-.sidebar-add-pc {
-  flex: 0 0 auto;
-}
-
+/* one gutter (--space-3) for the list and the footer: every row's hover fill and the footer
+   buttons share the same left and right edge */
 .sidebar-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -52,13 +23,20 @@
   font-size: var(--fs-sm);
 }
 
+/* an empty PC: the words, and the one thing to do about them */
 .tree-state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   margin: var(--space-2) 0;
   padding: var(--space-4);
   border: var(--hairline) dashed var(--border);
   border-radius: var(--radius-md);
   text-align: center;
 }
+
+.tree-state-empty .tree-state { padding: 0; }
 
 .workspace {
   display: flex;

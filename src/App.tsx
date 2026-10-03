@@ -552,6 +552,12 @@ export function App() {
         setDrawerOpen(false);
         setSettingsOpen(true);
       },
+      openAddPc: () => {
+        // the new PC reports its progress in the sidebar: nothing should sit over it
+        setSettingsOpen(false);
+        setUpdateRemote(false);
+        setMachineDialog("new");
+      },
       toggleSidebar: () => {
         if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen((open) => !open);
         else setSidebarCollapsed((collapsed) => !collapsed);
@@ -696,7 +702,7 @@ export function App() {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onAdd={() => { setUpdateRemote(false); setMachineDialog("new"); }} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewSessionOpen(true); setDrawerOpen(false); }} />
         </aside>
 
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}

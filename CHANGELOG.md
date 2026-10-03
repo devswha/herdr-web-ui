@@ -16,6 +16,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#373](https://github.com/devswha/herdr-web-ui/pull/373))
 
 ### Changed
+- The sidebar has no top bar. A session starts from the `+` on its PC's header, as before, or from
+  the **New session** button an empty PC now shows; Mod+Shift+N and the palette still open it on
+  the selected PC. **Add PC** moved to Settings → Remote PCs, above the bridge auto-update switch,
+  and the command palette has it too.
 - In the sidebar's By workspace view, a workspace with one pane is a single row again, as it was
   before 0.3.44: no numbered header above it, and the row carries the reorder handle and names
   its workspace on its second line. A workspace with several panes keeps its header. A fold made

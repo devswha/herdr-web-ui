@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Eye, EyeOff, Minus, Plus, Star, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Eye, EyeOff, Minus, Monitor, Plus, Star, X } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -136,7 +136,7 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   );
 }
 
-export function SettingsDialog({ open, onClose, updates, auth, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, actions, updates, auth, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   // the accounts to order and hide: the same report the meters show, from the server's cache
   const usage = useUsage(open && settings.showUsage);
@@ -536,6 +536,20 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
           </section>
 
           <section className="settings-section">
+            <h3>{t("Remote PCs")}</h3>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Add PC")}</span><span className="settings-description">{t("Connect another PC over an SSH alias or user@host. Its workspaces join the sidebar.")}</span></div>
+              <button type="button" className="btn" onClick={actions.openAddPc}><Monitor aria-hidden="true" />{t("Add PC")}</button>
+            </div>
+            {/* the switch is the server's and waits for its answer; Add PC never does */}
+            {pcSettings && <div className="settings-row">
+              <div><span className="settings-label">{t("Update PC bridges automatically")}</span><span className="settings-description">{t("When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.")}</span></div>
+              <Toggle label={t("Update PC bridges automatically")} checked={pcSettings.auto_update_bridges} onChange={(auto_update_bridges) => void updatePcSettings({ auto_update_bridges })} />
+            </div>}
+            {pcSettingsError && <p className="settings-hint" role="alert">{pcSettingsError}</p>}
+          </section>
+
+          <section className="settings-section">
             <h3>{t("Install")}</h3>
             {installPrompt.installed ? <p className="settings-hint">{t("Installed")}</p> : installPrompt.canInstall ? (
               <button type="button" className="btn btn-primary" onClick={() => void installPrompt.install()}>{t("Install app")}</button>
@@ -548,15 +562,6 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
             <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
             <a href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
           </section>
-          {pcSettings && <section className="settings-section">
-            <h3>{t("Remote PCs")}</h3>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Update PC bridges automatically")}</span><span className="settings-description">{t("When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.")}</span></div>
-              <Toggle label={t("Update PC bridges automatically")} checked={pcSettings.auto_update_bridges} onChange={(auto_update_bridges) => void updatePcSettings({ auto_update_bridges })} />
-            </div>
-            {pcSettingsError && <p className="settings-hint" role="alert">{pcSettingsError}</p>}
-          </section>}
-
           <UpdateControls updates={updates} bridgesFollow={pcSettings?.auto_update_bridges === true} />
           <HerdrUpdateControls enabled={open} />
         </div>
