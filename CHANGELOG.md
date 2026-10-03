@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.46] - 2026-10-03
+
 ### Added
 - A workspace row's **⋯** menu has **New worktree** and **Open worktree…**, as herdr's own
   worktree keys do. New worktree checks a branch out as a git worktree under herdr's worktree
@@ -1559,7 +1561,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...HEAD
+[0.3.46]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...v0.3.46
 [0.3.45]: https://github.com/devswha/herdr-web-ui/compare/v0.3.44...v0.3.45
 [0.3.44]: https://github.com/devswha/herdr-web-ui/compare/v0.3.43...v0.3.44
 [0.3.43]: https://github.com/devswha/herdr-web-ui/compare/v0.3.42...v0.3.43
