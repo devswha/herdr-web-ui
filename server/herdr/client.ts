@@ -185,6 +185,24 @@ export async function workspaceCreate(
   );
 }
 
+export interface TabCreateResult {
+  type: "tab_created";
+  tab: TabInfo;
+  root_pane: PaneInfo;
+}
+
+/** Another tab in an existing workspace. Without `cwd` herdr uses the workspace's folder. */
+export async function tabCreate(
+  options: { workspaceId: string; cwd?: string; label?: string },
+  socketPath?: string,
+): Promise<TabCreateResult> {
+  return herdrRpc(
+    "tab.create",
+    { workspace_id: options.workspaceId, ...(options.cwd === undefined ? {} : { cwd: options.cwd }), ...(options.label === undefined ? {} : { label: options.label }), focus: false },
+    socketPath,
+  );
+}
+
 export async function agentStart(
   options: { name: string; kind: string; paneId: string; args?: string[]; timeoutMs?: number },
   socketPath?: string,

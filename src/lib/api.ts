@@ -3,6 +3,8 @@ import type {
   AgentKind,
   ConversationResponse,
   CreateWorktreeRequest,
+  CreateTabRequest,
+  CreateWorkspaceRequest,
   DirectoryListing,
   FileInfo,
   HealthAuth,
@@ -18,6 +20,7 @@ import type {
   RemoveWorktreeRequest,
   SessionSnapshot,
   SlashCommand,
+  TabCreated,
   UsageReport,
   WorkspaceCreated,
   WorktreeListing,
@@ -332,11 +335,7 @@ export function fileUrl(path: string, paneId: string | null, machineId = "local"
   return machinePath(machineId, `fs/file?${fileQuery(path, paneId)}${download ? "&download=1" : ""}`);
 }
 
-export interface CreateWorkspaceRequest {
-  cwd?: string | null;
-  label?: string | null;
-  agent?: { kind: string; name?: string; args?: string[] } | null;
-}
+export type { CreateTabRequest, CreateWorkspaceRequest } from "../../shared/protocol.ts";
 
 /**
  * POST /api/workspace/create: a new herdr workspace (and an agent started in its root
@@ -363,6 +362,12 @@ export function listWorktrees(workspaceId: string, machineId = "local"): Promise
 export async function openWorktree(request: OpenWorktreeRequest, machineId = "local"): Promise<WorktreeOpened> {
   const response = await sendJson(machinePath(machineId, "worktree/open"), "POST", request);
   return (await response.json()) as WorktreeOpened;
+}
+
+/** POST /api/tab/create: another tab in an existing workspace, with the same agent launch. */
+export async function createTab(request: CreateTabRequest, machineId = "local"): Promise<TabCreated> {
+  const response = await sendJson(machinePath(machineId, "tab/create"), "POST", request);
+  return (await response.json()) as TabCreated;
 }
 
 export async function renameWorkspace(workspaceId: string, label: string, machineId = "local"): Promise<void> {

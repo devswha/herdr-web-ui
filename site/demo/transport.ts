@@ -321,6 +321,31 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     return json({ workspace_id: id, pane_id: pane.pane_id, agent_started: agent !== null } satisfies WorkspaceCreated);
   }
+  if (path === "/api/tab/create") {
+    const body = await bodyOf(init, input);
+    const snap = snapshot();
+    const workspace = snap.workspaces.find((w) => w.workspace_id === body["workspace_id"]);
+    if (!workspace) return error("not_found", "no such workspace", 404);
+    const agent = (body["agent"] as { kind?: string } | null | undefined)?.kind ?? null;
+    const id = workspace.workspace_id;
+    const siblings = snap.panes.filter((p) => p.workspace_id === id);
+    const cwd = String(body["cwd"] ?? siblings[0]?.cwd ?? "/home/demo");
+    const number = snap.tabs.filter((t) => t.workspace_id === id).length + 1;
+    const tabId = `${id}:t${number}`;
+    const template = snap.panes[0]!;
+    const pane: Pane = { ...structuredClone(template), pane_id: `${id}:p${(nextWorkspace++).toString(36)}`, tab_id: tabId, terminal_id: `${id}:term${number}`, workspace_id: id, label: null, title: null, agent, agent_session: null, agent_status: agent ? "working" : "unknown", cwd, foreground_cwd: cwd, focused: false, terminal_title: null, terminal_title_stripped: null, revision: 1 };
+    snap.panes.push(pane);
+    snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: tabId, workspace_id: id, label: String(body["label"] ?? "") || String(number), number, agent_status: pane.agent_status, focused: false, pane_count: 1 });
+    workspace.tab_count = number;
+    workspace.pane_count = siblings.length + 1;
+    if (agent) {
+      keyOfPane.set(pane.pane_id, pane.pane_id);
+      chats.set(pane.pane_id, { turns: [], metadata: { model: agent === "codex" ? "gpt-5.6-sol" : "claude-opus-5-5", reasoning_effort: "medium" } });
+      setTimeout(() => setStatus(pane.pane_id, "idle"), 1500);
+    }
+    structureChanged();
+    return json({ workspace_id: id, pane_id: pane.pane_id, agent_started: agent !== null } satisfies WorkspaceCreated);
+  }
   // no key in the demo: the app falls back to the browser's own speech recognition
   if (path === "/api/voice") return json({ configured: false, source: null, ...VOICE_DEFAULTS } satisfies VoiceStatus, 200, { "cache-control": "no-store" });
   if (path === "/api/voice/config") return error("demo", "the demo saves no OpenAI key", 409);

@@ -92,6 +92,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
  *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
  *         omo and gjc, which herdr cannot start, are typed into the root pane's shell)
+ *  POST   /api/tab/create { workspace_id, cwd?, label?, agent?: { kind, name?, args? } }
+ *         -> TabCreated (tab.create in that workspace, then the same agent launch in the tab's root
+ *         pane; without cwd herdr uses the workspace's folder, without label the tab's number)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id, close_group? } -> { ok: true } (close_group takes the
@@ -398,6 +401,17 @@ export interface AgentKind {
   label: string;
 }
 
+export interface CreateWorkspaceRequest {
+  cwd?: string | null;
+  label?: string | null;
+  agent?: { kind: string; name?: string; args?: string[] } | null;
+}
+
+/** POST /api/tab/create: the workspace is required; `label` names the new tab. */
+export interface CreateTabRequest extends CreateWorkspaceRequest {
+  workspace_id: string;
+}
+
 /** POST /api/workspace/create: the workspace herdr made and the pane the agent (if any) runs in. */
 /** POST /api/worktree/create: branch is the new checkout's branch (created from base, or HEAD, unless it exists). */
 export interface CreateWorktreeRequest {
@@ -465,6 +479,12 @@ export interface WorkspaceCreated {
   /** The workspace still exists when its requested agent could not start. */
   error?: { code: string; message: string };
 }
+
+/**
+ * POST /api/tab/create: the existing workspace and the new tab's root pane. A failed agent
+ * launch leaves the tab there, reachable through pane_id, as workspace creation does.
+ */
+export type TabCreated = WorkspaceCreated;
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */
 export interface SlashCommand {
