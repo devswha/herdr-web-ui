@@ -1,0 +1,178 @@
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { createServer } from "./index.ts";
+import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
+import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
+
+/**
+ * A live handoff (`herdr update --handoff`, `herdr server live-handoff`) moves every pane to a
+ * new herdr server under a new terminal id and ends each `terminal attach` the way a pane that
+ * exited ends it. A pane that lives on is attached again for the same clients; a pane that is
+ * gone, or a server that does not come back, still ends the terminal.
+ *
+ * The handoff runs on a session of its own: replacing the shared test server would cut every
+ * other suite's attach, and a failed one would leave them no herdr.
+ */
+const SESSION = `${process.env["HERDR_TEST_SESSION"] || "herdr-web-ui-test"}-handoff`;
+const socket = join(process.env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr", "sessions", SESSION, "herdr.sock");
+const herdr = process.env["HERDR_WEB_HERDR_BIN"] || Bun.which("herdr") || "herdr";
+// run from inside a herdr pane, this process carries that pane's HERDR_* variables
+const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("HERDR_")));
+
+async function cli(...args: string[]): Promise<{ code: number; output: string }> {
+  const proc = Bun.spawn([herdr, "--session", SESSION, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env });
+  const [code, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  return { code, output: `${stdout}${stderr}`.trim() };
+}
+
+async function answers(): Promise<boolean> {
+  try { await herdrRpc("ping", {}, socket, 2_000); return true; } catch { return false; }
+}
+
+async function until(check: () => boolean | Promise<boolean>, label: string, timeout = 10_000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (!(await check())) {
+    if (Date.now() >= deadline) throw new Error(`Timed out: ${label}`);
+    await Bun.sleep(20);
+  }
+}
+
+/** a fresh server for the session: one left by an earlier run would bring its workspaces back */
+async function startSession(): Promise<void> {
+  if (await answers()) await cli("server", "stop");
+  await until(async () => !(await answers()), "old handoff session stopped");
+  await cli("session", "delete", SESSION);
+  mkdirSync(dirname(socket), { recursive: true });
+  const log = join(dirname(socket), "test-server.log");
+  Bun.spawn([herdr, "--session", SESSION, "server"], { stdin: "ignore", stdout: Bun.file(log), stderr: Bun.file(log), env }).unref();
+  await until(async () => existsSync(socket) && await answers(), `handoff session started (see ${log})`, 15_000);
+}
+
+const handoffs = await (async () => {
+  if (process.env["HERDR_TEST_MODE"] === "unit" || !Bun.which(herdr)) return false;
+  await startSession();
+  const pong = await herdrRpc<{ capabilities?: { live_handoff?: boolean } }>("ping", {}, socket);
+  return pong.capabilities?.live_handoff === true;
+})();
+
+const root = mkdtempSync(join(tmpdir(), "herdr-reattach-"));
+const sockets: WebSocket[] = [];
+let previousSocket: string | undefined;
+let server: ReturnType<typeof createServer>;
+// a short relookup, for the server that does not come back
+let quick: ReturnType<typeof createServer>;
+
+beforeAll(() => {
+  if (!handoffs) return;
+  // the attach, the RPCs and the status collector all read HERDR_SOCKET when they start
+  previousSocket = process.env["HERDR_SOCKET"];
+  process.env["HERDR_SOCKET"] = socket;
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
+  quick = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root, attachRelookupForMs: 1_000 });
+});
+
+afterAll(async () => {
+  for (const ws of sockets) ws.close();
+  if (handoffs) {
+    server.stop();
+    quick.stop();
+    if (previousSocket === undefined) delete process.env["HERDR_SOCKET"];
+    else process.env["HERDR_SOCKET"] = previousSocket;
+    if (await answers()) await cli("server", "stop");
+    await until(async () => !(await answers()), "handoff session stopped").catch(() => {});
+    await cli("session", "delete", SESSION);
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+function connect(port: number, paneId: string) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  sockets.push(ws);
+  const state = { tail: "", ready: 0, exits: 0, errors: [] as string[] };
+  ws.addEventListener("message", (event) => {
+    const frame = JSON.parse(String(event.data)) as ServerMessage;
+    if (frame.type === "error") state.errors.push(frame.code);
+    if (frame.type === "pty-exit" && frame.pane_id === paneId) state.exits++;
+    if (frame.type === "input-ready" && frame.pane_id === paneId && frame.ready !== false) state.ready++;
+    if (frame.type === "pty-data" && frame.pane_id === paneId) state.tail = (state.tail + frame.data).slice(-8192);
+  });
+  const send = (message: ClientMessage) => ws.send(JSON.stringify(message));
+  const open = until(() => ws.readyState === WebSocket.OPEN, "socket open");
+  return { state, send, open };
+}
+
+async function pane(label: string): Promise<string> {
+  const created = await herdrRpc<{ root_pane: { pane_id: string } }>(
+    "workspace.create", { label: `herdr-web-ui-test-${label}`, cwd: root, focus: false }, socket,
+  );
+  return created.root_pane.pane_id;
+}
+
+async function terminalOf(paneId: string): Promise<string | undefined> {
+  const found = (await sessionSnapshot(socket)).panes.find((entry) => entry.pane_id === paneId);
+  return (found as { terminal_id?: string } | undefined)?.terminal_id;
+}
+
+/** the attach-leak oracle: `herdr terminal attach <id>` processes still running (not their pty-host sidecars) */
+async function attaches(terminalId: string): Promise<number> {
+  const proc = Bun.spawn(["pgrep", "-f", `^[^ ]*herdr terminal attach ${terminalId}$`], { stdout: "pipe", stderr: "ignore" });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  return out.split("\n").filter(Boolean).length;
+}
+
+async function attached(port: number, paneId: string) {
+  const client = connect(port, paneId);
+  await client.open;
+  client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+  await until(() => client.state.ready > 0, "attach took");
+  return client;
+}
+
+describe.skipIf(!handoffs)("a pane herdr hands off to a new server", () => {
+  it("is attached again under its new terminal, for the same client, without ending", async () => {
+    const paneId = await pane("handoff");
+    const client = await attached(server.port, paneId);
+    const before = await terminalOf(paneId);
+    expect(before).toBeDefined();
+    await until(async () => (await attaches(before!)) === 1, "the first attach runs");
+
+    const handoff = await cli("server", "live-handoff", "--import-exe", herdr);
+    expect(handoff.code, handoff.output).toBe(0);
+
+    await until(() => client.state.ready >= 2, "attach took again after the handoff");
+    const after = await terminalOf(paneId);
+    expect(after).toBeDefined();
+    expect(after).not.toBe(before);
+    // typing reaches the same shell through the new terminal
+    client.send({ type: "input", pane_id: paneId, text: "echo reattached-$((40+2))\r" });
+    await until(() => client.state.tail.includes("reattached-42"), "the shell answers through the new attach");
+    expect(client.state.exits).toBe(0);
+    expect(client.state.errors).not.toContain("input_not_ready");
+    // one attach, on the new terminal: the old one is gone, nothing leaked
+    await until(async () => (await attaches(before!)) === 0, "no attach left on the old terminal", 5_000);
+    expect(await attaches(after!)).toBe(1);
+  }, 30_000);
+
+  it("still ends at once when the pane itself exits", async () => {
+    const paneId = await pane("exit");
+    const client = await attached(server.port, paneId);
+    const startedAt = Date.now();
+    client.send({ type: "input", pane_id: paneId, text: "exit\r" });
+    await until(() => client.state.exits === 1, "pty-exit for the pane that exited");
+    // a gone pane is told at its first lookup, not after the whole relookup window
+    expect(Date.now() - startedAt).toBeLessThan(2_500);
+  }, 15_000);
+
+  it("ends once the server does not come back", async () => {
+    const paneId = await pane("stop");
+    const client = await attached(quick.port, paneId);
+    const stopped = await cli("server", "stop");
+    expect(stopped.code, stopped.output).toBe(0);
+    await until(() => client.state.exits === 1, "pty-exit after the relookups ran out", 8_000);
+    await Bun.sleep(1_500);
+    expect(client.state.exits).toBe(1);
+  }, 20_000);
+});
