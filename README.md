@@ -26,7 +26,7 @@
 
 ---
 
-https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
+https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
 <p align="center"><sub>Claude Code asks in herdr's terminal; the browser and the phone show the same question, and one tap on the phone answers it · recorded live, no cuts</sub></p>
 
