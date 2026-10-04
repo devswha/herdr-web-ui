@@ -222,7 +222,8 @@ export const windowsHost: RemoteHost = {
       "try {",
       `  if ((Get-FileHash -Algorithm SHA256 "$tmp\\bundle.tgz").Hash.ToLower() -ne '${asset.sha256}') { throw 'Remote bundle checksum mismatch' }`,
       "  New-Item -ItemType Directory \"$tmp\\runtime\" | Out-Null",
-      "  & tar.exe -xzf \"$tmp\\bundle.tgz\" -C \"$tmp\\runtime\"; if ($LASTEXITCODE -ne 0) { throw 'Bundle extraction failed' }",
+      // Git's GNU tar on PATH interprets a drive-letter archive as a remote host.
+      "  & \"$env:SystemRoot\\System32\\tar.exe\" -xzf \"$tmp\\bundle.tgz\" -C \"$tmp\\runtime\"; if ($LASTEXITCODE -ne 0) { throw 'Bundle extraction failed' }",
       "  & \"$tmp\\runtime\\bin\\bun.exe\" --version | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Bundled Bun does not run on this PC' }",
       `  $release = "${release}"`,
       "  if (-not (Test-Path $release)) { Move-Item \"$tmp\\runtime\" $release }",

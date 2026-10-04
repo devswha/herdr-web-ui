@@ -27,6 +27,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#346](https://github.com/devswha/herdr-web-ui/pull/346) by @WOULDU-pres)
 
 ### Fixed
+- Remote bridge updates use Windows' native tar even when Git's tar comes first on PATH.
+  Independently managed web servers are directed to their own update controls before any
+  remote bundle is installed, instead of repeatedly attempting an update that cannot own them.
 - On an Android phone, dragging down at the top of a chat no longer reloads the app. The drag
   was handed on to the page, where Chrome takes it for pull-to-refresh, so reading back
   through a conversation kept ending in a reload.
