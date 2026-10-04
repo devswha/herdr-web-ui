@@ -75,7 +75,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
- *         pasted image -> file under <pane cwd>/.herdr-web-ui/, path for the prompt
+ *         pasted image -> file under <pane cwd>/.herdr-web-ui/ (under HERDR_WEB_PASTE_DIR when the
+ *         server's environment sets it), path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
  *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the

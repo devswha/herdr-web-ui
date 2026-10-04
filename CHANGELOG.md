@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.49] - 2026-10-04
+
 ### Added
 - New workspace's **Browse** filters the loaded folders in the current directory as you type.
   Navigation clears the filter, and a truncated listing says when search covers only the first
@@ -1716,7 +1718,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.48...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...HEAD
+[0.3.49]: https://github.com/devswha/herdr-web-ui/compare/v0.3.48...v0.3.49
 [0.3.48]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...v0.3.47
 [0.3.46]: https://github.com/devswha/herdr-web-ui/compare/v0.3.45...v0.3.46
