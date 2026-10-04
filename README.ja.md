@@ -37,6 +37,18 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 <table>
   <tr>
     <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/33ed2183-9b94-4677-8980-edd90d45750a"><img src="docs/media/readme/terminal.webp" width="100%" alt="実際の動作の録画。ブラウザのチャットに Claude Code の返答が表示され、Terminal をクリックすると同じペインが Claude Code 自身のターミナルになり、src/server.test.ts にテスト「unknown refund is 404」を追加した編集が見えます。スマートフォンでは tests タブのターミナルで、キーバーの ↑ で bun test を呼び出し、入力行の Enter ボタンで実行すると 5 pass、0 fail になります。"></a>
+      <br><b>ライブターミナルに切り替える</b>
+      <br><sub>クリック 1 回でチャットがそのペインの本物のターミナルに切り替わり、スマートフォンではキーバーの ↑ でテストのコマンドを呼び出して、Enter で再実行します。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/c152bab9-f4b8-4150-895e-1cb61bb1f902"><img src="docs/media/readme/parity.webp" width="100%" alt="実際の動作の録画。同じセッションを表示する herdr 自身のターミナル UI が、ブラウザの手前にあります。herdr で ctrl+b c を押すと「new tab」ボックスが開き、review と入力すると新しいタブがブラウザのタブバーに現れます。ブラウザで payments タブの名前を audit に変えると、herdr のタブバーと agents 一覧（「checkout-api · audit」）も変わります。herdr が「GET /payments/:id (getPayment) has no test.」と表示された Claude のタブに切り替えると、その行は claude · done から claude · idle に、ブラウザのバッジは DONE から READY になります。数秒後、タブの点も消えます。"></a>
+      <br><b>herdr 自身の TUI と連動する</b>
+      <br><sub>1 つのセッションに 2 つの画面。herdr で作ったタブはブラウザに、ブラウザで変えた名前は herdr に表示され、エージェントの状態も両方で一緒に変わります。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/804ed0e1-54e6-4c1a-9d87-bd769a970315"><img src="docs/media/readme/alerts.webp" width="100%" alt="実際の動作の録画。ブラウザで Claude が checkout-api の作業をしている間、スマートフォンは別のワークスペースのターミナルを表示しています。Claude がどのレート制限にするか質問すると、スマートフォンに「checkout-api Needs input」の通知が降りてきて、タップすると質問がカードで開きます。ブラウザでも Needs you の下に checkout-api が同じカードとともに表示されます。"></a>
       <br><b>エージェントに呼ばれたらすぐ分かる</b>
       <br><sub>別のワークスペースを見ていても、Claude が質問すると通知が降りてきて、タップ 1 回で質問が開きます。</sub>
@@ -61,7 +73,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
   </tr>
 </table>
 
-<p align="center"><sub>どのクリップも、パソコンとスマートフォンを同時に収録した実際の動作です。等速・カットなし。クリックすると約 11 秒の動画全体を再生できます。</sub></p>
+<p align="center"><sub>どのクリップも、2 つの画面（パソコンとスマートフォン、または herdr 自身のターミナルとパソコン）を同時に収録した実際の動作です。等速・カットなし。クリックすると動画全体を再生できます。</sub></p>
 
 - **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc、pi のネイティブな会話履歴を表示し、ワンクリックでライブターミナルに切り替えられます。[対応エージェント →](docs/guide.md#supported-agents)
 - **タップで承認** — 承認リクエスト、質問、計画メニューがカードになり、問いかけがまだ有効か確認してから回答を送信します。

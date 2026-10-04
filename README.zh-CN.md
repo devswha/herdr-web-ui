@@ -37,6 +37,18 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 <table>
   <tr>
     <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/33ed2183-9b94-4677-8980-edd90d45750a"><img src="docs/media/readme/terminal.webp" width="100%" alt="实机录制。浏览器的聊天里是 Claude Code 的回复；点击 Terminal 后，同一个窗格显示为 Claude Code 自己的终端，可以看到它在 src/server.test.ts 中添加测试“unknown refund is 404”的修改。在手机上 tests 标签页的终端里，按键栏的 ↑ 调出 bun test，输入行的 Enter 按钮运行它：5 pass，0 fail。"></a>
+      <br><b>切换到实时终端</b>
+      <br><sub>点一下，聊天就变成该窗格真正的终端；在手机上，按键栏的 ↑ 调出测试命令，再按 Enter 重新运行。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/c152bab9-f4b8-4150-895e-1cb61bb1f902"><img src="docs/media/readme/parity.webp" width="100%" alt="实机录制。herdr 自己的终端界面叠在浏览器前面，两者是同一个会话。在 herdr 中按 ctrl+b c 打开“new tab”框，输入 review 后，新标签页出现在浏览器的标签栏里；在浏览器中把 payments 标签页改名为 audit，herdr 的标签栏和 agents 列表（“checkout-api · audit”）随之更新；herdr 切换到显示“GET /payments/:id (getPayment) has no test.”的 Claude 标签页时，该行从 claude · done 变为 claude · idle，浏览器的徽章从 DONE 变为 READY。几秒后，标签页上的圆点也随之消失。"></a>
+      <br><b>与 herdr 自己的 TUI 同步</b>
+      <br><sub>一个会话，两个界面：在 herdr 里新建的标签页会出现在浏览器中，在浏览器里改的名字会出现在 herdr 中，智能体状态也在两边一起变化。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/804ed0e1-54e6-4c1a-9d87-bd769a970315"><img src="docs/media/readme/alerts.webp" width="100%" alt="实机录制。浏览器中 Claude 正在处理 checkout-api，手机停在另一个工作区的终端上。Claude 提问要用哪种限流时，手机上弹出“checkout-api Needs input”提醒，点一下即以卡片打开问题；浏览器的 Needs you 下也列出 checkout-api 和同一张卡片。"></a>
       <br><b>智能体需要你时，立刻知道</b>
       <br><sub>即使在看别的工作区，Claude 一提问就会弹出提醒，点一下即可打开它的问题。</sub>
@@ -61,7 +73,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
   </tr>
 </table>
 
-<p align="center"><sub>每段片段都是同时录制电脑和手机的真实操作，实时、无剪辑。点击可播放约 11 秒的完整视频。</sub></p>
+<p align="center"><sub>每段片段都是同时录制两个屏幕（电脑和手机，或 herdr 自己的终端和电脑）的真实操作，实时、无剪辑。点击可播放完整视频。</sub></p>
 
 - **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc 和 pi 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。

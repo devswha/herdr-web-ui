@@ -37,6 +37,18 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 <table>
   <tr>
     <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/33ed2183-9b94-4677-8980-edd90d45750a"><img src="docs/media/readme/terminal.webp" width="100%" alt="실제 화면 녹화. 브라우저의 채팅에 Claude Code의 답이 보이고, Terminal을 클릭하면 같은 pane이 Claude Code 자체 터미널로 바뀌어 src/server.test.ts에 &quot;unknown refund is 404&quot; 테스트를 추가한 편집이 보입니다. 폰에서는 tests 탭의 터미널에서 키 바의 ↑로 bun test를 불러오고 입력 줄의 Enter 버튼으로 실행해 5 pass, 0 fail이 나옵니다."></a>
+      <br><b>라이브 터미널로 바꾸기</b>
+      <br><sub>클릭 한 번이면 채팅이 그 pane의 실제 터미널로 바뀌고, 폰에서는 키 바의 ↑로 테스트 명령을 불러와 Enter로 다시 실행합니다.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/c152bab9-f4b8-4150-895e-1cb61bb1f902"><img src="docs/media/readme/parity.webp" width="100%" alt="실제 화면 녹화. 같은 세션을 보는 herdr 자체 터미널 UI가 브라우저 앞에 놓여 있습니다. herdr에서 ctrl+b c를 누르면 &quot;new tab&quot; 상자가 열리고, review를 입력하면 새 탭이 브라우저의 탭 줄에 나타납니다. 브라우저에서 payments 탭 이름을 audit으로 바꾸면 herdr의 탭 바와 agents 목록(&quot;checkout-api · audit&quot;)이 따라 바뀝니다. herdr가 &quot;GET /payments/:id (getPayment) has no test.&quot;라는 답이 보이는 Claude의 탭으로 넘어가면 그 행이 claude · done에서 claude · idle로, 브라우저의 배지는 DONE에서 READY로 바뀌고, 몇 초 뒤에는 탭의 점도 사라집니다."></a>
+      <br><b>herdr TUI와 함께 움직이기</b>
+      <br><sub>한 세션, 두 화면: herdr에서 만든 탭은 브라우저에, 브라우저에서 바꾼 이름은 herdr에 나타나고, 에이전트 상태도 양쪽에서 함께 바뀝니다.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/804ed0e1-54e6-4c1a-9d87-bd769a970315"><img src="docs/media/readme/alerts.webp" width="100%" alt="실제 화면 녹화. 브라우저에서 Claude가 checkout-api 작업을 하는 동안 폰은 다른 워크스페이스의 터미널을 보고 있습니다. Claude가 어떤 요청 제한을 쓸지 묻자 폰에 &quot;checkout-api Needs input&quot; 알림이 내려오고, 탭하면 질문이 카드로 열립니다. 브라우저에도 Needs you 아래에 checkout-api가 같은 카드와 함께 보입니다."></a>
       <br><b>에이전트가 부르면 바로 알기</b>
       <br><sub>다른 워크스페이스를 보고 있어도 Claude가 물으면 알림이 내려오고, 한 번 탭하면 질문이 열립니다.</sub>
@@ -61,7 +73,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
   </tr>
 </table>
 
-<p align="center"><sub>모든 클립은 데스크톱과 폰을 동시에 녹화한 실제 동작이며, 실제 속도로 컷 없이 담았습니다. 누르면 약 11초짜리 전체 영상을 볼 수 있습니다.</sub></p>
+<p align="center"><sub>모든 클립은 두 화면(데스크톱과 폰, 또는 herdr 자체 터미널과 데스크톱)을 동시에 녹화한 실제 동작이며, 실제 속도로 컷 없이 담았습니다. 누르면 전체 영상을 볼 수 있습니다.</sub></p>
 
 - **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc와 pi의 대화 기록을 그대로 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. [지원 에이전트 →](docs/guide.md#supported-agents)
 - **탭 한 번으로 승인** — 승인 요청, 질문, 계획 메뉴가 카드로 뜹니다. 답을 보내기 전에 그 질문이 아직 유효한지 확인합니다.

@@ -37,6 +37,18 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Read 
 <table>
   <tr>
     <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/33ed2183-9b94-4677-8980-edd90d45750a"><img src="docs/media/readme/terminal.webp" width="100%" alt="Live recording. The browser shows Claude Code's reply in Chat; a click on Terminal shows the same pane as Claude Code's own terminal, with its edit adding the test &quot;unknown refund is 404&quot; to src/server.test.ts. On the phone, in the tests tab's terminal, ↑ on the key bar brings back bun test and the input line's Enter button runs it: 5 pass, 0 fail."></a>
+      <br><b>Switch to the live terminal</b>
+      <br><sub>One click turns the chat into the pane's real terminal; on the phone, ↑ on the key bar brings back the test command and Enter runs it again.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/c152bab9-f4b8-4150-895e-1cb61bb1f902"><img src="docs/media/readme/parity.webp" width="100%" alt="Live recording. herdr's own terminal UI, drawn in front of the browser, on the same session. In herdr, ctrl+b c opens a &quot;new tab&quot; box, review is typed, and the new tab appears in the browser's tab strip; in the browser, the payments tab is renamed audit, and herdr's tab bar and agents list (&quot;checkout-api · audit&quot;) follow; when herdr switches to Claude's tab, which shows &quot;GET /payments/:id (getPayment) has no test.&quot;, its row goes from claude · done to claude · idle and the browser's badge from DONE to READY, and the tab's dot clears a few seconds later."></a>
+      <br><b>In step with herdr's own TUI</b>
+      <br><sub>One session, two surfaces: a tab made in herdr appears in the browser, a rename in the browser appears in herdr, and agent states change in both.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/804ed0e1-54e6-4c1a-9d87-bd769a970315"><img src="docs/media/readme/alerts.webp" width="100%" alt="Live recording. The phone shows another workspace's terminal while Claude works on checkout-api in the browser. When Claude asks which rate limit to use, an alert reading &quot;checkout-api Needs input&quot; drops in on the phone and a tap opens the question as a card; the browser lists checkout-api under Needs you with the same card."></a>
       <br><b>Know when an agent needs you</b>
       <br><sub>On another workspace, an alert drops in when Claude asks; one tap opens its question.</sub>
@@ -61,7 +73,7 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Read 
   </tr>
 </table>
 
-<p align="center"><sub>Each clip is a live recording of the desktop and a phone at once, in real time with no cuts. Click one for the full ~11-second video.</sub></p>
+<p align="center"><sub>Each clip is a live recording of two screens at once (the desktop with a phone, or herdr's own terminal with the desktop), in real time with no cuts. Click one for the full video.</sub></p>
 
 - **Chat and terminal, one pane** — native Claude Code, Codex, omp, omo, gjc and pi transcripts, with the live terminal a click away. [Supported agents →](docs/guide.md#supported-agents)
 - **Approve with a tap** — approvals, questions and plan menus become cards, checked to be current before your answer is sent.
