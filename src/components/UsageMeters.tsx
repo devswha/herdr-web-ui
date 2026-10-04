@@ -9,8 +9,8 @@ import { useSettings, type UsageCount, type UsageGlance } from "../lib/settings.
 import { formatPercent, formatResetIn, glanceWindow, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage, windowLabel } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 
-/** chips the strip beside Settings holds before the rest fold into "+N" */
-const MAX_CHIPS = 4;
+/** chips the strip beside Settings holds before the rest fold into "+N" (fits up to 5 active providers) */
+const MAX_CHIPS = 5;
 
 function level(window: UsageWindow | null): string {
   return window !== null && window.used_percent >= HIGH_PERCENT ? " is-high" : "";

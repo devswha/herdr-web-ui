@@ -58,9 +58,9 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await page.keyboard.press("Escape");
     await strip.waitFor();
 
-    // three chips and "+4" past four accounts, in the server's order, each its plan's week; one near its limit is red; two Codex accounts apart
-    assert.equal(await page.locator(".usage-chip").count(), 3);
-    assert.equal(await page.locator(".usage-more").textContent(), "+4");
+    // four chips and "+3" past five accounts, in the server's order, each its plan's week; one near its limit is red; two Codex accounts apart
+    assert.equal(await page.locator(".usage-chip").count(), 4);
+    assert.equal(await page.locator(".usage-more").textContent(), "+3");
     assert.equal(await strip.getAttribute("aria-label"),
       "Subscription usage: Claude · me@example.com 63%, Codex · me@work.example 91%, Codex · me@example.com 30%, Cursor 20%, Copilot · me 0%, Grok 0%, Antigravity —");
     assert.equal(await page.locator(".usage-chip").nth(1).evaluate((chip) => chip.classList.contains("is-high")), true);
@@ -96,7 +96,7 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await page.keyboard.press("Escape");
     assert.equal(await strip.getAttribute("aria-label"),
       "Subscription usage: Claude · me@example.com 37% left, Cursor 80% left, Codex · me@example.com 70% left, Copilot · me 100% left, Grok 100% left, Antigravity —");
-    assert.deepEqual(await page.locator(".usage-chip-value").allTextContents(), ["37%", "80%", "70%"]);
+    assert.deepEqual(await page.locator(".usage-chip-value").allTextContents(), ["37%", "80%", "70%", "100%"]);
     await strip.click();
     assert.deepEqual((await names()).slice(0, 3), ["Claude · me@example.com", "Cursor", "Codex · me@example.com"], "a hidden account is left out of the popover too");
     assert.equal(await popover.locator(".usage-provider").count(), 6);
