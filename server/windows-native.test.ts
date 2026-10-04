@@ -25,7 +25,10 @@ it.skipIf(!onWindows)("installs with native tar when PATH shadows tar, and prese
   const runtime = join(home, "herdr-web-ui", `remote-v${REMOTE_BUNDLE_VERSION}`);
   const runPowerShell = async (script: string) => {
     const prefixed = `$env:LOCALAPPDATA=${psQuote(home)}; $env:PATH=${psQuote(join(home, "shadow"))}+';'+$env:PATH; ${script}`;
-    const child = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(prefixed, "utf16le").toString("base64")], { stdout: "pipe", stderr: "pipe" });
+    // started from PowerShell 7 (the CI step), the child inherits its module path, and Windows
+    // PowerShell then cannot load its own Get-FileHash; with none set it builds its own, as over SSH
+    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toLowerCase() !== "psmodulepath"));
+    const child = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(prefixed, "utf16le").toString("base64")], { stdout: "pipe", stderr: "pipe", env });
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     if (code !== 0) throw new Error(stderr);
     return stdout.trim();
