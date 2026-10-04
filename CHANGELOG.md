@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Chat reads a running GJC session in a pane herdr names no agent for, also when the pane still
+  carries an earlier Codex session report. It used to follow that report, ask the wrong agent
+  and fail to load.
+  ([#423](https://github.com/devswha/herdr-web-ui/pull/423) by @Kinetic27)
+
 ## [0.3.49] - 2026-10-04
 
 ### Added
