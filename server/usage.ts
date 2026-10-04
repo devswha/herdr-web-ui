@@ -648,7 +648,80 @@ const antigravity: UsageProvider = {
   },
 };
 
-export const USAGE_PROVIDERS: readonly UsageProvider[] = [claude, codex, cursor, copilot, grok, antigravity];
+// ---- OpenCode (OpenCode Go quota): ~/.local/share/opencode/auth.json (or XDG_DATA_HOME),
+// or ~/.config/opencode/auth.json ----
+
+function opencodeSignIn(source: string | null): SignIn | null {
+  const root = record(parseJson(source));
+  const go = record(root["opencode-go"] ?? root["opencode"]);
+  let token = text(go["key"]) ?? text(go["token"]) ?? text(go["apiKey"]);
+  let email = text(go["email"]) ?? text(go["user"]);
+  let accountId = text(go["account_id"]) ?? text(go["user_id"]) ?? text(go["id"]);
+  if (!token) {
+    for (const [name, val] of Object.entries(root)) {
+      const rec = record(val);
+      const k = text(rec["key"]) ?? text(rec["token"]) ?? text(rec["apiKey"]);
+      if (k && (name.includes("opencode") || k.startsWith("oc_sk_"))) {
+        token = k;
+        email = text(rec["email"]) ?? text(rec["user"]);
+        accountId = text(rec["account_id"]) ?? text(rec["user_id"]) ?? text(rec["id"]) ?? name;
+        break;
+      }
+    }
+  }
+  if (!token) return null;
+  const account = accountId || email ? { id: accountId ?? email!, label: email } : null;
+  return { token, expiresAt: null, account };
+}
+
+const opencode: UsageProvider = {
+  id: "opencode",
+  async signIns(ctx) {
+    const configDir = ctx.env["OPENCODE_CONFIG_DIR"];
+    const candidateDirs = [
+      configDir,
+      join(ctx.env["XDG_DATA_HOME"] || join(ctx.home, ".local", "share"), "opencode"),
+      join(ctx.env["XDG_CONFIG_HOME"] || join(ctx.home, ".config"), "opencode"),
+      join(ctx.home, "Library", "Application Support", "opencode"),
+    ].filter((dir): dir is string => Boolean(dir));
+    const found: Found[] = [];
+    for (const dir of new Set(candidateDirs)) {
+      const signIn = opencodeSignIn(readText(join(dir, "auth.json")));
+      if (signIn) found.push({ ...signIn, source: dir });
+    }
+    if (found.length) return found;
+    const keychain = await fromKeychain(ctx, "opencode", [undefined], opencodeSignIn);
+    if (keychain) return keychainFound(keychain, "keychain");
+    const envKey = text(ctx.env["OPENCODE_API_KEY"]) ?? text(ctx.env["OPENCODE_GO_API_KEY"]);
+    if (envKey) return [{ token: envKey, expiresAt: null, source: "env" }];
+    return [];
+  },
+  async read(ctx, signIn) {
+    const body = await requestJson(ctx, "https://opencode.ai/zen/go/v1/usage", {
+      headers: { authorization: `Bearer ${signIn.token}`, accept: "application/json", "user-agent": USER_AGENT },
+    });
+    const usage = record(body["usage"]);
+    const windows: UsageWindow[] = [];
+    const rolling = record(usage["rolling"]);
+    const rollingPercent = number(rolling["percent"]);
+    if (rollingPercent !== null) {
+      windows.push({ kind: "session", scope: null, used_percent: percent(rollingPercent), resets_at: isoTime(rolling["resetsAt"]) });
+    }
+    const weekly = record(usage["weekly"]);
+    const weeklyPercent = number(weekly["percent"]);
+    if (weeklyPercent !== null) {
+      windows.push({ kind: "week", scope: null, used_percent: percent(weeklyPercent), resets_at: isoTime(weekly["resetsAt"]) });
+    }
+    const monthly = record(usage["monthly"]);
+    const monthlyPercent = number(monthly["percent"]);
+    if (monthlyPercent !== null) {
+      windows.push({ kind: "month", scope: null, used_percent: percent(monthlyPercent), resets_at: isoTime(monthly["resetsAt"]) });
+    }
+    return { plan: text(body["plan"]) ?? "Go", windows };
+  },
+};
+
+export const USAGE_PROVIDERS: readonly UsageProvider[] = [claude, codex, cursor, copilot, grok, antigravity, opencode];
 
 /** Keychain services whose read hung (an access prompt nobody answered): not asked again. */
 const promptedServices = new Set<string>();

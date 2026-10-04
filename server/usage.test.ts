@@ -422,6 +422,59 @@ describe("providers", () => {
     await new UsageService({ ...context("linux"), env: { USER: "me", ANTIGRAVITY_APP_DATA_DIR: dir } }, only("antigravity")).report();
     expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer custom");
   });
+
+  it("reads OpenCode Go usage windows from ~/.local/share/opencode/auth.json", async () => {
+    write(join(home, ".local", "share", "opencode", "auth.json"), {
+      "opencode-go": { type: "api", key: "oc_sk_test" },
+    });
+    replies.set("https://opencode.ai/zen/go/v1/usage", { body: {
+      usage: {
+        rolling: { status: "ok", percent: 10, resetsAt: "2026-09-29T16:00:00Z" },
+        weekly: { status: "ok", percent: 45, resetsAt: "2026-10-05T00:00:00Z" },
+        monthly: { status: "ok", percent: 20, resetsAt: "2026-10-27T00:00:00Z" },
+      },
+    } });
+    const [usage] = (await new UsageService(context("linux"), only("opencode")).report()).providers;
+    expect(usage).toMatchObject({
+      id: "opencode",
+      plan: "Go",
+      windows: [
+        { kind: "session", scope: null, used_percent: 10, resets_at: "2026-09-29T16:00:00.000Z" },
+        { kind: "week", scope: null, used_percent: 45, resets_at: "2026-10-05T00:00:00.000Z" },
+        { kind: "month", scope: null, used_percent: 20, resets_at: "2026-10-27T00:00:00.000Z" },
+      ],
+    });
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_test");
+  });
+
+  it("reads OpenCode auth from OPENCODE_CONFIG_DIR", async () => {
+    const dir = join(home, "custom-opencode");
+    write(join(dir, "auth.json"), { "opencode-go": { key: "oc_sk_custom", email: "user@example.com" } });
+    replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 5 } } } });
+    const [usage] = (await new UsageService({ ...context("linux"), env: { USER: "me", OPENCODE_CONFIG_DIR: dir } }, only("opencode")).report()).providers;
+    expect(usage).toMatchObject({
+      id: "opencode",
+      key: "opencode:user@example.com",
+      account: "user@example.com",
+      windows: [{ kind: "week", scope: null, used_percent: 5 }],
+    });
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_custom");
+  });
+
+  it("reads OpenCode from keychain on macOS when no file exists", async () => {
+    keychain.set("opencode|", { status: "found", value: JSON.stringify({ "opencode-go": { key: "oc_sk_keychain" } }) });
+    replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 12 } } } });
+    const [usage] = (await new UsageService(context("darwin"), only("opencode")).report()).providers;
+    expect(usage).toMatchObject({ id: "opencode", windows: [{ kind: "week", scope: null, used_percent: 12 }] });
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_keychain");
+  });
+
+  it("reads OpenCode from OPENCODE_API_KEY environment variable", async () => {
+    replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 8 } } } });
+    const [usage] = (await new UsageService({ ...context("linux"), env: { USER: "me", OPENCODE_API_KEY: "oc_sk_env" } }, only("opencode")).report()).providers;
+    expect(usage).toMatchObject({ id: "opencode", windows: [{ kind: "week", scope: null, used_percent: 8 }] });
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_env");
+  });
 });
 
 describe("the service", () => {

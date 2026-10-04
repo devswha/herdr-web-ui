@@ -7,7 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-## [0.3.49] - 2026-10-04
+### Added
+- OpenCode Go usage meter reads rolling session, weekly, and monthly limits from
+  `~/.local/share/opencode/auth.json` (or under `XDG_DATA_HOME`), `~/.config/opencode/auth.json`,
+  macOS keychain, or the `OPENCODE_API_KEY` / `OPENCODE_GO_API_KEY` environment variables.
 
 ### Added
 - `HERDR_WEB_PASTE_DIR` saves pasted and attached files to one directory instead of
