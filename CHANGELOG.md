@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- New workspace's **Browse** filters the loaded folders in the current directory as you type.
+  Navigation clears the filter, and a truncated listing says when search covers only the first
+  500 folders.
 - `HERDR_WEB_PASTE_DIR` saves pasted and attached files to one directory instead of
   `.herdr-web-ui/` in each pane's project. It is read by the server, for the panes of its own
   PC; a remote PC keeps the default.
