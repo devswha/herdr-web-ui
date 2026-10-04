@@ -5,14 +5,62 @@
  * on the Windows runner of the remote-bundle workflow and nowhere else (#271).
  */
 import { expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { gjcSessionFile, storeRelative } from "./gjc-runtime.ts";
 import { descendantArgv, windowsProcessTable } from "./windows-processes.ts";
+import { windowsHost } from "./remote-host.ts";
+import type { SshConnection } from "./ssh.ts";
+import { psQuote } from "./powershell.ts";
+import { REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
 
 const onWindows = process.platform === "win32";
+
+it.skipIf(!onWindows)("installs with native tar when PATH shadows tar, and preserves the runtime after bad extraction", async () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-bundle-native-")));
+  const before = process.env["HERDR_WEB_BUNDLE_MANIFEST"];
+  const runtime = join(home, "herdr-web-ui", `remote-v${REMOTE_BUNDLE_VERSION}`);
+  const runPowerShell = async (script: string) => {
+    const prefixed = `$env:LOCALAPPDATA=${psQuote(home)}; $env:PATH=${psQuote(join(home, "shadow"))}+';'+$env:PATH; ${script}`;
+    // started from PowerShell 7 (the CI step), the child inherits its module path, and Windows
+    // PowerShell then cannot load its own Get-FileHash; with none set it builds its own, as over SSH
+    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toLowerCase() !== "psmodulepath"));
+    const child = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(prefixed, "utf16le").toString("base64")], { stdout: "pipe", stderr: "pipe", env });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    if (code !== 0) throw new Error(stderr);
+    return stdout.trim();
+  };
+  const ssh = { runPowerShell, upload: async (source: string, destination: string) => copyFileSync(source, destination) } as unknown as SshConnection;
+  try {
+    mkdirSync(join(home, "input", "bin"), { recursive: true });
+    copyFileSync(process.execPath, join(home, "input", "bin", "bun.exe"));
+    mkdirSync(join(home, "shadow"));
+    // An invalid executable first on PATH must never handle this archive.
+    writeFileSync(join(home, "shadow", "tar.exe"), "not a Windows executable");
+    await runPowerShell(`& "$env:SystemRoot\\System32\\tar.exe" -czf ${psQuote(join(home, "bundle.tgz"))} -C ${psQuote(join(home, "input"))} .; if ($LASTEXITCODE -ne 0) { throw 'fixture archive failed' }`);
+    const manifest = join(home, "manifest.json");
+    const writeManifest = async () => writeFileSync(manifest, JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { "win32-x64": { url: "bundle.tgz", sha256: createHash("sha256").update(new Uint8Array(await Bun.file(join(home, "bundle.tgz")).arrayBuffer())).digest("hex") } } }));
+    await writeManifest();
+    process.env["HERDR_WEB_BUNDLE_MANIFEST"] = manifest;
+    await windowsHost.installBundle(ssh, "win32-x64", AbortSignal.timeout(60_000));
+    expect(existsSync(join(runtime, "bin", "bun.exe"))).toBe(true);
+    const target = realpathSync(runtime);
+    writeFileSync(join(home, "bundle.tgz"), "invalid archive with a valid manifest checksum");
+    await writeManifest();
+    await expect(windowsHost.installBundle(ssh, "win32-x64", AbortSignal.timeout(60_000))).rejects.toThrow();
+    expect(realpathSync(runtime)).toBe(target);
+    expect(existsSync(join(home, "herdr-web-ui", "install.lock"))).toBe(false);
+    expect(existsSync(join(home, "herdr-web-ui", `install.${process.pid}`))).toBe(false);
+  } finally {
+    if (before === undefined) delete process.env["HERDR_WEB_BUNDLE_MANIFEST"]; else process.env["HERDR_WEB_BUNDLE_MANIFEST"] = before;
+    // Remove the junction separately: the immutable release is cleaned with the fixture.
+    if (existsSync(runtime)) await runPowerShell(`[IO.Directory]::Delete(${psQuote(runtime)})`);
+    rmSync(home, { recursive: true, force: true });
+  }
+}, 120_000);
 
 it.skipIf(!onWindows)("reads this PC's process table: this process, its parent, when it started and what it runs", async () => {
   const rows = await windowsProcessTable(30_000);

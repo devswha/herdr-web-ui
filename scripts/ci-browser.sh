@@ -5,6 +5,7 @@ bun node_modules/playwright-core/cli.js install --with-deps chromium
 CHROME_PATH="$(bun -e 'console.log(require("playwright-core").chromium.executablePath())')"
 export CHROME_PATH
 bun scripts/ui-regression.ts
+bun scripts/chat-history-browser-qa.ts
 bun scripts/file-viewer-regression.ts
 bun scripts/keyboard-viewport-regression.ts
 bun scripts/file-viewer-mobile-regression.ts

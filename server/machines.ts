@@ -332,15 +332,17 @@ export class MachineManager {
       if (!match || Number(match[1]) === 0 && Number(match[2]) < 9) throw new Error("The installed herdr is incompatible. Update it explicitly to 0.9+ before connecting; it was left unchanged.");
     }
     const descriptors = inspection.descriptors.filter((d) => d.socket_path === expectedSocket);
-    let descriptor = descriptors.find((d) => d.bridge_protocol === BRIDGE_PROTOCOL && d.bundle_version === REMOTE_BUNDLE_VERSION);
-    if (job?.update && !descriptor) descriptor = descriptors[0];
-    if (descriptors.length && !descriptor) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    let descriptor = descriptors.find((d) => d.bridge_protocol === BRIDGE_PROTOCOL && d.bundle_version === REMOTE_BUNDLE_VERSION) ?? descriptors[0];
     // a descriptor whose bridge is gone (a crash, a reboot, a Windows kill): the next bridge
     // replaces it, but until then it is still the first one listed
     let stalePid: number | null = null;
     if (descriptor) {
       if (!Number.isInteger(descriptor.pid) || descriptor.pid < 1) throw new Error("Invalid bridge process identity");
       if (!(await host.alive(ssh, descriptor.pid))) { stalePid = descriptor.pid; descriptor = undefined; }
+    }
+    if (descriptor && (job?.update || descriptor.bridge_protocol !== BRIDGE_PROTOCOL || descriptor.bundle_version !== REMOTE_BUNDLE_VERSION)) {
+      if (!descriptor.managed_remote) throw new MachineActionRequired("This socket uses an independently managed web server. Update it through its own Settings, then reconnect; it was left running.", "setup");
+      if (!job?.update) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
     }
     const hasBundle = inspection.bundleReady;
     // a runtime from another bundle version and no bridge running (the PC rebooted since): an update

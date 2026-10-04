@@ -1349,7 +1349,11 @@ export function PaneTerminal({
               <button type="button" className="btn" onClick={retry}>{t("Try again")}</button>
             </div></div>
           )}>
+          {/* a pane's chat never commits another pane's turns: a new pane is a new ChatView.
+              The session herdr reports is left out of the key: it can change while the
+              conversation stays (a shared Codex daemon), and the chat follows history_id itself */}
           <ChatView
+            key={paneId}
             paneId={paneId}
             refreshKey={chatRefresh}
             sentKey={chatSent}
