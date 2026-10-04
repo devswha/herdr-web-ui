@@ -67,6 +67,51 @@ it("reads the foreground GJC session after its process changes directory, not an
   }
 });
 
+for (const stale of [false, true]) {
+  it(`reads a running GJC transcript when herdr names no agent for the pane${stale ? " and still holds an earlier Codex session report" : ""}`, async () => {
+    const path = join(dir, `routing-${stale ? "stale" : "unknown"}.jsonl`);
+    writeFileSync(path, JSON.stringify({ type: "session", cwd: home }) + "\n" + JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "GJC owns this answer" }] } }) + "\n");
+    const id = await pane([path]);
+    if (stale) await herdrRpc("pane.report_agent_session", { pane_id: id, source: "herdr:codex", agent: "codex", seq: Date.now(), agent_session_id: "01a0f16d-c20a-7a02-a880-e89b68155802" });
+    const metadata = (await sessionSnapshot()).panes.find((p) => p.pane_id === id)!;
+    expect(metadata.agent ?? null).toBeNull();
+    if (stale) expect(metadata.agent_session?.agent).toBe("codex");
+    const oldHome = process.env["HOME"], oldSocket = process.env["HERDR_SOCKET"];
+    process.env["HERDR_SOCKET"] = herdrSocketPath();
+    process.env["HOME"] = home;
+    try {
+      const conversation = await paneConversation(id);
+      expect(conversation.source).toBe("gjc-transcript");
+      expect(conversation.turns[0]!.parts[0]).toMatchObject({ kind: "text", text: "GJC owns this answer" });
+    } finally {
+      if (oldHome === undefined) delete process.env["HOME"]; else process.env["HOME"] = oldHome;
+      if (oldSocket === undefined) delete process.env["HERDR_SOCKET"]; else process.env["HERDR_SOCKET"] = oldSocket;
+    }
+  });
+}
+
+it("follows the agent herdr names for a pane: a gjc process in it does not take the chat", async () => {
+  const path = join(dir, "routing-labelled.jsonl");
+  writeFileSync(path, JSON.stringify({ type: "session", cwd: home }) + "\n" + JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "GJC owns this answer" }] } }) + "\n");
+  const id = await pane([path]);
+  await herdrRpc("pane.report_agent", { pane_id: id, source: "manual", agent: "codex", state: "idle" });
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if ((await sessionSnapshot()).panes.find((p) => p.pane_id === id)?.agent === "codex") break;
+    await Bun.sleep(50);
+  }
+  expect((await sessionSnapshot()).panes.find((p) => p.pane_id === id)!.agent).toBe("codex");
+  const oldHome = process.env["HOME"], oldSocket = process.env["HERDR_SOCKET"];
+  process.env["HERDR_SOCKET"] = herdrSocketPath();
+  process.env["HOME"] = home;
+  try {
+    // the Codex route has no rollout for this pane and says so; it is not handed to gjc
+    await expect(paneConversation(id)).rejects.toBeInstanceOf(ConversationUnavailable);
+  } finally {
+    if (oldHome === undefined) delete process.env["HOME"]; else process.env["HOME"] = oldHome;
+    if (oldSocket === undefined) delete process.env["HERDR_SOCKET"]; else process.env["HERDR_SOCKET"] = oldSocket;
+  }
+});
+
 it("binds same-cwd panes to their own files regardless of which transcript was modified last", async () => {
   const a = join(dir, "a.jsonl"), b = join(dir, "b.jsonl");
   for (const path of [a, b]) writeFileSync(path, JSON.stringify({ type: "session", cwd: home }) + "\n");
