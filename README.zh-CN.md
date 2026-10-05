@@ -42,9 +42,9 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
       <br><sub>点一下，聊天就变成该窗格真正的终端；在手机上，按键栏的 ↑ 调出测试命令，再按 Enter 重新运行。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/c152bab9-f4b8-4150-895e-1cb61bb1f902"><img src="docs/media/readme/parity.webp" width="100%" alt="实机录制。herdr 自己的终端界面叠在浏览器前面，两者是同一个会话。在 herdr 中按 ctrl+b c 打开“new tab”框，输入 review 后，新标签页出现在浏览器的标签栏里；在浏览器中把 payments 标签页改名为 audit，herdr 的标签栏和 agents 列表（“checkout-api · audit”）随之更新；herdr 切换到显示“GET /payments/:id (getPayment) has no test.”的 Claude 标签页时，该行从 claude · done 变为 claude · idle，浏览器的徽章从 DONE 变为 READY。几秒后，标签页上的圆点也随之消失。"></a>
-      <br><b>与 herdr 自己的 TUI 同步</b>
-      <br><sub>一个会话，两个界面：在 herdr 里新建的标签页会出现在浏览器中，在浏览器里改的名字会出现在 herdr 中，智能体状态也在两边一起变化。</sub>
+      <a href="https://github.com/user-attachments/assets/ac8dbf34-5c27-441b-8e49-e3850eac0c27"><img src="docs/media/readme/layout.webp" width="100%" alt="实机录制。浏览器显示 herdr 的布局：侧边栏中的四个工作区及其智能体状态（checkout-api DONE、web-dashboard RUN、infra READY、release），以及 checkout-api 的标签页 payments 和 dev。点击 dev 标签页显示它的第一个窗格，bun test 结果为 4 pass；该标签页的窗格菜单列出分屏的两个窗格 tests 和 git，点击 git 显示其 git log。在手机上，☰ 打开同样的四个工作区和相同的状态，轻点 checkout-api 打开 Claude 的聊天：“What does this repo do? Answer in one line.”及其回答。"></a>
+      <br><b>浏览器里的 herdr 布局</b>
+      <br><sub>工作区、标签页、分屏窗格，以及每个智能体的状态都在：点一下标签页，选择分屏中的窗格，在手机上切换工作区。</sub>
     </td>
   </tr>
   <tr>
@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
   </tr>
 </table>
 
-<p align="center"><sub>每段片段都是同时录制两个屏幕（电脑和手机，或 herdr 自己的终端和电脑）的真实操作，实时、无剪辑。点击可播放完整视频。</sub></p>
+<p align="center"><sub>每段片段都是同时录制电脑和手机的真实操作，实时、无剪辑。点击可播放完整视频。</sub></p>
 
 - **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc 和 pi 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。

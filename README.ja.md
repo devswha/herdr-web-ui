@@ -42,9 +42,9 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
       <br><sub>クリック 1 回でチャットがそのペインの本物のターミナルに切り替わり、スマートフォンではキーバーの ↑ でテストのコマンドを呼び出して、Enter で再実行します。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/c152bab9-f4b8-4150-895e-1cb61bb1f902"><img src="docs/media/readme/parity.webp" width="100%" alt="実際の動作の録画。同じセッションを表示する herdr 自身のターミナル UI が、ブラウザの手前にあります。herdr で ctrl+b c を押すと「new tab」ボックスが開き、review と入力すると新しいタブがブラウザのタブバーに現れます。ブラウザで payments タブの名前を audit に変えると、herdr のタブバーと agents 一覧（「checkout-api · audit」）も変わります。herdr が「GET /payments/:id (getPayment) has no test.」と表示された Claude のタブに切り替えると、その行は claude · done から claude · idle に、ブラウザのバッジは DONE から READY になります。数秒後、タブの点も消えます。"></a>
-      <br><b>herdr 自身の TUI と連動する</b>
-      <br><sub>1 つのセッションに 2 つの画面。herdr で作ったタブはブラウザに、ブラウザで変えた名前は herdr に表示され、エージェントの状態も両方で一緒に変わります。</sub>
+      <a href="https://github.com/user-attachments/assets/ac8dbf34-5c27-441b-8e49-e3850eac0c27"><img src="docs/media/readme/layout.webp" width="100%" alt="実際の動作の録画。ブラウザに herdr のレイアウトがそのまま表示されます。サイドバーに 4 つのワークスペースと各エージェントの状態（checkout-api DONE、web-dashboard RUN、infra READY、release）、checkout-api のタブ payments と dev。dev タブをクリックすると最初のペインの bun test（4 pass）が表示され、タブのペインメニューには分割された 2 つのペイン tests と git が並び、git をクリックするとその git log が表示されます。スマートフォンでは ☰ で同じ 4 つのワークスペースが同じ状態で開き、checkout-api をタップすると Claude のチャット（「What does this repo do? Answer in one line.」とその答え）が開きます。"></a>
+      <br><b>herdr のレイアウトをブラウザで</b>
+      <br><sub>ワークスペース、タブ、分割ペイン、そして各エージェントの状態がそのまま。タブをクリックし、分割のペインを選び、スマートフォンからワークスペースを切り替えます。</sub>
     </td>
   </tr>
   <tr>
@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
   </tr>
 </table>
 
-<p align="center"><sub>どのクリップも、2 つの画面（パソコンとスマートフォン、または herdr 自身のターミナルとパソコン）を同時に収録した実際の動作です。等速・カットなし。クリックすると動画全体を再生できます。</sub></p>
+<p align="center"><sub>どのクリップも、パソコンとスマートフォンを同時に収録した実際の動作です。等速・カットなし。クリックすると動画全体を再生できます。</sub></p>
 
 - **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc、pi のネイティブな会話履歴を表示し、ワンクリックでライブターミナルに切り替えられます。[対応エージェント →](docs/guide.md#supported-agents)
 - **タップで承認** — 承認リクエスト、質問、計画メニューがカードになり、問いかけがまだ有効か確認してから回答を送信します。
