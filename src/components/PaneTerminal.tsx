@@ -28,7 +28,7 @@ import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { chatLaneWidth, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
+import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -182,12 +182,11 @@ export function PaneTerminal({
   const { settings, update: updateSettings } = useSettings();
   const shortcutSettings = useRef(settings.shortcutOverrides);
   shortcutSettings.current = settings.shortcutOverrides;
-  // Settings → Chat width, Default: the lane follows this pane. One px length on the stack, which
+  // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
   // the transcript, the composer column, the held list and the menus all inherit: a percentage
   // would resolve against each one's own box and leave them a gutter apart. The other steps are
-  // fixed and stay with the stylesheet (styles.css). The lane's ceiling is in rem, so the root font
-  // size is read with the pane: nothing announces a change of the browser's font size, and the
-  // next resize of the pane picks it up
+  // fixed and stay with the stylesheet (styles.css). The lane's ceiling stays 60rem inside the
+  // length, so a change of the browser's font size moves it at once, as it moves Wide's 72rem
   useLayoutEffect(() => {
     const stack = stackRef.current;
     if (!stack) return;
@@ -195,10 +194,7 @@ export function PaneTerminal({
       stack.style.removeProperty("--chat-w");
       return;
     }
-    const apply = (): void => {
-      const rootFontPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-      stack.style.setProperty("--chat-w", `${chatLaneWidth(stack.clientWidth, rootFontPx)}px`);
-    };
+    const apply = (): void => stack.style.setProperty("--chat-w", chatLaneLength(stack.clientWidth));
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(stack);
