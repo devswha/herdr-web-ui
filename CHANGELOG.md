@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- On macOS, a gjc pane's chat finds its session from the terminal breadcrumb gjc leaves. Before,
+  the process start time it is matched by was read as UTC, so on any other time zone every fresh
+  breadcrumb looked hours old and was passed over. Process start times, which Codex, OmO and gjc
+  panes are matched by, are now read on macOS too (they were only read from Linux `/proc`).
 - A table in the chat that is wider than the reply scrolls sideways in its own box. Before, it
   squeezed every column to fit, down to a letter or two, so words and file paths broke after
   any letter. A column is now never narrower than its longest word.
