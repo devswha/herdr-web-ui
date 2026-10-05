@@ -793,7 +793,7 @@ try {
   await strip.getByRole("tab", { name: "second", exact: true }).click({ button: "right" });
   const tabMenu = page.getByRole("menu", { name: "second", exact: true });
   await tabMenu.waitFor();
-  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Close tab"]);
+  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Move left", "Close tab"], "the last tab moves only left");
   await tabMenu.getByRole("menuitem", { name: "Rename tab", exact: true }).click();
   await tabName.fill("build");
   await page.keyboard.press("Enter");
@@ -810,7 +810,7 @@ try {
   await phoneStrip.getByRole("button", { name: "Actions for build", exact: true }).tap();
   const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
   await tabSheet.waitFor();
-  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Rename tab", "Close tab"]);
+  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Rename tab", "Move left", "Close tab"], "a phone moves a tab from its sheet");
   await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
   await tabSheet.waitFor({ state: "detached" });
   await tabPhone.close();
@@ -831,6 +831,26 @@ try {
   const third = strip.getByRole("tab", { name: "third", exact: true });
   await third.click();
   await until(async () => (await third.getAttribute("aria-selected")) === "true", "the third tab is open");
+  // A tab is moved by a drag, by Alt+arrows and from its menu, as herdr's tab.move: the strip
+  // follows herdr's order, and each tab keeps its number
+  const numbersBefore = new Map((await sessionSnapshot()).tabs.map((tab) => [tab.tab_id, tab.number]));
+  await third.dragTo(strip.getByRole("tab", { name: "first", exact: true }), { targetPosition: { x: 2, y: 4 } });
+  await until(async () => (await tabsInHerdr()).join() === "third,first,build", "a tab dropped on another's near half lands before it");
+  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["third", "first", "build"]);
+  for (const tab of (await sessionSnapshot()).tabs) if (numbersBefore.has(tab.tab_id)) assert.equal(tab.number, numbersBefore.get(tab.tab_id), "a moved tab keeps its number");
+  await third.focus();
+  await page.keyboard.press("Alt+ArrowRight");
+  await until(async () => (await tabsInHerdr()).join() === "first,third,build", "Alt+→ moves the focused tab one place");
+  await until(async () => await third.evaluate((tab) => tab === document.activeElement), "the moved tab keeps the focus");
+  assert.equal(await third.getAttribute("aria-selected"), "true", "the open tab stays open as it moves");
+  await third.click({ button: "right" });
+  const thirdMenu = page.getByRole("menu", { name: "third", exact: true });
+  await thirdMenu.waitFor();
+  assert.deepEqual(await thirdMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Move left", "Move right", "Close tab"]);
+  await thirdMenu.getByRole("menuitem", { name: "Move right", exact: true }).click();
+  await until(async () => (await tabsInHerdr()).join() === "first,build,third", "the menu's Move right reaches herdr");
+  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["first", "build", "third"]);
+  console.log("PASS a tab is moved by a drag, Alt+arrows and its menu, in herdr's order");
   // a held Delete is one press: its repeats close nothing
   await third.dispatchEvent("keydown", { key: "Delete", repeat: true, bubbles: true });
   await page.waitForTimeout(300);

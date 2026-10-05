@@ -755,6 +755,8 @@ export const KO: Record<string, string> = {
   "Uses the workspace's folder": "워크스페이스의 폴더를 그대로 씁니다",
   "Panes in {tab}": "{tab}의 패널",
   "Rename tab": "탭 이름 바꾸기",
+  "Move left": "왼쪽으로 이동",
+  "Move right": "오른쪽으로 이동",
   "Close tab": "탭 닫기",
   "Tab name": "탭 이름",
   "Actions for {tab}": "{tab} 작업",

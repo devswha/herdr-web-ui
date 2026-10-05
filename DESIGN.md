@@ -436,9 +436,17 @@ One set for both themes: the card is island black wherever it shows.
   dialog) only when it costs more than the tab: an agent in it is working or blocked, or it is
   the workspace's last tab, which takes the workspace with it. A refusal shows in the dialog, or
   as a line of `--status-blocked` text at the strip's end for six seconds.
+- A tab is moved on the strip, as herdr's `tab.move`. With a mouse it is dragged onto another
+  tab: the dragged tab dims, and a 2px `--accent` edge on the near or far side of the tab under
+  the pointer (`.tab-strip-item[data-drop]`) marks where it lands. With keys on a focused tab:
+  Alt+←/→, the focus staying on it. The menu has **Move left** and **Move right** between
+  **Rename tab** and **Close tab**, each only when the tab has a neighbour that way, so a touch
+  screen, which has no drag, moves it from the sheet. The row changes at once and herdr's order
+  follows; a refusal puts it back and shows at the strip's end, as a failed close does.
 - The underline runs under the whole tab (`.tab-strip-item.is-active`), its `x` included. A tab
   herdr names itself reads **Tab n** by its place in the row: herdr relabels it when a tab
-  before it closes.
+  before it closes or it moves. The row is herdr's order, not the tabs' numbers: a moved tab
+  keeps its number.
 - `--control-h` tall on a hairline over `--bg-panel`, scrolling sideways without a scrollbar;
   touch grows the buttons to `--touch-target`, and puts the pane picker beside its tab's name
   instead of pulling it over the name's padding. The same strip on a phone.

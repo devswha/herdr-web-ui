@@ -43,6 +43,7 @@ import {
   sessionSnapshot,
   tabClose,
   tabCreate,
+  tabMove,
   tabRename,
   workspaceClose,
   workspaceCreate,
@@ -1300,10 +1301,11 @@ export function createServer(
         }
       }
 
-      // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it
-      if (pathname === "/api/tab/rename" || pathname === "/api/tab/close") {
+      // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it;
+      // and a tab's place in its workspace's row
+      if (pathname === "/api/tab/rename" || pathname === "/api/tab/move" || pathname === "/api/tab/close") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { tab_id?: unknown; label?: unknown };
+        let payload: { tab_id?: unknown; label?: unknown; insert_index?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -1311,8 +1313,15 @@ export function createServer(
         }
         if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
         if (typeof payload.tab_id !== "string" || payload.tab_id.length === 0) return badRequest("missing_tab_id", "tab_id is required");
+        if (pathname === "/api/tab/move" && (typeof payload.insert_index !== "number" || !Number.isInteger(payload.insert_index) || payload.insert_index < 0)) {
+          return badRequest("invalid_index", "insert_index must be a non-negative integer");
+        }
         try {
-          if (pathname === "/api/tab/rename") {
+          if (pathname === "/api/tab/move") {
+            await tabMove(payload.tab_id, payload.insert_index as number);
+            // no pane event follows a move either
+            broadcastAll({ type: "session-changed" });
+          } else if (pathname === "/api/tab/rename") {
             // herdr would keep an empty label as the tab's name, and its own tab row would show nothing
             const label = typeof payload.label === "string" ? payload.label.trim() : "";
             if (label === "") return badRequest("missing_label", "label is required");

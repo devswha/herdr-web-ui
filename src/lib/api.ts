@@ -400,6 +400,11 @@ export async function renameTab(tabId: string, label: string, machineId = "local
   await sendJson(machinePath(machineId, "tab/rename"), "POST", { tab_id: tabId, label });
 }
 
+/** POST /api/tab/move: the tab lands before the one at `insertIndex` in its workspace's current order; the tab count puts it last. */
+export async function moveTab(tabId: string, insertIndex: number, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "tab/move"), "POST", { tab_id: tabId, insert_index: insertIndex });
+}
+
 /** POST /api/tab/close: the tab and every pane in it; a workspace's last tab takes the workspace with it. */
 export async function closeTab(tabId: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "tab/close"), "POST", { tab_id: tabId });

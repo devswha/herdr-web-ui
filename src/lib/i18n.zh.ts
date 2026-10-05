@@ -759,6 +759,8 @@ export const ZH: Record<string, string> = {
   "Uses the workspace's folder": "直接使用工作区的文件夹",
   "Panes in {tab}": "{tab} 中的窗格",
   "Rename tab": "重命名标签页",
+  "Move left": "向左移动",
+  "Move right": "向右移动",
   "Close tab": "关闭标签页",
   "Tab name": "标签页名称",
   "Actions for {tab}": "{tab} 的操作",

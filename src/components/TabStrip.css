@@ -25,6 +25,27 @@
   flex: 0 0 auto;
 }
 
+/* a tab on its way to another place: dimmed, and an amber edge where it would land */
+.tab-strip-item.is-dragging {
+  opacity: 0.55;
+}
+
+.tab-strip-item[data-drop="before"] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tab-strip-item[data-drop="after"] {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+.tab-strip-item.is-active[data-drop="before"] {
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.tab-strip-item.is-active[data-drop="after"] {
+  box-shadow: inset -2px 0 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
 /* the underline runs under the whole tab, its x included */
 .tab-strip-item.is-active {
   box-shadow: inset 0 -2px 0 var(--accent);

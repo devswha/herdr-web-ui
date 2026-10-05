@@ -209,6 +209,14 @@ export async function tabRename(tabId: string, label: string, socketPath?: strin
   await herdrRpc("tab.rename", { tab_id: tabId, label }, socketPath);
 }
 
+/**
+ * Moves the tab within its workspace. `insertIndex` is a gap in the order before the move, 0 to
+ * the tab count: the tab lands before the one at that index, and the count puts it last.
+ */
+export async function tabMove(tabId: string, insertIndex: number, socketPath?: string): Promise<void> {
+  await herdrRpc("tab.move", { tab_id: tabId, insert_index: insertIndex }, socketPath);
+}
+
 /** Closes the tab and every pane in it; a workspace's last tab takes the workspace with it. */
 export async function tabClose(tabId: string, socketPath?: string): Promise<void> {
   await herdrRpc("tab.close", { tab_id: tabId }, socketPath);
