@@ -1173,6 +1173,11 @@ export function PaneTerminal({
     draftPaneRef.current = paneId;
     term.reset();
     modifyOtherKeysRef.current = 0;
+    // a one-shot Ctrl or Alt armed for the pane that was open does not reach the next pane's first key
+    ctrlRef.current = false;
+    setCtrlArmed(false);
+    altRef.current = false;
+    setAltArmed(false);
     if (!paneId) return;
     try {
       fit?.fit();
