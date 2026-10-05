@@ -447,26 +447,30 @@ describe("providers", () => {
     expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_test");
   });
 
-  it("reads OpenCode auth from OPENCODE_CONFIG_DIR", async () => {
-    const dir = join(home, "custom-opencode");
-    write(join(dir, "auth.json"), { "opencode-go": { key: "oc_sk_custom", email: "user@example.com" } });
-    replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 5 } } } });
-    const [usage] = (await new UsageService({ ...context("linux"), env: { USER: "me", OPENCODE_CONFIG_DIR: dir } }, only("opencode")).report()).providers;
-    expect(usage).toMatchObject({
-      id: "opencode",
-      key: "opencode:user@example.com",
-      account: "user@example.com",
-      windows: [{ kind: "week", scope: null, used_percent: 5 }],
+  // OpenCode keeps every sign-in in one file, <XDG data>/opencode/auth.json (xdg-basedir: on macOS
+  // too), keyed by provider; it has no keychain item, and the file names no account
+  it("reads OpenCode's auth.json under XDG_DATA_HOME, its Go key before its Zen key", async () => {
+    const data = join(home, "data");
+    write(join(data, "opencode", "auth.json"), {
+      opencode: { type: "api", key: "oc_sk_zen" },
+      "opencode-go": { type: "api", key: "oc_sk_go" },
     });
-    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_custom");
+    replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 5 } } } });
+    const [usage] = (await new UsageService({ ...context("linux"), env: { USER: "me", XDG_DATA_HOME: data } }, only("opencode")).report()).providers;
+    expect(usage).toMatchObject({ id: "opencode", account: null, windows: [{ kind: "week", scope: null, used_percent: 5 }] });
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_go");
   });
 
-  it("reads OpenCode from keychain on macOS when no file exists", async () => {
-    keychain.set("opencode|", { status: "found", value: JSON.stringify({ "opencode-go": { key: "oc_sk_keychain" } }) });
-    replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 12 } } } });
-    const [usage] = (await new UsageService(context("darwin"), only("opencode")).report()).providers;
-    expect(usage).toMatchObject({ id: "opencode", windows: [{ kind: "week", scope: null, used_percent: 12 }] });
-    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_keychain");
+  it("looks for OpenCode nowhere else: no keychain, no config directory, no other provider's key", async () => {
+    keychain.set("opencode|", { status: "found", value: JSON.stringify({ "opencode-go": { type: "api", key: "oc_sk_keychain" } }) });
+    const custom = join(home, "custom-opencode");
+    for (const dir of [custom, join(home, ".config", "opencode"), join(home, "Library", "Application Support", "opencode")]) {
+      write(join(dir, "auth.json"), { "opencode-go": { type: "api", key: "oc_sk_elsewhere" } });
+    }
+    write(join(home, ".local", "share", "opencode", "auth.json"), { anthropic: { type: "api", key: "oc_sk_not_opencode" } });
+    const report = await new UsageService({ ...context("darwin"), env: { USER: "me", OPENCODE_CONFIG_DIR: custom, OPENCODE_GO_API_KEY: "oc_sk_unknown_variable" } }, only("opencode")).report();
+    expect(report.providers).toEqual([]);
+    expect(requests).toEqual([]);
   });
 
   it("reads OpenCode from OPENCODE_API_KEY environment variable", async () => {
@@ -477,9 +481,10 @@ describe("providers", () => {
   });
 
   it("treats HTTP 403 from OpenCode Go as null usage for accounts without a Go subscription", async () => {
-    write(join(home, ".local", "share", "opencode", "auth.json"), { "opencode-go": { key: "oc_sk_no_sub" } });
-    replies.set("https://opencode.ai/zen/go/v1/usage", { status: 403, body: { error: "No subscription" } });
+    write(join(home, ".local", "share", "opencode", "auth.json"), { opencode: { type: "api", key: "oc_sk_no_sub" } });
+    replies.set("https://opencode.ai/zen/go/v1/usage", { status: 403, body: { type: "error", error: { type: "EntitlementError", message: "OpenCode Go subscription required." } } });
     const report = await new UsageService(context("linux"), only("opencode")).report();
+    expect(requests).toHaveLength(1);
     expect(report.providers).toEqual([]);
   });
 });

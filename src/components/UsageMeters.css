@@ -8,10 +8,10 @@
 .usage-strip {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-1);
   height: var(--control-h);
   max-width: 100%;
-  padding: 0 2px;
+  padding: 0 var(--space-1);
   overflow: hidden;
   border: 0;
   border-radius: var(--radius-md);
@@ -30,7 +30,7 @@
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   height: var(--chip-h);
   padding: 0 2px 2px;
 }

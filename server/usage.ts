@@ -648,53 +648,33 @@ const antigravity: UsageProvider = {
   },
 };
 
-// ---- OpenCode (OpenCode Go quota): ~/.local/share/opencode/auth.json (or XDG_DATA_HOME),
-// or ~/.config/opencode/auth.json ----
+// ---- OpenCode Go: the key OpenCode keeps in <XDG data>/opencode/auth.json, else OPENCODE_API_KEY ----
 
+/**
+ * OpenCode keeps every sign-in in that one file, keyed by provider id; an API key is
+ * `{ type: "api", key }` and names no account. The Go key is read first, then the Zen key: the Go
+ * endpoint takes any console key, and answers 403 for one without a Go subscription.
+ */
 function opencodeSignIn(source: string | null): SignIn | null {
   const root = record(parseJson(source));
-  const go = record(root["opencode-go"] ?? root["opencode"]);
-  let token = text(go["key"]) ?? text(go["token"]) ?? text(go["apiKey"]);
-  let email = text(go["email"]) ?? text(go["user"]);
-  let accountId = text(go["account_id"]) ?? text(go["user_id"]) ?? text(go["id"]);
-  if (!token) {
-    for (const [name, val] of Object.entries(root)) {
-      const rec = record(val);
-      const k = text(rec["key"]) ?? text(rec["token"]) ?? text(rec["apiKey"]);
-      if (k && (name.includes("opencode") || k.startsWith("oc_sk_"))) {
-        token = k;
-        email = text(rec["email"]) ?? text(rec["user"]);
-        accountId = text(rec["account_id"]) ?? text(rec["user_id"]) ?? text(rec["id"]) ?? name;
-        break;
-      }
-    }
+  for (const provider of ["opencode-go", "opencode"]) {
+    const entry = record(root[provider]);
+    const token = entry["type"] === "api" ? text(entry["key"]) : null;
+    if (token) return { token, expiresAt: null };
   }
-  if (!token) return null;
-  const account = accountId || email ? { id: accountId ?? email!, label: email } : null;
-  return { token, expiresAt: null, account };
+  return null;
 }
 
 const opencode: UsageProvider = {
   id: "opencode",
   async signIns(ctx) {
-    const configDir = ctx.env["OPENCODE_CONFIG_DIR"];
-    const candidateDirs = [
-      configDir,
-      join(ctx.env["XDG_DATA_HOME"] || join(ctx.home, ".local", "share"), "opencode"),
-      join(ctx.env["XDG_CONFIG_HOME"] || join(ctx.home, ".config"), "opencode"),
-      join(ctx.home, "Library", "Application Support", "opencode"),
-    ].filter((dir): dir is string => Boolean(dir));
-    const found: Found[] = [];
-    for (const dir of new Set(candidateDirs)) {
-      const signIn = opencodeSignIn(readText(join(dir, "auth.json")));
-      if (signIn) found.push({ ...signIn, source: dir });
-    }
-    if (found.length) return found;
-    const keychain = await fromKeychain(ctx, "opencode", [undefined], opencodeSignIn);
-    if (keychain) return keychainFound(keychain, "keychain");
-    const envKey = text(ctx.env["OPENCODE_API_KEY"]) ?? text(ctx.env["OPENCODE_GO_API_KEY"]);
-    if (envKey) return [{ token: envKey, expiresAt: null, source: "env" }];
-    return [];
+    // xdg-basedir, as OpenCode resolves it: XDG_DATA_HOME, else ~/.local/share, on macOS too
+    const dir = join(ctx.env["XDG_DATA_HOME"] || join(ctx.home, ".local", "share"), "opencode");
+    const file = opencodeSignIn(readText(join(dir, "auth.json")));
+    if (file) return [{ ...file, source: dir }];
+    // the variable OpenCode itself reads for both providers (models.dev)
+    const token = text(ctx.env["OPENCODE_API_KEY"]);
+    return token ? [{ token, expiresAt: null, source: "env" }] : [];
   },
   async read(ctx, signIn) {
     let body: Json;
