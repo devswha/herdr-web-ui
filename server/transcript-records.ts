@@ -167,6 +167,10 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
  * parser: adjacent assistant messages merge, toolCall parts adopt the output
  * of the toolResult entry that answers them (matched by toolCallId), thinking
  * stays private to the agent.
+ *
+ * An assistant message that stopped for good (`stopReason: "stop"`) ends its turn: the next one
+ * was woken by something nobody typed, such as omo's hidden monitor or background-task
+ * notification. Merging across it folded the answer before it into the next turn's work block.
  */
 export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: { toolImages?: boolean; taskTitles?: Map<string, string> } = {}): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
@@ -174,10 +178,12 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
   const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
   /** what OmO's `task` calls called their tasks, by task id: the caller's, when it parses a page in stretches */
   const taskTitles = options.taskTitles ?? new Map<string, string>();
+  /** the last assistant message stopped for good: the next one starts a turn of its own */
+  let settled = false;
 
   const assistantTurn = (ts?: string): ConversationTurn => {
     const last = turns[turns.length - 1];
-    if (last !== undefined && last.role === "assistant") return last;
+    if (last !== undefined && last.role === "assistant" && !settled) return last;
     const turn: ConversationTurn = { role: "assistant", ts: ts ?? null, parts: [] };
     turns.push(turn);
     return turn;
@@ -287,6 +293,7 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
       if (message.stopReason === "error" && typeof message.errorMessage === "string" && message.errorMessage.length > 0) {
         turn.parts.push({ kind: "text", text: `Error: ${message.errorMessage}` });
       }
+      settled = message.stopReason === "stop";
     }
   }
 
