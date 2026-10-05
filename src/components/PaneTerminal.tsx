@@ -255,7 +255,9 @@ export function PaneTerminal({
   // the input card (the stack's order is written once, in the JSX below)
   const [promptDock, setPromptDock] = useState<HTMLDivElement | null>(null);
   // Answered from the card, the card goes and would take the keyboard's focus with it: the message
-  // box is the next thing to type in. Not on a touch screen, where that would raise the keyboard.
+  // box is the next thing to type in. Not after a tap, which would raise the keyboard: the card
+  // tells a tap by the press itself (a touch-screen laptop has a fine pointer), and a phone is
+  // also told by its pointer, for a browser whose click does not say what made it.
   const onPromptAnswered = useCallback((toMessageBox: boolean) => {
     if (toMessageBox && !coarseRef.current) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
   }, []);

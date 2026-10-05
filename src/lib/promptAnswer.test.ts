@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { InteractivePrompt } from "../../shared/protocol.ts";
-import { answerFromText, answerHint, answerRefusal, focusFollowsAnswer, needsConfirmation } from "./promptAnswer.ts";
+import { answerFromText, answerHint, answerRefusal, focusFollowsAnswer, needsConfirmation, pressedByTouch } from "./promptAnswer.ts";
 
 const prompt = (options: string[], custom: number | null, multi = false): InteractivePrompt => ({
   id: "p", agent: "claude", kind: "question", title: "Question", question: "?", body: null,
@@ -59,7 +59,7 @@ describe("answering a prompt from the chat", () => {
 });
 
 describe("focusFollowsAnswer", () => {
-  const still = { fromCard: true, cardMounted: true, inCard: false, onPage: true };
+  const still = { fromCard: true, touch: false, cardMounted: true, inCard: false, onPage: true };
 
   it("hands the focus on when the pressed button lost it to the page, or still has it", () => {
     expect(focusFollowsAnswer(still)).toBe(true);
@@ -73,5 +73,15 @@ describe("focusFollowsAnswer", () => {
   it("does nothing for a card that is gone, or an answer that did not start in the card", () => {
     expect(focusFollowsAnswer({ ...still, cardMounted: false })).toBe(false);
     expect(focusFollowsAnswer({ ...still, fromCard: false })).toBe(false);
+  });
+
+  it("stays out of the message box after a tap, whatever pointer the device reports", () => {
+    // a touch-screen laptop: (pointer: fine), and the option was still tapped
+    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("touch") })).toBe(false);
+    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("pen") })).toBe(false);
+    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("mouse") })).toBe(true);
+    // a key press (Enter or Space on the option) has no pointer type
+    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("") })).toBe(true);
+    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch(undefined) })).toBe(true);
   });
 });

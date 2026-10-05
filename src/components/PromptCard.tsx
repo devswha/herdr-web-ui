@@ -6,7 +6,7 @@ import "./PromptCard.css";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
-import { focusFollowsAnswer, type TypedAnswer } from "../lib/promptAnswer.ts";
+import { focusFollowsAnswer, pressedByTouch, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { useT } from "../lib/i18n.ts";
 
@@ -20,7 +20,7 @@ export interface PromptCardProps {
   paneId: string;
   prompt: InteractivePrompt;
   onPromptChanged(): void;
-  /** the answer went out; `toMessageBox`: the keyboard's focus was in the card, which is about to go, and nothing else has taken it since */
+  /** the answer went out; `toMessageBox`: the keyboard's focus was in the card, which is about to go, nothing else has taken it since, and the press was not a touch */
   onAnswered(toMessageBox: boolean): void;
   /** an option picked by a typed message, sent only on Confirm */
   typedAnswer?: TypedAnswer | null;
@@ -58,12 +58,14 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   }, []);
 
   /**
-   * Sends one answer. Resolves to whether this card is still the one shown: an answer that comes back after another
+   * Sends one answer. `press` is the click that asked for it (none for a key in the card's field).
+   * Resolves to whether this card is still the one shown: an answer that comes back after another
    * prompt took its place, or after its pane was left, changes nothing there.
    */
-  const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">): Promise<boolean> => {
+  const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">, press?: { nativeEvent: Event }): Promise<boolean> => {
     // read now: the pressed button is disabled while the answer is on its way, and loses the focus
     const fromCard = cardRef.current?.contains(document.activeElement) === true;
+    const touch = pressedByTouch((press?.nativeEvent as PointerEvent | undefined)?.pointerType);
     setPending(true);
     setError(null);
     try {
@@ -72,7 +74,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       // and read again: the answer took a moment, and the user may have gone on to something else
       const card = cardRef.current;
       const active = document.activeElement;
-      onAnswered(focusFollowsAnswer({ fromCard, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
+      onAnswered(focusFollowsAnswer({ fromCard, touch, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
     } catch (cause) {
       if (!shown.current) return false;
       if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
@@ -157,7 +159,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
               );
             }
             return (
-              <button key={index} type="button" className={`prompt-card-option${described}${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => void answer({ option_index: index })}>
+              <button key={index} type="button" className={`prompt-card-option${described}${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={(event) => void answer({ option_index: index }, event)}>
                 {number} {content}
               </button>
             );
@@ -165,7 +167,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
         </div>
       )}
       {prompt.multi_select && (
-        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || selected.size === 0} onClick={() => void answer({ option_indices: [...selected].sort((a, b) => a - b) })}>
+        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || selected.size === 0} onClick={(event) => void answer({ option_indices: [...selected].sort((a, b) => a - b) }, event)}>
           {selected.size > 0 ? t("Submit ({n})", { n: selected.size }) : t("Submit")}
         </button>
       )}
@@ -177,7 +179,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
               // an IME's Enter commits the candidate; WebKit can send it after compositionend, as key code 229
               if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
             }} />
-            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
+            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={(event) => void answer({ custom_text: custom.trim() }, event)}>
               <Send aria-hidden="true" /> {t("Send")}
             </button>
           </div>
@@ -189,7 +191,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
               of it and scrolls in itself, and the two buttons stay whole, on one line */}
           <span className="prompt-card-confirm-text">{t("Send {answer}?", { answer: `${typedAnswer.option_index + 1}. ${prompt.options[typedAnswer.option_index]?.label ?? ""}` })}</span>
           <span className="prompt-card-confirm-actions">
-            <button type="button" className="btn btn-primary" disabled={pending} onClick={() => void answer(typedAnswer).then((current) => { if (current) onTypedAnswerDone?.(); })}>{t("Confirm")}</button>
+            <button type="button" className="btn btn-primary" disabled={pending} onClick={(event) => void answer(typedAnswer, event).then((current) => { if (current) onTypedAnswerDone?.(); })}>{t("Confirm")}</button>
             <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>{t("Cancel")}</button>
           </span>
         </div>

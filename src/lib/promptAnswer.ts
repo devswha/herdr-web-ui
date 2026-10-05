@@ -81,10 +81,20 @@ export function needsConfirmation(prompt: InteractivePrompt, answer: TypedAnswer
 }
 
 /**
+ * What made a click, from its `pointerType`: a finger or a pen, not a mouse or a key (a key
+ * press has no pointer type). Asked of the press itself and not of the device: a laptop with a
+ * touch screen reports a fine pointer and is still tapped.
+ */
+export function pressedByTouch(pointerType: string | undefined): boolean {
+  return pointerType === "touch" || pointerType === "pen";
+}
+
+/**
  * After an answer pressed in the card went out: may the keyboard's focus go on to the message box?
  * Only if the card is still there and nothing else took the focus while the answer was on its way
  * (a palette, a held message being edited, another pane): `inCard` and `onPage` say where it is now.
+ * Never after a tap (`touch`): focus in the message box would raise the on-screen keyboard.
  */
-export function focusFollowsAnswer({ fromCard, cardMounted, inCard, onPage }: { fromCard: boolean; cardMounted: boolean; inCard: boolean; onPage: boolean }): boolean {
-  return fromCard && cardMounted && (inCard || onPage);
+export function focusFollowsAnswer({ fromCard, touch, cardMounted, inCard, onPage }: { fromCard: boolean; touch: boolean; cardMounted: boolean; inCard: boolean; onPage: boolean }): boolean {
+  return fromCard && !touch && cardMounted && (inCard || onPage);
 }
