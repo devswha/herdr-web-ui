@@ -143,6 +143,29 @@
   row-gap: 0;
 }
 
+/* everything but the sentence. No box of its own at rest: its items are the status line's. Beside
+   a sentence it is one row that does not wrap, so the sentence is the only thing that takes a
+   line: a label that does not fit is clipped there as it is at rest, which is what the composer
+   measures to let it step out, and the mark, the name and the level never take a line each */
+.composer-status-meta {
+  display: contents;
+}
+
+.composer-status[data-hint] > .composer-status-meta {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* nothing in it is drawn (Composer.tsx marks it): no box, so no empty line over the sentence */
+.composer-status[data-hint][data-meta-empty] > .composer-status-meta {
+  display: contents;
+}
+
 .composer-status[data-model="out"] .agent-mark {
   display: none;
 }

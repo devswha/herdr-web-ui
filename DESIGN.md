@@ -609,7 +609,8 @@ One set for both themes: the card is island black wherever it shows.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
   a `640px` card — the card's own width, `composerStatusCompact`, not the window's); then the
   model label, decided from the measured row and not from a width (`composerModelDraw`), so the
-  mic, a long model id and the language all count. While Queue is showing, a label that does not
+  mic, a long model id, the language and the opened context text all count: the row is measured
+  again when that text opens or closes. While Queue is showing, a label that does not
   fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
   the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word.
   Without Queue the level steps out whole first, never drawn in part; a name still too long is
@@ -626,7 +627,9 @@ One set for both themes: the card is island black wherever it shows.
   whole: it is the placeholder while the box is empty and moves into the status content once
   there is a draft (`composerStatusHint`), on a phone too. A sentence there (this one, or
   `Uploading file…`) is never ellipsized: where it does not fit beside the model it takes a line
-  of its own under it, without its leading dot, and wraps there; its `title` repeats it. The
+  of its own under it, without its leading dot, and wraps there; its `title` repeats it. Only
+  the sentence takes a line: the mark, the model, the level and the ring stay one row over it
+  (`.composer-status-meta`), where the label gives way exactly as it does with no sentence. The
   status content is then left-aligned, beside the add button. Add and Stop are disabled and
   Queue is not drawn. With a draft, the reconnecting sentence goes before `Uploading file…`: the
   attachment's own tile says it is uploading.
