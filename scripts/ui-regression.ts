@@ -371,7 +371,8 @@ try {
   }
   assert.equal(await page.locator(".composer-queue-text").count(), 3);
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
-  // one column: the held list, the box, its status line and the conversation share their edges.
+  // one column: the held list, the box and the conversation share their edges, and the status
+  // line is the box's own last row, inside it.
   // The default Chat width follows the pane: min 820px, max 960px, 71% of the pane between. This
   // pane is under 1148px, so the lane is its 820px floor, as at Narrow; at Wide the lane is wider
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
@@ -384,7 +385,10 @@ try {
     const pane = await page.locator(".terminal-stack.is-chat").boundingBox();
     const card = await page.locator(".composer-surface").boundingBox();
     assert.ok(pane && card);
-    for (const selector of [".composer-queue", ".composer-status", ".chat-transcript"]) {
+    const status = await page.locator(".composer-surface > .composer-status").boundingBox();
+    assert.ok(status, ".composer-status");
+    assert.ok(status.x >= card.x && status.x + status.width <= card.x + card.width + 0.5, ".composer-status is inside the box");
+    for (const selector of [".composer-queue", ".chat-transcript"]) {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box, selector);
       assert.equal(Math.round(box.x), Math.round(card.x), `${selector} starts on the box's edge`);
