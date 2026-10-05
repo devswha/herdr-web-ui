@@ -170,9 +170,12 @@
   box-shadow: 0 0 0 var(--hairline) var(--accent);
 }
 
-/* the resize grip: a short bar on the box's top edge. Its hit area rises from the border into
-   the gap above the box and never reaches into the box, so a tap at the box's top still lands
-   on the text and a remove button in the attachment strip stays reachable */
+/* the resize grip: a short bar on the box's top edge. Its hit area rises from the border and
+   never reaches into the box, so a tap at the box's top still lands on the text and a remove
+   button in the attachment strip stays reachable. The composer has no space of its own above the
+   box, so the area (48 by 12px, 64 by 20px on touch) lies over the bottom centre of what comes
+   before it: the conversation's bottom padding, or the quick-reply row. Nothing to press belongs
+   in that strip */
 .composer-resize {
   position: absolute;
   bottom: 100%;
