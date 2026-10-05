@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- New workspace's **Browse** filters the loaded folders in the current directory as you type.
+  Navigation clears the filter, and a truncated listing says when search covers only the first
+  500 folders. ([#430](https://github.com/devswha/herdr-web-ui/pull/430) by @suho-han)
+
 ### Fixed
 - On macOS, a gjc pane's chat finds its session from the terminal breadcrumb gjc leaves. Before,
   the process start time it is matched by was read as UTC, so on any other time zone every fresh
@@ -263,9 +268,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [0.3.49] - 2026-10-04
 
 ### Added
-- New workspace's **Browse** filters the loaded folders in the current directory as you type.
-  Navigation clears the filter, and a truncated listing says when search covers only the first
-  500 folders.
 - `HERDR_WEB_PASTE_DIR` saves pasted and attached files to one directory instead of
   `.herdr-web-ui/` in each pane's project. It is read by the server, for the panes of its own
   PC; a remote PC keeps the default.

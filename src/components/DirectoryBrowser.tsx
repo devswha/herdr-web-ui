@@ -88,9 +88,19 @@ export function DirectoryBrowser({ start, onPick, onOpenFile }: DirectoryBrowser
       {onPick !== undefined && (
         <label className="field dir-browser-search">
           <span className="field-label">{t("Filter folders")}</span>
-          <input type="search" className="input" value={query} autoFocus autoComplete="off" spellCheck={false}
+          {/* a touch screen would raise its keyboard over the list just opened; Escape clears the
+              filter before it reaches the dialog's own Escape, which closes the dialog */}
+          <input type="search" className="input" value={query} autoFocus={window.matchMedia?.("(pointer: coarse)").matches !== true}
+            autoComplete="off" spellCheck={false}
             onChange={(event) => { setQuery(event.target.value); listRef.current?.scrollTo({ top: 0 }); }}
-            onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} />
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.preventDefault();
+              if (event.key === "Escape" && query !== "") {
+                event.preventDefault();
+                event.stopPropagation();
+                setQuery("");
+              }
+            }} />
         </label>
       )}
       {error !== null ? <p className="dir-browser-note dir-browser-error" role="alert">{error}</p> : (
