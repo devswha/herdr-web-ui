@@ -1,6 +1,6 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
-  ArrowDown, BookOpen, Bot, Brain, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, FilePen, FileSearch, Globe, ListChecks, Target, Terminal, Wrench,
+  ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, Target,
   type LucideProps,
 } from "lucide-react";
 
@@ -26,6 +26,7 @@ import { usePageVisible } from "../lib/visibility.ts";
 import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { patchText } from "../../shared/patch.ts";
+import { toolVerb } from "../lib/toolVerbs.ts";
 import { machinePath } from "../../shared/machines.ts";
 import { fileUrl } from "../lib/api.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
@@ -223,19 +224,6 @@ function ToolInputView({ part }: { part: ToolPartType }) {
   return <pre className="chat-tool-io">{part.input}</pre>;
 }
 
-function toolIcon(name: string): ComponentType<LucideProps> {
-  const normalized = name.toLowerCase();
-  if (normalized === "skill") return BookOpen;
-  if (normalized.includes("bash") || normalized.includes("command")) return Terminal;
-  if (["read", "glob", "grep"].some((item) => normalized.includes(item))) return FileSearch;
-  if (normalized.includes("edit") || normalized.includes("write")) return FilePen;
-  if (normalized.includes("task") || normalized.includes("agent")) return Bot;
-  if (normalized.includes("web")) return Globe;
-  if (normalized.includes("todo")) return ListChecks;
-  if (normalized.endsWith("_goal")) return Target;
-  return Wrench;
-}
-
 /** A cut output's rest, fetched when asked for: the page carries the first few thousand characters. */
 function useWholeOutput(ref: string | undefined): { text: string | null; state: "idle" | "loading" | "failed"; load: () => void } {
   const paneId = useContext(ChatPaneContext);
@@ -256,24 +244,31 @@ function ToolImages({ paneId, part }: { paneId: string; part: ToolPartType }) {
   })}</div>;
 }
 
-/** One row of a work block: `▸ name  summary`, expanding to the call's input and output. */
+/**
+ * One row of a work block: `▸ Ran bun test`, expanding to the call's input and output. A tool the
+ * verb table knows reads as verb + object, and its id moves to the title and the opened detail;
+ * any other keeps its id in front, as the agent names it.
+ */
 function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const whole = useWholeOutput(part.output_ref);
-  const Icon = toolIcon(part.name);
   const summary = todoCallSummary(part) ?? part.summary;
+  // reads the call's input: once per call, not on every poll of the transcript
+  const verb = useMemo(() => toolVerb({ name: part.name, input: part.input }, summary), [part.name, part.input, summary]);
   // the list is the answer of a todo call: its raw text would say it twice
   const output = isTodoTool(part.name) && parseTodoAnswer(part.output) !== null ? "" : whole.text ?? part.output;
   return <div className={`work-row${part.error ? " is-error" : ""}`}>
-    <button type="button" className="work-row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <button type="button" className="work-row-head" aria-expanded={open} title={verb !== null ? `${part.name} · ${summary}` : undefined} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
-      <Icon className="work-row-icon" aria-hidden="true" />
-      <span className="work-row-name">{part.name}</span>
-      {part.error && <span className="work-row-failed">{t("failed")}</span>}
-      {summary.length > 0 && summary !== part.name && <><span className="work-row-sep" aria-hidden="true">/</span><span className="work-row-summary">{summary}</span></>}
+      {verb !== null ? <span className="work-row-name is-verb">{t(verb)}</span> : <span className="work-row-name">{part.name}</span>}
+      {/* the spaces are for a screen reader: the row is read as words, not "Ranbun test" */}
+      {part.error && verb === null && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
+      {summary.length > 0 && summary !== part.name && <>{" "}<span className="work-row-summary">{summary}</span></>}
+      {/* after a verb the word follows the object: "Ran pnpm test failed", not "Ran failed pnpm test" */}
+      {part.error && verb !== null && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
     </button>
-    {open && <div className="work-row-detail"><ToolInputView part={part} /><ToolImages paneId={paneId} part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className={`chat-tool-io${whole.text !== null ? " is-whole" : ""}`}>{output}</pre>
+    {open && <div className="work-row-detail">{verb !== null && <p className="work-row-tool">{part.name}</p>}<ToolInputView part={part} /><ToolImages paneId={paneId} part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className={`chat-tool-io${whole.text !== null ? " is-whole" : ""}`}>{output}</pre>
       {part.output_ref !== undefined && whole.text === null && <button type="button" className="btn btn-ghost chat-tool-more" disabled={whole.state === "loading"} onClick={whole.load}>
         {t(whole.state === "loading" ? "Loading the whole output…" : whole.state === "failed" ? "Couldn't load the whole output — retry" : "Show the whole output ({size} characters)", { size: formatTokens(part.output_size ?? 0) })}
       </button>}</section>}</div>}
@@ -286,7 +281,6 @@ function ThinkingRow({ text }: { text: string }) {
   return <div className="work-row work-row-thinking">
     <button type="button" className="work-row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
-      <Brain className="work-row-icon" aria-hidden="true" />
       <span className="work-row-name">{t("thinking")}</span>
     </button>
     {open && <div className="work-row-detail work-thinking-text">{text}</div>}
@@ -296,7 +290,7 @@ function ThinkingRow({ text }: { text: string }) {
 /**
  * Everything the agent did on the way — tool calls, reasoning and the narration
  * between them — under one header ("Worked for 7s · 1 edit"). Rows stay one line
- * each until opened; the narration reads as dim prose between them.
+ * each until opened; the narration between them is answer prose while the turn runs, dim after.
  */
 function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinking }: { paneId: string; parts: ConversationPart[]; duration: string | null; live: boolean; defaultOpen: boolean; showThinking: boolean }) {
   const t = useT();

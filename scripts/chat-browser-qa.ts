@@ -37,6 +37,8 @@ try {
   add(message("assistant", "I am checking the transcript.", "commentary"), 1);
   add({ type: "function_call", name: "exec_command", call_id: "c1", arguments: '{"cmd":"git status"}' }, 2);
   add({ type: "function_call_output", call_id: "c1", output: "clean" }, 3);
+  add({ type: "function_call", name: "exec_command", call_id: "c2", arguments: '{"cmd":"bun test"}' }, 4);
+  add({ type: "function_call_output", call_id: "c2", output: "Process exited with code 1\n1 fail" }, 5);
   add(message("assistant", answer, "final_answer"), 8);
   persist();
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-chat-browser" });
@@ -75,7 +77,17 @@ try {
   const work = log.locator(".work-block-head");
   assert.equal(await work.getAttribute("aria-expanded"), "true");
   assert.match(await work.innerText(), /Worked for 7s/);
-  await log.getByRole("button", { name: /exec_command/ }).click();
+  // a tool the verb table knows reads as verb + object; its id is the title and the detail's first line
+  const row = log.getByRole("button", { name: "Ran git status", exact: true });
+  assert.equal(await row.getAttribute("title"), "exec_command · git status");
+  assert.equal(await row.locator(".work-row-caret").isVisible(), true);
+  assert.equal(await row.locator(".work-row-icon, .work-row-sep").count(), 0);
+  // a failed call says so after its object, never between the verb and what it ran
+  const failedRow = log.getByRole("button", { name: "Ran bun test failed", exact: true });
+  assert.equal(await failedRow.evaluate((node) => node.lastElementChild?.className), "work-row-failed");
+  assert.equal(await failedRow.getAttribute("title"), "exec_command · bun test");
+  await row.click();
+  assert.equal(await log.locator(".work-row-detail > :first-child").innerText(), "exec_command");
   await log.getByText("git status", { exact: true }).last().waitFor();
   assert.equal(await log.locator(".chat-agent-meta").count(), 1);
   console.log("PASS native user/answer rendering, internal context filtering, tool expansion, duration");
