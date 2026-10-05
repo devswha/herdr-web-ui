@@ -630,7 +630,7 @@ One set for both themes: the card is island black wherever it shows.
   one asked now with an `--accent` border, `--accent-tint` fill and a `--primary` number. The title
   then reads `Question 1 of 2`; the review after the last question keeps the chips, all checked.
 - Single options submit immediately; multi-select exposes checks plus Submit; supported custom input
-  has its own labelled field. The prompt content hash rejects a stale answer with `prompt_changed`.
+  has its own labelled field. The prompt id names what the prompt says and which asking of it this is; an answer to another prompt, or to an earlier asking of the same one, is rejected with `prompt_changed`.
 - Options are flat full-width rows (`.prompt-card-option`), not boxes in the box: the menu's
   number as a keycap (mono, `--fs-2xs`, a `--border-strong` outline; the option's name keeps
   `1.`), the label, its description under it in `--text-dim`. All rows weigh the same: none is

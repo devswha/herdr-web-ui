@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.50] - 2026-10-06
+
 ### Changed
 - The app brings its own typefaces instead of counting on the ones a device has: Pretendard for
   the interface and the chat, and JetBrains Mono for code in the chat and the interface, so a
@@ -163,6 +165,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
+- An answer tapped in the chat for a row the cursor is not on looks at the screen again before
+  it presses Enter (or the first key that does more than move the cursor). A menu answered in
+  the terminal while the answer was moving the cursor could be replaced by another menu, which
+  then took the Enter; the answer now stops with "the prompt changed" unless the screen still
+  shows the card's menu with the cursor on its row, having pressed only ↑ and ↓. It also stops
+  once the agent is back at work under it. And a question asked again with the same text is a
+  card of its own where the app can see that the first asking ended (it was answered from the
+  app, the agent went back to work, or the prompt left the screen), so a typed pick waiting for
+  Confirm, or the card still open on another device, no longer answers the second asking. Not
+  covered: the keys after the first one that does more than move (the text and Enter of a typed
+  answer, the later ticks of a multiple choice), and a prompt answered in a terminal and asked
+  again word for word with nothing the app can see in between. Remote PCs get this with the
+  next `remote-vN` runtime.
+  ([#470](https://github.com/devswha/herdr-web-ui/pull/470))
 - The installed app opens without a network right after an update that renewed its offline
   store, as this one does. The old store used to be emptied the moment the new version took
   over, so until the app had been opened online once more, a reload with no connection showed
@@ -173,6 +189,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   now sends the key the way the pane's program asked for (modifyOtherKeys), also to a device that
   opens the pane later, and keeps Enter for programs that asked for nothing. A phone's input line
   and a Windows mirror pane send Enter as before.
+  ([#471](https://github.com/devswha/herdr-web-ui/pull/471) by @WOULDU-pres)
 - A draft in the message box keeps its full height when the window or the pane is resized, or
   the chat width changes: the box used to keep the height of its old line breaks until the next
   key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
@@ -1926,7 +1943,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...HEAD
+[0.3.50]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...v0.3.50
 [0.3.49]: https://github.com/devswha/herdr-web-ui/compare/v0.3.48...v0.3.49
 [0.3.48]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...v0.3.47

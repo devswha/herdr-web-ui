@@ -652,6 +652,59 @@ try {
       }
 
       {
+        // The same question asked again is another prompt. The server gives each asking its own id
+        // (server/prompt.ts, asked), and that id is all that tells the two apart here: the same
+        // text and options, and no read without a prompt in between
+        const AGAIN = { ...PLAN, id: "demo-plan-asked-again" };
+        const { page, errors, close } = await open({ width: 1440, height: 900, prompt: PLAN });
+        try {
+          const box = page.locator(".composer-text");
+          // a pick typed for the first asking waits for Confirm, and an answer of the user's own is half written
+          await box.fill("3");
+          await box.press("Enter");
+          await page.locator(".prompt-card-confirm").waitFor();
+          await page.locator(".prompt-card-custom .input").fill("only for exports over 10 MB");
+          await watchCards(page);
+          await setPrompt(page, AGAIN);
+          await page.waitForFunction(() => (window as unknown as { cardsRemoved: number }).cardsRemoved === 1, undefined, { timeout: 15_000 });
+          await page.locator(".prompt-card").getByText(PLAN.question).waitFor();
+          assert.equal(await page.locator(".prompt-card").count(), 1, "the second asking has a card of its own");
+          assert.equal(await page.locator(".prompt-card-confirm").count(), 0, "which does not inherit the first asking's typed pick");
+          assert.equal(await page.locator(".prompt-card-option.is-typed").count(), 0);
+          assert.equal(await page.locator(".prompt-card-custom .input").inputValue(), "", "nor what was being written in the first one's card");
+          assert.deepEqual(await answersOf(page), [], "and nothing was sent");
+
+          // an answer pressed for the first asking that comes back once the second one is showing
+          await setPrompt(page, PLAN);
+          await page.waitForFunction(() => (window as unknown as { cardsRemoved: number }).cardsRemoved === 2, undefined, { timeout: 15_000 });
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 3500; });
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
+          await page.locator(".prompt-card[aria-busy=true]").waitFor();
+          await setPrompt(page, AGAIN);
+          await page.locator(".prompt-card[aria-busy=false]").waitFor();
+          assert.equal(await page.evaluate(() => (window as unknown as { formReturned: number }).formReturned), 0, "the first asking's answer is still on its way");
+          await box.fill("3");
+          await box.press("Enter");
+          await page.locator(".prompt-card-confirm").waitFor();
+          await watchCards(page);
+          const second = page.locator(".prompt-card").getByRole("button", { name: /^2\. Redis/ });
+          await second.focus();
+          await returned(page, 1);
+          assert.equal(await page.locator(".prompt-card").count(), 1, "the second asking is still on screen");
+          assert.equal(await cardsRemoved(page), 0, "and was never taken away");
+          assert.equal(await second.evaluate((node) => document.activeElement === node), true, "with the focus where it was, not in the message box");
+          assert.equal(await page.locator(".prompt-card-option.is-typed .prompt-card-option-label").textContent(), "Postgres", "and its own typed pick still waiting for Confirm");
+          assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-plan", option_index: 0 }], "only the first asking was answered");
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 0; });
+          await page.locator(".prompt-card-confirm").getByRole("button", { name: "Confirm" }).click();
+          await page.locator(".prompt-card").waitFor({ state: "detached" });
+          assert.deepEqual((await answersOf(page)).at(-1), { pane_id: panes.web, prompt_id: "demo-plan-asked-again", option_index: 2 }, "Confirm answers the second asking under its own id");
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS the same question asked again is a card of its own: no typed pick or input carried over, and the first one's late answer leaves it alone");
+      }
+
+      {
         // Two panes, each with a prompt of its own: an answer for one that comes back after the
         // other is opened changes nothing there
         const { page, errors, close } = await open({ width: 1440, height: 900, prompt: FORM });
