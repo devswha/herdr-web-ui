@@ -753,6 +753,9 @@ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questi
     // an option in wide characters: its box edge stands at the same column, at a smaller string index
     const wide = relabel(relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. 격자 보기"), "  2. List                         ", "  2. 目录列表  │ 宽");
     expect(labelsOf(parseInteractivePrompt("claude", wide))).toEqual(["격자 보기", "目录列表  │ 宽"]);
+    // a joined emoji is one grapheme two columns wide, not the sum of its code points
+    const emoji = relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. 👩‍💻 Code");
+    expect(labelsOf(parseInteractivePrompt("claude", emoji))).toEqual(["👩‍💻 Code", "List"]);
   });
 
   test("does not take an answered form above later output for an open one", () => {

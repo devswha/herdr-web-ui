@@ -418,16 +418,16 @@ function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueF
  */
 const CLAUDE_PREVIEW_HINT_RE = /\bn to add notes\b/i;
 const PREVIEW_EDGE = "┌│└├╭╰┐┘╮╯";
-/** where the terminal column `column` begins in `line`: wide characters take two columns, so the index may be smaller */
+/** where the terminal column `column` begins in `line`: a wide character takes two columns and a joined
+ * emoji is one grapheme of two, so the index may be smaller; -1 when no grapheme starts there */
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 function indexAtColumn(line: string, column: number): number {
-  let index = 0;
   let width = 0;
-  for (const char of line) {
+  for (const { segment, index } of GRAPHEMES.segment(line)) {
     if (width === column) return index;
-    width += Bun.stringWidth(char);
-    index += char.length;
+    width += Bun.stringWidth(segment);
   }
-  return width === column ? index : -1;
+  return width === column ? line.length : -1;
 }
 function withoutPreview(lines: string[], from: number, to: number): string[] {
   let column = -1;
