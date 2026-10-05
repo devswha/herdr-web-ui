@@ -10,6 +10,15 @@
      and still clear it, and the full inset left a band of nothing under the box */
   padding: 0 var(--space-4) max(var(--space-4), calc(env(safe-area-inset-bottom, 0px) - var(--space-4)));
   background: var(--bg-panel);
+  /* how far the resize grip's hit area rises above the box */
+  --composer-grip-h: 12px;
+}
+
+/* The held-message list ends in things to press (a message's own box, Send now, Discard), and the
+   grip's hit area would lie over the bottom centre of its last row. After the list the composer
+   keeps that strip for itself */
+.composer-queue ~ .composer {
+  padding-top: var(--composer-grip-h);
 }
 
 /* the soft keyboard covers the home indicator: the box sits just above the keyboard */
@@ -183,7 +192,7 @@
    button in the attachment strip stays reachable. The composer has no space of its own above the
    box, so the area (48 by 12px, 64 by 20px on touch) lies over the bottom centre of what comes
    before it: the conversation's bottom padding, or the quick-reply row. Nothing to press belongs
-   in that strip */
+   in that strip: after the held-message list the composer reserves it (above) */
 .composer-resize {
   position: absolute;
   bottom: 100%;
@@ -192,7 +201,7 @@
   display: grid;
   place-items: end center;
   width: 48px;
-  height: 12px;
+  height: var(--composer-grip-h);
   transform: translateX(-50%);
   cursor: ns-resize;
   touch-action: none;
@@ -523,9 +532,12 @@
     min-height: calc(var(--touch-target) + var(--space-1));
   }
 
+  .composer {
+    --composer-grip-h: 20px;
+  }
+
   .composer-resize {
     width: 64px;
-    height: 20px;
   }
 }
 
