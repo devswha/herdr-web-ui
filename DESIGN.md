@@ -73,8 +73,8 @@ all four palettes) and dark Catppuccin, whose elevated surface is darker than it
   terminal `#0f1319`, text `#b4bdc9` / `#8792a3` / `#e8ecf2`. Primary (the user's action) is white
   `#e8ecf2` with `#0a0d12` text; accent is electric blue `#4c9aff`, kept for small marks. Agent
   states use meaning colors (working `#f5b544`, input `#ff6b7a`, done `#3ddc97`, idle `#8792a3`).
-  Terminal cursor `#4c9aff`, selection `#1f3a66`. It has near-square corners (`--radius-sm/md/lg/xl`
-  = `2/3/3/4px`) and no resting card shadow (`--shadow-card: none`).
+  Terminal cursor `#4c9aff`, selection `#1f3a66`. It has near-square corners (`--radius-sm/md/lg/xl/2xl`
+  = `2/3/3/4/6px`) and no resting card shadow (`--shadow-card: none`).
 - **Charcoal** is a neutral Ghostty-style dark: `--bg` `#0f0f0f`, panel and terminal `#171717`, text
   `#cbc7c0` / `#918c85` / `#f5f2ec`, accent and primary near-white `#e8e4dc` with `#171717` text,
   muted states (working `#c2a2af`, input `#e0877f`, done `#a7b789`, idle `#9a958e`), terminal cursor
@@ -183,7 +183,8 @@ All spacing derives from a 4px base.
 | `--radius-sm` | `6px` | Chips and inner controls |
 | `--radius-md` | `8px` | Buttons, inputs, selected rows |
 | `--radius-lg` | `12px` | Menus and chat surfaces |
-| `--radius-xl` | `16px` | Modals and composer |
+| `--radius-xl` | `16px` | Modals and bottom sheets |
+| `--radius-2xl` | `24px` | The composer's input card |
 | `--radius-pill` | `999px` | Pills and dots |
 
 ### Sizes
@@ -568,11 +569,13 @@ One set for both themes: the card is island black wherever it shows.
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
   and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter,
   `--space-3` at `480px` and below).
-  The only card is the input box: `--bg-elevated`, hairline border, `--radius-xl`, `--shadow-card`;
+  The only card is the input box: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`;
   focus turns its border `--accent` (no inner outline). Above it the completion popover and the
-  background-task list; inside, the image strip is its own row at the top, then ONE row — attach
-  control | auto-growing textarea | Send / Queue / Stop — with the controls bottom-aligned so they
-  stay beside the last line as the box grows, then the status row as the card's last row.
+  background-task list; inside, the image strip is its own row at the top, then the auto-growing
+  message box as a row of its own at the card's full width, then ONE row of controls under it:
+  on the left the add button (lucide `Plus`, named "Attach files"), the mic when voice input is
+  on, and the background-task chip; on the right the status content, Queue when it applies, and
+  ONE round button.
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
   `What should <agent> do in <folder>?` in `--text-strong`, `--fs-xl`, `--fw-semibold`, centred,
   and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
@@ -589,22 +592,54 @@ One set for both themes: the card is island black wherever it shows.
   own empty line. While the composer is lifted, the completion menu's height is capped to the
   room over the input card, where it scrolls. On a coarse pointer the greeting takes no touch:
   a tap or drag on it reaches the chat under it, which puts the keyboard away.
-- The status row (`.composer-status`, `role="status"`) spans the card's full width at every window
-  width, phones included, and never wraps. It draws, in `--text-dim` at `--fs-xs`: the agent mark,
-  the background-task chip, the model, the reasoning level as one word with no outline (`high`),
-  the context ring, and the uploading or reconnecting sentence. The agent's written name, its
-  separator, the state words `READY` / `RUN` / `INPUT` and the sentence `Reasoning high`
-  stay in the row for assistive tech only (`.visually-hidden`): the header names the pane, and
-  the state is told by Stop, the live row and the prompt card. `DONE` alone is drawn, after the
-  mark, in `--status-done` caps: nothing else in the chat says a turn ended and was not seen yet,
-  and on a phone the sidebar's label is in a closed drawer.
+- The round button (`.composer-action`, a `--touch-target` circle, `44px` on a coarse pointer) is
+  Send or Stop in the same place at the same size, so only the glyph changes: Send is `--primary`
+  with lucide `ArrowUp`; Stop is `--text-strong` with a `--bg` square, and turns
+  `--status-blocked` on hover and focus. Not connected, Stop is disabled and loses its fill
+  (`--border-strong` outline, `--text-dim` glyph).
+- The status content (`.composer-status`, `role="status"`) sits between the two control groups,
+  pushed to the button's side. It draws, in `--text-dim` at `--fs-xs`: the agent mark, the
+  model, the reasoning level as one word with no outline (`high`), the context ring, and the
+  uploading or reconnecting sentence. The background-task chip is a button in the left controls;
+  its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
+  `READY` / `RUN` / `INPUT` and the sentence `Reasoning high` stay in it for assistive tech only
+  (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
+  and the prompt card. `DONE` alone is drawn, after the mark, in `--status-done` caps: nothing
+  else in the chat says a turn ended and was not seen yet, and on a phone the sidebar's label is
+  in a closed drawer.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
-  a `640px` card — the card's own width, `composerStatusCompact`, not the window's), the model's
-  name down to a few letters, the reasoning level, then the opened context text. The context ring
-  is never cut. At `480px` and below the reconnecting sentence is the placeholder's and the header
-  chip's, not the row's.
-- Queue is a `--primary-tint` pill; its `--primary` outline is drawn in light themes only, where
-  the tint alone does not separate it from the card. The placeholder is just `Message <agent>…`.
+  a `640px` card — the card's own width, `composerStatusCompact`, not the window's); then the
+  model label, decided from the measured row and not from a width (`composerModelDraw`), so the
+  mic, a long model id, the language and the opened context text all count: the row is measured
+  again when that text opens or closes. While Queue is showing, a label that does not
+  fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
+  the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word.
+  Without Queue the level steps out whole first, never drawn in part; a name still too long is
+  ellipsized as the last resort, then the opened context text. The context ring is never cut.
+- Queue is drawn only while the agent works, the bridge is live and the box holds a draft or a
+  file still uploading (`composerQueueShown`): with an empty box Stop is the one resting control,
+  also when an attachment tile is left in it without its mention, since only the text is sent. The rule
+  reads the draft, not `:disabled`, so the pill stays in place, disabled, while a file uploads
+  or the message is on its way. It is a `--primary-tint` pill; its `--primary` outline is drawn
+  in light themes only, where the tint alone does not separate it from the card. Pressing it is
+  the only thing that holds a message. When a pressed Queue leaves with its draft, its focus goes
+  to the message box (a touch press moves no focus, so no keyboard is raised). The placeholder is
+  just `Message <agent>…`.
+- Not connected, the sentence `Reconnecting… message held here, never queued` is said once and
+  whole: it is the placeholder while the box is empty and moves into the status content once
+  there is a draft (`composerStatusHint`), on a phone too. A sentence there (this one, or
+  `Uploading file…`) is never ellipsized: where it does not fit beside the model it takes a line
+  of its own under it, without its leading dot, and wraps there; its `title` repeats it. Only
+  the sentence takes a line: the mark, the model, the level and the ring stay one row over it
+  (`.composer-status-meta`), where the label gives way exactly as it does with no sentence. The
+  status content is then left-aligned, beside the add button. Add and Stop are disabled and
+  Queue is not drawn. With a draft, the reconnecting sentence is said instead of
+  `Uploading file…`, never both: the attachment's own tile says it is uploading.
+- The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
+  (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,
+  while it is dragged, on its own keyboard focus, and while a manual height is set; on any coarse
+  pointer it is always drawn. Its hit area lies above the card (`--composer-grip-h`), and the
+  composer keeps that strip free after the held-message list.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
   card's width and gutter at every window width, no tint and no box. One `--border` hairline
   above the group, then one caption line in `--text-dim` at `--fs-xs` (a clock and the sentence
@@ -640,7 +675,7 @@ One set for both themes: the card is island black wherever it shows.
   is ignored. While working, Stop sends Escape and Queue stores the next message.
 
 ### Voice input
-- A mic button sits beside Attach in the composer and beside Send in the terminal input line; it
+- A mic button sits beside the add button in the composer and beside Send in the terminal input line; it
   fills with `--accent` while recording. Dictated text is inserted at the caret, never sent.
 - The recording pill shows Cancel, a **Recording** label, the level bars, a mono timer and Done.
   Amber only; `--danger` stays for errors.

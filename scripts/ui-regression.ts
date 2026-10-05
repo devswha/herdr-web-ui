@@ -373,6 +373,13 @@ try {
     await page.getByRole("button", { name: "Queue message", exact: true }).click();
   }
   assert.equal(await page.locator(".composer-queue-text").count(), 3);
+  // Queue follows the draft: once the box is empty again, Stop is the one resting control
+  await page.getByRole("button", { name: "Queue message", exact: true }).waitFor({ state: "detached" });
+  assert.equal(await composer.inputValue(), "");
+  // the pressed Queue had the focus and is gone: the message box has it, not the page
+  assert.equal(await composer.evaluate((box) => box === document.activeElement), true, "focus goes to the message box when Queue leaves");
+  assert.equal(await page.getByRole("button", { name: "Stop agent", exact: true }).count(), 1);
+  assert.equal(await page.locator(".composer-action").count(), 1, "one round button");
   // the held rows sit on the input card's column, under one caption that counts them
   const heldBox = await page.locator(".composer-queue").boundingBox();
   const cardBox = await page.locator(".composer-surface").boundingBox();
@@ -396,10 +403,14 @@ try {
     const pane = await page.locator(".terminal-stack.is-chat").boundingBox();
     const card = await page.locator(".composer-surface").boundingBox();
     assert.ok(pane && card);
-    const status = await page.locator(".composer-surface > .composer-status").boundingBox();
-    assert.ok(status, ".composer-status");
-    // the row spans the card's inner width: inside its hairline border, a fraction of a px either way
-    assert.ok(Math.abs(status.x - card.x) <= 2.5 && Math.abs(status.width - card.width) <= 4, `.composer-status spans the box: ${JSON.stringify({ status, card })}`);
+    const [text, left, status, right] = await Promise.all([".composer-text", ".composer-controls-left", ".composer-status", ".composer-controls-right"]
+      .map((selector) => page.locator(`.composer-surface > ${selector}`).boundingBox()));
+    assert.ok(text && left && status && right, "the message box and the three cells of the controls row");
+    // each row spans the card's inner width: inside its hairline border, a fraction of a px either way
+    assert.ok(Math.abs(text.x - card.x) <= 2.5 && Math.abs(text.width - card.width) <= 4, `.composer-text spans the box: ${JSON.stringify({ text, card })}`);
+    // the status content is the middle cell of the last row: add on its left, the round button on its right, no gap between the cells
+    assert.ok(Math.abs(left.x - card.x) <= 2.5 && Math.abs(status.x - (left.x + left.width)) <= 1 && Math.abs(right.x - (status.x + status.width)) <= 1
+      && Math.abs(right.x + right.width - left.x - card.width) <= 4, `the controls row spans the box: ${JSON.stringify({ left, status, right, card })}`);
     for (const selector of [".composer-queue", ".chat-transcript"]) {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box, selector);

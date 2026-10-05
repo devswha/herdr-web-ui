@@ -17,6 +17,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the box is narrow, beside the sidebar for one, the background-task chip shows its count
   before the model's name is cut. In dark themes Queue loses its outline.
   ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
+- The chat's message box is laid out like a chat app's: a rounder card with the message on top
+  at the card's full width, and one row of controls under it. On the left a **+** button
+  attaches files (it was a paperclip) and the background-task chip follows it; on the right are
+  the model, the reasoning level and the context ring, then one round button. Send is an arrow
+  pointing up, and Stop is the same circle in the same place, so only the glyph changes when a
+  turn starts and ends. While the agent works, Queue appears once the box holds text or a
+  file that is still uploading; with an empty box Stop is the only button, and Queue still holds a message only
+  when you press it, after which the keyboard's focus is back in the message box. Where the two
+  do not fit side by side (a phone, or a long model name beside the sidebar) the model's name
+  steps aside while Queue is showing, so neither is cut; without Queue the reasoning level
+  steps aside before the name loses a letter. While reconnecting, "Reconnecting… message held here, never queued" is said once: in
+  the empty box, and under the model once there is a draft, on a phone too, where it used to be
+  hidden. It is no longer cut with an ellipsis, and neither is "Uploading file…"; Queue is not
+  shown while not connected, and a disabled Stop loses its colour. With a mouse, the bar that
+  resizes the box shows when the pointer is over the box, while dragging, on keyboard focus
+  and while a height is set by hand; on a touch screen it is always shown.
+  ([#465](https://github.com/devswha/herdr-web-ui/pull/465))
 - The chat is wider on a large screen: the conversation and the message box follow the pane,
   at least 820px and at most 960px wide, 71% of the pane between. A laptop window keeps the
   820px it had and a large monitor grows to 960px. Settings → Chat → **Chat width** chooses
