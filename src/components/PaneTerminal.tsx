@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useReducer, useRef
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { TriangleAlert } from "lucide-react";
+import { ChevronRight, Clock, TriangleAlert, X } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
@@ -10,6 +10,7 @@ import { HerdrSocket } from "../lib/ws.ts";
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
+import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
@@ -87,18 +88,18 @@ function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
 }
 
-/** A touch screen as the main pointer: its soft keyboard is what the input line is for. */
-function useCoarsePointer(): boolean {
-  const query = "(pointer: coarse)";
-  const [coarse, setCoarse] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
+/** Follows a media query: the layout rules that CSS alone cannot apply. */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
   useEffect(() => {
     const media = window.matchMedia?.(query);
     if (!media) return;
-    const onChange = (): void => setCoarse(media.matches);
+    const onChange = (): void => setMatches(media.matches);
+    onChange();
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
-  }, []);
-  return coarse;
+  }, [query]);
+  return matches;
 }
 export function PaneTerminal({
   paneId,
@@ -173,7 +174,7 @@ export function PaneTerminal({
   const secretRef = useRef<string | null>(null);
   const secretActive = secret !== null && secret.pane === paneId;
   // a touch screen writes in the terminal's input line; typing straight into the grid is chosen
-  const coarse = useCoarsePointer();
+  const coarse = useMediaQuery("(pointer: coarse)");
   // A touch screen reads a pane before it answers: picking a pane or a lens there never raises the
   // keyboard by itself, only a tap on the message box or the grid does. A desktop has no keyboard
   // to raise, and the pane it picks takes the typing at once.
@@ -1283,6 +1284,50 @@ export function PaneTerminal({
   const heldByOpenQueue = chatView && chatPrompt !== null && chatPrompt.pane === paneId && chatPrompt.value.queued === "open";
   const busy = agent !== null && agentStatus === "working" && answering === null;
   const readyForQueue = agentStatus !== undefined && QUEUE_READY_STATUS[agentStatus] === true;
+  // The held rows fold into their caption while a prompt card needs the room, or a phone's
+  // window is short. They stay mounted; the caption is then the button that opens them
+  const shortPhone = useMediaQuery(SHORT_PHONE_QUERY);
+  const heldFold = heldRowsFold({ promptOpen: chatView && chatPrompt !== null && chatPrompt.pane === paneId, shortPhone, ready: readyForQueue });
+  const heldListRef = useRef<HTMLOListElement | null>(null);
+  const heldToggleRef = useRef<HTMLButtonElement | null>(null);
+  const [heldOpened, setHeldOpened] = useState(false);
+  // Each fold starts closed, and so does another pane's or a list that was empty, unless the
+  // user is in one of this pane's rows right now: a phone's keyboard comes up for the message
+  // being edited and must not fold it away. (During this render the DOM is still the last one.)
+  const heldAny = queued.length > 0;
+  const [heldSeen, setHeldSeen] = useState({ owner: queueOwner, fold: heldFold, any: heldAny });
+  if (heldSeen.owner !== queueOwner || heldSeen.fold !== heldFold || heldSeen.any !== heldAny) {
+    setHeldSeen({ owner: queueOwner, fold: heldFold, any: heldAny });
+    setHeldOpened(heldOpenAtFold({
+      fold: heldFold && heldAny,
+      sameOwner: heldSeen.owner === queueOwner,
+      focusInRows: heldListRef.current?.contains(document.activeElement) === true,
+    }));
+  }
+  // a row's error is for the user to read: it opens the rows too, and the caption is then no button.
+  // Rows it opened are the user's own once focus is in one (the list's onFocus), whatever ends the error
+  const heldRowFailed = heldRowError(queueError, queueOwner, queued.map((message) => message.id));
+  const heldHidden = heldRowsHidden(heldFold, heldOpened, heldRowFailed);
+  const heldToggle = heldToggleShown(heldFold, heldRowFailed);
+  // The button goes when the fold ends (the agent is ready, the prompt was answered). Focus on it
+  // would fall to the page, so it moves to the list the button stood for: Tab goes on from there.
+  // The list, not a message box: on a phone that would raise the keyboard unasked.
+  // React detaches the button's ref just before it removes the node, while focus is still on it:
+  // that is read in the commit, never in a render React may discard.
+  // The button names its list (aria-controls) and that is what is kept: a button that goes because
+  // the user moved to another pane stood for another list, and this pane's is not focused for it.
+  const heldRefocusRef = useRef<string | null>(null);
+  const setHeldToggle = useCallback((node: HTMLButtonElement | null) => {
+    if (node === null && heldToggleRef.current !== null && document.activeElement === heldToggleRef.current) heldRefocusRef.current = heldToggleRef.current.getAttribute("aria-controls");
+    heldToggleRef.current = node;
+  }, []);
+  // every commit, so a flag set as the whole list went is dropped with it
+  useLayoutEffect(() => {
+    const left = heldRefocusRef.current;
+    if (left === null) return;
+    heldRefocusRef.current = null;
+    if (heldRefocusDue(left, heldListRef.current?.id ?? null)) heldListRef.current?.focus({ preventScroll: true });
+  });
   // an empty chat: one greeting line over the composer, which a mouse-driven window centres
   const folder = greetingFolder(cwd);
   const greetingDue = chatView && paneId !== null && agent !== null && !secretActive && !observing && !ended
@@ -1469,15 +1514,33 @@ export function PaneTerminal({
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
           Codex question known (heldByOpenQueue), and Send now must not type into one */}
       {paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
-        <section className="composer-queue" aria-label={t("Queued messages")}>
-          <div className="composer-queue-heading">
-            <strong>{t("Queued messages ({n})", { n: queued.length })}</strong>
-            <span className="composer-queue-label">{t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}</span>
-          </div>
+        <section className={`composer-queue${readyForQueue ? " is-ready" : ""}${heldHidden ? " is-folded" : ""}`} aria-label={t("Queued messages")}>
+          {(() => {
+            // one caption line: the sentence says the state
+            const caption = <>
+              <span className="composer-queue-mark" aria-hidden="true"><Clock /></span>
+              <span className="composer-queue-caption">
+                {t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}
+                {heldCountShown(queued.length, heldFold) && <> · {queued.length === 1 ? t("{n} message", { n: 1 }) : t("{n} messages", { n: queued.length })}</>}
+              </span>
+            </>;
+            return <div className="composer-queue-heading">
+              {/* the count stays for assistive tech, beside the button and not in its name */}
+              <strong className="visually-hidden">{t("Queued messages ({n})", { n: queued.length })}</strong>
+              {heldToggle
+                ? <button type="button" className="composer-queue-toggle" ref={setHeldToggle} aria-expanded={!heldHidden} aria-controls={`queued-list-${queueOwner}`}
+                    onClick={() => { setHeldOpened(heldHidden); }}>
+                    {caption}
+                    <span className="composer-queue-toggle-caret" aria-hidden="true"><ChevronRight /></span>
+                  </button>
+                : caption}
+            </div>;
+          })()}
           {queueStore.isUnsaved(queueOwner) && <p className="composer-queue-error" role="status">{t("Queue could not be saved. Keep this tab open or copy the messages before reloading.")}</p>}
-          <ol className="composer-queue-list">
+          <ol className="composer-queue-list" id={`queued-list-${queueOwner}`} ref={heldListRef} tabIndex={-1}
+            onFocus={() => { setHeldOpened((opened) => heldOpenOnFocus(heldFold, opened)); }}>
           {queued.map((message, index) => <li className="composer-queue-item" key={message.id}>
-            <label className="composer-queue-label" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>
+            <label className="visually-hidden" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>
             <textarea
               id={`queued-${message.id}`}
               className="composer-queue-text"
@@ -1507,7 +1570,10 @@ export function PaneTerminal({
                     .finally(() => { queueStore.endSend(owner, message.id); sendingRef.current = false; setQueueSending(null); });
                 }}>{t("Send now")}</button>
               <button type="button" className="composer-queue-discard" disabled={queueStore.isSending(message.id)}
-                onClick={() => { queueStore.remove(queueOwner, message.id); }}>{t("Discard")}</button>
+                onClick={() => { queueStore.remove(queueOwner, message.id); }}>
+                {/* a phone draws the X; the word stays the button's name */}
+                <span className="composer-queue-discard-text">{t("Discard")}</span><X aria-hidden="true" />
+              </button>
             </div>
             {queueError?.owner === queueOwner && queueError.id === message.id && <p className="composer-queue-error" role="status">{queueError.text}</p>}
           </li>)}

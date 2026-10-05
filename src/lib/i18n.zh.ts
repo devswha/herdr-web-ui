@@ -686,6 +686,8 @@ export const ZH: Record<string, string> = {
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "无法保存队列。请保持此标签页打开，或在重新加载前复制这些消息。",
   "Queued messages": "排队的消息",
   "Queued messages ({n})": "排队的消息（{n}）",
+  "{n} message": "{n} 条消息",
+  "{n} messages": "{n} 条消息",
   "Message {n}": "消息 {n}",
   "Queued message {n}": "排队的消息 {n}",
   "Not sent. Reconnect and try again.": "未发送。请重新连接后重试。",

@@ -684,6 +684,8 @@ export const JA: Record<string, string> = {
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "キューを保存できませんでした。このタブを開いたままにするか、再読み込みする前にメッセージをコピーしてください。",
   "Queued messages": "キュー内のメッセージ",
   "Queued messages ({n})": "キュー内のメッセージ ({n})",
+  "{n} message": "メッセージ {n} 件",
+  "{n} messages": "メッセージ {n} 件",
   "Message {n}": "メッセージ {n}",
   "Queued message {n}": "キュー内のメッセージ {n}",
   "Not sent. Reconnect and try again.": "送信できませんでした。再接続してもう一度お試しください。",

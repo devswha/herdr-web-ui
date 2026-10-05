@@ -567,7 +567,8 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Composer (`.composer`)
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
-  and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter).
+  and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter,
+  `--space-3` at `480px` and below).
   The only card is the input box: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`;
   focus turns its border `--accent` (no inner outline). Above it the completion popover and the
   background-task list; inside, the image strip is its own row at the top, then the auto-growing
@@ -660,6 +661,28 @@ One set for both themes: the card is island black wherever it shows.
   while it is dragged, on its own keyboard focus, and while a manual height is set; on any coarse
   pointer it is always drawn. Its hit area lies above the card (`--composer-grip-h`), and the
   composer keeps that strip free after the held-message list.
+- Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
+  card's width and gutter at every window width, no tint and no box. One `--border` hairline
+  above the group, then one caption line in `--text-dim` at `--fs-xs` (a clock and the sentence
+  `Held until the agent is ready`, plus `· 2 messages` from two; a translation too long for a
+  phone's column takes a second line, it is never cut), then a row per message: its text, still
+  a box to edit (transparent until focused, up to four lines, two at `480px` and below),
+  `Send now` and `Discard`. Hairlines between rows run the column's width; every line of text starts `--space-3`
+  in. The list, not the group, has the height limit (two and a half rows, then it scrolls), and it
+  gives way before the caption does. "Queued messages (n)" and each row's "Message n" stay for
+  assistive tech only (`.visually-hidden`).
+- When the agent is ready the sentence becomes `Held message — review and send`, in `--text`, and
+  the `--accent` goes on the clock and on the outline of `Send now`; the hairline stays `--border`.
+  Nothing is sent without that button.
+- While a prompt card is open, or in a short phone window (`480px` wide and `600px` tall or
+  less, as a media query: Android's keyboard shrinks the window to that, iOS Safari's does not),
+  the rows fold into the caption, which becomes a disclosure button (`aria-expanded`, a chevron,
+  `--touch-target` tall on touch) and counts a single message too. The rows stay mounted and one
+  tap opens them. A list that is ready, a row being edited and a row with an error are never
+  folded away; while a row's error holds the rows open the caption is plain text, not a button.
+  When the button goes, focus on it moves to the list, unless it went because the pane changed.
+- At `480px` and below a held row is its text, `Send now` and a `--touch-target` X whose name is
+  still `Discard`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;
   `@` completions query `GET /api/pane/files`. Arrow keys navigate, Enter/Tab accepts, Escape closes.
 - Paste, picker or drag/drop accepts up to four png/jpeg/gif/webp files per action. Each gets a local

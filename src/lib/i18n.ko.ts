@@ -682,6 +682,8 @@ export const KO: Record<string, string> = {
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "대기 메시지를 저장하지 못했습니다. 이 탭을 유지하거나 새로고침 전에 메시지를 복사하세요.",
   "Queued messages": "대기 메시지",
   "Queued messages ({n})": "대기 메시지 {n}개",
+  "{n} message": "메시지 {n}개",
+  "{n} messages": "메시지 {n}개",
   "Message {n}": "메시지 {n}",
   "Queued message {n}": "대기 메시지 {n}",
   "Not sent. Reconnect and try again.": "전송하지 못했습니다. 다시 연결한 후 시도하세요.",
