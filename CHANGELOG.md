@@ -13,8 +13,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   phone or a PC without them draws Latin text and Korean in the same letters as one with them.
   Japanese and Chinese are not the same everywhere: Pretendard has kana and only a few hundred
   ideographs, so kanji and Chinese text are still drawn in the device's own font, and a Japanese
-  line mixes the two. Nothing is fetched from the
-  internet: the files come from your own PC with the app, a page downloads only the pieces of
+  line mixes the two. Nothing is fetched from the internet: the files come from your own PC
+  with the app, a page downloads only the pieces of
   Pretendard its text needs (about 90 KB for a chat in English, about 200 KB more once Korean
   is on the page), and each piece is kept for offline use after that. The terminal is untouched: its
   font, its **Terminal font** setting and its grid are as before, and a **Chat font** you chose
