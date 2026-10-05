@@ -79,7 +79,25 @@ try {
   const index = join(app, "index.html");
   const html = readFileSync(index, "utf8");
   assert.match(html, /<script type="module"/);
-  writeFileSync(index, html.replace(/<script type="module"/, '<script src="./demo-transport.js"></script>\n    <script type="module"'));
+  // The demo answers a sent message in the same task: its user turn and the agent's "working".
+  // Either alone ends a greeting. This holds a submit frame on its way out, as a slow connection
+  // would, so that the app is seen with a message sent and nothing heard back yet.
+  const hold = `<script>(() => {
+    const Demo = window.WebSocket;
+    window.heldSubmits = null;
+    const Held = function (url, protocols) {
+      const socket = new Demo(url, protocols);
+      const send = socket.send.bind(socket);
+      socket.send = (data) => {
+        if (window.heldSubmits !== null && typeof data === "string" && JSON.parse(data).type === "submit") window.heldSubmits.push(() => send(data));
+        else send(data);
+      };
+      return socket;
+    };
+    for (const name of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"]) Object.defineProperty(Held, name, { value: Demo[name] });
+    window.WebSocket = Held;
+  })();</script>`;
+  writeFileSync(index, html.replace(/<script type="module"/, () => `<script src="./demo-transport.js"></script>\n    ${hold}\n    <script type="module"`));
 
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
@@ -140,25 +158,103 @@ try {
         await centred(page);
         console.log("PASS the pair stays centred as the draft grows and the window resizes");
 
-        // the first message puts the composer back at the bottom, with no animation
+        // a completion menu opens upward from the lifted card: in a short window it scrolls in the
+        // room left over it and is not cut off by the pane's edge
+        await page.setViewportSize({ width: 1440, height: 450 });
+        await centred(page);
+        await message.fill("/");
+        const menu = page.locator(".composer-menu");
+        await menu.waitFor();
+        const room = await page.evaluate(() => {
+          const box = document.querySelector(".composer-menu")!.getBoundingClientRect();
+          const stack = document.querySelector(".terminal-stack")!.getBoundingClientRect();
+          const menu = document.querySelector(".composer-menu")!;
+          return { top: box.top, stack: stack.top, scrolls: menu.scrollHeight > menu.clientHeight, rows: menu.querySelectorAll(".menu-item").length };
+        });
+        assert.ok(room.top >= room.stack, `the menu stays inside the pane: ${JSON.stringify(room)}`);
+        assert.ok(room.rows > 3 && room.scrolls, `the menu scrolls where it has no room: ${JSON.stringify(room)}`);
+        await message.fill("");
+        await menu.waitFor({ state: "detached" });
+        console.log("PASS in a short window the completion menu scrolls over the lifted composer and is not clipped");
+
+        // a stack too short for the composer and the greeting: the greeting stays out, with the
+        // chat's own empty line in its place, and comes back when there is room
+        await page.setViewportSize({ width: 1440, height: 200 });
+        await page.locator(".composer-greeting.is-out").waitFor({ state: "attached" });
+        assert.equal(await page.locator(".composer-greeting").evaluate((node) => getComputedStyle(node).visibility), "hidden");
+        assert.equal(await page.locator(".composer-greeting").getAttribute("aria-hidden"), "true");
+        assert.equal(await page.locator(".chat-empty").count(), 1, "the chat's own empty line stands in");
+        const short = await geometryOf(page);
+        assert.equal(short.transform, "none", "a composer with no room over it stays docked");
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.locator(".composer-greeting:not(.is-out)").waitFor();
+        await centred(page);
+        assert.equal(await page.locator(".chat-empty").count(), 0);
+        console.log("PASS a pane too short for the greeting keeps the chat's empty line and a docked composer");
+
+        // The first message puts the composer back at the bottom, with no animation, before
+        // anything is heard back: the submit frame is held, so no turn and no "working" end it.
+        await page.evaluate(() => { (window as unknown as { heldSubmits: (() => void)[] | null }).heldSubmits = []; });
         await message.fill("Start with the README");
-        await page.getByRole("button", { name: "Send message", exact: true }).click();
-        await greeting.waitFor({ state: "detached" });
-        const sent = await geometryOf(page);
+        const sent = await page.evaluate(async () => {
+          document.querySelector<HTMLElement>('button[aria-label="Send message"]')!.click();
+          // the frame the click is painted in, and nothing later
+          await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+          const composer = document.querySelector<HTMLElement>(".composer")!;
+          return {
+            held: (window as unknown as { heldSubmits: unknown[] }).heldSubmits.length,
+            greetings: document.querySelectorAll(".composer-greeting").length,
+            transform: getComputedStyle(composer).transform,
+            animations: composer.getAnimations().length,
+            gap: Math.abs(composer.getBoundingClientRect().bottom - document.querySelector(".terminal-stack")!.getBoundingClientRect().bottom),
+            turns: document.querySelectorAll(".chat-turn").length,
+            status: document.querySelector(".composer-status")!.getAttribute("data-status"),
+          };
+        });
+        assert.equal(sent.held, 1, "the message is on its way and nothing answered it");
+        assert.equal(sent.turns, 0);
+        assert.notEqual(sent.status, "working");
+        assert.equal(sent.greetings, 0, `the greeting goes with the send itself: ${JSON.stringify(sent)}`);
         assert.equal(sent.transform, "none");
         assert.equal(sent.animations, 0, "the composer snaps: nothing animates");
-        assert.ok(Math.abs(sent.composer.bottom - sent.stack.bottom) <= 1, `composer docked after the first send: ${JSON.stringify(sent)}`);
-        assert.deepEqual(sent.mount, docked.mount, "the xterm mount keeps its size when the greeting goes");
+        assert.ok(sent.gap <= 1, `composer docked in the frame of the first send: ${JSON.stringify(sent)}`);
+        assert.deepEqual((await geometryOf(page)).mount, docked.mount, "the xterm mount keeps its size when the greeting goes");
+        console.log("PASS the first message sent docks the composer in the same frame, before any turn or status arrives");
+
+        // still nothing heard back: another lens and back, and a conversation read again, do not
+        // bring the greeting back over a message already sent
+        await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+        await page.locator(".terminal-stack:not(.is-chat)").waitFor();
+        await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+        await page.locator(".terminal-stack.is-chat").waitFor();
+        await page.locator(".chat-empty").waitFor();
+        assert.equal(await page.locator(".chat-turn").count(), 0);
+        assert.equal(await page.locator(".composer-greeting").count(), 0, "the greeting does not return after a send");
+        assert.equal((await geometryOf(page)).transform, "none");
+        console.log("PASS the greeting does not return when the chat is left and shown again after a send");
+
+        await page.evaluate(() => {
+          const page = window as unknown as { heldSubmits: (() => void)[] | null };
+          const held = page.heldSubmits ?? [];
+          page.heldSubmits = null;
+          for (const send of held) send();
+        });
         await page.locator(".chat-turn").first().waitFor({ timeout: 8_000 });
         assert.equal(await page.locator(".composer-greeting").count(), 0);
         assert.deepEqual(errors, []);
-        console.log("PASS the first message sent docks the composer at once and the greeting does not return");
+        console.log("PASS the message arrives and the conversation shows it, with no greeting");
       } finally { await desktop.close(); }
 
       // a phone: the composer stays docked on the keyboard, the greeting above it; long names wrap
       const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
       try {
         await phone.addInitScript(settings);
+        // a soft keyboard the script raises: lib/viewport.ts reads its height (headless has none)
+        await phone.addInitScript(() => {
+          const keyboard = Object.assign(new EventTarget(), { height: 0 });
+          Object.defineProperty(keyboard, "boundingRect", { get: () => new DOMRect(0, 0, 390, keyboard.height) });
+          Object.defineProperty(navigator, "virtualKeyboard", { configurable: true, value: keyboard });
+        });
         const page = await phone.newPage();
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
@@ -176,8 +272,28 @@ try {
         assert.ok(geometry.greeting!.left >= 0 && geometry.greeting!.right <= geometry.viewport, `greeting inside the screen: ${JSON.stringify(geometry)}`);
         assert.ok(geometry.scrollWidth <= geometry.viewport, "no horizontal page scroll");
         assert.equal(geometry.overflowing, false, "long agent and folder names wrap");
-        assert.deepEqual(errors, []);
         console.log("PASS on a phone the greeting sits over the docked composer and a long folder name wraps");
+
+        // the greeting covers the chat's lower part: a tap on it reaches the chat, which puts the
+        // keyboard away, as a tap on the old empty line did
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        await box.focus();
+        await page.evaluate(() => {
+          const keyboard = (navigator as unknown as { virtualKeyboard: EventTarget & { height: number } }).virtualKeyboard;
+          keyboard.height = 300;
+          keyboard.dispatchEvent(new Event("geometrychange"));
+        });
+        await page.waitForFunction(() => document.documentElement.hasAttribute("data-keyboard"));
+        assert.equal(await box.evaluate((node) => document.activeElement === node), true);
+        const title = (await page.locator(".composer-greeting-title").boundingBox())!;
+        // Chromium blurs a field on any tap outside it and iOS does not, so the blur alone proves
+        // nothing here: what counts is that the touch lands on the chat, whose handler iOS needs
+        const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".chat-view, .composer")?.className ?? null, { x: title.x + title.width / 2, y: title.y + title.height / 2 });
+        assert.equal(hit, "chat-view", "a touch on the greeting lands on the chat under it");
+        await page.touchscreen.tap(title.x + title.width / 2, title.y + title.height / 2);
+        await page.waitForFunction(() => !(document.activeElement instanceof HTMLTextAreaElement), undefined, { timeout: 3_000 });
+        assert.deepEqual(errors, []);
+        console.log("PASS on a phone a tap on the greeting puts the keyboard away");
       } finally { await phone.close(); }
     } finally { await browser.close(); }
   } finally { server.stop(); }

@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { chatIsBlank, composerLift, greetingFolder, showsGreeting, type BlankChat, type GreetingState } from "./greeting.ts";
+import { NO_MEMORY, afterRead, afterSend, chatIsBlank, composerLift, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type BlankChat, type ChatRead, type GreetingState } from "./greeting.ts";
 
 const blank: BlankChat = { loaded: true, failed: false, transcript: true, turns: 0, abandoned: 0, prompt: false, agent: "claude" };
-const shown: GreetingState = { blankAtSent: 0, sent: 0, agentStatus: "idle", queued: 0, folder: "infra" };
+const read: ChatRead = { blank: true, turns: 0, history: "h1" };
+const shown: GreetingState = { memory: afterRead(NO_MEMORY, read), agentStatus: "idle", queued: 0, folder: "infra" };
 
 describe("chatIsBlank", () => {
   test("a loaded transcript with no turns is blank", () => {
     expect(chatIsBlank(blank)).toBe(true);
   });
 
+  // also the moment a changed history is read again: ChatView drops its turns and is loading until the answer
   test("a loading conversation is not", () => {
     expect(chatIsBlank({ ...blank, loaded: false })).toBe(false);
   });
@@ -39,16 +41,45 @@ describe("showsGreeting", () => {
     expect(showsGreeting({ ...shown, agentStatus: undefined })).toBe(true);
   });
 
-  test("a chat that is not blank is not", () => {
-    expect(showsGreeting({ ...shown, blankAtSent: null })).toBe(false);
+  test("a chat that is not blank, or not read, is not", () => {
+    expect(showsGreeting({ ...shown, memory: NO_MEMORY })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterRead(NO_MEMORY, { ...read, blank: false }) })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterRead(shown.memory, null) })).toBe(false);
   });
 
   test("the first message sent takes the greeting away before the transcript holds it", () => {
-    expect(showsGreeting({ ...shown, sent: 1 })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterSend(shown.memory) })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterRead(afterSend(shown.memory), read) })).toBe(false);
   });
 
-  test("a chat found blank again after messages (a cleared conversation) is greeted again", () => {
-    expect(showsGreeting({ ...shown, blankAtSent: 4, sent: 4 })).toBe(true);
+  test("a chat first read after the message went out is not greeted", () => {
+    expect(showsGreeting({ ...shown, memory: afterRead(afterSend(NO_MEMORY), read) })).toBe(false);
+  });
+
+  test("the chat leaving the screen or a failed read does not bring the greeting back after a send", () => {
+    const away = afterRead(afterSend(shown.memory), null);
+    expect(away.sent).toBe(true);
+    expect(showsGreeting({ ...shown, memory: afterRead(away, read) })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterRead(afterRead(afterRead(away, read), null), read) })).toBe(false);
+  });
+
+  test("a chat that was never sent to is greeted again when it comes back", () => {
+    expect(showsGreeting({ ...shown, memory: afterRead(afterRead(shown.memory, null), read) })).toBe(true);
+  });
+
+  test("a conversation found blank again after its turns, or in a new history (a cleared one), is greeted again", () => {
+    const answered = afterRead(afterSend(shown.memory), { blank: false, turns: 2, history: "h1" });
+    expect(answered.sent).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterRead(answered, read) })).toBe(true);
+    const cleared = afterRead(afterSend(shown.memory), { ...read, history: "h2" });
+    expect(showsGreeting({ ...shown, memory: cleared })).toBe(true);
+  });
+
+  test("a read that changes nothing keeps the same memory", () => {
+    expect(afterRead(shown.memory, read)).toBe(shown.memory);
+    expect(afterRead(NO_MEMORY, null)).toBe(NO_MEMORY);
+    const sent = afterSend(shown.memory);
+    expect(afterSend(sent)).toBe(sent);
   });
 
   test("an agent at work or asking is not asked what it should do", () => {
@@ -109,5 +140,32 @@ describe("composerLift", () => {
 
   test("whole pixels", () => {
     expect(Number.isInteger(composerLift(801, 110, 70))).toBe(true);
+  });
+});
+
+describe("greetingFits", () => {
+  test("the stack holds the composer and the greeting", () => {
+    expect(greetingFits(844, 110, 70)).toBe(true);
+    expect(greetingFits(180, 110, 70)).toBe(true);
+  });
+
+  test("a stack too short for both leaves the greeting out", () => {
+    expect(greetingFits(140, 110, 70)).toBe(false);
+    expect(greetingFits(Number.NaN, 110, 70)).toBe(false);
+  });
+});
+
+describe("roomOverComposer", () => {
+  test("from the stack's top to the input card of the lifted composer", () => {
+    // a 400px stack, a 110px composer lifted 110px, its card 30px below its top
+    expect(roomOverComposer(400, 110, composerLift(400, 110, 70), 30)).toBe(210);
+  });
+
+  test("docked, it is everything over the card", () => {
+    expect(roomOverComposer(844, 110, 0, 30)).toBe(764);
+  });
+
+  test("never negative", () => {
+    expect(roomOverComposer(100, 140, 0, 30)).toBe(0);
   });
 });

@@ -37,7 +37,7 @@ const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
-import { chatIsBlank } from "../lib/greeting.ts";
+import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
 const TRANSCRIPT_LINES = 400;
@@ -55,8 +55,8 @@ export interface ChatViewProps {
   agent: string | null;
   agentStatus?: AgentStatus;
   onMetadata?: (paneId: string, metadata: ConversationMetadata | null) => void;
-  /** whether the conversation was read and holds nothing yet: the composer may greet there */
-  onBlank?: (paneId: string, blank: boolean) => void;
+  /** what the last read says of the conversation, for the composer's greeting; null while nothing is known (loading, a failed read, the chat gone) */
+  onRead?: (paneId: string, read: ChatRead | null) => void;
   /** the composer shows its greeting: the chat's own "nothing yet" line stays out */
   greeted?: boolean;
   /** the agent's waiting prompt, for the composer to answer too */
@@ -457,7 +457,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onBlank, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -471,7 +471,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
-  /** the first answer for this pane arrived (or failed): until then an empty chat is only loading */
+  /** an answer for this pane arrived (or failed): until then, and while a replaced history is read again, an empty chat is only loading */
   const [loaded, setLoaded] = useState(false);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
   // turns the transcript holds on a path /tree walked away from: no page can reach them, so the
@@ -576,7 +576,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
           // a new session or a Codex backtrack replaced the transcript the older pages came from
           if (heldFrom.current === null || !(cause instanceof ApiError) || cause.status !== 409) throw cause;
           if (cancelled || generation !== olderGeneration.current) return;
-          dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+          dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
           generation = olderGeneration.current;
           conversation = await fetchPaneConversation(paneId);
         }
@@ -596,7 +596,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
           const between = await turnsBetween(held, conversation.cursor);
           if (cancelled || generation !== olderGeneration.current) return;
           if (between === null) {
-            dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+            dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
             setPollKey((key) => key + 1); return;
           }
           else { moved = between; heldFrom.current = conversation.cursor; }
@@ -646,7 +646,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       const page = await fetchPaneConversation(paneId, { before });
       if (shownPane.current !== paneId || olderGeneration.current !== generation) return;
       if (page.history_id !== history.current) {
-        dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+        dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
         setPollKey((key) => key + 1); return;
       }
       // a bridge without pages answers with its newest turns: nothing older to add
@@ -662,7 +662,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
     } catch (cause) {
       if (shownPane.current !== paneId || olderGeneration.current !== generation) return;
       if (cause instanceof ApiError && cause.status === 409) {
-        dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+        dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
         setPollKey((key) => key + 1);
       }
       else setOlderState("failed");
@@ -762,11 +762,14 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
   const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
+  const known = loaded && error === null && !ended;
+  const held = turns.length + (abandoned?.count ?? 0);
   // before paint: the greeting replaces the line below in the same frame, not one after it
   useLayoutEffect(() => {
-    onBlank?.(paneId, blank);
-    return () => onBlank?.(paneId, false);
-  }, [onBlank, paneId, blank]);
+    onRead?.(paneId, known ? { blank, turns: held, history: historyId } : null);
+  }, [onRead, paneId, known, blank, held, historyId]);
+  // the chat left the screen (another lens): nothing is known of it until it is read again
+  useLayoutEffect(() => () => onRead?.(paneId, null), [onRead, paneId]);
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">

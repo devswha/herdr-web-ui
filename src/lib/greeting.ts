@@ -28,11 +28,45 @@ export function chatIsBlank(chat: BlankChat): boolean {
     && chat.turns === 0 && chat.abandoned === 0 && !chat.prompt;
 }
 
+/** What one answered read of a pane's conversation says; null where nothing is known (loading, a failed read, the chat not shown). */
+export interface ChatRead {
+  blank: boolean;
+  /** turns it holds, the ones a /tree left behind included */
+  turns: number;
+  history: string | undefined;
+}
+
+/** What is remembered of a pane's chat between its reads, whether the chat is shown or not. */
+export interface GreetingMemory {
+  /** the last read found the conversation blank */
+  blank: boolean;
+  /** the history the last answered read was of; null before any */
+  history: string | null;
+  /** a message went out and the conversation has shown neither a turn nor a new history since */
+  sent: boolean;
+}
+
+export const NO_MEMORY: GreetingMemory = { blank: false, history: null, sent: false };
+
+/**
+ * A read came in. Nothing known (the chat is loading, its read failed, or it left the screen) is
+ * not blank, and it forgets no message: only a turn or another history ends what a send began.
+ */
+export function afterRead(memory: GreetingMemory, read: ChatRead | null): GreetingMemory {
+  if (read === null) return memory.blank ? { ...memory, blank: false } : memory;
+  const history = read.history ?? "";
+  const moved = memory.history !== null && memory.history !== history;
+  const sent = memory.sent && read.turns === 0 && !moved;
+  return memory.blank === read.blank && memory.history === history && memory.sent === sent ? memory : { blank: read.blank, history, sent };
+}
+
+/** A message went out from the composer, read or not yet. */
+export function afterSend(memory: GreetingMemory): GreetingMemory {
+  return memory.sent ? memory : { ...memory, sent: true };
+}
+
 export interface GreetingState {
-  /** the composer message count when the chat was found blank; null while it is not blank */
-  blankAtSent: number | null;
-  /** the composer message count now */
-  sent: number;
+  memory: GreetingMemory;
   agentStatus: AgentStatus | undefined;
   /** messages held for this pane: their list sits where the greeting would */
   queued: number;
@@ -44,7 +78,7 @@ export interface GreetingState {
  * holds the turn; an agent already at work or asking is not asked what it should do.
  */
 export function showsGreeting(state: GreetingState): boolean {
-  return state.blankAtSent !== null && state.blankAtSent === state.sent
+  return state.memory.blank && !state.memory.sent
     && state.agentStatus !== "working" && state.agentStatus !== "blocked"
     && state.queued === 0 && state.folder !== "";
 }
@@ -66,4 +100,21 @@ export function composerLift(stackHeight: number, composerHeight: number, greeti
   const spare = stackHeight - composerHeight - greetingHeight;
   if (!(spare > 0)) return 0;
   return 0 - Math.round(spare / 2);
+}
+
+/**
+ * Whether the stack holds the composer and the greeting above it. Where it does not (a phone on
+ * its side with the keyboard up), the greeting would run out of the pane's top: it stays out.
+ */
+export function greetingFits(stackHeight: number, composerHeight: number, greetingHeight: number): boolean {
+  return stackHeight - composerHeight - greetingHeight >= 0;
+}
+
+/**
+ * The room (px) over the input card of a lifted composer, where its completion menu opens:
+ * from the stack's top to the card's top. `cardOffset` is the card's top within the composer.
+ */
+export function roomOverComposer(stackHeight: number, composerHeight: number, lift: number, cardOffset: number): number {
+  const room = stackHeight - composerHeight + lift + cardOffset;
+  return room > 0 ? Math.round(room) : 0;
 }

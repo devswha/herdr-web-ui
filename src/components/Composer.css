@@ -31,6 +31,20 @@
   overflow-wrap: anywhere;
 }
 
+/* the stack is too short for the composer and the greeting (a phone on its side with the keyboard
+   up): it stays measured and out of sight, and the chat shows its own empty line */
+.composer-greeting.is-out {
+  visibility: hidden;
+}
+
+/* it has no control: on a touch screen a tap or a drag on it goes to the chat under it, which
+   puts the keyboard away (lib/keyboard.ts) */
+@media (pointer: coarse) {
+  .composer-greeting {
+    pointer-events: none;
+  }
+}
+
 .composer-greeting-title {
   margin: 0;
   color: var(--text-strong);
@@ -56,6 +70,12 @@
 @media (min-width: 769px) and (hover: hover) and (pointer: fine) {
   .terminal-stack.is-greeted .composer {
     transform: translateY(var(--composer-lift, 0px));
+  }
+
+  /* the completion menu opens upward into what is left over the lifted card: it scrolls there,
+     where the pane's edge would cut its first rows off */
+  .terminal-stack.is-greeted .composer-menu {
+    max-height: min(calc(var(--row-h) * 5), calc(var(--composer-room, 100vh) - var(--space-2) * 2));
   }
 }
 

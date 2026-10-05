@@ -459,7 +459,11 @@ One set for both themes: the card is island black wherever it shows.
   conversation was read and holds no turn. A chat still loading, one whose read failed, an agent
   whose transcript could not be read and a pane with no recognized agent keep their own lines
   (`Loading conversation…`, the error, the terminal-output fallback, `No conversation yet — say
-  something below`), as does an agent that is working or asking.
+  something below`), as does an agent that is working or asking. A history read again after it
+  changed is loading, not empty. The server answers the terminal-output fallback for an agent
+  that has not written its transcript yet (a new Claude Code or Codex pane before its first
+  message), so those are not greeted; an omo session not yet written answers an empty
+  conversation and is.
 
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
@@ -499,7 +503,13 @@ One set for both themes: the card is island black wherever it shows.
   else changes size) so the greeting and the input card sit at the pane's vertical centre; a
   phone keeps the composer docked with the greeting above it. The first message sent removes the
   greeting and the composer is back at the bottom at once: it snaps, with no animation. Held
-  messages keep the composer docked.
+  messages keep the composer docked. Once a message went out, the greeting stays away for that
+  pane until the conversation shows a turn or becomes another history: another lens, another
+  pane or a failed read does not bring it back. A stack too short for the composer and the
+  greeting leaves the greeting out (`.is-out`, hidden and `aria-hidden`) and the chat shows its
+  own empty line. While the composer is lifted, the completion menu's height is capped to the
+  room over the input card, where it scrolls. On a coarse pointer the greeting takes no touch:
+  a tap or drag on it reaches the chat under it, which puts the keyboard away.
 - The status line ends, on fine pointers, with `/` commands and `@` files keycaps (plus `Mod+Enter`
   sends when **Enter sends** is off); the placeholder is just `Message <agent>…`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;

@@ -11,7 +11,7 @@ import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/ke
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
-import { composerLift, greetingFolder, showsGreeting } from "../lib/greeting.ts";
+import { NO_MEMORY, afterRead, afterSend, composerLift, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead, type GreetingMemory } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
@@ -204,17 +204,21 @@ export function PaneTerminal({
   const [chatRefresh, setChatRefresh] = useState(0);
   // bumped as a composer message goes out: the chat must not title the turn before it as running
   const [chatSent, setChatSent] = useState(0);
-  const chatSentRef = useRef(chatSent);
-  chatSentRef.current = chatSent;
   const [chatMetadata, setChatMetadata] = useState<{ pane: string; value: ConversationMetadata | null } | null>(null);
-  // the chat was read and holds nothing: remembered with the message count of that moment, so
-  // the first message sent ends the greeting at once, before the transcript holds its turn
-  const [chatBlank, setChatBlank] = useState<{ pane: string; sent: number } | null>(null);
-  const onChatBlank = useCallback((pane: string, blank: boolean) => {
-    setChatBlank((current) => blank
-      ? (current?.pane === pane ? current : { pane, sent: chatSentRef.current })
-      : current?.pane === pane ? null : current);
-  }, []);
+  // What each pane's chat last read, and whether a message went out since: kept per pane here,
+  // not in the chat, so a message sent ends the greeting at once and neither another lens, another
+  // pane nor a failed read brings it back before the conversation shows a turn or a new history.
+  const [chatMemory, setChatMemory] = useState<Record<string, GreetingMemory>>({});
+  const onChatRead = useCallback((pane: string, read: ChatRead | null) => {
+    const owner = paneStorageId(machineId, pane);
+    setChatMemory((all) => {
+      const memory = all[owner] ?? NO_MEMORY;
+      const next = afterRead(memory, read);
+      return next === memory ? all : { ...all, [owner]: next };
+    });
+  }, [machineId]);
+  // the stack holds the composer and the greeting over it (measured below)
+  const [greetingRoom, setGreetingRoom] = useState(true);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const greetingRef = useRef<HTMLDivElement | null>(null);
   // The prompt the chat shows: while it waits, a message from the composer answers it.
@@ -1178,6 +1182,8 @@ export function PaneTerminal({
     if (sent === null) return false;
     term.scrollToBottom();
     setChatSent((current) => current + 1);
+    const owner = paneStorageId(machineId, pane);
+    setChatMemory((all) => ({ ...all, [owner]: afterSend(all[owner] ?? NO_MEMORY) }));
     // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
     onChatSuggestion(pane, null);
     return sent.then((result) => {
@@ -1186,7 +1192,7 @@ export function PaneTerminal({
       setChatRefresh((current) => current + 1);
       return true;
     });
-  }, [onChatSuggestion]);
+  }, [onChatSuggestion, machineId]);
 
   // the terminal's input line: the text typed like the keyboard would, into an agent's open
   // menu too, then Enter after the server's gap; several lines go as one paste
@@ -1254,24 +1260,33 @@ export function PaneTerminal({
   const readyForQueue = agentStatus !== undefined && QUEUE_READY_STATUS[agentStatus] === true;
   // an empty chat: one greeting line over the composer, which a mouse-driven window centres
   const folder = greetingFolder(cwd);
-  const greeted = chatView && paneId !== null && agent !== null && !secretActive && !observing && !ended
-    && showsGreeting({ blankAtSent: chatBlank?.pane === paneId ? chatBlank.sent : null, sent: chatSent, agentStatus, queued: queued.length, folder });
-  // Only the composer moves (PaneTerminal.css): the surface under it keeps its box, so the xterm
+  const greetingDue = chatView && paneId !== null && agent !== null && !secretActive && !observing && !ended
+    && showsGreeting({ memory: chatMemory[paneStorageId(machineId, paneId)] ?? NO_MEMORY, agentStatus, queued: queued.length, folder });
+  // a stack too short for the composer and the greeting keeps the chat's own empty line
+  const greeted = greetingDue && greetingRoom;
+  // Only the composer moves (Composer.css): the surface under it keeps its box, so the xterm
   // mount is never resized by a greeting coming or going. Measured before paint, so the composer
-  // is never seen docked first.
+  // is never seen docked first. The greeting stays mounted while it does not fit, so that it is
+  // measured when the stack grows again.
   useLayoutEffect(() => {
     const stack = stackRef.current;
     const greeting = greetingRef.current;
     const composer = greeting?.parentElement;
-    if (!greeted || !stack || !greeting || !composer) return;
+    if (!greetingDue || !stack || !greeting || !composer) return;
     const place = (): void => {
-      stack.style.setProperty("--composer-lift", `${composerLift(stack.clientHeight, composer.offsetHeight, greeting.offsetHeight)}px`);
+      const lift = composerLift(stack.clientHeight, composer.offsetHeight, greeting.offsetHeight);
+      const card = composer.querySelector(".composer-surface");
+      // a difference of two boxes of the same composer: the lift moves both
+      const cardOffset = card === null ? 0 : card.getBoundingClientRect().top - composer.getBoundingClientRect().top;
+      stack.style.setProperty("--composer-lift", `${lift}px`);
+      stack.style.setProperty("--composer-room", `${roomOverComposer(stack.clientHeight, composer.offsetHeight, lift, cardOffset)}px`);
+      setGreetingRoom(greetingFits(stack.clientHeight, composer.offsetHeight, greeting.offsetHeight));
     };
     place();
     const observer = new ResizeObserver(place);
     observer.observe(stack); observer.observe(composer); observer.observe(greeting);
-    return () => { observer.disconnect(); stack.style.removeProperty("--composer-lift"); };
-  }, [greeted, paneId]);
+    return () => { observer.disconnect(); stack.style.removeProperty("--composer-lift"); stack.style.removeProperty("--composer-room"); setGreetingRoom(true); };
+  }, [greetingDue, paneId]);
 
   const composerSend = useCallback(
     (text: string): boolean | string | Promise<boolean | string> => {
@@ -1415,7 +1430,7 @@ export function PaneTerminal({
             agent={agent}
             agentStatus={agentStatus}
             onMetadata={onChatMetadata}
-            onBlank={onChatBlank}
+            onRead={onChatRead}
             greeted={greeted}
             onPrompt={onChatPrompt}
             onSuggestion={onChatSuggestion}
@@ -1496,8 +1511,8 @@ export function PaneTerminal({
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt?.pane !== paneId && chatSuggestion?.pane === paneId ? chatSuggestion.value : null}
-          greeting={greeted ? (
-            <div className="composer-greeting" ref={greetingRef}>
+          greeting={greetingDue ? (
+            <div className={`composer-greeting${greeted ? "" : " is-out"}`} ref={greetingRef} aria-hidden={greeted ? undefined : true}>
               <p className="composer-greeting-title">{t("What should {agent} do in {folder}?", { agent: agentDisplayLabel(agent), folder })}</p>
               <p className="composer-greeting-where">{[machineName, cwd].filter(Boolean).join(" · ")}</p>
             </div>
