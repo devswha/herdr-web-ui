@@ -51,6 +51,38 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   code strip and the MD and TXT buttons.
   ([#458](https://github.com/devswha/herdr-web-ui/pull/458))
 
+- A chat whose conversation was read and holds no messages yet asks "What should Omo do in
+  my-project?" over the message box, with the PC and the full path under it, instead of a dim
+  "No conversation yet" line in the middle of an empty pane. In a desktop window the question
+  and the message box sit in the middle of the pane until the first message is sent; on a phone
+  the box stays at the bottom. The question is not asked while the agent is working or waiting
+  for an answer, or while a message is held for it. A pane without an agent, or one whose
+  conversation could not be read, looks as before. That still includes a new Claude Code or
+  Codex pane: neither writes its conversation before the first message, so the chat shows the
+  terminal output until then.
+  ([#460](https://github.com/devswha/herdr-web-ui/pull/460))
+
+- The header is one line at every width: the pane's title, then PC › workspace › folder beside
+  it. The folder shows as its last name, and only when the title, the PC or the workspace does
+  not already say it; where the line has no room for the whole of it, it is left out rather than
+  cut. The full path is in the header's tooltip and at the top of the new **⋯** menu.
+  ([#461](https://github.com/devswha/herdr-web-ui/pull/461))
+- **New tab**, **Browse files** and **Alerts** are the items of one **⋯** menu in the header, in
+  place of three buttons; on a phone it also opens the command palette, whose own button left
+  the phone header. Keyboard shortcuts are unchanged. The Alerts item says this device's state
+  in words (**On in the app**, **On in this tab**, **On, pushed to this device**, **Off on this
+  device**), and the **⋯** button carries a dot while alerts are off on this device. This
+  reverses the old bell, whose outline lit while alerts were on.
+  ([#461](https://github.com/devswha/herdr-web-ui/pull/461))
+- The connection chip shows only while the app is reconnecting or disconnected; **live** is no
+  longer written out. In a window narrower than 900px the chip is its pulsing dot.
+  ([#461](https://github.com/devswha/herdr-web-ui/pull/461))
+- From 769px wide the sidebar has its own top row, with its toggle and the search, and the chat
+  has no bar above it: the conversation scrolls under a short fade. The header is 46px there in
+  the comfortable density too. Phones keep their bar. The update notice and a PC's "update the
+  bridge" line are drawn over the pane, not across the window.
+  ([#461](https://github.com/devswha/herdr-web-ui/pull/461))
+
 ### Fixed
 - An update asked for in the first moments after the app starts, or right after another update,
   waits until the start is over. It used to stop the app in the middle of its start-up check,

@@ -28,6 +28,22 @@
   --chat-fs-xl: calc(var(--fs-xl) * var(--chat-scale, 1));
 }
 
+/* From 769px the header over the chat has no bar and no rule (styles.css): the transcript
+   scrolls under a short fade instead. Not under a tab strip or a notice, which draw their own rule. */
+@media (min-width: 769px) {
+  .terminal-host:first-child .chat-view::before {
+    content: "";
+    position: sticky;
+    top: calc(-1 * var(--space-4));
+    z-index: 1;
+    display: block;
+    height: var(--space-5);
+    margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) calc(-1 * var(--space-1));
+    background: linear-gradient(var(--bg), transparent);
+    pointer-events: none;
+  }
+}
+
 .chat-transcript {
   --fs-2xs: var(--chat-fs-2xs);
   --fs-xs: var(--chat-fs-xs);
