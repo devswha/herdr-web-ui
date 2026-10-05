@@ -9,12 +9,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Changed
 - A chat whose conversation was read and holds no messages yet asks "What should Omo do in
-  my-project?" right over the message box, with the PC and the full path under it, instead of a
-  dim "No conversation yet" line in the middle of an empty pane. In a desktop window the question
+  my-project?" over the message box, with the PC and the full path under it, instead of a dim
+  "No conversation yet" line in the middle of an empty pane. In a desktop window the question
   and the message box sit in the middle of the pane until the first message is sent; on a phone
-  the box stays at the bottom. A pane without an agent, or one whose conversation could not be
-  read, looks as before. That still includes a new Claude Code or Codex pane: neither writes its
-  conversation before the first message, so the chat shows the terminal output until then.
+  the box stays at the bottom. The question is not asked while the agent is working or waiting
+  for an answer, or while a message is held for it. A pane without an agent, or one whose
+  conversation could not be read, looks as before. That still includes a new Claude Code or
+  Codex pane: neither writes its conversation before the first message, so the chat shows the
+  terminal output until then.
   ([#460](https://github.com/devswha/herdr-web-ui/pull/460))
 
 ### Fixed
