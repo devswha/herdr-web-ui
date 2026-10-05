@@ -640,7 +640,7 @@ button {
   font-size: var(--fs-xs);
 }
 
-/* one chip for the connection; the herdr version lives in its tooltip and the sidebar footer */
+/* one chip for the connection; the herdr version lives in its tooltip and in Settings */
 .conn {
   display: inline-flex;
   align-items: center;

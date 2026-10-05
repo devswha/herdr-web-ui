@@ -16,6 +16,15 @@ export function runningAppVersion(status: Pick<UpdateStatus, "current_version" |
 }
 
 /**
+ * The version this tab's client was built from, when the server already runs another one: after
+ * an update and before the reload, or behind a cached client. A bug seen in this tab belongs to
+ * this version, not to the one the server reports.
+ */
+export function staleClientVersion(status: Pick<UpdateStatus, "current_version"> | null, built: string): string | null {
+  return status?.current_version && status.current_version !== built ? `v${built}` : null;
+}
+
+/**
  * The herdr version Settings prints: the running server's, else the installed binary's, else
  * the one the health check reported, which is all there is where herdr cannot be updated from
  * here (Windows, an older server, the demo).

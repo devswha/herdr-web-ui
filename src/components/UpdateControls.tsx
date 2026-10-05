@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { UpdateStatus } from "../../shared/update.ts";
 import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
-import { runningAppVersion, runningHerdrVersion, versionLabel } from "../lib/runningVersion.ts";
+import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "../lib/runningVersion.ts";
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import "./Machines.css";
@@ -30,10 +30,12 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
   const t = useT();
   const { status, error, busy, needsReload, request } = updates;
   const installing = busy && (status?.phase === "building" || status?.phase === "restarting");
+  const tabVersion = staleClientVersion(status, __APP_VERSION__);
   return <section className="settings-section settings-updates">
     <h3>{t("Updates")}</h3>
     {/* always a version: the sidebar no longer carries one */}
     <p className="settings-hint">{t("Running {version}", { version: runningAppVersion(status, __APP_VERSION__) })}</p>
+    {tabVersion && <p className="settings-hint">{t("This tab still runs {version} until it is reloaded.", { version: tabVersion })}</p>}
     {installing && !error ? <div role="status"><UpdateProgress status={status} fallback={t(status?.phase === "building" ? "Installing dependencies and building…" : "Restarting the bridge…")} /></div> : <p className="settings-hint" role="status">
       {error ?? status?.error ?? status?.blocked_reason ?? (busy ? t("Checking for updates…") :
         status?.available ? t("Version {version} is available.", { version: versionLabel(status.latest_version, status.latest_revision) ?? "" }) : status?.checked_at ? t("Up to date.") : t("Waiting for an update check…"))}

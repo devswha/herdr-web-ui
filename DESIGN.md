@@ -525,7 +525,9 @@ One set for both themes: the card is island black wherever it shows.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
 - The running versions are always written, since the sidebar carries none. Updates opens with
   **Running vX.Y.Z (commit)**: the server's version and commit, or the client's own build version
-  before the server answers and where it names neither. The **herdr** section opens with
+  before the server answers and where it names neither. While the server runs another version than
+  this tab was built from (updated, not yet reloaded), a second line names the tab's own. The
+  **herdr** section opens with
   **Running herdr X.Y.Z**; where herdr cannot be updated from here (Windows, an older server) the
   section is that line alone, from the health check.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining,

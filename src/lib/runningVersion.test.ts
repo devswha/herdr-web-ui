@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runningAppVersion, runningHerdrVersion, versionLabel } from "./runningVersion.ts";
+import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "./runningVersion.ts";
 
 describe("versionLabel", () => {
   test("names the version and the commit's first twelve characters", () => {
@@ -43,5 +43,17 @@ describe("runningHerdrVersion", () => {
   test("is nothing when herdr has not said", () => {
     expect(runningHerdrVersion(null, null)).toBeNull();
     expect(runningHerdrVersion({ server_version: null, binary_version: null }, null)).toBeNull();
+  });
+});
+
+describe("staleClientVersion", () => {
+  test("names this tab's build while the server runs another version", () => {
+    expect(staleClientVersion({ current_version: "0.3.50" }, "0.3.49")).toBe("v0.3.49");
+  });
+
+  test("is nothing when both run the same version, or the server names none", () => {
+    expect(staleClientVersion({ current_version: "0.3.49" }, "0.3.49")).toBeNull();
+    expect(staleClientVersion({ current_version: null }, "0.3.49")).toBeNull();
+    expect(staleClientVersion(null, "0.3.49")).toBeNull();
   });
 });
