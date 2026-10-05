@@ -51,7 +51,7 @@
   --fs-md: var(--chat-fs-md);
   --fs-lg: var(--chat-fs-lg);
   --fs-xl: var(--chat-fs-xl);
-  width: min(100%, var(--content-w));
+  width: min(100%, var(--chat-w));
   min-height: 100%;
   margin-inline: auto;
   display: flex;

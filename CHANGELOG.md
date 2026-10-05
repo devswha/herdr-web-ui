@@ -17,6 +17,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the box is narrow, beside the sidebar for one, the background-task chip shows its count
   before the model's name is cut. In dark themes Queue loses its outline.
   ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
+- The chat is wider on a large screen: the conversation and the message box follow the pane,
+  at least 820px and at most 960px wide, 71% of the pane between. A laptop window keeps the
+  820px it had and a large monitor grows to 960px. Settings → Chat → **Chat width** chooses
+  **Narrow** (820px, as before), **Default**, **Wide** (1152px) or **Full**, the whole pane.
+  The held messages, the approval card and the background-task list keep the same column.
+  Phones and narrow panes look the same as before.
+  ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 - Held messages above the message box are quiet rows instead of a tinted box: one line above
   them, a clock with the sentence the box already showed ("Held until the agent is ready", and
   "· 2 messages" from two), then each message on its own row with **Send now** and **Discard**
@@ -24,8 +31,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   **Send now**. The rows are as wide as the message box at every window width, and the list
   scrolls after two and a half rows. When the agent is ready, the clock and **Send now** take
   the accent colour. While an approval card is open, or in a phone window 600px tall or less (an
-  Android phone with its keyboard up), the rows fold into that one line; tap it to open them. On a phone, **Discard** is an X, and the message
-  box keeps the same side margin as the conversation.
+  Android phone with its keyboard up), the rows fold into that one line; tap it to open them. On
+  a phone, **Discard** is an X, and the message box keeps the same side margin as the
+  conversation.
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
@@ -78,7 +86,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   bridge" line are drawn over the pane, not across the window.
   ([#461](https://github.com/devswha/herdr-web-ui/pull/461))
 
+- The sidebar's footer ends at Settings and the plan meters: the "herdr web ui v…" line and the
+  herdr version beside it are gone from under them. Both versions are read in Settings, in every
+  state: **Updates** always opens with the running app version, and **herdr** shows the running
+  herdr version also where herdr cannot be updated from the app, such as on Windows. A tab that
+  has not been reloaded since the server updated says which version it still runs.
+  ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
+
 ### Fixed
+- A draft in the message box keeps its full height when the window or the pane is resized, or
+  the chat width changes: the box used to keep the height of its old line breaks until the next
+  key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 - An update asked for in the first moments after the app starts, or right after another update,
   waits until the start is over. It used to stop the app in the middle of its start-up check,
   and the app then fell back to the source checkout or did not come up.

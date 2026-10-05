@@ -32,7 +32,7 @@ body:
     id: version
     attributes:
       label: herdr web ui version
-      description: The sidebar footer shows it (`herdr web ui vX.Y.Z`). Add the last version that worked, if you know it.
+      description: "Settings shows it: the first line under Updates reads `Running vX.Y.Z (commit)`. Add the last version that worked, if you know it."
       placeholder: 0.3.33 (worked in 0.3.31)
     validations:
       required: true

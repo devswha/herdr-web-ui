@@ -729,14 +729,27 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   }, [state, prompt]);
 
   // A resized composer, a raised keyboard or a narrower window shrinks the view
-  // without a scroll event; a reader at the end stays at the end, at once.
+  // without a scroll event; a reader at the end stays at the end, at once. So does a
+  // conversation that rewraps inside an unchanged view: its width or its type changed
+  // (Settings → Chat width, Chat font size, Chat font). One that only grew taller did so under
+  // the reader's hand (a folded block opened, a whole output asked for): following the end there
+  // would jump past what was just opened. New messages follow in the layout effect above.
   useEffect(() => {
     const node = scroller.current;
     if (node === null) return;
-    const observer = new ResizeObserver(() => {
-      if (stickToBottom.current) node.scrollTo({ top: node.scrollHeight, behavior: "instant" });
+    let lane = "";
+    const observer = new ResizeObserver((entries) => {
+      let follow = false;
+      for (const entry of entries) {
+        if (entry.target === node) { follow = true; continue; }
+        const style = getComputedStyle(entry.target);
+        const next = `${entry.contentRect.width}|${style.fontSize}|${style.fontFamily}`;
+        if (next !== lane) { lane = next; follow = true; }
+      }
+      if (follow && stickToBottom.current) node.scrollTo({ top: node.scrollHeight, behavior: "instant" });
     });
     observer.observe(node);
+    if (node.firstElementChild !== null) observer.observe(node.firstElementChild);
     return () => observer.disconnect();
   }, []);
   // a tap or a drag down the transcript puts a phone's keyboard away to read (lib/keyboard.ts)

@@ -1,6 +1,6 @@
 /* The composer is a centered chat surface; PaneTerminal owns its placement above the mobile
    keyboard. Its horizontal padding equals .chat-view's, so the quick replies, the box and the
-   transcript share one column edge. */
+   transcript share one column edge. The column is --chat-w (Settings → Chat width). */
 .composer {
   position: relative;
   flex: none;
@@ -97,13 +97,13 @@
 .composer-quick,
 .composer-surface,
 .composer-note {
-  width: min(100%, var(--content-w));
+  width: min(100%, var(--chat-w));
   margin-inline: auto;
 }
 
 /* the dictation pill floats above the composer, on the same column edge */
 .composer > .voice-pill[data-align="start"] {
-  left: calc(var(--space-4) + max(0px, (100% - 2 * var(--space-4) - var(--content-w)) / 2));
+  left: calc(var(--space-4) + max(0px, (100% - 2 * var(--space-4) - var(--chat-w)) / 2));
 }
 
 /* the card's last row, at the card's full width at every window width: a footer that shared
@@ -639,8 +639,11 @@
   border-top: var(--hairline) solid var(--border);
 }
 
+/* The list is a sibling of the composer, not a child: it has no gutter of its own, so it takes
+   the card's column (the pane less the composer's two gutters, up to --chat-w) at every window
+   width and every Chat width step, with no floor of its own */
 .terminal-stack.is-chat .composer-queue {
-  width: min(calc(100% - 2 * var(--space-4)), var(--content-w));
+  width: min(calc(100% - 2 * var(--space-4)), var(--chat-w));
   margin: 0 auto;
 }
 
