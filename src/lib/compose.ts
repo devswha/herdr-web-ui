@@ -137,13 +137,15 @@ export function composerStatusCompact(cardWidth: number): boolean {
 
 /**
  * Whether the Queue pill is drawn. While the agent works Stop is the one resting control: Queue
- * appears once there is something to hold (text, or an attachment), and never while not
- * connected, where nothing can be queued. It reads the draft, not whether the button is
- * enabled: a pill disabled while a file uploads or the message is on its way stays in place.
- * Showing it queues nothing: the message is held only by pressing it.
+ * appears once there is something to hold (text, or a file still uploading, whose mention is
+ * about to land in the text), and never while not connected, where nothing can be queued. It
+ * reads the draft, not whether the button is enabled: a pill disabled while a file uploads or
+ * the message is on its way stays in place. An uploaded file goes as its mention in the text,
+ * so a tile left alone in an empty box (its mention deleted, or a failed upload) holds nothing
+ * and offers nothing. Showing it queues nothing: the message is held only by pressing it.
  */
-export function composerQueueShown(state: { queueMode: boolean; connected: boolean; text: string; attachments: number }): boolean {
-  return state.queueMode && state.connected && (state.text.trim().length > 0 || state.attachments > 0);
+export function composerQueueShown(state: { queueMode: boolean; connected: boolean; text: string; uploading: boolean }): boolean {
+  return state.queueMode && state.connected && (state.text.trim().length > 0 || state.uploading);
 }
 
 /**

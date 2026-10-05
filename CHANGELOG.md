@@ -22,8 +22,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   attaches files (it was a paperclip) and the background-task chip follows it; on the right are
   the model, the reasoning level and the context ring, then one round button. Send is an arrow
   pointing up, and Stop is the same circle in the same place, so only the glyph changes when a
-  turn starts and ends. While the agent works, Queue appears once the box holds text or an
-  attachment; with an empty box Stop is the only button, and Queue still holds a message only
+  turn starts and ends. While the agent works, Queue appears once the box holds text or a
+  file that is still uploading; with an empty box Stop is the only button, and Queue still holds a message only
   when you press it, after which the keyboard's focus is back in the message box. Where the two
   do not fit side by side (a phone, or a long model name beside the sidebar) the model's name
   steps aside while Queue is showing, so neither is cut; without Queue the reasoning level
