@@ -16,7 +16,7 @@ import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
-import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
+import { isLiveWorkTurn, formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
@@ -38,6 +38,7 @@ const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
+import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
 const TRANSCRIPT_LINES = 400;
@@ -55,6 +56,10 @@ export interface ChatViewProps {
   agent: string | null;
   agentStatus?: AgentStatus;
   onMetadata?: (paneId: string, metadata: ConversationMetadata | null) => void;
+  /** what the last read says of the conversation, for the composer's greeting; null while nothing is known (loading, a failed read, the chat gone) */
+  onRead?: (paneId: string, read: ChatRead | null) => void;
+  /** the composer shows its greeting: the chat's own "nothing yet" line stays out */
+  greeted?: boolean;
   /** the agent's waiting prompt, for the composer to answer too */
   onPrompt?: (paneId: string, prompt: InteractivePrompt | null) => void;
   /** with no prompt waiting, the next prompt the agent suggests (Claude's grey input text) */
@@ -101,7 +106,7 @@ function CopyButton({ text, label, className = "icon-button chat-copy", children
     window.setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <button type="button" className={className} onClick={() => void copy()} aria-label={copied ? t("Copied") : label} title={copied ? t("Copied") : label}>
+    <button type="button" className={copied ? `${className} is-copied` : className} onClick={() => void copy()} aria-label={copied ? t("Copied") : label} title={copied ? t("Copied") : label}>
       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
       {children}
     </button>
@@ -296,17 +301,23 @@ function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinkin
   const t = useT();
   const [chosenOpen, setOpen] = useState<boolean | null>(null);
   const open = chosenOpen ?? defaultOpen;
+  // reading or working inside the block is a choice to keep it: the fold at the end of the turn
+  // must not take the rows from under the reader's focus or close the row they opened
+  const keepOpen = () => { if (chosenOpen === null) setOpen(true); };
   const visible = parts.filter((part) => part.kind !== "skill" && (showThinking || part.kind !== "thinking"));
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
+  const failed = workFailed(parts);
   const title = live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
-  return <section className={`work-block${live ? " is-live" : ""}`}>
+  return <section className={`work-block${live ? " is-live" : ""}${open ? "" : " is-folded"}`}>
     <button type="button" className="work-block-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <span className="work-block-title">{title}</span>
       {summary.length > 0 && <span className="work-block-summary">· {summary}</span>}
+      {/* its own span: the counts before it are cut on a narrow screen, a failure never is */}
+      {failed > 0 && <span className="work-block-failed">· {t("{n} failed", { n: failed })}</span>}
     </button>
-    {open && <div className="work-block-rows">{visible.map((part, index) =>
+    {open && <div className="work-block-rows" onFocus={keepOpen} onClick={keepOpen}>{visible.map((part, index) =>
       part.kind === "thinking" ? <ThinkingRow key={index} text={part.text} />
         : part.kind === "text" ? <div key={index} className="work-narration"><Markdown>{part.text}</Markdown></div>
           : part.kind === "tool" ? <WorkRow key={index} paneId={paneId} part={part} /> : null)}</div>}
@@ -382,8 +393,6 @@ interface TurnProps {
   turn: ConversationTurn;
   /** the last turn while the agent runs: its work block reads "Working…" */
   live: boolean;
-  /** the newest assistant turn opens its work; older ones start folded */
-  last: boolean;
   showThinking: boolean;
 }
 
@@ -395,7 +404,7 @@ function noticeLabel(t: ReturnType<typeof useT>, notice: Extract<ConversationPar
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
-const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
+const Turn = memo(function Turn({ paneId, turn, live, showThinking }: TurnProps) {
   const t = useT();
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
@@ -417,10 +426,13 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
     return <article className="chat-turn chat-turn-user">
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
-      {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
+      {/* one row: with a mouse the time and copy sit beside the bubble, on touch under it */}
+      <div className="chat-user-row">
+        {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
+        <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
+      </div>
       {/* the skill this message invoked (omp, omo, pi): the runtime recorded its instructions with it */}
       <SkillActivityList parts={turn.parts} />
-      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
     </article>;
   }
   const { work, answer } = splitTurn(turn.parts);
@@ -429,11 +441,12 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
   return <article className="chat-turn chat-turn-agent">
     <SkillActivityList parts={turn.parts} />
     {goal !== null && <GoalActivity goal={goal} />}
-    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={last} showThinking={showThinking} />}
+    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={workStartsOpen(live, turn.parts)} showThinking={showThinking} />}
     {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
-      <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")}>MD</CopyButton>
-      <CopyButton className="chat-meta-btn" text={plainText(answerText)} label={t("Copy as plain text")}>TXT</CopyButton>
+      {/* a mouse reads one copy glyph and the words "Plain text"; touch reads the two formats */}
+      <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")}><span className="chat-meta-fmt">MD</span></CopyButton>
+      <CopyButton className="chat-meta-btn chat-meta-plain" text={plainText(answerText)} label={t("Copy as plain text")}><span className="chat-meta-fmt">TXT</span><span className="chat-meta-word">{t("Plain text")}</span></CopyButton>
       {time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}
     </div>}
   </article>;
@@ -442,11 +455,11 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
 function FallbackTurn({ paneId, message }: { paneId: string; message: TranscriptMessage }) {
   if (message.role === "status") return null;
   const turn: ConversationTurn = { role: message.role === "user" ? "user" : "assistant", ts: null, parts: [{ kind: "text", text: message.text }] };
-  return <Turn paneId={paneId} turn={turn} live={false} last={false} showThinking={false} />;
+  return <Turn paneId={paneId} turn={turn} live={false} showThinking={false} />;
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -460,7 +473,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
-  /** the first answer for this pane arrived (or failed): until then an empty chat is only loading */
+  /** an answer for this pane arrived (or failed): until then, and while a replaced history is read again, an empty chat is only loading */
   const [loaded, setLoaded] = useState(false);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
   // turns the transcript holds on a path /tree walked away from: no page can reach them, so the
@@ -565,7 +578,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
           // a new session or a Codex backtrack replaced the transcript the older pages came from
           if (heldFrom.current === null || !(cause instanceof ApiError) || cause.status !== 409) throw cause;
           if (cancelled || generation !== olderGeneration.current) return;
-          dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+          dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
           generation = olderGeneration.current;
           conversation = await fetchPaneConversation(paneId);
         }
@@ -585,7 +598,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
           const between = await turnsBetween(held, conversation.cursor);
           if (cancelled || generation !== olderGeneration.current) return;
           if (between === null) {
-            dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+            dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
             setPollKey((key) => key + 1); return;
           }
           else { moved = between; heldFrom.current = conversation.cursor; }
@@ -635,7 +648,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       const page = await fetchPaneConversation(paneId, { before });
       if (shownPane.current !== paneId || olderGeneration.current !== generation) return;
       if (page.history_id !== history.current) {
-        dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+        dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
         setPollKey((key) => key + 1); return;
       }
       // a bridge without pages answers with its newest turns: nothing older to add
@@ -651,7 +664,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
     } catch (cause) {
       if (shownPane.current !== paneId || olderGeneration.current !== generation) return;
       if (cause instanceof ApiError && cause.status === 409) {
-        dropOlder(); setState(EMPTY_STATE); signature.current = ""; lastAnswer.current = null;
+        dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
         setPollKey((key) => key + 1);
       }
       else setOlderState("failed");
@@ -750,6 +763,16 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
+  const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, older: typeof olderCursor === "string", abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
+  // the scrollback standing in says nothing of the conversation: it has no history to compare
+  const known = loaded && error === null && !ended && state.source === "conversation";
+  const held = turns.length + (abandoned?.count ?? 0);
+  // before paint: the greeting replaces the line below in the same frame, not one after it
+  useLayoutEffect(() => {
+    onRead?.(paneId, known ? { blank, turns: held, history: historyId } : null);
+  }, [onRead, paneId, known, blank, held, historyId]);
+  // the chat left the screen (another lens): nothing is known of it until it is read again
+  useLayoutEffect(() => () => onRead?.(paneId, null), [onRead, paneId]);
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
@@ -778,7 +801,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} />
+              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} showThinking={settings.showThinking} />
             </RenderBoundary>;
           })
         : agent !== null
@@ -787,7 +810,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       {!ended && !connected && <p className="chat-inline-state">{t("reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? "locked — the token gate is asking again" : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
-      {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {loaded && empty && error === null && prompt === null && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => {
         setPrompt(null);
         // a form of several questions goes on to its next one: read it now, not at the next poll

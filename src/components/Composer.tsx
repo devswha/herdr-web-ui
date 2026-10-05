@@ -10,6 +10,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
 
@@ -53,6 +54,8 @@ export interface ComposerProps {
   answerHint?: string | null;
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
   suggestion?: string | null;
+  /** an empty chat's greeting: it stands over the composer's column and takes no row of its own */
+  greeting?: ReactNode;
   /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
   onSend: (text: string) => boolean | string | Promise<boolean | string>;
   onAbort: () => void;
@@ -186,6 +189,7 @@ export function Composer({
   queueMode = false,
   answerHint = null,
   suggestion = null,
+  greeting = null,
   onSend,
   onAbort,
   onUploadImage,
@@ -659,7 +663,8 @@ export function Composer({
   const menuId = `composer-menu-${paneId}`;
 
   return (
-    <div className="composer" role="group" aria-label={t("Message composer")}>
+    <div className="composer" role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined}>
+      {greeting}
       {/* no Tab key on a phone: the suggestion can be a chip there that fills the box, once chosen in Settings */}
       {settings.showSuggestionChip && offered !== null && text === "" && (
         <div className="composer-quick composer-suggestion-row">

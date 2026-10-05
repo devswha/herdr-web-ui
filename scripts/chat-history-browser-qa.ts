@@ -97,6 +97,8 @@ try {
   newest = "new newest";
   await refresh();
   await page.getByText(newest, { exact: true }).waitFor();
+  // a settled turn's work is folded: open the block, then its row
+  await page.locator(".work-block-head").click();
   await page.locator(".work-row-head").click();
   await page.locator(".chat-tool-more").click();
   const requestIndex = await page.evaluate(() => window.qa.requests.length - 1);
@@ -105,6 +107,9 @@ try {
   await page.getByText(newest, { exact: true }).waitFor();
   await page.waitForFunction((i) => window.qa.requests[i].signal.aborted, requestIndex);
   await page.evaluate((i) => window.qa.requests[i].resolve("STALE TOOL OUTPUT"), requestIndex);
+  // the cleared history brought a new turn, folded like any settled one
+  assert.equal(await page.locator(".work-block-head").getAttribute("aria-expanded"), "false");
+  await page.locator(".work-block-head").click();
   await page.locator(".work-row-head").click();
   assert.equal(await page.getByText("STALE TOOL OUTPUT", { exact: true }).count(), 0);
   assert.equal(await page.locator(".chat-tool-more").count(), 1);
