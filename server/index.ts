@@ -54,7 +54,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
+import { codexQuestionsCollapsed, handlePromptRequest, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -896,6 +896,9 @@ export function createServer(
 
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
+      // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
+      // its screen after this is another asking, which an answer to the old card must not take
+      if (raw === "working") promptWaitEnded(paneId);
       // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
       // is OmO's own or herdr's by turns (server/omo-status.ts), and a difference is no change
       if (replay && (omo.runs(paneId) || !completions.replayed(paneId, raw, replay))) return;

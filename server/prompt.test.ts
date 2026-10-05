@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk } from "./prompt.ts";
+import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -1719,5 +1719,226 @@ ${MODEL_HINT}
     // pi keeps the answered list on screen; the next request's output buries the hint under it,
     // and the card must not stay open offering a switch into whatever the pane shows by then
     expect(parseInteractivePrompt("pi", `${wide}\nSome later output\nand more`)).toBeNull();
+  });
+});
+
+// The answer route against a herdr that only holds a screen: what the pane shows is the test's to
+// change, between two reads or under an answer's own keys, and every key the route sends is kept.
+describe("an answer and the menu it was made for", () => {
+  interface Pane { agent: string; status: string; screen: string; sent: string[]; onSent?: (sent: string) => void }
+
+  async function withPane(agent: string, status: string, screen: string, run: (pane: Pane) => Promise<void>): Promise<void> {
+    const root = mkdtempSync(join(tmpdir(), "herdr-prompt-answer-"));
+    const path = join(root, "herdr.sock");
+    const pane: Pane = { agent, status, screen, sent: [] };
+    const sockets = new Set<Socket>();
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.on("error", () => undefined);
+      let input = "";
+      socket.on("data", (chunk) => {
+        input += chunk.toString();
+        if (!input.includes("\n")) return;
+        const request = JSON.parse(input.split("\n")[0]!) as { id: string; method: string; params: { keys?: string[]; text?: string } };
+        const answer = (result: unknown) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
+        if (request.method === "session.snapshot") return answer({ snapshot: { panes: [{ pane_id: "p_1", agent: pane.agent, agent_status: pane.status }], layouts: [] } });
+        if (request.method === "pane.read") return answer({ read: { text: pane.screen } });
+        if (request.method !== "pane.send_keys" && request.method !== "pane.send_text") throw new Error(`unexpected fixture RPC: ${request.method}`);
+        for (const sent of request.params.keys ?? [`text:${request.params.text}`]) {
+          pane.sent.push(sent);
+          pane.onSent?.(sent);
+        }
+        answer({});
+      });
+    });
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, resolve); });
+    const previous = process.env["HERDR_SOCKET"];
+    process.env["HERDR_SOCKET"] = path;
+    try { await run(pane); } finally {
+      if (previous === undefined) delete process.env["HERDR_SOCKET"];
+      else process.env["HERDR_SOCKET"] = previous;
+      for (const socket of sockets) socket.destroy();
+      server.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  async function card(): Promise<InteractivePrompt | null> {
+    const url = new URL("http://127.0.0.1/api/pane/prompt?pane_id=p_1");
+    return ((await (await handlePromptRequest(new Request(url), url))!.json()) as { prompt: InteractivePrompt | null }).prompt;
+  }
+
+  async function answer(promptId: string, choice: { option_index?: number; option_indices?: number[]; custom_text?: string }): Promise<{ status: number; code?: string }> {
+    const url = new URL("http://127.0.0.1/api/pane/prompt/answer");
+    const response = (await handlePromptRequest(new Request(url, { method: "POST", body: JSON.stringify({ pane_id: "p_1", prompt_id: promptId, ...choice }) }), url))!;
+    const body = await response.json() as { error?: { code: string } };
+    return { status: response.status, code: body.error?.code };
+  }
+
+  /** Codex's continue menu with its cursor on `at` */
+  const menu = (rows: string[], at = 0, above = "Conversation interrupted") =>
+    `${above}\n\n${rows.map((row, index) => `${index === at ? "›" : " "} ${index + 1}. ${row}`).join("\n")}\n\nPress enter to continue\n`;
+  const RESUME = ["Resume the task", "Start over", "Quit"];
+  const DELETE = ["Keep the branch", "Delete the branch", "Quit"];
+
+  /** the pane as a menu would run it: ↓ and ↑ move the cursor, and the screen shows it */
+  function moving(pane: Pane, rows: string[], draw: (at: number) => string = (at) => menu(rows, at)): void {
+    let at = 0;
+    pane.onSent = (sent) => {
+      if (sent === "down") at = Math.min(rows.length - 1, at + 1);
+      if (sent === "up") at = Math.max(0, at - 1);
+      pane.screen = draw(at);
+    };
+  }
+
+  test("moves to the row and confirms it while the menu stays the card's", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      moving(pane, RESUME);
+      const prompt = (await card())!;
+      expect(labels(prompt)).toEqual(RESUME);
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "enter"]);
+    });
+  });
+
+  test("waits out a screen caught half drawn after a move", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const prompt = (await card())!;
+      // the ↓ clears the menu before it draws it again: a read in between finds no menu at all
+      pane.onSent = (sent) => {
+        if (sent !== "down") return;
+        pane.screen = "";
+        setTimeout(() => { pane.screen = menu(RESUME, 1); }, 80);
+      };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "enter"]);
+    });
+  });
+
+  test("presses no Enter into a menu that took the place of the card's under its moves", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const prompt = (await card())!;
+      // answered in the terminal as the answer's ↓ went out, and another menu asks under it:
+      // its second row, which the Enter would take, deletes a branch
+      pane.onSent = () => { pane.screen = menu(DELETE, 1, "Branch cleanup"); };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  });
+
+  test("presses no Enter on a row an arrow key typed in the terminal moved the cursor to", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = menu(RESUME, 2); };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  });
+
+  test("the cursor's row is no part of what a menu says: the same card wherever it stands", () => {
+    const id = (screen: string) => parseInteractivePrompt("codex", screen)!.id;
+    expect(id(menu(RESUME, 2))).toBe(id(menu(RESUME, 0)));
+  });
+
+  const QUESTION = (rows: string[], at: number) => `
+☐ Dataset
+
+Which evaluation dataset should we use?
+
+${rows.map((row, index) => `${index === at ? "❯" : " "} ${index + 1}. ${row}`).join("\n")}
+────────────────────────────
+  ${rows.length + 1}. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+  const DATASETS = ["LM-O", "YCB-V", "Type something."];
+
+  test("types a custom answer only into the question it was written for", async () => {
+    await withPane("claude", "blocked", QUESTION(DATASETS, 0), async (pane) => {
+      moving(pane, DATASETS, (at) => QUESTION(DATASETS, at));
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { custom_text: "the internal set" })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "text:the internal set", "enter"]);
+    });
+    await withPane("claude", "blocked", QUESTION(DATASETS, 0), async (pane) => {
+      const prompt = (await card())!;
+      // another question by the time the cursor is down: the text would be typed into its row
+      pane.onSent = () => { pane.screen = QUESTION(["main", "release", "Type something."], 2); };
+      expect(await answer(prompt.id, { custom_text: "the internal set" })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down", "down"]);
+    });
+  });
+
+  const FOOTER = "\n────────────────────────────────────────\n/tmp/app\n0.0%/215k (auto)                                        some-model • medium\n";
+  const dialog = (title: string, rows: string[], at: number) =>
+    `────────────────────────────────────────\n\n ${title}\n\n${rows.map((row, index) => `${index === at ? " → " : "   "}${row}`).join("\n")}\n ↑↓ navigate  enter select  escape/ctrl+c cancel\n────────────────────────────────────────${FOOTER}`;
+  const ALLOW = ["Allow once", "Always allow", "Block"];
+
+  test("answers pi's dialog once its cursor is on the row, and no other dialog in its place", async () => {
+    // pi stays idle while a dialog waits, and a dialog with its cursor off the first row has no card
+    await withPane("pi", "idle", dialog("Allow dangerous command?", ALLOW, 0), async (pane) => {
+      moving(pane, ALLOW, (at) => dialog("Allow dangerous command?", ALLOW, at));
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "enter"]);
+    });
+    await withPane("pi", "idle", dialog("Allow dangerous command?", ALLOW, 0), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = dialog("Delete the session?", ["Keep it", "Delete it"], 1); };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  });
+
+  test("a prompt keeps its id from read to read while it waits", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async () => {
+      const first = (await card())!;
+      expect((await card())!.id).toBe(first.id);
+      // and it is not the hash of its text alone
+      expect(first.id).not.toBe(parseInteractivePrompt("codex", menu(RESUME))!.id);
+    });
+  });
+
+  test("refuses an answer to a prompt that went away and was asked again", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const first = (await card())!;
+      // answered in the terminal: a read finds no menu, then the same menu asked again
+      pane.screen = "Working…\n";
+      pane.status = "working";
+      expect(await card()).toBeNull();
+      pane.screen = menu(RESUME);
+      pane.status = "blocked";
+      const second = (await card())!;
+      expect(labels(second)).toEqual(labels(first));
+      expect(second.id).not.toBe(first.id);
+      // the first asking's card, still open on another device (or its typed pick's Confirm)
+      expect(await answer(first.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+      expect(await answer(second.id, { option_index: 0 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["enter"]);
+    });
+  });
+
+  test("refuses a second answer to the id of a prompt already answered, the same one asked again", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const first = (await card())!;
+      // the screen never changes: answered, the menu is asked again as it was
+      expect(await answer(first.id, { option_index: 0 })).toEqual({ status: 200, code: undefined });
+      expect(await answer(first.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["enter"]);
+      expect((await card())!.id).not.toBe(first.id);
+    });
+  });
+
+  test("refuses an answer to a prompt asked again after the agent went back to work unseen", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const first = (await card())!;
+      // answered in the terminal and asked again between two reads: only herdr's status says so
+      promptWaitEnded("p_1");
+      expect(await answer(first.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+      expect((await card())!.id).not.toBe(first.id);
+    });
   });
 });

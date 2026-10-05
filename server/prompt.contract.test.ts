@@ -18,7 +18,7 @@ const workspaces: string[] = [];
 const MENU = `
 const { appendFileSync, writeFileSync } = require("node:fs");
 const [out, spec] = process.argv.slice(2);
-const { head, rows, drift } = JSON.parse(spec);
+let { head, rows, drift, next } = JSON.parse(spec);
 let cursor = 0;
 const draw = () => process.stdout.write("\\u001b[2J\\u001b[H" + [
   ...head, "", ...rows.map((row, index) => " " + (index === cursor ? "❯" : " ") + " " + row), "", " Enter to confirm · Esc to cancel",
@@ -29,6 +29,8 @@ process.stdin.on("data", (chunk) => {
   const data = chunk.toString("utf8");
   // drift: a key typed in the pane at the same moment, one more row down
   if (/\\u001b[\\[O]B/.test(data)) cursor = Math.min(rows.length - 1, cursor + 1 + (drift ? 1 : 0));
+  // next: answered in the terminal at that moment, and another menu asks in its place
+  if (/\\u001b[\\[O]B/.test(data) && next) { head = next.head; rows = next.rows; next = null; }
   if (/\\u001b[\\[O]A/.test(data)) cursor = Math.max(0, cursor - 1);
   if (data.includes("\\r")) appendFileSync(out, rows[cursor] + "\\n");
   draw();
@@ -67,14 +69,16 @@ let trust: Menu;
 let guessed: Menu;
 let drifting: Menu;
 let ticking: Menu;
+let replaced: Menu;
+let twin: Menu;
 
-async function menu(label: string, head: string[], rows: string[], drift = false, script = "menu.js"): Promise<Menu> {
+async function menu(label: string, head: string[], rows: string[], drift = false, script = "menu.js", next?: { head: string[]; rows: string[] }): Promise<Menu> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
     "workspace.create", { label: `herdr-web-ui-test-prompt-${label}`, cwd: root, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   const log = join(root, `${label}.log`);
-  const spec = JSON.stringify({ head, rows, drift });
+  const spec = JSON.stringify({ head, rows, drift, next });
   await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "claude")}' '${join(root, script)}' '${log}' '${spec}'\n` });
   for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
   expect(existsSync(log)).toBe(true);
@@ -119,6 +123,9 @@ beforeAll(async () => {
   guessed = await menu("guessed", ["─".repeat(35), " Trust?"], ["Yes, trust and enable all hooks", "Yes, trust this folder", "No, exit"]);
   drifting = await menu("drifting", [" Accessing workspace:", "", " Quick safety check: Is this a project you created or one you trust?"], ["No, exit", "Yes, I trust this folder", "Yes, and enable its hooks"], true);
   ticking = await menu("ticking", [], [], false, "tick.js");
+  replaced = await menu("replaced", [" Accessing workspace:", "", " Quick safety check: Is this a project you created or one you trust?"], ["No, exit", "Yes, I trust this folder"], false, "menu.js",
+    { head: [" Remove the worktree and its branch?"], rows: ["No, keep them", "Yes, remove both"] });
+  twin = await menu("twin", [" Run the migration again?"], ["Yes, run it", "No, stop"]);
 }, 30_000);
 
 afterAll(async () => {
@@ -152,6 +159,31 @@ describe("answers to Claude's unnumbered menus", () => {
     expect(response.status).toBe(409);
     await Bun.sleep(300);
     expect(chosen(drifting)).toEqual([]);
+  });
+
+  it("confirms nothing in a menu that took the place of the card's under its moves", async () => {
+    const prompt = await card(replaced);
+    expect(prompt.options.map((option) => option.label)).toEqual(["No, exit", "Yes, I trust this folder"]);
+    // the answer's ↓ finds another menu, its cursor on the row the Enter was for
+    const response = await answer(replaced, prompt.id, 1);
+    expect(response.status).toBe(409);
+    await Bun.sleep(300);
+    expect(chosen(replaced)).toEqual([]);
+    expect((await card(replaced)).options.map((option) => option.label)).toEqual(["No, keep them", "Yes, remove both"]);
+  });
+
+  it("refuses the id of a menu already answered once the same menu is asked again", async () => {
+    const prompt = await card(twin);
+    expect((await answer(twin, prompt.id, 0)).status).toBe(200);
+    expect(await confirmed(twin)).toEqual(["Yes, run it"]);
+    // the menu is drawn again as it was: the same question, asked a second time
+    const again = await card(twin);
+    expect(again.options).toEqual(prompt.options);
+    expect(again.id).not.toBe(prompt.id);
+    // the first asking's card, still open on another device
+    expect((await answer(twin, prompt.id, 0)).status).toBe(409);
+    await Bun.sleep(300);
+    expect(chosen(twin)).toEqual(["Yes, run it"]);
   });
 
   it("takes an answer to a fallback card whose screen only ticked since it was read", async () => {

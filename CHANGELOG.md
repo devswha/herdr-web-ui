@@ -112,6 +112,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
+- An answer tapped in the chat goes only to the prompt it was made for. Two things could send it
+  elsewhere. A menu answered in the terminal while the chat's answer was still moving the cursor
+  could be replaced by another menu, which then took the Enter; now every answer looks at the
+  screen again before its first key that does more than move the cursor, and is refused with
+  "the prompt changed" if the menu or the cursor's row is no longer the one on the card. And a
+  question asked twice in a row with the same text was one card: a typed pick waiting for Confirm,
+  or the card still open on another device, could answer the second asking. Each asking is now
+  its own card, once the app has seen the first one end (it was answered from the app, the agent
+  went back to work, or the prompt left the screen).
 - A draft in the message box keeps its full height when the window or the pane is resized, or
   the chat width changes: the box used to keep the height of its old line breaks until the next
   key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
