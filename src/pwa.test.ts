@@ -35,3 +35,118 @@ describe("installed app", () => {
     expect(answers(get("/assets/index-abc123.js"))).toBe(true);
   });
 });
+
+type WorkerRequest = { method: string; url: string; mode: string };
+
+/** public/sw.js over a stand-in CacheStorage and a network that can be cut. */
+function serviceWorker(stored: Record<string, Record<string, string>>) {
+  const origin = "https://app.test";
+  const keyOf = (request: string | WorkerRequest): string => (typeof request === "string" ? request : request.url.slice(origin.length));
+  const store = new Map(Object.entries(stored).map(([name, entries]) => [name, new Map(Object.entries(entries))]));
+  const cacheOf = (entries: Map<string, string>) => ({
+    match: async (request: string | WorkerRequest) => (entries.has(keyOf(request)) ? new Response(entries.get(keyOf(request))) : undefined),
+    put: async (request: string | WorkerRequest, response: Response) => { entries.set(keyOf(request), await response.text()); },
+  });
+  const caches = {
+    keys: async () => [...store.keys()],
+    delete: async (name: string) => store.delete(name),
+    open: async (name: string) => {
+      if (!store.has(name)) store.set(name, new Map());
+      return cacheOf(store.get(name)!);
+    },
+    // every cache, oldest first, as the browser's does
+    match: async (request: string | WorkerRequest) => {
+      for (const entries of store.values()) if (entries.has(keyOf(request))) return new Response(entries.get(keyOf(request)));
+      return undefined;
+    },
+  };
+  const network = { online: true, shell: "shell", status: 200, fetched: [] as string[] };
+  const fetch = async (request: WorkerRequest) => {
+    if (!network.online) throw new TypeError("Failed to fetch");
+    network.fetched.push(keyOf(request));
+    const response = request.mode === "navigate" ? new Response(network.shell, { status: network.status }) : new Response(`network ${keyOf(request)}`);
+    // a same-origin answer, which is all the worker keeps
+    Object.defineProperty(response, "type", { value: "basic" });
+    return response;
+  };
+  const listeners = new Map<string, (event: unknown) => void>();
+  const self = { location: { origin }, clients: { claim: async () => undefined }, skipWaiting: () => undefined, addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener) };
+  new Function("self", "caches", "fetch", readFileSync(join(publicDir, "sw.js"), "utf8"))(self, caches, fetch);
+  const dispatch = async (type: string, event: Record<string, unknown> = {}): Promise<Response | undefined> => {
+    let answer: Promise<Response> | undefined;
+    const waits: Promise<unknown>[] = [];
+    listeners.get(type)!({ ...event, respondWith: (response: Promise<Response>) => { answer = response; }, waitUntil: (work: Promise<unknown>) => { waits.push(work); } });
+    await Promise.all(waits);
+    return answer;
+  };
+  const text = async (request: WorkerRequest): Promise<string | null> => {
+    // a rejected answer is what the page sees as a network error
+    const response = await dispatch("fetch", { request }).catch(() => undefined);
+    const body = response === undefined || response.type === "error" ? null : await response.text();
+    // an asset is kept without holding its answer back
+    await new Promise((done) => setTimeout(done, 0));
+    return body;
+  };
+  return {
+    network,
+    names: () => [...store.keys()],
+    entries: (name: string) => [...(store.get(name)?.keys() ?? [])],
+    update: async () => { await dispatch("install"); await dispatch("activate"); },
+    navigate: (path = "/") => text({ method: "GET", url: `${origin}${path}`, mode: "navigate" }),
+    get: (path: string) => text({ method: "GET", url: `${origin}${path}`, mode: "no-cors" }),
+  };
+}
+
+describe("a service worker under a new cache name", () => {
+  const sw = readFileSync(join(publicDir, "sw.js"), "utf8");
+  const current = /const CACHE_NAME = "([^"]+)"/.exec(sw)![1]!;
+  const before = "herdr-web-ui-v3-ram";
+  const old = () => ({ [before]: { "/": "old shell", "/assets/index-old.js": "old bundle", "/assets/PretendardVariable.subset.91-old.woff2": "old chunk" } });
+
+  it("starts offline from the shell and the files the worker before it kept", async () => {
+    expect(current).not.toBe(before);
+    const worker = serviceWorker(old());
+    await worker.update();
+    worker.network.online = false;
+    expect(await worker.navigate()).toBe("old shell");
+    expect(await worker.get("/assets/index-old.js")).toBe("old bundle");
+    expect(await worker.get("/assets/PretendardVariable.subset.91-old.woff2")).toBe("old chunk");
+    expect(worker.network.fetched).toEqual([]);
+    expect(worker.names()).toContain(before);
+  });
+
+  it("drops that cache once its own holds a shell, and carries nothing of the old build over", async () => {
+    const worker = serviceWorker(old());
+    await worker.update();
+    worker.network.shell = "new shell";
+    expect(await worker.navigate("/?pane=p_1")).toBe("new shell");
+    expect(worker.names()).toEqual([current]);
+    expect(worker.entries(current)).toEqual(["/"]);
+    // what the new shell asks for is fetched and kept as before, one file at a time
+    expect(await worker.get("/assets/index-new.js")).toBe("network /assets/index-new.js");
+    expect(worker.entries(current)).toEqual(["/", "/assets/index-new.js"]);
+    worker.network.online = false;
+    expect(await worker.navigate()).toBe("new shell");
+    expect(await worker.get("/assets/index-new.js")).toBe("network /assets/index-new.js");
+    expect(await worker.get("/assets/index-old.js")).toBeNull();
+  });
+
+  it("keeps the old cache through a navigation the server refused", async () => {
+    const worker = serviceWorker(old());
+    await worker.update();
+    worker.network.shell = "sign in";
+    worker.network.status = 401;
+    expect(await worker.navigate()).toBe("sign in");
+    expect(worker.names()).toContain(before);
+    expect(worker.entries(before)).toContain("/");
+    worker.network.online = false;
+    expect(await worker.navigate()).toBe("old shell");
+  });
+
+  it("has no shell to give a device that never loaded the app online", async () => {
+    const worker = serviceWorker({});
+    await worker.update();
+    worker.network.online = false;
+    expect(await worker.navigate()).toBeNull();
+  });
+});
