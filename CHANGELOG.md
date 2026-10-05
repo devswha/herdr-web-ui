@@ -17,6 +17,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   language and copy button appear in its corner on hover, a message's time and copy sit beside
   the bubble, and an answer has one copy button with "Plain text" beside it; touch keeps the
   code strip and the MD and TXT buttons.
+  ([#458](https://github.com/devswha/herdr-web-ui/pull/458))
 
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
