@@ -205,7 +205,11 @@ function finishPrompt(
   input: Omit<InteractivePrompt, "id" | "agent">,
   internal: Omit<ParsedPrompt, keyof InteractivePrompt>,
   /** fields as the id reads them, where that is not as the card shows them (a fallback card's ticking working line) */
-  hashed: Partial<Pick<InteractivePrompt, "question" | "body">> = {},
+  hashed: Partial<Pick<InteractivePrompt, "question" | "body">> & {
+    /** the agent's own name for this asking (Codex's call and question, omo's tool call, with the
+     * session they are in), where it has one: the same question asked by another call is another prompt */
+    native?: string;
+  } = {},
 ): ParsedPrompt {
   const id = createHash("sha256")
     .update(JSON.stringify({ agent, ...input, ...hashed }))
@@ -390,7 +394,7 @@ export interface QueueFront { question: string; options: string[] }
  * The collapsed queue shows only a count: the card takes its first question from the
  * rollout, the newest `count` unanswered ones (a skipped question leaves no record).
  */
-function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueFront | null = null): ParsedPrompt | null {
+function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueFront | null = null, rollout = ""): ParsedPrompt | null {
   const waiting = unanswered.slice(-count);
   // the question the queue opened on last time, when that was not the newest guess: by its
   // title and its options, the newest such one (an older skipped one may share the title)
@@ -405,7 +409,7 @@ function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueF
   }, {
     responder: "codex-queued-question", menuLabels: first.options.length ? [...first.options, "Other"] : [],
     selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: first.options.length, rejectWithEscapeIndex: null,
-  });
+  }, { native: `${rollout}:${first.key}` });
 }
 
 function parseClaudeQuestion(screen: string): ParsedPrompt | null {
@@ -540,6 +544,8 @@ function omoForm(lines: string[], hintIndex: number): OmoForm | null {
  * text comes from here when the pane's session shows the call, never cut or wrapped by the pane.
  */
 export interface OmoAsk {
+  /** the tool call's id (with its session file, once read for a pane: omoAskFor) */
+  id?: string;
   questions: { header: string; question: string; multiSelect: boolean; options: { label: string; description: string | null }[] }[];
 }
 
@@ -561,7 +567,7 @@ export function pendingOmoAsk(jsonl: string): OmoAsk | null {
     if (!call || typeof call.id !== "string" || answered.has(call.id)) return null;
     const questions = (call.arguments as { questions?: unknown } | undefined)?.questions;
     if (!Array.isArray(questions) || questions.length === 0) return null;
-    const ask: OmoAsk = { questions: [] };
+    const ask: OmoAsk = { id: call.id, questions: [] };
     for (const question of questions as Record<string, unknown>[]) {
       if (typeof question?.["header"] !== "string" || typeof question["question"] !== "string" || !Array.isArray(question["options"])) return null;
       const options = (question["options"] as Record<string, unknown>[]).map((option) => ({
@@ -796,7 +802,7 @@ function parseOmoQuestion(screen: string, ask: OmoAsk | null, trusted: boolean):
       }
       return [...steps, ...keySteps([KEY.tab])];
     },
-  });
+  }, known?.id === undefined ? {} : { native: known.id });
 }
 
 /**
@@ -849,7 +855,7 @@ function parseOmoTyping(screen: string, ask: OmoAsk | null, trusted: boolean): P
     responder: "omo-typing", menuLabels: choices.map((choice) => choice.label), selectedIndex: -1,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     optionSteps: choices.map((choice) => choice.steps),
-  });
+  }, known?.id === undefined ? {} : { native: known.id });
 }
 
 /**
@@ -936,7 +942,7 @@ function parseOmoReview(screen: string, ask: OmoAsk | null, trusted: boolean): P
     checkedOptionIndices: [], customMenuIndex: count, rejectWithEscapeIndex: null,
     optionSteps: [...choices.map(({ steps }) => steps), []],
     customSteps: (text) => [...keySteps(omoWalk(count, selectedIndex, count + 1)), { text }, ...keySteps([KEY.enter])],
-  });
+  }, known?.id === undefined ? {} : { native: known.id });
 }
 
 function parseCodexApproval(screen: string): ParsedPrompt | null {
@@ -1453,9 +1459,9 @@ export function codexQuestionsCollapsed(screen: string): boolean {
 }
 
 /** The card for Codex's collapsed queue on this screen, from the rollout's unanswered questions. */
-export function codexQueuedPrompt(screen: string, unanswered: QueuedQuestion[], front: QueueFront | null = null): InteractivePrompt | null {
+export function codexQueuedPrompt(screen: string, unanswered: QueuedQuestion[], front: QueueFront | null = null, rollout = ""): InteractivePrompt | null {
   const count = queuedQuestionCount(screen);
-  const queued = count > 0 ? queuedPrompt(count, unanswered, front) : null;
+  const queued = count > 0 ? queuedPrompt(count, unanswered, front, rollout) : null;
   return queued ? publicPrompt(queued) : null;
 }
 
@@ -1736,33 +1742,45 @@ const FALLBACK_LOGGED_MAX = 256;
 const queueFronts = new Map<string, QueueFront & { rollout: string }>();
 
 /**
- * Which asking of its prompt each pane shows. A prompt's own id is a hash of what it says, so the
- * same question asked twice in a row would be one card: an answer tapped for the first asking (or
- * a typed pick left waiting for Confirm) would go to the second. The id a card carries therefore
- * names the asking too, and a new asking starts on any evidence that the last one ended: a read
- * that showed no prompt or another one, an answer sent from here, the agent back at work. With
- * none of these (answered in a terminal and asked again between two reads, by an agent that
- * reports no work in between) two askings cannot be told apart from the screen.
+ * Which asking of its prompt each pane shows. A prompt's own id is a hash of what it says (and of
+ * the agent's own name for the asking, where it has one), so the same question asked twice in a
+ * row would be one card: an answer tapped for the first asking (or a typed pick left waiting for
+ * Confirm) would go to the second. The id a card carries therefore names the asking too, and a
+ * new asking starts on any evidence that the last one ended: a read that showed no prompt or
+ * another one, an answer sent from here, the agent back at work. With none of these (answered in
+ * a terminal and asked again between two reads, by an agent that reports no work in between and
+ * gives its askings no name) two askings cannot be told apart from the screen.
  */
-const askings = new Map<string, { content: string | null; n: number }>();
+interface Asking { content: string | null; n: number }
+const askings = new Map<string, Asking>();
 /** counted across panes and never reused: a pane forgotten here starts no asking over */
 let askingCount = 0;
 /** this run of the server: a card read before a restart is not one of this run's askings */
 const SERVER_RUN = randomBytes(6).toString("hex");
+/**
+ * The panes an answer is on its way to. Its keys redraw the menu (a move, a row opened for typing,
+ * pi's dialog with its cursor off the first row), so what another read finds meanwhile says
+ * nothing about the asking: it neither ends it nor starts one. The answer reads the screen
+ * itself before each key, and promptWaitEnded still ends the asking under it.
+ */
+const answersUnderWay = new Set<string>();
 
 /** The prompt a read found, under the id of its asking; a read without one ends the pane's asking. */
 function asked(paneId: string, prompt: InteractivePrompt | null): InteractivePrompt | null {
   let asking = askings.get(paneId);
-  if (prompt === null) {
-    if (asking) asking.content = null;
-    return null;
+  if (!answersUnderWay.has(paneId) || !asking) {
+    if (prompt === null) {
+      if (asking) asking.content = null;
+      return null;
+    }
+    if (asking?.content !== prompt.id) {
+      asking = { content: prompt.id, n: askingCount += 1 };
+      askings.delete(paneId);
+      askings.set(paneId, asking);
+      if (askings.size > 256) askings.delete(askings.keys().next().value!);
+    }
   }
-  if (asking?.content !== prompt.id) {
-    asking = { content: prompt.id, n: askingCount += 1 };
-    askings.delete(paneId);
-    askings.set(paneId, asking);
-    if (askings.size > 256) askings.delete(askings.keys().next().value!);
-  }
+  if (prompt === null) return null;
   prompt.id = createHash("sha256").update(JSON.stringify([prompt.id, SERVER_RUN, asking.n])).digest("hex").slice(0, 12);
   return prompt;
 }
@@ -1855,7 +1873,7 @@ export function parseClaudeSuggestion(ansi: string): string | null {
   return suggestion === "" || CLAUDE_TIP_RE.test(suggestion) ? null : suggestion;
 }
 
-async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: string; status: string; prompt: InteractivePrompt | null }> {
+async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: string; status: string; prompt: InteractivePrompt | null; pane: HerdrPane; panes: HerdrPane[] }> {
   const { panes } = await sessionSnapshot();
   // a closed pane's wait has ended too
   for (const logged of fallbackLogged) if (!panes.some((candidate) => candidate.pane_id === logged)) fallbackLogged.delete(logged);
@@ -1870,21 +1888,21 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   const settling = Date.now() - (formsAnswered.get(paneId) ?? 0) < FORM_SETTLE_MS;
   if (known.prompt !== null || status !== "blocked" || !agent || settling) {
     fallbackLogged.delete(paneId);
-    return { agent, status, prompt: asked(paneId, known.prompt) };
+    return { agent, status, prompt: asked(paneId, known.prompt), pane, panes };
   }
   // herdr says the agent waits on the user and no reader knows the screen: the fallback card
   const screen = known.screen ?? await liveScreen(paneId);
   // Codex's collapsed question queue reads blocked while its main prompt takes a message
   if (agent === "codex" && codexQuestionsCollapsed(screen)) {
     fallbackLogged.delete(paneId);
-    return { agent, status, prompt: asked(paneId, null) };
+    return { agent, status, prompt: asked(paneId, null), pane, panes };
   }
   const prompt = asked(paneId, parseFallbackPrompt(agent, screen))!;
   if (!fallbackLogged.has(paneId) && fallbackLogged.size < FALLBACK_LOGGED_MAX) {
     fallbackLogged.add(paneId);
     console.warn(`prompt: ${agent} pane ${paneId} is blocked on a screen no reader knows; fallback card (${prompt.options.length} options)`);
   }
-  return { agent, status, prompt };
+  return { agent, status, prompt, pane, panes };
 }
 
 /**
@@ -1923,7 +1941,8 @@ async function omoAskFor(paneId: string, cwd: string, panes: HerdrPane[]): Promi
     const file = Bun.file(session.path);
     const text = await file.slice(Math.max(0, file.size - OMO_TAIL_BYTES)).text();
     // a tail starts inside a record: from the next one
-    return pendingOmoAsk(file.size > OMO_TAIL_BYTES ? text.slice(text.indexOf("\n") + 1) : text);
+    const ask = pendingOmoAsk(file.size > OMO_TAIL_BYTES ? text.slice(text.indexOf("\n") + 1) : text);
+    return ask && { ...ask, id: `${session.path}:${ask.id}` };
   } catch {
     return null; // the session went away
   }
@@ -1958,7 +1977,7 @@ async function readKnownPrompt(
     const front = queueFronts.get(paneId);
     if (front && front.rollout !== rollout.path) queueFronts.delete(paneId);
     return {
-      prompt: rollout.path ? codexQueuedPrompt(screen, await unansweredCodexQuestions(rollout.path), front?.rollout === rollout.path ? front : null) : null,
+      prompt: rollout.path ? codexQueuedPrompt(screen, await unansweredCodexQuestions(rollout.path), front?.rollout === rollout.path ? front : null, rollout.path) : null,
       screen,
     };
   } catch {
@@ -2032,55 +2051,22 @@ async function closeOpenQuestion(paneId: string): Promise<void> {
   if (parsePrompt("codex", screen)?.responder === "codex-async-question") await paneSendKeys(paneId, [KEY.closeQueue]);
 }
 
-/**
- * Before the first key of an answer that is not a move (the Enter, a toggle, the row opened for
- * typing): the card's own menu, with the cursor on the row the moves were for. The menu can have
- * been answered in the terminal and another one drawn meanwhile, and a key typed in the pane
- * moves the cursor too; rows read from the screen alone can also be a guess (a wrapped label on
- * one of Claude's unnumbered menus, the folder-trust check among them).
- */
-async function cursorSettled(paneId: string, same: (prompt: InteractivePrompt) => boolean, index: number, codexHome?: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const { prompt } = await readPrompt(paneId, codexHome);
-    if (prompt && same(prompt) && parsedByPublicPrompt.get(prompt)?.selectedIndex === index) return true;
-    await Bun.sleep(50);
-  }
-  return false;
-}
+/** How long an answer waits for the screen to show what its next key needs, before it is refused. */
+const SETTLE_MS = 750;
 
 /** The same question with the same options and steps, whichever of its steps count as answered. */
-function sameQuestion(shown: InteractivePrompt, card: InteractivePrompt): boolean {
-  const said = (prompt: InteractivePrompt) => JSON.stringify([
-    parsedByPublicPrompt.get(prompt)?.responder, prompt.question, prompt.options.map((option) => option.label), prompt.steps?.map((step) => [step.label, step.current]),
+function sameQuestion(shown: ParsedPrompt, card: ParsedPrompt): boolean {
+  const said = (prompt: ParsedPrompt) => JSON.stringify([
+    prompt.responder, prompt.question, prompt.options.map((option) => option.label), prompt.steps?.map((step) => [step.label, step.current]),
   ]);
   return said(shown) === said(card);
 }
 
-/**
- * Before the Enter on one of pi's dialogs: the card's own dialog, with the cursor on the row it
- * answers. A dialog has a card only with its cursor on the first row (parsePiDialog), which the
- * answer's own moves have just left, so this reads the screen itself.
- */
-async function dialogCursorSettled(paneId: string, content: string, index: number): Promise<boolean> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const screen = await liveScreen(paneId);
-    const dialog = parsePiDialog(screen, true);
-    if (dialog?.id === content && dialog.selectedIndex === index && promptTailIsActive(dialog, screen)) return true;
-    await Bun.sleep(50);
-  }
-  return false;
-}
-
-/** Before the Enter on pi's `/model`: its catalogue still open, with the cursor on the model the card named. */
-async function modelCursorSettled(paneId: string, label: string | undefined): Promise<boolean> {
-  if (label === undefined) return false;
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const { prompt } = await readPrompt(paneId);
-    const parsed = prompt ? parsedByPublicPrompt.get(prompt) : undefined;
-    if (prompt && parsed?.responder === "pi-model" && prompt.options[parsed.selectedIndex]?.label === label) return true;
-    await Bun.sleep(50);
-  }
-  return false;
+/** Whether a screen shows a typed answer: its first or its last letters, however the field wraps or scrolls it. */
+function screenShows(screen: string, text: string): boolean {
+  const typed = comparable(text);
+  const shown = comparable(screen.replace(ANSI_RE, ""));
+  return typed === "" || shown.includes(typed.slice(0, 8)) || shown.includes(typed.slice(-8));
 }
 
 /**
@@ -2092,7 +2078,7 @@ async function modelCursorSettled(paneId: string, label: string | undefined): Pr
 async function formMovedOn(paneId: string, answered: string, codexHome?: string): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await Bun.sleep(50);
-    const { prompt } = await readPrompt(paneId, codexHome).catch(() => ({ prompt: null }));
+    const prompt = await readPrompt(paneId, codexHome).then((read) => read.prompt, () => null);
     // by what it says: the answer ended that asking, so the same step still on screen has a new id
     if (contentId(prompt) !== answered) return;
   }
@@ -2144,7 +2130,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
     const serialize = options.serialize ?? (<T>(_paneId: string, task: () => Promise<T>) => task());
     const form: { answered?: string } = {};
     const response = await serialize(body.pane_id, async () => {
-      const { prompt } = await readPrompt(body.pane_id, options.codexHome);
+      const { prompt, agent, pane, panes } = await readPrompt(body.pane_id, options.codexHome);
       if (!prompt || prompt.id !== body.prompt_id) return promptChanged();
       // checked against the card before anything is sent: an invalid answer never opens the queue
       let steps: AnswerStep[];
@@ -2154,60 +2140,108 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         if (error instanceof InvalidAnswer) return badRequest("invalid_answer", error.message);
         throw error;
       }
+      // The asking this answer is for, held to its last key: once anything says it ended (the
+      // agent back at work), no key of this answer goes out any more, whatever the screen shows.
+      const asking = askings.get(body.pane_id)!;
+      const asks = (): boolean => askings.get(body.pane_id) === asking && asking.content !== null;
       let target = prompt;
       const opensQueue = parsedByPublicPrompt.get(prompt)?.responder === "codex-queued-question";
-      if (opensQueue) {
-        // the card came from the rollout: answer it in the open queue, once it shows this question
-        const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!);
-        if (!opened) return promptChanged();
-        target = opened;
-      }
       let answered = false;
       let committed = false;
       let cleared = false;
+      answersUnderWay.add(body.pane_id);
       try {
+        if (opensQueue) {
+          // the card came from the rollout: answer it in the open queue, once it shows this question
+          const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!);
+          if (!opened || !asks()) return promptChanged();
+          target = opened;
+        }
         // the keys for the question as it shows in the open queue
         if (target !== prompt) steps = answerKeys(target, body);
         const parsed = parsedByPublicPrompt.get(target)!;
         const responder = parsed.responder;
-        // by what it says, not by its asking: a read that caught the menu half drawn after a move
-        // starts a new asking of the same menu. omo's question after the Backspace that empties
-        // its typed answer counts as unanswered, another card: by its text and options
-        const same = (shown: InteractivePrompt): boolean => cleared ? sameQuestion(shown, target) : contentId(shown) === parsed.id;
+        const typed = body.custom_text?.trim();
         // where the moves sent so far leave the cursor (↑ stops at the first row: omoWalk)
         let cursor = parsed.selectedIndex;
         // Claude's unnumbered rows and pi's models are read with no number to aim at: looked at
         // again before the Enter even when it needs no move
-        let moved = responder === "claude-confirm" || responder === "pi-model";
-        for (let index = 0; index < steps.length; index += 1) {
-          const step = steps[index]!;
-          const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
-          // An answer is only as good as the menu and the cursor it moves from, and both are as
-          // old as the read above by the time its moves are done: the menu answered in the
-          // terminal, with another one in its place, would take the Enter meant for this one, and
-          // an arrow key typed there sends it to the wrong row. Moves change nothing; the first
-          // key that does (the Enter, a toggle, the row opened for typing) goes only once the
-          // screen shows this menu again, with the cursor on the row the moves were for. The keys
-          // after that one follow unchecked: the menu itself changes under them.
-          if (moved && !move && !committed) {
+        let sent = responder === "claude-confirm" || responder === "pi-model";
+        let aimed = sent;
+        // a multiple choice ticks rows of one menu, which stays the card's until its closing key
+        let ticking = body.option_indices !== undefined;
+        /**
+         * Whether the screen is the one the next key is for.
+         * - Nothing but moves sent yet: the card's own menu, with the cursor on the row the moves
+         *   were for. The menu answered in the terminal, with another one in its place, would
+         *   take the Enter meant for this one, and an arrow key typed there sends it to the
+         *   wrong row.
+         * - After the first key that is not a move the menu changes under the answer (a row
+         *   opened for typing, a tick, the form's answered marks), so its hash no longer says
+         *   whether it is the same one: what is asked must still be, where a reader knows the
+         *   screen. A multiple choice keeps its rows and its cursor; pi's text dialog stays as
+         *   it was to its Enter; and a typed answer must show on the screen before the key
+         *   that submits it.
+         */
+        const expected = (shown: ParsedPrompt | null, screen: string, last: boolean): boolean => {
+          if (!committed) {
             // pi's catalogue shows ten rows of a longer list and scrolls under the cursor, so the
             // rows on screen, and with them the card's id, change on the way down: what must
             // hold is the model under the cursor, by name. A wrong model, unlike a wrong menu
             // entry, answers every later turn silently
-            const settled = responder === "pi-model"
-              ? await modelCursorSettled(body.pane_id, parsed.options[cursor]?.label)
-              : responder === "pi-question" || responder === "pi-confirm"
-                ? await dialogCursorSettled(body.pane_id, parsed.id, cursor)
-                : await cursorSettled(body.pane_id, same, cursor, options.codexHome);
-            if (!settled) return promptChanged();
+            if (responder === "pi-model") return shown?.responder === "pi-model" && shown.options[shown.selectedIndex]?.label === parsed.options[cursor]?.label;
+            // a dialog of pi's has a card only with its cursor on the first row (parsePiDialog),
+            // which the answer's own moves have just left: read off the screen itself
+            if ((responder === "pi-question" || responder === "pi-confirm") && cursor !== 0) {
+              const dialog = parsePiDialog(screen, true);
+              return dialog?.id === parsed.id && dialog.selectedIndex === cursor && promptTailIsActive(dialog, screen);
+            }
+            // omo's question after the Backspace that empties its typed answer counts as
+            // unanswered, another card: by its text and options
+            if (!shown || !(cleared ? sameQuestion(shown, parsed) : shown.id === parsed.id)) return false;
+            return !aimed || shown.selectedIndex === cursor;
+          }
+          if (responder === "pi-input" ? shown?.id !== parsed.id : shown && (shown.agent !== parsed.agent || shown.question !== parsed.question)) return false;
+          if (ticking && (!shown || (aimed && shown.selectedIndex !== cursor))) return false;
+          return !(last && typed !== undefined) || screenShows(screen, typed);
+        };
+        for (let index = 0; index < steps.length; index += 1) {
+          const step = steps[index]!;
+          const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
+          // Moves change nothing. Every other key goes only once the screen is the one it is
+          // for, read again after whatever this answer sent before it; the first key of an
+          // answer follows the read above.
+          if (!move && sent) {
+            const deadline = Date.now() + SETTLE_MS;
+            // Before the first key that is not a move, the cursor on its row shows the menu has
+            // drawn the moves. After it nothing on the screen says the last key was drawn: a
+            // read right behind the key can still show the menu as it was, so the screen must
+            // read as expected twice, a moment apart.
+            let held = 0;
+            for (;;) {
+              // nobody waits for this answer any more: nothing that cannot be undone is started
+              if (!asks() || (!committed && request.signal.aborted)) return promptChanged();
+              const read = await readKnownPrompt(body.pane_id, pane, agent, options.codexHome, panes);
+              const shown = read.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
+              held = asks() && expected(shown, read.screen ?? "", index === steps.length - 1) ? held + 1 : 0;
+              if (held > (committed ? 1 : 0)) break;
+              if (Date.now() >= deadline) return promptChanged();
+              await Bun.sleep(50);
+            }
           }
           if (step.keys) await paneSendKeys(body.pane_id, step.keys);
           else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
+          sent = true;
           if (move) {
-            moved = true;
+            aimed = true;
             for (const key of step.keys!) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
-          } else if (step.keys?.every((key) => key === KEY.backspace)) cleared = true;
-          else committed = true;
+          } else {
+            aimed = false;
+            if (step.keys?.every((key) => key === KEY.backspace)) cleared = true;
+            else committed = true;
+            // omp's Tab leaves the rows for its submit button
+            if (step.keys?.includes(KEY.tab)) ticking = false;
+          }
           if (index < steps.length - 1) await Bun.sleep(30);
         }
         answered = true;
@@ -2215,6 +2249,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         if (error instanceof InvalidAnswer) return badRequest("invalid_answer", error.message);
         throw error;
       } finally {
+        answersUnderWay.delete(body.pane_id);
         // the queue this request opened never stays open, whatever failed on the way
         if (opensQueue && !answered) await closeOpenQuestion(body.pane_id).catch(() => undefined);
         // answered, or as good as: the same prompt on the screen after this is asked anew
@@ -2224,7 +2259,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       // the main prompt (where a message typed in the chat goes) has the input back
       if (parsedByPublicPrompt.get(target)?.responder === "codex-async-question") {
         queueFronts.delete(body.pane_id);
-        await closeQueue(body.pane_id, target.id);
+        // by what it says, as closeQueue reads it off the screen
+        await closeQueue(body.pane_id, contentId(target)!);
       }
       const responder = parsedByPublicPrompt.get(target)?.responder;
       if (responder === "omo-question" || responder === "omo-review" || responder === "omo-typing") {

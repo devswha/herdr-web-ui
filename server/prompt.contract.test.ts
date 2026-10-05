@@ -18,7 +18,7 @@ const workspaces: string[] = [];
 const MENU = `
 const { appendFileSync, writeFileSync } = require("node:fs");
 const [out, spec] = process.argv.slice(2);
-let { head, rows, drift, next } = JSON.parse(spec);
+const { head, rows, drift } = JSON.parse(spec);
 let cursor = 0;
 const draw = () => process.stdout.write("\\u001b[2J\\u001b[H" + [
   ...head, "", ...rows.map((row, index) => " " + (index === cursor ? "❯" : " ") + " " + row), "", " Enter to confirm · Esc to cancel",
@@ -29,8 +29,6 @@ process.stdin.on("data", (chunk) => {
   const data = chunk.toString("utf8");
   // drift: a key typed in the pane at the same moment, one more row down
   if (/\\u001b[\\[O]B/.test(data)) cursor = Math.min(rows.length - 1, cursor + 1 + (drift ? 1 : 0));
-  // next: answered in the terminal at that moment, and another menu asks in its place
-  if (/\\u001b[\\[O]B/.test(data) && next) { head = next.head; rows = next.rows; next = null; }
   if (/\\u001b[\\[O]A/.test(data)) cursor = Math.max(0, cursor - 1);
   if (data.includes("\\r")) appendFileSync(out, rows[cursor] + "\\n");
   draw();
@@ -69,16 +67,15 @@ let trust: Menu;
 let guessed: Menu;
 let drifting: Menu;
 let ticking: Menu;
-let replaced: Menu;
 let twin: Menu;
 
-async function menu(label: string, head: string[], rows: string[], drift = false, script = "menu.js", next?: { head: string[]; rows: string[] }): Promise<Menu> {
+async function menu(label: string, head: string[], rows: string[], drift = false, script = "menu.js"): Promise<Menu> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
     "workspace.create", { label: `herdr-web-ui-test-prompt-${label}`, cwd: root, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   const log = join(root, `${label}.log`);
-  const spec = JSON.stringify({ head, rows, drift, next });
+  const spec = JSON.stringify({ head, rows, drift });
   await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "claude")}' '${join(root, script)}' '${log}' '${spec}'\n` });
   for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
   expect(existsSync(log)).toBe(true);
@@ -123,8 +120,6 @@ beforeAll(async () => {
   guessed = await menu("guessed", ["─".repeat(35), " Trust?"], ["Yes, trust and enable all hooks", "Yes, trust this folder", "No, exit"]);
   drifting = await menu("drifting", [" Accessing workspace:", "", " Quick safety check: Is this a project you created or one you trust?"], ["No, exit", "Yes, I trust this folder", "Yes, and enable its hooks"], true);
   ticking = await menu("ticking", [], [], false, "tick.js");
-  replaced = await menu("replaced", [" Accessing workspace:", "", " Quick safety check: Is this a project you created or one you trust?"], ["No, exit", "Yes, I trust this folder"], false, "menu.js",
-    { head: [" Remove the worktree and its branch?"], rows: ["No, keep them", "Yes, remove both"] });
   twin = await menu("twin", [" Run the migration again?"], ["Yes, run it", "No, stop"]);
 }, 30_000);
 
@@ -159,17 +154,6 @@ describe("answers to Claude's unnumbered menus", () => {
     expect(response.status).toBe(409);
     await Bun.sleep(300);
     expect(chosen(drifting)).toEqual([]);
-  });
-
-  it("confirms nothing in a menu that took the place of the card's under its moves", async () => {
-    const prompt = await card(replaced);
-    expect(prompt.options.map((option) => option.label)).toEqual(["No, exit", "Yes, I trust this folder"]);
-    // the answer's ↓ finds another menu, its cursor on the row the Enter was for
-    const response = await answer(replaced, prompt.id, 1);
-    expect(response.status).toBe(409);
-    await Bun.sleep(300);
-    expect(chosen(replaced)).toEqual([]);
-    expect((await card(replaced)).options.map((option) => option.label)).toEqual(["No, keep them", "Yes, remove both"]);
   });
 
   it("refuses the id of a menu already answered once the same menu is asked again", async () => {
@@ -273,5 +257,158 @@ describe("answers to pi's dialogs", () => {
     expect((await answer(confirm, prompt.id, 1)).status).toBe(200);
     // pi's own Yes/No: pressing the row answers the question false, where Escape leaves it open
     expect(await confirmed(confirm)).toEqual(["No"]);
+  });
+});
+
+/**
+ * The answers that had no second look before their keys (a Codex menu, a multiple choice, a typed
+ * answer), against the real server. A pane draws screens the way those agents draw them and logs
+ * every key it is sent: `{n}` in a line is row n's cursor. `swap`: on that key the next screen
+ * takes the first one's place, as when the menu is answered in the terminal at that moment.
+ * `hold`: after a key the screen is drawn again only once `<log>.go` exists.
+ */
+const SCREENS = String.raw`
+const { appendFileSync, existsSync, readFileSync, writeFileSync } = require("node:fs");
+const [out, specFile] = process.argv.slice(2);
+const spec = JSON.parse(readFileSync(specFile, "utf8"));
+let frame = spec.frames[0];
+let swap = spec.swap;
+let cursor = 0;
+const rows = () => frame.lines.join("\n").match(/\{\d+\}/g).length;
+const draw = () => process.stdout.write("\u001b[2J\u001b[H" + frame.lines.map((line) => line.replace(/\{(\d+)\}/, (_, row) => Number(row) === cursor ? frame.mark : " ")).join("\r\n"));
+const later = () => { if (existsSync(out + ".go")) draw(); else setTimeout(later, 20); };
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => {
+  const data = chunk.toString("utf8");
+  const key = /\u001b[\[O]B/.test(data) ? "down" : /\u001b[\[O]A/.test(data) ? "up" : data === "\r" ? "enter" : data === "\t" ? "tab" : "text:" + data;
+  if (key === "down") cursor = Math.min(rows() - 1, cursor + 1);
+  if (key === "up") cursor = Math.max(0, cursor - 1);
+  if (swap && key.split(":")[0] === swap) { frame = spec.frames[1]; swap = null; cursor = 0; }
+  appendFileSync(out, key + "\n");
+  if (spec.hold) later(); else draw();
+});
+draw();
+writeFileSync(out, "");
+`;
+
+interface Frame { lines: string[]; mark: string }
+
+async function screens(label: string, agent: string, spec: { frames: Frame[]; swap?: string; hold?: boolean }): Promise<Menu> {
+  const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+    "workspace.create", { label: `herdr-web-ui-test-prompt-${label}`, cwd: root, focus: false },
+  );
+  workspaces.push(created.workspace.workspace_id);
+  const log = join(root, `${label}.log`);
+  writeFileSync(join(root, `${label}.json`), JSON.stringify(spec));
+  if (!existsSync(join(root, agent))) { copyFileSync(process.execPath, join(root, agent)); chmodSync(join(root, agent), 0o755); }
+  await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, agent)}' '${join(root, "screens.js")}' '${log}' '${join(root, `${label}.json`)}'\n` });
+  for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
+  expect(existsSync(log)).toBe(true);
+  await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent, state: "blocked" });
+  return { pane: created.root_pane.pane_id, log };
+}
+
+async function send(target: Menu, promptId: string, choice: Record<string, unknown>): Promise<Response> {
+  return fetch(`${base()}/api/pane/prompt/answer`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pane_id: target.pane, prompt_id: promptId, ...choice }),
+  });
+}
+
+/** the keys the pane was sent, once nothing more arrives for a moment */
+async function keys(target: Menu): Promise<string[]> {
+  let seen = chosen(target);
+  for (let i = 0; i < 20; i++) {
+    await Bun.sleep(100);
+    const now = chosen(target);
+    if (now.length === seen.length) return now;
+    seen = now;
+  }
+  return seen;
+}
+
+describe("an answer whose menu changes under it", () => {
+  const continueMenu = (title: string, rows: string[]): Frame => ({
+    mark: "›", lines: [title, "", ...rows.map((row, index) => `{${index}} ${index + 1}. ${row}`), "", "Press enter to continue"],
+  });
+  const resume = continueMenu("Conversation interrupted", ["Resume the task", "Start over", "Quit"]);
+  const cleanup = continueMenu("Branch cleanup", ["Keep the branch", "Delete the branch", "Quit"]);
+  const checks = (question: string, rows: string[]): Frame => ({
+    mark: "❯", lines: ["☐ Checks", "", question, "", ...rows.map((row, index) => `{${index}} ${index + 1}. [ ] ${row}`), `{${rows.length}} ${rows.length + 1}. Type something.`,
+      "────────────────────────────", `  ${rows.length + 2}. Chat about this`, "", "Enter to select · ↑/↓ to navigate · Esc to cancel"],
+  });
+  const ask: Frame = { mark: "❯", lines: ["╭─ Ask ───────────────────╮", "│ Which target?", "├─────────────────────────┤", "│{0} ○ Jetson Orin", "│{1} ○ RK3588", "│{2} ○ Other (type your own)", "├─────────────────────────┤", "│ Enter select · n note · ↑/↓ move · Esc cancel", "╰─────────────────────────╯"] };
+  const permission: Frame = { mark: "❯", lines: ["╭─ Permission ────────────╮", "│ Allow tool: bash", "│ rm -rf build", "│{0} Approve", "│{1} Deny", "╰─────────────────────────╯"] };
+  let steady: Menu;
+  let replaced: Menu;
+  let ended: Menu;
+  let ticked: Menu;
+  let typed: Menu;
+
+  beforeAll(async () => {
+    writeFileSync(join(root, "screens.js"), SCREENS);
+    steady = await screens("codex-steady", "codex", { frames: [resume] });
+    replaced = await screens("codex-replaced", "codex", { frames: [resume, cleanup], swap: "down" });
+    ended = await screens("codex-ended", "codex", { frames: [resume], hold: true });
+    ticked = await screens("claude-ticked", "claude", { frames: [checks("Which checks should run?", ["Lint", "Tests"]), checks("Which branches should be deleted?", ["main", "release"])], swap: "enter" });
+    typed = await screens("omp-typed", "omp", { frames: [ask, permission], swap: "enter" });
+  }, 60_000);
+
+  it("moves to the row of a Codex menu and confirms it", async () => {
+    const prompt = await card(steady);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Resume the task", "Start over", "Quit"]);
+    expect((await send(steady, prompt.id, { option_index: 2 })).status).toBe(200);
+    expect(await keys(steady)).toEqual(["down", "down", "enter"]);
+  });
+
+  it("presses no Enter into the menu that took a Codex menu's place under its move", async () => {
+    const prompt = await card(replaced);
+    const response = await send(replaced, prompt.id, { option_index: 1 });
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe("prompt_changed");
+    // the Enter would have deleted the branch
+    expect(await keys(replaced)).toEqual(["down"]);
+    expect((await card(replaced)).options.map((option) => option.label)).toEqual(["Keep the branch", "Delete the branch", "Quit"]);
+  });
+
+  it("presses no Enter once herdr reports the agent back at work under its move", async () => {
+    const prompt = await card(ended);
+    const socket = new WebSocket(`ws://localhost:${server.port}/ws`);
+    const working = new Promise<void>((resolve) => socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data)) as { type?: string; pane_id?: string; agent_status?: string };
+      if (message.type === "pane-status" && message.pane_id === ended.pane && message.agent_status === "working") resolve();
+    }));
+    await new Promise((resolve) => socket.addEventListener("open", resolve));
+    try {
+      const response = send(ended, prompt.id, { option_index: 1 });
+      // the ↓ has gone out and the answer waits for the menu to show the cursor on its row
+      for (let i = 0; i < 100 && !chosen(ended).includes("down"); i++) await Bun.sleep(20);
+      expect(chosen(ended)).toEqual(["down"]);
+      // answered in the terminal: herdr says the agent works again, and the server has heard it
+      await herdrRpc("pane.report_agent", { pane_id: ended.pane, source: "manual", agent: "codex", state: "working" });
+      await working;
+      // the same menu, asked again, with its cursor on the very row the Enter was for
+      await herdrRpc("pane.report_agent", { pane_id: ended.pane, source: "manual", agent: "codex", state: "blocked" });
+      writeFileSync(`${ended.log}.go`, "");
+      expect((await response).status).toBe(409);
+      expect(await keys(ended)).toEqual(["down"]);
+    } finally { socket.close(); }
+  });
+
+  it("ticks no row of the question that took a multiple choice's place after its first tick", async () => {
+    const prompt = await card(ticked);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Lint", "Tests"]);
+    expect((await send(ticked, prompt.id, { option_indices: [0, 1] })).status).toBe(409);
+    expect(await keys(ticked)).toEqual(["enter", "down"]);
+  });
+
+  it("types no answer into the approval that took the place of the row it opened", async () => {
+    const prompt = await card(typed);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Jetson Orin", "RK3588"]);
+    expect((await send(typed, prompt.id, { custom_text: "an x86 box" })).status).toBe(409);
+    // neither the text nor the Enter that would have approved `rm -rf build`
+    expect(await keys(typed)).toEqual(["down", "down", "enter"]);
   });
 });

@@ -143,14 +143,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Fixed
 - An answer tapped in the chat goes only to the prompt it was made for. Two things could send it
-  elsewhere. A menu answered in the terminal while the chat's answer was still moving the cursor
-  could be replaced by another menu, which then took the Enter; now every answer looks at the
-  screen again before its first key that does more than move the cursor, and is refused with
-  "the prompt changed" if the menu or the cursor's row is no longer the one on the card. And a
-  question asked twice in a row with the same text was one card: a typed pick waiting for Confirm,
-  or the card still open on another device, could answer the second asking. Each asking is now
-  its own card, once the app has seen the first one end (it was answered from the app, the agent
-  went back to work, or the prompt left the screen).
+  elsewhere. A menu answered in the terminal while the chat's answer was on its way could be
+  replaced by another menu, which then took the rest of the keys: the Enter after the cursor
+  moves, or the text and Enter of a typed answer. An answer that sends more than one key now
+  looks at the screen again before each key that does more than move the cursor, and stops with
+  "the prompt changed" when the menu, the cursor's row or the question is no longer the card's,
+  or when a typed answer does not show on the screen before its Enter. And a question asked
+  twice in a row with the same text was one card: a typed pick waiting for Confirm, or the card
+  still open on another device, could answer the second asking. Each asking is now its own card
+  once the app has seen the first one end: it was answered from the app, the agent went back to
+  work, the prompt left the screen, or (Codex's queued questions, OmO's forms) the agent asked
+  it under another call. One case remains: a prompt answered in a terminal outside the app and
+  asked again word for word before the app's next read, by an agent that reports no work in
+  between (pi's dialogs), still looks like the same prompt. Remote PCs get this with the next
+  `remote-vN` runtime.
   ([#470](https://github.com/devswha/herdr-web-ui/pull/470))
 - A draft in the message box keeps its full height when the window or the pane is resized, or
   the chat width changes: the box used to keep the height of its old line breaks until the next

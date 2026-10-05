@@ -512,8 +512,9 @@ export interface SlashCommand {
  * GET /api/pane/prompt: an agent's interactive TUI menu currently on the pane's screen
  * (Claude/omp/codex question, approval or plan prompts), parsed server-side from the
  * visible text. `id` names what the prompt says and which asking of it this is (the same
- * question asked again is another prompt): an answer names it, so a prompt that changed or was
- * asked anew between the read and the click is refused (409 prompt_changed) instead of misfired.
+ * question asked again is another prompt, with another id): an answer names it, so a prompt that
+ * changed or was asked anew between the read and the click is refused (409 prompt_changed)
+ * instead of misfired. The client tells one prompt from the next by it alone.
  */
 export interface InteractivePrompt {
   id: string;
