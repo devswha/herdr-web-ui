@@ -7,8 +7,9 @@ import panes from "../site/demo/fixtures/panes.json";
 
 // The prompt card's place, on the unmodified app over the demo's fixture transport: the demo's
 // "web" pane has an approval open. A second, tall form (steps, reference text, descriptions, a
-// custom answer) is answered by this script in the transport's place. All files and HTTP traffic
-// stay in this disposable, loopback-only app; no herdr session is opened.
+// custom answer) is answered by this script in the transport's place, for the "web" pane, and a
+// prompt of another pane the same way (window.panePrompts). All files and HTTP traffic stay in
+// this disposable, loopback-only app; no herdr session is opened.
 // PROMPT_DOCK_SHOTS=<dir> also saves a screenshot of each state there.
 const repo = join(import.meta.dir, "..");
 const app = mkdtempSync(join(tmpdir(), "herdr-prompt-dock-demo-"));
@@ -30,6 +31,17 @@ const FORM = {
 };
 /** the same form as a plan to approve: a typed pick waits for Confirm */
 const PLAN = { ...FORM, id: "demo-plan", kind: "plan", title: "Ready to code?", steps: undefined };
+/** the prompt that comes after one of those, while the answer to the first is still on its way */
+const NEXT = { ...PLAN, id: "demo-next", title: "One more thing", question: "Which region should the counters live in?" };
+/** another pane's prompt */
+const OTHER = { ...PLAN, id: "demo-other", agent: "omo", title: "Proofread", question: "Which chapters should the proofread cover?" };
+/** an option whose label is a whole review, as omo's parser hands it over: 2,166 characters */
+const LONG_LABEL = "Approve with the changes the reviewer listed: keep the rate limit per user and report, move the counters to the shared store, and return Retry-After. ".repeat(15).slice(0, 2166);
+const REVIEW = {
+  id: "demo-review", agent: "omo", kind: "plan", title: "Review", question: "How should the review end?", body: null,
+  options: [{ label: "Approve", description: null }, { label: LONG_LABEL, description: null }, { label: "Reject", description: null }],
+  multi_select: false, custom_option_index: null,
+};
 
 interface Box { top: number; bottom: number; left: number; right: number }
 interface Layout {
@@ -110,6 +122,39 @@ const reach = async (page: Page, selector: string): Promise<{ hit: string | null
 };
 
 const setPrompt = (page: Page, prompt: unknown): Promise<void> => page.evaluate((next) => { (window as unknown as { formPrompt: unknown }).formPrompt = next; }, prompt);
+const setPanePrompt = (page: Page, pane: string, prompt: unknown): Promise<void> => page.evaluate(([at, next]) => { (window as unknown as { panePrompts: Record<string, unknown> }).panePrompts[at as string] = next; }, [pane, prompt] as const);
+/** The delayed answers that have come back, and a little longer: what they change in the app has been drawn. */
+const returned = async (page: Page, count: number): Promise<void> => {
+  await page.waitForFunction((n) => (window as unknown as { formReturned: number }).formReturned >= n, count, { timeout: 15_000 });
+  await page.waitForTimeout(300);
+};
+/** From now on, every card taken out of the dock is counted (window.cardsRemoved). */
+const watchCards = (page: Page): Promise<void> => page.evaluate(() => {
+  const counter = window as unknown as { cardsRemoved: number };
+  counter.cardsRemoved = 0;
+  new MutationObserver((records) => { for (const record of records) counter.cardsRemoved += [...record.removedNodes].filter((node) => node instanceof HTMLElement && node.classList.contains("prompt-card")).length; }).observe(document.querySelector(".prompt-dock")!, { childList: true });
+});
+const cardsRemoved = (page: Page): Promise<number> => page.evaluate(() => (window as unknown as { cardsRemoved: number }).cardsRemoved);
+// the same row click the sidebar gets, without moving the focus the way a real click would
+const select = async (page: Page, pane: string): Promise<void> => {
+  const row = page.locator(`.pane-select[title^="${pane} —"]`).first();
+  await row.waitFor({ state: "attached" });
+  await row.evaluate((node: HTMLElement) => node.click());
+  await page.locator(`.pane-select[title^="${pane} —"][aria-current="true"]`).first().waitFor({ state: "attached" });
+};
+/** The pinned Confirm row: its two buttons, its question's own box, and what it leaves of the card over it. */
+const confirmRowOf = (page: Page): Promise<{ oneLine: boolean; height: number; over: number; text: { height: number; line: number; scrolls: boolean; whole: string } }> => page.evaluate(() => {
+  const card = document.querySelector<HTMLElement>(".prompt-card")!;
+  const row = card.querySelector<HTMLElement>(".prompt-card-confirm")!;
+  const [confirm, cancel] = [...row.querySelectorAll<HTMLElement>(".btn")].map((node) => node.getBoundingClientRect());
+  const text = row.querySelector<HTMLElement>(".prompt-card-confirm-text") ?? row.querySelector<HTMLElement>("span")!;
+  return {
+    oneLine: Math.abs(confirm!.top - cancel!.top) <= 1 && cancel!.left >= confirm!.right,
+    height: row.getBoundingClientRect().height,
+    over: row.getBoundingClientRect().top - card.getBoundingClientRect().top,
+    text: { height: text.clientHeight, line: parseFloat(getComputedStyle(text).lineHeight), scrolls: text.scrollHeight > text.clientHeight + 1, whole: text.textContent ?? "" },
+  };
+});
 const answersOf = (page: Page): Promise<Record<string, unknown>[]> => page.evaluate(() => (window as unknown as { formAnswers: Record<string, unknown>[] }).formAnswers);
 
 try {
@@ -124,24 +169,36 @@ try {
   const index = join(app, "index.html");
   const html = readFileSync(index, "utf8");
   assert.match(html, /<script type="module"/);
-  // The demo has one approval. While window.formPrompt is set, the prompt read answers with it
-  // and an answer to it is kept in window.formAnswers; everything else is the demo's.
+  // The demo has one approval. While window.formPrompt is set, the "web" pane's prompt read
+  // answers with it, and another pane's with window.panePrompts[pane]; an answer to either is
+  // kept in window.formAnswers. Each pane has its own prompt, as on the server: one pane's read
+  // or answer never touches another's. Everything else is the demo's.
   const form = `<script>(() => {
     const demo = window.fetch;
+    const web = ${JSON.stringify(panes.web)};
     window.formPrompt = null;
+    window.panePrompts = {};
     window.formAnswers = [];
     window.formDelay = 0;
+    window.formReturned = 0;
+    const promptOf = (pane) => pane === web ? window.formPrompt : window.panePrompts[pane] ?? null;
     const json = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
     window.fetch = (input, init) => {
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
-      if (window.formPrompt !== null && url.pathname === "/api/pane/prompt") return json({ prompt: window.formPrompt, suggestion: null });
-      if (window.formPrompt !== null && url.pathname === "/api/pane/prompt/answer") {
+      if (url.pathname === "/api/pane/prompt") {
+        const prompt = promptOf(url.searchParams.get("pane_id"));
+        if (prompt !== null) return json({ prompt, suggestion: null });
+      }
+      if (url.pathname === "/api/pane/prompt/answer") {
         const answer = JSON.parse(init.body);
-        if (answer.prompt_id !== window.formPrompt.id) return json({ error: { code: "prompt_changed", message: "the screen no longer shows that prompt" } }, 409);
-        window.formAnswers.push(answer);
-        window.formPrompt = null;
-        // window.formDelay: the answer takes that long to come back, as send_keys and the re-read do
-        return new Promise((done) => setTimeout(done, window.formDelay || 0)).then(() => json({ ok: true }));
+        const prompt = promptOf(answer.pane_id);
+        if (prompt !== null) {
+          if (answer.prompt_id !== prompt.id) return json({ error: { code: "prompt_changed", message: "the screen no longer shows that prompt" } }, 409);
+          window.formAnswers.push(answer);
+          if (answer.pane_id === web) window.formPrompt = null; else delete window.panePrompts[answer.pane_id];
+          // window.formDelay: the answer takes that long to come back, as send_keys and the re-read do
+          return new Promise((done) => setTimeout(done, window.formDelay || 0)).then(() => { window.formReturned += 1; return json({ ok: true }); });
+        }
       }
       return demo(input, init);
     };
@@ -165,8 +222,14 @@ try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
     try {
       interface Opened { page: Page; errors: string[]; shot: (name: string) => Promise<void>; close: () => Promise<void> }
-      const open = async ({ width, height, touch = false, held = [], prompt = null, theme = "dark", language = "en", settings = {} }: { width: number; height: number; touch?: boolean; held?: string[]; prompt?: unknown; theme?: string; language?: string; settings?: Record<string, unknown> }): Promise<Opened> => {
-        const context = await browser.newContext({ viewport: { width, height }, locale: "en-US", hasTouch: touch, isMobile: touch });
+      const open = async ({ width, height, touch = false, finePointer = false, held = [], prompt = null, theme = "dark", language = "en", settings = {} }: { width: number; height: number; touch?: boolean; finePointer?: boolean; held?: string[]; prompt?: unknown; theme?: string; language?: string; settings?: Record<string, unknown> }): Promise<Opened> => {
+        const context = await browser.newContext({ viewport: { width, height }, locale: "en-US", hasTouch: touch, isMobile: touch && !finePointer });
+        // a laptop with a touch screen: Chromium calls any screen with touch a coarse pointer, and
+        // such a laptop's mouse is its first one. The app asks through matchMedia (useMediaQuery)
+        if (finePointer) await context.addInitScript(() => {
+          const media = window.matchMedia.bind(window);
+          window.matchMedia = (query) => media(query === "(pointer: coarse)" ? "not all" : query);
+        });
         await context.addInitScript(([owner, messages, settings]) => {
           localStorage.setItem("herdr-web-ui:settings", settings!);
           if (messages !== "") localStorage.setItem(`herdr-web-ui:queue:${owner}`, messages!);
@@ -329,6 +392,9 @@ try {
           await page.locator(".composer-text").press("Enter");
           await page.locator(".prompt-card-confirm").waitFor();
           assert.deepEqual(await hitOf(page, ".prompt-card-confirm .btn-primary"), { hit: "self", visible: true }, `${label}: Confirm is in sight and pressable`);
+          // the pinned row is as short as it can be: Confirm and Cancel share one line
+          assert.equal((await confirmRowOf(page)).oneLine, true, `${label}: Confirm and Cancel are on one line`);
+          assert.deepEqual(await hitOf(page, ".prompt-card-confirm .btn:not(.btn-primary)"), { hit: "self", visible: true }, `${label}: Cancel is in sight and pressable`);
           await page.waitForFunction(() => document.querySelector(".prompt-card-option.is-typed")!.getAnimations().length === 0);
           await shot(`form-${label}`);
           // every option and the custom answer are reached by scrolling the card alone
@@ -467,6 +533,184 @@ try {
           assert.deepEqual(errors, []);
         } finally { await close(); }
         console.log("PASS an answer that comes back late does not pull the focus from where the user went");
+      }
+
+      // An option whose label is a whole review: the pinned Confirm row shows two lines of it and
+      // scrolls in itself, so the options stay in sight and in reach under the largest chat text
+      for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 500, touch: true }, { width: 390, height: 500, touch: true, font: 24 }]) {
+        const label = `long label at ${size.width}x${size.height}${size.font ? ` at ${size.font}px` : ""}`;
+        const { page, errors, shot, close } = await open({ ...size, prompt: REVIEW, settings: size.font ? { chatFontSize: size.font } : {} });
+        try {
+          placed(await layoutOf(page), label);
+          await page.locator(".composer-text").fill("2");
+          await page.locator(".composer-text").press("Enter");
+          await page.locator(".prompt-card-confirm").waitFor();
+          await page.waitForFunction(() => document.querySelector(".prompt-card-option.is-typed")!.getAnimations().length === 0);
+          const row = await confirmRowOf(page);
+          const card = await page.locator(".prompt-card").evaluate((node) => node.clientHeight);
+          assert.equal(row.text.whole, `Send 2. ${LONG_LABEL}?`, `${label}: the whole label is in the question`);
+          assert.ok(row.text.height <= 2 * row.text.line + 1, `${label}: the question shows two lines at most (${row.text.height / row.text.line})`);
+          assert.equal(row.text.scrolls, true, `${label}: and scrolls in itself`);
+          assert.equal(row.oneLine, true, `${label}: Confirm and Cancel are on one line`);
+          assert.ok(row.over >= 80, `${label}: the card keeps ${row.over}px of its ${card}px over the Confirm row (the row is ${row.height}px)`);
+          for (const button of [".prompt-card-confirm .btn-primary", ".prompt-card-confirm .btn:not(.btn-primary)"]) assert.deepEqual(await hitOf(page, button), { hit: "self", visible: true }, `${label}: ${button} is in sight and pressable`);
+          await shot(label.replaceAll(" ", "-"));
+          // the short options on both sides of the long one are reached whole; the long one, taller
+          // than the card, is pressed at its top
+          for (const option of [0, 2]) {
+            await page.evaluate((at) => document.querySelectorAll(".prompt-card-option")[at]!.setAttribute("data-reach", ""), option);
+            assert.deepEqual(await reach(page, ".prompt-card-option[data-reach]"), { hit: "self", visible: true }, `${label}: option ${option + 1} is reachable`);
+            await page.evaluate(() => document.querySelector("[data-reach]")!.removeAttribute("data-reach"));
+          }
+          assert.equal(await page.evaluate(() => {
+            const card = document.querySelector<HTMLElement>(".prompt-card")!;
+            const long = document.querySelectorAll<HTMLElement>(".prompt-card-option")[1]!;
+            card.scrollTop += long.getBoundingClientRect().top - card.getBoundingClientRect().top;
+            const rect = long.getBoundingClientRect();
+            return document.elementFromPoint(rect.left + rect.width / 2, rect.top + 12)?.closest(".prompt-card-option") === long;
+          }), true, `${label}: the long option is pressable`);
+          assert.deepEqual(await hitOf(page, ".prompt-card-confirm .btn-primary"), { hit: "self", visible: true }, `${label}: Confirm stays in sight while the card is scrolled`);
+          assert.equal((await layoutOf(page)).pageScrolls, false, `${label}: only the card scrolled`);
+          await page.locator(".prompt-card-confirm").getByRole("button", { name: "Confirm" }).click();
+          await page.locator(".prompt-card").getByText(REVIEW.question).waitFor({ state: "detached" });
+          assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-review", option_index: 1 }]);
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log(`PASS ${label}: the Confirm row keeps to two lines of the label with its buttons on one line, and the options stay in reach`);
+      }
+
+      {
+        // A prompt that takes another's place opens at its top, with nothing of the one before it
+        const { page, errors, close } = await open({ width: 390, height: 500, touch: true, prompt: FORM });
+        try {
+          await page.locator(".prompt-card-custom .input").fill("sqlite");
+          const before = await page.evaluate(() => {
+            const card = document.querySelector<HTMLElement>(".prompt-card")!;
+            const body = card.querySelector<HTMLElement>(".prompt-card-body")!;
+            card.scrollTop = card.scrollHeight;
+            body.scrollTop = body.scrollHeight;
+            return { card: card.scrollTop, body: body.scrollTop };
+          });
+          assert.ok(before.card > 0 && before.body > 0, `the first card and its reference text are scrolled (${before.card}, ${before.body})`);
+          await setPrompt(page, PLAN);
+          await page.locator(".prompt-card").getByText(PLAN.title).waitFor();
+          const after = await page.evaluate(() => {
+            const card = document.querySelector<HTMLElement>(".prompt-card")!;
+            return { card: card.scrollTop, body: card.querySelector<HTMLElement>(".prompt-card-body")!.scrollTop, custom: card.querySelector<HTMLInputElement>(".prompt-card-custom .input")!.value, cards: document.querySelectorAll(".prompt-card").length, inRegion: card.parentElement!.getAttribute("aria-live") };
+          });
+          assert.deepEqual(after, { card: 0, body: 0, custom: "", cards: 1, inRegion: "polite" }, "the next prompt opens at its top, empty, as an addition to the live region");
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS a prompt that replaces a scrolled one opens at its top");
+      }
+
+      {
+        // An answer that comes back after the next prompt is already showing belongs to the prompt
+        // it was pressed for: the one on screen stays, with its focus
+        const { page, errors, close } = await open({ width: 1440, height: 900, prompt: FORM });
+        try {
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 3500; });
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
+          await page.locator(".prompt-card[aria-busy=true]").waitFor();
+          await setPrompt(page, NEXT);
+          await page.locator(".prompt-card").getByText(NEXT.question).waitFor();
+          assert.equal(await page.evaluate(() => (window as unknown as { formReturned: number }).formReturned), 0, "the first answer is still on its way");
+          assert.equal(await page.locator(".prompt-card").getAttribute("aria-busy"), "false", "the next prompt is not waiting on the first one's answer");
+          await watchCards(page);
+          const second = page.locator(".prompt-card").getByRole("button", { name: /^2\. Redis/ });
+          await second.focus();
+          await returned(page, 1);
+          assert.equal(await page.locator(".prompt-card").getByText(NEXT.question).count(), 1, "the prompt on screen is still there");
+          assert.equal(await cardsRemoved(page), 0, "and was never taken away");
+          assert.equal(await second.evaluate((node) => document.activeElement === node), true, "with the focus where it was");
+          assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-form", option_index: 0 }], "nothing was answered for it");
+
+          // the same with a typed pick waiting in the second prompt
+          await setPrompt(page, null);
+          await page.locator(".prompt-card").getByText(NEXT.question).waitFor({ state: "detached" });
+          await setPrompt(page, FORM);
+          await page.locator(".prompt-card").getByText(FORM.title).waitFor();
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
+          await page.locator(".prompt-card[aria-busy=true]").waitFor();
+          await setPrompt(page, NEXT);
+          await page.locator(".prompt-card").getByText(NEXT.question).waitFor();
+          await page.locator(".composer-text").fill("3");
+          await page.locator(".composer-text").press("Enter");
+          await page.locator(".prompt-card-confirm").waitFor();
+          await returned(page, 2);
+          assert.equal(await page.locator(".prompt-card-option.is-typed .prompt-card-option-label").textContent(), "Postgres", "the typed pick of the prompt on screen still waits for Confirm");
+          assert.equal((await answersOf(page)).length, 2, "and was not sent");
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 0; });
+          await page.locator(".prompt-card-confirm").getByRole("button", { name: "Confirm" }).click();
+          await page.locator(".prompt-card").getByText(NEXT.question).waitFor({ state: "detached" });
+          assert.deepEqual((await answersOf(page)).at(-1), { pane_id: panes.web, prompt_id: "demo-next", option_index: 2 });
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS an answer that comes back after the next prompt is showing leaves that prompt, its focus and its typed pick alone");
+      }
+
+      {
+        // Two panes, each with a prompt of its own: an answer for one that comes back after the
+        // other is opened changes nothing there
+        const { page, errors, close } = await open({ width: 1440, height: 900, prompt: FORM });
+        try {
+          await setPanePrompt(page, panes.docs, OTHER);
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 3500; });
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
+          await page.locator(".prompt-card[aria-busy=true]").waitFor();
+          await select(page, panes.docs);
+          await page.locator(".prompt-card").getByText(OTHER.question).waitFor();
+          assert.equal(await page.locator(".prompt-card").getAttribute("aria-busy"), "false");
+          await page.locator(".composer-text").fill("2");
+          await page.locator(".composer-text").press("Enter");
+          await page.locator(".prompt-card-confirm").waitFor();
+          await watchCards(page);
+          assert.equal(await page.evaluate(() => (window as unknown as { formReturned: number }).formReturned), 0, "the first pane's answer is still on its way");
+          await returned(page, 1);
+          assert.equal(await page.locator(".prompt-card").getByText(OTHER.question).count(), 1, "the other pane's prompt is still there");
+          assert.equal(await cardsRemoved(page), 0, "and was never taken away");
+          assert.equal(await page.locator(".prompt-card-option.is-typed .prompt-card-option-label").textContent(), "Redis Recommended", "its typed pick still waits for Confirm");
+          assert.equal(await page.evaluate(() => document.activeElement?.className.split(" ")[0]), "composer-text", "the focus is where the user was typing");
+          assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-form", option_index: 0 }], "only the first pane's prompt was answered");
+          assert.equal(await page.evaluate((pane) => (window as unknown as { panePrompts: Record<string, { id: string } | undefined> }).panePrompts[pane]?.id, panes.docs), "demo-other", "the other pane's prompt is still open");
+          // and its own answer goes to it alone
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 0; });
+          await page.locator(".prompt-card-confirm").getByRole("button", { name: "Confirm" }).click();
+          await page.locator(".prompt-card").getByText(OTHER.question).waitFor({ state: "detached" });
+          assert.deepEqual((await answersOf(page)).at(-1), { pane_id: panes.docs, prompt_id: "demo-other", option_index: 1 });
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS an answer for one pane that comes back after another pane is opened leaves that pane's prompt and typed pick alone");
+      }
+
+      {
+        // A laptop with a touch screen: its pointer is fine, and an option can still be tapped.
+        // The tap answers and leaves the message box alone (focus there raises the on-screen
+        // keyboard); a mouse press on the same screen hands the focus on
+        const { page, errors, close } = await open({ width: 1440, height: 900, touch: true, finePointer: true, prompt: FORM });
+        try {
+          assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), false, "the app is told the pointer is fine");
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).tap();
+          await page.locator(".prompt-card").getByText(FORM.question).waitFor({ state: "detached" });
+          assert.equal((await answersOf(page)).length, 1, "the tap answered");
+          await page.waitForTimeout(300);
+          assert.notEqual(await page.evaluate(() => document.activeElement?.className.split(" ")[0]), "composer-text", "a tap does not move the focus into the message box");
+          await setPrompt(page, FORM);
+          await page.locator(".prompt-card").getByText(FORM.question).waitFor();
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
+          await page.locator(".prompt-card").getByText(FORM.question).waitFor({ state: "detached" });
+          await page.waitForFunction(() => document.activeElement?.classList.contains("composer-text") === true);
+          // a key on the option is not a tap either
+          await setPrompt(page, FORM);
+          await page.locator(".prompt-card").getByText(FORM.question).waitFor();
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).focus();
+          await page.keyboard.press("Enter");
+          await page.locator(".prompt-card").getByText(FORM.question).waitFor({ state: "detached" });
+          await page.waitForFunction(() => document.activeElement?.classList.contains("composer-text") === true);
+          assert.equal((await answersOf(page)).length, 3);
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS on a touch-screen laptop a tapped answer leaves the message box alone; a mouse press or a key hands the focus on");
       }
 
       for (const language of ["ko", "ja", "zh"]) {

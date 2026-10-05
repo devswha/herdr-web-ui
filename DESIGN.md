@@ -578,6 +578,14 @@ One set for both themes: the card is island black wherever it shows.
   edge, and the confirm row of a typed pick stays pinned on that edge. The card's scroll is
   contained (`overscroll-behavior: contain`), so a drag past its top is never the page's
   pull-to-refresh.
+- The confirm row is kept short, since it is pinned over the options: its question
+  (`Send 2. <label>?`) shows two lines at most and scrolls in itself, whatever the label's
+  length, and Confirm and Cancel are one group on one line, beside the question when there is
+  room and under it when there is not.
+- Each prompt that appears has a card of its own: the next prompt opens at its top with nothing
+  picked or typed, also when it asks the same question again. An answer that comes back after
+  its card is gone (the next prompt is showing, or another pane is open) changes nothing on
+  screen.
 - The composer keeps the resize grip's hit strip (`--composer-grip-h`) for itself under the card,
   as it does under the held messages: the grip never lies over the card's last row.
 - A form of several questions (omo) shows a row of step chips (`.prompt-card-steps`) under the
@@ -596,9 +604,11 @@ One set for both themes: the card is island black wherever it shows.
 - While a card that takes typed answers is open the message box's placeholder says how:
   `Type 1–3 to choose…`, or `Type 1–3 or your own reply…` when the card has a custom answer.
   Enter in an empty box answers nothing. A typed pick of an approval, plan or menu waits for
-  Confirm in the card. After an answer pressed in the card, focus moves to the message box
-  (not on a coarse pointer, where that would raise the keyboard), unless the user moved it
-  somewhere else while the answer was on its way or the card is gone.
+  Confirm in the card. After an answer pressed in the card with the keyboard or the mouse, focus
+  moves to the message box, unless the user moved it somewhere else while the answer was on its
+  way or the card is gone. A tap never moves it there (that would raise the on-screen keyboard):
+  the press itself says what made it, so this holds on a touch-screen laptop with a fine pointer
+  too, and a coarse pointer rules it out as well.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 
@@ -606,7 +616,8 @@ One set for both themes: the card is island black wherever it shows.
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
   and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter,
   `--space-3` at `480px` and below).
-  The only card is the input box: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`;
+  The input box is a card: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`
+  (the only other card on this surface is the prompt card docked over it, while an agent asks);
   focus turns its border `--accent` (no inner outline). Above it the completion popover and the
   background-task list; inside, the image strip is its own row at the top, then the auto-growing
   message box as a row of its own at the card's full width, then ONE row of controls under it:
