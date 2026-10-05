@@ -67,6 +67,16 @@ describe("pressOrigin", () => {
     }
   });
 
+  it("takes the pointer that went down on the button, and a finger or a pen over a mouse", () => {
+    // a browser whose click names no pointer
+    for (const downType of ["mouse", "touch", "pen"] as const) expect(pressOrigin({ downType, detail: 1, keyed: false })).toBe(downType);
+    // iOS Safari has called a tap's click a mouse's
+    expect(pressOrigin({ downType: "touch", pointerType: "mouse", detail: 1, keyed: false })).toBe("touch");
+    expect(pressOrigin({ downType: "pen", pointerType: "mouse", detail: 1, keyed: false })).toBe("pen");
+    expect(pressOrigin({ downType: "mouse", pointerType: "touch", detail: 1, keyed: false })).toBe("touch");
+    expect(pressOrigin({ downType: "mouse", pointerType: "mouse", detail: 1, keyed: false })).toBe("mouse");
+  });
+
   it("calls a click a key only with no click count and its keydown on the button", () => {
     // Chromium and Firefox: a PointerEvent with an empty pointer type; Safari: a MouseEvent with none
     expect(pressOrigin({ pointerType: "", detail: 0, keyed: true })).toBe("keyboard");

@@ -86,14 +86,18 @@ export type PressOrigin = "keyboard" | "mouse" | "touch" | "pen" | "unknown";
 /**
  * What made the click that answered. Asked of the press itself and not of the device: a laptop
  * with a touch screen reports a fine pointer and is still tapped, and a tablet with a keyboard
- * reports a coarse one. A click names its pointer in `pointerType`; a key's click (Enter, Space)
- * has none and a `detail` of 0, and so has a script's `click()` or an assistive technology's
- * activation, which is why a key also needs its keydown on that button (`keyed`). No `press` at
- * all is Enter in the card's own field.
+ * reports a coarse one. A click names its pointer in `pointerType`, and so does the pointerdown on
+ * that button before it (`downType`): a finger or a pen in either one wins, since iOS Safari has
+ * called a tap's click a mouse's (WebKit bug 282988). A key's click (Enter, Space) has no pointer
+ * and a `detail` of 0, and so has a script's `click()` or an assistive technology's activation,
+ * which is why a key also needs its keydown on that button (`keyed`). No `press` at all is Enter
+ * in the card's own field.
  */
-export function pressOrigin(press: { pointerType?: string; detail?: number; keyed: boolean } | undefined): PressOrigin {
+export function pressOrigin(press: { pointerType?: string; downType?: string; detail?: number; keyed: boolean } | undefined): PressOrigin {
   if (press === undefined) return "keyboard";
-  if (press.pointerType === "mouse" || press.pointerType === "touch" || press.pointerType === "pen") return press.pointerType;
+  for (const pointer of ["touch", "pen", "mouse"] as const) {
+    if (press.downType === pointer || press.pointerType === pointer) return pointer;
+  }
   return press.detail === 0 && press.keyed ? "keyboard" : "unknown";
 }
 

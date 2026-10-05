@@ -777,10 +777,21 @@ try {
           await gone();
           await page.waitForTimeout(300);
           assert.notEqual(await active(), "composer-text", "a click of unknown origin stays out of the message box on a coarse pointer");
-          assert.equal((await answersOf(page)).length, 7);
+          // a finger went down on the option and its click says "mouse", as iOS Safari has done
+          // (WebKit bug 282988): the pointerdown is believed, and the keyboard is not raised
+          await ask();
+          await option.focus();
+          await option.evaluate((node: HTMLElement) => {
+            node.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+            node.dispatchEvent(new PointerEvent("click", { bubbles: true, pointerType: "mouse", detail: 1 }));
+          });
+          await gone();
+          await page.waitForTimeout(300);
+          assert.notEqual(await active(), "composer-text", "a tap whose click is called a mouse's stays out of the message box");
+          assert.equal((await answersOf(page)).length, 8);
           assert.deepEqual(errors, []);
         } finally { await close(); }
-        console.log("PASS with a coarse pointer a key (Enter, Space, the card's field) or a mouse press hands the focus to the message box and never leaves it on the page; a tap or an unnamed click does not");
+        console.log("PASS with a coarse pointer a key (Enter, Space, the card's field) or a mouse press hands the focus to the message box and never leaves it on the page; a tap, an unnamed click or a tap misnamed a mouse does not");
       }
 
       for (const language of ["ko", "ja", "zh"]) {

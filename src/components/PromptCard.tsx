@@ -38,6 +38,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const confirmRef = useRef<HTMLDivElement | null>(null);
   // the control Enter or Space last went down on: the click that follows on it is that key's
   const keyed = useRef<EventTarget | null>(null);
+  // and the button a pointer last went down on, with what it was: a click can misname its pointer
+  const down = useRef<{ target: EventTarget; pointerType: string } | null>(null);
   // false once the card is gone: its prompt was replaced, or its pane left
   const shown = useRef(false);
   useEffect(() => {
@@ -68,8 +70,9 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     // read now: the pressed button is disabled while the answer is on its way, and loses the focus
     const fromCard = cardRef.current?.contains(document.activeElement) === true;
     const click = press?.nativeEvent as Partial<PointerEvent> | undefined;
-    const origin = pressOrigin(press === undefined ? undefined : { pointerType: click?.pointerType, detail: click?.detail, keyed: keyed.current === press.currentTarget });
+    const origin = pressOrigin(press === undefined ? undefined : { pointerType: click?.pointerType, downType: down.current?.target === press.currentTarget ? down.current.pointerType : undefined, detail: click?.detail, keyed: keyed.current === press.currentTarget });
     keyed.current = null;
+    down.current = null;
     // the device's own pointer, asked only for a press that does not say what made it
     const coarse = window.matchMedia?.("(pointer: coarse)").matches === true;
     setPending(true);
@@ -113,7 +116,12 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
 
   return (
     <section className="prompt-card" ref={cardRef} role="region" aria-label={t("Agent is asking")} aria-busy={pending}
-      onKeyDown={(event) => { keyed.current = event.key === "Enter" || event.key === " " ? event.target : null; }} onPointerDown={() => { keyed.current = null; }}>
+      onKeyDown={(event) => { down.current = null; keyed.current = event.key === "Enter" || event.key === " " ? event.target : null; }}
+      onPointerDown={(event) => {
+        keyed.current = null;
+        const button = (event.target as Element).closest("button");
+        down.current = button === null ? null : { target: button, pointerType: event.pointerType };
+      }}>
       <header className="prompt-card-header">
         {/* read, not drawn: the title is the card's one red */}
         <span className="visually-hidden">{t("input needed")}</span>
