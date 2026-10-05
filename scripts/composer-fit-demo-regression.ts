@@ -31,6 +31,8 @@ const measure = (page: Page) => page.evaluate(() => {
   };
   // everything drawn in the last row: no two of them may share a pixel
   const drawn = [...document.querySelectorAll<HTMLElement>(".composer-controls-left > *:not(input), .composer-status-meta > *, .composer-status-hint, .composer-controls-right > *")]
+    // a pill without a box (the label out, or no model) and the label's wrapper: their parts stand in the row themselves
+    .flatMap((item) => item.classList.contains("composer-pill") && getComputedStyle(item).display === "contents" ? [...item.children] as HTMLElement[] : [item])
     .flatMap((item) => item.classList.contains("composer-model-info") && getComputedStyle(item).display === "contents" ? [...item.children] as HTMLElement[] : [item])
     .filter((item) => item.getBoundingClientRect().width > 1.5 && item.getBoundingClientRect().height > 1.5);
   const overlaps: string[] = [];
