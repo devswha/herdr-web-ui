@@ -33,6 +33,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   shown while not connected, and a disabled Stop loses its colour. With a mouse, the bar that
   resizes the box shows when the pointer is over the box, while dragging, on keyboard focus
   and while a height is set by hand; on a touch screen it is always shown.
+  ([#465](https://github.com/devswha/herdr-web-ui/pull/465))
 - The chat is wider on a large screen: the conversation and the message box follow the pane,
   at least 820px and at most 960px wide, 71% of the pane between. A laptop window keeps the
   820px it had and a large monitor grows to 960px. Settings → Chat → **Chat width** chooses
