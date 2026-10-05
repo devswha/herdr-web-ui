@@ -23,7 +23,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   everything) on a looser line; bold is a semibold; inline code sits a little under its line and
   code blocks are a step larger with more room; the message box is typed at the same size with
   a mouse and stays 16px on touch; the empty chat's question is a larger line. Tool rows, times
-  and other small labels keep their size.
+  and other small labels keep their size. A typeface that arrives late redraws the tabs' names
+  at another width, and the tab strip then brings the open tab back into view, unless you have
+  scrolled the strip yourself to look at other tabs: it stays where you left it until you open
+  a tab.
   ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
 - In the chat's message box the agent's mark, the model, the reasoning level and the context
   ring sit together in one quiet pill, and the model is shown by its name where the id is a

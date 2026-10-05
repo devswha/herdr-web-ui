@@ -15,10 +15,10 @@ import panes from "../site/demo/fixtures/panes.json";
 const repo = join(import.meta.dir, "..");
 const app = mkdtempSync(join(tmpdir(), "herdr-font-swap-demo-"));
 
-interface View { top: number; gap: number; height: number }
+interface View { top: number; gap: number; height: number; window: number }
 const viewOf = (page: Page): Promise<View> => page.evaluate(() => {
   const node = document.querySelector<HTMLElement>(".chat-view")!;
-  return { top: node.scrollTop, gap: Math.round(node.scrollHeight - node.clientHeight - node.scrollTop), height: node.scrollHeight };
+  return { top: node.scrollTop, gap: Math.round(node.scrollHeight - node.clientHeight - node.scrollTop), height: node.scrollHeight, window: node.clientHeight };
 });
 const frames = (page: Page): Promise<void> => page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
 const loadedFaces = (page: Page, family: string): Promise<number> => page.evaluate((name) => [...document.fonts].filter((face) => face.family.replace(/["']/g, "") === name && face.status === "loaded").length, family);
@@ -86,16 +86,19 @@ try {
       };
 
       {
-        const { page, errors, held, release, close } = await open(null);
+        // a short window: a conversation that fits its window has no end to be kept at
+        const { page, errors, held, release, close } = await open(null, 480);
         try {
           assert.ok(held() > 0, "the first drawing asked for a face");
           assert.equal(await loadedFaces(page, "Pretendard Variable"), 0, "the conversation is first drawn before the face comes");
           assert.equal(await loadedFaces(page, "JetBrains Mono Web"), 0, "and before the code face comes");
           const before = await viewOf(page);
-          assert.ok(before.height > 0 && before.gap <= 1, `an opened conversation is at its end (gap ${before.gap})`);
+          assert.ok(before.height > before.window + 48, `the conversation is longer than its window (${before.height} in ${before.window})`);
+          assert.ok(before.gap <= 1, `an opened conversation is at its end (gap ${before.gap})`);
           release();
           await appFaces(page);
           const after = await viewOf(page);
+          assert.notEqual(after.height, before.height, `the faces redrew the conversation at another height (${before.height} -> ${after.height})`);
           assert.ok(after.gap <= 1, `a reader at the end is still there after the faces came (gap ${after.gap}, height ${before.height} -> ${after.height})`);
           assert.deepEqual(errors, []);
           console.log(`PASS a reader at the end stays at the end when the faces swap in (height ${before.height} -> ${after.height})`);
@@ -104,10 +107,11 @@ try {
 
       {
         // one file never comes: the set's "loadingdone" does not fire, and the face that did come still counts
-        const { page, errors, release, close } = await open(/JetBrainsMono/);
+        const { page, errors, release, close } = await open(/JetBrainsMono/, 480);
         try {
           assert.equal(await loadedFaces(page, "Pretendard Variable"), 0, "the conversation is first drawn before the face comes");
           const before = await viewOf(page);
+          assert.ok(before.height > before.window + 48, `the conversation is longer than its window (${before.height} in ${before.window})`);
           assert.ok(before.gap <= 1, `an opened conversation is at its end (gap ${before.gap})`);
           release();
           await page.waitForFunction(() => [...document.fonts].some((face) => face.family.replace(/["']/g, "") === "Pretendard Variable" && face.status === "loaded"), null, { timeout: 10_000 });
@@ -115,6 +119,7 @@ try {
           assert.equal(await page.evaluate(() => document.fonts.status), "loading", "another face is still on its way");
           assert.equal(await loadedFaces(page, "JetBrains Mono Web"), 0);
           const after = await viewOf(page);
+          assert.notEqual(after.height, before.height, `the face redrew the conversation at another height (${before.height} -> ${after.height})`);
           assert.ok(after.gap <= 1, `a face that came is followed while another is still on its way (gap ${after.gap}, height ${before.height} -> ${after.height})`);
           assert.deepEqual(errors, []);
           console.log(`PASS a face that arrived is followed while another file is still in flight (height ${before.height} -> ${after.height})`);
@@ -137,6 +142,63 @@ try {
           assert.ok(after.gap > 48, "and that was away from the end");
           assert.deepEqual(errors, []);
           console.log("PASS a reader who scrolled up is not pulled to the end when the faces swap in");
+        } finally { await close(); }
+      }
+
+      // the tab strip: a workspace given more tabs than a phone's strip shows. The reader scrolls
+      // to the last one and opens it, all in the first drawing; `scrolled` is what they do next.
+      for (const scrolled of [false, true]) {
+        const { page, errors, release, close } = await open(null);
+        try {
+          const workspace = panes.web.split(":")[0]!;
+          for (const label of ["second", "a long tab name for review", "deploy", "docs"]) {
+            const made = await page.evaluate(async (body) => (await fetch("/api/tab/create", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).status, { workspace_id: workspace, label });
+            assert.equal(made, 200, `the demo makes the tab "${label}"`);
+          }
+          const strip = page.locator(".tab-strip");
+          const stripOf = (): Promise<{ left: number; max: number; open: boolean }> => strip.evaluate((node) => {
+            const view = node.getBoundingClientRect();
+            const item = node.querySelector(".tab-strip-item.is-active")!.getBoundingClientRect();
+            const end = node.querySelector(".tab-strip-add")!.getBoundingClientRect().left;
+            return { left: node.scrollLeft, max: node.scrollWidth - node.clientWidth, open: item.left >= view.left - 1 && item.right <= end + 1 };
+          });
+          const tabs = strip.locator('[role="tab"]');
+          await tabs.nth(4).waitFor();
+          // a scroll the strip did not make, as each one below: the app sees only the scroll event
+          await strip.evaluate((node) => { node.scrollLeft = node.scrollWidth; });
+          await frames(page);
+          await tabs.nth(4).tap();
+          await strip.locator('[role="tab"][aria-selected="true"]', { hasText: "docs" }).waitFor();
+          await frames(page);
+          const opened = await stripOf();
+          assert.ok(opened.open && opened.left > 48, `the last tab is open and in view, at the strip's far end (${JSON.stringify(opened)})`);
+          assert.equal(await loadedFaces(page, "Pretendard Variable"), 0, "and is drawn before the face comes");
+
+          if (scrolled) {
+            await strip.evaluate((node) => { node.scrollLeft = 0; });
+            await frames(page);
+            const looking = await stripOf();
+            assert.ok(looking.left === 0 && !looking.open, `the open tab is out of view, where the reader left the strip (${JSON.stringify(looking)})`);
+          }
+          release();
+          await appFaces(page);
+          const after = await stripOf();
+          assert.notEqual(after.max, opened.max, `the faces redrew the tabs' names at another width (${opened.max} -> ${after.max})`);
+          if (scrolled) {
+            assert.equal(after.left, 0, "a strip the reader scrolled is left there when the faces come");
+            assert.equal(after.open, false);
+            await tabs.nth(0).tap();
+            await strip.locator('[role="tab"][aria-selected="true"]').first().waitFor();
+            await page.waitForFunction(() => document.querySelector('.tab-strip [role="tab"]')?.getAttribute("aria-selected") === "true");
+            await frames(page);
+            assert.ok((await stripOf()).open, "and a tab opened after that is in view");
+          } else {
+            assert.ok(after.open, `the open tab is in view again, the reader's scroll before they opened it forgotten (${JSON.stringify(after)})`);
+          }
+          assert.deepEqual(errors, []);
+          console.log(scrolled
+            ? "PASS a tab strip the reader scrolled away from the open tab stays put when the faces swap in"
+            : `PASS a tab strip follows its open tab when the faces swap in, also after a scroll that ended in opening it (scrollLeft ${opened.left} -> ${after.left})`);
         } finally { await close(); }
       }
     } finally { await browser.close(); }
