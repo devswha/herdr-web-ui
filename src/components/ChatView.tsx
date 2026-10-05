@@ -25,6 +25,7 @@ import { useSettings } from "../lib/settings.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import { usePageVisible } from "../lib/visibility.ts";
 import { dismissKeyboardOn } from "../lib/keyboard.ts";
+import { useFacesArrived } from "../lib/fontFaces.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { patchText } from "../../shared/patch.ts";
 import { toolVerb } from "../lib/toolVerbs.ts";
@@ -767,6 +768,14 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
     if (node.firstElementChild !== null) observer.observe(node.firstElementChild);
     return () => observer.disconnect();
   }, []);
+  // One of the app's faces arrived (font-display: swap; a unicode-range chunk on the first Korean
+  // answer): the conversation rewraps with no width, size or family string changed, so the
+  // observer above takes it for one that only grew taller. A reader at the end stays at the end.
+  const faces = useFacesArrived();
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (node !== null && stickToBottom.current) node.scrollTo({ top: node.scrollHeight, behavior: "instant" });
+  }, [faces]);
   // a tap or a drag down the transcript puts a phone's keyboard away to read (lib/keyboard.ts)
   useEffect(() => {
     const node = scroller.current;

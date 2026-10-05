@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
+import { appFaces } from "./app-faces.ts";
 import panes from "../site/demo/fixtures/panes.json";
 
 // The model label in the input card's last row, fitted to what is measured there, on the
@@ -195,6 +196,7 @@ try {
       if (await page.locator(".terminal-stack.is-chat").count() === 0) await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
       await page.locator(".terminal-stack.is-chat").waitFor();
       await page.locator(".composer-model").waitFor({ state: "attached" });
+      await appFaces(page);
       await run(page);
       assert.deepEqual(errors, []);
     } finally {

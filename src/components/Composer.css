@@ -110,8 +110,9 @@
 .composer-greeting-title {
   margin: 0;
   color: var(--text-strong);
-  font-size: var(--fs-xl);
+  font-size: var(--fs-display);
   font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-display);
   line-height: var(--lh-tight);
 }
 
@@ -515,6 +516,15 @@
   font-family: var(--font-ui);
   font-size: var(--fs-input);
   line-height: var(--lh-base);
+}
+
+/* with a mouse the message is typed at the size the transcript is read at; touch keeps
+   --fs-input, the smallest size iOS does not zoom the page for */
+@media (hover: hover) and (pointer: fine) {
+  .composer-text {
+    font-size: var(--fs-chat);
+    line-height: var(--lh-code);
+  }
 }
 
 .composer-text:focus-visible {

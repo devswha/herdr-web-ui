@@ -8,6 +8,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- The app brings its own typefaces instead of counting on the ones a device has: Pretendard for
+  the interface and the chat, and JetBrains Mono for code in the chat and the interface, so a
+  phone or a PC without them draws Latin text and Korean in the same letters as one with them.
+  Japanese and Chinese are not the same everywhere: Pretendard has kana and only a few hundred
+  ideographs, so kanji and Chinese text are still drawn in the device's own font, and a Japanese
+  line mixes the two. Nothing is fetched from the internet: the files come from your own PC
+  with the app, a page downloads only the pieces of
+  Pretendard its text needs (about 90 KB for a chat in English, about 200 KB more once Korean
+  is on the page), and each piece is kept for offline use after that. The terminal is untouched: its
+  font, its **Terminal font** setting and its grid are as before, and a **Chat font** you chose
+  still comes first. In the chat, answers, your own messages and what the agent says while it
+  works are a step larger (15px at the default **Chat font size**, which still scales
+  everything) on a looser line; bold is a semibold; inline code sits a little under its line and
+  code blocks are a step larger with more room; the message box is typed at the same size with
+  a mouse and stays 16px on touch; the empty chat's question is a larger line. Tool rows, times
+  and other small labels keep their size.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
 - In the chat's message box the agent's mark, the model, the reasoning level and the context
   ring sit together in one quiet pill, and the model is shown by its name where the id is a
   regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
@@ -17,8 +34,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   shown exactly as received, in the code font. Behind a name the id
   as received is in the name's tooltip and is read by a screen reader; on a touch screen it is
   not shown yet. A pane that records no reasoning level shows the name alone. The pill only shows the model, it is not a button yet. Where the
-  pill does not fit beside Queue (on a phone with a background-task chip, every named model
-  with a level) it steps aside whole while Queue is showing, and the context ring stays.
+  pill does not fit beside Queue (seen on a 390px phone) it steps aside whole while Queue is
+  showing, and the context ring stays.
   ([#467](https://github.com/devswha/herdr-web-ui/pull/467))
 - In the chat, the line with the model sits inside the message box, as its last row, instead of
   above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
@@ -143,6 +160,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
+- The installed app opens without a network right after an update that renewed its offline
+  store, as this one does. The old store used to be emptied the moment the new version took
+  over, so until the app had been opened online once more, a reload with no connection showed
+  the browser's error page. The old store is now kept until the new one holds the app.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
 - Ctrl+Enter typed into the live terminal reaches Claude Code as Ctrl+Enter, so a message typed
   while it works is sent at once instead of waiting in its queue. The terminal sent plain Enter; it
   now sends the key the way the pane's program asked for (modifyOtherKeys), also to a device that

@@ -18,6 +18,7 @@ import "./TabStrip.css";
 
 import type { HerdrTab, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
+import { useFacesArrived } from "../lib/fontFaces.ts";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { useT } from "../lib/i18n.ts";
 import { customTabLabel, tabLabel } from "../lib/tabName.ts";
@@ -108,7 +109,10 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
 
   // the open tab is in view: a pane opened from the sidebar, the palette or an alert can be on a
   // tab scrolled out of a phone's strip. Only the strip scrolls, never the page around it.
+  // A face that arrives after that (lib/fontFaces.ts) redraws every name wider or narrower with
+  // no tab added or opened, so the open tab is brought into view again for each.
   const shown = panes.length >= 2;
+  const faces = useFacesArrived();
   useLayoutEffect(() => {
     const row = strip.current;
     const open = row?.querySelector<HTMLElement>(".tab-strip-item.is-active");
@@ -118,7 +122,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     const end = row.querySelector<HTMLElement>(".tab-strip-add")?.getBoundingClientRect().left ?? view.right;
     if (item.left < view.left) row.scrollLeft -= view.left - item.left;
     else if (item.right > end) row.scrollLeft += item.right - end;
-  }, [selectedPane.tab_id, tabs.length, shown]);
+  }, [selectedPane.tab_id, tabs.length, shown, faces]);
 
   if (!shown) return null;
 

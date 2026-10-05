@@ -25,6 +25,9 @@
   --chat-fs-xs: calc(var(--fs-xs) * var(--chat-scale, 1));
   --chat-fs-sm: calc(var(--fs-sm) * var(--chat-scale, 1));
   --chat-fs-md: calc(var(--fs-md) * var(--chat-scale, 1));
+  /* what is read at length (answers, the user's words, live narration) is one step above the
+     body size; labels, rows and meta keep the sizes above */
+  --chat-fs-body: calc(var(--fs-chat) * var(--chat-scale, 1));
   --chat-fs-lg: calc(var(--fs-lg) * var(--chat-scale, 1));
   --chat-fs-xl: calc(var(--fs-xl) * var(--chat-scale, 1));
 }
@@ -108,6 +111,8 @@
   border-radius: var(--radius-lg);
   background: var(--bg-elevated);
   color: var(--text-strong);
+  font-size: var(--chat-fs-body);
+  line-height: var(--lh-prose);
   overflow-wrap: anywhere;
 }
 
@@ -230,8 +235,8 @@
 
 .markdown {
   width: 100%;
-  font-size: var(--fs-md);
-  line-height: var(--lh-base);
+  font-size: var(--chat-fs-body);
+  line-height: var(--lh-prose);
   overflow-wrap: anywhere;
 }
 
@@ -259,11 +264,12 @@
 
 .markdown h1 { font-size: var(--fs-xl); }
 .markdown h2 { font-size: var(--fs-lg); }
-.markdown h3 { font-size: var(--fs-md); }
-/* below h3 the size stops shrinking: the weight, then the dim colour, tell the levels apart */
+/* h3 is the prose size, and below it the size stops shrinking: the weight, then the dim colour,
+   tell the levels apart */
+.markdown h3,
 .markdown h4,
 .markdown h5,
-.markdown h6 { font-size: var(--fs-md); }
+.markdown h6 { font-size: var(--chat-fs-body); }
 .markdown h1,
 .markdown h2,
 .markdown h3,
@@ -279,6 +285,17 @@
   margin: var(--space-1) 0 0;
 }
 
+.markdown-list li + li {
+  margin-top: var(--space-1);
+}
+
+/* emphasis is semibold: at the prose size the bold weight shouts */
+.markdown strong,
+.markdown b {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
 /* a table or text below it in a list item: a little air above and below, as between two items */
 .markdown-list .markdown-table-wrap,
 .markdown-list p {
@@ -291,13 +308,15 @@
   color: var(--text-dim);
 }
 
+/* code sits under the line it is in, at any size of that line: a chip in a heading, in settled
+   narration and in an answer are each a step below their own text */
 .markdown :not(pre) > code {
-  padding-inline: var(--space-1);
+  padding: var(--hairline) var(--space-1);
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   color: var(--text-strong);
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-size: 0.87em;
 }
 
 .chat-bubble .markdown :not(pre) > code {
@@ -383,11 +402,11 @@
 /* no height cap: an inner scroll hid the rest of the block on phones */
 .markdown-code pre {
   margin: 0;
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-base);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-code);
   white-space: pre;
 }
 
@@ -592,7 +611,7 @@
   color: var(--text-dim);
 }
 
-/* what the agent said mid-work: prose, dim and one step smaller than the answer once the turn settles */
+/* what the agent said mid-work: once the turn settles, a quiet row again (dim, --fs-sm) */
 .work-narration {
   padding: var(--space-1) 0 var(--space-2);
   color: var(--text-dim);
@@ -608,7 +627,7 @@
 }
 
 .work-block.is-live .work-narration .markdown {
-  font-size: var(--fs-md);
+  font-size: var(--chat-fs-body);
 }
 
 /* the tool's own id, first in the opened detail of a row that shows a verb in its place */
@@ -1035,6 +1054,30 @@
   padding: var(--space-3);
   border: var(--hairline) solid var(--border);
   border-radius: var(--radius-lg);
+}
+
+/* a summary opened on request, not the conversation: it keeps the body size */
+.chat-compact-text .markdown {
+  font-size: var(--fs-md);
+  line-height: var(--lh-base);
+}
+
+/* and so do the parts of it that name a size of their own: a heading from h3 down is the size
+   of the summary's text, and code is the step below it */
+.chat-compact-text .markdown h3,
+.chat-compact-text .markdown h4,
+.chat-compact-text .markdown h5,
+.chat-compact-text .markdown h6 {
+  font-size: inherit;
+}
+
+.chat-compact-text .markdown :not(pre) > code {
+  font-size: var(--fs-xs);
+}
+
+.chat-compact-text .markdown-code pre {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-base);
 }
 
 /* a notice named by its own first line: one line, cut short, between the divider rules */

@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
+import { appFaces } from "./app-faces.ts";
 import panes from "../site/demo/fixtures/panes.json";
 
 // An empty chat's greeting, on the unmodified app over the demo's fixture transport: a workspace
@@ -125,6 +126,7 @@ try {
         await page.goto(url);
         await page.locator(".conn-live").waitFor({ state: "attached" });
         await page.locator(".chat-turn").first().waitFor();
+        await appFaces(page);
         assert.equal(await page.locator(".composer-greeting").count(), 0, "a conversation with turns is not greeted");
         const docked = await geometryOf(page);
         assert.equal(docked.transform, "none");
@@ -264,6 +266,7 @@ try {
         const pane = await newWorkspace(page, `/home/demo/projects/${LONG_FOLDER}`);
         await select(page, pane);
         await page.locator(".composer-greeting").waitFor({ timeout: 8_000 });
+        await appFaces(page);
         assert.equal(await page.locator(".composer-greeting-title").textContent(), `What should Claude do in ${LONG_FOLDER}?`);
         const geometry = await geometryOf(page);
         assert.equal(geometry.transform, "none", "a phone does not lift the composer");

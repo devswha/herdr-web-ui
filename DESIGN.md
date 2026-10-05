@@ -130,22 +130,52 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 | Meta | `--fs-xs` | `12px` | `11px` | Subtitles, field labels |
 | Small | `--fs-sm` | `13px` | `12px` | Controls, row titles |
 | Body | `--fs-md` | `14px` | `13px` | Body and dialog copy |
+| Reading | `--fs-chat` | `15px` | `14px` | Chat prose, the user's bubble, live narration; the message box with a mouse |
 | Large | `--fs-lg` | `16px` | `15px` | Header title, modal title |
-| Display | `--fs-xl` | `18px` | `17px` | Markdown h1 |
+| Title | `--fs-xl` | `18px` | `17px` | Markdown h1 |
+| Display | `--fs-display` | `22px` | `21px` | The empty chat's greeting |
 | Input | `--fs-input` | `16px` | `16px` | Mobile-safe text input |
 
 | Token | Value | Usage |
 |-------|-------|-------|
 | `--font-ui` | `"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif` | Chrome and chat prose |
-| `--font-mono` | `"Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace` | Paths, keys, terminal-adjacent metadata |
+| `--font-mono` | `"Symbols Nerd Font Mono", "JetBrains Mono Web", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace` | Code, paths, keys, terminal-adjacent metadata |
 | `--lh-tight` | `1.2` | Titles |
 | `--lh-base` | `1.5` comfortable / `1.45` compact | Body copy |
+| `--lh-code` | `1.6` | Code blocks; the message box with a mouse |
+| `--lh-prose` | `1.65` | Chat prose and the user's bubble |
 | `--fw-regular` | `400` | Body |
 | `--fw-medium` | `500` | Controls |
 | `--fw-semibold` | `600` | Labels and titles |
 | `--fw-bold` | `700` | Brand |
 | `--tracking-tight` | `-0.01em` | Brand and primary titles |
+| `--tracking-display` | `-0.02em` | The display line |
 | `--tracking-caps` | `0.06em` | Uppercase operational labels |
+
+### Faces
+- The app ships its typefaces (`src/fonts/`, licenses in `THIRD_PARTY_NOTICES.md`) and loads
+  nothing from another host: it is served from the user's PC, often with no internet route.
+  Both are `font-display: swap`.
+- Pretendard Variable, the first name in `--font-ui`, is upstream's dynamic subset: 92 chunks
+  split by `unicode-range`, so the browser fetches only those whose characters a page draws
+  (measured on the demo's chat: three chunks, 90 KB, in English; eight more, 200 KB, with the
+  interface and an answer in Korean). The service worker precaches none and keeps each one once
+  fetched.
+- What the chunks cover (their `unicode-range`s): Latin, all 11,172 Hangul syllables, hiragana
+  and katakana, and 435 CJK ideographs. The type is therefore the same on every device for
+  Latin and Korean only. Kanji and Chinese text fall through `--font-ui` to the device's sans-serif,
+  so a Japanese line is kana in Pretendard beside kanji in the device's face, and Chinese is
+  the device's face almost throughout. The app ships no Japanese or Chinese face.
+- JetBrains Mono regular is the code face of the chat and the chrome, loaded under the family
+  name `"JetBrains Mono Web"`. The name is the app's own so that the terminal never takes it:
+  xterm's stack (`src/lib/fontFamily.ts`) names `"JetBrains Mono"`, sizes every cell from the
+  first font that matches, and keeps meaning the copy installed on the device.
+- Chat reading scale: prose, the user's bubble and live narration are `--fs-chat` on
+  `--lh-prose`; `strong` is `--fw-semibold` in `--text-strong`; inline code and code file chips
+  are `0.87em` of their line; a code block is `--fs-sm` on `--lh-code`; headings are h1 `--fs-xl`,
+  h2 `--fs-lg`, h3 to h6 `--fs-chat`. Work heads, tool rows, settled narration, a compaction's summary and
+  meta keep their sizes. The chat scales all of them by `--chat-scale` (`--chat-fs-body` is the scaled
+  `--fs-chat`), so the Chat font size setting names the body size and the prose is one step above it.
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
@@ -544,7 +574,8 @@ One set for both themes: the card is island black wherever it shows.
   a verb the tool's own id (`exec`, `Bash`, `apply_patch`) is the first line of that detail
   (`.work-row-tool`, mono, dim) and the row's title.
 - Mid-work narration sits between rows. While the turn runs it is the agent's voice: answer prose
-  (`--text`, `--fs-md`) on the prose edge. Once the turn settles it is dim, one step smaller.
+  (`--text`, `--fs-chat` on `--lh-prose`) on the prose edge. Once the turn settles it is a quiet
+  row again: `--text-dim`, `--fs-sm`.
 - Only the running turn's block is open (working or blocked). A settled turn folds to its header
   with a hairline under it, and the header reads as a footnote: `--text-dim`, regular weight (the
   live one keeps medium weight and its state color). The answer is outside the fold. A settled
@@ -633,7 +664,7 @@ One set for both themes: the card is island black wherever it shows.
   on, and the background-task chip; on the right the status content, Queue when it applies, and
   ONE round button.
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
-  `What should <agent> do in <folder>?` in `--text-strong`, `--fs-xl`, `--fw-semibold`, centred,
+  `What should <agent> do in <folder>?` in `--text-strong`, `--fs-display`, `--fw-semibold`, `--tracking-display`, centred,
   and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
   recording pill is open over the composer the greeting is hidden (its box stays). No suggestion
   chips or starter prompts. The greeting is out of the flow, so it takes no row from the terminal
@@ -709,7 +740,8 @@ One set for both themes: the card is island black wherever it shows.
   in light themes only, where the tint alone does not separate it from the card. Pressing it is
   the only thing that holds a message. When a pressed Queue leaves with its draft, its focus goes
   to the message box (a touch press moves no focus, so no keyboard is raised). The placeholder is
-  just `Message <agent>…`.
+  just `Message <agent>…`. The message is typed at `--fs-chat` on `--lh-code` with a mouse
+  (`(hover: hover) and (pointer: fine)`) and at `--fs-input` otherwise.
 - Not connected, the sentence `Reconnecting… message held here, never queued` is said once and
   whole: it is the placeholder while the box is empty and moves into the status content once
   there is a draft (`composerStatusHint`), on a phone too. A sentence there (this one, or

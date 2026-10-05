@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
+import { appFaces } from "./app-faces.ts";
 import panes from "../site/demo/fixtures/panes.json";
 
 // The prompt card's place, on the unmodified app over the demo's fixture transport: the demo's
@@ -250,6 +251,7 @@ try {
         if (prompt !== null) await setPrompt(page, prompt);
         await page.locator(".prompt-card").waitFor();
         if (prompt !== null) await page.locator(".prompt-card").getByText((prompt as { question: string }).question).waitFor();
+        await appFaces(page);
         return { page, errors, close: () => context.close(), shot: async (name) => { if (shots !== null) await page.screenshot({ path: join(shots, `${name}.png`) }); } };
       };
 
