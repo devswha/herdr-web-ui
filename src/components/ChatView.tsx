@@ -16,7 +16,7 @@ import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
-import { isLiveWorkTurn, formatWorkDuration, splitTurn, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
+import { isLiveWorkTurn, formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
@@ -308,12 +308,15 @@ function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinkin
   const visible = parts.filter((part) => part.kind !== "skill" && (showThinking || part.kind !== "thinking"));
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
+  const failed = workFailed(parts);
   const title = live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
   return <section className={`work-block${live ? " is-live" : ""}${open ? "" : " is-folded"}`}>
     <button type="button" className="work-block-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <span className="work-block-title">{title}</span>
       {summary.length > 0 && <span className="work-block-summary">· {summary}</span>}
+      {/* its own span: the counts before it are cut on a narrow screen, a failure never is */}
+      {failed > 0 && <span className="work-block-failed">· {t("{n} failed", { n: failed })}</span>}
     </button>
     {open && <div className="work-block-rows" onFocus={keepOpen} onClick={keepOpen}>{visible.map((part, index) =>
       part.kind === "thinking" ? <ThinkingRow key={index} text={part.text} />

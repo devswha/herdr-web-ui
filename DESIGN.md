@@ -490,6 +490,10 @@ One set for both themes: the card is island black wherever it shows.
   words are never behind the fold. A block the reader opened or folded stays as they left it, and
   so does one they focused or clicked inside: the fold at the end of a turn never takes the rows
   from under them.
+- The header is one line: the counts (`.work-block-summary`) take the width the title and the
+  failure count leave and end in an ellipsis. `· 1 failed` (`.work-block-failed`) is its own item
+  and is never cut, because the fold hides the failed row; at the largest chat type on the
+  narrowest phone the title wraps to a second line instead.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,

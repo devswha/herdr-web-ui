@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { formatWorkDuration, splitTurn, workStartsOpen, workSummary } from "./workBlocks.ts";
+import { formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary } from "./workBlocks.ts";
 import type { ConversationPart } from "../../shared/protocol.ts";
 
 const tool = (name: string, summary = name): Extract<ConversationPart, { kind: "tool" }> => ({ kind: "tool", name, summary, input: "{}", output: "" });
@@ -98,10 +98,20 @@ describe("formatWorkDuration", () => {
   });
 });
 
-describe("workSummary failures", () => {
-  it("says how many calls failed, last", () => {
-    const failed: ConversationPart = { kind: "tool", name: "Bash", summary: "", input: "", output: "", error: true };
-    expect(workSummary([{ kind: "tool", name: "Edit", summary: "", input: "", output: "" }, failed, failed])).toBe("1 edit · 2 commands · 2 failed");
+describe("workFailed", () => {
+  const failed: ConversationPart = { kind: "tool", name: "Bash", summary: "", input: "", output: "", error: true };
+
+  it("counts the calls that failed, apart from the summary a narrow header cuts short", () => {
+    const parts = [tool("Edit"), failed, failed];
+    expect(workSummary(parts)).toBe("1 edit · 2 commands");
+    expect(workFailed(parts)).toBe(2);
+    expect(workFailed([tool("Edit"), thinking("x"), text("y")])).toBe(0);
+  });
+
+  it("counts a failed call the summary does not count", () => {
+    const parts: ConversationPart[] = [{ ...failed, name: "TodoWrite" }];
+    expect(workSummary(parts)).toBe("");
+    expect(workFailed(parts)).toBe(1);
   });
 });
 

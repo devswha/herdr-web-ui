@@ -468,9 +468,10 @@
   height: 100%;
 }
 
-/* a settled title reads as a footnote; the live one keeps its weight and its state color */
+/* a settled title reads as a footnote; the live one keeps its weight and its state color.
+   It wraps only when the row cannot hold it beside a failure count (largest type, narrowest phone) */
 .work-block-title {
-  flex: none;
+  flex: 0 1 auto;
   color: var(--text-dim);
   font-weight: var(--fw-regular);
 }
@@ -493,10 +494,19 @@
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
+/* the counts take what the title and the failure count leave, and are the first to be cut */
 .work-block-summary {
+  flex: 1 1 0;
   min-width: 0;
+  max-width: max-content;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a failure is never the part a narrow header cuts */
+.work-block-failed {
+  flex: none;
   white-space: nowrap;
 }
 
