@@ -6,6 +6,7 @@ import { join, win32 } from "node:path";
 import { forgetHistoryChains } from "./codex.ts";
 import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 import { MAX_TURNS, parseOmpTranscript } from "./transcript-records.ts";
+import { toolVerb } from "../src/lib/toolVerbs.ts";
 
 /** Minimal but shape-true slices of a Claude Code session jsonl. */
 const lines = [
@@ -78,6 +79,16 @@ describe("parseClaudeTranscript", () => {
     const turns = parseClaudeTranscript(big);
     const tool = turns[0]?.parts[0];
     expect(tool && tool.kind === "tool" ? tool.output.length : 0).toBeLessThanOrEqual(4100);
+  });
+
+  it("sums a NotebookEdit up by its notebook, so the row reads as an edit", () => {
+    const turns = parseClaudeTranscript(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [
+      { type: "tool_use", id: "n", name: "NotebookEdit", input: { notebook_path: "/repo/analysis.ipynb", cell_id: "c1", new_source: "print(1)", edit_mode: "replace" } },
+    ] } }));
+    const tool = turns[0]?.parts[0];
+    if (tool?.kind !== "tool") throw new Error("expected a tool part");
+    expect(tool.summary).toBe("/repo/analysis.ipynb");
+    expect(toolVerb(tool, tool.summary)).toBe("Edited");
   });
 
   it("caps the turn list", () => {

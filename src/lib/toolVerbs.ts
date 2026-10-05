@@ -27,7 +27,7 @@ const VERB_OF: Record<string, ToolVerbKind> = {
 /** The input fields a verb's object can be: a run's command, a file call's path. */
 const OBJECT_KEYS: Record<ToolVerbKind, readonly string[]> = {
   read: ["file_path", "path"],
-  edit: ["file_path", "path"],
+  edit: ["file_path", "notebook_path", "path"],
   write: ["file_path", "path"],
   run: ["cmd", "command"],
 };
