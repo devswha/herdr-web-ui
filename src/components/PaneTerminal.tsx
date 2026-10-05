@@ -1,16 +1,18 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { TriangleAlert } from "lucide-react";
+import { ChevronRight, Clock, TriangleAlert, X } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket } from "../lib/ws.ts";
-import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
+import { controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
-import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
+import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
+import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
+import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
@@ -26,7 +28,7 @@ import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
+import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -51,6 +53,9 @@ export interface PaneTerminalProps {
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the composer's status line offers their list */
   backgroundTasks?: number;
+  /** the pane's working directory and its PC's name: an empty chat's greeting names them */
+  cwd?: string | null;
+  machineName?: string;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
@@ -83,18 +88,18 @@ function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
 }
 
-/** A touch screen as the main pointer: its soft keyboard is what the input line is for. */
-function useCoarsePointer(): boolean {
-  const query = "(pointer: coarse)";
-  const [coarse, setCoarse] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
+/** Follows a media query: the layout rules that CSS alone cannot apply. */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
   useEffect(() => {
     const media = window.matchMedia?.(query);
     if (!media) return;
-    const onChange = (): void => setCoarse(media.matches);
+    const onChange = (): void => setMatches(media.matches);
+    onChange();
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
-  }, []);
-  return coarse;
+  }, [query]);
+  return matches;
 }
 export function PaneTerminal({
   paneId,
@@ -102,6 +107,8 @@ export function PaneTerminal({
   agent = null,
   agentStatus,
   backgroundTasks = 0,
+  cwd = null,
+  machineName = "",
   view,
   autoSelected = false,
   terminalFontSize,
@@ -129,6 +136,7 @@ export function PaneTerminal({
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const stackRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<HerdrSocket | null>(null);
@@ -161,12 +169,14 @@ export function PaneTerminal({
   const fixedGridRef = useRef(false);
   // the pty's grid as the server last said it for this pane (pane-geometry), whoever set it
   const sharedGridRef = useRef<{ cols: number; rows: number } | null>(null);
+  // the modifyOtherKeys level the pane's program asked for, as this pane's stream last said it
+  const modifyOtherKeysRef = useRef(0);
   const [observing, setObserving] = useState(false);
   const [secret, setSecret] = useState<{ pane: string; prompt: string } | null>(null);
   const secretRef = useRef<string | null>(null);
   const secretActive = secret !== null && secret.pane === paneId;
   // a touch screen writes in the terminal's input line; typing straight into the grid is chosen
-  const coarse = useCoarsePointer();
+  const coarse = useMediaQuery("(pointer: coarse)");
   // A touch screen reads a pane before it answers: picking a pane or a lens there never raises the
   // keyboard by itself, only a tap on the message box or the grid does. A desktop has no keyboard
   // to raise, and the pane it picks takes the typing at once.
@@ -174,6 +184,24 @@ export function PaneTerminal({
   const { settings, update: updateSettings } = useSettings();
   const shortcutSettings = useRef(settings.shortcutOverrides);
   shortcutSettings.current = settings.shortcutOverrides;
+  // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
+  // the transcript, the composer column, the held list and the menus all inherit: a percentage
+  // would resolve against each one's own box and leave them a gutter apart. The other steps are
+  // fixed and stay with the stylesheet (styles.css). The lane's ceiling stays 60rem inside the
+  // length, so a change of the browser's font size moves it at once, as it moves Wide's 72rem
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    if (!stack) return;
+    if (settings.chatWidth !== "default") {
+      stack.style.removeProperty("--chat-w");
+      return;
+    }
+    const apply = (): void => stack.style.setProperty("--chat-w", chatLaneLength(stack.clientWidth));
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(stack);
+    return () => observer.disconnect();
+  }, [settings.chatWidth]);
   const directTyping = settings.terminalInputMode === "direct" || (settings.terminalInputMode === "auto" && (!coarse || storedDirectTyping()));
   const inputLine = !directTyping && !chatView;
   const inputLineRef = useRef(inputLine);
@@ -199,6 +227,21 @@ export function PaneTerminal({
   // bumped as a composer message goes out: the chat must not title the turn before it as running
   const [chatSent, setChatSent] = useState(0);
   const [chatMetadata, setChatMetadata] = useState<{ pane: string; value: ConversationMetadata | null } | null>(null);
+  // What each pane's chat last read, and whether a message went out since: kept per pane here,
+  // not in the chat, so a message sent ends the greeting at once and neither another lens, another
+  // pane nor a failed read brings it back before the conversation shows a turn or a new history.
+  // It lives in lib/greeting.ts, over this component, which another PC's pane mounts again.
+  const [, redrawGreeting] = useReducer((count: number) => count + 1, 0);
+  const onChatRead = useCallback((pane: string, read: ChatRead | null) => {
+    const owner = paneStorageId(machineId, pane);
+    const memory = greetingMemory(owner);
+    const next = afterRead(memory, read);
+    if (next === memory) return;
+    rememberGreeting(owner, next); redrawGreeting();
+  }, [machineId]);
+  // the stack (stackRef, above) holds the composer and the greeting over it (measured below)
+  const [greetingRoom, setGreetingRoom] = useState(true);
+  const greetingRef = useRef<HTMLDivElement | null>(null);
   // The prompt the chat shows: while it waits, a message from the composer answers it.
   const [chatPrompt, setChatPrompt] = useState<{ pane: string; value: InteractivePrompt } | null>(null);
   const [promptRefresh, setPromptRefresh] = useState(0);
@@ -211,7 +254,20 @@ export function PaneTerminal({
   }, []);
   // a typed pick of an approval's option, shown in the card until Confirm or Cancel
   const [pendingAnswer, setPendingAnswer] = useState<{ pane: string; promptId: string; answer: TypedAnswer } | null>(null);
-  const clearPendingAnswer = useCallback(() => setPendingAnswer(null), []);
+  // where the chat draws its prompt card: on the composer's column, between the held messages and
+  // the input card (the stack's order is written once, in the JSX below)
+  const [promptDock, setPromptDock] = useState<HTMLDivElement | null>(null);
+  // Answered from the card, the card goes and would take the keyboard's focus with it: the message
+  // box is the next thing to type in. Not after a tap, which would raise the keyboard: the card
+  // tells a key, a mouse and a tap by the press itself (lib/promptAnswer.ts), so a key on a
+  // tablet hands the focus on and a tap on a touch-screen laptop does not.
+  const onPromptAnswered = useCallback((toMessageBox: boolean) => {
+    if (toMessageBox) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
+  }, []);
+  // only the pick of that pane and prompt: an answer that comes back late must not take another's
+  const clearPendingAnswer = useCallback((pane: string, promptId?: string) => {
+    setPendingAnswer((current) => current?.pane === pane && (promptId === undefined || current.promptId === promptId) ? null : current);
+  }, []);
   const onChatPrompt = useCallback((pane: string, value: InteractivePrompt | null) => {
     setChatPrompt((current) => value !== null ? { pane, value } : current?.pane === pane ? null : current);
     // a typed pick belongs to the prompt it was typed for: once that prompt changes or goes
@@ -634,6 +690,14 @@ export function PaneTerminal({
       }
       return true;
     });
+    // modifyOtherKeys (CSI > 4 ; level m): xterm.js has no handler for it, so this one only
+    // listens, and Ctrl+Enter is sent as the program asked (see onModifiedEnter)
+    const modifyOtherKeys = (final: "m" | "n") => term.parser.registerCsiHandler({ prefix: ">", final }, (params) => {
+      modifyOtherKeysRef.current = modifyOtherKeysLevel(modifyOtherKeysRef.current, final, params);
+      return false;
+    });
+    const modifyOtherKeysSet = modifyOtherKeys("m");
+    const modifyOtherKeysOff = modifyOtherKeys("n");
 
     const socket = new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);
     socketRef.current = socket;
@@ -649,7 +713,13 @@ export function PaneTerminal({
         const generation = outputGeneration;
         term.write(message.data, () => {
           acknowledge?.();
-          if (paneRef.current !== owner || generation !== outputGeneration) return;
+          if (paneRef.current !== owner || generation !== outputGeneration) {
+            // output of a pane left behind, or of a dropped connection, was still queued in xterm
+            // when the switch reset the level: whatever its parse just set, the level is off again
+            // (writes are parsed in order, so no newer output has been read yet)
+            modifyOtherKeysRef.current = 0;
+            return;
+          }
           setOutputReady(true);
           followCursor();
           const lines: string[] = [];
@@ -745,6 +815,8 @@ export function PaneTerminal({
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       setHeld(false);
+      // and its stream says the keyboard modes again, from the start or in the replay
+      modifyOtherKeysRef.current = 0;
     });
     socket.connect();
 
@@ -752,10 +824,16 @@ export function PaneTerminal({
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
-    let shiftEnter = false;
-    const onShiftEnter = term.onKey(({ key, domEvent: event }) => {
-      shiftEnter = !term.options.disableStdin && key === "\r" && event.key === "Enter" && event.shiftKey
-        && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing && event.keyCode !== 229;
+    // xterm.js types Shift+Enter and Ctrl+Enter as plain Enter: Shift+Enter becomes the Alt+Enter
+    // newline chord, Ctrl+Enter what modifyOtherKeys makes it (Claude Code's "send now") while
+    // the program has asked for that, and stays Enter otherwise.
+    let enterAs: string | null = null;
+    const onModifiedEnter = term.onKey(({ key, domEvent: event }) => {
+      enterAs = null;
+      if (term.options.disableStdin || key !== "\r" || event.key !== "Enter" || event.altKey || event.metaKey
+        || event.isComposing || event.keyCode === 229) return;
+      if (event.shiftKey && !event.ctrlKey) enterAs = "\x1b\r";
+      else if (event.ctrlKey && !event.shiftKey) enterAs = ctrlEnterSequence(modifyOtherKeysRef.current);
     });
     // Let xterm finish pending IME text before remapping the key's following data.
     // Cmd+Backspace uses the terminal's Ctrl+U line-deletion shortcut on macOS.
@@ -778,8 +856,8 @@ export function PaneTerminal({
     };
     host.addEventListener("keydown", onCommandArrow);
     const onData = term.onData((data) => {
-      if (shiftEnter && data === "\r") data = "\x1b\r";
-      shiftEnter = false;
+      if (enterAs !== null && data === "\r") data = enterAs;
+      enterAs = null;
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
       const current = paneRef.current;
@@ -973,7 +1051,7 @@ export function PaneTerminal({
       selectionChange.dispose();
       window.removeEventListener("focus", refit);
       document.removeEventListener("visibilitychange", onVisible);
-      onShiftEnter.dispose();
+      onModifiedEnter.dispose();
       onCommandBackspace.dispose();
       host.removeEventListener("keydown", onCommandArrow);
       onData.dispose();
@@ -982,6 +1060,8 @@ export function PaneTerminal({
       host.removeEventListener("drop", onDrop);
       offDisconnect();
       osc52.dispose();
+      modifyOtherKeysSet.dispose();
+      modifyOtherKeysOff.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
       off();
       socket.close();
@@ -1083,6 +1163,7 @@ export function PaneTerminal({
     setDraft(saved);
     draftPaneRef.current = paneId;
     term.reset();
+    modifyOtherKeysRef.current = 0;
     if (!paneId) return;
     try {
       fit?.fit();
@@ -1160,15 +1241,25 @@ export function PaneTerminal({
     if (sent === null) return false;
     term.scrollToBottom();
     setChatSent((current) => current + 1);
+    const owner = paneStorageId(machineId, pane);
+    const history = greetingMemory(owner).history;
+    rememberGreeting(owner, afterSend(greetingMemory(owner))); redrawGreeting();
     // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
     onChatSuggestion(pane, null);
     return sent.then((result) => {
+      // a message refused before anything was typed leaves the greeting as it was; each answer
+      // settles its own message only, so one on its way beside it (a queued "Send now") is not undone
+      rememberGreeting(owner, afterSettled(greetingMemory(owner), result.ok || !submitNotTyped(result.code), history)); redrawGreeting();
       if (!result.ok) return submitNote(result.code, result.message);
       // the chat lens refetches at once so the sent prompt appears without a poll beat
       setChatRefresh((current) => current + 1);
       return true;
+    }, (error: unknown) => {
+      // the send broke with no answer: it may have been typed, and it is no longer on its way
+      rememberGreeting(owner, afterSettled(greetingMemory(owner), true, history)); redrawGreeting();
+      throw error;
     });
-  }, [onChatSuggestion]);
+  }, [onChatSuggestion, machineId]);
 
   // the terminal's input line: the text typed like the keyboard would, into an agent's open
   // menu too, then Enter after the server's gap; several lines go as one paste
@@ -1234,6 +1325,79 @@ export function PaneTerminal({
   const heldByOpenQueue = chatView && chatPrompt !== null && chatPrompt.pane === paneId && chatPrompt.value.queued === "open";
   const busy = agent !== null && agentStatus === "working" && answering === null;
   const readyForQueue = agentStatus !== undefined && QUEUE_READY_STATUS[agentStatus] === true;
+  // The held rows fold into their caption while a prompt card needs the room, or a phone's
+  // window is short. They stay mounted; the caption is then the button that opens them
+  const shortPhone = useMediaQuery(SHORT_PHONE_QUERY);
+  const heldFold = heldRowsFold({ promptOpen: chatView && chatPrompt !== null && chatPrompt.pane === paneId, shortPhone, ready: readyForQueue });
+  const heldListRef = useRef<HTMLOListElement | null>(null);
+  const heldToggleRef = useRef<HTMLButtonElement | null>(null);
+  const [heldOpened, setHeldOpened] = useState(false);
+  // Each fold starts closed, and so does another pane's or a list that was empty, unless the
+  // user is in one of this pane's rows right now: a phone's keyboard comes up for the message
+  // being edited and must not fold it away. (During this render the DOM is still the last one.)
+  const heldAny = queued.length > 0;
+  const [heldSeen, setHeldSeen] = useState({ owner: queueOwner, fold: heldFold, any: heldAny });
+  if (heldSeen.owner !== queueOwner || heldSeen.fold !== heldFold || heldSeen.any !== heldAny) {
+    setHeldSeen({ owner: queueOwner, fold: heldFold, any: heldAny });
+    setHeldOpened(heldOpenAtFold({
+      fold: heldFold && heldAny,
+      sameOwner: heldSeen.owner === queueOwner,
+      focusInRows: heldListRef.current?.contains(document.activeElement) === true,
+    }));
+  }
+  // a row's error is for the user to read: it opens the rows too, and the caption is then no button.
+  // Rows it opened are the user's own once focus is in one (the list's onFocus), whatever ends the error
+  const heldRowFailed = heldRowError(queueError, queueOwner, queued.map((message) => message.id));
+  const heldHidden = heldRowsHidden(heldFold, heldOpened, heldRowFailed);
+  const heldToggle = heldToggleShown(heldFold, heldRowFailed);
+  // The button goes when the fold ends (the agent is ready, the prompt was answered). Focus on it
+  // would fall to the page, so it moves to the list the button stood for: Tab goes on from there.
+  // The list, not a message box: on a phone that would raise the keyboard unasked.
+  // React detaches the button's ref just before it removes the node, while focus is still on it:
+  // that is read in the commit, never in a render React may discard.
+  // The button names its list (aria-controls) and that is what is kept: a button that goes because
+  // the user moved to another pane stood for another list, and this pane's is not focused for it.
+  const heldRefocusRef = useRef<string | null>(null);
+  const setHeldToggle = useCallback((node: HTMLButtonElement | null) => {
+    if (node === null && heldToggleRef.current !== null && document.activeElement === heldToggleRef.current) heldRefocusRef.current = heldToggleRef.current.getAttribute("aria-controls");
+    heldToggleRef.current = node;
+  }, []);
+  // every commit, so a flag set as the whole list went is dropped with it
+  useLayoutEffect(() => {
+    const left = heldRefocusRef.current;
+    if (left === null) return;
+    heldRefocusRef.current = null;
+    if (heldRefocusDue(left, heldListRef.current?.id ?? null)) heldListRef.current?.focus({ preventScroll: true });
+  });
+  // an empty chat: one greeting line over the composer, which a mouse-driven window centres
+  const folder = greetingFolder(cwd);
+  const greetingDue = chatView && paneId !== null && agent !== null && !secretActive && !observing && !ended
+    && showsGreeting({ memory: greetingMemory(paneStorageId(machineId, paneId)), agentStatus, queued: queued.length, folder });
+  // a stack too short for the composer and the greeting keeps the chat's own empty line
+  const greeted = greetingDue && greetingRoom;
+  // Only the composer moves (Composer.css): the surface under it keeps its box, so the xterm
+  // mount is never resized by a greeting coming or going. Measured before paint, so the composer
+  // is never seen docked first. The greeting stays mounted while it does not fit, so that it is
+  // measured when the stack grows again.
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    const greeting = greetingRef.current;
+    const composer = greeting?.parentElement;
+    if (!greetingDue || !stack || !greeting || !composer) return;
+    const place = (): void => {
+      const lift = composerLift(stack.clientHeight, composer.offsetHeight, greeting.offsetHeight);
+      const card = composer.querySelector(".composer-surface");
+      // a difference of two boxes of the same composer: the lift moves both
+      const cardOffset = card === null ? 0 : card.getBoundingClientRect().top - composer.getBoundingClientRect().top;
+      stack.style.setProperty("--composer-lift", `${lift}px`);
+      stack.style.setProperty("--composer-room", `${roomOverComposer(stack.clientHeight, composer.offsetHeight, lift, cardOffset)}px`);
+      setGreetingRoom(greetingFits(stack.clientHeight, composer.offsetHeight, greeting.offsetHeight));
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(stack); observer.observe(composer); observer.observe(greeting);
+    return () => { observer.disconnect(); stack.style.removeProperty("--composer-lift"); stack.style.removeProperty("--composer-room"); setGreetingRoom(true); };
+  }, [greetingDue, paneId]);
 
   const composerSend = useCallback(
     (text: string): boolean | string | Promise<boolean | string> => {
@@ -1274,7 +1438,7 @@ export function PaneTerminal({
 
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
-    <div className={`terminal-stack${chatView ? " is-chat" : ""}`} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}>
+    <div ref={stackRef} className={`terminal-stack${chatView ? " is-chat" : ""}${greeted ? " is-greeted" : ""}`} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}>
       {paneId === null && restoreError !== null && (
         <div className="terminal-placeholder is-restore-error" role="status">
           <div className="terminal-placeholder-inner">
@@ -1377,11 +1541,15 @@ export function PaneTerminal({
             agent={agent}
             agentStatus={agentStatus}
             onMetadata={onChatMetadata}
+            onRead={onChatRead}
+            greeted={greeted}
             onPrompt={onChatPrompt}
             onSuggestion={onChatSuggestion}
             promptRefreshKey={promptRefresh}
             pendingAnswer={pendingAnswer !== null && pendingAnswer.pane === paneId ? pendingAnswer : null}
             onPendingAnswerDone={clearPendingAnswer}
+            promptDock={promptDock}
+            onPromptAnswered={onPromptAnswered}
           />
           </RenderBoundary>
         )}
@@ -1389,15 +1557,33 @@ export function PaneTerminal({
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
           Codex question known (heldByOpenQueue), and Send now must not type into one */}
       {paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
-        <section className="composer-queue" aria-label={t("Queued messages")}>
-          <div className="composer-queue-heading">
-            <strong>{t("Queued messages ({n})", { n: queued.length })}</strong>
-            <span className="composer-queue-label">{t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}</span>
-          </div>
+        <section className={`composer-queue${readyForQueue ? " is-ready" : ""}${heldHidden ? " is-folded" : ""}`} aria-label={t("Queued messages")}>
+          {(() => {
+            // one caption line: the sentence says the state
+            const caption = <>
+              <span className="composer-queue-mark" aria-hidden="true"><Clock /></span>
+              <span className="composer-queue-caption">
+                {t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}
+                {heldCountShown(queued.length, heldFold) && <> · {queued.length === 1 ? t("{n} message", { n: 1 }) : t("{n} messages", { n: queued.length })}</>}
+              </span>
+            </>;
+            return <div className="composer-queue-heading">
+              {/* the count stays for assistive tech, beside the button and not in its name */}
+              <strong className="visually-hidden">{t("Queued messages ({n})", { n: queued.length })}</strong>
+              {heldToggle
+                ? <button type="button" className="composer-queue-toggle" ref={setHeldToggle} aria-expanded={!heldHidden} aria-controls={`queued-list-${queueOwner}`}
+                    onClick={() => { setHeldOpened(heldHidden); }}>
+                    {caption}
+                    <span className="composer-queue-toggle-caret" aria-hidden="true"><ChevronRight /></span>
+                  </button>
+                : caption}
+            </div>;
+          })()}
           {queueStore.isUnsaved(queueOwner) && <p className="composer-queue-error" role="status">{t("Queue could not be saved. Keep this tab open or copy the messages before reloading.")}</p>}
-          <ol className="composer-queue-list">
+          <ol className="composer-queue-list" id={`queued-list-${queueOwner}`} ref={heldListRef} tabIndex={-1}
+            onFocus={() => { setHeldOpened((opened) => heldOpenOnFocus(heldFold, opened)); }}>
           {queued.map((message, index) => <li className="composer-queue-item" key={message.id}>
-            <label className="composer-queue-label" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>
+            <label className="visually-hidden" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>
             <textarea
               id={`queued-${message.id}`}
               className="composer-queue-text"
@@ -1427,13 +1613,21 @@ export function PaneTerminal({
                     .finally(() => { queueStore.endSend(owner, message.id); sendingRef.current = false; setQueueSending(null); });
                 }}>{t("Send now")}</button>
               <button type="button" className="composer-queue-discard" disabled={queueStore.isSending(message.id)}
-                onClick={() => { queueStore.remove(queueOwner, message.id); }}>{t("Discard")}</button>
+                onClick={() => { queueStore.remove(queueOwner, message.id); }}>
+                {/* a phone draws the X; the word stays the button's name */}
+                <span className="composer-queue-discard-text">{t("Discard")}</span><X aria-hidden="true" />
+              </button>
             </div>
             {queueError?.owner === queueOwner && queueError.id === message.id && <p className="composer-queue-error" role="status">{queueError.text}</p>}
           </li>)}
           </ol>
         </section>
       )}
+      {/* The prompt card's place: under the held messages (which fold to their caption while it is
+          open), directly over the input card, on the same column. ChatView renders the card into
+          it. It is a live region of its own, since the card is no longer inside the transcript's
+          log: a prompt that arrives is announced, as it was there. */}
+      {paneId !== null && chatView && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
       {paneId !== null && secretActive && !observing && !ended && connected && outputReady && <SecretInput
@@ -1456,6 +1650,13 @@ export function PaneTerminal({
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt?.pane !== paneId && chatSuggestion?.pane === paneId ? chatSuggestion.value : null}
+          greeting={greetingDue ? (
+            <div className={`composer-greeting${greeted ? "" : " is-out"}`} ref={greetingRef} aria-hidden={greeted ? undefined : true}>
+              <p className="composer-greeting-title">{t("What should {agent} do in {folder}?", { agent: agentDisplayLabel(agent), folder })}</p>
+              {/* each part keeps its own direction: a right-to-left PC name does not reorder the path */}
+              <p className="composer-greeting-where">{machineName && <bdi>{machineName}</bdi>}{machineName && cwd ? " · " : ""}{cwd && <bdi>{cwd}</bdi>}</p>
+            </div>
+          ) : null}
           onSend={composerSend}
           onAbort={abortTurn}
           onUploadImage={uploadImage}

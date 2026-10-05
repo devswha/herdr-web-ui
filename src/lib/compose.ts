@@ -31,6 +31,11 @@ export function composerPayload(text: string, bracketedPaste: boolean): string {
 }
 
 /** Why a composer message did not go (SubmitResult's code): the composer keeps the text and says this. */
+/** The server refused the message before any of it reached the pane: nothing was typed. */
+export function submitNotTyped(code: string): boolean {
+  return code === "agent_blocked" || code === "read_only" || code === "submit_timeout";
+}
+
 export function submitNote(code: string, message: string): string {
   if (code === "agent_blocked") return t("Not sent: the agent is waiting for an answer in the terminal. Answer it first.");
   if (code === "read_only") return t("Not sent: this view only watches the pane.");
@@ -105,6 +110,73 @@ export function terminalOnlyCommand(agent: string | null, text: string): string 
 export function composerStatusWord(status?: AgentStatus): string {
   const known = knownStatus(status);
   return known === "unknown" ? "READY" : STATUS_WORD[known];
+}
+
+/**
+ * Whether the composer draws its status word. Only DONE is drawn: a turn that ended and was not
+ * seen yet is told by nothing else in the chat (Stop and the live row say RUN, the prompt card
+ * says INPUT, and READY is the resting case), and on a phone the sidebar's label is in a closed
+ * drawer. The other words stay in the row for assistive tech.
+ */
+export function composerStatusWordDrawn(status?: AgentStatus): boolean {
+  return knownStatus(status) === "done";
+}
+
+/**
+ * Below this card width the controls row cannot hold the background-task chip's words beside the
+ * model, the effort and the offline sentence, so the chip shows its icon and count instead.
+ * The input card is at most 820px wide (`--content-w`); a 1024px window with the sidebar open
+ * still has a 672px card and keeps the words, a 940px one has 588px and gives them up.
+ */
+export const COMPOSER_STATUS_COMPACT_BELOW = 640;
+
+/** Whether the controls row is compact at this card width. An unmeasured card (0) is not: nothing is drawn yet. */
+export function composerStatusCompact(cardWidth: number): boolean {
+  return cardWidth > 0 && cardWidth < COMPOSER_STATUS_COMPACT_BELOW;
+}
+
+/**
+ * Whether the Queue pill is drawn. While the agent works Stop is the one resting control: Queue
+ * appears once there is something to hold (text, or a file still uploading, whose mention is
+ * about to land in the text), and never while not connected, where nothing can be queued. It
+ * reads the draft, not whether the button is enabled: a pill disabled while a file uploads or
+ * the message is on its way stays in place. An uploaded file goes as its mention in the text,
+ * so a tile left alone in an empty box (its mention deleted, or a failed upload) holds nothing
+ * and offers nothing. Showing it queues nothing: the message is held only by pressing it.
+ */
+export function composerQueueShown(state: { queueMode: boolean; connected: boolean; text: string; uploading: boolean }): boolean {
+  return state.queueMode && state.connected && (state.text.trim().length > 0 || state.uploading);
+}
+
+/**
+ * The sentence in the status content, if any. The reconnecting sentence is said once: it is the
+ * placeholder while the box is empty, and moves here once there is a draft, which hides the
+ * placeholder. It is said instead of an upload's, never both: the attachment's own tile says
+ * it is uploading, and nothing else in the card would say why Stop and add are off. Otherwise
+ * an upload says so while it runs.
+ */
+export function composerStatusHint(state: { uploading: boolean; connected: boolean; text: string }): "uploading" | "offline" | null {
+  if (!state.connected && state.text.length > 0) return "offline";
+  return state.uploading ? "uploading" : null;
+}
+
+/**
+ * How the model label (the mark, the model's name and the effort word) is drawn in the controls
+ * row. Asked of the layout, not of a width: what fits depends on the name's length, the mic, the
+ * task chip, the language and the font. `modelClipped` and `effortClipped` are measured with
+ * everything drawn.
+ * - "full": all of it fits.
+ * - "out": while Queue is showing, a label that does not fit steps out whole (read, not drawn),
+ *   so Queue keeps its word and no name is cut mid-word. It is back once the draft is sent, held
+ *   or cleared.
+ * - "no-effort": without Queue the effort word steps out whole before the name gives a letter,
+ *   so a sliver of a word is never drawn. A name still too long is ellipsized as the last resort.
+ */
+export type ComposerModelDraw = "full" | "no-effort" | "out";
+
+export function composerModelDraw(state: { queueShown: boolean; modelClipped: boolean; effortClipped: boolean }): ComposerModelDraw {
+  if (!state.modelClipped && !state.effortClipped) return "full";
+  return state.queueShown ? "out" : "no-effort";
 }
 
 /** Herdr agent ids are machine-friendly; the composer presents a short human label. */

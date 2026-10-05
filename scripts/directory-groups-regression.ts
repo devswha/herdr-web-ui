@@ -208,6 +208,20 @@ try {
   await changeState(page, [{ selector: paneSelector(other.paneId), attribute: ["aria-current", "true"] }, { selector: '.tab-strip [role="tab"]', count: 1 }],
     () => page.locator(paneSelector(other.paneId)).click(), "selecting the split workspace shows its strip");
   assert.equal(await page.locator('.tab-strip [role="tab"]').textContent(), "Tab 1", "a tab herdr named by its number reads as Tab 1");
+  // at this width the header over the pane is the pane's surface, and the strip under it is
+  // the same one, not a band of the panel's colour between header and pane
+  const surfaces = await page.evaluate(() => {
+    const header = document.querySelector(".app-header")!;
+    const column = document.querySelector(".pane-column")!;
+    return {
+      headerChat: header.classList.contains("is-chat"), columnChat: column.classList.contains("is-chat"),
+      header: getComputedStyle(header).backgroundColor, strip: getComputedStyle(document.querySelector(".tab-strip")!).backgroundColor,
+      chat: document.querySelector(".chat-view") ? getComputedStyle(document.querySelector(".chat-view")!).backgroundColor : null,
+    };
+  });
+  assert.equal(surfaces.columnChat, surfaces.headerChat, "the header and the pane column agree on the lens");
+  assert.equal(surfaces.strip, surfaces.header, "the strip is the header's surface");
+  if (surfaces.headerChat) assert.equal(surfaces.chat, surfaces.header, "which under the chat lens is the transcript's");
   await page.locator(".tab-strip-panes").click();
   const picker = page.getByRole("menu", { name: "Panes in Tab 1", exact: true });
   await picker.waitFor();

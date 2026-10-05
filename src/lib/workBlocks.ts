@@ -30,6 +30,23 @@ export function splitTurn(parts: ConversationPart[]): SplitTurn {
   };
 }
 
+/**
+ * A work block is open while its turn runs and folded once the turn settles: the answer stays
+ * outside the fold, so a finished turn reads as its answer under one "Worked for" row.
+ *
+ * A settled turn keeps its block open when the work holds words the answer does not end on:
+ * prose with no answer at all (an action came after the last words, or Codex commentary had no
+ * final answer), or prose recorded after the last answer part. Folding would hide the newest
+ * thing the agent said, or all of it. It takes the turn's parts, not the split: the order decides.
+ */
+export function workStartsOpen(live: boolean, parts: ConversationPart[]): boolean {
+  if (live) return true;
+  const lastAnswer = splitTurn(parts).answer.at(-1);
+  const after = lastAnswer === undefined ? 0 : parts.lastIndexOf(lastAnswer) + 1;
+  // everything readable after the last answer part is work: it is inside the fold
+  return parts.slice(after).some((part) => part.kind === "text" && part.text.trim().length > 0);
+}
+
 type WorkCategory = "edit" | "read" | "command" | "other";
 
 /** "{n} edit" / "{n} edits": both forms are translated, Korean uses one */
@@ -48,23 +65,30 @@ function categorize(name: string): WorkCategory {
   return "other";
 }
 
-/** "1 edit · 2 file reads · 1 command" — the block's header, in the order a reader cares about. */
+/**
+ * "1 edit · 2 file reads · 1 command" — the block's header, in the order a reader cares about.
+ * The failures are not in it (`workFailed`): a narrow header cuts this line short.
+ */
 export function workSummary(parts: readonly ConversationPart[]): string {
   const counts: Record<WorkCategory, number> = { edit: 0, read: 0, command: 0, other: 0 };
-  let failed = 0;
   for (const part of parts) {
     if (part.kind !== "tool") continue;
     // a todo update is the plan, pinned under the chat, not an edit: TodoWrite would match /write/
     if (!part.skill && !isTodoTool(part.name)) counts[categorize(part.name)] += 1;
-    if (part.error) failed += 1;
   }
-  // a failure says so in the folded header: it is what a glance at a finished turn must not miss
   const skills = turnSkills(parts).length;
   return [...(skills > 0 ? [t(skills === 1 ? "{n} skill" : "{n} skills", { n: skills })] : []), ...(Object.keys(counts) as WorkCategory[])
     .filter((category) => counts[category] > 0)
-    .map((category) => t(CATEGORY_LABEL[category][counts[category] === 1 ? 0 : 1], { n: counts[category] })),
-    ...(failed > 0 ? [t("{n} failed", { n: failed })] : [])]
+    .map((category) => t(CATEGORY_LABEL[category][counts[category] === 1 ? 0 : 1], { n: counts[category] }))]
     .join(" · ");
+}
+
+/**
+ * How many calls failed, whatever they were. The folded header says it apart from the counts, where
+ * it is never cut: it is what a glance at a finished turn must not miss, and the fold hides the row.
+ */
+export function workFailed(parts: readonly ConversationPart[]): number {
+  return parts.filter((part) => part.kind === "tool" && part.error === true).length;
 }
 
 /** "7s" / "1m 12s" for a block header; null when the span is unknown or nonsense. */
@@ -91,4 +115,13 @@ export function formatWorkDuration(startTs: string | null, endTs: string | null)
 export function isLiveWorkTurn(turn: ConversationTurn, last: boolean, status?: string, sentOver?: ConversationTurn | null): boolean {
   if (turn === sentOver) return false;
   return last && turn.role === "assistant" && (status === "working" || status === "blocked");
+}
+
+/**
+ * Whether the open work block's head says the agent waits for the user ("Needs you") instead of
+ * "Working…". By the pane's status, not by a parsed prompt: a blocked pane whose menu no reader
+ * knows waits just the same, and a question in Codex's queue leaves Codex working.
+ */
+export function isWaitingWorkTurn(live: boolean, status?: string): boolean {
+  return live && status === "blocked";
 }

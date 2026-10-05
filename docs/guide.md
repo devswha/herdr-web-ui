@@ -215,7 +215,7 @@ Only devices in your tailnet can open that address, and only yours get in withou
 
 1. Open the address.
 2. Install the app: in Safari, choose **Share → Add to Home Screen**; in Chrome, choose **Install app**.
-3. Tap the bell to turn on alerts for that device. iPhone needs iOS 16.4+ and the home-screen app.
+3. Open the **⋯** menu at the top right and tap **Alerts** to turn on alerts for that device. iPhone needs iOS 16.4+ and the home-screen app.
 
 To check alerts later, choose **Settings → Alerts → Send test**. The result tells you
 whether the test was sent or failed; a missing subscription offers **Turn alerts on again**.

@@ -1,5 +1,5 @@
 /** Shared native-record rules keep paging, rendering and on-demand results consistent. */
-import type { ConversationPart, ConversationTurn } from "../shared/protocol.ts";
+import type { ConversationPart, ConversationTurn, OmoTaskResult } from "../shared/protocol.ts";
 import { skillInvocationPrompt } from "./skill-activity.ts";
 import { trimOutput } from "./tool-output.ts";
 
@@ -90,10 +90,75 @@ export function piNotice(value: unknown): Extract<ConversationPart, { kind: "not
   return typeof entry.customType === "string" ? { kind: "notice", text, source: entry.customType } : { kind: "notice", text };
 }
 
+const OMO_TASK_RESULT_MAX = 16_000;
+const label = (value: unknown): string | null => typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+const amount = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+
+/**
+ * The summaries OmO's `task` calls gave their tasks, by task id: the call's result names the
+ * task it started (`details.task_id`, or one `details.items` entry per task of a batch).
+ */
+export function omoTaskTitles(message: Row, titles: Map<string, string>): void {
+  if (message.role !== "toolResult" || message.toolName !== "task") return;
+  const details = record(message.details);
+  for (const value of Array.isArray(details.items) ? details.items : [details]) {
+    const item = record(value);
+    const id = label(item.task_id);
+    const title = label(item.task_summary) ?? label(item.description);
+    if (id !== null && title !== null) titles.set(id, title);
+  }
+}
+
+/**
+ * OmO wakes its agent when a background task ends with a `custom_message` (`omo-senpi:wake`,
+ * `display: false`) whose details hold one `senpi-task.completion` per task. It is the only
+ * record that the task ended and what it found, so it is drawn in the user's seat as gjc's
+ * notice is; a wake that carries no task result (a monitor's event) stays the runtime's.
+ */
+export function omoTaskResults(value: unknown, titles: ReadonlyMap<string, string>): OmoTaskResult[] | null {
+  const entry = record(value);
+  if (entry.type !== "custom_message" || entry.customType !== "omo-senpi:wake" || !Array.isArray(entry.details)) return null;
+  // one row per task: a task reported twice in one wake is the later report (the rows are keyed by id)
+  const tasks = new Map<string, OmoTaskResult>();
+  for (const group of entry.details) {
+    if (record(group).customType !== "senpi-task.completion" || !Array.isArray(record(group).details)) continue;
+    for (const value of record(group).details as unknown[]) {
+      const task = record(value);
+      const id = label(task.task_id);
+      const raw = label(task.status);
+      if (id === null || raw === null) continue;
+      const stats = record(task.run_stats);
+      const agent = label(task.agent_type) ?? label(task.category) ?? label(task.subagent_type);
+      const name = label(task.name);
+      const result = label(task.final_response) ?? label(task.error) ?? "";
+      tasks.set(id, {
+        id,
+        title: titles.get(id) ?? (name !== null && name !== id ? name : agent ?? id),
+        agent,
+        model: label(record(task.resolved_model).display) ?? label(task.model),
+        status: raw === "completed" ? "completed" : raw === "cancelled" || raw === "canceled" || raw === "aborted" ? "cancelled" : "failed",
+        duration_ms: amount(task.duration_ms) ?? amount(stats.runtime_ms),
+        turns: amount(stats.turns),
+        tool_calls: amount(stats.tool_calls),
+        tokens: amount(stats.total_tokens) ?? amount(task.tokens),
+        result: result.slice(0, OMO_TASK_RESULT_MAX),
+        ...(result.length > OMO_TASK_RESULT_MAX ? { result_cut: true } : {}),
+      });
+    }
+  }
+  return tasks.size > 0 ? [...tasks.values()] : null;
+}
+
 /** The one-line summary a collapsed tool chip shows. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
-  // pi names a file `path` where Claude names it `file_path`; both are worth showing.
-  const first = input["command"] ?? input["file_path"] ?? input["path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
+  // an OmO or omp `task` call: the summary it gave the person, one per task of a batch
+  if (name === "task") {
+    const items = Array.isArray(input["tasks"]) ? input["tasks"].map(record) : [input];
+    const titles = items.map((item) => label(item["task_summary"]) ?? label(item["description"])).filter((title) => title !== null);
+    if (titles.length > 0) return titles.join(" · ").slice(0, 120);
+  }
+  // pi names a file `path` where Claude names it `file_path`, and a notebook `notebook_path`.
+  const first = input["command"] ?? input["file_path"] ?? input["notebook_path"] ?? input["path"] ?? input["pattern"] ?? input["description"] ?? input["url"];
   return typeof first === "string" ? first.slice(0, 120) : name;
 }
 
@@ -102,15 +167,23 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
  * parser: adjacent assistant messages merge, toolCall parts adopt the output
  * of the toolResult entry that answers them (matched by toolCallId), thinking
  * stays private to the agent.
+ *
+ * An assistant message that stopped for good (`stopReason: "stop"`) ends its turn: the next one
+ * was woken by something nobody typed, such as omo's hidden monitor or background-task
+ * notification. Merging across it folded the answer before it into the next turn's work block.
  */
-export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: { toolImages?: boolean } = {}): ConversationTurn[] {
+export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: { toolImages?: boolean; taskTitles?: Map<string, string> } = {}): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   /** tool parts still waiting for their result, by toolCall id */
   const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
+  /** what OmO's `task` calls called their tasks, by task id: the caller's, when it parses a page in stretches */
+  const taskTitles = options.taskTitles ?? new Map<string, string>();
+  /** the last assistant message stopped for good: the next one starts a turn of its own */
+  let settled = false;
 
   const assistantTurn = (ts?: string): ConversationTurn => {
     const last = turns[turns.length - 1];
-    if (last !== undefined && last.role === "assistant") return last;
+    if (last !== undefined && last.role === "assistant" && !settled) return last;
     const turn: ConversationTurn = { role: "assistant", ts: ts ?? null, parts: [] };
     turns.push(turn);
     return turn;
@@ -133,6 +206,11 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
     const notice = piNotice(entry);
     if (notice !== null) {
       turns.push({ role: "user", ts: timestamp ?? null, parts: [notice] });
+      continue;
+    }
+    const results = omoTaskResults(entry, taskTitles);
+    if (results !== null) {
+      turns.push({ role: "user", ts: timestamp ?? null, parts: [{ kind: "task_result", tasks: results }] });
       continue;
     }
     // pi folds old context into a summary of its own accord and on /compact. The entry is a
@@ -163,6 +241,7 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
       }
     };
     if (message.role !== "assistant") applyResults();
+    omoTaskTitles(message, taskTitles);
 
     if (message.role === "user") {
       const prompt =
@@ -214,6 +293,7 @@ export function parseOmpTranscript(text: string, maxTurns = MAX_TURNS, options: 
       if (message.stopReason === "error" && typeof message.errorMessage === "string" && message.errorMessage.length > 0) {
         turn.parts.push({ kind: "text", text: `Error: ${message.errorMessage}` });
       }
+      settled = message.stopReason === "stop";
     }
   }
 

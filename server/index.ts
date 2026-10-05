@@ -54,7 +54,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
+import { codexQuestionsCollapsed, handlePromptRequest, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -888,6 +888,8 @@ export function createServer(
 
   /** Status of EVERY pane, attached or not: one collector feeds all connected clients and web push. */
   function omoChanged(paneId: string, derived: AgentStatus, background: number, turn: boolean): void {
+    // OmO's own turn, which herdr's status never shows: back at work, its form has had its answer
+    if (turn && derived === "working") promptWaitEnded(paneId);
     // a background task starting or ending is no turn: the status stands, and nothing is alerted
     const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
     broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: background });
@@ -903,6 +905,11 @@ export function createServer(
       if (omo.named(paneId, agent)) completions.forget(paneId);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
+      // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
+      // its screen after this is another asking, which an answer to the old card must not take.
+      // Only for a status that counts: a replay that changed nothing and herdr's word on an OmO
+      // pane (omoChanged has OmO's own) end no asking
+      if (raw === "working") promptWaitEnded(paneId);
       // an agent herdr lost on the way still works and finishes as such (server/completion.ts);
       // an OmO pane whose session is not known keeps herdr's status, under its own name
       const status = completions.observe(paneId, raw, omo.runs(paneId) ? "omo" : agent);

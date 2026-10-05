@@ -1,6 +1,6 @@
 /**
  * User preferences: one localStorage record, one React context, applied to the
- * document as `data-theme` / `data-density` attributes that src/styles.css keys
+ * document as `data-theme` / `data-density` / `data-chat-width` attributes that src/styles.css keys
  * its token overrides on. xterm reads no CSS, so `terminalTheme()` mirrors the
  * `--term-*` tokens of each theme for PaneTerminal's theme object.
  */
@@ -21,6 +21,10 @@ export type UsageGlance = "week" | "session";
 /** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark;
  *  catppuccin: Catppuccin Mocha in dark, Latte in light */
 export type Palette = "amber" | "report" | "charcoal" | "catppuccin";
+/** the chat lane's widest: the transcript, the composer column and the held list share it (--chat-w in src/styles.css).
+ *  narrow: 820px; default: follows the pane, up to 60rem (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
+export type ChatWidth = "narrow" | "default" | "wide" | "full";
+export const CHAT_WIDTHS: readonly ChatWidth[] = ["narrow", "default", "wide", "full"];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -45,6 +49,9 @@ export interface Settings {
   chatFontSize: number | null;
   /** fonts tried before the UI font in the chat's prose (code stays mono), as a CSS font-family list; "" keeps the UI font */
   chatFontFamily: string;
+  /** how wide the chat lane may run on a large screen, keyed as data-chat-width in src/styles.css; default follows the pane
+   *  (chatLaneWidth, written by PaneTerminal); a narrower pane is never affected */
+  chatWidth: ChatWidth;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
   enterSends: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
@@ -98,6 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontFamily: "",
   chatFontSize: null,
   chatFontFamily: "",
+  chatWidth: "default",
   enterSends: true,
   showThinking: false,
   keepScreenOn: false,
@@ -162,6 +170,47 @@ export function chatFontSize(settings: Settings): number {
   return settings.chatFontSize ?? CHAT_BASE_FONT[settings.density];
 }
 
+/** The Default chat lane never runs narrower than this, in px: --content-w, the Narrow step. */
+export const CHAT_LANE_MIN = 820;
+/** ...or wider than this, in rem: 960px at a 16px root. In rem because Wide is (72rem, styles.css),
+ *  so Default stays the narrower of the two at a root font of 11.39px and up; under that the
+ *  820px floor wins and is itself wider than Wide (see chatLaneLength). */
+export const CHAT_LANE_MAX_REM = 60;
+/** The share of its pane the Default chat lane takes between the two. */
+export const CHAT_LANE_RATIO = 0.7143;
+/** The root font size chatLaneWidth resolves the rem ceiling with when none is given. */
+export const ROOT_FONT_PX = 16;
+
+/** The Default lane's pane-following part in whole px, before the rem ceiling: 71.43% of the pane, min 820px. */
+function chatLaneFollow(paneWidth: number): number {
+  if (!Number.isFinite(paneWidth)) return CHAT_LANE_MIN;
+  return Math.max(CHAT_LANE_MIN, Math.round(paneWidth * CHAT_LANE_RATIO));
+}
+
+/**
+ * The Default chat lane for a pane this wide, as the CSS length PaneTerminal writes to --chat-w:
+ * 71.43% of the pane, min 820px, max 60rem.
+ * A length with no percentage in it: the lane's columns sit in boxes of different widths (the
+ * transcript and the composer column inside a gutter, the held list and the menus outside it),
+ * and one length is what keeps them equal. A pane narrower than the result is unaffected:
+ * every column is min(100%, lane).
+ * The ceiling is left to the stylesheet engine as 60rem, not resolved here: Wide's 72rem follows
+ * the root font size the moment it changes, and so must this, or Default would be the wider of
+ * the two until the pane was next measured.
+ * Where the two ends cross (60rem is under 820px below a 13.67px root) the floor wins: Default is
+ * then the same lane as Narrow, never narrower than it, and still no wider than Wide down to an
+ * 11.39px root, under which Narrow's own 820px is already wider than Wide's 72rem.
+ */
+export function chatLaneLength(paneWidth: number): string {
+  return `min(max(${CHAT_LANE_MIN}px, ${CHAT_LANE_MAX_REM}rem), ${chatLaneFollow(paneWidth)}px)`;
+}
+
+/** What chatLaneLength resolves to at this root font size, in px (960 at most at 16px): the rule in numbers. */
+export function chatLaneWidth(paneWidth: number, rootFontPx: number = ROOT_FONT_PX): number {
+  const root = Number.isFinite(rootFontPx) && rootFontPx > 0 ? rootFontPx : ROOT_FONT_PX;
+  return Math.min(Math.max(CHAT_LANE_MIN, CHAT_LANE_MAX_REM * root), chatLaneFollow(paneWidth));
+}
+
 /** Only known keys with the right type survive: a stale or hand-edited record never breaks the UI. */
 export function sanitizeSettings(raw: unknown): Settings {
   const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
@@ -185,6 +234,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       : DEFAULT_SETTINGS.chatFontSize,
     terminalFontFamily: sanitizeFontFamily(record["terminalFontFamily"]),
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
+    chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,
@@ -276,6 +326,7 @@ function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: 
   root.dataset["theme"] = resolved;
   root.dataset["density"] = settings.density;
   root.dataset["palette"] = settings.palette;
+  root.dataset["chatWidth"] = settings.chatWidth;
   // ChatView.css scales its type tokens by this: the chosen size over the density's
   root.style.setProperty("--chat-scale", String(chatFontSize(settings) / CHAT_BASE_FONT[settings.density]));
   // ChatView.css sets the transcript's prose in this, and falls back to --font-ui without it

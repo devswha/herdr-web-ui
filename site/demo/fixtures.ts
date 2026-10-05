@@ -25,7 +25,7 @@ export const SPECS: DemoSpec[] = [
 ];
 
 export const t = (min: number, sec = 0) => `2026-09-25T09:${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}.000Z`;
-const tool = (name: string, summary: string, input: unknown, output: string): ConversationTurn["parts"][number] => ({ kind: "tool", name, summary, input: JSON.stringify(input, null, 2), output });
+const tool = (name: string, summary: string, input: unknown, output: string): ConversationTurn["parts"][number] => ({ kind: "tool", name, summary, input: typeof input === "string" ? input : JSON.stringify(input, null, 2), output });
 
 export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { model: string; reasoning_effort: string } }> = {
   api: {
@@ -55,7 +55,7 @@ export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { mode
       { role: "user" as const, ts: t(1), parts: [{ kind: "text" as const, text: "Rate-limit the export button so a double click can't start two exports, then push the branch." }] },
       { role: "assistant" as const, ts: t(1, 4), end_ts: t(3, 20), parts: [
         tool("exec", "rg -n \"startExport\" src", { cmd: "rg -n \"startExport\" src" }, "src/pages/Reports.tsx:88:  onClick={() => startExport(filters)}"),
-        tool("apply_patch", "src/pages/Reports.tsx", {}, "Success. Updated the following files:\nM src/pages/Reports.tsx"),
+        tool("apply_patch", "src/pages/Reports.tsx", "*** Begin Patch\n*** Update File: src/pages/Reports.tsx\n@@\n-  onClick={() => startExport(filters)}\n+  disabled={exporting}\n+  onClick={() => { if (!exporting) startExport(filters); }}\n*** End Patch", "Success. Updated the following files:\nM src/pages/Reports.tsx"),
         tool("exec", "pnpm test --filter reports", { cmd: "pnpm test --filter reports" }, "✓ 9 tests passed"),
         { kind: "text" as const, text: "The button is disabled while an export runs, and a second click within the same run is ignored. Tests pass; I need your OK to push `feat/export-guard`." },
       ] },
@@ -66,7 +66,7 @@ export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { mode
     turns: [
       { role: "user" as const, ts: t(0), parts: [{ kind: "text" as const, text: "Why did last night's backup job fail?" }] },
       { role: "assistant" as const, ts: t(0, 6), end_ts: t(1, 2), parts: [
-        tool("bash", "journalctl -u backup --since yesterday", {}, "backup.sh: disk quota exceeded on /mnt/archive"),
+        tool("bash", "journalctl -u backup --since yesterday", { command: "journalctl -u backup --since yesterday" }, "backup.sh: disk quota exceeded on /mnt/archive"),
         { kind: "text" as const, text: "The archive volume hit its quota at 02:14. Old snapshots were never pruned because the retention flag was dropped in the last config change. I restored `--keep-daily 14`; tonight's run will prune and succeed." },
       ] },
     ],
@@ -75,7 +75,21 @@ export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { mode
     metadata: { model: "claude-sonnet-5", reasoning_effort: "low" },
     turns: [
       { role: "user" as const, ts: t(0), parts: [{ kind: "text" as const, text: "Proofread the getting-started guide." }] },
-      { role: "assistant" as const, ts: t(0, 5), parts: [{ kind: "text" as const, text: "Fixed 6 typos and one broken link; the install command now matches the current CLI." }] },
+      // OmO's background tasks: the call that starts them, then what OmO reports when they end
+      { role: "assistant" as const, ts: t(0, 5), end_ts: t(0, 9), parts: [
+        { kind: "text" as const, text: "I'll hand two checks to background tasks and proofread meanwhile." },
+        tool("task", "Find pages that still say v0.2 · Translate the FAQ to Korean", { run_in_background: true, tasks: [
+          { task_summary: "Find pages that still say v0.2", category: "quick", prompt: "List every page under docs/ that still names v0.2, with file and line." },
+          { task_summary: "Translate the FAQ to Korean", category: "writing", prompt: "Translate docs/faq.md to Korean, keeping the terms in docs/i18n/glossary.ko.json." },
+        ] }, "Batch running.\n1. st_demo3 (running)\n2. st_demo4 (running)"),
+      ] },
+      { role: "user" as const, ts: t(4), parts: [{ kind: "task_result" as const, tasks: [
+        { id: "st_demo3", title: "Find pages that still say v0.2", agent: "quick", model: "Claude Haiku 4.5", status: "completed" as const, duration_ms: 241_000, turns: 9, tool_calls: 33, tokens: 61_200,
+          result: "**3 pages** still say v0.2:\n\n- line 12 of `docs/guide/install.md`: the `curl` line downloads `v0.2/install.sh`\n- lines 4 and 31 of `docs/guide/upgrade.md`\n- line 88 of `docs/faq.md`\n\nEvery other page names v0.3." },
+        { id: "st_demo4", title: "Translate the FAQ to Korean", agent: "writing", model: "GPT-6.1", status: "failed" as const, duration_ms: 236_000, turns: 3, tool_calls: 5, tokens: 12_000,
+          result: "The glossary `docs/i18n/glossary.ko.json` is missing, so the terms could not be kept consistent. Nothing was written." },
+      ] }] },
+      { role: "assistant" as const, ts: t(4, 3), parts: [{ kind: "text" as const, text: "Fixed 6 typos and one broken link, and moved the three v0.2 pages to v0.3. The Korean FAQ needs a glossary first: shall I start `docs/i18n/glossary.ko.json` from the English one?" }] },
     ],
   },
   // pi reads its own session file, which is an entry tree rather than a log: a `/tree` move
@@ -107,9 +121,11 @@ export const PROMPT: InteractivePrompt = {
   id: "demo-approval",
   agent: "codex",
   kind: "approval" as const,
+  // the shape Codex's approval has on the wire: the heading is the question too, and the command
+  // is the body (server/prompt.ts)
   title: "Allow command?",
-  question: "git push origin feat/export-guard",
-  body: null,
+  question: "Allow command?",
+  body: "git push origin feat/export-guard",
   options: [
     { label: "Yes", description: null },
     { label: "Yes, and don't ask again for git push", description: null },

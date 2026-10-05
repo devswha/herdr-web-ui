@@ -282,7 +282,28 @@ export type ConversationPart =
   | { kind: "compact"; text: string }
   /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it.
    * `source`: the runtime's name for it (pi's customType, e.g. "async-result", "irc:incoming", "omo-model-profile:unavailable") */
-  | { kind: "notice"; text: string; source?: string };
+  | { kind: "notice"; text: string; source?: string }
+  /** OmO's background tasks that ended, as OmO reported them back to the agent: it starts a turn, nobody typed it */
+  | { kind: "task_result"; tasks: OmoTaskResult[] };
+
+/** One OmO background task that ended (the `senpi-task.completion` OmO wakes its agent with). */
+export interface OmoTaskResult {
+  id: string;
+  /** the summary the `task` call gave it, else its name, else the agent it ran as, else its id */
+  title: string;
+  /** the agent type or category it ran as */
+  agent: string | null;
+  model: string | null;
+  /** `failed`: OmO reported an error (its `result` says which) */
+  status: "completed" | "failed" | "cancelled";
+  duration_ms: number | null;
+  turns: number | null;
+  tool_calls: number | null;
+  tokens: number | null;
+  /** the task's last answer, or why it failed; at most 16,000 characters, `result_cut` when there was more */
+  result: string;
+  result_cut?: boolean;
+}
 
 /** Latest model settings actually recorded by this agent. */
 export interface ConversationMetadata {
@@ -511,8 +532,12 @@ export interface SlashCommand {
 /**
  * GET /api/pane/prompt: an agent's interactive TUI menu currently on the pane's screen
  * (Claude/omp/codex question, approval or plan prompts), parsed server-side from the
- * visible text. `id` is a content hash: an answer names it, so a prompt that changed
- * between the read and the click is refused (409 prompt_changed) instead of misfired.
+ * visible text. `id` names what the prompt says and which asking of it this is: an answer
+ * names it, and one whose prompt changed between the read and the click is refused (409
+ * prompt_changed) instead of misfired. The same question asked again has another id only where
+ * the server saw the first asking end (a read without it, an answer through this route, the
+ * agent back at work); a prompt answered outside the app and asked again unseen keeps its id.
+ * The client tells one prompt from the next by the id alone.
  */
 export interface InteractivePrompt {
   id: string;

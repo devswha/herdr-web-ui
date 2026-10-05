@@ -36,6 +36,17 @@ export async function checkComposerReconnect(browser: Browser, origin: string, p
     await page.waitForFunction(() => document.querySelector(".conn-live") === null);
     assert.equal(await composer.isDisabled(), false, "the message box stays editable while reconnecting");
     assert.equal(await composer.evaluate((el) => el === document.activeElement), true, "and keeps its focus");
+    // with a draft the placeholder is gone: the sentence is in the card, whole, on a phone too
+    const hint = page.locator(".composer-status-hint");
+    assert.match(await hint.innerText(), /Reconnecting… message held here, never queued/);
+    assert.equal(await hint.getAttribute("title"), "Reconnecting… message held here, never queued");
+    assert.equal(await hint.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const row = node.parentElement!.getBoundingClientRect();
+      return node.scrollWidth <= node.clientWidth && box.left >= row.left && box.right <= row.right && box.bottom <= row.bottom;
+    }), true, "the reconnecting sentence is not cut");
+    assert.equal(await page.getByRole("button", { name: "Attach files", exact: true }).isDisabled(), true, "nothing is attached while not connected");
+    assert.equal(await page.getByRole("button", { name: "Queue message", exact: true }).count(), 0, "nothing offers to queue while not connected");
     await page.keyboard.insertText("while reconnecting");
     assert.equal(await composer.inputValue(), "dictated while reconnecting");
     // nothing is sent until the socket is back
@@ -44,6 +55,7 @@ export async function checkComposerReconnect(browser: Browser, origin: string, p
     admit = true;
     await page.locator(".conn-live").waitFor();
     assert.equal(await composer.inputValue(), "dictated while reconnecting", "the draft survives the reconnect");
+    await hint.waitFor({ state: "detached" });
     await composer.fill("");
     assert.deepEqual(errors, []);
     console.log("PASS the message box keeps its focus and takes dictated text while the socket reconnects");

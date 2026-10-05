@@ -1,8 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-// styles.css first: it holds the primitives (.btn, .input, .menu…) that component
-// stylesheets override, and Vite emits CSS in import order
+// the faces the tokens name, then styles.css before any component: it holds the primitives
+// (.btn, .input, .menu…) that component stylesheets override, and Vite emits CSS in import order
+import "./fonts/fonts.css";
 import "./styles.css";
 import "katex/dist/katex.min.css";
 import { App } from "./App.tsx";
