@@ -15,6 +15,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the box stays at the bottom. A pane without an agent, or one whose conversation could not be
   read, looks as before. That still includes a new Claude Code or Codex pane: neither writes its
   conversation before the first message, so the chat shows the terminal output until then.
+  ([#460](https://github.com/devswha/herdr-web-ui/pull/460))
 
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
