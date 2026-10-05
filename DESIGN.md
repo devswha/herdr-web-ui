@@ -248,13 +248,12 @@ One set for both themes: the card is island black wherever it shows.
   sidebar's seam runs to the top of the window. Over the pane, the header takes the pane's
   surface: under the chat lens `--bg` with no bottom rule, the transcript scrolling under a
   `--space-5` fade from `--bg`; under the terminal lens, with no pane, or with a pane herdr could
-  not restore, `--term-bg` and the rule. A tab strip takes the same surface as the header over it from
-  `769px` (`--strip-bg`: `--bg` under the chat lens, `--term-bg` otherwise, `--bg-panel` below
-  `769px`) and keeps its hairline, under the chat the one line over the transcript (no fade
-  under it). The
-  update notice and a PC's action banner are drawn in the pane column, over the tab strip, never
-  across the window: the sidebar and its top row stay one piece. With the sidebar collapsed the
-  toggle and the palette sit in the one bar. Below `769px` the header is the `--bg-panel` bar with
+  not restore, `--term-bg` and the rule. A tab strip takes the same surface as the header over
+  it from `769px` (`--strip-bg`: `--bg` under the chat lens, `--term-bg` otherwise, `--bg-panel`
+  below `769px`) and keeps its hairline, under the chat the one line over the transcript (no
+  fade under it). The update notice and a PC's action banner are drawn in the pane column, over
+  the tab strip, never across the window: the sidebar and its top row stay one piece. With the
+  sidebar collapsed the toggle and the palette sit in the one bar. Below `769px` the header is the `--bg-panel` bar with
   its rule: the installed app's `theme-color` matches it.
 - The sidebar is fixed-width on desktop and a `<=768px` drawer. The desktop collapse removes its
   column; the drawer uses a scrim and keeps safe-area insets. On touch, a mostly horizontal swipe in
