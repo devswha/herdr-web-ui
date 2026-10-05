@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
+import { ArrowUp, Clock, FileText, Plus, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -21,7 +21,10 @@ import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
+  composerModelSteppedOut,
+  composerQueueShown,
   composerStatusCompact,
+  composerStatusHint,
   composerStatusWord, composerStatusWordDrawn,
   contextLeftPercent,
   formatTokens,
@@ -196,8 +199,10 @@ export function Composer({
   const { settings } = useSettings();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
-  /** the card is too narrow for the status row's words: the task chip shows its count */
-  const [statusCompact, setStatusCompact] = useState(false);
+  const statusRef = useRef<HTMLDivElement | null>(null);
+  const hintRef = useRef<HTMLSpanElement | null>(null);
+  /** the card's own width: a narrow one shows the task chip's count, and has no room for the model beside Queue */
+  const [cardWidth, setCardWidth] = useState(0);
   const composingRef = useRef(false);
   // the chat lens's input surface takes the keyboard when it appears (a pane switch remounts
   // it), as the grid does in the terminal lens: a pane picked from the drawer is typed into
@@ -309,12 +314,34 @@ export function Composer({
     setAutoHeight((current) => current === height ? current : height);
   }, [text, manualHeight, placeholder]);
 
+  /**
+   * The sentence in the status content is never cut. Where it does not fit beside the model it
+   * wraps to a line of its own (CSS); there it is marked, so it takes the whole line and drops
+   * the dot that separated it from the model. Asked of the layout itself: what fits depends on
+   * the model's name, the chip and the language, not on a width.
+   */
+  const placeHint = useCallback((): void => {
+    const status = statusRef.current;
+    if (!status) return;
+    status.removeAttribute("data-hint-alone");
+    const hint = hintRef.current;
+    if (!hint) return;
+    const line = hint.getBoundingClientRect();
+    const beside = Array.from(status.children).some((item) => {
+      if (item === hint) return false;
+      const box = item.getBoundingClientRect();
+      return box.width > 1 && box.bottom > line.top && box.top < line.top + line.height / 2 && box.right <= line.left + 1;
+    });
+    if (!beside) status.setAttribute("data-hint-alone", "");
+  }, []);
+  useLayoutEffect(placeHint);
+
   // the card's own width decides, not the window's: a sidebar or a narrow lane shrinks the card
   // in a wide window. Measured before the first paint, so a phone never draws the words first
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
-    const measure = (): void => setStatusCompact(composerStatusCompact(surface.getBoundingClientRect().width));
+    const measure = (): void => { setCardWidth(Math.round(surface.getBoundingClientRect().width)); placeHint(); };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(surface);
@@ -656,6 +683,11 @@ export function Composer({
   );
 
   const isWorking = agentStatus === "working";
+  const statusCompact = composerStatusCompact(cardWidth);
+  const queueShown = composerQueueShown({ queueMode, connected, text, attachments: attachments.length });
+  const modelOut = composerModelSteppedOut(cardWidth, queueShown);
+  const hint = composerStatusHint({ uploading, connected, text });
+  const hintText = hint === null ? null : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
   const menuId = `composer-menu-${paneId}`;
 
   return (
@@ -689,6 +721,7 @@ export function Composer({
       <div
         ref={surfaceRef}
         className={`composer-surface${dragging ? " is-dragging" : ""}`}
+        data-compact={statusCompact ? "" : undefined}
         onDragEnter={(event) => {
           event.preventDefault();
           setDragging(true);
@@ -700,7 +733,7 @@ export function Composer({
         onDrop={onDrop}
       >
         <div
-          className="composer-resize"
+          className={`composer-resize${manualHeight !== null ? " is-sized" : ""}`}
           role="separator"
           aria-orientation="horizontal"
           aria-label={t("Resize message box")}
@@ -836,12 +869,37 @@ export function Composer({
             disabled={!connected || uploading}
             onClick={() => fileInputRef.current?.click()}
           >
-            <Paperclip aria-hidden="true" />
+            <Plus aria-hidden="true" />
           </button>
           {dictation.shown && <MicButton dictation={dictation} />}
+          <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
+        </div>
+        {/* between the two control groups of the card's last row. The agent's name, its separator and the
+            state word are read, not drawn: the mark and the header name the agent, and Stop, the live row and
+            the prompt card say the state. DONE alone is drawn: nothing else in the chat says a turn ended unseen.
+            On a narrow card the mark and the model step out while Queue is showing, and are still read */}
+        <div ref={statusRef} className="composer-status" role="status" data-status={agentStatus ?? "unknown"}
+          data-offline={connected ? undefined : ""} data-hint={hint ?? undefined} data-model-out={modelOut ? "" : undefined}>
+          {agent && <AgentMark agent={agent} size={14} />}
+          <span className="composer-agent-label visually-hidden">{agentLabel}</span>
+          <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
+          <strong className={composerStatusWordDrawn(agentStatus) ? undefined : "visually-hidden"}>{t(composerStatusWord(agentStatus))}</strong>
+          {(metadata?.model || metadata?.reasoning_effort) && <span className={`composer-model-info${modelOut ? " visually-hidden" : ""}`} aria-label={t("Model and reasoning")}>
+            <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
+            <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+              <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}</span>
+              <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort ?? "—"}</span>
+            </span>
+          </span>}
+          {metadata?.context && <ContextRing context={metadata.context} />}
+          {hintText !== null && (
+            <span ref={hintRef} className="composer-status-hint" title={hintText}>
+              <span className="composer-status-hint-dot" aria-hidden="true">· </span>{hintText}
+            </span>
+          )}
         </div>
         <div className="composer-controls composer-controls-right">
-          {queueMode && (
+          {queueShown && (
             <button
               type="button"
               className="composer-queue-button"
@@ -874,32 +932,9 @@ export function Composer({
               disabled={!connected || uploading || sending || text.trim().length === 0}
               onClick={send}
             >
-              <SendHorizontal aria-hidden="true" />
+              <ArrowUp aria-hidden="true" />
             </button>
           ) : null}
-        </div>
-        {/* the card's last row, at its full width. The agent's name, its separator and the state word are
-            read, not drawn: the mark and the header name the agent, and Stop, the live row and the prompt
-            card say the state. DONE alone is drawn: nothing else in the chat says a turn ended unseen */}
-        <div className="composer-status" role="status" data-status={agentStatus ?? "unknown"} data-compact={statusCompact ? "" : undefined}>
-          {agent && <AgentMark agent={agent} size={14} />}
-          <span className="composer-agent-label visually-hidden">{agentLabel}</span>
-          <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
-          <strong className={composerStatusWordDrawn(agentStatus) ? undefined : "visually-hidden"}>{t(composerStatusWord(agentStatus))}</strong>
-          <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
-          {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
-            <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
-            <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
-              <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}</span>
-              <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort ?? "—"}</span>
-            </span>
-          </span>}
-          {metadata?.context && <ContextRing context={metadata.context} />}
-          {(uploading || !connected) && (
-            <span className="composer-status-hint">
-              <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}
-            </span>
-          )}
         </div>
       </div>
       {note && <div className="composer-note" role="alert">{note}</div>}

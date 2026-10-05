@@ -17,6 +17,22 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the box is narrow, beside the sidebar for one, the background-task chip shows its count
   before the model's name is cut. In dark themes Queue loses its outline.
   ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
+- The chat's message box is laid out like a chat app's: a rounder card with the message on top
+  at the card's full width, and one row of controls under it. On the left a **+** button
+  attaches files (it was a paperclip) and the background-task chip follows it; on the right are
+  the model, the reasoning level and the context ring, then one round button. Send is an arrow
+  pointing up, and Stop is the same circle in the same place, so only the glyph changes when a
+  turn starts and ends.
+- While the agent works, Queue appears once the message box holds text or an attachment; with
+  an empty box Stop is the only button. Queue still only holds a message when you press it. On
+  a phone the model's name steps aside while Queue is showing, so neither is cut.
+- While reconnecting, "Reconnecting… message held here, never queued" is said once: in the
+  empty message box, and under the model once there is a draft, on a phone too, where it used
+  to be hidden. It is no longer cut with an ellipsis, and neither is "Uploading file…". Queue
+  is not shown while not connected, and a disabled Stop loses its colour.
+- With a mouse, the bar that resizes the message box shows when the pointer is over the box,
+  while dragging, on keyboard focus and while a height is set by hand. On a touch screen it is
+  always shown.
 
 ### Fixed
 - An update asked for in the first moments after the app starts, or right after another update,

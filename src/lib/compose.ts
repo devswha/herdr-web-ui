@@ -118,16 +118,53 @@ export function composerStatusWordDrawn(status?: AgentStatus): boolean {
 }
 
 /**
- * Below this card width the status row cannot hold the background-task chip's words beside the
+ * Below this card width the controls row cannot hold the background-task chip's words beside the
  * model, the effort and the offline sentence, so the chip shows its icon and count instead.
  * The input card is at most 820px wide (`--content-w`); a 1024px window with the sidebar open
  * still has a 672px card and keeps the words, a 940px one has 588px and gives them up.
  */
 export const COMPOSER_STATUS_COMPACT_BELOW = 640;
 
-/** Whether the status row is compact at this card width. An unmeasured card (0) is not: nothing is drawn yet. */
+/** Whether the controls row is compact at this card width. An unmeasured card (0) is not: nothing is drawn yet. */
 export function composerStatusCompact(cardWidth: number): boolean {
   return cardWidth > 0 && cardWidth < COMPOSER_STATUS_COMPACT_BELOW;
+}
+
+/**
+ * Whether the Queue pill is drawn. While the agent works Stop is the one resting control: Queue
+ * appears once there is something to hold (text, or an attachment), and never while not
+ * connected, where nothing can be queued. It reads the draft, not whether the button is
+ * enabled: a pill disabled while a file uploads or the message is on its way stays in place.
+ * Showing it queues nothing: the message is held only by pressing it.
+ */
+export function composerQueueShown(state: { queueMode: boolean; connected: boolean; text: string; attachments: number }): boolean {
+  return state.queueMode && state.connected && (state.text.trim().length > 0 || state.attachments > 0);
+}
+
+/**
+ * The sentence in the status content, if any. An upload says so while it runs. The reconnecting
+ * sentence is said once: it is the placeholder while the box is empty, and moves here once
+ * there is a draft, which hides the placeholder.
+ */
+export function composerStatusHint(state: { uploading: boolean; connected: boolean; text: string }): "uploading" | "offline" | null {
+  if (state.uploading) return "uploading";
+  return !state.connected && state.text.length > 0 ? "offline" : null;
+}
+
+/**
+ * Below this card width the controls row cannot hold the Queue pill with its word beside the
+ * model. Add, the task chip's count, the mark, `claude-opus-5-5`, the effort, the context ring,
+ * Queue and the round button measure about 400px; a phone's card is 374px (414px on the widest),
+ * and the 448px card of an 800px window with the sidebar open holds them all.
+ */
+export const COMPOSER_MODEL_BESIDE_QUEUE_FROM = 420;
+
+/**
+ * Whether the model label steps out of the controls row (read, not drawn): on a narrow card,
+ * only while Queue is showing. It comes back when the draft is sent, held or cleared.
+ */
+export function composerModelSteppedOut(cardWidth: number, queueShown: boolean): boolean {
+  return queueShown && cardWidth > 0 && cardWidth < COMPOSER_MODEL_BESIDE_QUEUE_FROM;
 }
 
 /** Herdr agent ids are machine-friendly; the composer presents a short human label. */

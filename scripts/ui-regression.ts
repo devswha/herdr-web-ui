@@ -370,6 +370,11 @@ try {
     await page.getByRole("button", { name: "Queue message", exact: true }).click();
   }
   assert.equal(await page.locator(".composer-queue-text").count(), 3);
+  // Queue follows the draft: once the box is empty again, Stop is the one resting control
+  await page.getByRole("button", { name: "Queue message", exact: true }).waitFor({ state: "detached" });
+  assert.equal(await composer.inputValue(), "");
+  assert.equal(await page.getByRole("button", { name: "Stop agent", exact: true }).count(), 1);
+  assert.equal(await page.locator(".composer-action").count(), 1, "one round button");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
   await page.locator(".composer-queue-text").nth(1).fill("# edited second message");
   await page.reload();
