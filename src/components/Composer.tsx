@@ -242,6 +242,8 @@ export function Composer({
   const [manualHeight, setManualHeight] = useState<number | null>(readComposerHeight);
   /** the box's rendered height, for the grip to announce while the height is automatic */
   const [autoHeight, setAutoHeight] = useState(0);
+  /** the box's width: its text rewraps when the lane does (Settings → Chat width, a resized pane), and the automatic height with it */
+  const [boxWidth, setBoxWidth] = useState(0);
   /** the automatic height of an empty box (the textarea's CSS min-height): the grip's floor */
   const [minHeight, setMinHeight] = useState(0);
   const [heightLimit, setHeightLimit] = useState(composerHeightLimit);
@@ -319,7 +321,15 @@ export function Composer({
     element.style.height = `${element.scrollHeight}px`;
     const height = Math.round(element.getBoundingClientRect().height);
     setAutoHeight((current) => current === height ? current : height);
-  }, [text, manualHeight, placeholder]);
+  }, [text, manualHeight, placeholder, boxWidth]);
+
+  useEffect(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setBoxWidth(element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   /**
    * Two things the controls row asks of the layout itself, since what fits depends on the

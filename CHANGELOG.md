@@ -33,6 +33,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   shown while not connected, and a disabled Stop loses its colour. With a mouse, the bar that
   resizes the box shows when the pointer is over the box, while dragging, on keyboard focus
   and while a height is set by hand; on a touch screen it is always shown.
+- The chat is wider on a large screen: the conversation and the message box follow the pane,
+  at least 820px and at most 960px wide, 71% of the pane between. A laptop window keeps the
+  820px it had and a large monitor grows to 960px. Settings → Chat → **Chat width** chooses
+  **Narrow** (820px, as before), **Default**, **Wide** (1152px) or **Full**, the whole pane.
+  The held messages, the approval card and the background-task list keep the same column.
+  Phones and narrow panes look the same as before.
+  ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
@@ -93,6 +100,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
+- A draft in the message box keeps its full height when the window or the pane is resized, or
+  the chat width changes: the box used to keep the height of its old line breaks until the next
+  key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 - An update asked for in the first moments after the app starts, or right after another update,
   waits until the start is over. It used to stop the app in the middle of its start-up check,
   and the app then fell back to the source checkout or did not come up.

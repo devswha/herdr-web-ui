@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
@@ -38,6 +38,61 @@ describe("chat font size", () => {
     expect(sanitizeSettings({ chatFontSize: 15.6 }).chatFontSize).toBe(16);
     expect(sanitizeSettings({ chatFontSize: "18" }).chatFontSize).toBeNull();
     expect(sanitizeSettings({ terminalFontSize: 15 }).chatFontSize).toBeNull();
+  });
+});
+
+describe("chat width", () => {
+  it("is the default lane until one is chosen, and accepts only the four steps", () => {
+    expect(DEFAULT_SETTINGS.chatWidth).toBe("default");
+    expect(sanitizeSettings({}).chatWidth).toBe("default");
+    expect([...CHAT_WIDTHS]).toEqual(["narrow", "default", "wide", "full"]);
+    for (const chatWidth of CHAT_WIDTHS) expect(sanitizeSettings({ chatWidth }).chatWidth).toBe(chatWidth);
+    for (const chatWidth of [null, true, 960, "huge", "Wide", ["wide"]]) expect(sanitizeSettings({ chatWidth }).chatWidth).toBe("default");
+  });
+
+  it("has one lane token with an override per step, and the dialogs keep their own width", () => {
+    const css = (name: string): string => readFileSync(join(import.meta.dir, "..", name), "utf8");
+    const tokens = css("styles.css");
+    expect(tokens).toContain("--content-w: 820px;");
+    // unmeasured, the lane is the Default rule's floor; the measured one is chatLaneWidth's, in px
+    expect(tokens).toContain("--chat-w: var(--content-w);");
+    expect(tokens).toContain(`--content-w: ${CHAT_LANE_MIN}px;`);
+    const step = (name: string): string | undefined => new RegExp(`\\[data-chat-width="${name}"\\] \\{\\s*--chat-w: ([^;]+);`).exec(tokens)?.[1];
+    expect(step("narrow")).toBe("var(--content-w)");
+    expect(step("wide")).toBe("72rem");
+    expect(step("full")).toBe("100%");
+    // the default step has no rule here: PaneTerminal writes its pane's lane on .terminal-stack
+    expect(step("default")).toBeUndefined();
+    // a percentage in the token would resolve against each column's own box; Full is the one
+    // step that means exactly that
+    expect([...tokens.matchAll(/--chat-w: ([^;]+);/g)].map((match) => match[1]).filter((value) => value?.includes("%"))).toEqual(["100%"]);
+    expect(css("components/PaneTerminal.tsx")).toContain("chatLaneWidth(");
+    // Settings and New workspace stay on --content-w. That the chat columns share the lane is
+    // measured in the browser (scripts/ui-regression.ts), not read from the stylesheets
+    for (const file of ["components/SettingsDialog.css", "components/NewSessionDialog.css"]) {
+      expect(css(file)).toContain("var(--content-w)");
+      expect(css(file)).not.toContain("var(--chat-w)");
+    }
+  });
+});
+
+describe("the default chat lane", () => {
+  it("is 71.43% of the pane, never under 820px or over 960px", () => {
+    expect(CHAT_LANE_MIN).toBe(820);
+    expect(CHAT_LANE_MAX).toBe(960);
+    // the pane beside a 320px sidebar in a 1280, 1440, 1680 and 1920 window
+    expect([960, 1120, 1360, 1600].map(chatLaneWidth)).toEqual([820, 820, 960, 960]);
+    // between the two ends it follows the pane, in whole px
+    expect(chatLaneWidth(1148)).toBe(820);
+    expect(chatLaneWidth(1149)).toBe(821);
+    expect(chatLaneWidth(1200)).toBe(857);
+    expect(chatLaneWidth(1300)).toBe(929);
+    expect(chatLaneWidth(1343)).toBe(959);
+    expect(chatLaneWidth(1344)).toBe(960);
+  });
+
+  it("is the floor for a phone, an unmeasured pane or a width that is not a number", () => {
+    for (const width of [0, 390, 780, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(chatLaneWidth(width)).toBe(820);
   });
 });
 

@@ -207,7 +207,8 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--dot-size` | `7px` | — | Connection dot |
 | `--rail-w` | `3px` | — | Selected-row rail |
 | `--hairline` | `1px` | — | Borders |
-| `--content-w` | `820px` | — | Chat/settings content |
+| `--content-w` | `820px` | — | Settings and dialog content |
+| `--chat-w` | `--content-w`, then the pane's lane in px | — | Chat lane: transcript, composer column, held list. Settings → Chat width: Narrow `--content-w`; Default follows the pane (min 820px, max 960px, 71% of the pane between); Wide `72rem` (1152px); Full `100%` |
 | `--palette-w` | `640px` | — | Command palette |
 | `--palette-top` | `12vh` | — | Palette top offset |
 
@@ -480,7 +481,11 @@ One set for both themes: the card is island black wherever it shows.
   document as a `role="status"` a screen reader can read (`.conn-live`; never `display: none`).
 
 ### Chat turn (`.chat-turn`)
-- The chat lens is a centered `--content-w` transcript over the still-attached terminal surface.
+- The chat lens is a centered `--chat-w` transcript over the still-attached terminal surface.
+  At the Default chat width the lane follows the pane: min 820px, max 960px, 71% of the pane
+  (`.terminal-stack`) between. `PaneTerminal` measures the pane and writes the lane on it as one px
+  length (`chatLaneWidth`, `lib/settings.ts`); `--chat-w` never holds that percentage, because each
+  column would resolve it against its own box and they would differ by their gutters.
   Structured Claude/omp transcripts fall back to ANSI-stripped pane scrollback when unavailable.
 - The register is Codex / gajae-code-app: a quiet document. User turns are right-aligned neutral
   cards (`--bg-elevated`, a `--bubble-border` edge, `--radius-lg` on all four corners, ≤80% wide,
@@ -562,7 +567,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Composer (`.composer`)
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
-  and the composer column equals the transcript column (`--content-w`, same `--space-4` gutter).
+  and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter).
   The only card is the input box: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`;
   focus turns its border `--accent` (no inner outline). Above it the completion popover and the
   background-task list; inside, the image strip is its own row at the top, then the auto-growing
@@ -657,7 +662,9 @@ One set for both themes: the card is island black wherever it shows.
 ### Settings dialog
 - Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`, terminal font
   family.
-- Composer: Enter sends. Chat: Show thinking, chat font size and family. Shortcuts: the complete
+- Composer: Enter sends. Chat: Show thinking, chat width (Narrow 820px / Default, following the
+  pane / Wide 1152px / Full, the pane less its gutters), chat font
+  size and family. Shortcuts: the complete
   platform-resolved table.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not
   per keystroke.
