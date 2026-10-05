@@ -47,6 +47,9 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
   let child: ReturnType<typeof Bun.spawn> | null = null;
   let active: Release | null = null;
   let switching = true, stopping = false;
+  // The bridge answers before its first health check has passed here. An install taken in that
+  // gap stopped the bridge under the check, and the start failed: commands wait for the start.
+  const started = Promise.withResolvers<void>();
   const publish = () => {
     if (updater.status.phase === "error") console.error(`Update failed: ${updater.status.error}`);
     try { child?.send({ type: "update-status", status: updater.status }); } catch { /* bridge restarting */ }
@@ -71,7 +74,8 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
       ipc(message) {
         if (message?.type === "update-status-request") publish();
         if (message?.type === "update-command" && (message.command === "check" || message.command === "install")) {
-          void updater.request(message.command);
+          const command = message.command;
+          void started.promise.then(() => updater.request(command));
         }
       },
       onExit(proc, code) {
@@ -142,6 +146,7 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
       await launch(active);
     }
     switching = false;
+    started.resolve();
     updater.start();
     process.send?.({ type: "supervisor-ready" });
     console.log(`Managed updates: ${updater.status.auto_update ? "automatic install" : "automatic checks, install from Settings"}`);

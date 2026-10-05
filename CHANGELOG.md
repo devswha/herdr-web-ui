@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- An update asked for in the first moments after the app starts, or right after another update,
+  waits until the start is over. It used to stop the app in the middle of its start-up check,
+  and the app then fell back to the source checkout or did not come up.
+  ([#455](https://github.com/devswha/herdr-web-ui/pull/455))
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
   panes, instead of sounding over itself. A pane that needs input right after one that finished
   still chimes, once the first chime ends. Two open tabs each chime, as before.
