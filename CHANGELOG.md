@@ -142,6 +142,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
+- Ctrl+Enter typed into the live terminal reaches Claude Code as Ctrl+Enter, so a message typed
+  while it works is sent at once instead of waiting in its queue. The terminal sent plain Enter; it
+  now sends the key the way the pane's program asked for (modifyOtherKeys), also to a device that
+  opens the pane later, and keeps Enter for programs that asked for nothing. A phone's input line
+  and a Windows mirror pane send Enter as before.
 - A draft in the message box keeps its full height when the window or the pane is resized, or
   the chat width changes: the box used to keep the height of its old line breaks until the next
   key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))

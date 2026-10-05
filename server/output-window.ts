@@ -30,6 +30,8 @@ export class OutputWindow {
 
 /** DEC private mode switches (CSI ? Pm h / CSI ? Pm l): alternate screen, mouse reporting, ... */
 const PRIVATE_MODES = /\x1b\[\?([\d;]+)([hl])/g;
+/** xterm's modifyOtherKeys: CSI > 4 ; level m, off with CSI > 4 m, CSI > 4 n, or a bare CSI > m / CSI > n (every resource reset) */
+const MODIFY_OTHER_KEYS = /\x1b\[>(4(?:;(\d*))?)?([mn])/g;
 /** An ESC, or a CSI still missing its final byte. */
 const INCOMPLETE_CSI = /^\x1b(\[[\x30-\x3f]*[\x20-\x2f]*)?$/;
 
@@ -41,7 +43,8 @@ const INCOMPLETE_CSI = /^\x1b(\[[\x30-\x3f]*[\x20-\x2f]*)?$/;
  * at the start of the stream. A busy pane pushes that start out of the tail, and a
  * late joiner (a phone opening a pane a desktop tab holds) then got a terminal with
  * mouse reporting off: xterm turns a wheel there into arrow keys, so scrolling walked
- * the agent's prompt history instead of herdr's scrollback.
+ * the agent's prompt history instead of herdr's scrollback. A program's modifyOtherKeys
+ * request is passed on the same way, once: without it the joiner sends Ctrl+Enter as Enter.
  */
 export class ReplayBuffer {
   private tail = "";
@@ -50,6 +53,8 @@ export class ReplayBuffer {
    * switches: order matters (1016l after 1006h leaves xterm's mouse encoding at the default).
    */
   private readonly modes = new Map<string, "h" | "l">();
+  /** the modifyOtherKeys level the output before the tail left, 0 when off */
+  private modifyOtherKeys = 0;
 
   constructor(private readonly limit: number) {}
 
@@ -65,19 +70,22 @@ export class ReplayBuffer {
       this.tail += data;
       return;
     }
-    for (const [, params, state] of bytes.subarray(0, start).toString("utf8").matchAll(PRIVATE_MODES)) {
+    const cut = bytes.subarray(0, start).toString("utf8");
+    for (const [, params, state] of cut.matchAll(PRIVATE_MODES)) {
       for (const mode of params!.split(";").filter(Boolean)) {
         this.modes.delete(mode);
         this.modes.set(mode, state as "h" | "l");
       }
     }
+    for (const [, resource, level, final] of cut.matchAll(MODIFY_OTHER_KEYS)) this.modifyOtherKeys = resource && final === "m" ? Number(level || 0) : 0;
     this.tail = bytes.subarray(start).toString("utf8");
   }
 
   /** The stream as seen by a client joining now. Empty until the pane has written anything. */
   text(): string {
     if (!this.tail) return "";
-    return [...this.modes].map(([mode, state]) => `\x1b[?${mode}${state}`).join("") + this.tail;
+    const keys = this.modifyOtherKeys > 0 ? `\x1b[>4;${this.modifyOtherKeys}m` : "";
+    return [...this.modes].map(([mode, state]) => `\x1b[?${mode}${state}`).join("") + keys + this.tail;
   }
 
   /** The raw tail, for matching herdr's own error text. */

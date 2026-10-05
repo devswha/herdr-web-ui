@@ -52,6 +52,25 @@ describe("terminal output credit", () => {
     expect(replay.text()).toBe("\x1b[?1016l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?25l\x1b[?1049l" + "y".repeat(16));
   });
 
+  it("passes a modifyOtherKeys request that fell out of the tail on to a late joiner", () => {
+    const replay = new ReplayBuffer(16);
+    replay.append("\x1b[?1049h\x1b[>4;2m");
+    replay.append("x".repeat(40));
+    expect(replay.text()).toBe("\x1b[?1049h\x1b[>4;2m" + "x".repeat(16));
+    // other key modifier resources are not it
+    replay.append("\x1b[>1;2m\x1b[>41m\x1b[>0m" + "y".repeat(40));
+    expect(replay.text()).toBe("\x1b[?1049h\x1b[>4;2m" + "y".repeat(16));
+    // herdr turns it off as CSI > 4 ; 0 m; a program may also write CSI > 4 m or CSI > 4 n
+    // and a bare CSI > m or CSI > n resets every resource; CSI > 0 m is another resource
+    for (const off of ["\x1b[>4;0m", "\x1b[>4m", "\x1b[>4n", "\x1b[>m", "\x1b[>n"]) {
+      replay.append("\x1b[>4;1m" + off + "z".repeat(40));
+      expect(replay.text()).toBe("\x1b[?1049h" + "z".repeat(16));
+    }
+    // a request the cut would split stays whole in the tail
+    replay.append("\x1b[>4;2m" + "w".repeat(10));
+    expect(replay.text()).toBe("\x1b[?1049h" + "\x1b[>4;2m" + "w".repeat(10));
+  });
+
   it("replays a short stream as it is, and nothing before any output", () => {
     const replay = new ReplayBuffer(1024);
     expect(replay.text()).toBe("");
