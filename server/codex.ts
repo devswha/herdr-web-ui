@@ -258,12 +258,13 @@ export async function processCodexHome(pid: number): Promise<string | null> {
       const child = Bun.spawn(["/bin/ps", "-E", "-ww", "-p", String(pid), "-o", "command="], { stdout: "pipe", stderr: "ignore" });
       const timer = setTimeout(() => child.kill(), 3000);
       try {
-        // the environment follows the arguments, so the last match is the environment's; ponytail:
-        // a CODEX_HOME with a space is not read, and with none in the environment an argument
-        // spelled CODEX_HOME=/path would be taken. /proc on Linux has neither problem
+        // the environment follows the arguments, space-separated: the last match is the
+        // environment's, and its value runs to the next `NAME=` (a path may hold spaces).
+        // ponytail: a value holding ` NAME=` is cut there, and with none in the environment an
+        // argument spelled CODEX_HOME=/path would be taken. /proc on Linux has neither problem
         const text = await new Response(child.stdout).text();
         await child.exited;
-        home = [...text.matchAll(/(?:^|\s)CODEX_HOME=(\S+)/g)].at(-1)?.[1] ?? null;
+        home = [...text.matchAll(/(?:^|\s)CODEX_HOME=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)/g)].at(-1)?.[1] || null;
       } finally { clearTimeout(timer); }
     }
   } catch { home = null; }

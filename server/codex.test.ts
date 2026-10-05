@@ -20,12 +20,15 @@ describe("a Codex process's own store", () => {
       Bun.spawn([process.execPath, "-e", "console.log('up'); await Bun.sleep(5000)"], { env, stdout: "pipe" });
     const withHome = sleeper({ ...process.env, CODEX_HOME: "/tmp/harness-codex-test" });
     const without = sleeper(Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "CODEX_HOME")));
+    // a macOS home folder can hold a space; a variable after it ends the value
+    const spaced = sleeper({ ...process.env, CODEX_HOME: "/tmp/harness codex test", AFTER_CODEX_HOME: "x" });
     try {
-      // both have started (exec'd) before their environment is read
-      for (const child of [withHome, without]) await child.stdout.getReader().read();
+      // all have started (exec'd) before their environment is read
+      for (const child of [withHome, without, spaced]) await child.stdout.getReader().read();
       expect(await processCodexHome(withHome.pid)).toBe("/tmp/harness-codex-test");
       expect(await processCodexHome(without.pid)).toBeNull();
-    } finally { withHome.kill(); without.kill(); }
+      expect(await processCodexHome(spaced.pid)).toBe("/tmp/harness codex test");
+    } finally { withHome.kill(); without.kill(); spaced.kill(); }
   });
 });
 
