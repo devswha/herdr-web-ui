@@ -222,7 +222,9 @@ whether the test was sent or failed; a missing subscription offers **Turn alerts
 
 On a phone:
 - Agent panes open in the chat.
-- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, arrows, Ctrl+C).
+- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, Alt, arrows, Ctrl+C).
+  **Settings → Appearance → Key bar** adds or removes Alt, Shift+Tab, Home/End, PgUp/PgDn,
+  Ctrl+D, Ctrl+Z, `|`, `~` and `/`.
 - Dragging the terminal scrolls the real herdr pane.
 - **Settings → Phone → Keep screen on** keeps the screen awake while a terminal or chat
   pane is open. It is off by default, releases when the app is hidden, and resumes when

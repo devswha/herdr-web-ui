@@ -9,6 +9,7 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
+import { sanitizeKeyBarExtras, type KeyBarExtra } from "./keys.ts";
 
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
@@ -32,6 +33,8 @@ import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcutBin
 
 export interface Settings {
   terminalInputMode: "auto" | "line" | "direct";
+  /** the touch key bar's optional keys (lib/keys.ts); they take their fixed places in the row */
+  keyBarExtras: KeyBarExtra[];
   shortcutOverrides: ShortcutOverrides;
   theme: ThemeSetting;
   density: Density;
@@ -95,6 +98,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   terminalInputMode: "auto",
+  keyBarExtras: ["alt"],
   shortcutOverrides: {},
   theme: "dark",
   density: "comfortable",
@@ -220,6 +224,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   const chatFont = record["chatFontSize"];
   return {
     terminalInputMode: record["terminalInputMode"] === "line" || record["terminalInputMode"] === "direct" ? record["terminalInputMode"] : "auto",
+    keyBarExtras: sanitizeKeyBarExtras(record["keyBarExtras"], DEFAULT_SETTINGS.keyBarExtras),
     shortcutOverrides: sanitizeShortcutOverrides(record["shortcutOverrides"]),
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
