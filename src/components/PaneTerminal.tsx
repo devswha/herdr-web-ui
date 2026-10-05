@@ -185,7 +185,9 @@ export function PaneTerminal({
   // Settings → Chat width, Default: the lane follows this pane. One px length on the stack, which
   // the transcript, the composer column, the held list and the menus all inherit: a percentage
   // would resolve against each one's own box and leave them a gutter apart. The other steps are
-  // fixed and stay with the stylesheet (styles.css)
+  // fixed and stay with the stylesheet (styles.css). The lane's ceiling is in rem, so the root font
+  // size is read with the pane: nothing announces a change of the browser's font size, and the
+  // next resize of the pane picks it up
   useLayoutEffect(() => {
     const stack = stackRef.current;
     if (!stack) return;
@@ -193,7 +195,10 @@ export function PaneTerminal({
       stack.style.removeProperty("--chat-w");
       return;
     }
-    const apply = (): void => stack.style.setProperty("--chat-w", `${chatLaneWidth(stack.clientWidth)}px`);
+    const apply = (): void => {
+      const rootFontPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+      stack.style.setProperty("--chat-w", `${chatLaneWidth(stack.clientWidth, rootFontPx)}px`);
+    };
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(stack);

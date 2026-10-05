@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
@@ -77,11 +77,11 @@ describe("chat width", () => {
 });
 
 describe("the default chat lane", () => {
-  it("is 71.43% of the pane, never under 820px or over 960px", () => {
+  it("is 71.43% of the pane, never under 820px or over 60rem (960px at a 16px root)", () => {
     expect(CHAT_LANE_MIN).toBe(820);
-    expect(CHAT_LANE_MAX).toBe(960);
+    expect(CHAT_LANE_MAX_REM).toBe(60);
     // the pane beside a 320px sidebar in a 1280, 1440, 1680 and 1920 window
-    expect([960, 1120, 1360, 1600].map(chatLaneWidth)).toEqual([820, 820, 960, 960]);
+    expect([960, 1120, 1360, 1600].map((pane) => chatLaneWidth(pane))).toEqual([820, 820, 960, 960]);
     // between the two ends it follows the pane, in whole px
     expect(chatLaneWidth(1148)).toBe(820);
     expect(chatLaneWidth(1149)).toBe(821);
@@ -93,6 +93,32 @@ describe("the default chat lane", () => {
 
   it("is the floor for a phone, an unmeasured pane or a width that is not a number", () => {
     for (const width of [0, 390, 780, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(chatLaneWidth(width)).toBe(820);
+  });
+
+  it("has its ceiling in rem, so it is never wider than Wide's 72rem at another root font size", () => {
+    const wide = (root: number): number => 72 * root;
+    // 16px: the sizes above, whether the root is passed or not
+    expect([960, 1149, 1300, 1344, 1600, 4000].map((pane) => chatLaneWidth(pane, 16))).toEqual([820, 821, 929, 960, 960, 960]);
+    // 20px: 60rem is 1200px, reached by a 1680px pane; Wide is 1440px
+    expect([1148, 1344, 1600, 1679, 1680, 4000].map((pane) => chatLaneWidth(pane, 20))).toEqual([820, 960, 1143, 1199, 1200, 1200]);
+    // 13px: 60rem is 780px, under the 820px floor. The floor wins: the lane is Narrow's at every
+    // pane, and Wide (936px) is still the wider one. Before, a large pane got 960px here
+    expect([960, 1149, 1344, 1600, 4000].map((pane) => chatLaneWidth(pane, 13))).toEqual([820, 820, 820, 820, 820]);
+    // the two ends meet at 820 / 60 = 13.67px; a root just over it has a ceiling just over the floor
+    expect(chatLaneWidth(4000, 14)).toBe(840);
+    // a fractional root resolves to whole px
+    expect(chatLaneWidth(4000, 17.6)).toBe(1056);
+    for (const root of [13, 14, 16, 17.6, 20, 24]) {
+      for (const pane of [0, 960, 1344, 1920, 4000]) {
+        const lane = chatLaneWidth(pane, root);
+        expect(lane).toBeGreaterThanOrEqual(CHAT_LANE_MIN);
+        expect(lane).toBeLessThanOrEqual(wide(root));
+      }
+    }
+  });
+
+  it("resolves the ceiling at 16px when the root font size is not a usable number", () => {
+    for (const root of [0, -16, Number.NaN, Number.POSITIVE_INFINITY]) expect(chatLaneWidth(4000, root)).toBe(960);
   });
 });
 
