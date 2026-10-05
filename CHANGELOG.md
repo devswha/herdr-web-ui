@@ -14,6 +14,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   (`exec`, `Bash`, `apply_patch`) is the row's tooltip and the first line of the row once
   opened; a tool without a verb keeps its id in the row. While the agent works, what it says
   between tool calls is in the answer's size and colour instead of small and dim.
+  ([#457](https://github.com/devswha/herdr-web-ui/pull/457))
 
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
