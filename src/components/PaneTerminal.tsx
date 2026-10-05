@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket } from "../lib/ws.ts";
-import { controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, type KeyBarKey } from "../lib/keys.ts";
+import { altSequence, controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
@@ -163,6 +163,8 @@ export function PaneTerminal({
   const setComposing = useCallback((active: boolean) => { composingRef.current = active; setComposingState(active); }, []);
   const ctrlRef = useRef(false);
   const [ctrlArmed, setCtrlArmed] = useState(false);
+  const altRef = useRef(false);
+  const [altArmed, setAltArmed] = useState(false);
   // observe mode: the ref is what onData and the resize listeners read mid-stream
   const observeRef = useRef(false);
   // a mirrored pane (no terminal attach on its PC): the grid is the pane's own in herdr, adopted like an observer's
@@ -868,6 +870,13 @@ export function PaneTerminal({
         setCtrlArmed(false);
         input = controlCode(data) ?? data;
       }
+      // after Ctrl, so an armed pair sends ESC + the control code (Ctrl+Alt+key)
+      const alt = altRef.current ? altSequence(input) : null;
+      if (alt !== null) {
+        altRef.current = false;
+        setAltArmed(false);
+        input = alt;
+      }
       if (socket.sendInput(current, input)) return;
       // A closed socket, an attachment still opening, or a failed synchronous send:
       // keep printable input for explicit review, never replay it automatically.
@@ -1164,6 +1173,11 @@ export function PaneTerminal({
     draftPaneRef.current = paneId;
     term.reset();
     modifyOtherKeysRef.current = 0;
+    // a one-shot Ctrl or Alt armed for the pane that was open does not reach the next pane's first key
+    ctrlRef.current = false;
+    setCtrlArmed(false);
+    altRef.current = false;
+    setAltArmed(false);
     if (!paneId) return;
     try {
       fit?.fit();
@@ -1204,6 +1218,14 @@ export function PaneTerminal({
     const armed = !ctrlRef.current;
     ctrlRef.current = armed;
     setCtrlArmed(armed);
+    if (!inputLineRef.current) termRef.current?.focus();
+  }, []);
+
+  const toggleAlt = useCallback(() => {
+    if (composingRef.current) return;
+    const armed = !altRef.current;
+    altRef.current = armed;
+    setAltArmed(armed);
     if (!inputLineRef.current) termRef.current?.focus();
   }, []);
 
@@ -1667,6 +1689,7 @@ export function PaneTerminal({
       )}
       {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
       {paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing} onKey={pressKey} ctrlArmed={ctrlArmed} onToggleCtrl={toggleCtrl}
+        altArmed={altArmed} onToggleAlt={toggleAlt} extras={settings.keyBarExtras}
         {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>
   );
