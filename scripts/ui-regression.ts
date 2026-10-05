@@ -390,7 +390,8 @@ try {
     assert.ok(pane && card);
     const status = await page.locator(".composer-surface > .composer-status").boundingBox();
     assert.ok(status, ".composer-status");
-    assert.ok(status.x >= card.x && status.x + status.width <= card.x + card.width + 0.5, ".composer-status is inside the box");
+    // the row spans the card's inner width: inside its hairline border, a fraction of a px either way
+    assert.ok(Math.abs(status.x - card.x) <= 2.5 && Math.abs(status.width - card.width) <= 4, `.composer-status spans the box: ${JSON.stringify({ status, card })}`);
     for (const selector of [".composer-queue", ".chat-transcript"]) {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box, selector);

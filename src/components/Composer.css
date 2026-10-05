@@ -630,14 +630,17 @@
   background: var(--accent-tint);
 }
 
-/* The list is a sibling of the composer, not a child: it has no gutter of its own. On a pane wider
-   than the narrow lane it takes the card's column (the pane less the composer's two gutters, up to
-   --chat-w) at every Chat width step; below that it fills the pane, as it always has */
-.terminal-stack.is-chat .composer-queue {
-  width: max(min(100%, var(--content-w)), min(calc(100% - 2 * var(--space-4)), var(--chat-w)));
-  margin: 0 auto;
-  border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-md);
+/* The list is a sibling of the composer, not a child: it has no gutter of its own. In a desktop
+   window it takes the card's column (the pane less the composer's two gutters, up to --chat-w) at
+   every Chat width step, with no floor of its own: a floor of --content-w left it 820px wide over a
+   798px card on a pane just over 820px. On a phone it fills the pane, as it always has */
+@media (min-width: 769px) {
+  .terminal-stack.is-chat .composer-queue {
+    width: min(calc(100% - 2 * var(--space-4)), var(--chat-w));
+    margin: 0 auto;
+    border: var(--hairline) solid var(--border);
+    border-radius: var(--radius-md);
+  }
 }
 
 .composer-queue-label {
