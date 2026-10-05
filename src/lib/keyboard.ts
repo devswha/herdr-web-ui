@@ -31,11 +31,25 @@ export function tapDismisses(target: EventTarget | null, selection: string): boo
   return element.closest("a, button, input, textarea, select, summary, label, [role='button'], [contenteditable='true']") === null;
 }
 
-/** Wires the tap and the drag onto a scrolling transcript; returns the cleanup. */
-export function dismissKeyboardOn(node: HTMLElement): () => void {
+/** A scroller between the touched element and the node (both included) that a drag down would first scroll back up. */
+export function scrolledDown(target: unknown, node: { scrollTop: number }): boolean {
+  for (let at = target as { scrollTop?: number; parentElement?: unknown } | null; at != null; at = at.parentElement as typeof at) {
+    if ((at.scrollTop ?? 0) > 0) return true;
+    if (at === node) return false;
+  }
+  return node.scrollTop > 0;
+}
+
+/**
+ * Wires the tap and the drag onto a scrolling transcript; returns the cleanup.
+ * `atTopOnly` is for a scroller that is not the transcript (the prompt card): there a drag down
+ * first scrolls its own text back up, and puts the keyboard away only once nothing is left to scroll.
+ */
+export function dismissKeyboardOn(node: HTMLElement, { atTopOnly = false }: { atTopOnly?: boolean } = {}): () => void {
   let start: { x: number; y: number } | null = null;
   const onTouchStart = (event: TouchEvent): void => {
     const touch = event.touches[0];
+    if (atTopOnly && scrolledDown(event.target, node)) { start = null; return; }
     // a drag that starts on a text selection moves its handles; it is not a request to read
     const selecting = (window.getSelection()?.toString() ?? "").length > 0;
     // a field in the transcript (a prompt card's own answer) keeps its keyboard while a finger drags on it

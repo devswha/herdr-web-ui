@@ -107,9 +107,11 @@ export const PROMPT: InteractivePrompt = {
   id: "demo-approval",
   agent: "codex",
   kind: "approval" as const,
+  // the shape Codex's approval has on the wire: the heading is the question too, and the command
+  // is the body (server/prompt.ts)
   title: "Allow command?",
-  question: "git push origin feat/export-guard",
-  body: null,
+  question: "Allow command?",
+  body: "git push origin feat/export-guard",
   options: [
     { label: "Yes", description: null },
     { label: "Yes, and don't ask again for git push", description: null },

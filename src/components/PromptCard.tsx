@@ -6,14 +6,22 @@ import "./PromptCard.css";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
-import type { TypedAnswer } from "../lib/promptAnswer.ts";
+import { focusFollowsAnswer, pressedByTouch, type TypedAnswer } from "../lib/promptAnswer.ts";
+import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { useT } from "../lib/i18n.ts";
 
+/**
+ * One card is one occurrence of a prompt on one pane: its owner mounts a new card (a `key`) for
+ * the next prompt, the same question asked again included. So the card's picks, text, scroll and
+ * an answer still on its way never pass to another prompt, and an answer that comes back after
+ * the card is gone reports nothing.
+ */
 export interface PromptCardProps {
   paneId: string;
   prompt: InteractivePrompt;
   onPromptChanged(): void;
-  onAnswered(): void;
+  /** the answer went out; `toMessageBox`: the keyboard's focus was in the card, which is about to go, nothing else has taken it since, and the press was not a touch */
+  onAnswered(toMessageBox: boolean): void;
   /** an option picked by a typed message, sent only on Confirm */
   typedAnswer?: TypedAnswer | null;
   onTypedAnswerDone?(): void;
@@ -26,27 +34,49 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const [custom, setCustom] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
   const confirmRef = useRef<HTMLDivElement | null>(null);
-
-  // the question to confirm comes into view, clear of the chat's floating buttons
+  // false once the card is gone: its prompt was replaced, or its pane left
+  const shown = useRef(false);
   useEffect(() => {
-    confirmRef.current?.scrollIntoView({ block: "center" });
+    shown.current = true;
+    return () => { shown.current = false; };
+  }, []);
+
+  // the question to confirm stays on the card's fold (PromptCard.css); a card scrolled past it
+  // comes back to it, and nothing outside the card moves
+  useEffect(() => {
+    confirmRef.current?.scrollIntoView({ block: "nearest" });
   }, [typedAnswer]);
 
+  // The card stands where the transcript was on a short phone: a tap on its text, or a drag down
+  // it once it is at its top, puts the keyboard away as on the transcript (lib/keyboard.ts).
+  // Its buttons, boxes and field do what they do.
   useEffect(() => {
-    setSelected(new Set());
-    setCustom("");
-    setPending(false);
-    setError(null);
-  }, [prompt.id]);
+    const node = cardRef.current;
+    return node === null ? undefined : dismissKeyboardOn(node, { atTopOnly: true });
+  }, []);
 
-  const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">): Promise<void> => {
+  /**
+   * Sends one answer. `press` is the click that asked for it (none for a key in the card's field).
+   * Resolves to whether this card is still the one shown: an answer that comes back after another
+   * prompt took its place, or after its pane was left, changes nothing there.
+   */
+  const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">, press?: { nativeEvent: Event }): Promise<boolean> => {
+    // read now: the pressed button is disabled while the answer is on its way, and loses the focus
+    const fromCard = cardRef.current?.contains(document.activeElement) === true;
+    const touch = pressedByTouch((press?.nativeEvent as PointerEvent | undefined)?.pointerType);
     setPending(true);
     setError(null);
     try {
       await answerPanePrompt({ pane_id: paneId, prompt_id: prompt.id, ...choice });
-      onAnswered();
+      if (!shown.current) return false;
+      // and read again: the answer took a moment, and the user may have gone on to something else
+      const card = cardRef.current;
+      const active = document.activeElement;
+      onAnswered(focusFollowsAnswer({ fromCard, touch, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
     } catch (cause) {
+      if (!shown.current) return false;
       if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
         setError("the prompt changed — re-read");
         onPromptChanged();
@@ -54,9 +84,9 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       } else {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
-    } finally {
-      setPending(false);
     }
+    setPending(false);
+    return true;
   };
 
   const toggle = (index: number): void => {
@@ -76,9 +106,10 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const hasChoices = prompt.options.some((_, index) => index !== prompt.custom_option_index);
 
   return (
-    <section className="prompt-card" role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
+    <section className="prompt-card" ref={cardRef} role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
       <header className="prompt-card-header">
-        <span className="badge badge-blocked">{t("input needed")}</span>
+        {/* read, not drawn: the title is the card's one red */}
+        <span className="visually-hidden">{t("input needed")}</span>
         <h2>{prompt.title}</h2>
       </header>
       {/* a form of several questions (omo): each one, answered or not, and the one asked now */}
@@ -102,7 +133,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
             : t("Codex keeps working meanwhile. Answer here; the message box still talks to Codex.")}
         </p>
       )}
-      {prompt.body !== null && prompt.body.length > 0 && <pre className="prompt-card-body">{prompt.body}</pre>}
+      {/* the reference text (a command, a plan, a diff) is the one part that gives way when the card is short */}
+      {prompt.body !== null && prompt.body.length > 0 && <pre className={`prompt-card-body${prompt.body.includes("\n") ? "" : " is-line"}`}>{prompt.body}</pre>}
       {hasChoices && (
         <div className="prompt-card-options" role={prompt.multi_select ? "group" : undefined} aria-label={prompt.multi_select ? prompt.question : undefined}>
           {prompt.options.map((option, index) => {
@@ -114,25 +146,28 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
                 {option.description !== null && <span className="prompt-card-option-description">{option.description}</span>}
               </span>
             );
+            // the key the user can type, drawn as a keycap; the option's name keeps the menu's "1."
+            const number = <span className="prompt-card-number"><span aria-hidden="true">{index + 1}</span><span className="visually-hidden">{index + 1}.</span></span>;
+            const described = option.description !== null ? " has-description" : "";
             if (prompt.multi_select) {
               const checked = selected.has(index);
               return (
-                <label className={`prompt-card-option${checked ? " is-checked" : ""}`} key={index}>
+                <label className={`prompt-card-option${described}${checked ? " is-checked" : ""}`} key={index}>
                   <input type="checkbox" checked={checked} disabled={pending} onChange={() => toggle(index)} />
-                  <span className="prompt-card-number">{index + 1}.</span> {content}
+                  {number} {content}
                 </label>
               );
             }
             return (
-              <button key={index} type="button" className={`prompt-card-option${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => void answer({ option_index: index })}>
-                <span className="prompt-card-number">{index + 1}.</span> {content}
+              <button key={index} type="button" className={`prompt-card-option${described}${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={(event) => void answer({ option_index: index }, event)}>
+                {number} {content}
               </button>
             );
           })}
         </div>
       )}
       {prompt.multi_select && (
-        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || selected.size === 0} onClick={() => void answer({ option_indices: [...selected].sort((a, b) => a - b) })}>
+        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || selected.size === 0} onClick={(event) => void answer({ option_indices: [...selected].sort((a, b) => a - b) }, event)}>
           {selected.size > 0 ? t("Submit ({n})", { n: selected.size }) : t("Submit")}
         </button>
       )}
@@ -144,7 +179,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
               // an IME's Enter commits the candidate; WebKit can send it after compositionend, as key code 229
               if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
             }} />
-            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
+            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={(event) => void answer({ custom_text: custom.trim() }, event)}>
               <Send aria-hidden="true" /> {t("Send")}
             </button>
           </div>
@@ -152,9 +187,13 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       )}
       {typedAnswer?.option_index !== undefined && (
         <div className="prompt-card-confirm" role="alert" ref={confirmRef}>
-          <span>{t("Send {answer}?", { answer: `${typedAnswer.option_index + 1}. ${prompt.options[typedAnswer.option_index]?.label ?? ""}` })}</span>
-          <button type="button" className="btn btn-primary" disabled={pending} onClick={() => void answer(typedAnswer).finally(() => onTypedAnswerDone?.())}>{t("Confirm")}</button>
-          <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>{t("Cancel")}</button>
+          {/* an option's label can run to pages (a review to approve): the question shows two lines
+              of it and scrolls in itself, and the two buttons stay whole, on one line */}
+          <span className="prompt-card-confirm-text">{t("Send {answer}?", { answer: `${typedAnswer.option_index + 1}. ${prompt.options[typedAnswer.option_index]?.label ?? ""}` })}</span>
+          <span className="prompt-card-confirm-actions">
+            <button type="button" className="btn btn-primary" disabled={pending} onClick={(event) => void answer(typedAnswer, event).then((current) => { if (current) onTypedAnswerDone?.(); })}>{t("Confirm")}</button>
+            <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>{t("Cancel")}</button>
+          </span>
         </div>
       )}
       {error !== null && <p className="prompt-card-error" role="alert">{error}</p>}

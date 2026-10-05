@@ -251,7 +251,20 @@ export function PaneTerminal({
   }, []);
   // a typed pick of an approval's option, shown in the card until Confirm or Cancel
   const [pendingAnswer, setPendingAnswer] = useState<{ pane: string; promptId: string; answer: TypedAnswer } | null>(null);
-  const clearPendingAnswer = useCallback(() => setPendingAnswer(null), []);
+  // where the chat draws its prompt card: on the composer's column, between the held messages and
+  // the input card (the stack's order is written once, in the JSX below)
+  const [promptDock, setPromptDock] = useState<HTMLDivElement | null>(null);
+  // Answered from the card, the card goes and would take the keyboard's focus with it: the message
+  // box is the next thing to type in. Not after a tap, which would raise the keyboard: the card
+  // tells a tap by the press itself (a touch-screen laptop has a fine pointer), and a phone is
+  // also told by its pointer, for a browser whose click does not say what made it.
+  const onPromptAnswered = useCallback((toMessageBox: boolean) => {
+    if (toMessageBox && !coarseRef.current) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
+  }, []);
+  // only the pick of that pane and prompt: an answer that comes back late must not take another's
+  const clearPendingAnswer = useCallback((pane: string, promptId?: string) => {
+    setPendingAnswer((current) => current?.pane === pane && (promptId === undefined || current.promptId === promptId) ? null : current);
+  }, []);
   const onChatPrompt = useCallback((pane: string, value: InteractivePrompt | null) => {
     setChatPrompt((current) => value !== null ? { pane, value } : current?.pane === pane ? null : current);
     // a typed pick belongs to the prompt it was typed for: once that prompt changes or goes
@@ -1507,6 +1520,8 @@ export function PaneTerminal({
             promptRefreshKey={promptRefresh}
             pendingAnswer={pendingAnswer !== null && pendingAnswer.pane === paneId ? pendingAnswer : null}
             onPendingAnswerDone={clearPendingAnswer}
+            promptDock={promptDock}
+            onPromptAnswered={onPromptAnswered}
           />
           </RenderBoundary>
         )}
@@ -1580,6 +1595,11 @@ export function PaneTerminal({
           </ol>
         </section>
       )}
+      {/* The prompt card's place: under the held messages (which fold to their caption while it is
+          open), directly over the input card, on the same column. ChatView renders the card into
+          it. It is a live region of its own, since the card is no longer inside the transcript's
+          log: a prompt that arrives is announced, as it was there. */}
+      {paneId !== null && chatView && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
       {paneId !== null && secretActive && !observing && !ended && connected && outputReady && <SecretInput
