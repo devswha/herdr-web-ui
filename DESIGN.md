@@ -455,6 +455,11 @@ One set for both themes: the card is island black wherever it shows.
   Code blocks never scroll inside: one longer than 30 lines opens at its first 20 behind **Show all N lines**.
   Thinking renders as a folded block only when **Show thinking** is enabled.
 - Auto-follow stops when the reader scrolls up; later output raises a **New messages** pill.
+- An empty chat is greeted from the composer (`.composer-greeting`, below), only where the agent's
+  conversation was read and holds no turn. A chat still loading, one whose read failed, an agent
+  whose transcript could not be read and a pane with no recognized agent keep their own lines
+  (`Loading conversation…`, the error, the terminal-output fallback, `No conversation yet — say
+  something below`), as does an agent that is working or asking.
 
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
@@ -486,6 +491,15 @@ One set for both themes: the card is island black wherever it shows.
   completion popover; inside, ONE row — attach control | auto-growing textarea | Send / Queue /
   Stop — with the controls bottom-aligned so they stay beside the last line as the box grows;
   the image strip is its own row above that line.
+- Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
+  `What should <agent> do in <folder>?` in `--text-strong`, `--fs-xl`, `--fw-semibold`, centred,
+  and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. No suggestion
+  chips or starter prompts. The greeting is out of the flow, so it takes no row from the terminal
+  surface. In a mouse-driven window from `769px` the composer is moved up (a transform, nothing
+  else changes size) so the greeting and the input card sit at the pane's vertical centre; a
+  phone keeps the composer docked with the greeting above it. The first message sent removes the
+  greeting and the composer is back at the bottom at once: it snaps, with no animation. Held
+  messages keep the composer docked.
 - The status line ends, on fine pointers, with `/` commands and `@` files keycaps (plus `Mod+Enter`
   sends when **Enter sends** is off); the placeholder is just `Message <agent>…`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;

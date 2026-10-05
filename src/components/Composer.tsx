@@ -10,6 +10,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
 
@@ -52,6 +53,8 @@ export interface ComposerProps {
   answerHint?: string | null;
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
   suggestion?: string | null;
+  /** an empty chat's greeting: it stands over the composer's column and takes no row of its own */
+  greeting?: ReactNode;
   /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
   onSend: (text: string) => boolean | string | Promise<boolean | string>;
   onAbort: () => void;
@@ -185,6 +188,7 @@ export function Composer({
   queueMode = false,
   answerHint = null,
   suggestion = null,
+  greeting = null,
   onSend,
   onAbort,
   onUploadImage,
@@ -644,6 +648,7 @@ export function Composer({
 
   return (
     <div className="composer" role="group" aria-label={t("Message composer")}>
+      {greeting}
       <div className="composer-status" role="status" data-status={agentStatus ?? "unknown"}>
         {agent && <AgentMark agent={agent} size={14} />}
         <span className="composer-agent-label">{agentLabel}</span>

@@ -37,6 +37,7 @@ const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
+import { chatIsBlank } from "../lib/greeting.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
 const TRANSCRIPT_LINES = 400;
@@ -54,6 +55,10 @@ export interface ChatViewProps {
   agent: string | null;
   agentStatus?: AgentStatus;
   onMetadata?: (paneId: string, metadata: ConversationMetadata | null) => void;
+  /** whether the conversation was read and holds nothing yet: the composer may greet there */
+  onBlank?: (paneId: string, blank: boolean) => void;
+  /** the composer shows its greeting: the chat's own "nothing yet" line stays out */
+  greeted?: boolean;
   /** the agent's waiting prompt, for the composer to answer too */
   onPrompt?: (paneId: string, prompt: InteractivePrompt | null) => void;
   /** with no prompt waiting, the next prompt the agent suggests (Claude's grey input text) */
@@ -452,7 +457,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onBlank, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -756,6 +761,12 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
+  const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
+  // before paint: the greeting replaces the line below in the same frame, not one after it
+  useLayoutEffect(() => {
+    onBlank?.(paneId, blank);
+    return () => onBlank?.(paneId, false);
+  }, [onBlank, paneId, blank]);
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
@@ -793,7 +804,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       {!ended && !connected && <p className="chat-inline-state">{t("reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? "locked — the token gate is asking again" : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
-      {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {loaded && empty && error === null && prompt === null && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => {
         setPrompt(null);
         // a form of several questions goes on to its next one: read it now, not at the next poll

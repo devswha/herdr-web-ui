@@ -446,6 +446,7 @@ export const JA: Record<string, string> = {
   "beginning of conversation": "会話の始まり",
   "Conversation unavailable — show terminal output": "会話を読み取れません。ターミナルの出力を表示",
   "reconnecting…": "再接続しています…",
+  "What should {agent} do in {folder}?": "{folder} で {agent} に何を頼みますか？",
   "No conversation yet — say something below": "まだ会話はありません。下から話しかけてください",
   "terminal ended": "ターミナルが終了しました",
   "New messages": "新しいメッセージ",

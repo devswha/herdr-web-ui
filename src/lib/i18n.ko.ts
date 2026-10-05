@@ -444,6 +444,7 @@ export const KO: Record<string, string> = {
   "beginning of conversation": "대화의 시작",
   "Conversation unavailable — show terminal output": "대화를 읽을 수 없습니다. 터미널 출력 보기",
   "reconnecting…": "재연결 중…",
+  "What should {agent} do in {folder}?": "{folder}에서 {agent}에게 무엇을 맡길까요?",
   "No conversation yet — say something below": "아직 대화가 없습니다. 아래에 말을 걸어 보세요",
   "terminal ended": "터미널 종료됨",
   "New messages": "새 메시지",

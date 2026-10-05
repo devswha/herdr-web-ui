@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- A chat with no messages yet asks "What should Claude do in my-project?" right over the
+  message box, with the PC and the full path under it, instead of a dim "No conversation yet"
+  line in the middle of an empty pane. In a desktop window the question and the message box sit
+  in the middle of the pane until the first message is sent; on a phone the box stays at the
+  bottom. A pane without an agent, or one whose conversation could not be read, looks as before.
+
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
   panes, instead of sounding over itself. A pane that needs input right after one that finished

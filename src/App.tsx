@@ -806,6 +806,8 @@ export function App() {
             agent={selectedAgent}
             agentStatus={selectedPane?.agent_status}
             backgroundTasks={(selectedPane as HerdrPane | null)?.background_tasks ?? 0}
+            cwd={selectedPane?.cwd ?? null}
+            machineName={selectedMachine?.name ?? selectedMachineId}
             view={view}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
