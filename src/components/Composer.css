@@ -566,17 +566,14 @@
   background: var(--accent-tint);
 }
 
+/* The list is a sibling of the composer, not a child: it has no gutter of its own. On a pane wider
+   than the narrow lane it takes the card's column (the pane less the composer's two gutters, up to
+   --chat-w) at every Chat width step; below that it fills the pane, as it always has */
 .terminal-stack.is-chat .composer-queue {
-  width: min(100%, var(--chat-w));
+  width: max(min(100%, var(--content-w)), min(calc(100% - 2 * var(--space-4)), var(--chat-w)));
   margin: 0 auto;
   border: var(--hairline) solid var(--border);
   border-radius: var(--radius-md);
-}
-
-/* Chat width → Full: --chat-w is the whole pane, and the list keeps the card's gutter there.
-   Below the narrow lane plus its gutters it is what it is at every other width */
-[data-chat-width="full"] .terminal-stack.is-chat .composer-queue {
-  width: max(min(100%, var(--content-w)), calc(100% - 2 * var(--space-4)));
 }
 
 .composer-queue-label {

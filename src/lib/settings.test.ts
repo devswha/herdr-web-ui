@@ -61,10 +61,8 @@ describe("chat width", () => {
     expect(step("full")).toBe("100%");
     // the default step is the token itself: no override to drift from it
     expect(step("default")).toBeUndefined();
-    // every chat column follows the lane; Settings and New workspace stay on --content-w
-    for (const file of ["components/ChatView.css", "components/Composer.css", "components/BackgroundTasks.css"]) expect(css(file)).toContain("var(--chat-w)");
-    expect(css("components/ChatView.css")).not.toContain("var(--content-w)");
-    expect(css("components/BackgroundTasks.css")).not.toContain("var(--content-w)");
+    // Settings and New workspace stay on --content-w. That the chat columns share the lane is
+    // measured in the browser (scripts/ui-regression.ts), not read from the stylesheets
     for (const file of ["components/SettingsDialog.css", "components/NewSessionDialog.css"]) {
       expect(css(file)).toContain("var(--content-w)");
       expect(css(file)).not.toContain("var(--chat-w)");

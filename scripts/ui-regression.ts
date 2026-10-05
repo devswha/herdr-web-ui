@@ -371,6 +371,34 @@ try {
   }
   assert.equal(await page.locator(".composer-queue-text").count(), 3);
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
+  // one column: the held list, the box, its status line and the conversation share their edges.
+  // At the default Chat width this pane is narrower than the lane, so the column is the pane less
+  // its gutters; at Narrow the lane is narrower than the pane and every one of them is held to it
+  const chatWidth = async (name: string): Promise<void> => {
+    await page.keyboard.press("Control+Shift+Comma");
+    await page.locator('.segmented[aria-label="Chat width"]').getByRole("button", { name, exact: true }).click();
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  };
+  const laneColumn = async (): Promise<{ x: number; width: number; pane: number }> => {
+    const pane = await page.locator(".terminal-stack.is-chat").boundingBox();
+    const card = await page.locator(".composer-surface").boundingBox();
+    assert.ok(pane && card);
+    for (const selector of [".composer-queue", ".composer-status", ".chat-transcript"]) {
+      const box = await page.locator(selector).boundingBox();
+      assert.ok(box, selector);
+      assert.equal(Math.round(box.x), Math.round(card.x), `${selector} starts on the box's edge`);
+      assert.equal(Math.round(box.width), Math.round(card.width), `${selector} is as wide as the box`);
+    }
+    return { x: Math.round(card.x), width: Math.round(card.width), pane: Math.round(pane.width) };
+  };
+  const gutters = await laneColumn();
+  assert.equal(gutters.width, gutters.pane - 32, "the default lane is wider than this pane: the column is the pane less its gutters");
+  await chatWidth("Narrow");
+  const narrow = await laneColumn();
+  assert.equal(narrow.width, 820);
+  assert.ok(narrow.width < narrow.pane - 32, "the narrow lane, not the pane, sets the column");
+  await chatWidth("Default");
+  assert.deepEqual(await laneColumn(), gutters);
   await page.locator(".composer-queue-text").nth(1).fill("# edited second message");
   await page.reload();
   await page.locator(".conn-live").waitFor();
@@ -416,12 +444,18 @@ try {
   assert.equal(await page.locator(".composer-quick").count(), 0);
   assert.equal(await page.locator(".composer-quick-toggle").count(), 0);
   await quickRow(true);
-  // on a wide pane the row keeps the box's column instead of running to the pane's left edge
+  // on a wide pane the row keeps the box's column instead of running to the pane's left edge.
+  // Measured at the narrow Chat width: the default lane is wider than this pane, and there the
+  // row and the box would both simply fill the composer whatever their own width rule said
+  await chatWidth("Narrow");
   const quickBox = await page.locator(".composer-quick").boundingBox();
   const surfaceBox = await page.locator(".composer-surface").boundingBox();
-  assert.ok(quickBox && surfaceBox);
+  const composerBox = await page.locator(".composer").boundingBox();
+  assert.ok(quickBox && surfaceBox && composerBox);
+  assert.ok(surfaceBox.width < composerBox.width - 32, "the box is held to the lane, narrower than the pane");
   assert.equal(Math.round(quickBox.x), Math.round(surfaceBox.x));
   assert.equal(Math.round(quickBox.width), Math.round(surfaceBox.width));
+  await chatWidth("Default");
   await composer.fill("draft stays");
   const quickCount = inputs.length;
   await page.getByRole("group", { name: "Quick replies", exact: true }).getByRole("button", { name: "continue", exact: true }).click();
