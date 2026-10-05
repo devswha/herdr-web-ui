@@ -524,9 +524,9 @@ One set for both themes: the card is island black wherever it shows.
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
 - The running versions are always written, since the sidebar carries none. Updates opens with
-  **Running v0.3.49 (commit)**: the server's version and commit, or the client's own build version
+  **Running vX.Y.Z (commit)**: the server's version and commit, or the client's own build version
   before the server answers and where it names neither. The **herdr** section opens with
-  **Running herdr 0.9.3**; where herdr cannot be updated from here (Windows, an older server) the
+  **Running herdr X.Y.Z**; where herdr cannot be updated from here (Windows, an older server) the
   section is that line alone, from the health check.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining,
   Weekly / Session and one hairline card of accounts (`.usage-accounts`, `--radius-md`): an
