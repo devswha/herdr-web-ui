@@ -149,6 +149,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Its widest was a fixed 960px while Wide follows the font size, so at a 13px font Wide (936px)
   made the chat narrower than Default on a large monitor. Default's widest now follows the font
   size too (960px at 16px, 1200px at 20px), and it is never narrower than Narrow's 820px.
+  ([#474](https://github.com/devswha/herdr-web-ui/pull/474))
 - An update asked for in the first moments after the app starts, or right after another update,
   waits until the start is over. It used to stop the app in the middle of its start-up check,
   and the app then fell back to the source checkout or did not come up.
