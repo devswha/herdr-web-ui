@@ -194,7 +194,8 @@ describe("WebSocket submit", () => {
       expect(typed(agent, from)).toBe("2\r");
       // the Enter keeps its own gap after the text, as a composer message's does
       const enter = read.findIndex((chunk) => chunk.data.includes("\r"));
-      // measured in the pane's own process, whose clock reads a millisecond or so off the server's
+      // the pane's recorder stamps each read when it gets it: a text read that comes a moment late
+      // shortens the gap it sees (119 on CI), so this takes the tolerance the shell case has
       if (enter > 0) expect(read[enter]!.at - read[enter - 1]!.at).toBeGreaterThanOrEqual(SUBMIT_DELAY_MS - 20);
     } finally {
       await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "idle" });
