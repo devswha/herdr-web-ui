@@ -33,7 +33,7 @@ function Plan({ plan, loading, onRefresh }: PhonePanelProps) {
       return (
         <>
           <Address url={plan.url} title={t(plan.kind === "here" ? "Open this address on your phone" : "Tailscale already serves this PC")} />
-          <p className="settings-description">{t("Once it is open, install the app and tap the bell for alerts.")}</p>
+          <p className="settings-description">{t("Once it is open, install the app, then open the ⋯ menu and tap Alerts.")}</p>
           {plan.kind === "served" && <Sharing />}
         </>
       );

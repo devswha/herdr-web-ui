@@ -52,6 +52,9 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     // one button, and no detour through Settings
     await page.getByText("herdr web ui v9.9.9 is available.", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: "View update", exact: true }).count(), 0, "the line has no View update button");
+    // the line is the pane column's, never a bar across the window between the header and the sidebar
+    assert.ok(await page.locator(".pane-column > .update-notice").count() > 0, "the notice is drawn in the pane column");
+    assert.equal(await page.locator(":not(.pane-column) > .update-notice").count(), 0, "and nowhere else");
     await fits("available");
     await shot("1-available");
     await page.getByRole("button", { name: "Update", exact: true }).click();

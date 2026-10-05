@@ -26,6 +26,74 @@
   padding-bottom: var(--space-2);
 }
 
+/* An empty chat's greeting: one line on the composer's column, over it. Out of the flow, so the
+   composer keeps its height and the terminal surface above keeps its box (PaneTerminal.tsx).
+   Long agent and folder names wrap. */
+.composer-greeting {
+  position: absolute;
+  bottom: 100%;
+  inset-inline: var(--space-4);
+  max-width: var(--content-w);
+  margin-inline: auto;
+  padding-bottom: var(--space-4);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* the stack is too short for the composer and the greeting (a phone on its side with the keyboard
+   up): it stays measured and out of sight, and the chat shows its own empty line */
+.composer-greeting.is-out {
+  visibility: hidden;
+}
+
+/* dictation's pill (VoiceInput.css) opens over the composer, where the greeting stands: the
+   greeting keeps its box and yields until the pill is gone */
+.composer[data-dictating] .composer-greeting {
+  visibility: hidden;
+}
+
+/* it has no control: on a touch screen a tap or a drag on it goes to the chat under it, which
+   puts the keyboard away (lib/keyboard.ts) */
+@media (pointer: coarse) {
+  .composer-greeting {
+    pointer-events: none;
+  }
+}
+
+.composer-greeting-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+.composer-greeting-where {
+  margin: var(--space-2) 0 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+/* over the chat lens, which is blank under a greeting */
+.terminal-stack.is-greeted .composer {
+  z-index: 2;
+}
+
+/* A mouse-driven window: the greeting and the input card sit at the pane's vertical centre.
+   Only the composer moves, and it snaps: the first message sent puts it back at the bottom with
+   no animation. A phone keeps it docked, on the keyboard. */
+@media (min-width: 769px) and (hover: hover) and (pointer: fine) {
+  .terminal-stack.is-greeted .composer {
+    transform: translateY(var(--composer-lift, 0px));
+  }
+
+  /* the completion menu opens upward into what is left over the lifted card: it scrolls there,
+     where the pane's edge would cut its first rows off */
+  .terminal-stack.is-greeted .composer-menu {
+    max-height: min(calc(var(--row-h) * 5), calc(var(--composer-room, 100vh) - var(--space-2) * 2));
+  }
+}
+
 .composer-quick,
 .composer-surface,
 .composer-note {

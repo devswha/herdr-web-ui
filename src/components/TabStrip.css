@@ -6,7 +6,9 @@
   flex: 0 0 auto;
   min-height: var(--control-h);
   padding: 0 var(--space-3);
-  background: var(--bg-panel);
+  /* the strip's surface, which the + that covers the scrolling tabs paints too */
+  --strip-bg: var(--bg-panel);
+  background: var(--strip-bg);
   border-bottom: var(--hairline) solid var(--border);
   overflow-x: auto;
   overflow-y: hidden;
@@ -147,15 +149,15 @@
 .tab-strip-add {
   position: sticky;
   right: 0;
-  background: var(--bg-panel);
-  /* the strip's own end padding, in the panel's colour: no tab shows past the + */
-  box-shadow: var(--space-3) 0 0 var(--bg-panel);
+  background: var(--strip-bg);
+  /* the strip's own end padding, in the strip's colour: no tab shows past the + */
+  box-shadow: var(--space-3) 0 0 var(--strip-bg);
 }
 
-/* over the shared hover below: the hover tint sits on the panel's colour, never on a tab */
+/* over the shared hover below: the hover tint sits on the strip's colour, never on a tab */
 .tab-strip .tab-strip-add:hover,
 .tab-strip .tab-strip-add:focus-visible {
-  background: linear-gradient(var(--bg-hover), var(--bg-hover)) var(--bg-panel);
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)) var(--strip-bg);
 }
 
 .tab-strip-panes:hover,
@@ -207,5 +209,19 @@
   .tab-strip-item.has-panes .tab-strip-tab,
   .tab-strip-item.is-active .tab-strip-tab {
     padding-right: var(--space-1);
+  }
+}
+
+/* From 769px the header over the pane is the pane's surface (styles.css), and the strip under
+   it is the same one, not a band of the panel's colour between the two: the terminal's colour,
+   or the chat's, where the header has no rule and the strip's hairline is the one line over the
+   transcript. Below that the header is the panel's bar and the strip stays with it. */
+@media (min-width: 769px) {
+  .tab-strip {
+    --strip-bg: var(--term-bg);
+  }
+
+  .pane-column.is-chat .tab-strip {
+    --strip-bg: var(--bg);
   }
 }
