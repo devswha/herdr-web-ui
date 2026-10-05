@@ -771,8 +771,9 @@ Enter to select · Tab/Arrow keys to navigate · Esc to cancel
 ${rows}
 `;
 
-  test("reads the question as if the task list were not there", () => {
+  test("reads the question under the session's rule, with or without the task list", () => {
     for (const rows of [
+      "",
       "  3 tasks (0 done, 3 open)\n  ◻ 준비\n  ◻ 구현\n  ◻ 검증",
       "  5 tasks (1 done, 1 in progress, 3 open)\n  ◼ 구현\n    Running tests…\n  ✔ 준비\n  ◻ 검증\n   … +2 pending",
     ]) {

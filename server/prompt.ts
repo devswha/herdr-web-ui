@@ -1141,8 +1141,10 @@ const CLAUDE_TASK_ROW_RE = /^(?:[◻◼✔]\s|…\s\+\d+ )|…$/;
 const LABELED_RULE_RE = /^─{3,}\s.*─$/;
 function withoutClaudeTasks(shown: string[]): string[] {
   const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
-  if (head < 0 || !shown.slice(head + 1).every((line) => CLAUDE_TASK_ROW_RE.test(line))) return shown;
-  return shown.slice(0, LABELED_RULE_RE.test(shown[head - 1] ?? "") ? head - 1 : head);
+  let end = head >= 0 && shown.slice(head + 1).every((line) => CLAUDE_TASK_ROW_RE.test(line)) ? head : shown.length;
+  // the session's rule is drawn with no task list too
+  if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
+  return shown.slice(0, end);
 }
 
 function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
