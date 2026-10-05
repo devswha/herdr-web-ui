@@ -121,6 +121,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   or the card still open on another device, could answer the second asking. Each asking is now
   its own card, once the app has seen the first one end (it was answered from the app, the agent
   went back to work, or the prompt left the screen).
+  ([#470](https://github.com/devswha/herdr-web-ui/pull/470))
 - A draft in the message box keeps its full height when the window or the pane is resized, or
   the chat width changes: the box used to keep the height of its old line breaks until the next
   key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
