@@ -898,9 +898,6 @@ export function createServer(
 
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
-      // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
-      // its screen after this is another asking, which an answer to the old card must not take
-      if (raw === "working") promptWaitEnded(paneId);
       // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
       // is OmO's own or herdr's by turns (server/omo-status.ts), and a difference is no change
       if (replay && (omo.runs(paneId) || !completions.replayed(paneId, raw, replay))) return;
@@ -908,6 +905,11 @@ export function createServer(
       if (omo.named(paneId, agent)) completions.forget(paneId);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
+      // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
+      // its screen after this is another asking, which an answer to the old card must not take.
+      // Only for a status that counts: a replay that changed nothing and herdr's word on an OmO
+      // pane (omoChanged has OmO's own) end no asking
+      if (raw === "working") promptWaitEnded(paneId);
       // an agent herdr lost on the way still works and finishes as such (server/completion.ts);
       // an OmO pane whose session is not known keeps herdr's status, under its own name
       const status = completions.observe(paneId, raw, omo.runs(paneId) ? "omo" : agent);

@@ -1734,6 +1734,12 @@ describe("an answer and the menu it was made for", () => {
     onRead?: () => void;
     /** herdr never answers what it is asked about the pane's agent */
     agentUnanswered?: boolean;
+    /** the next screen read alone answers with this, that much later */
+    nextRead?: { text: string; delay: number };
+    /** herdr presses this key and its reply is lost on the way */
+    replyLostOn?: string;
+    /** more panes showing the same screen: p_2 … */
+    more?: number;
     root: string;
   }
 
@@ -1752,15 +1758,24 @@ describe("an answer and the menu it was made for", () => {
         if (!input.includes("\n")) return;
         const request = JSON.parse(input.split("\n")[0]!) as { id: string; method: string; params: { keys?: string[]; text?: string } };
         const answer = (result: unknown) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
-        if (request.method === "session.snapshot") return answer({ snapshot: { panes: [{ pane_id: "p_1", agent: pane.agent, agent_status: pane.status, cwd: pane.cwd }], layouts: [] } });
-        if (request.method === "pane.read") { pane.onRead?.(); return void setTimeout(() => answer({ read: { text: pane.screen } }), pane.readDelay ?? 0); }
+        if (request.method === "session.snapshot") return answer({ snapshot: { panes: Array.from({ length: 1 + (pane.more ?? 0) }, (_, index) => ({ pane_id: `p_${index + 1}`, agent: pane.agent, agent_status: pane.status, cwd: pane.cwd })), layouts: [] } });
+        if (request.method === "pane.read") {
+          pane.onRead?.();
+          const once = pane.nextRead;
+          pane.nextRead = undefined;
+          if (once) return void setTimeout(() => answer({ read: { text: once.text } }), once.delay);
+          return void setTimeout(() => answer({ read: { text: pane.screen } }), pane.readDelay ?? 0);
+        }
         if (request.method === "agent.get" && pane.agentUnanswered) return;
         if (request.method === "agent.get") return answer({ agent: pane.rollout ? { agent_session: { kind: "path", value: pane.rollout } } : {} });
         if (request.method !== "pane.send_keys" && request.method !== "pane.send_text") throw new Error(`unexpected fixture RPC: ${request.method}`);
+        let lost = false;
         for (const sent of request.params.keys ?? [`text:${request.params.text}`]) {
           pane.sent.push(sent);
           pane.onSent?.(sent);
+          lost ||= sent === pane.replyLostOn;
         }
+        if (lost) return void socket.destroy();
         answer({});
       });
     });
@@ -1776,8 +1791,8 @@ describe("an answer and the menu it was made for", () => {
     }
   }
 
-  async function card(codexHome?: string): Promise<InteractivePrompt | null> {
-    const url = new URL("http://127.0.0.1/api/pane/prompt?pane_id=p_1");
+  async function card(codexHome?: string, paneId = "p_1"): Promise<InteractivePrompt | null> {
+    const url = new URL(`http://127.0.0.1/api/pane/prompt?pane_id=${paneId}`);
     return ((await (await handlePromptRequest(new Request(url), url, { codexHome }))!.json()) as { prompt: InteractivePrompt | null }).prompt;
   }
 
@@ -2244,12 +2259,21 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       writeFileSync(pane.rollout, `${JSON.stringify({ type: "session_meta", payload: { id: "t", source: "cli" } })}\n${ask("call_1", 2)}`);
       const queued = (await card(home))!;
       expect(queued.queued).toBe("collapsed");
+      // another terminal client opens the queue between this answer's first read and its read
+      // before alt+↑: the answer is refused, and the queue it did not open is not its to close
+      let reads = 0;
+      pane.onRead = () => { reads += 1; if (reads === 2) pane.screen = open(0); };
+      expect(await answer(queued.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+      pane.screen = collapsed;
+      reads = 0;
       // a request given up while the screen is read before alt+↑ (the answer's second read,
       // after the one that finds the card) opens no queue
       const abort = new AbortController();
-      let reads = 0;
+      const again = (await card(home))!;
+      reads = 0;
       pane.onRead = () => { reads += 1; if (reads === 2) abort.abort(); };
-      expect((await answer(queued.id, { option_index: 1 }, { signal: abort.signal, codexHome: home })).status).toBe(409);
+      expect((await answer(again.id, { option_index: 1 }, { signal: abort.signal, codexHome: home })).status).toBe(409);
       expect(pane.sent).toEqual([]);
       pane.onRead = undefined;
       let at = 0;
@@ -2265,10 +2289,57 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       };
       // neither the twin nor the rollout's news under the answer is a reason to refuse: the
       // question on the screen is the card's
-      expect(await answer(queued.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 200, code: undefined });
+      expect(await answer((await card(home))!.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["alt+up", "down", "enter"]);
     });
   });
+
+  test("a key herdr may have pressed, its reply lost, has ended the asking", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const first = (await card())!;
+      pane.replyLostOn = "enter";
+      // herdr pressed the Enter and the answer never heard so: the route fails
+      expect((await answer(first.id, { option_index: 0 })).status).not.toBe(200);
+      expect(pane.sent).toEqual(["enter"]);
+      pane.replyLostOn = undefined;
+      // the same menu asked again is another asking: the old card's id answers nothing
+      expect((await card())!.id).not.toBe(first.id);
+      expect(await answer(first.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["enter"]);
+    });
+  });
+
+  test("a read that began under an answer and comes back after it changes nothing", async () => {
+    await withPane("pi", "idle", input("Branch name?"), async (pane) => {
+      const prompt = (await card())!;
+      let late: Promise<InteractivePrompt | null> | undefined;
+      pane.onSent = (sent) => {
+        // another device reads the pane as the answer empties the line, catches the screen
+        // between two draws, and herdr is slow to say so
+        if (sent === "ctrl+k") { pane.nextRead = { text: "", delay: 400 }; late = card(); }
+        if (sent.startsWith("text:")) pane.screen = input("Branch name?", sent.slice(5));
+        if (sent === "enter") pane.screen = input("Delete which branch?");
+      };
+      expect(await answer(prompt.id, { custom_text: "fix/answers" })).toEqual({ status: 200, code: undefined });
+      // the next dialog has its card before that read is back
+      const next = (await card())!;
+      expect(next.question).toBe("Delete which branch?");
+      expect(await late!).toBeNull();
+      // and it is still that card: the late read ended no asking
+      expect((await card())!.id).toBe(next.id);
+      pane.onSent = undefined;
+      expect((await answer(next.id, { custom_text: "old/one" })).status).toBe(200);
+    });
+  });
+
+  test("an asking is kept however many panes ask", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      pane.more = 257;
+      const first = (await card())!;
+      for (let index = 2; index <= 258; index += 1) expect(await card(undefined, `p_${index}`)).not.toBeNull();
+      expect((await card())!.id).toBe(first.id);
+    });
+  }, 20_000);
 
   test("a prompt keeps its id from read to read while it waits", async () => {
     await withPane("codex", "blocked", menu(RESUME), async () => {

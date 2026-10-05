@@ -1760,24 +1760,32 @@ const SERVER_RUN = randomBytes(6).toString("hex");
  * under it.
  */
 const answersUnderWay = new Set<string>();
+/**
+ * How many answers have begun or ended on each pane. A read takes its time: one that began
+ * before or under an answer and comes back after it shows a screen of that answer's, not of now,
+ * so a read during which this number moved changes nothing either.
+ */
+const answerTurns = new Map<string, number>();
 
-/** The prompt a read found, under the id of its asking; a read without one ends the pane's asking. */
-function asked(paneId: string, prompt: InteractivePrompt | null): InteractivePrompt | null {
+/**
+ * The prompt a read found, under the id of its asking; a read without one ends the pane's asking.
+ * `turns`: the pane's answerTurns when the read began.
+ */
+function asked(paneId: string, prompt: InteractivePrompt | null, turns: number): InteractivePrompt | null {
   let asking = askings.get(paneId);
-  if (!answersUnderWay.has(paneId) || !asking) {
+  if (!answersUnderWay.has(paneId) && (answerTurns.get(paneId) ?? 0) === turns) {
     if (prompt === null) {
       if (asking) asking.content = null;
       return null;
     }
     if (asking?.content !== prompt.id) {
+      // kept until its pane closes (readPrompt): a live asking is never dropped to make room
       asking = { content: prompt.id, n: askingCount += 1, queued: prompt.queued !== undefined };
-      askings.delete(paneId);
       askings.set(paneId, asking);
-      if (askings.size > 256) askings.delete(askings.keys().next().value!);
     }
   }
   if (prompt === null) return null;
-  prompt.id = createHash("sha256").update(JSON.stringify([prompt.id, SERVER_RUN, asking.n])).digest("hex").slice(0, 12);
+  prompt.id = createHash("sha256").update(JSON.stringify([prompt.id, SERVER_RUN, asking?.n ?? 0])).digest("hex").slice(0, 12);
   return prompt;
 }
 
@@ -1880,10 +1888,12 @@ export function parseClaudeSuggestion(ansi: string): string | null {
 }
 
 async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: string; status: string; prompt: InteractivePrompt | null; pane: HerdrPane; panes: HerdrPane[] }> {
+  const turns = answerTurns.get(paneId) ?? 0;
   const { panes } = await sessionSnapshot();
   // a closed pane's wait has ended too
   for (const logged of fallbackLogged) if (!panes.some((candidate) => candidate.pane_id === logged)) fallbackLogged.delete(logged);
   for (const known of askings.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) askings.delete(known);
+  for (const known of answerTurns.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) answerTurns.delete(known);
   const pane = panes.find((candidate) => candidate.pane_id === paneId);
   if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
   const agent = pane.agent ?? "";
@@ -1894,16 +1904,16 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   const settling = Date.now() - (formsAnswered.get(paneId) ?? 0) < FORM_SETTLE_MS;
   if (known.prompt !== null || status !== "blocked" || !agent || settling) {
     fallbackLogged.delete(paneId);
-    return { agent, status, prompt: asked(paneId, known.prompt), pane, panes };
+    return { agent, status, prompt: asked(paneId, known.prompt, turns), pane, panes };
   }
   // herdr says the agent waits on the user and no reader knows the screen: the fallback card
   const screen = known.screen ?? await liveScreen(paneId);
   // Codex's collapsed question queue reads blocked while its main prompt takes a message
   if (agent === "codex" && codexQuestionsCollapsed(screen)) {
     fallbackLogged.delete(paneId);
-    return { agent, status, prompt: asked(paneId, null), pane, panes };
+    return { agent, status, prompt: asked(paneId, null, turns), pane, panes };
   }
-  const prompt = asked(paneId, parseFallbackPrompt(agent, screen))!;
+  const prompt = asked(paneId, parseFallbackPrompt(agent, screen), turns)!;
   if (!fallbackLogged.has(paneId) && fallbackLogged.size < FALLBACK_LOGGED_MAX) {
     fallbackLogged.add(paneId);
     console.warn(`prompt: ${agent} pane ${paneId} is blocked on a screen no reader knows; fallback card (${prompt.options.length} options)`);
@@ -2029,10 +2039,12 @@ function sameText(shown: string, asked: string): boolean {
  * chat's next read shows the question actually waiting (a skip can leave the rollout's
  * guess behind); a queue that does not open is left alone.
  */
-async function openQueuedQuestion(paneId: string, queued: ParsedPrompt, givenUp: () => boolean = () => false): Promise<InteractivePrompt | null> {
+async function openQueuedQuestion(paneId: string, queued: ParsedPrompt, givenUp: () => boolean = () => false, sent: () => void = () => undefined): Promise<InteractivePrompt | null> {
   // the key only once the screen still shows the questions' count, nothing of the user's queued,
   // and while somebody still waits for the answer (asked after the read, which takes its time)
   if (queuedQuestionCount(await liveScreen(paneId)) === 0 || givenUp()) return null;
+  // told before the key goes: it may be pressed and its reply still be lost
+  sent();
   await paneSendKeys(paneId, [KEY.openQueue]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await Bun.sleep(100);
@@ -2141,13 +2153,19 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       const opensQueue = parsedByPublicPrompt.get(prompt)?.responder === "codex-queued-question";
       let answered = false;
       let committed = false;
+      // whether this request's alt+↑ may have left the queue open
+      let queueOpened = false;
       answersUnderWay.add(body.pane_id);
+      answerTurns.set(body.pane_id, (answerTurns.get(body.pane_id) ?? 0) + 1);
       try {
         if (request.signal.aborted) return promptChanged();
         if (opensQueue) {
           // the card came from the rollout: answer it in the open queue, once it shows this question
-          const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!, () => request.signal.aborted);
-          if (!opened || !asks()) return promptChanged();
+          const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!, () => request.signal.aborted, () => { queueOpened = true; });
+          // a queue it could not answer in it has closed again itself, or never opened: a
+          // queue another client opened meanwhile is that client's to close
+          if (!opened) { queueOpened = false; return promptChanged(); }
+          if (!asks()) return promptChanged();
           target = opened;
         }
         // the keys for the question as it shows in the open queue
@@ -2208,12 +2226,15 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             // given up before anything that cannot be undone, with or without a move before it
             if (request.signal.aborted) return promptChanged();
           }
+          // before the key goes: herdr may press it and the reply still be lost, and a key that
+          // may have been pressed has ended the asking as much as one that was
+          if (!move) committed = true;
           if (step.keys) await paneSendKeys(body.pane_id, step.keys);
           else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
           if (move) {
             moved = true;
             for (const key of step.keys!) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
-          } else committed = true;
+          }
           if (index < steps.length - 1) await Bun.sleep(30);
         }
         answered = true;
@@ -2222,8 +2243,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         throw error;
       } finally {
         answersUnderWay.delete(body.pane_id);
+        answerTurns.set(body.pane_id, (answerTurns.get(body.pane_id) ?? 0) + 1);
         // the queue this request opened never stays open, whatever failed on the way
-        if (opensQueue && !answered) await closeOpenQuestion(body.pane_id).catch(() => undefined);
+        if (queueOpened && !answered) await closeOpenQuestion(body.pane_id).catch(() => undefined);
         // answered, or as good as: the same prompt on the screen after this is asked anew
         if (committed) askingEnded(body.pane_id);
       }
