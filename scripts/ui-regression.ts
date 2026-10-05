@@ -8,6 +8,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, sessionSnapshot, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 import type { WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
+import { alertsOffMarked, alertsState, runMoreItem } from "./header-more.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkNeedsInput } from "./needs-input-regression.ts";
@@ -299,25 +300,28 @@ try {
   await page.unroute("**/api/updates");
   console.log("PASS an update answer that arrives while the page is hidden releases the buttons");
 
-  // the bell turns this device's alerts on, and off again (it stayed disabled once on)
-  const bell = page.locator(".bell-button");
-  // before the permission question is answered the bell already reads as on: in-app alerts show
-  assert.equal(await bell.getAttribute("aria-label"), "Alerts on in the app only");
-  assert.equal(await bell.getAttribute("aria-pressed"), "true");
+  // the More menu's Alerts item turns this device's alerts on, and off again (it stayed disabled once on)
+  // the header has no button of its own for it, for New tab or for the file browser any more
+  assert.equal(await page.locator(".app-header .bell-button, .app-header .new-tab-button, .app-header .files-button").count(), 0, "the three actions are the More menu's items");
+  // before the permission question is answered the item already reads as on: in-app alerts show
+  assert.equal(await alertsState(page), "On in the app");
+  assert.equal(await alertsOffMarked(page), false, "alerts that are on leave the More button unmarked");
   await context.grantPermissions(["notifications"], { origin });
-  await bell.click();
-  await until(async () => await bell.getAttribute("aria-label") !== "Alerts on in the app only", "the bell's tap takes the permission");
-  assert.equal(await bell.getAttribute("aria-pressed"), "true");
-  await bell.click();
-  await until(async () => await bell.getAttribute("aria-pressed") === "false", "bell off");
-  assert.equal(await bell.getAttribute("aria-label"), "Alerts off");
+  await runMoreItem(page, "Alerts");
+  await until(async () => await alertsState(page) !== "On in the app", "the item's tap takes the permission");
+  assert.match(await alertsState(page), /^On[ ,]/);
+  assert.equal(await alertsOffMarked(page), false);
+  await runMoreItem(page, "Alerts");
+  await until(async () => await alertsState(page) === "Off on this device", "alerts off");
+  assert.equal(await alertsOffMarked(page), true, "alerts that are off mark the More button, in its dot and its name");
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
   assert.equal(await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription()) ?? null), null, "turning alerts off drops the push subscription");
-  await bell.click();
-  await until(async () => await bell.getAttribute("aria-pressed") === "true", "bell on again");
-  console.log("PASS the bell turns alerts off and on again");
+  await runMoreItem(page, "Alerts");
+  await until(async () => /^On[ ,]/.test(await alertsState(page)), "alerts on again");
+  assert.equal(await alertsOffMarked(page), false);
+  console.log("PASS the Alerts item turns alerts off and on again");
 
-  // where notifications are blocked the bell is still there, and switches the in-app alerts
+  // where notifications are blocked the item is still there, and switches the in-app alerts
   const blocked = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await blocked.addInitScript(() => {
     if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
@@ -325,19 +329,18 @@ try {
   });
   const blockedPage = await blocked.newPage();
   await blockedPage.goto(origin);
-  const blockedBell = blockedPage.locator(".bell-button");
-  await blockedBell.waitFor();
-  assert.equal(await blockedBell.getAttribute("aria-label"), "Alerts on in the app only");
-  assert.equal(await blockedBell.getAttribute("aria-pressed"), "true");
-  await blockedBell.click();
-  await until(async () => await blockedBell.getAttribute("aria-pressed") === "false", "blocked bell off");
-  assert.equal(await blockedBell.getAttribute("aria-label"), "Alerts off");
+  await blockedPage.locator(".header-more-button").waitFor();
+  assert.equal(await alertsState(blockedPage), "On in the app");
+  assert.equal(await alertsOffMarked(blockedPage), false);
+  await runMoreItem(blockedPage, "Alerts");
+  await until(async () => await alertsState(blockedPage) === "Off on this device", "blocked alerts off");
+  assert.equal(await alertsOffMarked(blockedPage), true);
   assert.equal(await blockedPage.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
-  await blockedBell.click();
-  await until(async () => await blockedBell.getAttribute("aria-pressed") === "true", "blocked bell on again");
-  assert.equal(await blockedBell.getAttribute("aria-label"), "Alerts on in the app only");
+  await runMoreItem(blockedPage, "Alerts");
+  await until(async () => await alertsState(blockedPage) === "On in the app", "blocked alerts on again");
+  assert.equal(await alertsOffMarked(blockedPage), false);
   await blocked.close();
-  console.log("PASS a device that blocks notifications keeps the bell as the switch for in-app alerts");
+  console.log("PASS a device that blocks notifications keeps the Alerts item as the switch for in-app alerts");
 
   await checkPushSettings(browser, origin);
   await checkWakeLock(browser, origin, paneA);
@@ -673,7 +676,7 @@ try {
 
   // A second tab from the row's ⋯ menu: the dialog is New tab, with the workspace's folder shown
   // and not asked for; the new pane opens, the workspace stays one row, and a strip over the pane
-  // lists both tabs from then on. The header's New tab opens the same dialog on a desktop.
+  // lists both tabs from then on. The header's More menu has New tab too, and opens the same dialog.
   // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
   await until(() => painted.has(created.pane_id), "created pane paint");
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
@@ -700,7 +703,7 @@ try {
   await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab opens its pane again");
   assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "Tab 1");
   // reopened right after a creation: its fields are live and Escape puts it away at once
-  await page.locator(".new-tab-button").click();
+  await runMoreItem(page, "New tab");
   await tabDialog.waitFor();
   assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");
