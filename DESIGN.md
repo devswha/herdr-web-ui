@@ -646,24 +646,53 @@ One set for both themes: the card is island black wherever it shows.
   `--status-blocked` on hover and focus. Not connected, Stop is disabled and loses its fill
   (`--border-strong` outline, `--text-dim` glyph).
 - The status content (`.composer-status`, `role="status"`) sits between the two control groups,
-  pushed to the button's side. It draws, in `--text-dim` at `--fs-xs`: the agent mark, the
-  model, the reasoning level as one word with no outline (`high`), the context ring, and the
-  uploading or reconnecting sentence. The background-task chip is a button in the left controls;
+  pushed to the button's side. It draws, at `--fs-xs`: the model pill, `DONE`, and the uploading
+  or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;
   its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
   `READY` / `RUN` / `INPUT` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
-  and the prompt card. `DONE` alone is drawn, after the mark, in `--status-done` caps: nothing
+  and the prompt card. `DONE` alone is drawn, before the pill, in `--status-done` caps: nothing
   else in the chat says a turn ended and was not seen yet, and on a phone the sidebar's label is
   in a closed drawer.
+- The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
+  context ring in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
+  `--space-3` inline padding, `--space-2` between its parts. The model is in `--text` at
+  `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own words with
+  only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
+  that records no level draws no dot and no dash, only the name. On the
+  fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`. It is display only: a `span` with no role, no
+  focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
+  one thing to press. The `title` of the model is the id as received, and the level's is its
+  sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
+  cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
+  alone, with a dim `Model —` and the level between them if the pane records only a level.
+- The model is drawn by name only where its id is one `modelLabel` (`src/lib/modelName.ts`) can
+  name for certain, from the vendor's own regular naming and matched whole:
+  `claude-<family>-<major>[-<minor>]`, also behind `anthropic/`, is `<Family> <major>.<minor>`
+  (`Opus 5.5`, `Sonnet 5`); `gpt-<version>` is `GPT-<version>` and `gpt-<version>-sol` is `GPT-<version>-Sol`, as
+  Codex's own status line writes it; `glm-<version>` is `GLM-<version>`. A name is never guessed. The rule is the
+  vendor's id syntax, not a list of released versions, so a new model needs no change and a
+  well-formed id of a version that does not exist is named too. Any other id — a dated snapshot, another tier or
+  product suffix, another provider's prefix, another vendor, a spelling that is not the vendor's
+  canonical one (a leading zero as in `claude-sonnet-5-05`, uppercase, a stray separator or
+  space) — is drawn exactly as received in
+  `--font-mono` at regular weight (`.composer-model.is-id`), so it reads as an identifier and no
+  suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
   a `640px` card — the card's own width, `composerStatusCompact`, not the window's); then the
   model label, decided from the measured row and not from a width (`composerModelDraw`), so the
   mic, a long model id, the language and the opened context text all count: the row is measured
   again when that text opens or closes. While Queue is showing, a label that does not
   fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
-  the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word.
+  the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word. The
+  pill goes with its label: the ring then stands alone, with no empty pill around it. On a
+  `390px` phone, beside the task chip, the ring and Queue, that is the case for every named model
+  with a level, so there the pill is out for as long as Queue shows; a label short enough to
+  fit (a short id with no level) stays drawn.
   Without Queue the level steps out whole first, never drawn in part; a name still too long is
-  ellipsized as the last resort, then the opened context text. The context ring is never cut.
+  ellipsized inside the pill as the last resort, then the opened context text. The context ring
+  is never cut. Over a sentence that took a line of its own the pill is `--chip-h` tall, so the
+  card does not grow.
 - Queue is drawn only while the agent works, the bridge is live and the box holds a draft or a
   file still uploading (`composerQueueShown`): with an empty box Stop is the one resting control,
   also when an attachment tile is left in it without its mention, since only the text is sent. The rule
