@@ -335,7 +335,10 @@ Nothing is typed without you:
 - Queued messages stay with their PC and pane across reloads. Edit, discard, or explicitly send each item; status changes and reconnects never send them automatically.
 - An answer typed to a prompt waits for **Confirm**.
 
-Attaches never use `--takeover`, so they coexist with your own herdr TUI.
+Attaches and reconnects wait when another client holds the terminal. **Open here** on the waiting
+notice explicitly takes that pane with `--takeover`: the other web bridge waits in turn, while a
+standalone `herdr terminal attach` exits. The herdr TUI stays connected (verified on herdr 0.9.3).
+Observe connections cannot take a pane, and a displaced bridge never takes it back automatically.
 
 ## Configuration
 

@@ -178,7 +178,8 @@ it("serves a held omo session as an empty conversation until its file is written
   }
 });
 
-it("ignores the background task logs omo holds open outside its session store", async () => {
+// open files are read from /proc, which macOS does not have
+it.skipIf(process.platform !== "linux")("ignores the background task logs omo holds open outside its session store", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "herdr-omo-task-log-"));
   const store = join(cwd, ".omo", "agent", "sessions", `-${cwd.replaceAll("/", "-")}--`);
   const logs = join(cwd, ".omo", "senpi-task", "logs");
