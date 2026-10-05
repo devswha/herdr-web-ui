@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Updater, runCommand, type Release } from "./updater.ts";
@@ -57,10 +57,12 @@ async function managedFixture(supervisor?: string, slowHealth = false) {
     import { createServer } from ${JSON.stringify(join(import.meta.dir, "index.ts"))};
     import { connectUpdater } from ${JSON.stringify(join(import.meta.dir, "update-api.ts"))};
     ${slowHealth ? `
-    // a busy PC: the bridge answers, but its first health checks take most of the supervisor's patience
+    // a busy PC: the bridge answers, but its first six health checks outlast the supervisor's 1 s probe
+    // timeout, so they are refused on any machine and the start takes about 6.6 s (fixed 800 ms let a
+    // fast PC pass the first probe, and the test then exercised nothing)
     const serve = Bun.serve; let slow = 6;
     Bun.serve = (options) => serve({ ...options, async fetch(request, server) {
-      if (new URL(request.url).pathname === "/api/health" && slow-- > 0) await Bun.sleep(800);
+      if (new URL(request.url).pathname === "/api/health" && slow-- > 0) await Bun.sleep(1200);
       return options.fetch.call(this, request, server);
     } });` : ""}
     const server = createServer({ updates: connectUpdater() });
@@ -78,6 +80,8 @@ async function managedFixture(supervisor?: string, slowHealth = false) {
   // what the launcher, the supervisor and the bridge print: a failed test prints it
   const log = join(directory, "managed.log");
   const launch = () => {
+    // one file for every launch of a test: a separator says which launch printed what
+    appendFileSync(log, `--- launch at ${new Date().toISOString()} ---\n`);
     const output = openSync(log, "a");
     try {
       return Bun.spawn([process.execPath, "--eval",
