@@ -178,8 +178,9 @@ try {
         console.log("PASS in a short window the completion menu scrolls over the lifted composer and is not clipped");
 
         // a stack too short for the composer and the greeting: the greeting stays out, with the
-        // chat's own empty line in its place, and comes back when there is room
-        await page.setViewportSize({ width: 1440, height: 200 });
+        // chat's own empty line in its place, and comes back when there is room. 140px: with the
+        // one-line 46px header (#461) a 200px window still held the card and the greeting
+        await page.setViewportSize({ width: 1440, height: 140 });
         await page.locator(".composer-greeting.is-out").waitFor({ state: "attached" });
         assert.equal(await page.locator(".composer-greeting").evaluate((node) => getComputedStyle(node).visibility), "hidden");
         assert.equal(await page.locator(".composer-greeting").getAttribute("aria-hidden"), "true");
