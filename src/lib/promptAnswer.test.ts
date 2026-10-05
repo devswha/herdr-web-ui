@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { InteractivePrompt } from "../../shared/protocol.ts";
-import { answerFromText, answerHint, answerRefusal, needsConfirmation } from "./promptAnswer.ts";
+import { answerFromText, answerHint, answerRefusal, focusFollowsAnswer, needsConfirmation } from "./promptAnswer.ts";
 
 const prompt = (options: string[], custom: number | null, multi = false): InteractivePrompt => ({
   id: "p", agent: "claude", kind: "question", title: "Question", question: "?", body: null,
@@ -55,5 +55,23 @@ describe("answering a prompt from the chat", () => {
     expect(answerFromText(multi, "1, 3")).toEqual({ option_indices: [0, 2] });
     expect(answerFromText(multi, "1 1 2")).toEqual({ option_indices: [0, 1] });
     expect(answerFromText(multi, "1 and 3")).toBeNull();
+  });
+});
+
+describe("focusFollowsAnswer", () => {
+  const still = { fromCard: true, cardMounted: true, inCard: false, onPage: true };
+
+  it("hands the focus on when the pressed button lost it to the page, or still has it", () => {
+    expect(focusFollowsAnswer(still)).toBe(true);
+    expect(focusFollowsAnswer({ ...still, inCard: true, onPage: false })).toBe(true);
+  });
+
+  it("leaves the focus where the user put it while the answer was on its way", () => {
+    expect(focusFollowsAnswer({ ...still, onPage: false })).toBe(false);
+  });
+
+  it("does nothing for a card that is gone, or an answer that did not start in the card", () => {
+    expect(focusFollowsAnswer({ ...still, cardMounted: false })).toBe(false);
+    expect(focusFollowsAnswer({ ...still, fromCard: false })).toBe(false);
   });
 });

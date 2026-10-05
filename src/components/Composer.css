@@ -25,8 +25,14 @@
 
 /* The prompt card's place (PaneTerminal.tsx): over the input card and under the held messages,
    on the same column as both. Like the held list it is a sibling of the composer with no gutter
-   of its own. It holds nothing but the card (PromptCard.css) and takes no room without one. A
-   stack too short for the whole card squeezes it, and the card scrolls. */
+   of its own. It holds nothing but the card (PromptCard.css) and takes no room without one, but
+   it stays rendered: it is the live region a card is announced from, and a region that appears
+   together with its card is not read. A stack too short for the whole card squeezes it, and the
+   card scrolls.
+   The card's text is the chat's (Settings → Chat font size, Chat font), as it was inside the
+   transcript: the dock scales the type tokens and its card uses them under their own names
+   (ChatView.css does the same for the transcript, on two elements for the same reason: a token
+   cannot be redefined from itself on one). */
 .prompt-dock {
   flex: 0 1 auto;
   min-height: 0;
@@ -34,19 +40,31 @@
   flex-direction: column;
   width: min(calc(100% - 2 * var(--space-4)), var(--chat-w));
   margin: 0 auto;
+  font-family: var(--font-chat, var(--font-ui));
+  --chat-fs-2xs: calc(var(--fs-2xs) * var(--chat-scale, 1));
+  --chat-fs-xs: calc(var(--fs-xs) * var(--chat-scale, 1));
+  --chat-fs-sm: calc(var(--fs-sm) * var(--chat-scale, 1));
+  --chat-fs-md: calc(var(--fs-md) * var(--chat-scale, 1));
+  --chat-fs-lg: calc(var(--fs-lg) * var(--chat-scale, 1));
+  --chat-fs-xl: calc(var(--fs-xl) * var(--chat-scale, 1));
 }
 
-.prompt-dock:empty {
-  display: none;
+.prompt-dock > .prompt-card {
+  --fs-2xs: var(--chat-fs-2xs);
+  --fs-xs: var(--chat-fs-xs);
+  --fs-sm: var(--chat-fs-sm);
+  --fs-md: var(--chat-fs-md);
+  --fs-lg: var(--chat-fs-lg);
+  --fs-xl: var(--chat-fs-xl);
 }
 
 /* with no composer under it (a view-only pane) the card keeps the composer's bottom space */
-.prompt-dock:last-child {
+.prompt-dock:not(:empty):last-child {
   margin-bottom: var(--space-4);
 }
 
 /* opened held rows end in buttons: a little air before the card */
-.composer-queue + .prompt-dock {
+.composer-queue + .prompt-dock:not(:empty) {
   margin-top: var(--space-2);
 }
 

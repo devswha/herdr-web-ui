@@ -79,3 +79,12 @@ export function answerRefusal(prompt: InteractivePrompt): string {
 export function needsConfirmation(prompt: InteractivePrompt, answer: TypedAnswer): boolean {
   return (prompt.kind === "approval" || prompt.kind === "plan" || prompt.kind === "menu") && answer.option_index !== undefined;
 }
+
+/**
+ * After an answer pressed in the card went out: may the keyboard's focus go on to the message box?
+ * Only if the card is still there and nothing else took the focus while the answer was on its way
+ * (a palette, a held message being edited, another pane): `inCard` and `onPage` say where it is now.
+ */
+export function focusFollowsAnswer({ fromCard, cardMounted, inCard, onPage }: { fromCard: boolean; cardMounted: boolean; inCard: boolean; onPage: boolean }): boolean {
+  return fromCard && cardMounted && (inCard || onPage);
+}

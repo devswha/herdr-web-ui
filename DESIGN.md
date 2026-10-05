@@ -560,7 +560,11 @@ One set for both themes: the card is island black wherever it shows.
   stack from the top is transcript, held messages (folded to their caption while a card is
   open), prompt card, input card; PaneTerminal owns that order (`.prompt-dock`) and ChatView,
   which owns the prompt, renders the card into it. The dock is an `aria-live="polite"` region, as
-  the transcript's log was for the card.
+  the transcript's log was for the card. It stays rendered while it is empty (zero height, never
+  `display: none`): a live region that appears together with its content is not announced.
+- Type: the card follows Settings → Chat font size and Chat font, as the transcript does. The dock
+  scales the `--fs-*` tokens by `--chat-scale` and sets `--font-chat`; the reference text, the
+  keycaps and the step numbers stay `--font-mono`. The height limit does not scale.
 - Look: `--bg-elevated`, a `--border-strong` hairline, `--radius-xl`, no shadow. The title is
   the card's one red (`--status-blocked`, `--fs-sm`, semibold); the "input needed" badge is read
   by assistive tech and not drawn. The question is prose in `--text-strong`. Reference text (the
@@ -571,7 +575,9 @@ One set for both themes: the card is island black wherever it shows.
   lines at rest, two at the least (one for a one-line command), scrolling in itself with a fade
   on its fold. The header, step chips, question, hint, options, custom answer and confirm row
   never shrink. A card still taller than its limit scrolls as a whole with a fade at its bottom
-  edge, and the confirm row of a typed pick stays pinned on that edge.
+  edge, and the confirm row of a typed pick stays pinned on that edge. The card's scroll is
+  contained (`overscroll-behavior: contain`), so a drag past its top is never the page's
+  pull-to-refresh.
 - The composer keeps the resize grip's hit strip (`--composer-grip-h`) for itself under the card,
   as it does under the held messages: the grip never lies over the card's last row.
 - A form of several questions (omo) shows a row of step chips (`.prompt-card-steps`) under the
@@ -591,7 +597,8 @@ One set for both themes: the card is island black wherever it shows.
   `Type 1–3 to choose…`, or `Type 1–3 or your own reply…` when the card has a custom answer.
   Enter in an empty box answers nothing. A typed pick of an approval, plan or menu waits for
   Confirm in the card. After an answer pressed in the card, focus moves to the message box
-  (not on a coarse pointer, where that would raise the keyboard).
+  (not on a coarse pointer, where that would raise the keyboard), unless the user moved it
+  somewhere else while the answer was on its way or the card is gone.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 
@@ -699,7 +706,10 @@ One set for both themes: the card is island black wherever it shows.
 - Paste, picker or drag/drop accepts up to four png/jpeg/gif/webp files per action. Each gets a local
   preview, uploads through `POST /api/pane/image`, and inserts a removable editable `@path` mention.
 - While a phone's keyboard is up, a tap on the transcript or a drag down it (`32px`) puts the
-  keyboard away. Each only blurs the field, so the draft stays.
+  keyboard away. Each only blurs the field, so the draft stays. The prompt card, which can stand
+  where the transcript was on a short screen, does the same: a tap on its text (never on an
+  option, a box or its field), or a drag down it once the card and its reference text are
+  scrolled to their top.
 - On a touch screen, picking a pane (drawer, palette, notification) or switching its lens never
   raises the keyboard: the user reads first, and a tap on the message box or the grid raises it.
   A desktop's picked pane takes typing at once.

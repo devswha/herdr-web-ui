@@ -66,7 +66,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   block reads "Needs you" with a still red dot in place of "Working…". Answering works as
   before: a press on an option, a typed number followed by Confirm, or your own reply; Enter in
   an empty box answers nothing. After a press with a mouse or keyboard, focus goes to the
-  message box.
+  message box. The card keeps following Settings → Chat font size and Chat font, and on a phone
+  with its keyboard up a tap on the card's text, or a drag down it, puts the keyboard away as
+  on the conversation.
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The

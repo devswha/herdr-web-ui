@@ -47,6 +47,7 @@ interface Layout {
   placeholder: string;
   badge: { text: string; width: number } | null;
   live: string | null;
+  overscroll: string;
 }
 
 const layoutOf = (page: Page): Promise<Layout> => page.evaluate(() => {
@@ -76,6 +77,7 @@ const layoutOf = (page: Page): Promise<Layout> => page.evaluate(() => {
     placeholder: document.querySelector<HTMLTextAreaElement>(".composer-text")!.placeholder,
     badge: badge === null ? null : { text: badge.textContent ?? "", width: badge.getBoundingClientRect().width },
     live: card.closest("[aria-live]")?.getAttribute("aria-live") ?? null,
+    overscroll: getComputedStyle(card).overscrollBehaviorY,
   };
 });
 
@@ -128,6 +130,7 @@ try {
     const demo = window.fetch;
     window.formPrompt = null;
     window.formAnswers = [];
+    window.formDelay = 0;
     const json = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
     window.fetch = (input, init) => {
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
@@ -137,7 +140,8 @@ try {
         if (answer.prompt_id !== window.formPrompt.id) return json({ error: { code: "prompt_changed", message: "the screen no longer shows that prompt" } }, 409);
         window.formAnswers.push(answer);
         window.formPrompt = null;
-        return json({ ok: true });
+        // window.formDelay: the answer takes that long to come back, as send_keys and the re-read do
+        return new Promise((done) => setTimeout(done, window.formDelay || 0)).then(() => json({ ok: true }));
       }
       return demo(input, init);
     };
@@ -161,12 +165,18 @@ try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
     try {
       interface Opened { page: Page; errors: string[]; shot: (name: string) => Promise<void>; close: () => Promise<void> }
-      const open = async ({ width, height, touch = false, held = [], prompt = null, theme = "dark", language = "en" }: { width: number; height: number; touch?: boolean; held?: string[]; prompt?: unknown; theme?: string; language?: string }): Promise<Opened> => {
+      const open = async ({ width, height, touch = false, held = [], prompt = null, theme = "dark", language = "en", settings = {} }: { width: number; height: number; touch?: boolean; held?: string[]; prompt?: unknown; theme?: string; language?: string; settings?: Record<string, unknown> }): Promise<Opened> => {
         const context = await browser.newContext({ viewport: { width, height }, locale: "en-US", hasTouch: touch, isMobile: touch });
         await context.addInitScript(([owner, messages, settings]) => {
           localStorage.setItem("herdr-web-ui:settings", settings!);
           if (messages !== "") localStorage.setItem(`herdr-web-ui:queue:${owner}`, messages!);
-        }, [panes.web, held.length === 0 ? "" : JSON.stringify({ version: 1, messages: held.map((text, at) => ({ id: `m${at}`, text })) }), JSON.stringify({ language, theme })] as const);
+        }, [panes.web, held.length === 0 ? "" : JSON.stringify({ version: 1, messages: held.map((text, at) => ({ id: `m${at}`, text })) }), JSON.stringify({ language, theme, ...settings })] as const);
+        // a soft keyboard the script can raise: lib/viewport.ts reads navigator.virtualKeyboard
+        if (touch) await context.addInitScript(() => {
+          const keyboard = Object.assign(new EventTarget(), { height: 0 });
+          Object.defineProperty(keyboard, "boundingRect", { get: () => new DOMRect(0, 0, 390, keyboard.height) });
+          Object.defineProperty(navigator, "virtualKeyboard", { configurable: true, value: keyboard });
+        });
         if (prompt !== null) await context.addInitScript((next) => { window.addEventListener("DOMContentLoaded", () => { (window as unknown as { formPrompt: unknown }).formPrompt = next; }); }, prompt);
         const page = await context.newPage();
         const errors: string[] = [];
@@ -185,6 +195,7 @@ try {
         assert.equal(layout.inTranscript, false, `${label}: the card is outside the transcript`);
         assert.equal(layout.inComposer, false, `${label}: the card is not inside the message composer's group`);
         assert.equal(layout.live, "polite", `${label}: a prompt that arrives is announced`);
+        assert.equal(layout.overscroll, "contain", `${label}: a drag past the card's top is not handed to the page (pull-to-refresh)`);
         const at = layout.order.indexOf("prompt-dock");
         assert.equal(layout.order[at + 1], "composer", `${label}: the input card is the next thing under the card (${layout.order.join(" > ")})`);
         assert.ok(layout.order.indexOf("terminal-surface") < at, `${label}: the transcript is over the card`);
@@ -264,6 +275,12 @@ try {
           await page.locator(".prompt-card").waitFor({ state: "detached" });
           assert.equal(await page.evaluate(() => document.activeElement?.className.split(" ")[0]), "composer-text");
           assert.equal(await page.locator(".prompt-dock").evaluate((node) => node.getBoundingClientRect().height), 0, "without a card its place takes no room");
+          // but it is still rendered: a live region that appears together with its card is not read
+          const region = await page.locator(".prompt-dock").evaluate((node) => ({ live: node.getAttribute("aria-live"), display: getComputedStyle(node).display, hidden: getComputedStyle(node).visibility, empty: node.childElementCount === 0, gap: node.getBoundingClientRect().bottom - document.querySelector(".composer")!.getBoundingClientRect().top }));
+          assert.deepEqual(region, { live: "polite", display: "flex", hidden: "visible", empty: true, gap: 0 }, "the empty dock is an exposed live region, waiting for the next card, and adds no space");
+          // the next prompt is an addition inside that region
+          await setPrompt(page, FORM);
+          await page.locator(".prompt-dock > .prompt-card").getByText(FORM.question).waitFor();
           assert.deepEqual(errors, []);
         } finally { await close(); }
         console.log("PASS an empty Enter answers nothing, a typed pick waits for Confirm, a press answers and hands the focus to the message box");
@@ -291,9 +308,10 @@ try {
       }
 
       // the tall form: steps, reference text, descriptions, a custom answer
-      for (const size of [{ width: 1440, height: 900 }, { width: 800, height: 600 }, { width: 390, height: 844, touch: true }, { width: 390, height: 500, touch: true }]) {
-        const label = `${size.width}x${size.height}`;
-        const { page, errors, shot, close } = await open({ ...size, prompt: PLAN });
+      // ... and again at the largest chat font size, which the card follows
+      for (const size of [{ width: 1440, height: 900 }, { width: 800, height: 600 }, { width: 390, height: 844, touch: true }, { width: 390, height: 500, touch: true }, { width: 1440, height: 900, font: 24 }, { width: 390, height: 844, touch: true, font: 24 }, { width: 390, height: 500, touch: true, font: 24 }]) {
+        const label = `${size.width}x${size.height}${size.font ? ` at ${size.font}px` : ""}`;
+        const { page, errors, shot, close } = await open({ ...size, prompt: PLAN, settings: size.font ? { chatFontSize: size.font } : {} });
         try {
           const layout = await layoutOf(page);
           placed(layout, label);
@@ -358,6 +376,97 @@ try {
           assert.deepEqual(errors, []);
         } finally { await close(); }
         console.log("PASS omo's form under a held caption on a short phone: steps, the agent's own Recommended tag, a custom answer sent as text");
+      }
+
+      {
+        // Settings → Chat font size and Chat font reach the card, as they did inside the transcript
+        const { page, errors, close } = await open({ width: 1440, height: 900, settings: { chatFontSize: 22, chatFontFamily: "Georgia" } });
+        try {
+          const type = await page.evaluate(() => {
+            const of = (selector: string): { size: number; family: string } => { const style = getComputedStyle(document.querySelector(selector)!); return { size: parseFloat(style.fontSize), family: style.fontFamily }; };
+            return { prose: of(".chat-transcript"), title: of(".prompt-card-header h2"), option: of(".prompt-card-option-label"), body: of(".prompt-card-body"), keycap: of(".prompt-card-number"), scale: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--chat-scale")) };
+          });
+          assert.equal(type.prose.size, 22);
+          assert.ok(type.scale > 1.5, `the chat is scaled (${type.scale})`);
+          // each part keeps its own step of the scale: 13px, 12px and 11px times the chat's
+          assert.ok(Math.abs(type.title.size - 13 * type.scale) < 0.1 && Math.abs(type.option.size - 13 * type.scale) < 0.1, `the title and the options grow with the chat (${type.title.size}px, ${type.option.size}px)`);
+          assert.ok(Math.abs(type.body.size - 12 * type.scale) < 0.1, `so does the reference text (${type.body.size}px)`);
+          assert.ok(Math.abs(type.keycap.size - 11 * type.scale) < 0.1, `and the keycap (${type.keycap.size}px)`);
+          assert.match(type.title.family, /Georgia/, "the card's prose is in the chat's font");
+          assert.match(type.option.family, /Georgia/);
+          assert.doesNotMatch(type.body.family, /Georgia/, "the reference text stays mono");
+          assert.doesNotMatch(type.keycap.family, /Georgia/);
+          placed(await layoutOf(page), "chat font 22px");
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS the card follows the chat's font size and font; its reference text and keycaps stay mono");
+      }
+
+      {
+        // A phone with its keyboard up: the card stands where the transcript was, so a tap on its
+        // text and a drag down it put the keyboard away, as on the transcript. Chromium blurs a
+        // field on any real tap outside it and iOS does not, so these are events without a
+        // browser default: only the card's own handler can blur the box.
+        const { page, errors, close } = await open({ width: 390, height: 500, touch: true, prompt: FORM });
+        try {
+          const box = page.locator(".composer-text");
+          const raise = async (): Promise<void> => {
+            await box.focus();
+            await page.evaluate(() => { const keyboard = (navigator as unknown as { virtualKeyboard: EventTarget & { height: number } }).virtualKeyboard; keyboard.height = 300; keyboard.dispatchEvent(new Event("geometrychange")); });
+            await page.waitForFunction(() => document.documentElement.hasAttribute("data-keyboard") && document.activeElement?.classList.contains("composer-text") === true);
+          };
+          const typing = (): Promise<boolean> => page.evaluate(() => document.activeElement?.classList.contains("composer-text") === true);
+          const drag = (selector: string): Promise<void> => page.evaluate((target) => {
+            const node = document.querySelector(target)!;
+            const rect = node.getBoundingClientRect();
+            const at = (y: number): TouchEventInit => ({ bubbles: true, touches: [new Touch({ identifier: 1, target: node, clientX: rect.left + 40, clientY: y })] });
+            node.dispatchEvent(new TouchEvent("touchstart", at(rect.top + 4)));
+            node.dispatchEvent(new TouchEvent("touchmove", at(rect.top + 64)));
+          }, selector);
+          const click = (selector: string): Promise<void> => page.evaluate((target) => { document.querySelector(target)!.dispatchEvent(new MouseEvent("click", { bubbles: true })); }, selector);
+
+          await raise();
+          await click(".prompt-card-question");
+          assert.equal(await typing(), false, "a tap on the card's question puts the keyboard away");
+          await raise();
+          await drag(".prompt-card-question");
+          assert.equal(await typing(), false, "a drag down the card at its top puts the keyboard away");
+          // a scrolled card: the drag down is the way back to its top, and the keyboard stays
+          await raise();
+          assert.ok(await page.locator(".prompt-card").evaluate((node) => { node.scrollTop = 40; return node.scrollTop; }) > 0);
+          await drag(".prompt-card-options");
+          assert.equal(await typing(), true, "a drag down a scrolled card keeps the keyboard");
+          await page.locator(".prompt-card").evaluate((node) => { node.scrollTop = 0; });
+          // the card's own field keeps its keyboard, and a press on a row is not a request to read
+          await drag(".prompt-card-custom .input");
+          assert.equal(await typing(), true, "a drag on the card's field keeps the keyboard");
+          await click(".prompt-card-option-label");
+          assert.equal(await typing(), true, "an option is a button: its tap is not a request to read");
+          assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-form", option_index: 0 }], "and it still answers");
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS with a phone's keyboard up, a tap on the card's text or a drag down it at its top puts the keyboard away; an option still answers");
+      }
+
+      {
+        // An answer that takes a moment: focus goes on to the message box only if nothing else
+        // took it meanwhile
+        const { page, errors, close } = await open({ width: 1440, height: 900, prompt: FORM });
+        try {
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 600; });
+          await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
+          await page.locator(".prompt-card[aria-busy=true]").waitFor();
+          // the user goes on to something else while the answer is on its way
+          const elsewhere = page.locator(".app-header button:not([disabled]):visible").first();
+          await elsewhere.focus();
+          assert.equal(await elsewhere.evaluate((node) => document.activeElement === node), true);
+          assert.equal(await page.locator(".prompt-card").getAttribute("aria-busy"), "true", "the answer is still on its way");
+          await page.locator(".prompt-card").getByText(FORM.question).waitFor({ state: "detached" });
+          assert.equal((await answersOf(page)).length, 1);
+          assert.equal(await elsewhere.evaluate((node) => document.activeElement === node), true, "focus stays where the user put it while the answer was on its way");
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS an answer that comes back late does not pull the focus from where the user went");
       }
 
       for (const language of ["ko", "ja", "zh"]) {

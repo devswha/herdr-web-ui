@@ -6,14 +6,15 @@ import "./PromptCard.css";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
-import type { TypedAnswer } from "../lib/promptAnswer.ts";
+import { focusFollowsAnswer, type TypedAnswer } from "../lib/promptAnswer.ts";
+import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { useT } from "../lib/i18n.ts";
 
 export interface PromptCardProps {
   paneId: string;
   prompt: InteractivePrompt;
   onPromptChanged(): void;
-  /** the answer went out; `fromCard`: the keyboard's focus was in the card, which is about to go */
+  /** the answer went out; `fromCard`: the keyboard's focus was in the card, which is about to go, and nothing else has taken it since */
   onAnswered(fromCard: boolean): void;
   /** an option picked by a typed message, sent only on Confirm */
   typedAnswer?: TypedAnswer | null;
@@ -36,6 +37,14 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     confirmRef.current?.scrollIntoView({ block: "nearest" });
   }, [typedAnswer]);
 
+  // The card stands where the transcript was on a short phone: a tap on its text, or a drag down
+  // it once it is at its top, puts the keyboard away as on the transcript (lib/keyboard.ts).
+  // Its buttons, boxes and field do what they do.
+  useEffect(() => {
+    const node = cardRef.current;
+    return node === null ? undefined : dismissKeyboardOn(node, { atTopOnly: true });
+  }, []);
+
   useEffect(() => {
     setSelected(new Set());
     setCustom("");
@@ -50,7 +59,10 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     setError(null);
     try {
       await answerPanePrompt({ pane_id: paneId, prompt_id: prompt.id, ...choice });
-      onAnswered(fromCard);
+      // and read again: the answer took a moment, and the user may have gone on to something else
+      const card = cardRef.current;
+      const active = document.activeElement;
+      onAnswered(focusFollowsAnswer({ fromCard, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
         setError("the prompt changed — re-read");
