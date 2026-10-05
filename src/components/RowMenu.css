@@ -30,6 +30,13 @@
   font-weight: var(--fw-semibold);
 }
 
+/* what the menu is about, above its items: a line of its own, ruled off from them */
+.row-menu-header {
+  padding: var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: var(--hairline) solid var(--border);
+}
+
 .row-menu-divider {
   height: var(--hairline);
   margin: var(--space-1) 0;
@@ -88,6 +95,18 @@
   font-size: var(--fs-md);
   text-align: left;
   cursor: pointer;
+}
+
+/* the label takes the row; a state in words sits at its far end */
+.row-sheet-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.row-sheet-hint {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
 }
 
 .row-sheet-item svg {

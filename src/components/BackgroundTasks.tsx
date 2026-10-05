@@ -77,9 +77,16 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
       if (root.current?.contains(document.activeElement)) toggle.current?.focus();
       setOpen(false);
     };
+    // The list shares its place above the card with the slash and @ menus: once the focus has gone
+    // somewhere else (Shift+Tab back to the message box), it closes, or it would cover them.
+    // No relatedTarget is a press on a row of the list, or a browser that does not focus a pressed
+    // button: that is not leaving, and a press outside is `outside`'s
+    const left = (event: FocusEvent): void => { if (event.relatedTarget instanceof Node && !node?.contains(event.relatedTarget)) setOpen(false); };
+    const node = root.current;
     window.addEventListener("pointerdown", outside);
     window.addEventListener("keydown", escape);
-    return () => { window.removeEventListener("pointerdown", outside); window.removeEventListener("keydown", escape); };
+    node?.addEventListener("focusout", left);
+    return () => { window.removeEventListener("pointerdown", outside); window.removeEventListener("keydown", escape); node?.removeEventListener("focusout", left); };
   }, [open]);
 
   // The list opens upward from the composer, whose height CSS cannot know (text, quick replies,
@@ -88,13 +95,18 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   useLayoutEffect(() => {
     const list = menu.current;
     const anchor = list?.offsetParent;
-    const frame = anchor?.parentElement;
+    // the list is anchored to the input card, inside the composer: the room is the pane's, above the card
+    const composer = anchor?.closest(".composer") ?? null;
+    const frame = (composer ?? anchor)?.parentElement;
     if (!open || !list || !anchor || !frame) return;
     const measure = (): void => list.style.setProperty("--bg-tasks-room", `${anchor.getBoundingClientRect().top - frame.getBoundingClientRect().top}px`);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(anchor);
     observer.observe(frame);
+    // a note or a hint under the card, a quick-reply row above it: the card moves and neither it
+    // nor the pane changes size, the composer does
+    if (composer) observer.observe(composer);
     return () => observer.disconnect();
   }, [open]);
 

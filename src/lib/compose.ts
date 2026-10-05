@@ -31,6 +31,11 @@ export function composerPayload(text: string, bracketedPaste: boolean): string {
 }
 
 /** Why a composer message did not go (SubmitResult's code): the composer keeps the text and says this. */
+/** The server refused the message before any of it reached the pane: nothing was typed. */
+export function submitNotTyped(code: string): boolean {
+  return code === "agent_blocked" || code === "read_only" || code === "submit_timeout";
+}
+
 export function submitNote(code: string, message: string): string {
   if (code === "agent_blocked") return t("Not sent: the agent is waiting for an answer in the terminal. Answer it first.");
   if (code === "read_only") return t("Not sent: this view only watches the pane.");
@@ -105,6 +110,29 @@ export function terminalOnlyCommand(agent: string | null, text: string): string 
 export function composerStatusWord(status?: AgentStatus): string {
   const known = knownStatus(status);
   return known === "unknown" ? "READY" : STATUS_WORD[known];
+}
+
+/**
+ * Whether the composer draws its status word. Only DONE is drawn: a turn that ended and was not
+ * seen yet is told by nothing else in the chat (Stop and the live row say RUN, the prompt card
+ * says INPUT, and READY is the resting case), and on a phone the sidebar's label is in a closed
+ * drawer. The other words stay in the row for assistive tech.
+ */
+export function composerStatusWordDrawn(status?: AgentStatus): boolean {
+  return knownStatus(status) === "done";
+}
+
+/**
+ * Below this card width the status row cannot hold the background-task chip's words beside the
+ * model, the effort and the offline sentence, so the chip shows its icon and count instead.
+ * The input card is at most 820px wide (`--content-w`); a 1024px window with the sidebar open
+ * still has a 672px card and keeps the words, a 940px one has 588px and gives them up.
+ */
+export const COMPOSER_STATUS_COMPACT_BELOW = 640;
+
+/** Whether the status row is compact at this card width. An unmeasured card (0) is not: nothing is drawn yet. */
+export function composerStatusCompact(cardWidth: number): boolean {
+  return cardWidth > 0 && cardWidth < COMPOSER_STATUS_COMPACT_BELOW;
 }
 
 /** Herdr agent ids are machine-friendly; the composer presents a short human label. */

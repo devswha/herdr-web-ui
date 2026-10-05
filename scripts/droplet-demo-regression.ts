@@ -80,6 +80,15 @@ try {
             const card = document.querySelector(".droplet-card")!;
             return getComputedStyle(card).opacity === "1";
           });
+          // From 769px the header is 46px, so a rotation changes its height: the card follows on
+          // the header's next resize callback. Give it a bounded wait; the assertion below still
+          // decides, and reports the numbers.
+          await page.waitForFunction(() => {
+            const top = document.querySelector(".droplet-card")!.getBoundingClientRect().top;
+            const header = document.querySelector(".app-header")!.getBoundingClientRect().bottom;
+            const safe = parseFloat(getComputedStyle(document.querySelector(".droplet-probe")!).paddingTop) || 0;
+            return Math.abs(top - (Math.max(safe, header) + 12)) <= 2;
+          }, undefined, { timeout: 5_000 }).catch(() => undefined);
           const geometry = await page.evaluate(() => {
             const card = document.querySelector<HTMLElement>(".droplet-card")!;
             const rect = card.getBoundingClientRect();
