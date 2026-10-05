@@ -7,9 +7,11 @@
  * `bun test` loads this first (bunfig.toml); the browser and SSH scripts import it.
  * HERDR_TEST_LIVE=1 keeps the old behaviour: tests use HERDR_SOCKET, else the default
  * session. Without a herdr binary nothing changes, so CI runs as before.
+ * HERDR_TEST_MODE=unit points HERDR_SOCKET at a socket that does not exist, so a test that
+ * reaches for herdr in a unit run fails instead of working in the user's herdr.
  */
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ping, sessionSnapshot, workspaceCreate } from "../server/herdr/client.ts";
 
@@ -34,8 +36,13 @@ async function answers(socket: string): Promise<boolean> {
 
 /** Point this process (and what it spawns) at the test session, starting its server if needed. */
 export async function useTestHerdr(): Promise<string | null> {
-  // Unit tests must not discover or start herdr, even on a developer's PC.
-  if (process.env["HERDR_TEST_MODE"] === "unit") return null;
+  // Unit tests must not discover or start herdr, even on a developer's PC. Nor may they fall back
+  // to the default socket: a bare `HERDR_TEST_MODE=unit bun test` also loads the contract files,
+  // and those would open their workspaces and stand-in agents in the herdr the user works in.
+  if (process.env["HERDR_TEST_MODE"] === "unit") {
+    process.env["HERDR_SOCKET"] = join(tmpdir(), "herdr-web-ui-unit-tests-have-no-herdr.sock");
+    return null;
+  }
   if (process.env["HERDR_TEST_LIVE"] === "1") return null;
   const herdr = herdrBinary();
   if (!herdr) return null;
