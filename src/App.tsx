@@ -17,7 +17,7 @@ import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar
 import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
 import { focusWorkspaceListToggle } from "./lib/focus.ts";
-import { headerCrumb } from "./lib/headerCrumb.ts";
+import { headerCrumb, showsChat } from "./lib/headerCrumb.ts";
 import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
@@ -672,8 +672,12 @@ export function App() {
       ? [{ id: "new-tab", label: t("New tab"), title: t("New tab in {workspace}", { workspace: selectedWorkspace.label }), icon: Plus, run: () => actions.openNewTab() }]
       : []),
     ...(selectedPane ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
-    ...(bellVisible ? [{ id: "alerts", label: t("Alerts"), hint: bell.state, title: bell.title, icon: Bell, run: () => void bell.run() }] : []),
+    ...(bellVisible ? [{ id: "alerts", label: t("Alerts"), hint: bell.state, checked: bell.on, title: bell.title, icon: Bell, run: () => void bell.run() }] : []),
   ];
+
+  // the chat's surface is what the pane column shows: the header's pane zone and the tab strip
+  // take it (from 769px). A pane herdr could not restore draws a placeholder, not the chat.
+  const chatShown = showsChat(selectedPane, view);
 
   if (locked === null) {
     // the auth state is unknown until /api/health or /api/session answers (ten seconds when
@@ -705,7 +709,7 @@ export function App() {
 
   return (
     <MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-      <header className={`app-header is-zoned${selectedPane && view === "chat" ? " is-chat" : ""}`}>
+      <header className={`app-header is-zoned${chatShown ? " is-chat" : ""}`}>
         {/* is-zoned tells this header from the connecting shell's, which has no zones to draw.
             .header-side is the sidebar's own top row from 769px (styles.css); below that its
             buttons sit in the bar */}
@@ -819,8 +823,6 @@ export function App() {
         )}
       </header>
 
-      <UpdateNotice updates={updates} onOpen={() => setSettingsOpen(true)} />
-      <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
@@ -831,7 +833,10 @@ export function App() {
 
         {/* a file path in the chat opens in the viewer, relative to the selected pane's folder */}
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
-        <div className="pane-column">
+        <div className={`pane-column${chatShown ? " is-chat" : ""}`}>
+        {/* over the pane only: a bar across the window would cut the sidebar off from its top row in the header */}
+        <UpdateNotice updates={updates} onOpen={() => setSettingsOpen(true)} />
+        <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {snapshot && selectedPane && selectedWorkspace && (
           <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} />
         )}

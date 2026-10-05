@@ -36,3 +36,12 @@ export function headerCrumb(input: { machine: string; workspace: string; title: 
     tooltip: path === null ? `${workspace} › ${title}` : `${workspace} › ${title} · ${path}`,
   };
 }
+
+/**
+ * Whether the pane column draws the chat: the header's pane zone and the tab strip take the
+ * chat's surface only then. A pane herdr could not restore draws a placeholder on the terminal's
+ * surface whatever the lens, and so does no pane at all.
+ */
+export function showsChat(pane: { restore_error?: unknown } | null | undefined, view: string): boolean {
+  return !!pane && !pane.restore_error && view === "chat";
+}

@@ -29,7 +29,7 @@
 }
 
 /* From 769px the header over the chat has no bar and no rule (styles.css): the transcript
-   scrolls under a short fade instead. Not under a tab strip, which is a bar with its own rule. */
+   scrolls under a short fade instead. Not under a tab strip or a notice, which draw their own rule. */
 @media (min-width: 769px) {
   .terminal-host:first-child .chat-view::before {
     content: "";

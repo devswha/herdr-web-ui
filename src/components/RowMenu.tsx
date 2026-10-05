@@ -30,6 +30,8 @@ export interface RowMenuItem {
   danger?: boolean;
   /** the item that stands for what is open now (a pane picker's current pane) */
   current?: boolean;
+  /** a switch's state, when the item is one: it is then a checkbox item (a pressed button in the sheet), not a plain item */
+  checked?: boolean;
   run: () => void;
 }
 
@@ -49,7 +51,7 @@ interface Props {
 const SHEET_QUERY = "(max-width: 640px)";
 const GAP = 4;
 const EDGE = 8;
-const POPOVER_ITEMS = '[role="menuitem"]';
+const POPOVER_ITEMS = '[role="menuitem"], [role="menuitemcheckbox"]';
 // the sheet is modal: its Cancel is one of the stops
 const SHEET_ITEMS = '.row-sheet-item, .row-sheet-cancel';
 
@@ -159,7 +161,7 @@ export function RowMenu({ anchor, title, subtitle, header, items, align = "end",
             </div>
           )}
           {items.map((item) => (
-            <button key={item.id} type="button" className={`row-sheet-item${item.danger ? " is-danger" : ""}${item.divider ? " has-divider" : ""}`} aria-current={item.current ? "true" : undefined} title={item.title} onMouseDown={keepFocus} onClick={() => run(item)}>
+            <button key={item.id} type="button" className={`row-sheet-item${item.danger ? " is-danger" : ""}${item.divider ? " has-divider" : ""}`} aria-current={item.current ? "true" : undefined} aria-pressed={item.checked} title={item.title} onMouseDown={keepFocus} onClick={() => run(item)}>
               {item.glyph ?? <item.icon aria-hidden="true" />}
               <span className="row-sheet-label">{item.label}</span>
               {item.hint && <span className="row-sheet-hint">{item.hint}</span>}
@@ -178,7 +180,7 @@ export function RowMenu({ anchor, title, subtitle, header, items, align = "end",
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.divider && <span className="row-menu-divider" role="separator" />}
-          <button type="button" role="menuitem" className={`menu-item${item.danger ? " is-danger" : ""}`} aria-current={item.current ? "true" : undefined} title={item.title} onMouseDown={keepFocus} onClick={() => run(item)}>
+          <button type="button" role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"} aria-checked={item.checked} className={`menu-item${item.danger ? " is-danger" : ""}`} aria-current={item.current ? "true" : undefined} title={item.title} onMouseDown={keepFocus} onClick={() => run(item)}>
             {item.glyph ?? <item.icon aria-hidden="true" />}
             <span className="menu-item-main">{item.label}</span>
             {item.hint && <span className="menu-item-hint">{item.hint}</span>}

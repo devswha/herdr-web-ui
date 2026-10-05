@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { headerCrumb } from "./headerCrumb.ts";
+import { headerCrumb, showsChat } from "./headerCrumb.ts";
 
 const base = { machine: "workstation", workspace: "checkout-api", title: "Idempotent payments" };
 
@@ -39,4 +39,13 @@ it("keeps the whole path for the tooltip and the menu, whatever the line shows",
   const hidden = headerCrumb({ ...base, cwd: "/tmp/herdr-demo/checkout-api" });
   expect(hidden.tooltip).toBe("checkout-api › Idempotent payments · /tmp/herdr-demo/checkout-api");
   expect(headerCrumb({ ...base, cwd: "/" }).folder).toBe("/");
+});
+
+it("takes the chat's surface only when the chat is what the pane column draws", () => {
+  expect(showsChat({}, "chat")).toBe(true);
+  expect(showsChat({ restore_error: null }, "chat")).toBe(true);
+  expect(showsChat({}, "terminal")).toBe(false);
+  expect(showsChat(null, "chat")).toBe(false);
+  // a pane herdr could not restore draws the placeholder on the terminal's surface, not the chat
+  expect(showsChat({ restore_error: "no such session" }, "chat")).toBe(false);
 });

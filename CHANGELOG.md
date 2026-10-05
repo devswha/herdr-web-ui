@@ -22,7 +22,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   longer written out. In a window narrower than 900px the chip is its pulsing dot.
 - From 769px wide the sidebar has its own top row, with its toggle and the search, and the chat
   has no bar above it: the conversation scrolls under a short fade. The header is 46px there in
-  the comfortable density too. Phones keep their bar.
+  the comfortable density too. Phones keep their bar. The update notice and a PC's "update the
+  bridge" line are drawn over the pane, not across the window.
 
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several

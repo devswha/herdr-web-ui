@@ -628,6 +628,13 @@ button {
   white-space: nowrap;
 }
 
+/* the PC's name is whole in the crumb, like the rest of it: the crumb fits or is not drawn.
+   Its cap (Machines.css) is for the header with no pane, where it sits beside the brand. */
+.context-sub .machine-context-name {
+  max-width: none;
+  overflow: visible;
+}
+
 /* the switch keeps its size; the pane title (.context) is the header's one flexible item */
 .view-switch {
   flex: 0 0 auto;
