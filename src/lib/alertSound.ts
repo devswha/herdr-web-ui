@@ -6,6 +6,13 @@
  * A browser lets a page play audio only after the user interacted with it, so the audio context
  * is made and resumed from a tap or key (`unlockAlertSound`); until then a chime is skipped,
  * never queued to sound late.
+ *
+ * One chime sounds at a time in a tab. Alerts that come together - several panes finishing at
+ * once - would otherwise sound over each other. An alert that comes while a chime sounds is
+ * already told by it, except a question after a finish: the question's chime starts where the
+ * finish's ends, so a question is never lost. Open tabs of the app do not take turns: each
+ * chimes for an alert they all hear, since a tab cannot tell which alert another tab's chime
+ * was for, and staying quiet on a guess could leave a question told by no tab.
  */
 
 export type AlertSoundKind = "blocked" | "done";
@@ -20,6 +27,9 @@ const NOTE_LENGTH_S = 0.3;
 const PEAK_GAIN = 0.25;
 
 let context: AudioContext | null = null;
+// this tab's chimes that have not ended, on its context's clock: when the last of them ends,
+// and when the last question's does (a preview queued behind a question does not move that)
+let sounding: { audio: AudioContext; until: number; question: number } | null = null;
 
 function contextClass(): typeof AudioContext | undefined {
   return globalThis.AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -43,11 +53,27 @@ export async function unlockAlertSound(): Promise<boolean> {
   return context.state === "running";
 }
 
+/** An alert: chimes, unless a chime this tab is playing already tells it. */
 export function playAlertSound(kind: AlertSoundKind): void {
   const audio = context;
-  if (!audio || audio.state !== "running") return;
-  const start = audio.currentTime;
-  CHIME_NOTES[kind].forEach((frequency, index) => {
+  if (audio?.state === "running") chime(audio, kind);
+}
+
+/** Settings' preview of the chime: always played, after a chime of this tab that still sounds. */
+export function previewAlertSound(): void {
+  const audio = context;
+  if (audio?.state === "running") chime(audio, "done", true);
+}
+
+/** Plays `kind` unless this tab's last chime still sounds; a preview then starts where it ends. */
+function chime(audio: AudioContext, kind: AlertSoundKind, preview = false): void {
+  const now = audio.currentTime;
+  const current = sounding !== null && sounding.audio === audio && sounding.until > now ? sounding : null;
+  // already told by a chime that sounds or waits its turn: a finish by any, a question by a question's
+  if (current && !preview && (kind === "done" || current.question > now)) return;
+  const start = current ? current.until : now;
+  const notes = CHIME_NOTES[kind];
+  notes.forEach((frequency, index) => {
     const at = start + index * NOTE_GAP_S;
     const oscillator = audio.createOscillator();
     const gain = audio.createGain();
@@ -61,4 +87,6 @@ export function playAlertSound(kind: AlertSoundKind): void {
     oscillator.start(at);
     oscillator.stop(at + NOTE_LENGTH_S);
   });
+  const until = start + (notes.length - 1) * NOTE_GAP_S + NOTE_LENGTH_S;
+  sounding = { audio, until, question: kind === "blocked" && !preview ? until : current?.question ?? 0 };
 }

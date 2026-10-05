@@ -26,9 +26,9 @@
 
 ---
 
-https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
+https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
-<p align="center"><sub>터미널 pane의 Claude Code를 같은 세션 그대로 채팅으로, 이어서 폰으로 · 실제 화면 녹화 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56초 영상</a></sub></p>
+<p align="center"><sub>herdr 터미널에서 Claude Code가 묻는 질문을 브라우저와 폰에서도 그대로, 폰에서 한 번 탭해 답하기 · 실제 화면 녹화, 컷 없음</sub></p>
 
 **Claude Code와 Codex를 폰에서.**
 
@@ -37,37 +37,49 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e"><img src="docs/media/readme/attach.webp" width="100%" alt="폰에서 스크린샷을 첨부해 Claude에게 버그 수정을 부탁하면, 데스크톱에도 같은 메시지가 보입니다."></a>
-      <br><b>폰에서 맥락을 보내세요</b>
-      <br><sub>스크린샷을 첨부하고, 파일을 언급하고, 에이전트가 일하는 동안 메시지를 대기열에 넣습니다.</sub>
+      <a href="https://github.com/user-attachments/assets/33ed2183-9b94-4677-8980-edd90d45750a"><img src="docs/media/readme/terminal.webp" width="100%" alt="실제 화면 녹화. 브라우저의 채팅에 Claude Code의 답이 보이고, Terminal을 클릭하면 같은 pane이 Claude Code 자체 터미널로 바뀌어 src/server.test.ts에 &quot;unknown refund is 404&quot; 테스트를 추가한 편집이 보입니다. 폰에서는 tests 탭의 터미널에서 키 바의 ↑로 bun test를 불러오고 입력 줄의 Enter 버튼으로 실행해 5 pass, 0 fail이 나옵니다."></a>
+      <br><b>라이브 터미널로 바꾸기</b>
+      <br><sub>클릭 한 번이면 채팅이 그 pane의 실제 터미널로 바뀌고, 폰에서는 키 바의 ↑로 테스트 명령을 불러와 Enter로 다시 실행합니다.</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364"><img src="docs/media/readme/open.webp" width="100%" alt="Claude가 차트를 SVG 파일로 만들면, 클릭 한 번으로 파일 뷰어에서 열리고 폰에서는 탭으로 열립니다."></a>
-      <br><b>에이전트가 만든 결과물 열기</b>
-      <br><sub>채팅에 나온 경로를 누르면 데스크톱과 폰 모두 파일 뷰어로 열립니다.</sub>
+      <a href="https://github.com/user-attachments/assets/ac8dbf34-5c27-441b-8e49-e3850eac0c27"><img src="docs/media/readme/layout.webp" width="100%" alt="실제 화면 녹화. 브라우저에 herdr 레이아웃이 그대로 보입니다: 사이드바에 네 워크스페이스와 각 에이전트 상태(checkout-api DONE, web-dashboard RUN, infra READY, release), 그리고 checkout-api의 탭 payments와 dev. dev 탭을 클릭하면 첫 번째 pane인 bun test가 4 pass로 보이고, 탭의 pane 메뉴에는 분할된 두 pane, tests와 git이 나열되며, git을 클릭하면 git log가 보입니다. 폰에서는 ☰가 같은 네 워크스페이스와 같은 상태를 열고, checkout-api를 탭하면 Claude의 채팅이 열립니다: &quot;What does this repo do? Answer in one line.&quot;와 그 답."></a>
+      <br><b>브라우저 속 herdr 레이아웃</b>
+      <br><sub>워크스페이스, 탭, 분할 pane과 에이전트마다의 상태가 그대로: 탭을 클릭하고, 분할의 pane을 고르고, 폰에서는 워크스페이스를 바꿉니다.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8"><img src="docs/media/readme/browse.webp" width="100%" alt="폴더 버튼으로 pane의 폴더를 열고 Claude가 쓴 파일을 뷰어로 엽니다. 폰에서는 명령 팔레트로 같은 일을 합니다."></a>
-      <br><b>pane의 파일 둘러보기</b>
-      <br><sub>pane의 폴더를 탐색하고 어떤 파일이든 미리 보거나 내려받습니다.</sub>
+      <a href="https://github.com/user-attachments/assets/804ed0e1-54e6-4c1a-9d87-bd769a970315"><img src="docs/media/readme/alerts.webp" width="100%" alt="실제 화면 녹화. 브라우저에서 Claude가 checkout-api 작업을 하는 동안 폰은 다른 워크스페이스의 터미널을 보고 있습니다. Claude가 어떤 요청 제한을 쓸지 묻자 폰에 &quot;checkout-api Needs input&quot; 알림이 내려오고, 탭하면 질문이 카드로 열립니다. 브라우저에도 Needs you 아래에 checkout-api가 같은 카드와 함께 보입니다."></a>
+      <br><b>에이전트가 부르면 바로 알기</b>
+      <br><sub>다른 워크스페이스를 보고 있어도 Claude가 물으면 알림이 내려오고, 한 번 탭하면 질문이 열립니다.</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="Add PC로 SSH를 통해 Linux PC에 연결하고 브리지를 설치하면, 그 PC의 세션이 터미널과 함께 사이드바에 들어옵니다."></a>
-      <br><b>모든 PC를 사이드바 하나에</b>
-      <br><sub>Linux, macOS, Windows 머신을 SSH로 추가합니다. <a href="docs/remote-pcs.md">원격 PC →</a></sub>
+      <a href="https://github.com/user-attachments/assets/25e55478-354b-4c5d-a33a-c1158f4b819a"><img src="docs/media/readme/attach.webp" width="100%" alt="실제 화면 녹화. 폰에서 클립 버튼으로 $NaN이 찍힌 영수증 스크린샷을 첨부하면 경로가 들어가고, &quot;Fix this, with a test.&quot;를 보냅니다. 데스크톱 채팅에도 이미지와 함께 같은 메시지가 나타나고, Claude가 src/routes/receipt.ts부터 읽기 시작합니다."></a>
+      <br><b>폰에서 스크린샷 보내기</b>
+      <br><sub>클립 버튼으로 pane 폴더에 올리고 경로를 넣어 줍니다. Claude가 이미지를 읽습니다.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/b410d41c-a822-47fe-94a5-88becab9b235"><img src="docs/media/readme/open.webp" width="100%" alt="실제 화면 녹화. 브라우저의 터미널에서 Claude Code가 bench/p95.svg를 만들었습니다. 경로를 클릭하면 파일 뷰어에 차트가 열리고, 폰 채팅에서 같은 경로를 탭하면 전체 화면으로 열립니다."></a>
+      <br><b>에이전트가 만든 결과물 열기</b>
+      <br><sub>터미널의 경로를 클릭하거나 채팅의 경로를 탭하면 그 자리에서 파일이 열립니다.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/3a50f082-d13a-4a88-b2a4-7bc050e8a47a"><img src="docs/media/readme/worktree.webp" width="100%" alt="실제 화면 녹화. 폰에서 checkout-api 행의 ⋯ 메뉴 → New worktree를 누르면 브랜치 worktree/clear-forest-3580이 미리 채워진 양식이 열립니다. 에이전트로 Claude Code를 고르고 Create worktree를 탭하면, 브라우저에서 checkout-api 아래에 새 행이 생기고 Claude Code로 바뀐 뒤 READY가 됩니다."></a>
+      <br><b>두 번째 에이전트로 갈라지기</b>
+      <br><sub>폰에서 ⋯ → New worktree: 브랜치는 미리 채워져 있고, 에이전트를 고르면 첫 번째 옆에서 시작합니다.</sub>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>모든 클립은 데스크톱과 폰을 동시에 녹화한 실제 동작입니다. 누르면 약 20초짜리 전체 영상을 볼 수 있습니다.</sub></p>
+<p align="center"><sub>모든 클립은 데스크톱과 폰을 동시에 녹화한 실제 동작이며, 실제 속도로 컷 없이 담았습니다. 누르면 전체 영상을 볼 수 있습니다.</sub></p>
 
 - **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc와 pi의 대화 기록을 그대로 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. [지원 에이전트 →](docs/guide.md#supported-agents)
 - **탭 한 번으로 승인** — 승인 요청, 질문, 계획 메뉴가 카드로 뜹니다. 답을 보내기 전에 그 질문이 아직 유효한지 확인합니다.
-- **내가 필요할 때 알림** — 모든 pane의 상태를 실시간으로 보여 주고, 에이전트가 입력을 기다리거나 일을 끝내면 앱이 닫혀 있어도 푸시 알림을 보냅니다.
+- **내가 필요할 때 알림** — 모든 pane의 상태를 실시간으로 보여 주고, 앱을 보고 있을 때는 알림이 위에서 내려오며, 에이전트가 입력을 기다리거나 일을 끝내면 앱이 닫혀 있어도 푸시 알림을 보냅니다.
 - **폰에 설치해서 쓰기** — 키보드 위에 Esc, Tab, Ctrl, 방향키가 붙은 PWA입니다. Tailscale 주소는 QR 코드로 받아 갑니다. [폰 설정 →](docs/guide.md#on-your-phone)
-- **작업 방식은 그대로** — 에이전트는 herdr가 관리하고, 이 앱은 거기에 연결만 합니다. 에이전트를 멈추지 않고 Settings(설정)에서 업데이트합니다. [전체 기능 →](docs/guide.md#features)
+- **작업 방식은 그대로** — 에이전트는 herdr가 관리하고, 이 앱은 거기에 연결만 합니다. 에이전트를 멈추지 않고 Settings(설정)에서 업데이트합니다. 새 탭과 worktree는 행의 ⋯ 메뉴에서 만듭니다. [전체 기능 →](docs/guide.md#features)
 
 ---
 

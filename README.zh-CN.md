@@ -26,9 +26,9 @@
 
 ---
 
-https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
+https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
-<p align="center"><sub>在终端窗格中运行 Claude Code，同一会话切换为聊天，再到手机上继续 · 实机录制 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒演示影片</a></sub></p>
+<p align="center"><sub>Claude Code 在 herdr 终端中提问，浏览器和手机上显示同一个问题，在手机上点一下即可回答 · 实机录制，无剪辑</sub></p>
 
 **在手机上使用 Claude Code 和 Codex。**
 
@@ -37,38 +37,50 @@ https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/344a01d6-dd0d-44d3-a531-262257b48f9e"><img src="docs/media/readme/attach.webp" width="100%" alt="手机附加一张截图并让 Claude 修复错误，电脑上显示同一条消息。"></a>
-      <br><b>从手机发送上下文</b>
-      <br><sub>附加截图、引用文件，在智能体工作时排队发送消息。</sub>
+      <a href="https://github.com/user-attachments/assets/33ed2183-9b94-4677-8980-edd90d45750a"><img src="docs/media/readme/terminal.webp" width="100%" alt="实机录制。浏览器的聊天里是 Claude Code 的回复；点击 Terminal 后，同一个窗格显示为 Claude Code 自己的终端，可以看到它在 src/server.test.ts 中添加测试“unknown refund is 404”的修改。在手机上 tests 标签页的终端里，按键栏的 ↑ 调出 bun test，输入行的 Enter 按钮运行它：5 pass，0 fail。"></a>
+      <br><b>切换到实时终端</b>
+      <br><sub>点一下，聊天就变成该窗格真正的终端；在手机上，按键栏的 ↑ 调出测试命令，再按 Enter 重新运行。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/cf3953f8-df95-4efc-bd2b-df515798f364"><img src="docs/media/readme/open.webp" width="100%" alt="Claude 将图表写成 SVG 文件，点击即可在文件查看器中打开，手机上轻点也一样。"></a>
-      <br><b>打开智能体生成的文件</b>
-      <br><sub>点击聊天中的路径即可在文件查看器中打开，电脑和手机都可以。</sub>
+      <a href="https://github.com/user-attachments/assets/ac8dbf34-5c27-441b-8e49-e3850eac0c27"><img src="docs/media/readme/layout.webp" width="100%" alt="实机录制。浏览器显示 herdr 的布局：侧边栏中的四个工作区及其智能体状态（checkout-api DONE、web-dashboard RUN、infra READY、release），以及 checkout-api 的标签页 payments 和 dev。点击 dev 标签页显示它的第一个窗格，bun test 结果为 4 pass；该标签页的窗格菜单列出分屏的两个窗格 tests 和 git，点击 git 显示其 git log。在手机上，☰ 打开同样的四个工作区和相同的状态，轻点 checkout-api 打开 Claude 的聊天：“What does this repo do? Answer in one line.”及其回答。"></a>
+      <br><b>浏览器里的 herdr 布局</b>
+      <br><sub>工作区、标签页、分屏窗格，以及每个智能体的状态都在：点一下标签页，选择分屏中的窗格，在手机上切换工作区。</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/c4170cfb-b1dc-492d-8660-1b09dbac31f8"><img src="docs/media/readme/browse.webp" width="100%" alt="文件夹按钮打开窗格的文件夹，Claude 写入的文件在查看器中打开；手机上可通过命令面板完成同样操作。"></a>
-      <br><b>浏览窗格的文件</b>
-      <br><sub>浏览窗格所在文件夹，预览或下载任意文件。</sub>
+      <a href="https://github.com/user-attachments/assets/804ed0e1-54e6-4c1a-9d87-bd769a970315"><img src="docs/media/readme/alerts.webp" width="100%" alt="实机录制。浏览器中 Claude 正在处理 checkout-api，手机停在另一个工作区的终端上。Claude 提问要用哪种限流时，手机上弹出“checkout-api Needs input”提醒，点一下即以卡片打开问题；浏览器的 Needs you 下也列出 checkout-api 和同一张卡片。"></a>
+      <br><b>智能体需要你时，立刻知道</b>
+      <br><sub>即使在看别的工作区，Claude 一提问就会弹出提醒，点一下即可打开它的问题。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/3a8e40f3-7988-4a28-8729-9f8b9ad64610"><img src="docs/media/readme/ssh.webp" width="100%" alt="“添加电脑”通过 SSH 连接一台 Linux 电脑并安装 bridge，它的会话加入侧边栏，终端在那台电脑上运行。"></a>
-      <br><b>一个侧边栏，管理所有电脑</b>
-      <br><sub>通过 SSH 添加 Linux、macOS 和 Windows 电脑。<a href="docs/remote-pcs.md">远程电脑 →</a></sub>
+      <a href="https://github.com/user-attachments/assets/25e55478-354b-4c5d-a33a-c1158f4b819a"><img src="docs/media/readme/attach.webp" width="100%" alt="实机录制。在手机上用回形针附加一张显示 $NaN 的收据截图并插入其路径，然后发送“Fix this, with a test.”；电脑的聊天中出现带图片的同一条消息，Claude 从读取 src/routes/receipt.ts 开始。"></a>
+      <br><b>从手机发送截图</b>
+      <br><sub>回形针把它上传到窗格的文件夹并插入路径，Claude 会读取这张图。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/b410d41c-a822-47fe-94a5-88becab9b235"><img src="docs/media/readme/open.webp" width="100%" alt="实机录制。在浏览器的终端里，Claude Code 已写出 bench/p95.svg；点击该路径会在文件查看器中打开图表，在手机聊天中轻点同一路径则全屏打开。"></a>
+      <br><b>打开智能体生成的文件</b>
+      <br><sub>在终端里点击路径，或在聊天里轻点路径，文件就地打开。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/user-attachments/assets/3a50f082-d13a-4a88-b2a4-7bc050e8a47a"><img src="docs/media/readme/worktree.webp" width="100%" alt="实机录制。在手机上点 checkout-api 行的 ⋯ 菜单 → New worktree，表单中已填好分支 worktree/clear-forest-3580；选择 Claude Code 作为智能体并点 Create worktree 后，浏览器中 checkout-api 下出现一个新行，变为 Claude Code 并显示 READY。"></a>
+      <br><b>分出第二个智能体</b>
+      <br><sub>在手机上点 ⋯ → New worktree：分支已自动填好，选一个智能体，它就在第一个旁边启动。</sub>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>每段片段都是同时录制电脑和手机的真实操作。点击可播放约 20 秒的完整视频。</sub></p>
+<p align="center"><sub>每段片段都是同时录制电脑和手机的真实操作，实时、无剪辑。点击可播放完整视频。</sub></p>
 
 - **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc 和 pi 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。
-- **需要你时及时提醒** — 实时显示每个窗格的状态；智能体需要输入或完成任务时发送推送通知，即使应用已关闭也能收到。
+- **需要你时及时提醒** — 实时显示每个窗格的状态；应用打开时提醒会从顶部滑下；智能体需要输入或完成任务时发送推送通知，即使应用已关闭也能收到。
 - **安装到手机** — PWA 在键盘上方提供 Esc、Tab、Ctrl 和方向键，Tailscale 地址以二维码显示。[手机设置 →](docs/guide.md#on-your-phone)
 - **开口代替打字** — 在聊天或终端输入行中语音输入，韩语和英语混说也能识别；文字只放进输入框，由你决定何时发送。使用你自己的 OpenAI API 密钥，或浏览器自带的语音识别。
-- **沿用现有工作流** — 智能体由 herdr 管理，本应用负责连接；在 Settings（设置）中更新应用，无需停止智能体。[全部功能 →](docs/guide.md#features)
+- **沿用现有工作流** — 智能体由 herdr 管理，本应用负责连接；在 Settings（设置）中更新应用，无需停止智能体。新标签页和 worktree 可从行的 ⋯ 菜单创建。[全部功能 →](docs/guide.md#features)
 
 ---
 

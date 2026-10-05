@@ -19,6 +19,7 @@ import { focusWorkspaceListToggle } from "./lib/focus.ts";
 import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
+import { rosterPanes } from "./lib/dagPane.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
 import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
@@ -590,7 +591,8 @@ export function App() {
     () => ({
       selectPane,
       selectAdjacentPane: (direction) => {
-        const panes = snapshotRef.current?.panes ?? [];
+        // the panes the sidebar lists: a step never lands on a viewer it leaves out
+        const panes = rosterPanes(snapshotRef.current?.panes ?? [], selectedPaneId);
         if (panes.length === 0) return;
         const index = panes.findIndex((pane) => pane.pane_id === selectedPaneId);
         const next = panes[(index + direction + panes.length) % panes.length];

@@ -8,6 +8,29 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- An update asked for in the first moments after the app starts, or right after another update,
+  waits until the start is over. It used to stop the app in the middle of its start-up check,
+  and the app then fell back to the source checkout or did not come up.
+  ([#455](https://github.com/devswha/herdr-web-ui/pull/455))
+- A PDF on a remote PC opens from the file viewer on Android. Chrome there shows it as an
+  **Open** button, and opening it answered `invalid_origin` ("Use PC controls from this app")
+  instead of the file; a PDF on the app's own PC already opened.
+  ([#448](https://github.com/devswha/herdr-web-ui/pull/448) by @nahwan-kim)
+- In one tab of the app, the alert sound chimes once for alerts that come together from several
+  panes, instead of sounding over itself. A pane that needs input right after one that finished
+  still chimes, once the first chime ends. Two open tabs each chime, as before.
+  ([#439](https://github.com/devswha/herdr-web-ui/pull/439) by @WOULDU-pres)
+- In the terminal on macOS, Cmd+Left and Cmd+Right move to the beginning and end of the
+  input line, using the same terminal keys as Ctrl+A and Ctrl+E.
+  ([#437](https://github.com/devswha/herdr-web-ui/pull/437) by @WOULDU-pres)
+- The DAG viewer pane omo-herdr-dag opens beside an OmO pane no longer appears in the
+  sidebar or the tab strip: an OmO workspace with its viewer shows as a single pane, as it does
+  without one. The viewer can still be opened from the command palette.
+  ([#447](https://github.com/devswha/herdr-web-ui/pull/447) by @nahwan-kim)
+- Attaching a file over 8 MB says so at once, with its size and the limit, instead of uploading
+  it first and answering `/api/pane/image failed (413)`. Past about 96 MB that message gave no
+  reason at all.
+  ([#446](https://github.com/devswha/herdr-web-ui/pull/446))
 - Switching to another pane no longer shows the previous pane's chat for a moment before the
   new one loads.
   ([#422](https://github.com/devswha/herdr-web-ui/pull/422) by @Haeminway1)
