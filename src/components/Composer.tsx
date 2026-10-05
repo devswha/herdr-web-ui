@@ -22,7 +22,7 @@ import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
-  composerModelSteppedOut,
+  composerModelDraw,
   composerQueueShown,
   composerStatusCompact,
   composerStatusHint,
@@ -205,7 +205,10 @@ export function Composer({
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const statusRef = useRef<HTMLDivElement | null>(null);
   const hintRef = useRef<HTMLSpanElement | null>(null);
-  /** the card's own width: a narrow one shows the task chip's count, and has no room for the model beside Queue */
+  const queueRef = useRef<HTMLButtonElement | null>(null);
+  /** whether Queue's last press was a finger's: its focus is then not handed to the message box */
+  const queueTouched = useRef(false);
+  /** the card's own width: a narrow one shows the task chip's count */
   const [cardWidth, setCardWidth] = useState(0);
   const composingRef = useRef(false);
   // the chat lens's input surface takes the keyboard when it appears (a pane switch remounts
@@ -319,15 +322,30 @@ export function Composer({
   }, [text, manualHeight, placeholder]);
 
   /**
-   * The sentence in the status content is never cut. Where it does not fit beside the model it
-   * wraps to a line of its own (CSS); there it is marked, so it takes the whole line and drops
-   * the dot that separated it from the model. Asked of the layout itself: what fits depends on
-   * the model's name, the chip and the language, not on a width.
+   * Two things the controls row asks of the layout itself, since what fits depends on the
+   * model's name, the mic, the chip and the language, not on a width.
+   * - The model label: measured with everything drawn, then drawn as composerModelDraw says
+   *   (stepped out whole while Queue shows, the effort word alone without it). Stepping out is
+   *   CSS on the mark's attribute, so the label is still read.
+   * - The sentence is never cut. Where it does not fit beside the model it wraps to a line of its
+   *   own (CSS); there it is marked, so it takes the whole line and drops the dot that separated
+   *   it from the model.
    */
-  const placeHint = useCallback((): void => {
+  const fitStatus = useCallback((): void => {
     const status = statusRef.current;
     if (!status) return;
+    status.removeAttribute("data-model");
     status.removeAttribute("data-hint-alone");
+    const clipped = (selector: string): boolean => {
+      const item = status.querySelector<HTMLElement>(selector);
+      return item !== null && item.scrollWidth > item.clientWidth;
+    };
+    const draw = composerModelDraw({
+      queueShown: queueRef.current !== null,
+      modelClipped: clipped(".composer-model"),
+      effortClipped: clipped(".composer-reasoning"),
+    });
+    if (draw !== "full") status.setAttribute("data-model", draw);
     const hint = hintRef.current;
     if (!hint) return;
     const line = hint.getBoundingClientRect();
@@ -338,18 +356,24 @@ export function Composer({
     });
     if (!beside) status.setAttribute("data-hint-alone", "");
   }, []);
-  useLayoutEffect(placeHint);
+  useLayoutEffect(fitStatus);
 
   // the card's own width decides, not the window's: a sidebar or a narrow lane shrinks the card
-  // in a wide window. Measured before the first paint, so a phone never draws the words first
+  // in a wide window. Measured before the first paint, so a phone never draws the words first.
+  // A resize fits the row on the next frame: marking it inside the observer's own callback can
+  // change the card's height there, which the browser reports as a ResizeObserver loop
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
-    const measure = (): void => { setCardWidth(Math.round(surface.getBoundingClientRect().width)); placeHint(); };
-    measure();
-    const observer = new ResizeObserver(measure);
+    let frame = 0;
+    setCardWidth(Math.round(surface.getBoundingClientRect().width));
+    const observer = new ResizeObserver(() => {
+      setCardWidth(Math.round(surface.getBoundingClientRect().width));
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fitStatus);
+    });
     observer.observe(surface);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, []);
 
   useEffect(() => {
@@ -574,6 +598,10 @@ export function Composer({
     if (!connected || uploading || sending || text.trim().length === 0) return;
     const sent = text;
     const sentAttachments = attachments;
+    // Queue leaves with the draft it held. If it was pressed from the keyboard or a mouse it has
+    // the focus, which would fall to the page: the message box takes it then. A touch press
+    // moves nothing (Android focuses a tapped button, iOS does not), so no keyboard is raised
+    const fromQueue = queueRef.current !== null && document.activeElement === queueRef.current && !queueTouched.current;
     const settle = (result: boolean | string): void => {
       const acknowledged = result === true ? composerDrafts.settle(draftKey, sent) : null;
       if (!mounted.current) return;
@@ -588,6 +616,9 @@ export function Composer({
       setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.") : null);
       for (const attachment of sentAttachments) URL.revokeObjectURL(attachment.previewUrl);
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
+      // unless the focus was moved somewhere else while the message was on its way
+      const focused = document.activeElement;
+      if (fromQueue && (focused === queueRef.current || focused === document.body || focused === null)) textareaRef.current?.focus({ preventScroll: true });
     };
     if (!composerDrafts.begin(draftKey, sent)) return;
     // a polish landing before the acknowledgement would count as an edit and keep the sent message here
@@ -689,7 +720,6 @@ export function Composer({
   const isWorking = agentStatus === "working";
   const statusCompact = composerStatusCompact(cardWidth);
   const queueShown = composerQueueShown({ queueMode, connected, text, attachments: attachments.length });
-  const modelOut = composerModelSteppedOut(cardWidth, queueShown);
   const hint = composerStatusHint({ uploading, connected, text });
   const hintText = hint === null ? null : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
   const menuId = `composer-menu-${paneId}`;
@@ -882,14 +912,14 @@ export function Composer({
         {/* between the two control groups of the card's last row. The agent's name, its separator and the
             state word are read, not drawn: the mark and the header name the agent, and Stop, the live row and
             the prompt card say the state. DONE alone is drawn: nothing else in the chat says a turn ended unseen.
-            On a narrow card the mark and the model step out while Queue is showing, and are still read */}
+            Where the model label does not fit, it steps out and is still read (fitStatus marks data-model) */}
         <div ref={statusRef} className="composer-status" role="status" data-status={agentStatus ?? "unknown"}
-          data-offline={connected ? undefined : ""} data-hint={hint ?? undefined} data-model-out={modelOut ? "" : undefined}>
+          data-offline={connected ? undefined : ""} data-hint={hint ?? undefined}>
           {agent && <AgentMark agent={agent} size={14} />}
           <span className="composer-agent-label visually-hidden">{agentLabel}</span>
           <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
           <strong className={composerStatusWordDrawn(agentStatus) ? undefined : "visually-hidden"}>{t(composerStatusWord(agentStatus))}</strong>
-          {(metadata?.model || metadata?.reasoning_effort) && <span className={`composer-model-info${modelOut ? " visually-hidden" : ""}`} aria-label={t("Model and reasoning")}>
+          {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
             <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
             <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
               <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}</span>
@@ -897,6 +927,8 @@ export function Composer({
             </span>
           </span>}
           {metadata?.context && <ContextRing context={metadata.context} />}
+          {/* the chip is a button in the left controls; its count is still said here, where a change is announced */}
+          {backgroundTasks > 0 && <span className="composer-task-count visually-hidden">{t(backgroundTasks === 1 ? "{n} background task" : "{n} background tasks", { n: backgroundTasks })}</span>}
           {hintText !== null && (
             <span ref={hintRef} className="composer-status-hint" title={hintText}>
               <span className="composer-status-hint-dot" aria-hidden="true">· </span>{hintText}
@@ -906,12 +938,17 @@ export function Composer({
         <div className="composer-controls composer-controls-right">
           {queueShown && (
             <button
+              ref={queueRef}
               type="button"
               className="composer-queue-button"
               aria-label={t("Queue message")}
               title={t("Queue as the next message")}
               disabled={!connected || uploading || sending || text.trim().length === 0}
-              onClick={send}
+              onClick={(event) => {
+                // a click says what made it (a key press has no pointer type)
+                queueTouched.current = (event.nativeEvent as PointerEvent).pointerType === "touch";
+                send();
+              }}
             >
               <Clock aria-hidden="true" />
               {t("Queue")}

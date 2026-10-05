@@ -181,6 +181,11 @@ try {
   const statusItems = page.locator(".composer-model, .composer-reasoning");
   assert.equal(await statusItems.evaluateAll((items) => items.length === 2 && items.every((item) => item.getBoundingClientRect().width > 0 && item.getBoundingClientRect().right <= innerWidth)), true, "model and reasoning stay visible on mobile");
   assert.equal(await page.locator(".composer-status").evaluate((node) => node.scrollWidth <= node.clientWidth), true, "the status content fits its place in the controls row");
+  // a level that does not fit steps out whole (read, not drawn): it is never drawn in part
+  await page.waitForFunction(() => {
+    const level = document.querySelector(".composer-reasoning");
+    return level !== null && (level.scrollWidth <= level.clientWidth || level.getBoundingClientRect().width <= 1);
+  }, undefined, { timeout: 5_000 });
   mkdirSync("evidence/chat-mode", { recursive: true });
   await page.screenshot({ path: "evidence/chat-mode/mobile.png", fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 1280, height: 800 });

@@ -376,6 +376,8 @@ try {
   // Queue follows the draft: once the box is empty again, Stop is the one resting control
   await page.getByRole("button", { name: "Queue message", exact: true }).waitFor({ state: "detached" });
   assert.equal(await composer.inputValue(), "");
+  // the pressed Queue had the focus and is gone: the message box has it, not the page
+  assert.equal(await composer.evaluate((box) => box === document.activeElement), true, "focus goes to the message box when Queue leaves");
   assert.equal(await page.getByRole("button", { name: "Stop agent", exact: true }).count(), 1);
   assert.equal(await page.locator(".composer-action").count(), 1, "one round button");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });

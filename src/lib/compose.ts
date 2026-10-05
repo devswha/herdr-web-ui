@@ -147,29 +147,34 @@ export function composerQueueShown(state: { queueMode: boolean; connected: boole
 }
 
 /**
- * The sentence in the status content, if any. An upload says so while it runs. The reconnecting
- * sentence is said once: it is the placeholder while the box is empty, and moves here once
- * there is a draft, which hides the placeholder.
+ * The sentence in the status content, if any. The reconnecting sentence is said once: it is the
+ * placeholder while the box is empty, and moves here once there is a draft, which hides the
+ * placeholder. It goes before an upload's: the attachment's own tile says it is uploading, and
+ * nothing else in the card would say why Stop and add are off. Otherwise an upload says so
+ * while it runs.
  */
 export function composerStatusHint(state: { uploading: boolean; connected: boolean; text: string }): "uploading" | "offline" | null {
-  if (state.uploading) return "uploading";
-  return !state.connected && state.text.length > 0 ? "offline" : null;
+  if (!state.connected && state.text.length > 0) return "offline";
+  return state.uploading ? "uploading" : null;
 }
 
 /**
- * Below this card width the controls row cannot hold the Queue pill with its word beside the
- * model. Add, the task chip's count, the mark, `claude-opus-5-5`, the effort, the context ring,
- * Queue and the round button measure about 400px; a phone's card is 374px (414px on the widest),
- * and the 448px card of an 800px window with the sidebar open holds them all.
+ * How the model label (the mark, the model's name and the effort word) is drawn in the controls
+ * row. Asked of the layout, not of a width: what fits depends on the name's length, the mic, the
+ * task chip, the language and the font. `modelClipped` and `effortClipped` are measured with
+ * everything drawn.
+ * - "full": all of it fits.
+ * - "out": while Queue is showing, a label that does not fit steps out whole (read, not drawn),
+ *   so Queue keeps its word and no name is cut mid-word. It is back once the draft is sent, held
+ *   or cleared.
+ * - "no-effort": without Queue the effort word steps out whole before the name gives a letter,
+ *   so a sliver of a word is never drawn. A name still too long is ellipsized as the last resort.
  */
-export const COMPOSER_MODEL_BESIDE_QUEUE_FROM = 420;
+export type ComposerModelDraw = "full" | "no-effort" | "out";
 
-/**
- * Whether the model label steps out of the controls row (read, not drawn): on a narrow card,
- * only while Queue is showing. It comes back when the draft is sent, held or cleared.
- */
-export function composerModelSteppedOut(cardWidth: number, queueShown: boolean): boolean {
-  return queueShown && cardWidth > 0 && cardWidth < COMPOSER_MODEL_BESIDE_QUEUE_FROM;
+export function composerModelDraw(state: { queueShown: boolean; modelClipped: boolean; effortClipped: boolean }): ComposerModelDraw {
+  if (!state.modelClipped && !state.effortClipped) return "full";
+  return state.queueShown ? "out" : "no-effort";
 }
 
 /** Herdr agent ids are machine-friendly; the composer presents a short human label. */

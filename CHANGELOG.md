@@ -24,8 +24,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   pointing up, and Stop is the same circle in the same place, so only the glyph changes when a
   turn starts and ends. While the agent works, Queue appears once the box holds text or an
   attachment; with an empty box Stop is the only button, and Queue still holds a message only
-  when you press it. On a phone the model's name steps aside while Queue is showing, so neither
-  is cut. While reconnecting, "Reconnecting… message held here, never queued" is said once: in
+  when you press it, after which the keyboard's focus is back in the message box. Where the two
+  do not fit side by side (a phone, or a long model name beside the sidebar) the model's name
+  steps aside while Queue is showing, so neither is cut; without Queue the reasoning level
+  steps aside before the name loses a letter. While reconnecting, "Reconnecting… message held here, never queued" is said once: in
   the empty box, and under the model once there is a draft, on a phone too, where it used to be
   hidden. It is no longer cut with an ellipsis, and neither is "Uploading file…"; Queue is not
   shown while not connected, and a disabled Stop loses its colour. With a mouse, the bar that

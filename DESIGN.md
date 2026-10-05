@@ -594,31 +594,37 @@ One set for both themes: the card is island black wherever it shows.
 - The status content (`.composer-status`, `role="status"`) sits between the two control groups,
   pushed to the button's side. It draws, in `--text-dim` at `--fs-xs`: the agent mark, the
   model, the reasoning level as one word with no outline (`high`), the context ring, and the
-  uploading or reconnecting sentence. The agent's written name, its separator, the state words
+  uploading or reconnecting sentence. The background-task chip is a button in the left controls;
+  its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
   `READY` / `RUN` / `INPUT` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
   and the prompt card. `DONE` alone is drawn, after the mark, in `--status-done` caps: nothing
   else in the chat says a turn ended and was not seen yet, and on a phone the sidebar's label is
   in a closed drawer.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
-  a `640px` card — the card's own width, `composerStatusCompact`, not the window's); below a
-  `420px` card (a phone) the mark and the model while Queue is showing
-  (`composerModelSteppedOut`: read, not drawn, back once the draft is sent, held or cleared), so
-  Queue keeps its word; then the reasoning level, the model's name, and the opened context text.
-  The context ring is never cut.
+  a `640px` card — the card's own width, `composerStatusCompact`, not the window's); then the
+  model label, decided from the measured row and not from a width (`composerModelDraw`), so the
+  mic, a long model id and the language all count. While Queue is showing, a label that does not
+  fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
+  the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word.
+  Without Queue the level steps out whole first, never drawn in part; a name still too long is
+  ellipsized as the last resort, then the opened context text. The context ring is never cut.
 - Queue is drawn only while the agent works, the bridge is live and the box holds a draft or an
   attachment (`composerQueueShown`): with an empty box Stop is the one resting control. The rule
   reads the draft, not `:disabled`, so the pill stays in place, disabled, while a file uploads
   or the message is on its way. It is a `--primary-tint` pill; its `--primary` outline is drawn
   in light themes only, where the tint alone does not separate it from the card. Pressing it is
-  the only thing that holds a message. The placeholder is just `Message <agent>…`.
+  the only thing that holds a message. When a pressed Queue leaves with its draft, its focus goes
+  to the message box (a touch press moves no focus, so no keyboard is raised). The placeholder is
+  just `Message <agent>…`.
 - Not connected, the sentence `Reconnecting… message held here, never queued` is said once and
   whole: it is the placeholder while the box is empty and moves into the status content once
   there is a draft (`composerStatusHint`), on a phone too. A sentence there (this one, or
   `Uploading file…`) is never ellipsized: where it does not fit beside the model it takes a line
   of its own under it, without its leading dot, and wraps there; its `title` repeats it. The
   status content is then left-aligned, beside the add button. Add and Stop are disabled and
-  Queue is not drawn.
+  Queue is not drawn. With a draft, the reconnecting sentence goes before `Uploading file…`: the
+  attachment's own tile says it is uploading.
 - The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
   (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,
   while it is dragged, on its own keyboard focus, and while a manual height is set; on any coarse

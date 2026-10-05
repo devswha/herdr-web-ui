@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerModelSteppedOut, composerQueueShown, composerStatusCompact, composerStatusHint, composerStatusWord, composerStatusWordDrawn, COMPOSER_MODEL_BESIDE_QUEUE_FROM, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped } from "./compose.ts";
+import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerModelDraw, composerQueueShown, composerStatusCompact, composerStatusHint, composerStatusWord, composerStatusWordDrawn, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -150,20 +150,25 @@ describe("composer presentation helpers", () => {
     expect(composerStatusHint({ uploading: false, connected: false, text: "draft" })).toBe("offline");
     expect(composerStatusHint({ uploading: false, connected: true, text: "draft" })).toBe(null);
     expect(composerStatusHint({ uploading: true, connected: true, text: "" })).toBe("uploading");
-    expect(composerStatusHint({ uploading: true, connected: false, text: "draft" })).toBe("uploading");
+    // an upload caught by a dropped connection: the box is empty, so the placeholder says why
+    expect(composerStatusHint({ uploading: true, connected: false, text: "" })).toBe("uploading");
+    // with a draft the placeholder is gone: the reconnecting sentence goes first (the tile says Uploading)
+    expect(composerStatusHint({ uploading: true, connected: false, text: "draft" })).toBe("offline");
   });
 
-  it("steps the model label out only on a narrow card while Queue is showing", () => {
-    expect(composerModelSteppedOut(374, true)).toBe(true);
-    expect(composerModelSteppedOut(COMPOSER_MODEL_BESIDE_QUEUE_FROM - 1, true)).toBe(true);
-    expect(composerModelSteppedOut(COMPOSER_MODEL_BESIDE_QUEUE_FROM, true)).toBe(false);
-    // an 800px window with the sidebar open, and the full card
-    expect(composerModelSteppedOut(448, true)).toBe(false);
-    expect(composerModelSteppedOut(820, true)).toBe(false);
-    // no Queue: the label has the room
-    expect(composerModelSteppedOut(374, false)).toBe(false);
-    // a card that is not laid out yet has no width
-    expect(composerModelSteppedOut(0, true)).toBe(false);
+  it("steps the model label out whole while Queue shows, and only the effort word without it", () => {
+    const fits = { modelClipped: false, effortClipped: false };
+    expect(composerModelDraw({ queueShown: true, ...fits })).toBe("full");
+    expect(composerModelDraw({ queueShown: false, ...fits })).toBe("full");
+    // Queue is showing and the label does not fit, at any card width (a phone with the mic, a
+    // long model id beside an open sidebar): it steps out whole, never cut mid-word
+    expect(composerModelDraw({ queueShown: true, modelClipped: false, effortClipped: true })).toBe("out");
+    expect(composerModelDraw({ queueShown: true, modelClipped: true, effortClipped: true })).toBe("out");
+    expect(composerModelDraw({ queueShown: true, modelClipped: true, effortClipped: false })).toBe("out");
+    // no Queue: the effort word goes whole, so no sliver of it is drawn; the name stays
+    expect(composerModelDraw({ queueShown: false, modelClipped: false, effortClipped: true })).toBe("no-effort");
+    expect(composerModelDraw({ queueShown: false, modelClipped: true, effortClipped: true })).toBe("no-effort");
+    expect(composerModelDraw({ queueShown: false, modelClipped: true, effortClipped: false })).toBe("no-effort");
   });
 
   it("turns machine agent ids into labels", () => {

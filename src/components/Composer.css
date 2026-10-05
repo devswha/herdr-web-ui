@@ -110,10 +110,11 @@
    side. It can share that row because the agent's name and the state word are no longer drawn
    (.visually-hidden: the mark stays, and the state is told by Stop, the live row and the prompt
    card). What does not fit gives way in this order: the task chip's words (BackgroundTasks.css,
-   by the card's width), the mark and the model while Queue is showing on a narrow card
-   (composerModelSteppedOut: read, not drawn), then the reasoning level, the model's name and
-   the opened context text; nothing overlaps its neighbour, and the context ring at the end is
-   never the part that is cut. */
+   by the card's width); then the model label, as composerModelDraw says of the measured row
+   (Composer.tsx marks data-model): while Queue is showing the mark, the name and the level step
+   out whole, without it the level alone does, each read and not drawn, so no word is drawn in
+   part; then, with no Queue, the model's name and the opened context text. Nothing overlaps its
+   neighbour, and the context ring at the end is never the part that is cut. */
 .composer-status {
   grid-area: status;
   display: flex;
@@ -142,8 +143,22 @@
   row-gap: 0;
 }
 
-.composer-status[data-model-out] .agent-mark {
+.composer-status[data-model="out"] .agent-mark {
   display: none;
+}
+
+/* stepped out: read, not drawn (the properties of .visually-hidden, set from the measured row) */
+.composer-status[data-model="out"] .composer-model-info,
+.composer-status[data-model="no-effort"] .composer-reasoning {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* the one state word the row draws: a turn that ended and was not seen yet */
@@ -154,7 +169,7 @@
   letter-spacing: var(--tracking-caps);
 }
 
-.composer-model-info:not(.visually-hidden) {
+.composer-status:not([data-model="out"]) .composer-model-info {
   /* no box of its own: the name and the level sit in the status line itself, so the name can
      give way before anything else does and the level never overlaps what follows */
   display: contents;
@@ -231,17 +246,17 @@
   flex: none;
 }
 
+/* one line-height beside the model and alone: the mark below must not change the card's height */
 .composer-status-hint {
   flex: 0 1 auto;
   max-width: 100%;
-  line-height: var(--chip-h);
+  line-height: var(--lh-base);
   white-space: normal;
 }
 
 /* on a line of its own (Composer.tsx marks it): the whole line, and no dot to lead it */
 .composer-status[data-hint-alone] > .composer-status-hint {
   flex-basis: 100%;
-  line-height: var(--lh-base);
 }
 
 .composer-status[data-hint-alone] .composer-status-hint-dot {
