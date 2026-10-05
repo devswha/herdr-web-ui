@@ -21,7 +21,8 @@ import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
-  composerStatusWord,
+  composerStatusCompact,
+  composerStatusWord, composerStatusWordDrawn,
   contextLeftPercent,
   formatTokens,
   imageMention,
@@ -194,6 +195,9 @@ export function Composer({
   const { fetchPaneCommands, fetchPaneFiles } = useMachineApi();
   const { settings } = useSettings();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  /** the card is too narrow for the status row's words: the task chip shows its count */
+  const [statusCompact, setStatusCompact] = useState(false);
   const composingRef = useRef(false);
   // the chat lens's input surface takes the keyboard when it appears (a pane switch remounts
   // it), as the grid does in the terminal lens: a pane picked from the drawer is typed into
@@ -304,6 +308,18 @@ export function Composer({
     const height = Math.round(element.getBoundingClientRect().height);
     setAutoHeight((current) => current === height ? current : height);
   }, [text, manualHeight, placeholder]);
+
+  // the card's own width decides, not the window's: a sidebar or a narrow lane shrinks the card
+  // in a wide window. Measured before the first paint, so a phone never draws the words first
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const measure = (): void => setStatusCompact(composerStatusCompact(surface.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -644,27 +660,6 @@ export function Composer({
 
   return (
     <div className="composer" role="group" aria-label={t("Message composer")}>
-      <div className="composer-status" role="status" data-status={agentStatus ?? "unknown"}>
-        {agent && <AgentMark agent={agent} size={14} />}
-        <span className="composer-agent-label">{agentLabel}</span>
-        <span className="composer-status-separator" aria-hidden="true">·</span>
-        <strong>{t(composerStatusWord(agentStatus))}</strong>
-        <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
-        {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
-          <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
-          <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
-            <span className="composer-reasoning-full">{t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}</span>
-            <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort ?? "—"}</span>
-          </span>
-        </span>}
-        {metadata?.context && <ContextRing context={metadata.context} />}
-        {(uploading || !connected) && (
-          <span className="composer-status-hint">
-            <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}
-          </span>
-        )}
-      </div>
-
       {/* no Tab key on a phone: the suggestion can be a chip there that fills the box, once chosen in Settings */}
       {settings.showSuggestionChip && offered !== null && text === "" && (
         <div className="composer-quick composer-suggestion-row">
@@ -692,6 +687,7 @@ export function Composer({
       )}
 
       <div
+        ref={surfaceRef}
         className={`composer-surface${dragging ? " is-dragging" : ""}`}
         onDragEnter={(event) => {
           event.preventDefault();
@@ -882,6 +878,29 @@ export function Composer({
             </button>
           ) : null}
         </div>
+        {/* the card's last row, at its full width. The agent's name, its separator and the state word are
+            read, not drawn: the mark and the header name the agent, and Stop, the live row and the prompt
+            card say the state. DONE alone is drawn: nothing else in the chat says a turn ended unseen */}
+        <div className="composer-status" role="status" data-status={agentStatus ?? "unknown"} data-compact={statusCompact ? "" : undefined}>
+          {agent && <AgentMark agent={agent} size={14} />}
+          <span className="composer-agent-label visually-hidden">{agentLabel}</span>
+          <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
+          <strong className={composerStatusWordDrawn(agentStatus) ? undefined : "visually-hidden"}>{t(composerStatusWord(agentStatus))}</strong>
+          <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
+          {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
+            <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
+            <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+              <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata.reasoning_effort ?? "—" })}</span>
+              <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort ?? "—"}</span>
+            </span>
+          </span>}
+          {metadata?.context && <ContextRing context={metadata.context} />}
+          {(uploading || !connected) && (
+            <span className="composer-status-hint">
+              <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}
+            </span>
+          )}
+        </div>
       </div>
       {note && <div className="composer-note" role="alert">{note}</div>}
       {/* said while typing, before the send: after it the browser is already open and the reader is
@@ -890,7 +909,7 @@ export function Composer({
       {!note && terminalOnly !== null && (
         <div className="composer-hint">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
       )}
-      {/* above the whole composer: inside the surface it would cover the agent status line */}
+      {/* above the whole composer: inside the surface it would cover the text being dictated */}
       {dictation.shown && <VoiceRecordingPill dictation={dictation} align="start" />}
     </div>
   );

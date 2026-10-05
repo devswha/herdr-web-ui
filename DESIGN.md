@@ -479,9 +479,21 @@ One set for both themes: the card is island black wherever it shows.
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
   timestamp minus this one's; "Working…" in `--status-working` behind a breathing dot while the agent runs) over
-  one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
-  sits between rows as dim, one-step-smaller prose. A row expands to the typed input (command,
-  diff, file, checklist, raw) and an Output pane.
+  one-line rows on the header's own left edge, which is the prose edge too (the hover plate
+  overhangs it by `--space-1`).
+- A row is caret + verb + object: `▸ Read src/metrics.ts`, `▸ Edited src/pages/Reports.tsx`,
+  `▸ Ran pnpm test`. The caret is always shown; there is no per-tool icon and no separator. The
+  verb (Read, Edited, Wrote, Ran; `lib/toolVerbs.ts`, by exact tool id) is in the interface face,
+  `--fs-sm`, `--text-dim`; the object is mono `--fs-xs`. A tool the table does not know, a call
+  with no object, or a call summed up by something other than its own command or path (omp's
+  `intent`: `bash Checking ports`) keeps its id in mono `--text` in the verb's place. A failed row
+  turns the verb or id `--status-blocked` and adds the word "failed": after the object under a
+  verb (`▸ Ran pnpm test [failed]`), after the id otherwise.
+- A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane. Under
+  a verb the tool's own id (`exec`, `Bash`, `apply_patch`) is the first line of that detail
+  (`.work-row-tool`, mono, dim) and the row's title.
+- Mid-work narration sits between rows. While the turn runs it is the agent's voice: answer prose
+  (`--text`, `--fs-md`) on the prose edge. Once the turn settles it is dim, one step smaller.
 - Only the running turn's block is open (working or blocked). A settled turn folds to its header
   with a hairline under it, and the header reads as a footnote: `--text-dim`, regular weight (the
   live one keeps medium weight and its state color). The answer is outside the fold. A settled
@@ -514,12 +526,26 @@ One set for both themes: the card is island black wherever it shows.
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
   and the composer column equals the transcript column (`--content-w`, same `--space-4` gutter).
   The only card is the input box: `--bg-elevated`, hairline border, `--radius-xl`, `--shadow-card`;
-  focus turns its border `--accent` (no inner outline). Above it the agent/status line and the
-  completion popover; inside, ONE row — attach control | auto-growing textarea | Send / Queue /
-  Stop — with the controls bottom-aligned so they stay beside the last line as the box grows;
-  the image strip is its own row above that line.
-- The status line ends, on fine pointers, with `/` commands and `@` files keycaps (plus `Mod+Enter`
-  sends when **Enter sends** is off); the placeholder is just `Message <agent>…`.
+  focus turns its border `--accent` (no inner outline). Above it the completion popover and the
+  background-task list; inside, the image strip is its own row at the top, then ONE row — attach
+  control | auto-growing textarea | Send / Queue / Stop — with the controls bottom-aligned so they
+  stay beside the last line as the box grows, then the status row as the card's last row.
+- The status row (`.composer-status`, `role="status"`) spans the card's full width at every window
+  width, phones included, and never wraps. It draws, in `--text-dim` at `--fs-xs`: the agent mark,
+  the background-task chip, the model, the reasoning level as one word with no outline (`high`),
+  the context ring, and the uploading or reconnecting sentence. The agent's written name, its
+  separator, the state words `READY` / `RUN` / `INPUT` and the sentence `Reasoning high`
+  stay in the row for assistive tech only (`.visually-hidden`): the header names the pane, and
+  the state is told by Stop, the live row and the prompt card. `DONE` alone is drawn, after the
+  mark, in `--status-done` caps: nothing else in the chat says a turn ended and was not seen yet,
+  and on a phone the sidebar's label is in a closed drawer.
+- What does not fit the row gives way in this order: the task chip's words (icon and count below
+  a `640px` card — the card's own width, `composerStatusCompact`, not the window's), the model's
+  name down to a few letters, the reasoning level, then the opened context text. The context ring
+  is never cut. At `480px` and below the reconnecting sentence is the placeholder's and the header
+  chip's, not the row's.
+- Queue is a `--primary-tint` pill; its `--primary` outline is drawn in light themes only, where
+  the tint alone does not separate it from the card. The placeholder is just `Message <agent>…`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;
   `@` completions query `GET /api/pane/files`. Arrow keys navigate, Enter/Tab accepts, Escape closes.
 - Paste, picker or drag/drop accepts up to four png/jpeg/gif/webp files per action. Each gets a local

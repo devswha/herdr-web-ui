@@ -8,6 +8,24 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- In the chat, the line with the model sits inside the message box, as its last row, instead of
+  above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
+  the reasoning level as one word (`high`) and the context ring. The agent's written name and the
+  READY / RUN / INPUT word are no longer drawn there (a screen reader still reads them): the
+  header names the pane, and Stop, the working row and the approval card say the state. DONE is
+  still drawn, since nothing else in the chat says a turn ended and has not been seen. Where
+  the box is narrow, beside the sidebar for one, the background-task chip shows its count
+  before the model's name is cut. In dark themes Queue loses its outline.
+  ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
+
+- In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
+  src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
+  rows start on the same left edge as the block's header and the prose. The tool's own id
+  (`exec`, `Bash`, `apply_patch`) is the row's tooltip and the first line of the row once
+  opened; a tool without a verb keeps its id in the row. While the agent works, what it says
+  between tool calls is in the answer's size and colour instead of small and dim.
+  ([#457](https://github.com/devswha/herdr-web-ui/pull/457))
+
 - The chat transcript is quieter. A finished turn folds its work under one dim "Worked for" row
   and only the running turn stays open; a block you open, fold or work inside stays as you left
   it, and a turn that ended without an answer keeps its words in view. The line

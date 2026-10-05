@@ -25,7 +25,7 @@ export const SPECS: DemoSpec[] = [
 ];
 
 export const t = (min: number, sec = 0) => `2026-09-25T09:${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}.000Z`;
-const tool = (name: string, summary: string, input: unknown, output: string): ConversationTurn["parts"][number] => ({ kind: "tool", name, summary, input: JSON.stringify(input, null, 2), output });
+const tool = (name: string, summary: string, input: unknown, output: string): ConversationTurn["parts"][number] => ({ kind: "tool", name, summary, input: typeof input === "string" ? input : JSON.stringify(input, null, 2), output });
 
 export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { model: string; reasoning_effort: string } }> = {
   api: {
@@ -55,7 +55,7 @@ export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { mode
       { role: "user" as const, ts: t(1), parts: [{ kind: "text" as const, text: "Rate-limit the export button so a double click can't start two exports, then push the branch." }] },
       { role: "assistant" as const, ts: t(1, 4), end_ts: t(3, 20), parts: [
         tool("exec", "rg -n \"startExport\" src", { cmd: "rg -n \"startExport\" src" }, "src/pages/Reports.tsx:88:  onClick={() => startExport(filters)}"),
-        tool("apply_patch", "src/pages/Reports.tsx", {}, "Success. Updated the following files:\nM src/pages/Reports.tsx"),
+        tool("apply_patch", "src/pages/Reports.tsx", "*** Begin Patch\n*** Update File: src/pages/Reports.tsx\n@@\n-  onClick={() => startExport(filters)}\n+  disabled={exporting}\n+  onClick={() => { if (!exporting) startExport(filters); }}\n*** End Patch", "Success. Updated the following files:\nM src/pages/Reports.tsx"),
         tool("exec", "pnpm test --filter reports", { cmd: "pnpm test --filter reports" }, "✓ 9 tests passed"),
         { kind: "text" as const, text: "The button is disabled while an export runs, and a second click within the same run is ignored. Tests pass; I need your OK to push `feat/export-guard`." },
       ] },
@@ -66,7 +66,7 @@ export const CHATS: Record<string, { turns: ConversationTurn[]; metadata: { mode
     turns: [
       { role: "user" as const, ts: t(0), parts: [{ kind: "text" as const, text: "Why did last night's backup job fail?" }] },
       { role: "assistant" as const, ts: t(0, 6), end_ts: t(1, 2), parts: [
-        tool("bash", "journalctl -u backup --since yesterday", {}, "backup.sh: disk quota exceeded on /mnt/archive"),
+        tool("bash", "journalctl -u backup --since yesterday", { command: "journalctl -u backup --since yesterday" }, "backup.sh: disk quota exceeded on /mnt/archive"),
         { kind: "text" as const, text: "The archive volume hit its quota at 02:14. Old snapshots were never pruned because the retention flag was dropped in the last config change. I restored `--keep-daily 14`; tonight's run will prune and succeed." },
       ] },
     ],

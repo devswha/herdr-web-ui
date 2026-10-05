@@ -1,6 +1,6 @@
 /* The composer is a centered chat surface; PaneTerminal owns its placement above the mobile
-   keyboard. Its horizontal padding equals .chat-view's, so the status line, the quick replies,
-   the box and the transcript share one column edge. */
+   keyboard. Its horizontal padding equals .chat-view's, so the quick replies, the box and the
+   transcript share one column edge. */
 .composer {
   position: relative;
   flex: none;
@@ -10,6 +10,15 @@
      and still clear it, and the full inset left a band of nothing under the box */
   padding: 0 var(--space-4) max(var(--space-4), calc(env(safe-area-inset-bottom, 0px) - var(--space-4)));
   background: var(--bg-panel);
+  /* how far the resize grip's hit area rises above the box */
+  --composer-grip-h: 12px;
+}
+
+/* The held-message list ends in things to press (a message's own box, Send now, Discard), and the
+   grip's hit area would lie over the bottom centre of its last row. After the list the composer
+   keeps that strip for itself */
+.composer-queue ~ .composer {
+  padding-top: var(--composer-grip-h);
 }
 
 /* the soft keyboard covers the home indicator: the box sits just above the keyboard */
@@ -17,7 +26,6 @@
   padding-bottom: var(--space-2);
 }
 
-.composer-status,
 .composer-quick,
 .composer-surface,
 .composer-note {
@@ -30,21 +38,36 @@
   left: calc(var(--space-4) + max(0px, (100% - 2 * var(--space-4) - var(--content-w)) / 2));
 }
 
-/* one row, always: a second row is taken from the conversation, and a phone has none to spare.
-   What does not fit gives way in this order: the model's name shortens to a few letters, then
-   the reasoning level, then the opened context text; nothing overlaps its neighbour, and the
-   context ring at the end is never the part that is cut. */
+/* the card's last row, at the card's full width at every window width: a footer that shared
+   its row with the controls cut the model's name on a phone and beside the sidebar.
+   One row, always: a second row is taken from the conversation, and a phone has none to spare.
+   What does not fit gives way in this order: the task chip's words (BackgroundTasks.css, by the
+   card's width), the model's name down to a few letters, then the reasoning level, then the
+   opened context text; nothing overlaps its neighbour, and the context ring at the end is never
+   the part that is cut. The agent's name, the separator and the state word are in the row for a
+   screen reader only (.visually-hidden): the mark stays, and the state is told by Stop, the
+   live row and the prompt card. */
 .composer-status {
+  grid-area: status;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
   min-height: var(--chip-h);
-  padding: 0 var(--space-2) var(--space-1);
+  padding: 0 var(--space-3) var(--space-2);
   color: var(--text-dim);
   font-size: var(--fs-xs);
   white-space: nowrap;
   overflow: hidden;
+}
+
+/* the one state word the row draws: a turn that ended and was not seen yet */
+.composer-status[data-status="done"] strong {
+  flex: none;
+  color: var(--status-done);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-caps);
 }
 
 .composer-model-info {
@@ -59,22 +82,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
 }
 
-.composer-reasoning-short {
-  display: none;
-}
-
+/* the level as one word beside the model, without an outline: the card's own border is the only
+   one at rest. The sentence ("Reasoning high") is the screen reader's and the tooltip's */
 .composer-reasoning {
   flex: 0 10 auto;
   min-width: 2ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-inline: var(--space-1);
-  border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-sm);
 }
 
 /* what is left of the context: plain until a compaction is near */
@@ -130,34 +147,15 @@
   flex: none;
 }
 
-.composer-status strong {
-  flex: none;
-  color: var(--text-strong);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--tracking-caps);
-}
-
-.composer-status[data-status="working"] strong {
-  color: var(--status-working);
-}
-
-.composer-status[data-status="blocked"] strong {
-  color: var(--status-blocked);
-}
-
-.composer-status[data-status="done"] strong {
-  color: var(--status-done);
-}
-
 .composer-status-hint {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* one row: attach | textarea | actions. The controls sit at the bottom of their cells so a
-   grown textarea keeps them beside its last line, like a chat app; the attachment strip is
-   its own row above */
+/* the first row: attach | textarea | actions. The controls sit at the bottom of their cells so
+   a grown textarea keeps them beside its last line, like a chat app; the attachment strip is
+   its own row above, and the status row is the last, under them */
 .composer-surface {
   --composer-control-h: var(--control-h);
   position: relative;
@@ -165,7 +163,8 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "attachments attachments attachments"
-    "left text right";
+    "left text right"
+    "status status status";
   align-items: end;
   background: var(--bg-elevated);
   border: var(--hairline) solid var(--border);
@@ -188,9 +187,12 @@
   box-shadow: 0 0 0 var(--hairline) var(--accent);
 }
 
-/* the resize grip: a short bar on the box's top edge. Its hit area rises from the border into
-   the status line's gap and never reaches into the box, so a tap at the box's top still lands
-   on the text and a remove button in the attachment strip stays reachable */
+/* the resize grip: a short bar on the box's top edge. Its hit area rises from the border and
+   never reaches into the box, so a tap at the box's top still lands on the text and a remove
+   button in the attachment strip stays reachable. The composer has no space of its own above the
+   box, so the area (48 by 12px, 64 by 20px on touch) lies over the bottom centre of what comes
+   before it: the conversation's bottom padding, or the quick-reply row. Nothing to press belongs
+   in that strip: after the held-message list the composer reserves it (above) */
 .composer-resize {
   position: absolute;
   bottom: 100%;
@@ -199,7 +201,7 @@
   display: grid;
   place-items: end center;
   width: 48px;
-  height: 12px;
+  height: var(--composer-grip-h);
   transform: translateX(-50%);
   cursor: ns-resize;
   touch-action: none;
@@ -340,6 +342,12 @@
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
   cursor: pointer;
+}
+
+/* one outline less beside Stop: in a dark theme the tint alone carries the pill. A light card
+   keeps the outline, where the tint alone is about 1.1:1 against it */
+[data-theme="dark"] .composer-queue-button {
+  border-color: transparent;
 }
 
 .composer-action:disabled,
@@ -489,24 +497,9 @@
     padding-inline: var(--space-2);
   }
 
-  .composer-agent-label,
-  .composer-status-separator,
+  /* no room for the sentence beside the model: the placeholder and the header chip say it */
   .composer-status-hint {
     display: none;
-  }
-
-  /* the chip keeps the level and drops the word; a screen reader still reads the whole of it */
-  .composer-reasoning-full {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .composer-reasoning-short {
-    display: inline;
   }
 
   /* A phone fits neither half of a pi command's row, and pi writes explanations twice as long as
@@ -539,9 +532,12 @@
     min-height: calc(var(--touch-target) + var(--space-1));
   }
 
+  .composer {
+    --composer-grip-h: 20px;
+  }
+
   .composer-resize {
     width: 64px;
-    height: 20px;
   }
 }
 

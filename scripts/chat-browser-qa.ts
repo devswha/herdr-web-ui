@@ -37,6 +37,8 @@ try {
   add(message("assistant", "I am checking the transcript.", "commentary"), 1);
   add({ type: "function_call", name: "exec_command", call_id: "c1", arguments: '{"cmd":"git status"}' }, 2);
   add({ type: "function_call_output", call_id: "c1", output: "clean" }, 3);
+  add({ type: "function_call", name: "exec_command", call_id: "c2", arguments: '{"cmd":"bun test"}' }, 4);
+  add({ type: "function_call_output", call_id: "c2", output: "Process exited with code 1\n1 fail" }, 5);
   add(message("assistant", answer, "final_answer"), 8);
   persist();
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-chat-browser" });
@@ -60,7 +62,18 @@ try {
   assert.equal((await log.innerText()).includes("PRIVATE"), false);
   const modelInfo = page.getByLabel("Model and reasoning");
   await modelInfo.getByText("codex-test-model", { exact: true }).waitFor();
-  await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor();
+  // the level is drawn as one word; the sentence is the screen reader's
+  await modelInfo.getByText("xhigh", { exact: true }).waitFor();
+  await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor({ state: "attached" });
+  assert.equal(await page.locator(".composer-surface > .composer-status").count(), 1, "the status row is the input card's last row");
+  assert.equal(await page.locator(".composer-status").evaluate((node) => {
+    // DONE is the one state word the row draws; READY, RUN and INPUT are read, not drawn
+    const word = node.querySelector("strong");
+    const hidden = [node.querySelector(".composer-agent-label"), node.querySelector(".composer-reasoning-full")];
+    if (node.getAttribute("data-status") !== "done") hidden.push(word);
+    else if (word === null || word.getBoundingClientRect().width <= 1) return false;
+    return hidden.every((item) => item !== null && item.textContent !== "" && item.getBoundingClientRect().width <= 1);
+  }), true, "the agent's name, the state word (unless DONE) and the reasoning sentence are read, not drawn");
   const work = log.locator(".work-block-head");
   const report = (state: "working" | "idle") => herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state, agent_session_path: rollout });
   const head = (expanded: boolean, title: string) => log.locator(`.work-block-head[aria-expanded="${expanded}"]`).filter({ hasText: title });
@@ -88,7 +101,17 @@ try {
   assert.match(await work.innerText(), /Worked for 7s/);
   await work.click();
   assert.equal(await work.getAttribute("aria-expanded"), "true");
-  await log.getByRole("button", { name: /exec_command/ }).click();
+  // a tool the verb table knows reads as verb + object; its id is the title and the detail's first line
+  const row = log.getByRole("button", { name: "Ran git status", exact: true });
+  assert.equal(await row.getAttribute("title"), "exec_command · git status");
+  assert.equal(await row.locator(".work-row-caret").isVisible(), true);
+  assert.equal(await row.locator(".work-row-icon, .work-row-sep").count(), 0);
+  // a failed call says so after its object, never between the verb and what it ran
+  const failedRow = log.getByRole("button", { name: "Ran bun test failed", exact: true });
+  assert.equal(await failedRow.evaluate((node) => node.lastElementChild?.className), "work-row-failed");
+  assert.equal(await failedRow.getAttribute("title"), "exec_command · bun test");
+  await row.click();
+  assert.equal(await log.locator(".work-row-detail > :first-child").innerText(), "exec_command");
   await log.getByText("git status", { exact: true }).last().waitFor();
   assert.equal(await log.locator(".chat-agent-meta").count(), 1);
   console.log("PASS native user/answer rendering, internal context filtering, settled work folded, tool expansion, duration");
@@ -108,7 +131,8 @@ try {
 
   records.push({ type: "turn_context", payload: { model: "codex-updated-model", effort: "low" } }); persist();
   await modelInfo.getByText("codex-updated-model", { exact: true }).waitFor();
-  await modelInfo.getByText("Reasoning low", { exact: true }).waitFor();
+  await modelInfo.getByText("low", { exact: true }).waitFor();
+  await modelInfo.getByText("Reasoning low", { exact: true }).waitFor({ state: "attached" });
   assert.equal(await modelInfo.getByText("codex-test-model", { exact: true }).count(), 0);
   console.log("PASS model and reasoning metadata update without a new message");
 

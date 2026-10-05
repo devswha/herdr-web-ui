@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerStatusWord, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
+import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerStatusCompact, composerStatusWord, composerStatusWordDrawn, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -102,6 +102,27 @@ describe("composer presentation helpers", () => {
     expect(composerStatusWord("blocked")).toBe("INPUT");
     expect(composerStatusWord("done")).toBe("DONE");
     expect(composerStatusWord("paused")).toBe("READY");
+  });
+  it("draws only the DONE word in the composer", () => {
+    expect(composerStatusWordDrawn("done")).toBe(true);
+    expect(composerStatusWordDrawn("idle")).toBe(false);
+    expect(composerStatusWordDrawn("working")).toBe(false);
+    expect(composerStatusWordDrawn("blocked")).toBe(false);
+    expect(composerStatusWordDrawn("paused")).toBe(false);
+    expect(composerStatusWordDrawn(undefined)).toBe(false);
+  });
+
+  it("makes the status row compact by the card's width, not the window's", () => {
+    // a phone's card, and a laptop's with the sidebar open in a 940px window
+    expect(composerStatusCompact(374)).toBe(true);
+    expect(composerStatusCompact(588)).toBe(true);
+    expect(composerStatusCompact(COMPOSER_STATUS_COMPACT_BELOW - 1)).toBe(true);
+    // the threshold itself, a 1024px window with the sidebar open, and the full 820px card
+    expect(composerStatusCompact(COMPOSER_STATUS_COMPACT_BELOW)).toBe(false);
+    expect(composerStatusCompact(672)).toBe(false);
+    expect(composerStatusCompact(820)).toBe(false);
+    // a card that is not laid out yet has no width: it is not called narrow
+    expect(composerStatusCompact(0)).toBe(false);
   });
 
   it("turns machine agent ids into labels", () => {
