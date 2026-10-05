@@ -702,6 +702,14 @@
   font-size: var(--fs-sm);
 }
 
+/* without field-sizing the box has rows= alone, which counts line breaks and not wrapped
+   lines: the floor of two lines it had keeps a wrapped message readable */
+@supports not (field-sizing: content) {
+  .composer-queue-text {
+    min-height: calc(2lh + 2 * var(--space-1));
+  }
+}
+
 .composer-queue-text:focus-visible {
   padding-inline: var(--space-2);
   border-color: var(--accent);
