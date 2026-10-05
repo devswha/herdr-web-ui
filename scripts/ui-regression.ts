@@ -372,8 +372,9 @@ try {
   assert.equal(await page.locator(".composer-queue-text").count(), 3);
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
   // one column: the held list, the box, its status line and the conversation share their edges.
-  // At the default Chat width this pane is narrower than the lane, so the column is the pane less
-  // its gutters; at Narrow the lane is narrower than the pane and every one of them is held to it
+  // The default Chat width follows the pane: min 820px, max 960px, 71% of the pane between. This
+  // pane is under 1148px, so the lane is its 820px floor, as at Narrow; at Wide the lane is wider
+  // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
     await page.keyboard.press("Control+Shift+Comma");
     await page.locator('.segmented[aria-label="Chat width"]').getByRole("button", { name, exact: true }).click();
@@ -391,14 +392,23 @@ try {
     }
     return { x: Math.round(card.x), width: Math.round(card.width), pane: Math.round(pane.width) };
   };
-  const gutters = await laneColumn();
-  assert.equal(gutters.width, gutters.pane - 32, "the default lane is wider than this pane: the column is the pane less its gutters");
+  const floor = await laneColumn();
+  assert.ok(floor.pane < 1148, "71% of this pane is under the lane's floor");
+  assert.equal(floor.width, 820);
+  assert.ok(floor.width < floor.pane - 32, "the lane, not the pane, sets the column");
   await chatWidth("Narrow");
-  const narrow = await laneColumn();
-  assert.equal(narrow.width, 820);
-  assert.ok(narrow.width < narrow.pane - 32, "the narrow lane, not the pane, sets the column");
+  assert.deepEqual(await laneColumn(), floor);
+  await chatWidth("Wide");
+  const gutters = await laneColumn();
+  assert.equal(gutters.width, gutters.pane - 32, "the wide lane is wider than this pane: the column is the pane less its gutters");
   await chatWidth("Default");
-  assert.deepEqual(await laneColumn(), gutters);
+  assert.deepEqual(await laneColumn(), floor);
+  await page.setViewportSize({ width: 1920, height: 800 });
+  await until(async () => Math.round((await page.locator(".composer-surface").boundingBox())?.width ?? 0) === 960, "the default lane grows to its 960px ceiling on a large window");
+  assert.equal((await laneColumn()).width, 960);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await until(async () => Math.round((await page.locator(".composer-surface").boundingBox())?.width ?? 0) === 820, "the default lane returns to its floor");
+  assert.deepEqual(await laneColumn(), floor);
   await page.locator(".composer-queue-text").nth(1).fill("# edited second message");
   await page.reload();
   await page.locator(".conn-live").waitFor();
@@ -445,8 +455,9 @@ try {
   assert.equal(await page.locator(".composer-quick-toggle").count(), 0);
   await quickRow(true);
   // on a wide pane the row keeps the box's column instead of running to the pane's left edge.
-  // Measured at the narrow Chat width: the default lane is wider than this pane, and there the
-  // row and the box would both simply fill the composer whatever their own width rule said
+  // Measured at the narrow Chat width, where the lane is narrower than this pane at any window
+  // size: in a lane wider than the pane the row and the box would both simply fill the composer
+  // whatever their own width rule said
   await chatWidth("Narrow");
   const quickBox = await page.locator(".composer-quick").boundingBox();
   const surfaceBox = await page.locator(".composer-surface").boundingBox();

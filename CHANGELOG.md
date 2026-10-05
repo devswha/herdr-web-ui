@@ -8,11 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
-- The chat is wider on a large screen: the conversation and the message box run up to 960px,
-  from 820px. Settings → Chat → **Chat width** chooses **Narrow** (820px, as before),
-  **Default**, **Wide** (1152px) or **Full**, the whole pane. The held messages, the approval
-  card and the background-task list keep the same column. Phones and narrow panes look the
-  same as before.
+- The chat is wider on a large screen: the conversation and the message box follow the pane,
+  at least 820px and at most 960px wide, 71% of the pane between. A laptop window keeps the
+  820px it had and a large monitor grows to 960px. Settings → Chat → **Chat width** chooses
+  **Narrow** (820px, as before), **Default**, **Wide** (1152px) or **Full**, the whole pane.
+  The held messages, the approval card and the background-task list keep the same column.
+  Phones and narrow panes look the same as before.
   ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 
 ### Fixed
