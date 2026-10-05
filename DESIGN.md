@@ -390,6 +390,10 @@ One set for both themes: the card is island black wherever it shows.
   (blocked, then working, then done, then ready), as herdr rolls a workspace up. The other panes
   of a workspace are reached from the tab strip over the pane, the command palette and
   **Needs you**.
+- Appearance's **Panes in the sidebar** (off by default) also lists them under the row of a
+  workspace with more than one pane (`.pane-children`): one line per pane with its mark, title and
+  own state word, behind the same hairline as worktrees and beside the row rather than inside it.
+  A line opens its pane; the open one takes the hover surface. The workspace row is unchanged.
 - Appearance's **Sidebar grouping** is **By workspace** by default. **By folder** opts into the
   grouping below. The choice applies immediately and persists in the browser's existing Settings
   record; folder folds are remembered per PC and path.

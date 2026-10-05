@@ -19,6 +19,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   when it is set) or the `OPENCODE_API_KEY` variable. An OpenCode key without a Go
   subscription shows no meter.
   ([#444](https://github.com/devswha/herdr-web-ui/pull/444) by @diogo7dias)
+- **Settings → Appearance → Panes in the sidebar** lists each pane of a workspace under its row,
+  one line per pane with its agent, title and state, besides the tab strip over the pane. It is
+  off by default, so the sidebar stays one row per workspace as herdr's Spaces sidebar has it;
+  turned on, every pane of every workspace is a click away in the sidebar again, as before 0.3.46.
+  ([#490](https://github.com/devswha/herdr-web-ui/pull/490) by @kilhyeonjun)
 
 ### Changed
 - The website says what it is for in its title and description (Claude Code and Codex from your

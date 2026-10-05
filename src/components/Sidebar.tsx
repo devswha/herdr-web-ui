@@ -106,7 +106,8 @@ export interface SidebarProps {
  * One row per workspace, as herdr's Spaces sidebar: the row shows the workspace's current pane
  * (the selected one when it is in the workspace, else the one last viewed there, else the one
  * herdr has in front) and opens it. The panes of a workspace are picked from the tab strip
- * over the pane, the palette and Needs you; the row's state is the roll-up of all of them.
+ * over the pane, the palette and Needs you (and, with Settings → Panes in the sidebar, from
+ * rows under it); the row's state is the roll-up of all of them.
  */
 export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
   const t = useT();
@@ -402,10 +403,12 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     const editingPane = editingPaneId === pane.pane_id;
     const editingWorkspace = editingWorkspaceId === `${scope}\u0000${workspace.workspace_id}`;
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id && menu.scope === scope;
+    // Settings → Panes in the sidebar: each pane of a workspace with several, under its row
+    const paneRows = settings.sidebarPanes && visiblePanes.length > 1 ? visiblePanes : [];
     return (
+      <Fragment key={workspace.workspace_id}>
       <li
         className={`workspace pane-item${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${selected ? " is-selected" : ""}`}
-        key={workspace.workspace_id}
         onDragOver={(event) => {
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
@@ -494,6 +497,22 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
         </div>
         {inlineError?.workspaceId === workspace.workspace_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>}
       </li>
+      {/* beside the row rather than inside it, as worktrees are, so a hover on a pane does not light the row */}
+      {paneRows.length > 0 && <li className="pane-children"><ul className="pane-list" aria-label={t("Panes of {name}", { name: workspace.label })}>
+        {paneRows.map((child) => {
+          const current = child.pane_id === selectedPaneId;
+          return (
+            <li key={child.pane_id} className={`pane-child${current ? " is-selected" : ""}`}>
+              <button type="button" className="pane-child-select" aria-current={current ? "true" : undefined} title={`${child.pane_id} — ${paneTitle(child)}${child.cwd ? ` — ${child.cwd}` : ""}`} onClick={() => actions.selectPane(child.pane_id)}>
+                <span className="pane-child-mark" title={child.agent ?? t("Shell")}>{child.agent ? <AgentMark agent={child.agent} size={14} /> : <Terminal aria-hidden="true" />}</span>
+                <span className="pane-child-title">{displayPaneTitle(child)}</span>
+                {child.restore_error ? <RestoreErrorBadge reason={child.restore_error} /> : <StatusBadge status={child.agent_status} />}
+              </button>
+            </li>
+          );
+        })}
+      </ul></li>}
+      </Fragment>
     );
   };
 

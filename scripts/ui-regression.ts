@@ -800,6 +800,30 @@ try {
   await page.getByRole("dialog", { name: /^New workspace/ }).waitFor({ state: "hidden" });
   console.log("PASS a second tab is made from the row's menu, listed in a strip over the pane, and opened from it");
 
+  // Settings → Panes in the sidebar lists both panes under the workspace's row; a line opens its
+  // pane, and turned off again the row stands alone
+  const paneLine = (paneId: string) => page.locator(`.pane-children .pane-child-select[title^="${paneId} —"]`);
+  const setSidebarPanes = async (on: boolean): Promise<void> => {
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const toggle = page.getByRole("switch", { name: "Panes in the sidebar", exact: true });
+    if ((await toggle.getAttribute("aria-checked")) !== String(on)) await toggle.click();
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  };
+  assert.equal(await paneLine(created.pane_id).count(), 0, "off by default: no pane lines");
+  await setSidebarPanes(true);
+  await paneLine(createdTab.pane_id).waitFor();
+  assert.equal(await paneLine(created.pane_id).count(), 1, "both panes of the workspace have a line");
+  assert.equal(await paneLine(created.pane_id).getAttribute("aria-current"), "true", "the open pane's line is current");
+  await paneLine(createdTab.pane_id).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "a pane line opens its pane");
+  assert.equal(await paneLine(createdTab.pane_id).getAttribute("aria-current"), "true");
+  assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "second", "the strip follows");
+  await setSidebarPanes(false);
+  await paneLine(createdTab.pane_id).waitFor({ state: "detached" });
+  await strip.getByRole("tab", { name: "Tab 1", exact: true }).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "back on the first tab");
+  console.log("PASS Panes in the sidebar lists a workspace's panes under its row and opens them");
+
   // A tab is renamed and closed from the strip, as herdr's prefix+shift+t and prefix+shift+x.
   const tabsInHerdr = async () => (await sessionSnapshot()).tabs.filter((tab) => tab.workspace_id === created.workspace_id).map((tab) => tab.label);
   await strip.getByRole("tab", { name: "Tab 1", exact: true }).dblclick();

@@ -23,6 +23,9 @@ it("defaults legacy records to workspace grouping and accepts only supported mod
   expect(sanitizeSettings({}).sidebarGrouping).toBe("workspace");
   expect(sanitizeSettings({ sidebarGrouping: "workspace" }).sidebarGrouping).toBe("workspace");
   expect(sanitizeSettings({ sidebarGrouping: "directory" }).sidebarGrouping).toBe("directory");
+  expect(sanitizeSettings({}).sidebarPanes).toBe(false);
+  expect(sanitizeSettings({ sidebarPanes: true }).sidebarPanes).toBe(true);
+  expect(sanitizeSettings({ sidebarPanes: "yes" }).sidebarPanes).toBe(false);
   for (const sidebarGrouping of [null, true, "folder", 1]) {
     expect(sanitizeSettings({ sidebarGrouping }).sidebarGrouping).toBe("workspace");
   }
