@@ -44,33 +44,44 @@ export interface GreetingMemory {
   blank: boolean;
   /** the history the last answered read was of; null before any */
   history: string | null;
-  /** a message went out and the conversation has shown neither a turn nor a new history since */
+  /** a message was typed into the pane, or may have been, and the conversation has shown neither a turn nor a new history since */
   sent: boolean;
+  /** messages on their way that the server has not answered for yet */
+  pending: number;
 }
 
-export const NO_MEMORY: GreetingMemory = { blank: false, history: null, sent: false };
+export const NO_MEMORY: GreetingMemory = { blank: false, history: null, sent: false, pending: 0 };
 
 /**
  * A read came in. Nothing known (the chat is loading, its read failed, or it left the screen) is
  * not blank, and it forgets no message: only a turn or another history ends what a send began.
  * A read that names no history (the scrollback standing in) is of the one already held.
+ * Messages on their way are not a read's to count: their own answers settle them.
  */
 export function afterRead(memory: GreetingMemory, read: ChatRead | null): GreetingMemory {
   if (read === null) return memory.blank ? { ...memory, blank: false } : memory;
   const history = read.history ?? memory.history ?? "";
   const moved = memory.history !== null && memory.history !== history;
   const sent = memory.sent && read.turns === 0 && !moved;
-  return memory.blank === read.blank && memory.history === history && memory.sent === sent ? memory : { blank: read.blank, history, sent };
+  return memory.blank === read.blank && memory.history === history && memory.sent === sent ? memory : { ...memory, blank: read.blank, history, sent };
 }
 
-/** A message went out from the composer, read or not yet. */
+/** A message left the composer, read or not yet: the server has not answered for it. */
 export function afterSend(memory: GreetingMemory): GreetingMemory {
-  return memory.sent ? memory : { ...memory, sent: true };
+  return { ...memory, pending: memory.pending + 1 };
 }
 
-/** That message did not go out after all: nothing was typed into the pane. */
-export function afterUnsent(memory: GreetingMemory): GreetingMemory {
-  return memory.sent ? { ...memory, sent: false } : memory;
+/**
+ * The server answered for one message. `typed` is whether any of it reached the pane, or may
+ * have; a message refused before that leaves nothing behind. `history` is the one held when it
+ * left (null before any read): a message typed into a conversation since replaced (a /clear
+ * read before its answer came) is not one the new conversation waits to show.
+ * Each message settles only its own count, so two on their way never undo each other.
+ */
+export function afterSettled(memory: GreetingMemory, typed: boolean, history: string | null): GreetingMemory {
+  const pending = memory.pending > 0 ? memory.pending - 1 : 0;
+  const sent = memory.sent || (typed && (history === null || memory.history === history));
+  return memory.pending === pending && memory.sent === sent ? memory : { ...memory, sent, pending };
 }
 
 // Held outside any component: PaneTerminal is mounted again for each PC (App.tsx), and a look at
@@ -95,11 +106,12 @@ export interface GreetingState {
 }
 
 /**
- * Whether the greeting shows. A message sent takes it away at once, before the transcript
- * holds the turn; an agent already at work or asking is not asked what it should do.
+ * Whether the greeting shows. A message sent takes it away at once, before the server answers
+ * for it and before the transcript holds the turn; an agent already at work or asking is not
+ * asked what it should do.
  */
 export function showsGreeting(state: GreetingState): boolean {
-  return state.memory.blank && !state.memory.sent
+  return state.memory.blank && !state.memory.sent && state.memory.pending === 0
     && state.agentStatus !== "working" && state.agentStatus !== "blocked"
     && state.queued === 0 && state.folder !== "";
 }

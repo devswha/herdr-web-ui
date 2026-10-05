@@ -11,7 +11,7 @@ import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/ke
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
-import { afterRead, afterSend, afterUnsent, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
+import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
@@ -1183,19 +1183,22 @@ export function PaneTerminal({
     term.scrollToBottom();
     setChatSent((current) => current + 1);
     const owner = paneStorageId(machineId, pane);
-    const first = !greetingMemory(owner).sent;
+    const history = greetingMemory(owner).history;
     rememberGreeting(owner, afterSend(greetingMemory(owner))); redrawGreeting();
     // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
     onChatSuggestion(pane, null);
     return sent.then((result) => {
-      if (!result.ok) {
-        // nothing was typed: the message that took the greeting away did not go out
-        if (first && submitNotTyped(result.code)) { rememberGreeting(owner, afterUnsent(greetingMemory(owner))); redrawGreeting(); }
-        return submitNote(result.code, result.message);
-      }
+      // a message refused before anything was typed leaves the greeting as it was; each answer
+      // settles its own message only, so one on its way beside it (a queued "Send now") is not undone
+      rememberGreeting(owner, afterSettled(greetingMemory(owner), result.ok || !submitNotTyped(result.code), history)); redrawGreeting();
+      if (!result.ok) return submitNote(result.code, result.message);
       // the chat lens refetches at once so the sent prompt appears without a poll beat
       setChatRefresh((current) => current + 1);
       return true;
+    }, (error: unknown) => {
+      // the send broke with no answer: it may have been typed, and it is no longer on its way
+      rememberGreeting(owner, afterSettled(greetingMemory(owner), true, history)); redrawGreeting();
+      throw error;
     });
   }, [onChatSuggestion, machineId]);
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { NO_MEMORY, afterRead, afterSend, afterUnsent, chatIsBlank, composerLift, greetingFits, greetingFolder, greetingMemory, rememberGreeting, roomOverComposer, showsGreeting, type BlankChat, type ChatRead, type GreetingState } from "./greeting.ts";
+import { NO_MEMORY, afterRead, afterSend, afterSettled, chatIsBlank, composerLift, greetingFits, greetingFolder, greetingMemory, rememberGreeting, roomOverComposer, showsGreeting, type BlankChat, type ChatRead, type GreetingState } from "./greeting.ts";
 
 const blank: BlankChat = { loaded: true, failed: false, transcript: true, turns: 0, older: false, abandoned: 0, prompt: false, agent: "claude" };
 const read: ChatRead = { blank: true, turns: 0, history: "h1" };
@@ -55,28 +55,57 @@ describe("showsGreeting", () => {
   test("the first message sent takes the greeting away before the transcript holds it", () => {
     expect(showsGreeting({ ...shown, memory: afterSend(shown.memory) })).toBe(false);
     expect(showsGreeting({ ...shown, memory: afterRead(afterSend(shown.memory), read) })).toBe(false);
+    const typed = afterSettled(afterSend(shown.memory), true, "h1");
+    expect(typed).toMatchObject({ sent: true, pending: 0 });
+    expect(showsGreeting({ ...shown, memory: afterRead(typed, read) })).toBe(false);
   });
 
   test("a chat first read after the message went out is not greeted", () => {
     expect(showsGreeting({ ...shown, memory: afterRead(afterSend(NO_MEMORY), read) })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterSettled(afterRead(afterSend(NO_MEMORY), read), true, null) })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterRead(afterSettled(afterSend(NO_MEMORY), true, null), read) })).toBe(false);
   });
 
   test("the chat leaving the screen or a failed read does not bring the greeting back after a send", () => {
-    const away = afterRead(afterSend(shown.memory), null);
+    const away = afterRead(afterSettled(afterSend(shown.memory), true, "h1"), null);
     expect(away.sent).toBe(true);
     expect(showsGreeting({ ...shown, memory: afterRead(away, read) })).toBe(false);
     expect(showsGreeting({ ...shown, memory: afterRead(afterRead(afterRead(away, read), null), read) })).toBe(false);
   });
 
   test("a read that names no history (the scrollback standing in) does not bring it back after a send", () => {
-    const stoodIn = afterRead(afterSend(shown.memory), { blank: false, turns: 0, history: undefined });
+    const stoodIn = afterRead(afterSettled(afterSend(shown.memory), true, "h1"), { blank: false, turns: 0, history: undefined });
     expect(stoodIn.sent).toBe(true);
     expect(showsGreeting({ ...shown, memory: afterRead(stoodIn, read) })).toBe(false);
   });
 
   test("a message that was not typed after all leaves the greeting where it was", () => {
-    expect(showsGreeting({ ...shown, memory: afterUnsent(afterSend(shown.memory)) })).toBe(true);
-    expect(afterUnsent(shown.memory)).toBe(shown.memory);
+    expect(showsGreeting({ ...shown, memory: afterSettled(afterSend(shown.memory), false, "h1") })).toBe(true);
+    expect(afterSettled(shown.memory, false, "h1")).toBe(shown.memory);
+  });
+
+  test("two messages on their way settle one by one: a refused one does not undo the other", () => {
+    const both = afterSend(afterSend(shown.memory));
+    expect(both.pending).toBe(2);
+    // the first is refused while the second is still on its way: the greeting stays away
+    const refused = afterSettled(both, false, "h1");
+    expect(showsGreeting({ ...shown, memory: refused })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterSettled(refused, true, "h1") })).toBe(false);
+    // in the other order too, and with both refused it comes back
+    expect(showsGreeting({ ...shown, memory: afterSettled(afterSettled(both, true, "h1"), false, "h1") })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterSettled(refused, false, "h1") })).toBe(true);
+  });
+
+  test("a read does not settle a message on its way", () => {
+    const onItsWay = afterRead(afterRead(afterSend(shown.memory), null), read);
+    expect(onItsWay.pending).toBe(1);
+    expect(showsGreeting({ ...shown, memory: onItsWay })).toBe(false);
+  });
+
+  test("a message typed into a conversation cleared before its answer came does not hold the new one's greeting", () => {
+    const cleared = afterRead(afterSend(shown.memory), { ...read, history: "h2" });
+    expect(showsGreeting({ ...shown, memory: cleared })).toBe(false);
+    expect(showsGreeting({ ...shown, memory: afterSettled(cleared, true, "h1") })).toBe(true);
   });
 
   test("what is remembered is held per PC and pane, outside the component that shows it", () => {
@@ -93,18 +122,19 @@ describe("showsGreeting", () => {
   });
 
   test("a conversation found blank again after its turns, or in a new history (a cleared one), is greeted again", () => {
-    const answered = afterRead(afterSend(shown.memory), { blank: false, turns: 2, history: "h1" });
+    const answered = afterRead(afterSettled(afterSend(shown.memory), true, "h1"), { blank: false, turns: 2, history: "h1" });
     expect(answered.sent).toBe(false);
     expect(showsGreeting({ ...shown, memory: afterRead(answered, read) })).toBe(true);
-    const cleared = afterRead(afterSend(shown.memory), { ...read, history: "h2" });
+    const cleared = afterRead(afterSettled(afterSend(shown.memory), true, "h1"), { ...read, history: "h2" });
     expect(showsGreeting({ ...shown, memory: cleared })).toBe(true);
   });
 
   test("a read that changes nothing keeps the same memory", () => {
     expect(afterRead(shown.memory, read)).toBe(shown.memory);
     expect(afterRead(NO_MEMORY, null)).toBe(NO_MEMORY);
-    const sent = afterSend(shown.memory);
-    expect(afterSend(sent)).toBe(sent);
+    const sent = afterSettled(afterSend(shown.memory), true, "h1");
+    expect(afterRead(sent, read)).toBe(sent);
+    expect(afterSettled(sent, true, "h1")).toBe(sent);
   });
 
   test("an agent at work or asking is not asked what it should do", () => {
