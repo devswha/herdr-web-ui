@@ -1740,6 +1740,8 @@ describe("an answer and the menu it was made for", () => {
     replyLostOn?: string;
     /** more panes showing the same screen: p_2 … */
     more?: number;
+    /** the next snapshot alone takes this long */
+    nextSnapshotDelay?: number;
     root: string;
   }
 
@@ -1758,7 +1760,9 @@ describe("an answer and the menu it was made for", () => {
         if (!input.includes("\n")) return;
         const request = JSON.parse(input.split("\n")[0]!) as { id: string; method: string; params: { keys?: string[]; text?: string } };
         const answer = (result: unknown) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
-        if (request.method === "session.snapshot") return answer({ snapshot: { panes: Array.from({ length: 1 + (pane.more ?? 0) }, (_, index) => ({ pane_id: `p_${index + 1}`, agent: pane.agent, agent_status: pane.status, cwd: pane.cwd })), layouts: [] } });
+        const snapshotDelay = request.method === "session.snapshot" ? pane.nextSnapshotDelay : undefined;
+        if (snapshotDelay !== undefined) pane.nextSnapshotDelay = undefined;
+        if (request.method === "session.snapshot") return void setTimeout(() => answer({ snapshot: { panes: Array.from({ length: 1 + (pane.more ?? 0) }, (_, index) => ({ pane_id: `p_${index + 1}`, agent: pane.agent, agent_status: pane.status, cwd: pane.cwd })), layouts: [] } }), snapshotDelay ?? 0);
         if (request.method === "pane.read") {
           pane.onRead?.();
           const once = pane.nextRead;
@@ -2266,16 +2270,19 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(await answer(queued.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 409, code: "prompt_changed" });
       expect(pane.sent).toEqual([]);
       pane.screen = collapsed;
-      reads = 0;
+      pane.onRead = undefined;
+      // refused with nothing sent, the card is still the one that was read
+      expect((await card(home))!.id).toBe(queued.id);
       // a request given up while the screen is read before alt+↑ (the answer's second read,
       // after the one that finds the card) opens no queue
       const abort = new AbortController();
-      const again = (await card(home))!;
       reads = 0;
       pane.onRead = () => { reads += 1; if (reads === 2) abort.abort(); };
-      expect((await answer(again.id, { option_index: 1 }, { signal: abort.signal, codexHome: home })).status).toBe(409);
+      expect((await answer(queued.id, { option_index: 1 }, { signal: abort.signal, codexHome: home })).status).toBe(409);
       expect(pane.sent).toEqual([]);
       pane.onRead = undefined;
+      // given up with nothing sent: the same card still
+      expect((await card(home))!.id).toBe(queued.id);
       let at = 0;
       pane.onSent = (sent) => {
         if (sent === "alt+up") pane.screen = open(0);
@@ -2289,8 +2296,20 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       };
       // neither the twin nor the rollout's news under the answer is a reason to refuse: the
       // question on the screen is the card's
-      expect(await answer((await card(home))!.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 200, code: undefined });
+      expect(await answer(queued.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["alt+up", "down", "enter"]);
+
+      // The queue opens on another question than the card's, and the alt+↓ that closes it
+      // again is pressed with its reply lost; another client has the queue open after that.
+      // This request closes it no second time
+      pane.sent.length = 0;
+      pane.screen = collapsed;
+      const later = (await card(home))!;
+      const other = open(0).replace("Which split?", "Which metric?");
+      pane.replyLostOn = "alt+down";
+      pane.onSent = (sent) => { pane.screen = sent === "alt+up" || sent === "alt+down" ? other : pane.screen; };
+      expect((await answer(later.id, { option_index: 0 }, { codexHome: home })).status).not.toBe(200);
+      expect(pane.sent).toEqual(["alt+up", "alt+down"]);
     });
   });
 
@@ -2306,6 +2325,45 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect((await card())!.id).not.toBe(first.id);
       expect(await answer(first.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
       expect(pane.sent).toEqual(["enter"]);
+    });
+  });
+
+  test("a key that never reached herdr has ended nothing", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const first = (await card())!;
+      // herdr is gone between the answer's read and its Enter: nothing is pressed
+      const socket = process.env["HERDR_SOCKET"]!;
+      pane.onRead = () => { process.env["HERDR_SOCKET"] = join(pane.root, "gone.sock"); };
+      try {
+        expect((await answer(first.id, { option_index: 0 })).status).toBe(502);
+      } finally { process.env["HERDR_SOCKET"] = socket; }
+      pane.onRead = undefined;
+      expect(pane.sent).toEqual([]);
+      // the card is still the one to answer, with whatever was picked in it
+      expect((await card())!.id).toBe(first.id);
+    });
+  });
+
+  test("a read held up before its screen read ends the asking its empty screen shows", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const first = (await card())!;
+      // another device's read waits on herdr's snapshot
+      pane.nextSnapshotDelay = 300;
+      const held = card();
+      // meanwhile an answer begins and is given up, with nothing sent
+      const abort = new AbortController();
+      pane.onRead = () => abort.abort();
+      expect((await answer(first.id, { option_index: 0 }, { signal: abort.signal })).status).toBe(409);
+      pane.onRead = undefined;
+      expect(pane.sent).toEqual([]);
+      // the menu is answered in the terminal: the held read finds no prompt, and says so
+      pane.screen = "Working…\n";
+      pane.status = "working";
+      expect(await held).toBeNull();
+      // asked again as it was, it is another asking
+      pane.screen = menu(RESUME);
+      pane.status = "blocked";
+      expect((await card())!.id).not.toBe(first.id);
     });
   });
 

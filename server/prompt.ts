@@ -1888,7 +1888,6 @@ export function parseClaudeSuggestion(ansi: string): string | null {
 }
 
 async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: string; status: string; prompt: InteractivePrompt | null; pane: HerdrPane; panes: HerdrPane[] }> {
-  const turns = answerTurns.get(paneId) ?? 0;
   const { panes } = await sessionSnapshot();
   // a closed pane's wait has ended too
   for (const logged of fallbackLogged) if (!panes.some((candidate) => candidate.pane_id === logged)) fallbackLogged.delete(logged);
@@ -1898,6 +1897,9 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
   const agent = pane.agent ?? "";
   const status = pane.agent_status;
+  // counted right before the screen is read, after the snapshot: what matters is whether an
+  // answer ran while the screen was being read
+  const turns = answerTurns.get(paneId) ?? 0;
   const known = await readKnownPrompt(paneId, pane, agent, codexHome, panes);
   // an omo form just answered has closed, while herdr still reports the wait for a moment: that
   // is no screen to answer, and its fallback card would flash up after the form's last answer
@@ -2039,12 +2041,12 @@ function sameText(shown: string, asked: string): boolean {
  * chat's next read shows the question actually waiting (a skip can leave the rollout's
  * guess behind); a queue that does not open is left alone.
  */
-async function openQueuedQuestion(paneId: string, queued: ParsedPrompt, givenUp: () => boolean = () => false, sent: () => void = () => undefined): Promise<InteractivePrompt | null> {
+async function openQueuedQuestion(paneId: string, queued: ParsedPrompt, givenUp: () => boolean = () => false, opens: (open: boolean) => void = () => undefined): Promise<InteractivePrompt | null> {
   // the key only once the screen still shows the questions' count, nothing of the user's queued,
   // and while somebody still waits for the answer (asked after the read, which takes its time)
   if (queuedQuestionCount(await liveScreen(paneId)) === 0 || givenUp()) return null;
   // told before the key goes: it may be pressed and its reply still be lost
-  sent();
+  opens(true);
   await paneSendKeys(paneId, [KEY.openQueue]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await Bun.sleep(100);
@@ -2058,7 +2060,10 @@ async function openQueuedQuestion(paneId: string, queued: ParsedPrompt, givenUp:
     break;
   }
   // not the card's question (a skip can leave the rollout's guess behind), or nothing opened:
-  // never leave the queue open, where it would hold the input a message goes to
+  // never leave the queue open, where it would hold the input a message goes to. The one
+  // close of this request's opening, told before it is tried: if its reply is lost, nobody
+  // closes a second time what another client may have opened since
+  opens(false);
   await closeOpenQuestion(paneId);
   return null;
 }
@@ -2161,10 +2166,10 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         if (request.signal.aborted) return promptChanged();
         if (opensQueue) {
           // the card came from the rollout: answer it in the open queue, once it shows this question
-          const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!, () => request.signal.aborted, () => { queueOpened = true; });
+          const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!, () => request.signal.aborted, (open) => { queueOpened = open; });
           // a queue it could not answer in it has closed again itself, or never opened: a
           // queue another client opened meanwhile is that client's to close
-          if (!opened) { queueOpened = false; return promptChanged(); }
+          if (!opened) return promptChanged();
           if (!asks()) return promptChanged();
           target = opened;
         }
@@ -2228,9 +2233,16 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           }
           // before the key goes: herdr may press it and the reply still be lost, and a key that
           // may have been pressed has ended the asking as much as one that was
+          const first = !move && !committed;
           if (!move) committed = true;
-          if (step.keys) await paneSendKeys(body.pane_id, step.keys);
-          else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
+          try {
+            if (step.keys) await paneSendKeys(body.pane_id, step.keys);
+            else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
+          } catch (error) {
+            // herdr was never reached, so nothing was pressed: the card is still to be answered
+            if (first && error instanceof HerdrError && error.code === "connect_failed") committed = false;
+            throw error;
+          }
           if (move) {
             moved = true;
             for (const key of step.keys!) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
