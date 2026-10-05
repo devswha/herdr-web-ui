@@ -26,6 +26,9 @@
   --bg-input: #1c1916;
   --border: #2d2924;
   --border-strong: #3e3830;
+  /* the chat's user bubble: no edge where --bg-elevated alone parts it from --bg (the dark
+     amber, report and charcoal palettes), --border where the two surfaces sit close */
+  --bubble-border: transparent;
 
   /* text */
   --text: #d8d0c3;
@@ -158,6 +161,7 @@
   --bg-input: #fffdf9;
   --border: #dcd4c6;
   --border-strong: #c5baa8;
+  --bubble-border: var(--border);
   --text: #2a251f;
   --text-dim: #685e52;
   --text-strong: #16120d;
@@ -324,6 +328,7 @@
   --bg-input: #11111b;
   --border: #313244;
   --border-strong: #45475a;
+  --bubble-border: var(--border);
   --text: #cdd6f4;
   --text-dim: #bac2de;
   --text-strong: #cdd6f4;

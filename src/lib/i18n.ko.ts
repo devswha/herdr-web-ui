@@ -437,6 +437,7 @@ export const KO: Record<string, string> = {
   "Copy message": "메시지 복사",
   "Copy as markdown": "마크다운으로 복사",
   "Copy as plain text": "일반 텍스트로 복사",
+  "Plain text": "일반 텍스트",
   "conversation of {pane}": "{pane}의 대화",
   "Loading earlier messages…": "이전 메시지 불러오는 중…",
   "Couldn't load earlier messages — retry": "이전 메시지를 불러오지 못했습니다. 다시 시도",

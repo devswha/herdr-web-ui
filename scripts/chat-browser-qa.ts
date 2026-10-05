@@ -62,22 +62,28 @@ try {
   await modelInfo.getByText("codex-test-model", { exact: true }).waitFor();
   await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor();
   const work = log.locator(".work-block-head");
-  assert.equal(await work.getAttribute("aria-expanded"), "true");
+  assert.equal(await work.getAttribute("aria-expanded"), "false", "a settled turn folds its work: only a running turn is open");
+  assert.equal(await log.locator(".work-block.is-folded").count(), 1);
   assert.match(await work.innerText(), /Worked for 7s/);
+  await work.click();
+  assert.equal(await work.getAttribute("aria-expanded"), "true");
   await log.getByRole("button", { name: /exec_command/ }).click();
   await log.getByText("git status", { exact: true }).last().waitFor();
   assert.equal(await log.locator(".chat-agent-meta").count(), 1);
-  console.log("PASS native user/answer rendering, internal context filtering, tool expansion, duration");
+  console.log("PASS native user/answer rendering, internal context filtering, settled work folded, tool expansion, duration");
 
   add(message("user", "A second request."), 20); persist();
   await log.getByText("A second request.", { exact: true }).waitFor();
-  assert.equal(await work.getAttribute("aria-expanded"), "false", "old work auto-folds when a new turn arrives");
+  assert.equal(await work.getAttribute("aria-expanded"), "true", "manual expansion is preserved when a new turn arrives");
   await work.click();
+  assert.equal(await work.getAttribute("aria-expanded"), "false", "and so is folding it again");
   add(message("assistant", "Checking the second request.", "commentary"), 21); persist();
+  // the pane is idle: this turn is settled and has no answer, so folding it would hide its only text
   await log.getByText("Checking the second request.", { exact: true }).waitFor();
-  assert.equal(await work.first().getAttribute("aria-expanded"), "true", "manual expansion is preserved");
+  assert.equal(await work.first().getAttribute("aria-expanded"), "false", "manual folding is preserved");
+  assert.equal(await work.nth(1).getAttribute("aria-expanded"), "true", "a settled turn that ends in commentary keeps its text in view");
   assert.equal(await log.locator(".chat-agent-meta").count(), 1, "commentary is not a final answer");
-  console.log("PASS old work folds, manual state persists, live commentary stays inside work");
+  console.log("PASS manual state persists, commentary stays inside work and stays visible when the turn has no answer");
 
   records.push({ type: "turn_context", payload: { model: "codex-updated-model", effort: "low" } }); persist();
   await modelInfo.getByText("codex-updated-model", { exact: true }).waitFor();

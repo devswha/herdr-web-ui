@@ -439,6 +439,7 @@ export const JA: Record<string, string> = {
   "Copy message": "メッセージをコピー",
   "Copy as markdown": "Markdown としてコピー",
   "Copy as plain text": "プレーンテキストとしてコピー",
+  "Plain text": "プレーンテキスト",
   "conversation of {pane}": "{pane} の会話",
   "Loading earlier messages…": "以前のメッセージを読み込んでいます…",
   "Couldn't load earlier messages — retry": "以前のメッセージを読み込めませんでした。再試行",

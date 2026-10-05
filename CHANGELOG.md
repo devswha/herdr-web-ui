@@ -7,6 +7,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The chat transcript is quieter. A finished turn folds its work under one dim "Worked for" row
+  and only the running turn stays open; a block you open or fold stays as you left it. The line
+  above your messages is gone, answers sit closer to their prompt, and your bubble has even
+  corners (no edge in the dark amber, report and charcoal palettes). File paths and links are
+  underlined quietly and take the accent color on hover or focus. With a mouse, a code block's
+  language and copy button appear in its corner on hover, a message's time and copy sit beside
+  the bubble, and an answer has one copy button with "Plain text" beside it; touch keeps the
+  code strip and the MD and TXT buttons.
+
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
   panes, instead of sounding over itself. A pane that needs input right after one that finished

@@ -30,6 +30,24 @@ export function splitTurn(parts: ConversationPart[]): SplitTurn {
   };
 }
 
+/**
+ * A work block is open while its turn runs and folded once the turn settles: the answer stays
+ * outside the fold, so a finished turn reads as its answer under one "Worked for" row.
+ *
+ * A settled turn that left no answer and whose work ends in prose (Codex commentary with no
+ * final answer after it) keeps its block open: folding it would hide the last thing the agent said.
+ */
+export function workStartsOpen(live: boolean, { work, answer }: SplitTurn): boolean {
+  if (live) return true;
+  if (answer.length > 0) return false;
+  // reasoning or a skill record after the last words does not make them any less the last words
+  for (let index = work.length - 1; index >= 0; index -= 1) {
+    const kind = work[index]?.kind;
+    if (kind === "text" || kind === "tool") return kind === "text";
+  }
+  return false;
+}
+
 type WorkCategory = "edit" | "read" | "command" | "other";
 
 /** "{n} edit" / "{n} edits": both forms are translated, Korean uses one */

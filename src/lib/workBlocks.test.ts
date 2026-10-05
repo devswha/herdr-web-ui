@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { formatWorkDuration, splitTurn, workSummary } from "./workBlocks.ts";
+import { formatWorkDuration, splitTurn, workStartsOpen, workSummary } from "./workBlocks.ts";
 import type { ConversationPart } from "../../shared/protocol.ts";
 
 const tool = (name: string, summary = name): Extract<ConversationPart, { kind: "tool" }> => ({ kind: "tool", name, summary, input: "{}", output: "" });
@@ -31,6 +31,37 @@ describe("splitTurn", () => {
   it("honors an explicit final answer even if a later record contains an action", () => {
     const final = { ...text("Done"), phase: "final_answer" as const };
     expect(splitTurn([tool("exec_command"), final, tool("cleanup")])).toEqual({ work: [tool("exec_command"), tool("cleanup")], answer: [final] });
+  });
+});
+
+describe("workStartsOpen", () => {
+  const commentary = (value: string) => ({ ...text(value), phase: "commentary" as const });
+  const final = (value: string) => ({ ...text(value), phase: "final_answer" as const });
+
+  it("is open while the turn runs, whatever it holds", () => {
+    expect(workStartsOpen(true, splitTurn([tool("read"), text("done")]))).toBe(true);
+    expect(workStartsOpen(true, splitTurn([tool("bash")]))).toBe(true);
+  });
+
+  it("folds a settled turn: its answer stays outside the fold", () => {
+    expect(workStartsOpen(false, splitTurn([thinking("hm"), tool("read"), text("looking…"), tool("edit"), text("done")]))).toBe(false);
+    expect(workStartsOpen(false, splitTurn([commentary("Checking."), tool("exec_command"), final("All good.")]))).toBe(false);
+  });
+
+  it("folds a settled turn that ended on an action: no closing words would be hidden", () => {
+    expect(workStartsOpen(false, splitTurn([text("on it"), tool("bash")]))).toBe(false);
+  });
+
+  it("keeps a settled turn open when it ends in Codex commentary: folding would hide its last text", () => {
+    expect(workStartsOpen(false, splitTurn([tool("exec_command"), commentary("Still investigating")]))).toBe(true);
+    expect(workStartsOpen(false, splitTurn([commentary("Checking the second request.")]))).toBe(true);
+    // reasoning recorded after the last words does not hide them either
+    expect(workStartsOpen(false, splitTurn([tool("exec_command"), commentary("Still investigating"), thinking("hm")]))).toBe(true);
+  });
+
+  it("stays folded when the turn did nothing readable", () => {
+    expect(workStartsOpen(false, { work: [], answer: [] })).toBe(false);
+    expect(workStartsOpen(false, splitTurn([thinking("hm")]))).toBe(false);
   });
 });
 

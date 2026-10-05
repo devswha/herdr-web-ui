@@ -16,7 +16,7 @@ import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
-import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
+import { isLiveWorkTurn, formatWorkDuration, splitTurn, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
@@ -100,7 +100,7 @@ function CopyButton({ text, label, className = "icon-button chat-copy", children
     window.setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <button type="button" className={className} onClick={() => void copy()} aria-label={copied ? t("Copied") : label} title={copied ? t("Copied") : label}>
+    <button type="button" className={copied ? `${className} is-copied` : className} onClick={() => void copy()} aria-label={copied ? t("Copied") : label} title={copied ? t("Copied") : label}>
       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
       {children}
     </button>
@@ -306,7 +306,7 @@ function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinkin
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
   const title = live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
-  return <section className={`work-block${live ? " is-live" : ""}`}>
+  return <section className={`work-block${live ? " is-live" : ""}${open ? "" : " is-folded"}`}>
     <button type="button" className="work-block-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <span className="work-block-title">{title}</span>
@@ -388,8 +388,6 @@ interface TurnProps {
   turn: ConversationTurn;
   /** the last turn while the agent runs: its work block reads "Working…" */
   live: boolean;
-  /** the newest assistant turn opens its work; older ones start folded */
-  last: boolean;
   showThinking: boolean;
 }
 
@@ -401,7 +399,7 @@ function noticeLabel(t: ReturnType<typeof useT>, notice: Extract<ConversationPar
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
-const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
+const Turn = memo(function Turn({ paneId, turn, live, showThinking }: TurnProps) {
   const t = useT();
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
@@ -423,10 +421,13 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
     return <article className="chat-turn chat-turn-user">
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
-      {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
+      {/* one row: with a mouse the time and copy sit beside the bubble, on touch under it */}
+      <div className="chat-user-row">
+        {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
+        <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
+      </div>
       {/* the skill this message invoked (omp, omo, pi): the runtime recorded its instructions with it */}
       <SkillActivityList parts={turn.parts} />
-      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
     </article>;
   }
   const { work, answer } = splitTurn(turn.parts);
@@ -435,11 +436,12 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
   return <article className="chat-turn chat-turn-agent">
     <SkillActivityList parts={turn.parts} />
     {goal !== null && <GoalActivity goal={goal} />}
-    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={last} showThinking={showThinking} />}
+    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={workStartsOpen(live, { work, answer })} showThinking={showThinking} />}
     {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
-      <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")}>MD</CopyButton>
-      <CopyButton className="chat-meta-btn" text={plainText(answerText)} label={t("Copy as plain text")}>TXT</CopyButton>
+      {/* a mouse reads one copy glyph and the words "Plain text"; touch reads the two formats */}
+      <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")}><span className="chat-meta-fmt">MD</span></CopyButton>
+      <CopyButton className="chat-meta-btn chat-meta-plain" text={plainText(answerText)} label={t("Copy as plain text")}><span className="chat-meta-fmt">TXT</span><span className="chat-meta-word">{t("Plain text")}</span></CopyButton>
       {time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}
     </div>}
   </article>;
@@ -448,7 +450,7 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
 function FallbackTurn({ paneId, message }: { paneId: string; message: TranscriptMessage }) {
   if (message.role === "status") return null;
   const turn: ConversationTurn = { role: message.role === "user" ? "user" : "assistant", ts: null, parts: [{ kind: "text", text: message.text }] };
-  return <Turn paneId={paneId} turn={turn} live={false} last={false} showThinking={false} />;
+  return <Turn paneId={paneId} turn={turn} live={false} showThinking={false} />;
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
@@ -784,7 +786,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} />
+              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} showThinking={settings.showThinking} />
             </RenderBoundary>;
           })
         : agent !== null

@@ -441,6 +441,7 @@ export const ZH: Record<string, string> = {
   "Copy message": "复制消息",
   "Copy as markdown": "复制为 Markdown",
   "Copy as plain text": "复制为纯文本",
+  "Plain text": "纯文本",
   "conversation of {pane}": "{pane} 的对话",
   "Loading earlier messages…": "正在加载更早的消息…",
   "Couldn't load earlier messages — retry": "无法加载更早的消息。重试",
