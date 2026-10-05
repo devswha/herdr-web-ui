@@ -27,7 +27,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   at another width, and the tab strip then brings the open tab back into view, unless you have
   scrolled the strip yourself to look at other tabs: it stays where you left it until you open
   a tab.
-  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473), [#479](https://github.com/devswha/herdr-web-ui/pull/479))
 - In the chat's message box the agent's mark, the model, the reasoning level and the context
   ring sit together in one quiet pill, and the model is shown by its name where the id is a
   regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
