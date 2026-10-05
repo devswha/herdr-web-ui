@@ -8,6 +8,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- In the chat's message box the agent's mark, the model, the reasoning level and the context
+  ring sit together in one quiet pill, and the model is shown by its name where the id is a
+  regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
+  **GPT-5.6**, `gpt-5.6-sol` **GPT-5.6-Sol**, `glm-5.3` **GLM-5.3**, and the level follows as **High**. No name is ever
+  guessed: any other id (a dated snapshot, a suffix such as `gpt-5.6-sol-max`, another provider's
+  prefix, another vendor, a spelling that is not the vendor's own such as `claude-sonnet-5-05`) is
+  shown exactly as received, in the code font. Behind a name the id
+  as received is in the name's tooltip and is read by a screen reader; on a touch screen it is
+  not shown yet. A pane that records no reasoning level shows the name alone. The pill only shows the model, it is not a button yet. Where the
+  pill does not fit beside Queue (on a phone with a background-task chip, every named model
+  with a level) it steps aside whole while Queue is showing, and the context ring stays.
+  ([#467](https://github.com/devswha/herdr-web-ui/pull/467))
 - In the chat, the line with the model sits inside the message box, as its last row, instead of
   above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
   the reasoning level as one word (`high`) and the context ring. The agent's written name and the

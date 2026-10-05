@@ -112,9 +112,10 @@
    card). What does not fit gives way in this order: the task chip's words (BackgroundTasks.css,
    by the card's width); then the model label, as composerModelDraw says of the measured row
    (Composer.tsx marks data-model): while Queue is showing the mark, the name and the level step
-   out whole, without it the level alone does, each read and not drawn, so no word is drawn in
-   part; then, with no Queue, the model's name and the opened context text. Nothing overlaps its
-   neighbour, and the context ring at the end is never the part that is cut. */
+   out whole and their pill with them, without it the level alone does, each read and not drawn,
+   so no word is drawn in part; then, with no Queue, the model's name and the opened context
+   text. Nothing overlaps its neighbour, and the context ring at the end is never the part that
+   is cut. */
 .composer-status {
   grid-area: status;
   display: flex;
@@ -166,6 +167,30 @@
   display: contents;
 }
 
+/* the mark, the model, the level and the ring in one quiet pill, as tall as a control. It is a
+   surface, not a control: no border, no hover, no cursor, and the ring inside it is the only
+   thing to press. It shrinks before its neighbours do, so a name that does not fit is measured
+   clipped inside it (Composer.tsx) and the label steps out */
+.composer-pill {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: var(--control-h);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+/* no model to show, or the label stepped out: no pill either. Its box is gone, so the mark and
+   the ring stand in the status row itself, as they did before there was a pill */
+.composer-pill.is-bare,
+.composer-status[data-model="out"] .composer-pill {
+  display: contents;
+}
+
 .composer-status[data-model="out"] .agent-mark {
   display: none;
 }
@@ -187,33 +212,64 @@
 /* the one state word the row draws: a turn that ended and was not seen yet */
 .composer-status[data-status="done"] strong {
   flex: none;
+  margin-right: var(--space-1);
   color: var(--status-done);
   font-size: var(--fs-xs);
   letter-spacing: var(--tracking-caps);
 }
 
 .composer-status:not([data-model="out"]) .composer-model-info {
-  /* no box of its own: the name and the level sit in the status line itself, so the name can
-     give way before anything else does and the level never overlaps what follows */
+  /* no box of its own: the name and the level sit in the pill itself, so the name can give way
+     before anything else does and the level never overlaps what follows */
   display: contents;
 }
 
+/* a readable name in the UI face */
 .composer-model {
   flex: 0 1 auto;
   min-width: 3ch;
   overflow: hidden;
+  color: var(--text);
+  font-weight: var(--fw-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* the level as one word beside the model, without an outline: the card's own border is the only
-   one at rest. The sentence ("Reasoning high") is the screen reader's and the tooltip's */
+/* an id with no name: the identifier face, as a path or a command has in the transcript */
+.composer-model.is-id {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-regular);
+}
+
+/* a pane that names no model: the placeholder is not a name, so it is dim like the row */
+.composer-model.is-none {
+  color: inherit;
+  font-weight: var(--fw-regular);
+}
+
+/* the level after a middle dot, dim beside the name. The words are the agent's own; only the
+   first letter of the first one is drawn as a capital. The sentence ("Reasoning high") is the
+   screen reader's and the tooltip's */
 .composer-reasoning {
   flex: 0 100 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.composer-reasoning-dot {
+  margin-right: var(--space-2);
+}
+
+/* a block of its own, which is what ::first-letter needs */
+.composer-reasoning-short {
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+.composer-reasoning-short::first-letter {
+  text-transform: uppercase;
 }
 
 /* what is left of the context: plain until a compaction is near */
@@ -255,6 +311,12 @@
   stroke: var(--border);
 }
 
+/* on the pill's fill --border would be the fill itself in two palettes: the track stays a ring.
+   Only on the fill: a ring left bare by a label that stepped out has the bare ring's track */
+.composer-status:not([data-model="out"]) .composer-pill:not(.is-bare) .composer-context-track {
+  stroke: var(--border-strong);
+}
+
 .composer-context-used {
   stroke: currentColor;
   stroke-linecap: round;
@@ -284,6 +346,12 @@
 
 .composer-status[data-hint-alone] .composer-status-hint-dot {
   display: none;
+}
+
+/* over a sentence on its own line the pill is a chip's height, so the two lines fit the row and
+   the card does not grow by them */
+.composer-status[data-hint-alone] .composer-pill {
+  height: var(--chip-h);
 }
 
 /* the message is the card's first row at its full width; under it one row: add and the task
