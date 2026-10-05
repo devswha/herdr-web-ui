@@ -248,8 +248,8 @@ One set for both themes: the card is island black wherever it shows.
   sidebar toggle and the command palette (`.header-side`); the flexible context, agent mark and
   title then the PC › workspace › folder crumb; segmented Chat/Terminal switch; the connection
   chip while the bridge is not live (herdr version in its tooltip), the offline pill, sign out and
-  the More menu (`⋯`). Theme lives in Settings and the palette; the herdr version also sits in
-  the sidebar footer.
+  the More menu (`⋯`). Theme lives in Settings and the palette; the herdr version is also read
+  in Settings.
 - From `769px` the header is two zones. Over the sidebar, `.header-side` is the sidebar's own top
   row (toggle at its start, palette at its end) on `--bg-panel`, as wide as `--sidebar-w`, and the
   sidebar's seam runs to the top of the window. Over the pane, the header takes the pane's
@@ -335,7 +335,7 @@ One set for both themes: the card is island black wherever it shows.
 - The written label and unknown dashed edge keep color from being the only signal.
 
 ### Pill (`.pill`)
-- Mono metadata at `--chip-h`. The herdr version is a sidebar-footer pill; offline is the one header pill and uses danger tokens.
+- Mono metadata at `--chip-h`. The **Needs you** count is one; offline is the one header pill and uses danger tokens.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), **Needs you**
@@ -385,8 +385,8 @@ One set for both themes: the card is island black wherever it shows.
   sit under the row of the workspace on its main checkout, packed behind a hairline
   (`.worktree-children`), as herdr's Spaces sidebar keeps them; a worktree whose repository
   workspace is not open stays at the top level.
-- Footer holds the contextual **Install app** action, Settings with the plan meters beside it,
-  product name and herdr version.
+- Footer holds the contextual **Install app** action and Settings with the plan meters beside it.
+  It carries no product name or version: the running versions are read in Settings.
 
 ### Plan meters (`.usage*`)
 - Beside Settings, one button holding up to four chips (three and `+N` past that), one per
@@ -665,6 +665,13 @@ One set for both themes: the card is island black wherever it shows.
   setup dialog and closes Settings behind it; when that dialog closes, focus lands on the header's
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
+- The running versions are always written, since the sidebar carries none. Updates opens with
+  **Running vX.Y.Z (commit)**: the server's version and commit, or the client's own build version
+  before the server answers and where it names neither. While the server runs another version than
+  this tab was built from (updated, not yet reloaded), a second line names the tab's own. The
+  **herdr** section opens with
+  **Running herdr X.Y.Z**; where herdr cannot be updated from here (Windows, an older server) the
+  section is that line alone, from the health check.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining,
   Weekly / Session and one hairline card of accounts (`.usage-accounts`, `--radius-md`): an
   uppercase `--bg-elevated` header, then one 38px row per account

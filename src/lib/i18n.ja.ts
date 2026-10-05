@@ -345,6 +345,7 @@ export const JA: Record<string, string> = {
   "Update herdr": "herdr を更新",
   "Updating herdr…": "herdr を更新しています…",
   "The server was updated. Save any unsent drafts, then": "サーバーが更新されました。未送信の下書きを保存してから",
+  "This tab still runs {version} until it is reloaded.": "このタブは再読み込みするまで {version} のままです。",
   "Reload app": "アプリを再読み込み",
   "App updated. Save unsent drafts before reloading.": "アプリが更新されました。再読み込みする前に未送信の下書きを保存してください。",
   "herdr web ui v{version} is available.": "herdr web ui v{version} が利用可能です。",

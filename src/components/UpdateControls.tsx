@@ -1,18 +1,14 @@
 import { useEffect, useState } from "react";
 import type { UpdateStatus } from "../../shared/update.ts";
 import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
+import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "../lib/runningVersion.ts";
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import "./Machines.css";
 import "./UpdateControls.css";
 import { useT } from "../lib/i18n.ts";
 
-/** "v0.2.0 (1c4ad6a0e502)" when the version is known, else the commit alone. */
-function versionLabel(version: string | null | undefined, revision: string | null | undefined): string | null {
-  const commit = revision?.slice(0, 12);
-  if (version) return commit ? `v${version} (${commit})` : `v${version}`;
-  return commit ?? null;
-}
+declare const __APP_VERSION__: string;
 
 /**
  * An install as a step and a bar. A server that names no step (the one being replaced may be
@@ -34,9 +30,12 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
   const t = useT();
   const { status, error, busy, needsReload, request } = updates;
   const installing = busy && (status?.phase === "building" || status?.phase === "restarting");
+  const tabVersion = staleClientVersion(status, __APP_VERSION__);
   return <section className="settings-section settings-updates">
     <h3>{t("Updates")}</h3>
-    <p className="settings-hint">{status?.current_revision ? t("Running {version}", { version: versionLabel(status.current_version, status.current_revision) ?? "" }) : "herdr web ui"}</p>
+    {/* always a version: the sidebar no longer carries one */}
+    <p className="settings-hint">{t("Running {version}", { version: runningAppVersion(status, __APP_VERSION__) })}</p>
+    {tabVersion && <p className="settings-hint">{t("This tab still runs {version} until it is reloaded.", { version: tabVersion })}</p>}
     {installing && !error ? <div role="status"><UpdateProgress status={status} fallback={t(status?.phase === "building" ? "Installing dependencies and building…" : "Restarting the bridge…")} /></div> : <p className="settings-hint" role="status">
       {error ?? status?.error ?? status?.blocked_reason ?? (busy ? t("Checking for updates…") :
         status?.available ? t("Version {version} is available.", { version: versionLabel(status.latest_version, status.latest_revision) ?? "" }) : status?.checked_at ? t("Up to date.") : t("Waiting for an update check…"))}
@@ -57,12 +56,18 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
  * herdr itself. `herdr update` typed into a pane is refused by herdr, and every terminal here is
  * a pane: the server runs it instead and moves the running panes onto the new version.
  */
-export function HerdrUpdateControls({ enabled }: { enabled: boolean }) {
+export function HerdrUpdateControls({ enabled, herdrVersion }: { enabled: boolean; herdrVersion: string | null }) {
   const t = useT();
   const { status, error, busy, request } = useHerdrUpdate(enabled);
-  // Windows, an older server, a herdr that does not answer: nothing to offer
-  if (!status?.supported) return null;
-  const version = status.server_version ?? status.binary_version;
+  const version = runningHerdrVersion(status, herdrVersion);
+  // Windows, an older server, a herdr that does not answer: nothing to offer, and the version
+  // the health check reported is still read here, since the sidebar no longer carries it
+  if (!status?.supported) {
+    return version ? <section className="settings-section settings-herdr-update">
+      <h3>herdr</h3>
+      <p className="settings-hint">{t("Running herdr {version}", { version })}</p>
+    </section> : null;
+  }
   const stale = status.stale && !!status.binary_version && !!status.server_version;
   return <section className="settings-section settings-herdr-update">
     <h3>herdr</h3>

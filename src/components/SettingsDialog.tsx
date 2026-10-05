@@ -31,6 +31,8 @@ export interface SettingsDialogProps {
   updates: UpdatesModel;
   /** how this browser got in, from the last health check */
   auth: HealthAuth | null;
+  /** the herdr this app's server talks to, from the last health check */
+  herdrVersion: string | null;
   onEnableNotifications: () => Promise<boolean>;
 }
 
@@ -134,7 +136,7 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   );
 }
 
-export function SettingsDialog({ open, onClose, actions, updates, auth, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   // the accounts to order and hide: the same report the meters show, from the server's cache
   const usage = useUsage(open && settings.showUsage);
@@ -573,7 +575,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
             <a href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
           </section>
           <UpdateControls updates={updates} bridgesFollow={pcSettings?.auto_update_bridges === true} />
-          <HerdrUpdateControls enabled={open} />
+          <HerdrUpdateControls enabled={open} herdrVersion={herdrVersion} />
         </div>
       </section>
     </div>

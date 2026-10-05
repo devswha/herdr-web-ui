@@ -347,6 +347,7 @@ export const ZH: Record<string, string> = {
   "Update herdr": "更新 herdr",
   "Updating herdr…": "正在更新 herdr…",
   "The server was updated. Save any unsent drafts, then": "服务器已更新。请先保存未发送的草稿，然后",
+  "This tab still runs {version} until it is reloaded.": "此标签页在重新加载前仍运行 {version}。",
   "Reload app": "重新加载应用",
   "App updated. Save unsent drafts before reloading.": "应用已更新。重新加载前请保存未发送的草稿。",
   "herdr web ui v{version} is available.": "herdr web ui v{version} 已发布。",

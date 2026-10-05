@@ -663,7 +663,7 @@ button {
 }
 
 /* one chip for the connection, drawn only while the bridge is not live; the herdr version lives
-   in its tooltip and the sidebar footer */
+   in its tooltip and in Settings */
 .conn {
   position: relative;
   display: inline-flex;
