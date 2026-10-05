@@ -516,6 +516,8 @@ interface SettledTurns {
   metadata: ConversationMetadata;
   /** the bytes just before `end` (see LiveScan.tail) */
   tail: string;
+  /** what OmO's `task` calls on the page called their tasks: a task can end in a later turn than the one that started it */
+  taskTitles: Map<string, string>;
 }
 const settledTurns = new Map<string, SettledTurns>();
 
@@ -557,12 +559,12 @@ function newestPage(path: string, stream: TranscriptStream, source: RecognizedCo
   return start === undefined ? null : { start, starts };
 }
 
-function parseTurns(source: RecognizedConversation["source"], text: string): ConversationTurn[] {
+function parseTurns(source: RecognizedConversation["source"], text: string, taskTitles?: Map<string, string>): ConversationTurn[] {
   return source === "codex-transcript" ? parseCodexTranscript(text, Infinity)
     // only pi keeps a tool's images in the entry as base64; omp, omo and gjc are read the same
     // way but would carry image refs nothing can answer, so the option stays with pi alone
     : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity)
-      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript" });
+      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript", taskTitles });
 }
 
 interface LiveCodexTurn {
@@ -627,11 +629,11 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
   let settled = settledTurns.get(key);
   if (!settled || settled.id !== stream.id || settled.end > last || bytesBefore(stream, settled.end) !== settled.tail) {
     const head = start > stream.floor ? metadataHead(path, stream, source, start) : "";
-    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start) };
+    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles: new Map() };
   }
   if (settled.end < last) {
     const text = readStream(stream, settled.end, last).toString("utf8");
-    settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
+    settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text, settled.taskTitles)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
   }
   remember(settledTurns, key, settled, 8);
   if (source === "codex-transcript") {
@@ -639,7 +641,7 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
     return { turns: [...settled.turns, ...live.turns], metadata: live.metadata };
   }
   const text = readStream(stream, last, stream.length).toString("utf8");
-  return { turns: [...settled.turns, ...parseTurns(source, text)], metadata: parseConversationMetadata(text, source, settled.metadata) };
+  return { turns: [...settled.turns, ...parseTurns(source, text, settled.taskTitles)], metadata: parseConversationMetadata(text, source, settled.metadata) };
 }
 
 /** Forget every scan and parse kept between polls (tests compare against a cold read). */

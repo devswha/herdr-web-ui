@@ -282,7 +282,28 @@ export type ConversationPart =
   | { kind: "compact"; text: string }
   /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it.
    * `source`: the runtime's name for it (pi's customType, e.g. "async-result", "irc:incoming", "omo-model-profile:unavailable") */
-  | { kind: "notice"; text: string; source?: string };
+  | { kind: "notice"; text: string; source?: string }
+  /** OmO's background tasks that ended, as OmO reported them back to the agent: it starts a turn, nobody typed it */
+  | { kind: "task_result"; tasks: OmoTaskResult[] };
+
+/** One OmO background task that ended (the `senpi-task.completion` OmO wakes its agent with). */
+export interface OmoTaskResult {
+  id: string;
+  /** the summary the `task` call gave it, else its name, else the agent it ran as, else its id */
+  title: string;
+  /** the agent type or category it ran as */
+  agent: string | null;
+  model: string | null;
+  /** `failed`: OmO reported an error (its `result` says which) */
+  status: "completed" | "failed" | "cancelled";
+  duration_ms: number | null;
+  turns: number | null;
+  tool_calls: number | null;
+  tokens: number | null;
+  /** the task's last answer, or why it failed; at most 16,000 characters, `result_cut` when there was more */
+  result: string;
+  result_cut?: boolean;
+}
 
 /** Latest model settings actually recorded by this agent. */
 export interface ConversationMetadata {

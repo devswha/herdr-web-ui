@@ -1177,6 +1177,95 @@
 .chat-goal-text { white-space: pre-wrap; }
 .chat-goal-reason, .chat-goal-spent { color: var(--text-dim); }
 
+/* OmO's background tasks reporting back: one card in the transcript's column, a row per task
+   whose status is written and colored as in the background-task list, its result on request */
+.chat-task-results {
+  margin: var(--space-4) 0;
+  overflow: hidden;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+}
+.chat-task-results-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+.chat-task-results-head > svg { width: 12px; height: 12px; flex: none; }
+.chat-task-result { border-top: var(--hairline) solid var(--border); }
+.chat-task-result > summary {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  list-style: none;
+}
+.chat-task-result > summary::-webkit-details-marker { display: none; }
+.chat-task-result > summary:hover { background: var(--bg-hover); }
+.chat-task-result-icon { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--text-dim); }
+.chat-task-result.is-completed .chat-task-result-icon,
+.chat-task-result.is-completed .chat-task-result-status { color: var(--status-done); }
+.chat-task-result.is-failed .chat-task-result-icon,
+.chat-task-result.is-failed .chat-task-result-status { color: var(--status-blocked); }
+.chat-task-result-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-task-result-title {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+.chat-task-result-meta { color: var(--text-dim); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.chat-task-result-status { flex: none; margin-top: 2px; color: var(--text-dim); font-size: var(--fs-xs); }
+.chat-task-result > summary > .chat-skill-caret { width: 14px; height: 14px; flex: none; margin-top: 3px; color: var(--text-dim); }
+.chat-task-result[open] .chat-skill-caret { transform: rotate(180deg); }
+/* the result reads as the agent's answer does, under the title and bounded like a whole tool output */
+.chat-task-result-body {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 0 var(--space-3) var(--space-3) calc(var(--space-3) + 16px + var(--space-2));
+  overflow-wrap: anywhere;
+}
+.chat-task-result-note { margin: var(--space-2) 0 0; color: var(--text-dim); font-size: var(--fs-xs); }
+
+/* a task call's tasks: what each is for and the agent it runs as, the prompt under it */
+.chat-task-calls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-task-call-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-sm);
+}
+.chat-task-call-title { color: var(--text); overflow-wrap: anywhere; }
+.chat-task-call-agent {
+  padding: 0 var(--space-2);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+.chat-task-call-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* under the message that invoked it, on the message's side */
 .chat-turn-user .chat-skills { justify-content: flex-end; margin: 0; }
 

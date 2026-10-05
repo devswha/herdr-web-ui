@@ -326,6 +326,56 @@ describe("gjc sessions", () => {
   });
 });
 
+describe("OmO background task results", () => {
+  it("draws the background tasks an OmO wake reports as one card in the user's seat, titled by the call that started them", () => {
+    const text = [
+      omoUser("2026-10-05T00:00:00.000Z", "look into it"),
+      omoSpawn("2026-10-05T00:00:01.000Z", "c1", { description: "record location", task_summary: "Find where task records live", subagent_type: "explore", prompt: "TASK: find" }, { task_id: "st_1", task_summary: "Find where task records live" }),
+      omoSpawn("2026-10-05T00:00:02.000Z", "c2", { tasks: [{ task_summary: "Read shots 1-7", prompt: "a" }, { description: "shots 8-14", prompt: "b" }] }, { items: [{ task_id: "st_2", task_summary: "Read shots 1-7" }, { task_id: "st_3" }] }),
+      omoWake("2026-10-05T00:01:00.000Z", [
+        completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", resolved_model: { display: "lab/luna" }, model: "lab/luna-raw", duration_ms: 58_350, run_stats: { turns: 6, tool_calls: 14, total_tokens: 210_304 }, final_response: "**Found** it." }),
+        completion({ task_id: "st_2", name: "st_2", status: "error", category: "visual-engineering", model: "lab/kimi", duration_ms: 9087, run_stats: { turns: 0, tool_calls: 0 }, final_response: "Invalid native tool call event order" }),
+        // the batch result named no summary for it, and its name is its id: the agent it ran as
+        completion({ task_id: "st_3", name: "st_3", status: "cancelled", category: "quick" }),
+        completion({ task_id: "st_4", name: "named-run", status: "completed", final_response: "x".repeat(16_005) }),
+      ]),
+      JSON.stringify({ type: "message", timestamp: "2026-10-05T00:01:02.000Z", message: { role: "assistant", content: [{ type: "text", text: "The record lives in .omo." }] } }),
+    ].join("\n");
+    const turns = parseOmpTranscript(text);
+    expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(turns[2]).toEqual({ role: "user", ts: "2026-10-05T00:01:00.000Z", parts: [{ kind: "task_result", tasks: [
+      { id: "st_1", title: "Find where task records live", agent: "explore", model: "lab/luna", status: "completed", duration_ms: 58_350, turns: 6, tool_calls: 14, tokens: 210_304, result: "**Found** it." },
+      { id: "st_2", title: "Read shots 1-7", agent: "visual-engineering", model: "lab/kimi", status: "failed", duration_ms: 9087, turns: 0, tool_calls: 0, tokens: null, result: "Invalid native tool call event order" },
+      { id: "st_3", title: "quick", agent: "quick", model: null, status: "cancelled", duration_ms: null, turns: null, tool_calls: null, tokens: null, result: "" },
+      { id: "st_4", title: "named-run", agent: null, model: null, status: "completed", duration_ms: null, turns: null, tool_calls: null, tokens: null, result: "x".repeat(16_000), result_cut: true },
+    ] }] });
+    // the row of the call reads the summary it gave, one per task of a batch
+    expect(turns[1]!.parts.map((part) => part.kind === "tool" ? part.summary : part.kind)).toEqual(["Find where task records live", "Read shots 1-7 · shots 8-14"]);
+  });
+
+  it("leaves a wake that reports no task result to the runtime", () => {
+    const text = [
+      omoUser("2026-10-05T00:00:00.000Z", "watch the build"),
+      JSON.stringify({ type: "custom_message", customType: "omo-senpi:wake", display: false, timestamp: "2026-10-05T00:01:00.000Z", content: "monitor fired", details: [{ customType: "senpi-monitor:notification", details: [{ line: "READY" }] }] }),
+      JSON.stringify({ type: "custom_message", customType: "omo-senpi:wake", display: false, timestamp: "2026-10-05T00:01:01.000Z", content: "empty", details: [{ customType: "senpi-task.completion", details: [{ name: "no id", status: "completed" }] }] }),
+    ].join("\n");
+    expect(parseOmpTranscript(text).map((turn) => turn.parts.map((part) => part.kind))).toEqual([["text"]]);
+  });
+});
+
+const omoUser = (ts: string, text: string) => JSON.stringify({ type: "message", timestamp: ts, message: { role: "user", content: [{ type: "text", text }] } });
+/** an OmO `task` call and the result that names the tasks it started */
+const omoSpawn = (ts: string, id: string, input: Record<string, unknown>, details: Record<string, unknown>) => [
+  JSON.stringify({ type: "message", timestamp: ts, message: { role: "assistant", content: [{ type: "toolCall", id, name: "task", arguments: { run_in_background: true, ...input } }] } }),
+  JSON.stringify({ type: "message", timestamp: ts, message: { role: "toolResult", toolCallId: id, toolName: "task", content: [{ type: "text", text: "Started task (running)." }], details: { status: "running", mode: "spawn", ...details } } }),
+].join("\n");
+const completion = (fields: Record<string, unknown>) => ({ continuation_hint: "Use task_send to continue.", ...fields });
+/** how OmO wakes its agent when background tasks end */
+const omoWake = (ts: string, tasks: Record<string, unknown>[]) => JSON.stringify({
+  type: "custom_message", customType: "omo-senpi:wake", display: false, timestamp: ts,
+  content: "task completion …", details: [{ customType: "senpi-task.completion", details: tasks }],
+});
+
 describe("transcript pages", () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -339,6 +389,26 @@ describe("transcript pages", () => {
   ].map((entry) => JSON.stringify(entry)).join("\n");
   const texts = (turns: { parts: { kind: string; text?: string; output?: string }[] }[]) =>
     turns.map((turn) => turn.parts.map((part) => part.kind === "tool" ? `[${part.output}]` : part.text).join(" "));
+
+  it("titles a background task that ends a prompt after the one that started it, live and cold alike", () => {
+    const root = temp();
+    const path = join(root, "omo.jsonl");
+    writeFileSync(path, `${[
+      omoUser("2026-10-05T00:00:00.000Z", "start it"),
+      omoSpawn("2026-10-05T00:00:01.000Z", "c1", { task_summary: "Survey the repo", subagent_type: "explore", prompt: "go" }, { task_id: "st_1", task_summary: "Survey the repo" }),
+    ].join("\n")}\n`);
+    // the first read settles nothing yet; the next prompt makes the spawn's turn settled
+    expect(transcriptPage("omo-transcript", path).turns).toHaveLength(2);
+    appendFileSync(path, `${omoUser("2026-10-05T00:02:00.000Z", "meanwhile, something else")}\n`);
+    expect(transcriptPage("omo-transcript", path).turns).toHaveLength(3);
+    appendFileSync(path, `${omoWake("2026-10-05T00:03:00.000Z", [completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", final_response: "done" })])}\n`);
+    const cold = join(root, "cold.jsonl");
+    copyFileSync(path, cold);
+    for (const page of [transcriptPage("omo-transcript", path), transcriptPage("omo-transcript", cold)]) {
+      const ended = page.turns.at(-1)?.parts[0];
+      expect(ended?.kind === "task_result" ? ended.tasks.map((task) => task.title) : ended).toEqual(["Survey the repo"]);
+    }
+  });
 
   it("reads a growing file's newest page incrementally, exactly as a cold read of it", () => {
     const root = temp();

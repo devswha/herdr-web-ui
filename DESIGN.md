@@ -588,6 +588,18 @@ One set for both themes: the card is island black wherever it shows.
   failure count leave and end in an ellipsis. `· 1 failed` (`.work-block-failed`) is its own item
   and is never cut, because the fold hides the failed row; at the largest chat type on the
   narrowest phone the title wraps to a second line instead.
+- An OmO or omp `task` row opens to the tasks it starts (`.chat-task-calls`): each summary in
+  `--text`, the agent as a hairline mono pill, the prompt in the bounded mono input box.
+
+### Background tasks ended (`.chat-task-results`)
+- Where OmO reports background tasks that ended, the transcript shows one `--bg-elevated` card
+  (hairline edge, `--radius-lg`) on the prose column: a dim `--fs-xs` line with the layers icon,
+  "2 background tasks ended" and the time, then one hairline-separated row per task.
+- A row is the status icon (`--status-done` check, `--status-blocked` x, dim slash for
+  cancelled), the task's summary (`--fs-sm`, medium) over a dim `--fs-xs` meta line (agent ·
+  model · duration · turns · tool calls · tokens), and the status word at the right in the
+  icon's color, with the skill caret. Opened, the task's answer renders as Markdown, indented to
+  the title, bounded to 60vh.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,
