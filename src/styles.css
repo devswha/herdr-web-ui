@@ -758,6 +758,7 @@ button {
 .header-more-path {
   color: var(--text);
   font-family: var(--font-mono);
+  white-space: pre-wrap;
 }
 
 /* From 769px the header is two zones. Over the sidebar, the sidebar's own top row (its toggle

@@ -24,7 +24,8 @@ export function headerCrumb(input: { machine: string; workspace: string; title: 
   const machine = input.machine.trim();
   const workspace = input.workspace.trim();
   const title = input.title.trim();
-  const path = input.cwd?.trim() || null;
+  // trimmed only to tell an absent folder: a name may end in a space, and is shown as it is
+  const path = input.cwd?.trim() ? input.cwd : null;
   const name = path === null ? null : folderName(path);
   const said = name === null || [title, machine, workspace].includes(name);
   return {

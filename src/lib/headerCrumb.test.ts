@@ -41,6 +41,15 @@ it("keeps the whole path for the tooltip and the menu, whatever the line shows",
   expect(headerCrumb({ ...base, cwd: "/" }).folder).toBe("/");
 });
 
+it("keeps a folder name that ends in a space as it is", () => {
+  const crumb = headerCrumb({ ...base, cwd: "/repo/branch " });
+  expect(crumb.folder).toBe("branch ");
+  expect(crumb.path).toBe("/repo/branch ");
+  expect(crumb.tooltip).toBe("checkout-api › Idempotent payments · /repo/branch ");
+  // "branch " is not the folder "branch": the title does not say it
+  expect(headerCrumb({ ...base, title: "branch", cwd: "/repo/branch " }).folder).toBe("branch ");
+});
+
 it("takes the chat's surface only when the chat is what the pane column draws", () => {
   expect(showsChat({}, "chat")).toBe(true);
   expect(showsChat({ restore_error: null }, "chat")).toBe(true);
