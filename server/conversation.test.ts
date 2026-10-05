@@ -314,6 +314,23 @@ describe("gjc sessions", () => {
     ]);
   });
 
+  it("ends a turn at an answer that stopped, so a hidden wake-up's work does not fold that answer away", () => {
+    // omo 5.x: a monitor notification (display:false) wakes the agent after its final answer
+    const assistant = (ts: string, stopReason: string, content: unknown[]) => JSON.stringify({ type: "message", timestamp: ts, message: { role: "assistant", content, stopReason } });
+    const text = [
+      JSON.stringify({ type: "message", timestamp: "2026-10-05T22:09:00.000Z", message: { role: "user", content: [{ type: "text", text: "review #368" }] } }),
+      assistant("2026-10-05T22:09:15.000Z", "toolUse", [{ type: "toolCall", id: "c1", name: "read", arguments: { path: "a.ts" } }]),
+      JSON.stringify({ type: "message", timestamp: "2026-10-05T22:09:16.000Z", message: { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "ok" }] } }),
+      assistant("2026-10-05T22:14:54.000Z", "stop", [{ type: "thinking", thinking: "done" }, { type: "text", text: "The full review." }]),
+      JSON.stringify({ type: "custom_message", customType: "senpi-monitor:notification", display: false, timestamp: "2026-10-05T22:14:54.500Z", content: "<system-reminder>READY</system-reminder>" }),
+      assistant("2026-10-05T22:14:58.000Z", "stop", [{ type: "thinking", thinking: "nothing new" }, { type: "text", text: "Nothing new to do." }]),
+    ].join("\n");
+    const turns = parseOmpTranscript(text);
+    expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant", "assistant"]);
+    expect(turns[1]!.parts.at(-1)).toEqual({ kind: "text", text: "The full review." });
+    expect(turns[2]).toEqual({ role: "assistant", ts: "2026-10-05T22:14:58.000Z", end_ts: "2026-10-05T22:14:58.000Z", parts: [{ kind: "thinking", text: "nothing new" }, { kind: "text", text: "Nothing new to do." }] });
+  });
+
   it("says which kind of notice the runtime delivered, and nothing where the runtime named none", () => {
     const notice = (fields: Record<string, unknown>) => JSON.stringify({ type: "custom_message", display: true, timestamp: "2026-10-01T00:00:00.000Z", ...fields });
     const text = [

@@ -55,6 +55,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 - `bun:test` only, with no DOM. `src/` tests cover pure logic in `lib/*.test.ts`; component behavior is covered by the Playwright scripts. A `.test.tsx` file is not discovered.
 - A test that needs a live herdr is named `*.contract.test.ts`. Unit tests run with `HERDR_TEST_MODE=unit` and never touch herdr.
 - Single file: `HERDR_TEST_MODE=unit bun test ./server/prompt.test.ts`. The `./` is required.
+- The unit suite is `bun run test:unit`. A bare `bun test` also loads every `*.contract.test.ts`; under `HERDR_TEST_MODE=unit` those fail, since unit mode points `HERDR_SOCKET` at a socket that does not exist.
 - `bun run test:ui` does not run `scripts/file-viewer-regression.ts`; CI does.
 - Tests run on an isolated herdr session (`herdr-web-ui-test`, or `-1` to `-4` under `bun run test:integration`), never the user's. Stop a leftover one with `herdr --session herdr-web-ui-test server stop`.
 - Each `describe` creates and closes its own `herdr-web-ui-test-<purpose>` workspace with `focus:false`, and mutates only panes it created.
