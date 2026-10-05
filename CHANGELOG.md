@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A PDF on a remote PC opens from the file viewer on Android. Chrome there shows it as an
+  **Open** button, and opening it answered `invalid_origin` ("Use PC controls from this app")
+  instead of the file; a PDF on the app's own PC already opened.
 - Attaching a file over 8 MB says so at once, with its size and the limit, instead of uploading
   it first and answering `/api/pane/image failed (413)`. Past about 96 MB that message gave no
   reason at all.
