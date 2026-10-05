@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket } from "../lib/ws.ts";
-import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
+import { controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
@@ -169,6 +169,8 @@ export function PaneTerminal({
   const fixedGridRef = useRef(false);
   // the pty's grid as the server last said it for this pane (pane-geometry), whoever set it
   const sharedGridRef = useRef<{ cols: number; rows: number } | null>(null);
+  // the modifyOtherKeys level the pane's program asked for, as this pane's stream last said it
+  const modifyOtherKeysRef = useRef(0);
   const [observing, setObserving] = useState(false);
   const [secret, setSecret] = useState<{ pane: string; prompt: string } | null>(null);
   const secretRef = useRef<string | null>(null);
@@ -687,6 +689,14 @@ export function PaneTerminal({
       }
       return true;
     });
+    // modifyOtherKeys (CSI > 4 ; level m): xterm.js has no handler for it, so this one only
+    // listens, and Ctrl+Enter is sent as the program asked (see onModifiedEnter)
+    const modifyOtherKeys = (final: "m" | "n") => term.parser.registerCsiHandler({ prefix: ">", final }, (params) => {
+      modifyOtherKeysRef.current = modifyOtherKeysLevel(modifyOtherKeysRef.current, final, params);
+      return false;
+    });
+    const modifyOtherKeysSet = modifyOtherKeys("m");
+    const modifyOtherKeysOff = modifyOtherKeys("n");
 
     const socket = new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);
     socketRef.current = socket;
@@ -702,7 +712,13 @@ export function PaneTerminal({
         const generation = outputGeneration;
         term.write(message.data, () => {
           acknowledge?.();
-          if (paneRef.current !== owner || generation !== outputGeneration) return;
+          if (paneRef.current !== owner || generation !== outputGeneration) {
+            // output of a pane left behind, or of a dropped connection, was still queued in xterm
+            // when the switch reset the level: whatever its parse just set, the level is off again
+            // (writes are parsed in order, so no newer output has been read yet)
+            modifyOtherKeysRef.current = 0;
+            return;
+          }
           setOutputReady(true);
           followCursor();
           const lines: string[] = [];
@@ -798,6 +814,8 @@ export function PaneTerminal({
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       setHeld(false);
+      // and its stream says the keyboard modes again, from the start or in the replay
+      modifyOtherKeysRef.current = 0;
     });
     socket.connect();
 
@@ -805,10 +823,16 @@ export function PaneTerminal({
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
-    let shiftEnter = false;
-    const onShiftEnter = term.onKey(({ key, domEvent: event }) => {
-      shiftEnter = !term.options.disableStdin && key === "\r" && event.key === "Enter" && event.shiftKey
-        && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing && event.keyCode !== 229;
+    // xterm.js types Shift+Enter and Ctrl+Enter as plain Enter: Shift+Enter becomes the Alt+Enter
+    // newline chord, Ctrl+Enter what modifyOtherKeys makes it (Claude Code's "send now") while
+    // the program has asked for that, and stays Enter otherwise.
+    let enterAs: string | null = null;
+    const onModifiedEnter = term.onKey(({ key, domEvent: event }) => {
+      enterAs = null;
+      if (term.options.disableStdin || key !== "\r" || event.key !== "Enter" || event.altKey || event.metaKey
+        || event.isComposing || event.keyCode === 229) return;
+      if (event.shiftKey && !event.ctrlKey) enterAs = "\x1b\r";
+      else if (event.ctrlKey && !event.shiftKey) enterAs = ctrlEnterSequence(modifyOtherKeysRef.current);
     });
     // Let xterm finish pending IME text before remapping the key's following data.
     // Cmd+Backspace uses the terminal's Ctrl+U line-deletion shortcut on macOS.
@@ -831,8 +855,8 @@ export function PaneTerminal({
     };
     host.addEventListener("keydown", onCommandArrow);
     const onData = term.onData((data) => {
-      if (shiftEnter && data === "\r") data = "\x1b\r";
-      shiftEnter = false;
+      if (enterAs !== null && data === "\r") data = enterAs;
+      enterAs = null;
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
       const current = paneRef.current;
@@ -1026,7 +1050,7 @@ export function PaneTerminal({
       selectionChange.dispose();
       window.removeEventListener("focus", refit);
       document.removeEventListener("visibilitychange", onVisible);
-      onShiftEnter.dispose();
+      onModifiedEnter.dispose();
       onCommandBackspace.dispose();
       host.removeEventListener("keydown", onCommandArrow);
       onData.dispose();
@@ -1035,6 +1059,8 @@ export function PaneTerminal({
       host.removeEventListener("drop", onDrop);
       offDisconnect();
       osc52.dispose();
+      modifyOtherKeysSet.dispose();
+      modifyOtherKeysOff.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
       off();
       socket.close();
@@ -1136,6 +1162,7 @@ export function PaneTerminal({
     setDraft(saved);
     draftPaneRef.current = paneId;
     term.reset();
+    modifyOtherKeysRef.current = 0;
     if (!paneId) return;
     try {
       fit?.fit();
