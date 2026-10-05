@@ -305,7 +305,10 @@
 }
 
 /* "Send 2? Confirm / Cancel" is the answer's last step: it stays in sight on the card's fold,
-   solid down to the card's edge with a short fade above it, so nothing shows through */
+   solid down to the card's edge with a short fade above it, so nothing shows through. It is
+   pinned over the options, so it is kept short: the question is two lines at most and scrolls
+   in itself (an option's label can run to pages), and the two buttons are one group that never
+   breaks, beside the question when there is room and under it when there is not */
 .prompt-card-confirm {
   position: sticky;
   bottom: var(--space-3);
@@ -325,10 +328,21 @@
   font-size: var(--fs-sm);
 }
 
-.prompt-card-confirm span {
-  flex: 1 1 auto;
+.prompt-card-confirm-text {
+  flex: 1 1 12em;
   min-width: 0;
+  max-height: 2lh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  line-height: var(--lh-base);
   overflow-wrap: anywhere;
+}
+
+.prompt-card-confirm-actions {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 .prompt-card-submit {

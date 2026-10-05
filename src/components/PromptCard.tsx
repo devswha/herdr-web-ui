@@ -185,9 +185,13 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       )}
       {typedAnswer?.option_index !== undefined && (
         <div className="prompt-card-confirm" role="alert" ref={confirmRef}>
-          <span>{t("Send {answer}?", { answer: `${typedAnswer.option_index + 1}. ${prompt.options[typedAnswer.option_index]?.label ?? ""}` })}</span>
-          <button type="button" className="btn btn-primary" disabled={pending} onClick={() => void answer(typedAnswer).then((current) => { if (current) onTypedAnswerDone?.(); })}>{t("Confirm")}</button>
-          <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>{t("Cancel")}</button>
+          {/* an option's label can run to pages (a review to approve): the question shows two lines
+              of it and scrolls in itself, and the two buttons stay whole, on one line */}
+          <span className="prompt-card-confirm-text">{t("Send {answer}?", { answer: `${typedAnswer.option_index + 1}. ${prompt.options[typedAnswer.option_index]?.label ?? ""}` })}</span>
+          <span className="prompt-card-confirm-actions">
+            <button type="button" className="btn btn-primary" disabled={pending} onClick={() => void answer(typedAnswer).then((current) => { if (current) onTypedAnswerDone?.(); })}>{t("Confirm")}</button>
+            <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>{t("Cancel")}</button>
+          </span>
         </div>
       )}
       {error !== null && <p className="prompt-card-error" role="alert">{error}</p>}
