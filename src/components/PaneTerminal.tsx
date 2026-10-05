@@ -765,6 +765,18 @@ export function PaneTerminal({
         && event.key === "Backspace" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
         && !event.isComposing && event.keyCode !== 229;
     });
+    // xterm ignores Cmd+arrows. Handle them on the bubble phase, after its textarea
+    // keydown listener drains pending IME text, so movement never precedes that text.
+    const onCommandArrow = (event: KeyboardEvent): void => {
+      if (!isMac || event.target !== term.textarea || event.defaultPrevented || term.options.disableStdin
+        || composingRef.current || event.isComposing || event.keyCode === 229
+        || !event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const sequence = event.key === "ArrowLeft" ? "\x01" : event.key === "ArrowRight" ? "\x05" : null;
+      if (sequence === null) return;
+      event.preventDefault();
+      term.input(sequence);
+    };
+    host.addEventListener("keydown", onCommandArrow);
     const onData = term.onData((data) => {
       if (shiftEnter && data === "\r") data = "\x1b\r";
       shiftEnter = false;
@@ -963,6 +975,7 @@ export function PaneTerminal({
       document.removeEventListener("visibilitychange", onVisible);
       onShiftEnter.dispose();
       onCommandBackspace.dispose();
+      host.removeEventListener("keydown", onCommandArrow);
       onData.dispose();
       host.removeEventListener("paste", onFilePaste, { capture: true });
       host.removeEventListener("dragover", onDragOver);

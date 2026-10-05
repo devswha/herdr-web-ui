@@ -27,6 +27,13 @@ Control sequences are counted as discarded, never saved for later execution. No 
 on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
 waits for composition to finish. Leaving the input clears its composition guard.
 
+On macOS, Cmd+Left and Cmd+Right in direct typing send Ctrl+A and Ctrl+E, moving to the
+beginning and end of the input line in shells and agents that use those bindings.
+Pending IME text is sent first. Additional modifiers retain xterm's behavior; the input line
+and chat composer keep their native text editing. Ctrl+Left and Ctrl+Right are sent as xterm
+sends them on every platform, so a program in the pane that binds them (tmux, an editor) still
+receives them; Option+Left and Option+Right move by word.
+
 ## Readiness and failures
 
 A server advertising `input-ready` sends `{type:"input-ready", pane_id}` only after the attach's
@@ -55,6 +62,10 @@ The new readiness frame is also implemented in the website demo transport.
   contract tests separately verify real delivery.
 - `bun run test:ui`: includes those checks plus the existing mobile, clipboard, secret-entry,
   reconnect, prompt, queue and viewport checks. `UI_EVIDENCE_DIR` saves screenshots.
+- `bun run build && bun scripts/terminal-command-arrows-regression.ts`: Cmd+Left/Right line
+  movement, exact bytes and real readline cursor positions, IME ordering, repeat, modifier,
+  unchanged Ctrl+arrows, Windows and Linux checks.
+  Uses Chromium with a simulated Mac platform, not native macOS Safari or an OS IME.
 - `bun scripts/file-viewer-regression.ts`: existing navigation and touch regressions.
 
 Synthetic composition events exercise event handling, not a real Samsung/Gboard/iOS IME.
