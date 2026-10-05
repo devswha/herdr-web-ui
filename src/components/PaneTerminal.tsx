@@ -256,10 +256,13 @@ export function PaneTerminal({
   const [promptDock, setPromptDock] = useState<HTMLDivElement | null>(null);
   // Answered from the card, the card goes and would take the keyboard's focus with it: the message
   // box is the next thing to type in. Not on a touch screen, where that would raise the keyboard.
-  const onPromptAnswered = useCallback((fromCard: boolean) => {
-    if (fromCard && !coarseRef.current) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
+  const onPromptAnswered = useCallback((toMessageBox: boolean) => {
+    if (toMessageBox && !coarseRef.current) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
   }, []);
-  const clearPendingAnswer = useCallback(() => setPendingAnswer(null), []);
+  // only the pick of that pane and prompt: an answer that comes back late must not take another's
+  const clearPendingAnswer = useCallback((pane: string, promptId?: string) => {
+    setPendingAnswer((current) => current?.pane === pane && (promptId === undefined || current.promptId === promptId) ? null : current);
+  }, []);
   const onChatPrompt = useCallback((pane: string, value: InteractivePrompt | null) => {
     setChatPrompt((current) => value !== null ? { pane, value } : current?.pane === pane ? null : current);
     // a typed pick belongs to the prompt it was typed for: once that prompt changes or goes

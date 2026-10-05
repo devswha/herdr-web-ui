@@ -69,12 +69,13 @@ export interface ChatViewProps {
   promptRefreshKey?: number;
   /** a typed pick of an approval's option, waiting in the card for Confirm */
   pendingAnswer?: { promptId: string; answer: TypedAnswer } | null;
-  onPendingAnswerDone?: () => void;
+  /** the pick is done with (sent, cancelled): named by its pane and prompt, so another's pick is left alone; with no prompt, whichever pick the pane has */
+  onPendingAnswerDone?: (paneId: string, promptId?: string) => void;
   /** where the prompt card is drawn: on the composer's column, over the input card (PaneTerminal
    * owns the place). The chat still owns the prompt, so the card is rendered from here into it */
   promptDock?: HTMLElement | null;
-  /** a prompt was answered from its card; `fromCard`: the keyboard's focus was in the card */
-  onPromptAnswered?: (fromCard: boolean) => void;
+  /** a prompt was answered from its card; `toMessageBox`: the keyboard's focus was in the card and may go on to the message box */
+  onPromptAnswered?: (toMessageBox: boolean) => void;
 }
 
 interface ChatState {
@@ -485,6 +486,11 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   /** an answer for this pane arrived (or failed): until then, and while a replaced history is read again, an empty chat is only loading */
   const [loaded, setLoaded] = useState(false);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
+  // Each prompt that appears is an occurrence of its own, and gets a card of its own. The prompt's
+  // id is a hash of what it says, so the same question asked twice shares it: the read below keeps
+  // one object while one prompt stays on screen, and that object is what tells them apart.
+  const promptOccurrence = useRef<{ of: InteractivePrompt | null; count: number }>({ of: null, count: 0 });
+  if (prompt !== null && promptOccurrence.current.of !== prompt) promptOccurrence.current = { of: prompt, count: promptOccurrence.current.count + 1 };
   // turns the transcript holds on a path /tree walked away from: no page can reach them, so the
   // only way to say they exist is to be told, and to say it where the reader would look for them
   const [abandoned, setAbandoned] = useState<{ count: number; branches: number; summary: string | null } | null>(null);
@@ -727,8 +733,8 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   // away from the page, the prompt is not read: it can be answered in the terminal and asked
   // again unseen, so a typed pick waiting for Confirm does not outlive the page being hidden
   useEffect(() => {
-    if (!visible) onPendingAnswerDone?.();
-  }, [visible, onPendingAnswerDone]);
+    if (!visible) onPendingAnswerDone?.(paneId);
+  }, [visible, onPendingAnswerDone, paneId]);
 
   // Before paint and without animation: an opened conversation starts at its end
   // instead of scrolling there from the top.
@@ -843,12 +849,13 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       input card, where PaneTerminal keeps its place. The prompt itself (its poll, the answer, the
       re-read) stays here. */}
   {prompt !== null && promptDock !== null && createPortal(
-    <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={(fromCard) => {
-      onPromptAnswered?.(fromCard);
-      setPrompt(null);
+    <PromptCard key={promptOccurrence.current.count} paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={() => onPendingAnswerDone?.(paneId, prompt.id)} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={(toMessageBox) => {
+      // the card reports only while it is the one shown; still, only its own prompt is cleared
+      onPromptAnswered?.(toMessageBox);
+      setPrompt((current) => current === prompt ? null : current);
       // a form of several questions goes on to its next one: read it now, not at the next poll
       if (prompt.steps) setPromptPollKey((key) => key + 1);
-      onPendingAnswerDone?.();
+      onPendingAnswerDone?.(paneId, prompt.id);
     }} />, promptDock)}
   </ChatHistoryContext.Provider></ChatPaneContext.Provider>;
 });
