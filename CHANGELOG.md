@@ -18,7 +18,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   before the model's name is cut. In dark themes Queue loses its outline.
   ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
 
-### Changed
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
   rows start on the same left edge as the block's header and the prose. The tool's own id
