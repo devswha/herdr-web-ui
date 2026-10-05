@@ -54,6 +54,12 @@ test("a task's answer framed in section tags reads as named sections, its own ta
   expect(taskResultMarkdown("plain answer")).toBe("plain answer");
 });
 
+test("a task's answer keeps a code block whole as the chat draws it, a fence line naming a language inside it too", () => {
+  // the chat's Markdown closes a block only at three backticks alone: the ```ts line is the block's own
+  const answer = ["```md", "```ts", "<analysis>", "", "", "</analysis>", "```", "<answer>"].join("\n");
+  expect(taskResultMarkdown(answer)).toBe(["```md", "```ts", "<analysis>", "", "", "</analysis>", "```", "**Answer**"].join("\n"));
+});
+
 test("elapsed time reads in seconds, minutes, then hours", () => {
   expect([formatElapsed(8_400), formatElapsed(252_000), formatElapsed(3_780_000)]).toEqual(["8s", "4m 12s", "1h 3m"]);
 });

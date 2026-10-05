@@ -67,20 +67,23 @@ export function taskCallItems(input: Record<string, unknown>): TaskCallItem[] | 
  * A task's answer as the chat reads it. OmO's agents often frame theirs in bare section tags on
  * lines of their own (`<analysis>` … `</analysis>`, `<next_steps>`): an opening tag becomes the
  * section's name in bold, a closing one goes. Tags inside a code block, and any line with more
- * on it than the tag, are the answer's own and stay.
+ * on it than the tag, are the answer's own and stay. A code block opens and closes as the chat's
+ * Markdown (lib/markdown.ts) reads one: it opens at a line starting with three backticks and
+ * closes only at a line of three backticks alone, so a fence line that names a language inside
+ * a block is part of the block.
  */
 export function taskResultMarkdown(text: string): string {
   let fenced = false;
   const lines: string[] = [];
   for (const line of text.split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    if (fenced ? /^\s{0,3}```\s*$/.test(line) : /^\s{0,3}```/.test(line)) { fenced = !fenced; lines.push(line); continue; }
     const tag = fenced ? null : /^\s*<(\/?)([a-z][a-z0-9_-]*)>\s*$/.exec(line);
     if (tag === null) { lines.push(line); continue; }
     if (tag[1] === "/") continue;
     const name = tag[2]!.replace(/[_-]+/g, " ");
     lines.push(`**${name[0]!.toUpperCase()}${name.slice(1)}**`);
   }
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return lines.join("\n").trim();
 }
 
 /** `8s`, `4m 12s`, `1h 3m` */
