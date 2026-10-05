@@ -73,6 +73,10 @@ try {
   // the row shows a picture only once opened: a base64 blob must not arrive on every poll
   assert.equal(await page.locator(".chat-tool-images img").count(), 0, "a closed row fetches nothing");
   assert.deepEqual(served, [], "a closed row fetches nothing");
+  // a settled turn's work is folded: open the block, then the row
+  assert.equal(await page.locator(".work-block-head").getAttribute("aria-expanded"), "false");
+  await page.locator(".work-block-head").click();
+  assert.equal(await page.locator(".chat-tool-images img").count(), 0, "an open block with a closed row fetches nothing");
   await page.locator(".work-row-head").first().click();
   assert.equal(await page.locator(".chat-tool-images img").count(), 2);
   // loading="lazy" means the fetch is deferred until the picture is near the viewport, and

@@ -5,7 +5,7 @@ import { parseOmpTranscript } from "./transcript-records.ts";
 import { codexReadCall, codexReadSkills, selectedSkill, skillInvocationPrompt } from "./skill-activity.ts";
 import { turnSkills } from "../src/lib/skillActivity.ts";
 import type { SkillActivity } from "../shared/protocol.ts";
-import { splitTurn, workSummary } from "../src/lib/workBlocks.ts";
+import { splitTurn, workFailed, workSummary } from "../src/lib/workBlocks.ts";
 
 const lines = (rows: unknown[]) => rows.map((row) => JSON.stringify(row)).join("\n") + "\n";
 const response = (payload: unknown) => ({ type: "response_item", timestamp: "2026-09-27T00:00:01Z", payload });
@@ -23,7 +23,8 @@ test("Claude records skill request, invocation and failure without claiming task
     { name: "plugin:review", evidence: "invocation", status: "loaded" },
     { name: "deploy", evidence: "invocation", status: "failed" },
   ]);
-  expect(workSummary(complete[0]!.parts)).toBe("2 skills · 1 failed");
+  expect(workSummary(complete[0]!.parts)).toBe("2 skills");
+  expect(workFailed(complete[0]!.parts)).toBe(1);
   expect(complete[0]?.parts[0]).toMatchObject({ kind: "tool", summary: "plugin:review", input: expect.stringContaining("plugin:review") });
   const mention = parseClaudeTranscript(lines([{ type: "assistant", message: { content: [{ type: "text", text: "Maybe use review" }, { type: "tool_use", name: "Read", input: { file_path: "/notes/review.txt" } }] } }]));
   expect(turnSkills(mention[0]!.parts)).toEqual([]);

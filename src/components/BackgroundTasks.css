@@ -1,5 +1,5 @@
-/* The toggle sits in the composer's status line; the list opens above the composer, as the
-   slash menu does, so it never covers what is being typed. */
+/* The toggle sits in the status row at the foot of the input card; the list opens above the
+   card, as the slash menu does, so it never covers what is being typed. */
 .bg-tasks {
   display: inline-flex;
   flex: none;
@@ -29,20 +29,25 @@
   display: none;
 }
 
-/* a phone's status line is one row: the icon and the number say it, the button's name has the words */
-@media (max-width: 480px) {
-  /* without its words the chip would be a 28px target, an icon alone while nothing runs */
-  .bg-tasks-toggle {
-    justify-content: center;
+/* a narrow card (a phone, or a lane beside the sidebar): the chip gives up its words before the
+   model gives up its letters. The icon and the number say it, the button's name has the words.
+   The composer marks the row from the card's own width (composerStatusCompact) */
+.composer-status[data-compact] .bg-tasks-toggle {
+  justify-content: center;
+}
+
+.composer-status[data-compact] .bg-tasks-label {
+  display: none;
+}
+
+.composer-status[data-compact] .bg-tasks-count {
+  display: inline;
+}
+
+/* without its words the chip would be a 28px target, an icon alone while nothing runs */
+@media (max-width: 480px), (pointer: coarse) {
+  .composer-status[data-compact] .bg-tasks-toggle {
     min-width: var(--touch-target);
-  }
-
-  .bg-tasks-label {
-    display: none;
-  }
-
-  .bg-tasks-count {
-    display: inline;
   }
 }
 
@@ -56,18 +61,17 @@
   color: var(--text-strong);
 }
 
-/* inside the status line, which keeps to one line: the list wraps as a page does.
-   --bg-tasks-room is the measured room above the composer (BackgroundTasks.tsx): on a short screen
+/* inside the status row, which keeps to one line: the list wraps as a page does. It is anchored
+   to the input card and takes its width, as the slash menu does.
+   --bg-tasks-room is the measured room above the card (BackgroundTasks.tsx): on a short screen
    the list keeps to it, a gap from each end, and scrolls; never less than one row */
 .bg-tasks-menu {
   position: absolute;
-  right: var(--space-4);
+  right: 0;
   bottom: calc(100% + var(--space-2));
-  left: var(--space-4);
+  left: 0;
   z-index: var(--z-popover);
-  max-width: var(--content-w);
   max-height: max(var(--row-h), min(calc(var(--row-h) * 9), calc(var(--bg-tasks-room, 100vh) - var(--space-2) * 2)));
-  margin-inline: auto;
   overflow-y: auto;
   white-space: normal;
 }
