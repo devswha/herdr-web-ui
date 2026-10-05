@@ -90,8 +90,6 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         text; with no menu, the next prompt Claude Code suggests, grey in its empty input box)
  *  POST   /api/pane/prompt/answer { pane_id, prompt_id, option_index?, option_indices?, custom_text? }
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
- *            | 504 prompt_timeout (the screen could not be read in time: the prompt is still
- *              the card's, and what the user wrote in it is kept for another try)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
  *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
  *         omo and gjc, which herdr cannot start, are typed into the root pane's shell)
@@ -516,9 +514,9 @@ export interface SlashCommand {
  * visible text. `id` names what the prompt says and which asking of it this is: an answer
  * names it, and one whose prompt changed between the read and the click is refused (409
  * prompt_changed) instead of misfired. The same question asked again has another id only where
- * the server can detect that the first asking ended (server/prompt.ts, `asked`); it cannot for
- * a prompt answered outside the app and asked again unseen. The client tells one prompt from
- * the next by the id alone.
+ * the server saw the first asking end (a read without it, an answer through this route, the
+ * agent back at work); a prompt answered outside the app and asked again unseen keeps its id.
+ * The client tells one prompt from the next by the id alone.
  */
 export interface InteractivePrompt {
   id: string;

@@ -1962,16 +1962,8 @@ ${rows.map((row, index) => `│${index === at ? "❯" : " "} ○ ${row}`).join("
 ╰─────────────────────────╯
 `;
   const TARGETS = ["Jetson Orin", "RK3588", "Other (type your own)"];
-  const APPROVAL = `
-╭─ Permission ────────────╮
-│ Allow tool: bash        │
-│ rm -rf build            │
-│❯ Approve               │
-│  Deny                  │
-╰─────────────────────────╯
-`;
 
-  test("types omp's custom answer only into the row its Enter opened", async () => {
+  test("types omp's custom answer into the row its Enter opens", async () => {
     await withPane("omp", "blocked", OMP(TARGETS, 0), async (pane) => {
       let at = 0;
       pane.onSent = (sent) => {
@@ -1983,46 +1975,16 @@ ${rows.map((row, index) => `│${index === at ? "❯" : " "} ○ ${row}`).join("
       expect(await answer(prompt.id, { custom_text: "an x86 box" })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["down", "down", "enter", "text:an x86 box", "enter"]);
     });
-    await withPane("omp", "blocked", OMP(TARGETS, 0), async (pane) => {
-      let at = 0;
-      pane.onSent = (sent) => {
-        if (sent === "down") at += 1;
-        // answered in the terminal as the Enter went out: an approval asks in the editor's place,
-        // and the answer's last Enter would approve it
-        pane.screen = sent === "enter" ? APPROVAL : OMP(TARGETS, at);
-      };
-      const prompt = (await card())!;
-      expect(await answer(prompt.id, { custom_text: "an x86 box" })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["down", "down", "enter"]);
-    });
-  });
-
-  test("submits a typed answer only once the screen shows it", async () => {
-    await withPane("claude", "blocked", QUESTION(DATASETS, 0), async (pane) => {
-      let at = 0;
-      // the text went somewhere that does not show it: no Enter after it
-      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = sent.startsWith("text:") ? "Working…\n" : QUESTION(DATASETS, at); };
-      const prompt = (await card())!;
-      expect(await answer(prompt.id, { custom_text: "the internal set" })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["down", "down", "text:the internal set"]);
-    });
   });
 
   const input = (question: string, typed = "") => `────────────────────────────────────────\n\n ${question}\n\n> ${typed}\n enter submit  escape/ctrl+c cancel\n────────────────────────────────────────${FOOTER}`;
 
-  test("goes on with pi's text dialog only while it is the one the card showed", async () => {
+  test("answers pi's text dialog", async () => {
     await withPane("pi", "idle", input("Branch name?"), async (pane) => {
       pane.onSent = (sent) => { if (sent.startsWith("text:")) pane.screen = input("Branch name?", sent.slice(5)); };
       const prompt = (await card())!;
       expect(await answer(prompt.id, { custom_text: "fix/answers" })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["ctrl+k", "ctrl+u", "text:fix/answers", "enter"]);
-    });
-    await withPane("pi", "idle", input("Branch name?"), async (pane) => {
-      // another dialog wants text by the time the line is emptied
-      pane.onSent = () => { pane.screen = input("Delete which branch?"); };
-      const prompt = (await card())!;
-      expect(await answer(prompt.id, { custom_text: "fix/answers" })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["ctrl+k"]);
     });
   });
 
@@ -2039,7 +2001,7 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
 `;
   const KINDS = ["Lint", "Tests", "Type something."];
 
-  test("ticks a multiple choice row by row, and no row of a menu that took its place", async () => {
+  test("ticks a multiple choice row by row", async () => {
     await withPane("claude", "blocked", CHECKS(KINDS, 0), async (pane) => {
       let at = 0;
       const ticked: number[] = [];
@@ -2049,26 +2011,29 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(await answer(prompt.id, { option_indices: [0, 1] })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["enter", "down", "enter", "right"]);
     });
-    await withPane("claude", "blocked", CHECKS(KINDS, 0), async (pane) => {
-      let at = 0;
-      // after the first tick another question asks: the second Enter would tick its row
-      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = CHECKS(["main", "release", "Type something."], at, [], "Which branches should be deleted?"); };
-      const prompt = (await card())!;
-      expect(await answer(prompt.id, { option_indices: [0, 1] })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["enter", "down"]);
-    });
   });
 
-  test("empties omo's typed answer and goes no further into another question", async () => {
-    const rule = "─".repeat(120);
-    const form = (question: string) => `\n [표시 위치] [월 한도] wait for answer\n\n${rule}\n\n Ask user · 30m\n → 표시 위치    월 한도    Submit\n ${question}\n → 1. 설정 > 음성 입력\n   2. 설정 + 사이드바 미터\n   Type your own answer...\n Submit (0/2 answered) — Enter advances\n ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel\n${rule}\n/private/tmp/omo-ask${" ".repeat(74)}[----------] 42K/1M (4.2%)\n${" ".repeat(86)}claude-opus-5-5 · high · OmO 5.1.7\n`;
-    await withPane("pi", "blocked", form("어디에 보여줄까요?"), async (pane) => {
-      pane.onSent = () => { pane.screen = form("어느 데이터를 지울까요?"); };
-      const prompt = (await card())!;
-      expect(prompt.agent).toBe("omo");
-      expect(await answer(prompt.id, { custom_text: "둘 다" })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["backspace", "down", "down"]);
-    });
+  // This route looks at the screen before the first key that is not a move, and never after it:
+  // from there on an answer's keys are the ones it always sent, whatever the screen shows.
+  test("after its first key that is not a move, an answer sends the rest of its keys unseen", async () => {
+    const cases: { agent: string; status: string; screen: string; choice: Parameters<typeof answer>[1] }[] = [
+      { agent: "claude", status: "blocked", screen: QUESTION(DATASETS, 2), choice: { custom_text: "the internal set" } },
+      { agent: "claude", status: "blocked", screen: CHECKS(KINDS, 0), choice: { option_indices: [0, 1] } },
+      { agent: "pi", status: "idle", screen: input("Branch name?"), choice: { custom_text: "fix/answers" } },
+      { agent: "omp", status: "blocked", screen: OMP(TARGETS, 2), choice: { custom_text: "an x86 box" } },
+    ];
+    for (const { agent, status, screen, choice } of cases) {
+      await withPane(agent, status, screen, async (pane) => {
+        // what the answer's keys are, as main sends them
+        const keys = answerKeys(parseInteractivePrompt(agent, screen)!, choice).flatMap((step) => step.keys ?? [`text:${step.text}`]);
+        expect(keys.length).toBeGreaterThan(1);
+        const prompt = (await card())!;
+        // the screen is something else from the first key on
+        pane.onSent = () => { pane.screen = "Working…\n"; };
+        expect(await answer(prompt.id, choice)).toEqual({ status: 200, code: undefined });
+        expect(pane.sent).toEqual(keys);
+      });
+    }
   });
 
   test("leaves Codex's queue alone while the question just answered is still on the screen", async () => {
@@ -2101,23 +2066,6 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(at).toBe(1);
       expect(pane.sent).toEqual(["down", "enter"]);
     });
-  });
-
-  test("a question asked again by another call of the agent's is another prompt", () => {
-    const collapsed = "\n• WAITING\n• Queued follow-up inputs\n  ? 1 question · 8s\n    alt+↑ to answer\n› Ask Codex to do anything\n  GPT-6-Sol xhigh · ~/lab · Context 97% left\n";
-    const queued = (key: string, rollout = "/sessions/a.jsonl") => codexQueuedPrompt(collapsed, [{ key, title: "Which split?", options: ["train", "test"] }], null, rollout)!;
-    expect(queued("call_1:0").id).toBe(queued("call_1:0").id);
-    expect(queued("call_2:0").id).not.toBe(queued("call_1:0").id);
-    expect(queued("call_1:0", "/sessions/b.jsonl").id).not.toBe(queued("call_1:0").id);
-
-    const call = (id: string) => JSON.stringify({ message: { role: "assistant", content: [{ type: "toolCall", name: "ask_user_question", id, arguments: { questions: [{ header: "Store", question: "Which store?", options: [{ label: "Redis" }, { label: "Postgres" }] }] } }] } });
-    const rule = "─".repeat(80);
-    const screen = `\n${rule}\n\n Ask user · 30m\n Which store?\n → 1. Redis\n   2. Postgres\n   Type your own answer...\n ↑↓ move  1-9 select  space select  enter next  c comment  esc cancel\n${rule}\n/tmp/app          [----------] 42K/1M (4.2%)\n            claude-opus-5-5 · high · OmO 5.1.7\n`;
-    const asked = (id: string) => parseInteractivePrompt("omo", screen, pendingOmoAsk(call(id)))!;
-    expect(pendingOmoAsk(call("toolu_1"))!.id).toBe("toolu_1");
-    expect(asked("toolu_1").question).toBe("Which store?");
-    expect(asked("toolu_1").id).toBe(asked("toolu_1").id);
-    expect(asked("toolu_2").id).not.toBe(asked("toolu_1").id);
   });
 
   test("sends nothing for a request given up before its turn, even to the row the cursor is on", async () => {
@@ -2215,36 +2163,21 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     }
   });
 
-  test("ticks no row of a menu with the same question and other options", async () => {
-    await withPane("claude", "blocked", CHECKS(KINDS, 0), async (pane) => {
-      let at = 0;
-      // after the first tick the question reads the same and the cursor is where it was, but
-      // the rows are another menu's
-      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = CHECKS(["Wipe cache", "Delete backups", "Type something."], at); };
-      const prompt = (await card())!;
-      expect(await answer(prompt.id, { option_indices: [0, 1] })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["enter", "down"]);
-    });
-  });
-
-  test("a screen read that comes back after the deadline authorises no key, and is a timeout, not a changed prompt", async () => {
+  test("a screen read that comes back after the wait authorises no key", async () => {
     await withPane("codex", "blocked", menu(RESUME), async (pane) => {
       moving(pane, RESUME);
       const prompt = (await card())!;
       const moved = pane.onSent!;
       pane.onSent = (sent) => { moved(sent); pane.readDelay = 1_800; };
       const started = Date.now();
-      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 504, code: "prompt_timeout" });
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
       expect(pane.sent).toEqual(["down"]);
-      // cut off at the deadline, not waited out
+      // cut off when the wait is over, not waited out
       expect(Date.now() - started).toBeLessThan(1_790);
-      // nothing says the prompt changed: its card is still the one to answer
-      pane.readDelay = 0;
-      expect((await card())!.id).toBe(prompt.id);
     });
   }, 6_000);
 
-  test("a lookup that herdr never answers is cut off with the answer's wait", async () => {
+  test("a lookup that herdr never answers is cut off with the wait", async () => {
     const collapsed = "\n• WAITING\n• Queued follow-up inputs\n  ? 1 question · 8s\n    alt+↑ to answer\n› Ask Codex to do anything\n  GPT-6-Sol xhigh · ~/lab · Context 97% left\n";
     await withPane("codex", "blocked", menu(RESUME), async (pane) => {
       pane.cwd = pane.root;
@@ -2253,7 +2186,7 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       // rollout, and herdr does not say which one it is
       pane.onSent = () => { pane.agentUnanswered = true; pane.screen = collapsed; };
       const started = Date.now();
-      expect((await answer(prompt.id, { option_index: 1 })).status).toBe(504);
+      expect((await answer(prompt.id, { option_index: 1 })).status).toBe(409);
       expect(pane.sent).toEqual(["down"]);
       expect(Date.now() - started).toBeLessThan(2_500);
     });
@@ -2297,7 +2230,7 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   });
 
-  test("a question open in Codex's queue is what the screen shows: the rollout does not rename it, and no queue opens for a request given up", async () => {
+  test("answers a question of Codex's collapsed queue, and opens no queue for a request given up", async () => {
     const collapsed = "\n• WAITING\n• Queued follow-up inputs\n  ? 2 questions · 8s\n    alt+↑ to answer\n› Ask Codex to do anything\n  GPT-6-Sol xhigh · ~/lab · Context 97% left\n";
     const open = (at: number) => `\n• Queued follow-up inputs\n  1 of 2\n  Which split?\n  ${at === 0 ? "›" : " "} 1. train\n  ${at === 1 ? "›" : " "} 2. test\n  ${at === 2 ? "›" : " "} 3. Other\n  enter submit   ctrl+] skip   alt+↓ main prompt\n`;
     const item = (payload: unknown) => `${JSON.stringify({ type: "response_item", payload })}\n`;
@@ -2307,7 +2240,7 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       mkdirSync(join(home, "sessions"), { recursive: true });
       pane.rollout = join(home, "sessions", "rollout.jsonl");
       pane.cwd = pane.root;
-      // one call asks the same question twice: its card is the first of the two, by its call
+      // one call asks the same question twice: the card is the first of the two
       writeFileSync(pane.rollout, `${JSON.stringify({ type: "session_meta", payload: { id: "t", source: "cli" } })}\n${ask("call_1", 2)}`);
       const queued = (await card(home))!;
       expect(queued.queued).toBe("collapsed");
@@ -2330,8 +2263,8 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         }
         if (sent === "enter") pane.screen = "› Ask Codex to do anything\n";
       };
-      // the twin is no reason to refuse, nor is the rollout's news about a question the screen
-      // still shows as it was
+      // neither the twin nor the rollout's news under the answer is a reason to refuse: the
+      // question on the screen is the card's
       expect(await answer(queued.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["alt+up", "down", "enter"]);
     });

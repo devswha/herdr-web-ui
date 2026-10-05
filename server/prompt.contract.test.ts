@@ -261,8 +261,8 @@ describe("answers to pi's dialogs", () => {
 });
 
 /**
- * The answers that had no second look before their keys (a Codex menu, a multiple choice, a typed
- * answer), against the real server. A pane draws screens the way those agents draw them and logs
+ * The answers that had no second look before their Enter (a Codex menu, omp's permission), against
+ * the real server. A pane draws screens the way those agents draw them and logs
  * every key it is sent: `{n}` in a line is row n's cursor. `swap`: on that key the next screen
  * takes the first one's place, as when the menu is answered in the terminal at that moment.
  * `hold`: after a key the screen is drawn again only once `<log>.go` exists.
@@ -335,17 +335,10 @@ describe("an answer whose menu changes under it", () => {
   });
   const resume = continueMenu("Conversation interrupted", ["Resume the task", "Start over", "Quit"]);
   const cleanup = continueMenu("Branch cleanup", ["Keep the branch", "Delete the branch", "Quit"]);
-  const checks = (question: string, rows: string[]): Frame => ({
-    mark: "❯", lines: ["☐ Checks", "", question, "", ...rows.map((row, index) => `{${index}} ${index + 1}. [ ] ${row}`), `{${rows.length}} ${rows.length + 1}. Type something.`,
-      "────────────────────────────", `  ${rows.length + 2}. Chat about this`, "", "Enter to select · ↑/↓ to navigate · Esc to cancel"],
-  });
-  const ask: Frame = { mark: "❯", lines: ["╭─ Ask ───────────────────╮", "│ Which target?", "├─────────────────────────┤", "│{0} ○ Jetson Orin", "│{1} ○ RK3588", "│{2} ○ Other (type your own)", "├─────────────────────────┤", "│ Enter select · n note · ↑/↓ move · Esc cancel", "╰─────────────────────────╯"] };
   const permission: Frame = { mark: "❯", lines: ["╭─ Permission ────────────╮", "│ Allow tool: bash", "│ rm -rf build", "│{0} Approve", "│{1} Deny", "╰─────────────────────────╯"] };
   let steady: Menu;
   let replaced: Menu;
   let ended: Menu;
-  let ticked: Menu;
-  let typed: Menu;
   let denied: Menu;
 
   beforeAll(async () => {
@@ -353,8 +346,6 @@ describe("an answer whose menu changes under it", () => {
     steady = await screens("codex-steady", "codex", { frames: [resume] });
     replaced = await screens("codex-replaced", "codex", { frames: [resume, cleanup], swap: "down" });
     ended = await screens("codex-ended", "codex", { frames: [resume], hold: true });
-    ticked = await screens("claude-ticked", "claude", { frames: [checks("Which checks should run?", ["Lint", "Tests"]), checks("Which branches should be deleted?", ["main", "release"])], swap: "enter" });
-    typed = await screens("omp-typed", "omp", { frames: [ask, permission], swap: "enter" });
     denied = await screens("omp-denied", "omp", { frames: [permission] });
   }, 60_000);
 
@@ -409,20 +400,5 @@ describe("an answer whose menu changes under it", () => {
       expect((await response).status).toBe(409);
       expect(await keys(ended)).toEqual(["down"]);
     } finally { socket.close(); }
-  });
-
-  it("ticks no row of the question that took a multiple choice's place after its first tick", async () => {
-    const prompt = await card(ticked);
-    expect(prompt.options.map((option) => option.label)).toEqual(["Lint", "Tests"]);
-    expect((await send(ticked, prompt.id, { option_indices: [0, 1] })).status).toBe(409);
-    expect(await keys(ticked)).toEqual(["enter", "down"]);
-  });
-
-  it("types no answer into the approval that took the place of the row it opened", async () => {
-    const prompt = await card(typed);
-    expect(prompt.options.map((option) => option.label)).toEqual(["Jetson Orin", "RK3588"]);
-    expect((await send(typed, prompt.id, { custom_text: "an x86 box" })).status).toBe(409);
-    // neither the text nor the Enter that would have approved `rm -rf build`
-    expect(await keys(typed)).toEqual(["down", "down", "enter"]);
   });
 });
