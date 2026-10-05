@@ -15,6 +15,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   header names the pane, and Stop, the working row and the approval card say the state. Where
   the box is narrow, beside the sidebar for one, the background-task chip shows its count
   before the model's name is cut. In dark themes Queue loses its outline.
+  ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
 
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
