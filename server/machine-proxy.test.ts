@@ -11,6 +11,7 @@ const remote = Bun.serve({
     const path = new URL(request.url).pathname;
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
+    if (path === "/api/fs/file") return new Response("%PDF-1.7", { headers: { "content-type": "application/pdf" } });
     const ifNoneMatch = request.headers.get("if-none-match");
     asked.push(ifNoneMatch);
     if (ifNoneMatch === "\"v1\"") return new Response(null, { status: 304, headers: { etag: "\"v1\"" } });
@@ -49,6 +50,31 @@ it("forwards conversation images and complete output, while rejecting arbitrary 
   expect(output.status).toBe(200);
   expect(await output.text()).toBe("complete remote output");
   expect((await handleMachineRequest(new Request(`${base}/unknown`), manager)).status).toBe(404);
+});
+
+it("opens a PC's file from a navigation another site started, and keeps every other route to this app", async () => {
+  // Chrome on Android shows a PDF in the viewer's frame as an "Open" button; its navigation is cross-site
+  const file = "http://127.0.0.1/api/machines/pc1/fs/file?path=%2Ftmp%2Freport.pdf";
+  for (const site of ["cross-site", "same-site"]) {
+    const response = await handleMachineRequest(new Request(file, { headers: { "sec-fetch-site": site } }), manager);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(await response.text()).toBe("%PDF-1.7");
+  }
+  const head = await handleMachineRequest(new Request(file, { method: "HEAD", headers: { "sec-fetch-site": "cross-site" } }), manager);
+  expect(head.status).toBe(200);
+  expect(head.headers.get("content-type")).toBe("application/pdf");
+  const crossSite = { "sec-fetch-site": "cross-site" };
+  for (const request of [
+    new Request("http://127.0.0.1/api/machines/pc1/fs/stat?path=%2Ftmp%2Freport.pdf", { headers: crossSite }),
+    new Request("http://127.0.0.1/api/machines/pc1/pane/conversation?pane_id=w1%3Ap1", { headers: crossSite }),
+    new Request(file, { method: "POST", headers: { ...crossSite, "x-herdr-machine": "1" } }),
+    new Request(file, { headers: { origin: "https://evil.invalid", "sec-fetch-site": "same-origin" }, method: "PUT" }),
+  ]) {
+    const response = await handleMachineRequest(request, manager);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "invalid_origin" } });
+  }
 });
 
 it("refuses a path with an empty segment instead of forwarding it as another route", async () => {
