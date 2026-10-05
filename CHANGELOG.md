@@ -34,6 +34,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Android phone with its keyboard up), the rows fold into that one line; tap it to open them. On
   a phone, **Discard** is an X, and the message box keeps the same side margin as the
   conversation.
+  ([#466](https://github.com/devswha/herdr-web-ui/pull/466))
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
