@@ -4,6 +4,7 @@ import type { HerdrPane, InteractivePrompt, PromptAnswer } from "../shared/proto
 import { codexTranscriptPath, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneRead, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
+import { omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
 
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
@@ -46,6 +47,11 @@ const OMO_FOOTER_LINES = 3;
 const OMO_HINT_END_RE = /\besc (?:cancel|back|discard)$/;
 /** never a line of OmO's footer: an input box (`>`, `❯`) or a shell's prompt */
 const OMO_NOT_FOOTER_RE = /^[>❯›➜$%#]|[$%#>❯›]$/;
+// OmO's widget over its input box for a question that does not wait for its answer (omo 5.1.19)
+const OMO_PENDING_STATUS_RE = /^\?\s+(?:Question pending \((\d+) unanswered\)|\d+ questions pending)(?:\s+·.*)?$/;
+const OMO_PENDING_HINT_RE = /^enter(?: or \S+)? to answer · \/answer · or just type your reply\b/;
+/** OmO's input box, empty: the widget takes a number typed into it as a pick */
+const OMO_EMPTY_BOX_RE = /^[❯›>]$/;
 
 const KEY = {
   up: "up",
@@ -79,6 +85,7 @@ type Responder =
   | "omo-question"
   | "omo-review"
   | "omo-typing"
+  | "omo-pending"
   | "pi-question"
   | "pi-confirm"
   | "pi-input"
@@ -541,39 +548,50 @@ function omoForm(lines: string[], hintIndex: number): OmoForm | null {
  */
 export interface OmoAsk {
   questions: { header: string; question: string; multiSelect: boolean; options: { label: string; description: string | null }[] }[];
+  /** false: the call does not wait for its answer, and OmO folds it into a widget over its input box */
+  wait?: boolean;
 }
 
-/**
- * The ask_user_question call omo's session (its .jsonl, or the tail of it) still waits on: the
- * newest assistant message's call, unless a tool result answers it. null otherwise, or for a call
- * whose arguments are not the shape omo asks with.
- */
-export function pendingOmoAsk(jsonl: string): OmoAsk | null {
-  const answered = new Set<string>();
-  const lines = jsonl.split("\n");
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    let message: { role?: unknown; toolCallId?: unknown; content?: unknown } | undefined;
-    try { message = (JSON.parse(lines[index]!) as { message?: typeof message }).message; } catch { continue; }
-    if (message?.role === "toolResult" && typeof message.toolCallId === "string") answered.add(message.toolCallId);
-    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-    const call = [...(message.content as { type?: unknown; name?: unknown; id?: unknown; arguments?: unknown }[])].reverse()
-      .find((part) => part?.type === "toolCall" && part.name === "ask_user_question");
-    if (!call || typeof call.id !== "string" || answered.has(call.id)) return null;
-    const questions = (call.arguments as { questions?: unknown } | undefined)?.questions;
-    if (!Array.isArray(questions) || questions.length === 0) return null;
-    const ask: OmoAsk = { questions: [] };
-    for (const question of questions as Record<string, unknown>[]) {
-      if (typeof question?.["header"] !== "string" || typeof question["question"] !== "string" || !Array.isArray(question["options"])) return null;
-      const options = (question["options"] as Record<string, unknown>[]).map((option) => ({
-        label: typeof option?.["label"] === "string" ? option["label"] : "",
-        description: typeof option?.["description"] === "string" && option["description"] ? option["description"] : null,
-      }));
-      if (options.length === 0 || options.some((option) => !option.label)) return null;
-      ask.questions.push({ header: question["header"], question: question["question"], multiSelect: question["multiSelect"] === true, options });
-    }
-    return ask;
+/** A call's questions, or null for arguments that are not the shape omo asks with. */
+function omoAskOf(call: OmoAskCall): OmoAsk | null {
+  const questions = (call.args as { questions?: unknown } | null | undefined)?.questions;
+  if (!Array.isArray(questions) || questions.length === 0) return null;
+  const ask: OmoAsk = { questions: [], wait: call.wait };
+  for (const question of questions as Record<string, unknown>[]) {
+    if (typeof question?.["header"] !== "string" || typeof question["question"] !== "string" || !Array.isArray(question["options"])) return null;
+    const options = (question["options"] as Record<string, unknown>[]).map((option) => ({
+      label: typeof option?.["label"] === "string" ? option["label"] : "",
+      description: typeof option?.["description"] === "string" && option["description"] ? option["description"] : null,
+    }));
+    if (options.length === 0 || options.some((option) => !option.label)) return null;
+    ask.questions.push({ header: question["header"], question: question["question"], multiSelect: question["multiSelect"] === true, options });
   }
-  return null;
+  return ask;
+}
+
+/** the records that can open or close a question; the rest of a session's tail is not parsed */
+const OMO_ASK_RECORD_RE = /"role":"(?:assistant|toolResult|user)"|ask-user:settlement/;
+
+/**
+ * The questions omo's session (its .jsonl, or the tail of it) still has open (omo-ask.ts), newest
+ * first: a call that waits while it is the newest assistant message's and no tool result answers
+ * it, one that does not wait until it is settled. Calls whose arguments are not the shape omo asks
+ * with are left out.
+ */
+export function openOmoAsks(jsonl: string): OmoAsk[] {
+  let open: OmoAsks = [];
+  for (const line of jsonl.split("\n")) {
+    if (!OMO_ASK_RECORD_RE.test(line)) continue;
+    let entry: unknown;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (typeof entry === "object" && entry !== null) open = omoAsksAfter(open, entry);
+  }
+  return open.flatMap((call) => omoAskOf(call) ?? []).reverse();
+}
+
+/** The newest question omo's session has open, or null. */
+export function pendingOmoAsk(jsonl: string): OmoAsk | null {
+  return openOmoAsks(jsonl)[0] ?? null;
 }
 
 /** A tab shows its question's header, cut with an ellipsis when the pane is too narrow for it. */
@@ -939,6 +957,59 @@ function parseOmoReview(screen: string, ask: OmoAsk | null, trusted: boolean): P
   });
 }
 
+/**
+ * OmO's widget over its input box for a question asked without waiting for the answer (omo
+ * 5.1.19): OmO goes on working, or ends its turn, and the question stays open until answered:
+ *
+ *    ? Question pending (2 unanswered) · 30m          (`? 2 questions pending · 30m` for several calls)
+ *      표시 위치 — 음성 사용량과 추정 비용을 어디에 보여줄까요?
+ *    [ 설정 > 음성 입력 (추천) ]  [ 설정 + 사이드바 미터 ]  [ own answer… ]
+ *    +1 more question
+ *    enter to answer · /answer · or just type your reply
+ *
+ * It shows the first unanswered question of one call, by its header; the session's open calls
+ * that do not wait name it, and the card is only for one of them. With the input box empty, a
+ * number opens the question in OmO's form and picks that option (a lone question is then
+ * submitted, else the form moves on to the next one); a reply typed into the box and sent answers
+ * the whole call with it, as its comment.
+ */
+function parseOmoPending(screen: string, pending: OmoAsk[]): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(lines, (_, index) => OMO_PENDING_HINT_RE.test(wrapped(lines, index)));
+  if (hintIndex < 0) return null;
+  const statusIndex = findLastIndex(lines.slice(0, hintIndex), (line) => OMO_PENDING_STATUS_RE.test(cleanLine(line)));
+  if (statusIndex < 0 || hintIndex - statusIndex > 12) return null;
+  const unanswered = OMO_PENDING_STATUS_RE.exec(cleanLine(lines[statusIndex]!))![1];
+  const shown = /^(.+?) — (.+)$/.exec(cleanLine(lines[statusIndex + 1] ?? ""));
+  if (!shown) return null;
+  // the line is cut at the pane's edge
+  const start = comparable(shown[2]!.replace(/(?:…|\.\.\.)$/, ""));
+  const matches = pending.filter((ask) => ask.wait === false).flatMap((ask) => ask.questions.flatMap((question, index) =>
+    sameHeader(shown[1]!, question.header) && comparable(question.question).startsWith(start) ? [{ ask, index }] : []));
+  if (matches.length !== 1) return null;
+  const { ask, index } = matches[0]!;
+  const asked = ask.questions[index]!;
+  if (asked.options.length > 9) return null;
+  const tabs = cutSteps(ask, index, false, unanswered === undefined ? null : ask.questions.length - Number(unanswered));
+  const options = asked.options.map((option) => ({ label: normalizeText(option.label), description: option.description && normalizeText(option.description) }));
+  return finishPrompt("omo", {
+    kind: "question", title: omoTitle(tabs, index, ask), question: normalizeText(asked.question), body: null,
+    options, multi_select: asked.multiSelect, custom_option_index: asked.multiSelect ? null : options.length,
+    steps: omoSteps(tabs, ask),
+  }, {
+    responder: "omo-pending", menuLabels: [...options.map((option) => option.label), "Type your reply"], selectedIndex: -1,
+    checkedOptionIndices: [], customMenuIndex: asked.multiSelect ? null : options.length, rejectWithEscapeIndex: null,
+    optionSteps: options.map((_, option) => [{ text: String(option + 1) }]),
+    customSteps: (text) => {
+      // a lone number picks that option, a command is run: neither is a reply
+      if (/^[1-9]$/.test(text) || /^[/!]/.test(text)) throw new InvalidAnswer("A reply cannot be a lone number or start with / or !.");
+      return [{ text }, ...keySteps([KEY.enter])];
+    },
+    // the first number opens the question in the form, which takes the rest; Tab moves on
+    multiSteps: (choices) => [...[...choices].sort((a, b) => a - b).map((option) => ({ text: String(option + 1) })), ...keySteps([KEY.tab])],
+  });
+}
+
 function parseCodexApproval(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const headerIndex = findLastIndex(lines, (line) => CODEX_APPROVAL_HEADER_RE.test(line) && !NUMBERED_OPTION_RE.test(line));
@@ -1147,6 +1218,23 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
     let rules = 0;
     let footer = 0;
     for (const line of cleanLines.slice(end + 1)) {
+      if (!line) continue;
+      if (SOLID_RULE_RE.test(line)) {
+        if (rules > 0 || footer > 0) return false;
+        rules = 1;
+      } else if (rules === 0 || ++footer > OMO_FOOTER_LINES || OMO_NOT_FOOTER_RE.test(line)) return false;
+    }
+    return rules === 1;
+  }
+  if (prompt.responder === "omo-pending") {
+    // The widget is live over OmO's input box, other widgets maybe between them: the box (a rule,
+    // the box's line, empty, a rule) and then nothing but OmO's footer.
+    const at = findLastIndex(cleanLines, (line, index) => line !== "" && OMO_PENDING_HINT_RE.test(wrapped(cleanLines, index)));
+    const box = cleanLines.findIndex((line, index) => index > at && OMO_EMPTY_BOX_RE.test(line));
+    if (at < 0 || box < 0 || box - at > 60 || !cleanLines[box - 1]!.startsWith("─")) return false;
+    let rules = 0;
+    let footer = 0;
+    for (const line of cleanLines.slice(box + 1)) {
       if (!line) continue;
       if (SOLID_RULE_RE.test(line)) {
         if (rules > 0 || footer > 0) return false;
@@ -1421,8 +1509,8 @@ function parsePiDialog(screen: string, moved = false): ParsedPrompt | null {
   });
 }
 
-function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true): ParsedPrompt | null {
-  const omo = () => [parseOmoQuestion(screen, omoAsk, omoTrusted), parseOmoTyping(screen, omoAsk, omoTrusted), parseOmoReview(screen, omoAsk, omoTrusted)];
+function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true, omoOpen: OmoAsk[] = []): ParsedPrompt | null {
+  const omo = () => [parseOmoQuestion(screen, omoAsk, omoTrusted), parseOmoTyping(screen, omoAsk, omoTrusted), parseOmoReview(screen, omoAsk, omoTrusted), parseOmoPending(screen, omoOpen)];
   const candidates = agent === "codex"
     ? [parseCodexContinueMenu(screen), parseCodexQuestion(screen), parseCodexAsyncQuestion(screen), parseCodexApproval(screen)]
     : agent === "omp"
@@ -1463,9 +1551,11 @@ export function codexQueuedPrompt(screen: string, unanswered: QueuedQuestion[], 
 /**
  * `omoAsk`: the call an omo pane's session waits on (pendingOmoAsk), for its form's own text.
  * `omoTrusted` false: an omo form on the screen counts only when that call matches it.
+ * `omoOpen`: every question the session has open (openOmoAsks), for omo's widget of the ones
+ * asked without waiting.
  */
-export function parseInteractivePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true): InteractivePrompt | null {
-  const parsed = parsePrompt(agent, screen, omoAsk, omoTrusted);
+export function parseInteractivePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true, omoOpen: OmoAsk[] = []): InteractivePrompt | null {
+  const parsed = parsePrompt(agent, screen, omoAsk, omoTrusted, omoOpen);
   return parsed ? publicPrompt(parsed) : null;
 }
 
@@ -1932,8 +2022,8 @@ async function liveScreen(paneId: string): Promise<string> {
   return (await paneRead({ paneId, source: "detection", format: "text" })).text;
 }
 
-/** omo's form on a screen, by a line of its key hint: worth a look in the pane's session. */
-const OMO_FORM_RE = /\b1-9 select\b|enter save and next|\btab next question\b/;
+/** omo's form or its widget on a screen, by a line of its key hint: worth a look in the pane's session. */
+const OMO_FORM_RE = /\b1-9 select\b|enter save and next|\btab next question\b|\bor just type your reply\b/;
 /**
  * Each omo pane's session file, resolved while its form shows: a poll every 2s would otherwise
  * redo it. Only a found one is kept: an omo just started has none yet, and its form's text
@@ -1944,13 +2034,13 @@ const OMO_SESSION_MS = 15_000;
 /** The end of a session file read for its pending call: the form's call is in its newest message. */
 const OMO_TAIL_BYTES = 1 << 20;
 
-/** The ask_user_question call an omo pane's session waits on; null when it cannot be read. */
-async function omoAskFor(paneId: string, cwd: string, panes: HerdrPane[]): Promise<OmoAsk | null> {
+/** The questions an omo pane's session has open, newest first; none when it cannot be read. */
+async function omoAsksFor(paneId: string, cwd: string, panes: HerdrPane[]): Promise<OmoAsk[]> {
   let session = omoSessions.get(paneId);
   if (!session || Date.now() - session.at > OMO_SESSION_MS) {
     omoSessions.delete(paneId);
     const path = await omoTranscriptForPane(paneId, cwd, panes).catch(() => null);
-    if (!path) return null;
+    if (!path) return [];
     session = { path, at: Date.now() };
     omoSessions.set(paneId, session);
     if (omoSessions.size > 64) omoSessions.delete(omoSessions.keys().next().value!);
@@ -1959,9 +2049,9 @@ async function omoAskFor(paneId: string, cwd: string, panes: HerdrPane[]): Promi
     const file = Bun.file(session.path);
     const text = await file.slice(Math.max(0, file.size - OMO_TAIL_BYTES)).text();
     // a tail starts inside a record: from the next one
-    return pendingOmoAsk(file.size > OMO_TAIL_BYTES ? text.slice(text.indexOf("\n") + 1) : text);
+    return openOmoAsks(file.size > OMO_TAIL_BYTES ? text.slice(text.indexOf("\n") + 1) : text);
   } catch {
-    return null; // the session went away
+    return []; // the session went away
   }
 }
 
@@ -1975,12 +2065,12 @@ async function readKnownPrompt(
   if (!["claude", "omp", "codex", "omo", "pi", ""].includes(agent)) return { prompt: null };
   const screen = await liveScreen(paneId);
   // omo's form reads its text from the session's call, the screen showing where the form stands
-  const omoAsk = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)
-    ? await omoAskFor(paneId, pane.cwd, panes) : null;
+  const omoAsks = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)
+    ? await omoAsksFor(paneId, pane.cwd, panes) : [];
   // a pane herdr names claude, or not at all, is omo's only on evidence: herdr reports it waiting
   // on the user, or the session's pending call is the form on screen
   const omoTrusted = (agent !== "claude" && agent !== "") || pane.agent_status === "blocked";
-  const prompt = parseInteractivePrompt(agent, screen, omoAsk, omoTrusted);
+  const prompt = parseInteractivePrompt(agent, screen, omoAsks[0] ?? null, omoTrusted, omoAsks);
   const count = agent === "codex" && prompt === null ? queuedQuestionCount(screen) : 0;
   if (count === 0 || !pane.cwd) return { prompt, screen };
   let rollout = queueRollouts.get(paneId);
@@ -2269,7 +2359,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         await closeQueue(body.pane_id, contentId(target)!);
       }
       const responder = parsedByPublicPrompt.get(target)?.responder;
-      if (responder === "omo-question" || responder === "omo-review" || responder === "omo-typing") {
+      if (responder === "omo-question" || responder === "omo-review" || responder === "omo-typing" || responder === "omo-pending") {
         formsAnswered.set(body.pane_id, Date.now());
         if (formsAnswered.size > 64) formsAnswered.delete(formsAnswered.keys().next().value!);
       }

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -1120,6 +1120,71 @@ ${rule60}
     expect(prompt?.steps?.every((step) => step.answered && !step.current)).toBeTrue();
     expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
     expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
+  // the same call asked without waiting: omo accepts it at once and folds it into a widget
+  const accepted = (id: string) => record({ role: "toolResult", toolCallId: id, content: [{ type: "text", text: "Question accepted; the answer will arrive as a user message." }], details: { accepted: true, status: "pending" }, isError: false });
+  const asyncAsking = `${asking.replace('"waitForAnswer":true', '"waitForAnswer":false')}\n${accepted("call-1")}\n${record({ role: "assistant", content: [{ type: "text", text: "meanwhile" }], stopReason: "stop" })}`;
+
+  test("keeps a call asked without waiting open until it is settled", () => {
+    expect(openOmoAsks(asyncAsking).map((ask) => [ask.questions[0]!.header, ask.wait])).toEqual([["표시 위치", false]]);
+    expect(pendingOmoAsk(asyncAsking)?.questions).toHaveLength(2);
+    const settlement = JSON.stringify({ type: "custom", customType: "ask-user:settlement", data: { requestId: "call-1", status: "answered" } });
+    expect(openOmoAsks(`${asyncAsking}\n${settlement}`)).toEqual([]);
+    expect(openOmoAsks(`${asyncAsking}\n${record({ role: "user", content: [{ type: "text", text: "[Answer to question call-1]\n표시 위치: 설정" }] })}`)).toEqual([]);
+    // refused: the result is an error, and nothing is left open
+    const refused = asyncAsking.replace(accepted("call-1"), record({ role: "toolResult", toolCallId: "call-1", content: [], details: {}, isError: true }));
+    expect(openOmoAsks(refused)).toEqual([]);
+  });
+
+  // omo 5.1.19's widget for it at 120 columns, over its empty input box and its footer
+  const widget = (box = "❯", after = "") => `● meanwhile
+
+? Question pending (2 unanswered) · 30m
+  표시 위치 — 음성 사용량과 추정 비용을 어디에 보여줄까요?
+[ 설정 > 음성 입력 (추천) ]  [ 설정 + 사이드바 미터 ]  [ 상단 상태 표시줄 ]  [ 표시하지 않음 ]  [ own answer… ]
++1 more question
+enter to answer · /answer · or just type your reply
+
+ Todo
+ [•] 사용량 표시
+── • Running eval (3s • esc to interrupt) ${"─".repeat(80)}
+${box}
+${rule}${after}
+~/work • main • 321K/1M (32.1%) (auto)                                         claude-opus-5-5:high
+(😺 OmO Native) 🤖 2 mem just now
+`;
+
+  test("reads the widget of a question asked without waiting, by the session's open call", () => {
+    const open = openOmoAsks(asyncAsking);
+    // herdr may name the pane claude and report it at work: the session's open call is the evidence
+    const prompt = parseInteractivePrompt("claude", widget(), null, false, open);
+    expect(prompt).toMatchObject({
+      agent: "omo", kind: "question", title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?",
+      multi_select: false, custom_option_index: 4,
+      steps: [{ label: "표시 위치", answered: false, current: true }, { label: "월 한도", answered: false, current: false }],
+    });
+    expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터", "상단 상태 표시줄", "표시하지 않음"]);
+    // a number in the empty box opens the question and picks; a reply typed and sent answers it all
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ text: "2" }]);
+    expect(answerKeys(prompt!, { custom_text: "둘 다 보여줘" })).toEqual([{ text: "둘 다 보여줘" }, { keys: ["enter"] }]);
+    for (const text of ["1", "/answer", "!ls"]) expect(() => answerKeys(prompt!, { custom_text: text })).toThrow("reply");
+    // the second question, shown once the first has its answer
+    const second = widget().replace("(2 unanswered)", "(1 unanswered)").replace(/  표시 위치 — .*\n\[.*\n\+1 more question\n/, "  월 한도 — 월 사용 한도를 둘까요?\n[ 한도 없음 ]  [ 월 $5 한도 ]  [ own answer… ]\n");
+    expect(parseInteractivePrompt("claude", second, null, false, open)).toMatchObject({
+      title: "Question 2 of 2", steps: [{ answered: true, current: false }, { answered: false, current: true }],
+    });
+  });
+
+  test("no card for the widget without an open call, with text in the box, or with output under it", () => {
+    const open = openOmoAsks(asyncAsking);
+    expect(parseInteractivePrompt("claude", widget(), null, false, [])).toBeNull();
+    // a call that waits has its form, never this widget
+    expect(parseInteractivePrompt("claude", widget(), null, false, openOmoAsks(asking))).toBeNull();
+    // a number typed now would join the text
+    expect(parseInteractivePrompt("claude", widget("❯ 둘 다"), null, false, open)).toBeNull();
+    expect(parseInteractivePrompt("claude", widget("❯", "\n$ echo after"), null, false, open)).toBeNull();
+    expect(parseInteractivePrompt("claude", `${widget()}$ \n`, null, false, open)).toBeNull();
   });
 });
 
