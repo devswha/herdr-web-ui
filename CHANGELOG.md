@@ -11,6 +11,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The DAG viewer pane omo-herdr-dag opens beside an OmO pane no longer appears in the
   sidebar or the tab strip: an OmO workspace with its viewer shows as a single pane, as it does
   without one. The viewer can still be opened from the command palette.
+  ([#447](https://github.com/devswha/herdr-web-ui/pull/447) by @nahwan-kim)
+- Attaching a file over 8 MB says so at once, with its size and the limit, instead of uploading
+  it first and answering `/api/pane/image failed (413)`. Past about 96 MB that message gave no
+  reason at all.
+  ([#446](https://github.com/devswha/herdr-web-ui/pull/446))
 - Switching to another pane no longer shows the previous pane's chat for a moment before the
   new one loads.
   ([#422](https://github.com/devswha/herdr-web-ui/pull/422) by @Haeminway1)
