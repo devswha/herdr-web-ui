@@ -43,6 +43,7 @@ import {
   sessionSnapshot,
   tabClose,
   tabCreate,
+  tabMove,
   tabRename,
   workspaceClose,
   workspaceCreate,
@@ -1307,10 +1308,11 @@ export function createServer(
         }
       }
 
-      // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it
-      if (pathname === "/api/tab/rename" || pathname === "/api/tab/close") {
+      // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it;
+      // and a tab's place in its workspace's row
+      if (pathname === "/api/tab/rename" || pathname === "/api/tab/move" || pathname === "/api/tab/close") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { tab_id?: unknown; label?: unknown };
+        let payload: { tab_id?: unknown; label?: unknown; insert_index?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -1318,8 +1320,22 @@ export function createServer(
         }
         if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
         if (typeof payload.tab_id !== "string" || payload.tab_id.length === 0) return badRequest("missing_tab_id", "tab_id is required");
+        if (pathname === "/api/tab/move" && (typeof payload.insert_index !== "number" || !Number.isInteger(payload.insert_index) || payload.insert_index < 0)) {
+          return badRequest("invalid_index", "insert_index must be a non-negative integer");
+        }
         try {
-          if (pathname === "/api/tab/rename") {
+          if (pathname === "/api/tab/move") {
+            // a gap past the row's end is the caller's mistake, not a missing tab: herdr's refusal
+            // of it would come back as a 404. An unknown tab is left for herdr's tab_not_found.
+            const tabs = (await sessionSnapshot()).tabs;
+            const workspaceId = tabs.find((tab) => tab.tab_id === payload.tab_id)?.workspace_id;
+            if (workspaceId !== undefined && (payload.insert_index as number) > tabs.filter((tab) => tab.workspace_id === workspaceId).length) {
+              return badRequest("invalid_index", "insert_index must not exceed the workspace's tab count");
+            }
+            await tabMove(payload.tab_id, payload.insert_index as number);
+            // no pane event follows a move either
+            broadcastAll({ type: "session-changed" });
+          } else if (pathname === "/api/tab/rename") {
             // herdr would keep an empty label as the tab's name, and its own tab row would show nothing
             const label = typeof payload.label === "string" ? payload.label.trim() : "";
             if (label === "") return badRequest("missing_label", "label is required");

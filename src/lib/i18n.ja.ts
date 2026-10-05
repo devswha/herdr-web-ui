@@ -759,6 +759,8 @@ export const JA: Record<string, string> = {
   "Uses the workspace's folder": "ワークスペースのフォルダーをそのまま使います",
   "Panes in {tab}": "{tab} のペイン",
   "Rename tab": "タブの名前を変更",
+  "Move left": "左へ移動",
+  "Move right": "右へ移動",
   "Close tab": "タブを閉じる",
   "Tab name": "タブ名",
   "Actions for {tab}": "{tab} の操作",

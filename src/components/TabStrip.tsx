@@ -10,9 +10,14 @@
  * new one, a right-click for the menu. On a touch screen the open tab's chevron opens the same
  * menu as a sheet. With keys: F2 and Delete on a focused tab. A close asks first only when it
  * costs more than the tab: an agent still at work in it, or the workspace's last tab.
+ *
+ * A tab is moved here too, as herdr's tab.move: dragged onto another tab's near or far half, with
+ * Alt+←/→ on a focused tab, or with Move left and Move right in its menu, which a touch screen
+ * has where it has no drag. The row is herdr's order, not the tabs' numbers: a moved tab keeps its
+ * number, and herdr renames an unnamed one by its new place.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { ChevronDown, Pencil, Plus, Terminal, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { ArrowLeft, ArrowRight, ChevronDown, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./TabStrip.css";
 
@@ -22,6 +27,7 @@ import { useFacesArrived } from "../lib/fontFaces.ts";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { useT } from "../lib/i18n.ts";
 import { customTabLabel, tabLabel } from "../lib/tabName.ts";
+import { dropGap, movedTabOrder, stepGap } from "../lib/tabOrder.ts";
 import { STRIP_AT_REST, stripPlaced, stripScrolled, stripSelected, type StripScroll } from "../lib/tabStripScroll.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
@@ -47,13 +53,22 @@ export interface TabStripProps {
 export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab }: TabStripProps) {
   const t = useT();
   const machineId = useMachineId();
-  const { closeTab, renameTab } = useMachineApi();
+  const { closeTab, moveTab, renameTab } = useMachineApi();
   const strip = useRef<HTMLDivElement>(null);
   const [picker, setPicker] = useState<{ anchor: HTMLElement; tab: HerdrTab } | null>(null);
   const [editing, setEditing] = useState<{ tabId: string; value: string } | null>(null);
   // the name just sent, shown until herdr's snapshot carries it
   const [sent, setSent] = useState<{ tabId: string; label: string } | null>(null);
   const [confirm, setConfirm] = useState<{ tab: HerdrTab; title: string; body: string } | null>(null);
+  // the row just sent to herdr, on the PC and in the workspace it was made in, shown until herdr
+  // has answered its last move (`settled`) and the snapshot carries it
+  const [moved, setMoved] = useState<{ machineId: string; workspaceId: string; order: string[]; seq: number; settled: boolean } | null>(null);
+  // moves go to herdr one at a time, each counted on the row the ones before it leave; a refusal
+  // drops the moves queued behind it (`epoch`), which were counted on a row herdr never had
+  const moves = useRef({ chain: Promise.resolve(), seq: 0, epoch: 0 });
+  // the tab being dragged, and the edge of the tab it would land beside
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ tabId: string; after: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // the tab whose name field just went: its button takes the focus back in the same commit, so the next key lands on it
   const refocus = useRef<string | null>(null);
@@ -65,7 +80,12 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const latest = useRef({ machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id });
   latest.current = { machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id };
   const panes = rosterPanes(snapshot.panes.filter((pane) => pane.workspace_id === workspace.workspace_id), selectedPane.pane_id);
-  const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id).sort((a, b) => a.number - b.number);
+  // herdr's order: a tab moved in the TUI or here keeps its number
+  const herdrTabs = snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id);
+  const herdrOrder = herdrTabs.map((tab) => tab.tab_id);
+  const pending = moved?.machineId === machineId && moved.workspaceId === workspace.workspace_id
+    && moved.order.length === herdrOrder.length && herdrOrder.every((id) => moved.order.includes(id)) ? moved.order : null;
+  const tabs = pending ? pending.map((id) => herdrTabs.find((tab) => tab.tab_id === id)!) : herdrTabs;
   const nameOf = (tab: HerdrTab): string => sent?.tabId === tab.tab_id ? sent.label : tabLabel(tab, t, tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id) + 1);
 
   useEffect(() => {
@@ -79,6 +99,11 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     if (editing && !here(editing.tabId)) setEditing(null);
     if (confirm && !here(confirm.tab.tab_id)) setConfirm(null);
     if (sent && tabs.find((tab) => tab.tab_id === sent.tabId)?.label.trim() === sent.label) setSent(null);
+    // another PC or workspace, a row a tab came or went from, or the row herdr shows once it has
+    // answered the last move: the one sent is no longer needed. A snapshot that only matches it
+    // before then can be one from between two moves.
+    if (moved && (!pending || (moved.settled && moved.order.join("\u0000") === herdrOrder.join("\u0000")))) setMoved(null);
+    if (dragging && !here(dragging)) { setDragging(null); setDropAt(null); }
   });
   useLayoutEffect(() => {
     if (editing || !refocus.current) return;
@@ -102,6 +127,12 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     const timer = window.setTimeout(() => setSent(null), 8000);
     return () => window.clearTimeout(timer);
   }, [sent]);
+  // a row herdr answered but never showed back (moved again elsewhere) does not stay
+  useEffect(() => {
+    if (!moved?.settled) return;
+    const timer = window.setTimeout(() => setMoved(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [moved]);
   useEffect(() => {
     if (!error) return;
     const timer = window.setTimeout(() => setError(null), 6000);
@@ -130,7 +161,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   useLayoutEffect(() => {
     scroll.current = stripSelected(scroll.current);
   }, [selectedPane.tab_id]);
-  useLayoutEffect(bringOpenTab, [selectedPane.tab_id, tabs.length, shown]);
+  // a move can carry the open tab past the strip's edge
+  const orderKey = tabs.map((tab) => tab.tab_id).join("\u0000");
+  useLayoutEffect(bringOpenTab, [selectedPane.tab_id, tabs.length, shown, orderKey]);
   // A face that arrives after that (lib/fontFaces.ts) redraws every name wider or narrower with
   // no tab added or opened, so the open tab is brought into view again for each: unless the user
   // has scrolled the strip themselves since a tab was last opened (lib/tabStripScroll.ts), and is
@@ -177,6 +210,62 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     });
   };
 
+  // the row changes at once; herdr's snapshot follows, and a refusal puts the row back
+  const move = (tab: HerdrTab, gap: number | null): void => {
+    if (gap === null) return;
+    const order = tabs.map((candidate) => candidate.tab_id);
+    const next = movedTabOrder(order, tab.tab_id, gap);
+    if (!next) return;
+    setError(null);
+    const target = { machineId, workspaceId: workspace.workspace_id };
+    const queue = moves.current;
+    const seq = ++queue.seq;
+    const epoch = queue.epoch;
+    setMoved({ ...target, order: next, seq, settled: false });
+    const here = (): boolean => latest.current.machineId === target.machineId && latest.current.workspaceId === target.workspaceId;
+    queue.chain = queue.chain.then(async () => {
+      if (queue.epoch !== epoch) return;
+      try {
+        await moveTab(tab.tab_id, gap);
+        setMoved((current) => current?.seq === seq ? { ...current, settled: true } : current);
+      } catch (reason: unknown) {
+        queue.epoch += 1;
+        // the row goes back to herdr's, here only: another PC's or workspace's is left as it is
+        setMoved((current) => current?.machineId === target.machineId && current.workspaceId === target.workspaceId ? null : current);
+        if (here()) setError(t("Reorder failed: {reason}", { reason: said(reason) }));
+      }
+    });
+  };
+
+  const onDragStart = (event: DragEvent<HTMLElement>, tab: HerdrTab): void => {
+    setDragging(tab.tab_id);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-herdr-tab", JSON.stringify({ machine_id: machineId, tab_id: tab.tab_id }));
+  };
+  // the far half of a tab puts the dropped one after it
+  const farHalf = (event: DragEvent<HTMLElement>): boolean => {
+    const box = event.currentTarget.getBoundingClientRect();
+    return event.clientX > box.left + box.width / 2;
+  };
+  // only a tab of this row lands here: one from another workspace, PC or window does not
+  const onDragOver = (event: DragEvent<HTMLElement>, target: HerdrTab): void => {
+    if (!dragging || !event.dataTransfer.types.includes("application/x-herdr-tab")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const after = farHalf(event);
+    if (dropAt?.tabId !== target.tab_id || dropAt.after !== after) setDropAt({ tabId: target.tab_id, after });
+  };
+  const onDrop = (event: DragEvent<HTMLElement>, target: HerdrTab): void => {
+    if (!dragging) return;
+    event.preventDefault();
+    const source = tabs.find((candidate) => candidate.tab_id === dragging);
+    const after = farHalf(event);
+    setDragging(null);
+    setDropAt(null);
+    if (source) move(source, dropGap(tabs.map((candidate) => candidate.tab_id), target.tab_id, after));
+  };
+  const endDrag = (): void => { setDragging(null); setDropAt(null); };
+
   // the tab beside a closed one takes its place: the open pane moves there, and the focus with it
   const close = async (tab: HerdrTab): Promise<void> => {
     const index = tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id);
@@ -210,11 +299,21 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     });
   };
 
-  // arrows move between the tabs; Enter or Space on one opens it, as any button; F2 names it, Delete closes it
+  // arrows move between the tabs; Enter or Space on one opens it, as any button; F2 names it, Delete closes it;
+  // Alt+arrows move the tab itself, and the focus stays on it
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     const buttons = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')];
     const index = buttons.indexOf(document.activeElement as HTMLElement);
     if (index < 0) return;
+    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      // the browser's Back and Forward are Alt+arrows too: on a tab, the keys are the tab's
+      event.preventDefault();
+      const tab = tabs.find((candidate) => candidate.tab_id === buttons[index]?.dataset["tabId"]);
+      if (!tab) return;
+      move(tab, stepGap(tabs.map((candidate) => candidate.tab_id), tab.tab_id, event.key === "ArrowLeft" ? -1 : 1));
+      focusTab(tab.tab_id);
+      return;
+    }
     if (event.key === "F2" || event.key === "Delete") {
       // a held key is one press: the focus moves to the tab beside a closed one
       if (event.repeat) { event.preventDefault(); return; }
@@ -234,11 +333,14 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     setPicker(picker?.tab.tab_id === tab.tab_id ? null : { anchor: event.currentTarget, tab });
   };
 
-  // a tab's menu: its panes when it has several, then its name and its close
+  // a tab's menu: its panes when it has several, then its name, its place and its close
   const pickerItems = (tab: HerdrTab): RowMenuItem[] => {
     // the tab may have changed under the open menu: the items act on what it is now
     const now = tabs.find((candidate) => candidate.tab_id === tab.tab_id) ?? tab;
     const own = panesOf(now);
+    const order = tabs.map((candidate) => candidate.tab_id);
+    const left = stepGap(order, now.tab_id, -1);
+    const right = stepGap(order, now.tab_id, 1);
     return [
       ...(own.length > 1 ? own.map((pane) => ({
         id: pane.pane_id,
@@ -249,6 +351,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         run: () => onSelectPane(pane.pane_id),
       })) : []),
       { id: "rename-tab", label: t("Rename tab"), icon: Pencil, divider: own.length > 1, run: () => beginRename(now) },
+      ...(left !== null ? [{ id: "move-tab-left", label: t("Move left"), icon: ArrowLeft, run: () => move(now, left) }] : []),
+      ...(right !== null ? [{ id: "move-tab-right", label: t("Move right"), icon: ArrowRight, run: () => move(now, right) }] : []),
       { id: "close-tab", label: t("Close tab"), icon: X, danger: true, divider: true, run: () => requestClose(now) },
     ];
   };
@@ -263,7 +367,13 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
           const pickerOpen = picker?.tab.tab_id === tab.tab_id;
           const name = nameOf(tab);
           return (
-            <div className={`tab-strip-item${active ? " is-active" : ""}${own.length > 1 ? " has-panes" : ""}${editing?.tabId === tab.tab_id ? " is-editing" : ""}`} key={tab.tab_id}>
+            <div
+              className={`tab-strip-item${active ? " is-active" : ""}${own.length > 1 ? " has-panes" : ""}${editing?.tabId === tab.tab_id ? " is-editing" : ""}${dragging === tab.tab_id ? " is-dragging" : ""}`}
+              data-drop={dropAt?.tabId === tab.tab_id && dragging !== tab.tab_id ? (dropAt.after ? "after" : "before") : undefined}
+              key={tab.tab_id}
+              onDragOver={(event) => onDragOver(event, tab)}
+              onDrop={(event) => onDrop(event, tab)}
+            >
               {editing?.tabId === tab.tab_id ? (
                 <input
                   className="input tab-strip-rename"
@@ -292,6 +402,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
                   data-tab-id={tab.tab_id}
                   aria-selected={active}
                   tabIndex={active ? 0 : -1}
+                  draggable={tabs.length > 1}
+                  onDragStart={(event) => onDragStart(event, tab)}
+                  onDragEnd={endDrag}
                   title={own.length === 1 && own[0] ? displayPaneTitle(own[0]) : t("{n} panes", { n: own.length })}
                   onClick={() => {
                     const pane = paneFor(tab);

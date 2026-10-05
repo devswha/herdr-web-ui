@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Tabs can be reordered from the tab strip over the pane, as with herdr's `tab.move`: drag a tab
+  onto another one (an amber edge shows where it lands), press Alt+←/→ on a focused tab, or pick
+  **Move left** / **Move right** in the tab's menu, which is also how a phone moves one. The strip
+  now follows herdr's order instead of the tabs' numbers, so a tab moved in herdr's own UI shows
+  in its new place here too.
+
 ## [0.3.50] - 2026-10-06
 
 ### Changed

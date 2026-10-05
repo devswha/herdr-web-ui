@@ -32,6 +32,7 @@ export function useMachineApi() {
     createWorkspace: (request: api.CreateWorkspaceRequest) => api.createWorkspace(request, id),
     createTab: (request: api.CreateTabRequest) => api.createTab(request, id),
     renameTab: (tab: string, label: string) => api.renameTab(tab, label, id),
+    moveTab: (tab: string, index: number) => api.moveTab(tab, index, id),
     closeTab: (tab: string) => api.closeTab(tab, id),
   }), [id]);
 }
