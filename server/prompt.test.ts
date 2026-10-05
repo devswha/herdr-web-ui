@@ -748,6 +748,47 @@ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questi
   });
 });
 
+describe("Claude's question over its task list", () => {
+  // live-captured shape from Claude Code 2.1.289: the task list stays under the open panel,
+  // after a rule that carries the session's name
+  const question = `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ 방향 검토  ☐ 문구  ✔ Submit  →
+
+검토용 목업 페이지를 만들까요?
+
+❯ 1. 만들지 않음 (Recommended)
+     조건과 문구만 바뀌어 테스트로 확인 가능.
+  2. 만듦
+     목업으로 먼저 보고 확정한 뒤 구현.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`;
+  const tasks = (rows: string) => `──────────────────────────────────────────────────────────────────────────────────────────────── 세션 이름 ─
+
+${rows}
+`;
+
+  test("reads the question as if the task list were not there", () => {
+    for (const rows of [
+      "  3 tasks (0 done, 3 open)\n  ◻ 준비\n  ◻ 구현\n  ◻ 검증",
+      "  5 tasks (1 done, 1 in progress, 3 open)\n  ◼ 구현\n    Running tests…\n  ✔ 준비\n  ◻ 검증\n   … +2 pending",
+    ]) {
+      expect(parseInteractivePrompt("claude", question + tasks(rows))).toMatchObject({
+        kind: "question", title: "방향 검토 · 1 of 2", question: "검토용 목업 페이지를 만들까요?",
+        options: [{ label: "만들지 않음 (Recommended)" }, { label: "만듦" }], custom_option_index: 2,
+      });
+    }
+  });
+
+  test("does not take an answered form above later output and the task list for an open one", () => {
+    const later = question + "\n⏺ 만들지 않음으로 진행합니다.\n\n────────\n❯ \n────────\n  ⏵⏵ bypass permissions on\n" + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비");
+    expect(parseInteractivePrompt("claude", later)).toBeNull();
+  });
+});
+
 describe("Claude's unnumbered menus", () => {
   // Claude Code 2.1.285 on a folder it has not seen, as herdr's pane read shows it (live)
   const trust = (selected: 0 | 1 = 0, after = "") => `

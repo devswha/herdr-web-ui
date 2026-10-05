@@ -1131,9 +1131,24 @@ function parseClaudeConfirm(screen: string): ParsedPrompt | null {
   });
 }
 
+/**
+ * Claude Code keeps its task list under an open panel (2.1.289): a rule with the session's name
+ * on it, `3 tasks (0 done, 1 in progress, 2 open)`, a row per task (◻ ◼ ✔), an in-progress task's
+ * activity (`…`) and `… +2 pending`. Cut off, the panel is the last thing on screen again.
+ */
+const CLAUDE_TASKS_HEAD_RE = /^\d+ tasks \(\d+ done, (?:\d+ in progress, )?\d+ open\)$/;
+const CLAUDE_TASK_ROW_RE = /^(?:[◻◼✔]\s|…\s\+\d+ )|…$/;
+const LABELED_RULE_RE = /^─{3,}\s.*─$/;
+function withoutClaudeTasks(shown: string[]): string[] {
+  const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
+  if (head < 0 || !shown.slice(head + 1).every((line) => CLAUDE_TASK_ROW_RE.test(line))) return shown;
+  return shown.slice(0, LABELED_RULE_RE.test(shown[head - 1] ?? "") ? head - 1 : head);
+}
+
 function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   const cleanLines = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine);
-  const shown = cleanLines.filter((line) => line && !isDivider(line));
+  const visible = cleanLines.filter((line) => line && !isDivider(line));
+  const shown = prompt.responder.startsWith("claude-") ? withoutClaudeTasks(visible) : visible;
   const last = shown.at(-1) ?? "";
   // The menu is still at the bottom. A narrow pane wraps its hint, so the last line alone can
   // be the hint's tail (`cancel`): the lines before it count only when the match runs into
