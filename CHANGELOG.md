@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The sidebar's footer ends at Settings and the plan meters: the "herdr web ui v…" line and the
+  herdr version beside it are gone from under them. Both versions are read in Settings, in every
+  state: **Updates** always opens with the running app version, and **herdr** shows the running
+  herdr version also where herdr cannot be updated from the app, such as on Windows.
+
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
   panes, instead of sounding over itself. A pane that needs input right after one that finished
