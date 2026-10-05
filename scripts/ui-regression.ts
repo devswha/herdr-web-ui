@@ -393,7 +393,7 @@ try {
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
   // one column: the held list, the box and the conversation share their edges, and the status
   // line is the box's own last row, inside it.
-  // The default Chat width follows the pane: min 820px, max 960px, 71% of the pane between. This
+  // The default Chat width follows the pane: min 820px, max 60rem (960px at this 16px root), 71% of the pane between. This
   // pane is under 1148px, so the lane is its 820px floor, as at Narrow; at Wide the lane is wider
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
