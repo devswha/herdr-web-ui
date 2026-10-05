@@ -1751,7 +1751,7 @@ const queueFronts = new Map<string, QueueFront & { rollout: string }>();
  * a terminal and asked again between two reads, by an agent that reports no work in between and
  * gives its askings no name) two askings cannot be told apart from the screen.
  */
-interface Asking { content: string | null; n: number }
+interface Asking { content: string | null; n: number; queued: boolean }
 const askings = new Map<string, Asking>();
 /** counted across panes and never reused: a pane forgotten here starts no asking over */
 let askingCount = 0;
@@ -1774,7 +1774,7 @@ function asked(paneId: string, prompt: InteractivePrompt | null): InteractivePro
       return null;
     }
     if (asking?.content !== prompt.id) {
-      asking = { content: prompt.id, n: askingCount += 1 };
+      asking = { content: prompt.id, n: askingCount += 1, queued: prompt.queued !== undefined };
       askings.delete(paneId);
       askings.set(paneId, asking);
       if (askings.size > 256) askings.delete(askings.keys().next().value!);
@@ -1785,10 +1785,20 @@ function asked(paneId: string, prompt: InteractivePrompt | null): InteractivePro
   return prompt;
 }
 
-/** The pane's wait is over (its agent is back at work, or was answered): the same prompt on its screen after this is asked anew. */
-export function promptWaitEnded(paneId: string): void {
+/** The pane's prompt was answered: the same prompt on its screen after this is asked anew. */
+function askingEnded(paneId: string): void {
   const asking = askings.get(paneId);
   if (asking) asking.content = null;
+}
+
+/**
+ * The pane's agent is back at work: it has had its answer, maybe from a terminal, and the same
+ * prompt on its screen after this is asked anew. Not so for a question in Codex's queue, which
+ * Codex asks while it works and goes on working under: its status says nothing about the
+ * question, and the call it was asked by names it instead.
+ */
+export function promptWaitEnded(paneId: string): void {
+  if (!askings.get(paneId)?.queued) askingEnded(paneId);
 }
 
 /** A prompt's id as its text alone makes it, whichever asking it is. */
@@ -2253,7 +2263,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         // the queue this request opened never stays open, whatever failed on the way
         if (opensQueue && !answered) await closeOpenQuestion(body.pane_id).catch(() => undefined);
         // answered, or as good as: the same prompt on the screen after this is asked anew
-        if (committed || cleared) promptWaitEnded(body.pane_id);
+        if (committed || cleared) askingEnded(body.pane_id);
       }
       // answered from the chat, the queue closes again: the next question waits collapsed, and
       // the main prompt (where a message typed in the chat goes) has the input back

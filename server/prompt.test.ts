@@ -2072,6 +2072,25 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   });
 
+  test("Codex back at work says nothing about a question in its queue", async () => {
+    const open = "\n• Queued follow-up inputs\n  Which split?\n  › 1. train\n    2. test\n    3. Other\n  enter submit   ctrl+] skip   alt+↓ main prompt\n";
+    await withPane("codex", "working", open, async (pane) => {
+      let at = 0;
+      pane.onSent = (sent) => {
+        if (sent === "down") { at += 1; pane.screen = open.replace("› 1. train\n    2. test", "  1. train\n  › 2. test"); }
+        // Codex asks while it works, and herdr reports it working again under the answer's move
+        promptWaitEnded("p_1");
+        if (sent === "enter") pane.screen = "› Ask Codex to do anything\n";
+      };
+      const prompt = (await card())!;
+      promptWaitEnded("p_1");
+      expect((await card())!.id).toBe(prompt.id);
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(at).toBe(1);
+      expect(pane.sent).toEqual(["down", "enter"]);
+    });
+  });
+
   test("a question asked again by another call of the agent's is another prompt", () => {
     const collapsed = "\n• WAITING\n• Queued follow-up inputs\n  ? 1 question · 8s\n    alt+↑ to answer\n› Ask Codex to do anything\n  GPT-6-Sol xhigh · ~/lab · Context 97% left\n";
     const queued = (key: string, rollout = "/sessions/a.jsonl") => codexQueuedPrompt(collapsed, [{ key, title: "Which split?", options: ["train", "test"] }], null, rollout)!;
