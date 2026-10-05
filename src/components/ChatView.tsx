@@ -427,7 +427,9 @@ function TaskResultRow({ task }: { task: OmoTaskResult }) {
     task.tool_calls === null ? null : t(task.tool_calls === 1 ? "{n} tool call" : "{n} tool calls", { n: task.tool_calls }),
     task.tokens === null || task.tokens === 0 ? null : t("{n} tokens", { n: formatTokens(task.tokens) }),
   ].filter((item) => item !== null).join(" · ");
-  return <details className={`chat-task-result is-${task.status}`}>
+  // the answer is drawn once the row is opened: a wake can carry many tasks, each with a long answer
+  const [opened, setOpened] = useState(false);
+  return <details className={`chat-task-result is-${task.status}`} onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
     <summary>
       <Icon className="chat-task-result-icon" aria-hidden="true" />
       <span className="chat-task-result-main">
@@ -437,10 +439,10 @@ function TaskResultRow({ task }: { task: OmoTaskResult }) {
       <span className="chat-task-result-status">{word[task.status]}</span>
       <ChevronDown className="chat-skill-caret" aria-hidden="true" />
     </summary>
-    <div className="chat-task-result-body">
+    {opened && <div className="chat-task-result-body">
       {task.result.length > 0 ? <Markdown>{taskResultMarkdown(task.result)}</Markdown> : <p className="chat-task-result-note">{t("The task reported no result")}</p>}
       {task.result_cut === true && <p className="chat-task-result-note">{t("This is the first part of a longer result")}</p>}
-    </div>
+    </div>}
   </details>;
 }
 

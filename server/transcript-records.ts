@@ -118,7 +118,8 @@ export function omoTaskTitles(message: Row, titles: Map<string, string>): void {
 export function omoTaskResults(value: unknown, titles: ReadonlyMap<string, string>): OmoTaskResult[] | null {
   const entry = record(value);
   if (entry.type !== "custom_message" || entry.customType !== "omo-senpi:wake" || !Array.isArray(entry.details)) return null;
-  const tasks: OmoTaskResult[] = [];
+  // one row per task: a task reported twice in one wake is the later report (the rows are keyed by id)
+  const tasks = new Map<string, OmoTaskResult>();
   for (const group of entry.details) {
     if (record(group).customType !== "senpi-task.completion" || !Array.isArray(record(group).details)) continue;
     for (const value of record(group).details as unknown[]) {
@@ -130,7 +131,7 @@ export function omoTaskResults(value: unknown, titles: ReadonlyMap<string, strin
       const agent = label(task.agent_type) ?? label(task.category) ?? label(task.subagent_type);
       const name = label(task.name);
       const result = label(task.final_response) ?? label(task.error) ?? "";
-      tasks.push({
+      tasks.set(id, {
         id,
         title: titles.get(id) ?? (name !== null && name !== id ? name : agent ?? id),
         agent,
@@ -145,7 +146,7 @@ export function omoTaskResults(value: unknown, titles: ReadonlyMap<string, strin
       });
     }
   }
-  return tasks.length > 0 ? tasks : null;
+  return tasks.size > 0 ? [...tasks.values()] : null;
 }
 
 /** The one-line summary a collapsed tool chip shows. */

@@ -7,6 +7,7 @@ import { forgetHistoryChains } from "./codex.ts";
 import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 import { MAX_TURNS, parseOmpTranscript } from "./transcript-records.ts";
 import { toolVerb } from "../src/lib/toolVerbs.ts";
+import type { ConversationTurn } from "../shared/protocol.ts";
 
 /** Minimal but shape-true slices of a Claude Code session jsonl. */
 const lines = [
@@ -361,6 +362,19 @@ describe("OmO background task results", () => {
     ].join("\n");
     expect(parseOmpTranscript(text).map((turn) => turn.parts.map((part) => part.kind))).toEqual([["text"]]);
   });
+
+  it("draws a task reported twice in one wake once, as its later report", () => {
+    const text = [
+      omoUser("2026-10-05T00:00:00.000Z", "go"),
+      omoWake("2026-10-05T00:01:00.000Z", [
+        completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", final_response: "first" }),
+        completion({ task_id: "st_2", name: "st_2", status: "completed", agent_type: "explore", final_response: "other" }),
+        completion({ task_id: "st_1", name: "st_1", status: "error", agent_type: "explore", final_response: "again" }),
+      ]),
+    ].join("\n");
+    const ended = parseOmpTranscript(text)[1]?.parts[0];
+    expect(ended?.kind === "task_result" ? ended.tasks.map((task) => `${task.id} ${task.status} ${task.result}`) : ended).toEqual(["st_1 failed again", "st_2 completed other"]);
+  });
 });
 
 const omoUser = (ts: string, text: string) => JSON.stringify({ type: "message", timestamp: ts, message: { role: "user", content: [{ type: "text", text }] } });
@@ -408,6 +422,44 @@ describe("transcript pages", () => {
       const ended = page.turns.at(-1)?.parts[0];
       expect(ended?.kind === "task_result" ? ended.tasks.map((task) => task.title) : ended).toEqual(["Survey the repo"]);
     }
+  });
+
+  const endedTitles = (page: { turns: ConversationTurn[] }): unknown => {
+    const ended = page.turns.at(-1)?.parts[0];
+    return ended?.kind === "task_result" ? ended.tasks.map((task) => task.title) : ended;
+  };
+
+  it("keeps a task's title when the newest page moves past the turn that started it, while the file is watched", () => {
+    const path = join(temp(), "omo.jsonl");
+    writeFileSync(path, `${[
+      omoUser("2026-10-05T00:00:00.000Z", "start it"),
+      omoSpawn("2026-10-05T00:00:01.000Z", "c1", { task_summary: "Survey the repo", subagent_type: "explore", prompt: "go" }, { task_id: "st_1", task_summary: "Survey the repo" }),
+    ].join("\n")}\n`);
+    // polled as it grows: the page start passes the spawning turn once more prompts than a page holds followed
+    for (let n = 0; n < MAX_TURNS / 2 + 2; n += 1) {
+      expect(transcriptPage("omo-transcript", path).turns.length).toBeGreaterThan(0);
+      appendFileSync(path, `${omoUser(`2026-10-05T00:${String(10 + Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}.000Z`, `prompt ${n}`)}\n`);
+    }
+    const before = transcriptPage("omo-transcript", path);
+    expect(before.turns[0]?.parts[0]).toEqual({ kind: "text", text: "prompt 2" });
+    appendFileSync(path, `${omoWake("2026-10-05T00:20:00.000Z", [completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", final_response: "done" })])}\n`);
+    expect(endedTitles(transcriptPage("omo-transcript", path))).toEqual(["Survey the repo"]);
+  });
+
+  it("titles a wake read before the call that names its task as a cold read does, on every poll", () => {
+    const root = temp();
+    const path = join(root, "omo.jsonl");
+    writeFileSync(path, `${[
+      omoUser("2026-10-05T00:00:00.000Z", "start it"),
+      omoWake("2026-10-05T00:00:01.000Z", [completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", final_response: "done" })]),
+      omoSpawn("2026-10-05T00:00:02.000Z", "c1", { task_summary: "Survey the repo", subagent_type: "explore", prompt: "go" }, { task_id: "st_1", task_summary: "Survey the repo" }),
+    ].join("\n")}\n`);
+    const titles = (page: { turns: ConversationTurn[] }) => page.turns.flatMap((turn) => turn.parts.flatMap((part) => part.kind === "task_result" ? part.tasks.map((task) => task.title) : []));
+    expect(titles(transcriptPage("omo-transcript", path))).toEqual(["explore"]);
+    appendFileSync(path, `${JSON.stringify({ type: "message", timestamp: "2026-10-05T00:00:03.000Z", message: { role: "assistant", content: [{ type: "text", text: "noted" }] } })}\n`);
+    const cold = join(root, "cold.jsonl");
+    copyFileSync(path, cold);
+    expect(titles(transcriptPage("omo-transcript", path))).toEqual(titles(transcriptPage("omo-transcript", cold)));
   });
 
   it("reads a growing file's newest page incrementally, exactly as a cold read of it", () => {

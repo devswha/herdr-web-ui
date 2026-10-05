@@ -60,6 +60,12 @@ test("a task's answer keeps a code block whole as the chat draws it, a fence lin
   expect(taskResultMarkdown(answer)).toBe(["```md", "```ts", "<analysis>", "", "", "</analysis>", "```", "**Answer**"].join("\n"));
 });
 
+test("a fence after a tab is no fence to the chat, so the block it would open is read as the chat reads it", () => {
+  // the chat opens a block only after up to three spaces: the tabbed line is text, the bare ``` opens the block, <results> is inside it
+  const answer = ["intro", "\t```ts", "<analysis>", "x", "</analysis>", "```", "<results>"].join("\n");
+  expect(taskResultMarkdown(answer)).toBe(["intro", "\t```ts", "**Analysis**", "x", "```", "<results>"].join("\n"));
+});
+
 test("elapsed time reads in seconds, minutes, then hours", () => {
   expect([formatElapsed(8_400), formatElapsed(252_000), formatElapsed(3_780_000)]).toEqual(["8s", "4m 12s", "1h 3m"]);
 });

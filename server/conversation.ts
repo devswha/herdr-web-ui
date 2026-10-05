@@ -629,7 +629,11 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
   let settled = settledTurns.get(key);
   if (!settled || settled.id !== stream.id || settled.end > last || bytesBefore(stream, settled.end) !== settled.tail) {
     const head = start > stream.floor ? metadataHead(path, stream, source, start) : "";
-    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles: new Map() };
+    // a page that starts past the turn that started a task keeps the title that turn gave it,
+    // as long as this stream was watched while the title was on a page (a cold read cannot)
+    const earlier = [...settledTurns.values()].filter((kept) => kept.id === stream.id && kept.start < start && kept.end <= start && kept.taskTitles.size > 0);
+    const taskTitles = new Map(earlier.flatMap((kept) => [...kept.taskTitles]));
+    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles };
   }
   if (settled.end < last) {
     const text = readStream(stream, settled.end, last).toString("utf8");
@@ -641,7 +645,9 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
     return { turns: [...settled.turns, ...live.turns], metadata: live.metadata };
   }
   const text = readStream(stream, last, stream.length).toString("utf8");
-  return { turns: [...settled.turns, ...parseTurns(source, text, settled.taskTitles)], metadata: parseConversationMetadata(text, source, settled.metadata) };
+  // the live turn is parsed again on every poll: what it teaches about titles is kept only
+  // once it settles, so a read titles a task exactly as a cold read of the same bytes does
+  return { turns: [...settled.turns, ...parseTurns(source, text, new Map(settled.taskTitles))], metadata: parseConversationMetadata(text, source, settled.metadata) };
 }
 
 /** Forget every scan and parse kept between polls (tests compare against a cold read). */

@@ -68,15 +68,15 @@ export function taskCallItems(input: Record<string, unknown>): TaskCallItem[] | 
  * lines of their own (`<analysis>` … `</analysis>`, `<next_steps>`): an opening tag becomes the
  * section's name in bold, a closing one goes. Tags inside a code block, and any line with more
  * on it than the tag, are the answer's own and stay. A code block opens and closes as the chat's
- * Markdown (lib/markdown.ts) reads one: it opens at a line starting with three backticks and
- * closes only at a line of three backticks alone, so a fence line that names a language inside
- * a block is part of the block.
+ * Markdown (lib/markdown.ts) reads one: it opens at a line starting with three backticks, after
+ * up to three spaces (a tab is not a fence there), and closes only at a line of three backticks
+ * alone, so a fence line that names a language inside a block is part of the block.
  */
 export function taskResultMarkdown(text: string): string {
   let fenced = false;
   const lines: string[] = [];
   for (const line of text.split("\n")) {
-    if (fenced ? /^\s{0,3}```\s*$/.test(line) : /^\s{0,3}```/.test(line)) { fenced = !fenced; lines.push(line); continue; }
+    if (fenced ? /^\s{0,3}```\s*$/.test(line) : /^ {0,3}```/.test(line)) { fenced = !fenced; lines.push(line); continue; }
     const tag = fenced ? null : /^\s*<(\/?)([a-z][a-z0-9_-]*)>\s*$/.exec(line);
     if (tag === null) { lines.push(line); continue; }
     if (tag[1] === "/") continue;
