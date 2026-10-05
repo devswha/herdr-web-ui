@@ -64,6 +64,24 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   a phone, **Discard** is an X, and the message box keeps the same side margin as the
   conversation.
   ([#466](https://github.com/devswha/herdr-web-ui/pull/466))
+- In the chat, an agent's question, approval or plan no longer sits at the end of the
+  conversation: its card is docked directly above the message box, on the same column, so what
+  is asked and where you answer are one block and the conversation scrolls freely behind it.
+  Held messages stay above it, folded to their one line. The card is plainer: no shadow, its
+  title is the one thing in red (the "INPUT NEEDED" badge is still read by a screen reader),
+  and the options are flat rows with their number as a key, all of equal weight. A command or
+  plan to approve stays in the card's code box and is the only part that shrinks when room is
+  short (six lines, down to two); the card itself is at most 60% of the window, or six rows on a
+  phone with its keyboard up, and scrolls beyond that with Confirm always in sight. The message
+  box says "Type 1–3 to choose…" (or "Type 1–3 or your own reply…") in place of "Answer above:
+  type 1–3 to choose…", which was cut on a phone. While the agent waits for you, the open work
+  block reads "Needs you" with a still red dot in place of "Working…". Answering works as
+  before: a press on an option, a typed number followed by Confirm, or your own reply; Enter in
+  an empty box answers nothing. After a press with a mouse or keyboard, focus goes to the
+  message box. The card keeps following Settings → Chat font size and Chat font, and on a phone
+  with its keyboard up a tap on the card's text, or a drag down it, puts the keyboard away as
+  on the conversation.
+  ([#468](https://github.com/devswha/herdr-web-ui/pull/468))
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The

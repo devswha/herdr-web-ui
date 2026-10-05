@@ -9,7 +9,8 @@
 
 /* The chat's text has its own size (Settings → Chat font size): the view scales the type
    tokens by --chat-scale (lib/settings.ts) and the transcript uses the scaled ones under
-   the same names, so every message, code block and prompt card grows together */
+   the same names, so every message and code block grows together. The prompt card is outside
+   this view, over the message box, and grows with them: its dock does the same (Composer.css) */
 .chat-view {
   position: absolute;
   inset: 0;
@@ -515,6 +516,17 @@
   border-radius: var(--radius-pill);
   background: currentColor;
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
+}
+
+/* A blocked agent is not working: the open block keeps its live layout and reads "Needs you",
+   the sidebar's words, in the dim color. Only the dot is red, and it holds still. */
+.work-block.is-live.is-waiting .work-block-title {
+  color: var(--text-dim);
+}
+
+.work-block.is-live.is-waiting .work-block-title::before {
+  background: var(--status-blocked);
+  animation: none;
 }
 
 /* the counts take what the title and the failure count leave, and are the first to be cut */

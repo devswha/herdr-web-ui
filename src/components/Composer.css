@@ -16,9 +16,56 @@
 
 /* The held-message list ends in things to press (a message's own box, Send now, Discard), and the
    grip's hit area would lie over the bottom centre of its last row. After the list the composer
-   keeps that strip for itself */
-.composer-queue ~ .composer {
+   keeps that strip for itself. So it does after a prompt card, whose last row is an option, the
+   custom answer's Send or Confirm */
+.composer-queue ~ .composer,
+.prompt-dock:not(:empty) ~ .composer {
   padding-top: var(--composer-grip-h);
+}
+
+/* The prompt card's place (PaneTerminal.tsx): over the input card and under the held messages,
+   on the same column as both. Like the held list it is a sibling of the composer with no gutter
+   of its own. It holds nothing but the card (PromptCard.css) and takes no room without one, but
+   it stays rendered: it is the live region a card is announced from, and a region that appears
+   together with its card is not read. A stack too short for the whole card squeezes it, and the
+   card scrolls.
+   The card's text is the chat's (Settings → Chat font size, Chat font), as it was inside the
+   transcript: the dock scales the type tokens and its card uses them under their own names
+   (ChatView.css does the same for the transcript, on two elements for the same reason: a token
+   cannot be redefined from itself on one). */
+.prompt-dock {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(calc(100% - 2 * var(--space-4)), var(--chat-w));
+  margin: 0 auto;
+  font-family: var(--font-chat, var(--font-ui));
+  --chat-fs-2xs: calc(var(--fs-2xs) * var(--chat-scale, 1));
+  --chat-fs-xs: calc(var(--fs-xs) * var(--chat-scale, 1));
+  --chat-fs-sm: calc(var(--fs-sm) * var(--chat-scale, 1));
+  --chat-fs-md: calc(var(--fs-md) * var(--chat-scale, 1));
+  --chat-fs-lg: calc(var(--fs-lg) * var(--chat-scale, 1));
+  --chat-fs-xl: calc(var(--fs-xl) * var(--chat-scale, 1));
+}
+
+.prompt-dock > .prompt-card {
+  --fs-2xs: var(--chat-fs-2xs);
+  --fs-xs: var(--chat-fs-xs);
+  --fs-sm: var(--chat-fs-sm);
+  --fs-md: var(--chat-fs-md);
+  --fs-lg: var(--chat-fs-lg);
+  --fs-xl: var(--chat-fs-xl);
+}
+
+/* with no composer under it (a view-only pane) the card keeps the composer's bottom space */
+.prompt-dock:not(:empty):last-child {
+  margin-bottom: var(--space-4);
+}
+
+/* opened held rows end in buttons: a little air before the card */
+.composer-queue + .prompt-dock:not(:empty) {
+  margin-top: var(--space-2);
 }
 
 /* the soft keyboard covers the home indicator: the box sits just above the keyboard */
@@ -1043,7 +1090,8 @@
 /* a phone: the same column as the card (12px gutters), and a row is the text, "Send now" and an
    X whose name is still Discard */
 @media (max-width: 480px) {
-  .terminal-stack.is-chat .composer-queue {
+  .terminal-stack.is-chat .composer-queue,
+  .prompt-dock {
     width: calc(100% - 2 * var(--space-3));
   }
 
