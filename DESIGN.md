@@ -161,6 +161,11 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
   (measured on the demo's chat: three chunks, 90 KB, in English; eight more, 200 KB, with the
   interface and an answer in Korean). The service worker precaches none and keeps each one once
   fetched.
+- What the chunks cover (their `unicode-range`s): Latin, all 11,172 Hangul syllables, hiragana
+  and katakana, and 435 CJK ideographs. The type is therefore the same on every device for
+  Latin and Korean only. Kanji and Chinese text fall through `--font-ui` to the device's sans-serif,
+  so a Japanese line is kana in Pretendard beside kanji in the device's face, and Chinese is
+  the device's face almost throughout. The app ships no Japanese or Chinese face.
 - JetBrains Mono regular is the code face of the chat and the chrome, loaded under the family
   name `"JetBrains Mono Web"`. The name is the app's own so that the terminal never takes it:
   xterm's stack (`src/lib/fontFamily.ts`) names `"JetBrains Mono"`, sizes every cell from the
