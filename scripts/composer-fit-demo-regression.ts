@@ -13,7 +13,10 @@ import panes from "../site/demo/fixtures/panes.json";
 // All files and HTTP traffic stay in this disposable, loopback-only app; no herdr session is opened.
 const repo = join(import.meta.dir, "..");
 const app = mkdtempSync(join(tmpdir(), "herdr-composer-fit-demo-"));
+// an id the composer cannot name is drawn as received, in the mono face: the widest label there is
 const LONG_MODEL = "gpt-5.6-sol-codex-preview-2026-10";
+// ids it names: "GPT-5.6" and "Opus 5.5"
+const NAMED = ["gpt-5.6", "claude-opus-5-5"] as const;
 
 interface Case { model: string; status?: "working" | "idle"; mic?: boolean; ring?: boolean }
 type Draw = "full" | "no-effort" | "out";
@@ -39,6 +42,22 @@ const measure = (page: Page) => page.evaluate(() => {
   return {
     draw: status.getAttribute("data-model") ?? "full", hintAlone: status.hasAttribute("data-hint-alone"),
     card: { width: surface.width, height: surface.height }, status: status.getBoundingClientRect().height,
+    pill: (() => {
+      const pill = document.querySelector<HTMLElement>(".composer-pill")!;
+      const box = pill.getBoundingClientRect(), row = status.getBoundingClientRect();
+      const inside = (selector: string): boolean => {
+        const item = pill.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+        return item !== undefined && item.left >= box.left - 0.5 && item.right <= box.right + 0.5 && item.top >= box.top - 0.5 && item.bottom <= box.bottom + 0.5;
+      };
+      const style = getComputedStyle(pill);
+      return {
+        width: box.width, height: box.height, inRow: box.left >= row.left - 0.5 && box.right <= row.right + 0.5,
+        holds: inside(".agent-mark") && inside(".composer-model") && (pill.querySelector(".composer-context") === null || inside(".composer-context")),
+        // it only shows: nothing about it says it can be pressed
+        inert: pill.tagName === "SPAN" && !pill.hasAttribute("role") && !pill.hasAttribute("tabindex") && style.cursor === "auto",
+      };
+    })(),
+    name: document.querySelector<HTMLElement>(".composer-model")?.textContent ?? null, named: !document.querySelector(".composer-model")?.classList.contains("is-id"),
     label: part(".composer-model-info"), model: part(".composer-model"), effort: part(".composer-reasoning"), ring: part(".composer-context"), ringText: part(".composer-context-text"),
     hint: part(".composer-status-hint"), queue: document.querySelector(".composer-queue-button") !== null,
     chip: document.querySelector(".bg-tasks-toggle") !== null, mic: document.querySelector(".composer-controls-left .voice-mic") !== null,
@@ -56,6 +75,9 @@ const drawn = async (page: Page, draw: Draw, what: string): Promise<Row> => {
   if (draw === "full" || row.queue) assert.ok(!row.model?.clipped && !row.effort?.clipped, `${what}: no word of the model label is cut: ${JSON.stringify(row)}`);
   if (draw === "no-effort") assert.ok((row.effort?.width ?? 0) <= 1, `${what}: the level is read, not drawn: ${JSON.stringify(row)}`);
   if (draw === "out") assert.ok((row.label?.width ?? 0) <= 1, `${what}: the name and the level are read, not drawn: ${JSON.stringify(row)}`);
+  // the pill goes with the label: no empty pill is left around the ring. Drawn, it holds the mark, the name and the ring
+  if (draw === "out") assert.equal(row.pill.width, 0, `${what}: no pill is drawn without its label: ${JSON.stringify(row)}`);
+  else assert.ok(row.pill.width > 1 && row.pill.inRow && row.pill.holds && row.pill.inert, `${what}: the mark, the name and the ring sit in one pill that is not a control: ${JSON.stringify(row)}`);
   assert.deepEqual(row.overlaps, [], `${what}: nothing overlaps its neighbour`);
   assert.equal(row.overflowing, false, `${what}: the page does not scroll sideways`);
   return row;
@@ -162,9 +184,21 @@ try {
   try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
     try {
+      // a readable name for an id the composer can name, and any other id exactly as received
+      for (const [model, name, named] of [["claude-opus-5-5", "Opus 5.5", true], ["gpt-5.6", "GPT-5.6", true], ["gpt-5.6-sol", "gpt-5.6-sol", false], [LONG_MODEL, LONG_MODEL, false]] as const) await withCard(browser, 1440, { model }, async (page) => {
+        const row = await drawn(page, "full", `${model} in a wide window`);
+        assert.deepEqual([row.name, row.named], [name, named]);
+        assert.equal(await page.locator(".composer-model").getAttribute("title"), model, "the id as received is the name's title");
+        assert.equal(await page.locator(".composer-model").evaluate((node) => getComputedStyle(node).fontFamily.includes("monospace")), !named, "an id with no name is drawn in the mono face");
+        // the level is the agent's own word, drawn with a capital and never rewritten
+        assert.deepEqual(await page.locator(".composer-reasoning-short").evaluate((node: HTMLElement) => [node.textContent, getComputedStyle(node).textTransform]), ["xhigh", "capitalize"]);
+        assert.equal(row.pill.height, await page.locator(".composer-attach").evaluate((node) => node.getBoundingClientRect().height), "the pill is as tall as a control");
+      });
+      console.log("PASS the model is named only where its id is one the composer can name, and the pill holds it at a control's height");
+
       // The context ring's number opens inside the row and the card keeps its size: the label is
-      // fitted again. With Queue it steps out whole and comes back when the number closes
-      for (const model of ["gpt-5.6", "gpt-5.6-sol"]) await withCard(browser, 390, { model }, async (page) => {
+      // fitted again. With Queue it steps out whole, its pill with it, and comes back when the number closes
+      for (const model of NAMED) await withCard(browser, 800, { model }, async (page) => {
         await draft(page, true);
         const closed = await drawn(page, "full", `${model}, a draft`);
         assert.ok(closed.chip && closed.ring, "the task chip and the context ring are in the row");
@@ -175,10 +209,24 @@ try {
         await toggleRing(page, false, "full");
         await drawn(page, "full", `${model}, a draft, the context number closed again`);
       });
-      console.log("PASS on a phone with Queue showing, opening the context number steps the model label out whole, and closing it brings the label back");
+      console.log("PASS with Queue showing, opening the context number steps the model label and its pill out whole, and closing it brings them back");
+
+      // a phone: beside the task chip and Queue the pill has no room, so the label is out while the
+      // draft is there and back, whole, once it is gone; the card keeps its height through it
+      for (const model of NAMED) await withCard(browser, 390, { model }, async (page) => {
+        const rest = await drawn(page, "full", `${model} on a phone, no draft`);
+        assert.ok(rest.chip && rest.ring && !rest.queue);
+        await draft(page, true);
+        const held = await drawn(page, "out", `${model} on a phone, a draft`);
+        assert.ok(held.queue && (held.ring?.width ?? 0) > 1, `the ring is still drawn: ${JSON.stringify(held)}`);
+        assert.equal(held.card.height, rest.card.height);
+        await page.getByRole("textbox", { name: "Message", exact: true }).fill("");
+        await drawn(page, "full", `${model} on a phone, the draft cleared`);
+      });
+      console.log("PASS on a phone the pill is whole beside Stop and steps out, ring kept, while Queue shows");
 
       // without Queue the level alone steps out, and no sliver of it is left beside the number
-      await withCard(browser, 390, { model: "gpt-5.6-sol", status: "idle" }, async (page) => {
+      await withCard(browser, 390, { model: "gpt-5.6", status: "idle" }, async (page) => {
         await drawn(page, "full", "a resting pane");
         await toggleRing(page, true, "no-effort");
         const open = await drawn(page, "no-effort", "a resting pane, the context number open");
@@ -239,16 +287,29 @@ try {
       });
       console.log("PASS a resting pane keeps one row of metadata over the uploading sentence, and the sentence alone is centred");
 
-      // a task chip, the context ring and Queue together, from a phone to a wide window, with the
-      // number closed and open: nothing overlaps and the label is whole or stepped out
-      for (const [width, closed, open] of [[390, "out", "out"], [800, "out", "out"], [1024, "full", "out"], [1440, "full", "full"]] as const) await withCard(browser, width, { model: LONG_MODEL }, async (page) => {
+      // a task chip, the context ring, the mic and Queue together, from a phone to a wide window,
+      // with the number closed and open: nothing overlaps and the label is whole or stepped out,
+      // for a short name and for a long id that has none
+      const widths = [390, 800, 1024, 1440] as const;
+      const fits: Record<string, Record<"plain" | "mic", readonly (readonly [Draw, Draw])[]>> = {
+        "claude-opus-5-5": {
+          plain: [["out", "out"], ["full", "out"], ["full", "full"], ["full", "full"]],
+          mic: [["out", "out"], ["out", "out"], ["full", "full"], ["full", "full"]],
+        },
+        [LONG_MODEL]: {
+          plain: [["out", "out"], ["out", "out"], ["out", "out"], ["full", "full"]],
+          mic: [["out", "out"], ["out", "out"], ["out", "out"], ["full", "out"]],
+        },
+      };
+      for (const [model, byMic] of Object.entries(fits)) for (const mic of [false, true]) for (const [index, width] of widths.entries()) await withCard(browser, width, { model, mic }, async (page) => {
+        const [closed, open] = byMic[mic ? "mic" : "plain"][index]!;
         await draft(page, true);
-        const row = await drawn(page, closed, `${width}px`);
-        assert.ok(row.chip && row.ring && row.queue);
+        const row = await drawn(page, closed, `${model}, ${width}px${mic ? ", the mic" : ""}`);
+        assert.ok(row.chip && row.ring && row.queue && row.mic === mic);
         await toggleRing(page, true, open);
-        await drawn(page, open, `${width}px, the context number open`);
+        await drawn(page, open, `${model}, ${width}px${mic ? ", the mic" : ""}, the context number open`);
       });
-      console.log("PASS at 390, 800, 1024 and 1440px a long model id is whole or stepped out beside the chip, the ring and Queue");
+      console.log("PASS at 390, 800, 1024 and 1440px a short name and a long model id are whole or stepped out beside the chip, the ring, the mic and Queue");
     } finally {
       await browser.close();
     }
