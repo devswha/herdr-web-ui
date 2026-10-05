@@ -86,7 +86,8 @@ try {
   // working inside the block is a choice to keep it: the fold must not take a focused row away
   await report("working");
   await head(true, "Working…").waitFor();
-  const toolRow = log.getByRole("button", { name: /exec_command/ });
+  // the row reads as verb + object (#457); its tool id is the title
+  const toolRow = log.getByRole("button", { name: "Ran git status", exact: true });
   await toolRow.click();
   await log.getByText("git status", { exact: true }).last().waitFor();
   await report("idle");
