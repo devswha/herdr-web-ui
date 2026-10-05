@@ -264,12 +264,28 @@ export async function processCodexHome(pid: number): Promise<string | null> {
         // argument spelled CODEX_HOME=/path would be taken. /proc on Linux has neither problem
         const text = await new Response(child.stdout).text();
         await child.exited;
-        home = [...text.matchAll(/(?:^|\s)CODEX_HOME=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)/g)].at(-1)?.[1] || null;
+        home = codexHomeInPsLine(text);
       } finally { clearTimeout(timer); }
     }
   } catch { home = null; }
-  if (home !== null && !isAbsolute(home)) home = null;
-  return home;
+  return home !== null && isCodexHomeDir(home) ? home : null;
+}
+
+/** An absolute path to a directory that is there: `ps` cannot tell an argument from the environment, a store can be checked. */
+function isCodexHomeDir(home: string): boolean {
+  if (!isAbsolute(home)) return false;
+  try { return statSync(home).isDirectory(); } catch { return false; }
+}
+
+/**
+ * CODEX_HOME in one `ps -E -o command=` line: the environment follows the arguments,
+ * space-separated, so the last assignment is taken and its value runs to the next `NAME=`
+ * (a path may hold spaces). A value holding ` NAME=` is cut there; an argument spelled
+ * `CODEX_HOME=/path` is taken when the environment has none, which the directory check above
+ * narrows. /proc on Linux has neither problem.
+ */
+export function codexHomeInPsLine(text: string): string | null {
+  return [...text.matchAll(/(?:^|\s)CODEX_HOME=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)/g)].at(-1)?.[1] || null;
 }
 
 /**
@@ -280,10 +296,10 @@ export async function processCodexHome(pid: number): Promise<string | null> {
 export async function paneCodexHome(paneId: string, configured?: string): Promise<string> {
   if (configured) return configured;
   try {
-    for (const { pid } of (await codexProcessesOf(paneId)).list) {
-      const home = await processCodexHome(pid);
-      if (home) return home;
-    }
+    // the first Codex listed decides, with or without a home of its own: a child or wrapper it
+    // started with another CODEX_HOME writes to a store that is not this pane's conversation
+    const [first] = (await codexProcessesOf(paneId)).list;
+    if (first !== undefined) return (await processCodexHome(first.pid)) ?? defaultCodexHome();
   } catch { /* herdr busy: the default store */ }
   return defaultCodexHome();
 }
