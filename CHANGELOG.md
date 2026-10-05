@@ -149,14 +149,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   text and Enter of a typed answer. An answer that sends more than one key now looks at the
   screen again before each key that does more than move the cursor, and stops with "the prompt
   changed" when the menu, its options or the cursor's row are no longer the card's, or when a
-  typed answer does not show on the screen before its Enter. And a question asked twice in a row
+  typed answer does not show on the screen before its Enter. When the screen cannot be read in
+  time it says so and keeps the card, with what was written in it. And a question asked twice in a row
   with the same text was one card: a typed pick waiting for Confirm, or the card still open on
   another device, could answer the second asking. A second asking is now its own card where the
   app can detect that the first one ended: it was answered from the app, the agent went back to
-  work, the prompt left the screen, or (Codex's queued questions, OmO's forms) the agent asked
-  it under another call. Where it cannot, the two still look like one prompt: a prompt answered
+  work, the prompt left the screen, or (the card for Codex's collapsed queue, OmO's forms) the
+  agent asked it under another call. Where it cannot, the two still look like one prompt: a prompt answered
   in a terminal outside the app and asked again word for word before the app's next read, by an
-  agent that reports no work in between (pi's dialogs). A screen the app has no reader for, in
+  agent that reports no work in between (pi's dialogs, a question open in Codex's queue). A screen the app has no reader for, in
   the place of a row opened for typing, is not recognised as another prompt either. Remote PCs
   get this with the next `remote-vN` runtime.
   ([#470](https://github.com/devswha/herdr-web-ui/pull/470))

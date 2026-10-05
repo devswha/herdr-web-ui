@@ -402,7 +402,7 @@ describe("an answer whose menu changes under it", () => {
       await working;
       // the same menu, asked again, with its cursor on the very row the Enter was for
       await herdrRpc("pane.report_agent", { pane_id: ended.pane, source: "manual", agent: "codex", state: "blocked" });
-      // well inside the answer's own wait (750 ms) for the cursor: the refusal below is for the
+      // well inside the answer's own wait (1.5 s) for the cursor: the refusal below is for the
       // asking that ended, not for a menu that never showed the move
       expect(performance.now() - waiting).toBeLessThan(600);
       writeFileSync(`${ended.log}.go`, "");

@@ -90,6 +90,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         text; with no menu, the next prompt Claude Code suggests, grey in its empty input box)
  *  POST   /api/pane/prompt/answer { pane_id, prompt_id, option_index?, option_indices?, custom_text? }
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
+ *            | 504 prompt_timeout (the screen could not be read in time: the prompt is still
+ *              the card's, and what the user wrote in it is kept for another try)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
  *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
  *         omo and gjc, which herdr cannot start, are typed into the root pane's shell)

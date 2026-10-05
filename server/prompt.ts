@@ -99,14 +99,19 @@ type ParsedPrompt = InteractivePrompt & {
   customSteps?: (text: string) => AnswerStep[];
   /** the steps for a multiple choice, for a card whose menu does not toggle the usual way */
   multiSteps?: (choices: number[]) => AnswerStep[];
-  /** the agent's own name for this asking, where it has one (Codex's rollout and call, omo's
-   * session and tool call): kept beside what the prompt says, and compared wherever that is */
+  /** the agent's own name for this asking, where the card's question is read with it: the
+   * rollout and call of a card for Codex's collapsed queue, omo's session and tool call. A
+   * question read off the screen alone (Codex's queue open in the terminal) has none. Kept
+   * beside what the prompt says, and compared wherever that is */
   native?: string;
+  /** each option's whole text, label and description over all the lines they wrap onto, where
+   * the card shows only a description's first line: the same however wide the pane is */
+  optionTexts?: string[];
 };
 
 type AnswerStep = { keys?: string[]; text?: string };
 type MenuRow = { label: string; selected: boolean; checked: boolean; description?: string; lineIndex: number };
-type NumberedRow = MenuRow & { number: number };
+type NumberedRow = MenuRow & { number: number; /** every line under the row, up to the next one */ detail?: string };
 
 const parsedByPublicPrompt = new WeakMap<InteractivePrompt, ParsedPrompt>();
 
@@ -189,12 +194,13 @@ function parseNumberedRows(lines: string[], start: number, end: number): Numbere
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const nextLineIndex = rows[index + 1]?.lineIndex ?? end;
+    const under: string[] = [];
     for (let lineIndex = row.lineIndex + 1; lineIndex < nextLineIndex; lineIndex += 1) {
       const description = cleanLine(lines[lineIndex]!);
       if (!description || isDivider(description)) continue;
-      row.description = description;
-      break;
+      under.push(description);
     }
+    if (under.length > 0) { row.description = under[0]!; row.detail = under.join(" "); }
   }
   return rows;
 }
@@ -282,7 +288,7 @@ function parseCodexContinueMenu(screen: string): ParsedPrompt | null {
   }, {
     responder: "codex-menu", menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected), checkedOptionIndices: [], customMenuIndex: null,
-    rejectWithEscapeIndex: null,
+    rejectWithEscapeIndex: null, optionTexts: rows.map((row) => `${row.label} ${row.detail ?? ""}`),
   });
 }
 
@@ -443,6 +449,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
     selectedIndex: rows.findIndex((row) => row.selected),
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: customIndex, rejectWithEscapeIndex: null,
+    optionTexts: optionRows.map((row) => `${row.label} ${row.detail ?? ""}`),
   });
 }
 
@@ -1983,20 +1990,12 @@ async function readKnownPrompt(
   const omoTrusted = (agent !== "claude" && agent !== "") || pane.agent_status === "blocked";
   const prompt = parseInteractivePrompt(agent, screen, omoAsk, omoTrusted);
   const count = agent === "codex" && prompt === null ? queuedQuestionCount(screen) : 0;
-  // a question open in the queue is on the screen whole, but only the rollout says which call asked it
-  const open = agent === "codex" && prompt !== null && parsedByPublicPrompt.get(prompt)!.responder === "codex-async-question";
-  if ((count === 0 && !open) || !pane.cwd) return { prompt, screen };
+  if (count === 0 || !pane.cwd) return { prompt, screen };
   let rollout = queueRollouts.get(paneId);
   if (!rollout || Date.now() - rollout.at > QUEUE_ROLLOUT_MS) {
-    // the open question keeps its card when the rollout cannot be told: it goes without that name
-    const path = open ? await codexTranscriptPath(paneId, pane.cwd, codexHome).catch(() => null) : await codexTranscriptPath(paneId, pane.cwd, codexHome);
-    rollout = { path, at: Date.now() };
+    rollout = { path: await codexTranscriptPath(paneId, pane.cwd, codexHome), at: Date.now() };
     queueRollouts.set(paneId, rollout);
     if (queueRollouts.size > 64) queueRollouts.delete(queueRollouts.keys().next().value!);
-  }
-  if (open) {
-    await nameOpenQuestion(paneId, parsedByPublicPrompt.get(prompt!)!);
-    return { prompt, screen };
   }
   try {
     // a question remembered from another rollout (a new session) means nothing here
@@ -2050,34 +2049,17 @@ function sameText(shown: string, asked: string): boolean {
  * chat's next read shows the question actually waiting (a skip can leave the rollout's
  * guess behind); a queue that does not open is left alone.
  */
-/**
- * Names the question open in a pane's queue by the calls that can have asked it: the rollout's
- * unanswered questions with this text and these options (the screen shows no call id). Two calls
- * asking the same thing are both named, so the name changes when either is answered.
- */
-async function nameOpenQuestion(paneId: string, open: ParsedPrompt): Promise<void> {
-  const rollout = queueRollouts.get(paneId)?.path;
-  if (!rollout) return;
-  const asked = (await unansweredCodexQuestions(rollout).catch(() => [] as QueuedQuestion[])).filter((question) => sameText(open.question, question.title)
-    && question.options.length === open.options.length && question.options.every((option, index) => sameText(open.options[index]!.label, option)));
-  if (asked.length > 0) open.native = `${rollout}:${asked.map((question) => question.key).join(",")}`;
-}
-
-async function openQueuedQuestion(paneId: string, queued: ParsedPrompt): Promise<InteractivePrompt | null> {
-  // the key only once the screen still shows the questions' count, nothing of the user's queued
-  if (queuedQuestionCount(await liveScreen(paneId)) === 0) return null;
+async function openQueuedQuestion(paneId: string, queued: ParsedPrompt, givenUp: () => boolean = () => false): Promise<InteractivePrompt | null> {
+  // the key only once the screen still shows the questions' count, nothing of the user's queued,
+  // and while somebody still waits for the answer (asked after the read, which takes its time)
+  if (queuedQuestionCount(await liveScreen(paneId)) === 0 || givenUp()) return null;
   await paneSendKeys(paneId, [KEY.openQueue]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await Bun.sleep(100);
     const opened = parsePrompt("codex", await liveScreen(paneId));
     if (opened?.responder !== "codex-async-question") continue;
     if (sameText(opened.question, queued.question) && opened.options.length === queued.options.length
-      && opened.options.every((option, index) => sameText(option.label, queued.options[index]!.label))) {
-      // and asked by the card's own call, by no other: with two calls waiting on the same
-      // question the screen does not say which one opened, and the answer is refused
-      await nameOpenQuestion(paneId, opened);
-      if (opened.native === queued.native) return publicPrompt(opened);
-    }
+      && opened.options.every((option, index) => sameText(option.label, queued.options[index]!.label))) return publicPrompt(opened);
     const rollout = queueRollouts.get(paneId)?.path;
     if (rollout) queueFronts.set(paneId, { question: opened.question, options: opened.options.map((option) => option.label), rollout });
     if (queueFronts.size > 64) queueFronts.delete(queueFronts.keys().next().value!);
@@ -2095,8 +2077,12 @@ async function closeOpenQuestion(paneId: string): Promise<void> {
   if (parsePrompt("codex", screen)?.responder === "codex-async-question") await paneSendKeys(paneId, [KEY.closeQueue]);
 }
 
-/** How long an answer waits for the screen to show what its next key needs, before it is refused. */
-const SETTLE_MS = 750;
+/**
+ * How long an answer waits for the screen to show what its next key needs, before it stops. After
+ * a committing key that takes two reads a moment apart, and a read of a busy herdr's can take
+ * some 400 ms.
+ */
+const SETTLE_MS = 1_500;
 
 /** The same question with the same options and steps, whichever of its steps count as answered. */
 function sameQuestion(shown: ParsedPrompt, card: ParsedPrompt): boolean {
@@ -2119,7 +2105,8 @@ function sameCard(shown: ParsedPrompt | null, card: ParsedPrompt): boolean {
 function sameMenu(shown: ParsedPrompt, card: ParsedPrompt, typedRow: number | null): boolean {
   const said = (prompt: ParsedPrompt) => JSON.stringify([
     prompt.agent, prompt.responder, prompt.native ?? "", prompt.question,
-    prompt.options.flatMap((option, index) => index === typedRow ? [] : [[option.label, option.description]]),
+    // letters and digits only: a pane narrowed under the answer wraps the same text elsewhere
+    prompt.options.flatMap((option, index) => index === typedRow ? [] : [comparable(prompt.optionTexts?.[index] ?? `${option.label} ${option.description ?? ""}`)]),
   ]);
   return said(shown) === said(card);
 }
@@ -2144,6 +2131,14 @@ async function formMovedOn(paneId: string, answered: string, codexHome?: string)
     // by what it says: the answer ended that asking, so the same step still on screen has a new id
     if (contentId(prompt) !== answered) return;
   }
+}
+
+/**
+ * The screen could not be read in time, which says nothing about the prompt: unlike
+ * prompt_changed the card stays as it is, with what the user wrote in it, to be sent again.
+ */
+function promptTimeout(): Response {
+  return jsonResponse({ error: { code: "prompt_timeout", message: "The pane's screen could not be read in time, so the answer was not finished. Check the terminal, then answer again." } }, 504);
 }
 
 function promptChanged(): Response {
@@ -2213,12 +2208,13 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       let answered = false;
       let committed = false;
       let cleared = false;
+      let timedOut = false;
       answersUnderWay.add(body.pane_id);
       try {
         if (request.signal.aborted) return promptChanged();
         if (opensQueue) {
           // the card came from the rollout: answer it in the open queue, once it shows this question
-          const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!);
+          const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!, () => request.signal.aborted);
           if (!opened || !asks()) return promptChanged();
           target = opened;
         }
@@ -2290,22 +2286,29 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             // read right behind the key can still show the menu as it was, so the screen must
             // read as expected twice, a moment apart.
             let held = 0;
+            // the last read that came back in time showed another screen than the key is for
+            let differs = false;
             for (;;) {
-              if (!asks()) return promptChanged();
-              // a read that outlasts the deadline is no read: it is cut off there, and one that
-              // came back past it authorises nothing
+              // nobody waits for this answer any more: nothing that cannot be undone is started
+              if (!asks() || (!committed && request.signal.aborted)) return promptChanged();
+              // Everything a read does (the screen, an omo session or a Codex rollout looked up
+              // again) is cut off at the deadline, and a read that came back past it authorises
+              // nothing. Out of time with no read against it, the prompt has not changed: the
+              // answer timed out.
               const left = deadline - Date.now();
-              if (left <= 0) return promptChanged();
-              let read: Awaited<ReturnType<typeof readKnownPrompt>>;
-              try {
-                read = await readKnownPrompt(body.pane_id, pane, agent, options.codexHome, panes, left);
-              } catch (error) {
-                if (error instanceof HerdrError && error.code === "timeout") return promptChanged();
+              const reading = left <= 0 ? null : readKnownPrompt(body.pane_id, pane, agent, options.codexHome, panes, left);
+              reading?.catch(() => undefined);
+              const read = reading && await Promise.race([reading, Bun.sleep(left).then(() => null)]).catch((error: unknown) => {
+                if (error instanceof HerdrError && error.code === "timeout") return null;
                 throw error;
+              });
+              if (!read || Date.now() > deadline) {
+                timedOut = !differs;
+                return differs ? promptChanged() : promptTimeout();
               }
-              if (Date.now() > deadline) return promptChanged();
               const shown = read.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
-              held = asks() && expected(shown, read.screen ?? "", index === steps.length - 1) ? held + 1 : 0;
+              differs = !expected(shown, read.screen ?? "", index === steps.length - 1);
+              held = asks() && !differs ? held + 1 : 0;
               if (held > (committed ? 1 : 0)) break;
               await Bun.sleep(50);
             }
@@ -2336,8 +2339,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         answersUnderWay.delete(body.pane_id);
         // the queue this request opened never stays open, whatever failed on the way
         if (opensQueue && !answered) await closeOpenQuestion(body.pane_id).catch(() => undefined);
-        // answered, or as good as: the same prompt on the screen after this is asked anew
-        if (committed || cleared) askingEnded(body.pane_id);
+        // answered, or as good as: the same prompt on the screen after this is asked anew. Not
+        // after a timeout, which leaves the card to be answered again
+        if ((committed || cleared) && !timedOut) askingEnded(body.pane_id);
       }
       // answered from the chat, the queue closes again: the next question waits collapsed, and
       // the main prompt (where a message typed in the chat goes) has the input back

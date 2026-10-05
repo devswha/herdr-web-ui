@@ -1731,6 +1731,9 @@ describe("an answer and the menu it was made for", () => {
     cwd?: string; rollout?: string;
     /** how long herdr takes over each screen read from now on */
     readDelay?: number;
+    onRead?: () => void;
+    /** herdr never answers what it is asked about the pane's agent */
+    agentUnanswered?: boolean;
     root: string;
   }
 
@@ -1750,7 +1753,8 @@ describe("an answer and the menu it was made for", () => {
         const request = JSON.parse(input.split("\n")[0]!) as { id: string; method: string; params: { keys?: string[]; text?: string } };
         const answer = (result: unknown) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
         if (request.method === "session.snapshot") return answer({ snapshot: { panes: [{ pane_id: "p_1", agent: pane.agent, agent_status: pane.status, cwd: pane.cwd }], layouts: [] } });
-        if (request.method === "pane.read") return void setTimeout(() => answer({ read: { text: pane.screen } }), pane.readDelay ?? 0);
+        if (request.method === "pane.read") { pane.onRead?.(); return void setTimeout(() => answer({ read: { text: pane.screen } }), pane.readDelay ?? 0); }
+        if (request.method === "agent.get" && pane.agentUnanswered) return;
         if (request.method === "agent.get") return answer({ agent: pane.rollout ? { agent_session: { kind: "path", value: pane.rollout } } : {} });
         if (request.method !== "pane.send_keys" && request.method !== "pane.send_text") throw new Error(`unexpected fixture RPC: ${request.method}`);
         for (const sent of request.params.keys ?? [`text:${request.params.text}`]) {
@@ -2223,53 +2227,113 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   });
 
-  test("a screen read that comes back after the deadline authorises no key", async () => {
+  test("a screen read that comes back after the deadline authorises no key, and is a timeout, not a changed prompt", async () => {
     await withPane("codex", "blocked", menu(RESUME), async (pane) => {
       moving(pane, RESUME);
       const prompt = (await card())!;
       const moved = pane.onSent!;
-      pane.onSent = (sent) => { moved(sent); pane.readDelay = 900; };
+      pane.onSent = (sent) => { moved(sent); pane.readDelay = 1_800; };
       const started = Date.now();
-      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 504, code: "prompt_timeout" });
       expect(pane.sent).toEqual(["down"]);
       // cut off at the deadline, not waited out
-      expect(Date.now() - started).toBeLessThan(890);
+      expect(Date.now() - started).toBeLessThan(1_790);
+      // nothing says the prompt changed: its card is still the one to answer
+      pane.readDelay = 0;
+      expect((await card())!.id).toBe(prompt.id);
     });
-  }, 4_000);
+  }, 6_000);
 
-  test("a question in Codex's queue is the call's that asked it, open or collapsed", async () => {
+  test("a lookup that herdr never answers is cut off with the answer's wait", async () => {
     const collapsed = "\n• WAITING\n• Queued follow-up inputs\n  ? 1 question · 8s\n    alt+↑ to answer\n› Ask Codex to do anything\n  GPT-6-Sol xhigh · ~/lab · Context 97% left\n";
-    const open = "\n• Queued follow-up inputs\n  Which split?\n  › 1. train\n    2. test\n    3. Other\n  enter submit   ctrl+] skip   alt+↓ main prompt\n";
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      pane.cwd = pane.root;
+      const prompt = (await card())!;
+      // under the move the screen is Codex's collapsed queue, whose card needs the pane's
+      // rollout, and herdr does not say which one it is
+      pane.onSent = () => { pane.agentUnanswered = true; pane.screen = collapsed; };
+      const started = Date.now();
+      expect((await answer(prompt.id, { option_index: 1 })).status).toBe(504);
+      expect(pane.sent).toEqual(["down"]);
+      expect(Date.now() - started).toBeLessThan(2_500);
+    });
+  }, 6_000);
+
+  test("answers pi's text dialog on a herdr whose screen reads take 400 ms", async () => {
+    await withPane("pi", "idle", input("Branch name?"), async (pane) => {
+      pane.onSent = (sent) => { if (sent.startsWith("text:")) pane.screen = input("Branch name?", sent.slice(5)); };
+      const prompt = (await card())!;
+      pane.readDelay = 400;
+      expect(await answer(prompt.id, { custom_text: "fix/answers" })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["ctrl+k", "ctrl+u", "text:fix/answers", "enter"]);
+    });
+  }, 10_000);
+
+  test("goes on ticking a multiple choice whose descriptions a narrowed pane wraps", async () => {
+    const described = (at: number, ticked: number[], narrow: boolean) => `
+☐ Checks
+
+Which checks should run?
+
+${at === 0 ? "❯" : " "} 1. [${ticked.includes(0) ? "✓" : " "}] Lint
+     ${narrow ? "Run the linters over\n     the whole repository" : "Run the linters over the whole repository"}
+${at === 1 ? "❯" : " "} 2. [${ticked.includes(1) ? "✓" : " "}] ${narrow ? "Tests, unit and\n     integration" : "Tests, unit and integration"}
+     ${narrow ? "Run every suite, which takes\n     about ten minutes" : "Run every suite, which takes about ten minutes"}
+${at === 2 ? "❯" : " "} 3. Type something.
+────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+    await withPane("claude", "blocked", described(0, [], false), async (pane) => {
+      let at = 0;
+      const ticked: number[] = [];
+      // the pane is narrowed as the first tick goes out: the same options, wrapped
+      pane.onSent = (sent) => { if (sent === "down") at += 1; if (sent === "enter") ticked.push(at); pane.screen = described(at, ticked, true); };
+      const prompt = (await card())!;
+      expect(prompt.options[0]!.description).toBe("Run the linters over the whole repository");
+      expect(await answer(prompt.id, { option_indices: [0, 1] })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["enter", "down", "enter", "right"]);
+    });
+  });
+
+  test("a question open in Codex's queue is what the screen shows: the rollout does not rename it, and no queue opens for a request given up", async () => {
+    const collapsed = "\n• WAITING\n• Queued follow-up inputs\n  ? 2 questions · 8s\n    alt+↑ to answer\n› Ask Codex to do anything\n  GPT-6-Sol xhigh · ~/lab · Context 97% left\n";
+    const open = (at: number) => `\n• Queued follow-up inputs\n  1 of 2\n  Which split?\n  ${at === 0 ? "›" : " "} 1. train\n  ${at === 1 ? "›" : " "} 2. test\n  ${at === 2 ? "›" : " "} 3. Other\n  enter submit   ctrl+] skip   alt+↓ main prompt\n`;
     const item = (payload: unknown) => `${JSON.stringify({ type: "response_item", payload })}\n`;
-    const ask = (call: string) => item({ type: "function_call", name: "request_user_input_async", call_id: call, arguments: JSON.stringify({ questions: [{ title: "Which split?", options: ["train", "test"] }] }) });
-    const reply = (call: string) => item({ type: "message", role: "user", content: [{ type: "input_text", text: `<send_user_message_question_reply>\n${JSON.stringify([{ answer: "train", question: "Which split?", questionItemId: JSON.stringify(["request_user_input_async", call, 0]) }])}\n</send_user_message_question_reply>` }] });
-    await withPane("codex", "working", open, async (pane) => {
+    const ask = (call: string, count = 1) => item({ type: "function_call", name: "request_user_input_async", call_id: call, arguments: JSON.stringify({ questions: Array.from({ length: count }, () => ({ title: "Which split?", options: ["train", "test"] })) }) });
+    await withPane("codex", "working", collapsed, async (pane) => {
       const home = join(pane.root, "codex");
       mkdirSync(join(home, "sessions"), { recursive: true });
       pane.rollout = join(home, "sessions", "rollout.jsonl");
       pane.cwd = pane.root;
-      writeFileSync(pane.rollout, `${JSON.stringify({ type: "session_meta", payload: { id: "t", source: "cli" } })}\n${ask("call_1")}`);
-      // open in the terminal: the screen is the same for either call, the rollout tells them apart
-      const first = (await card(home))!;
-      expect(first.queued).toBe("open");
-      expect((await card(home))!.id).toBe(first.id);
-      appendFileSync(pane.rollout, reply("call_1") + ask("call_2"));
-      const second = (await card(home))!;
-      expect(second.id).not.toBe(first.id);
-      expect(await answer(first.id, { option_index: 0 }, { codexHome: home })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual([]);
-
-      // collapsed: the card is call_2's. By the time alt+↑ opens the queue that call is answered
-      // and call_3 asks the same thing: the question that opens is not the card's
-      pane.screen = collapsed;
+      // one call asks the same question twice: its card is the first of the two, by its call
+      writeFileSync(pane.rollout, `${JSON.stringify({ type: "session_meta", payload: { id: "t", source: "cli" } })}\n${ask("call_1", 2)}`);
       const queued = (await card(home))!;
       expect(queued.queued).toBe("collapsed");
+      // a request given up while the screen is read before alt+↑ (the answer's second read,
+      // after the one that finds the card) opens no queue
+      const abort = new AbortController();
+      let reads = 0;
+      pane.onRead = () => { reads += 1; if (reads === 2) abort.abort(); };
+      expect((await answer(queued.id, { option_index: 1 }, { signal: abort.signal, codexHome: home })).status).toBe(409);
+      expect(pane.sent).toEqual([]);
+      pane.onRead = undefined;
+      let at = 0;
       pane.onSent = (sent) => {
-        if (sent === "alt+up") { appendFileSync(pane.rollout!, reply("call_2") + ask("call_3")); pane.screen = open; }
-        if (sent === "alt+down") pane.screen = collapsed;
+        if (sent === "alt+up") pane.screen = open(0);
+        if (sent === "down") {
+          at += 1;
+          // the rollout catches up under the answer: another call asking the same thing
+          appendFileSync(pane.rollout!, ask("call_2"));
+          pane.screen = open(at);
+        }
+        if (sent === "enter") pane.screen = "› Ask Codex to do anything\n";
       };
-      expect(await answer(queued.id, { option_index: 0 }, { codexHome: home })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["alt+up", "alt+down"]);
+      // the twin is no reason to refuse, nor is the rollout's news about a question the screen
+      // still shows as it was
+      expect(await answer(queued.id, { option_index: 1 }, { codexHome: home })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["alt+up", "down", "enter"]);
     });
   });
 
