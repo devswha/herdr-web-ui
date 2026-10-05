@@ -16,9 +16,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HerdrError, sessionSnapshot } from "./herdr/client.ts";
+import { MAX_ATTACHMENT_BYTES } from "../shared/attachments.ts";
 
-/** Decode ceiling: screenshots land in the 0.1-2MB range; 8MB leaves headroom. */
-export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+/** Decode ceiling: the limit the browser checks a file against before it uploads. */
+export const MAX_IMAGE_BYTES = MAX_ATTACHMENT_BYTES;
 
 /**
  * A file that is not one of the image types keeps its own name (sanitised), so the agent

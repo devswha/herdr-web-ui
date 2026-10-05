@@ -673,6 +673,7 @@ export const JA: Record<string, string> = {
   "Queued message {n}": "キュー内のメッセージ {n}",
   "Not sent. Reconnect and try again.": "送信できませんでした。再接続してもう一度お試しください。",
   "Not confirmed. Check the terminal before sending again.": "送信を確認できませんでした。再送信する前にターミナルを確認してください。",
+  "Too large to attach: {name} ({size}). A file can be up to {limit}.": "添付するには大きすぎます: {name}（{size}）。ファイルは {limit} まで添付できます。",
   // ---- subscription usage ----
   "Beside Settings, how much of each plan the AI tools on the server's PC have used. Turning it on sends their sign-ins to each provider's usage endpoint; they are never refreshed here.": "設定の横に、サーバー PC の AI ツールが各プランをどれだけ使ったかを表示します。オンにすると各ツールのサインイン情報を各プロバイダーの使用量エンドポイントに送信します。ここでトークンを更新することはありません。",
   "Accounts": "アカウント",

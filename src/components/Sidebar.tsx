@@ -16,6 +16,7 @@ import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { groupDirectories } from "../lib/directoryGroups.ts";
+import { rosterPanes } from "../lib/dagPane.ts";
 import { useSettings, type SidebarGrouping } from "../lib/settings.ts";
 
 const ERROR_NOTE_MS = 5000;
@@ -183,7 +184,8 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     const byId = new Map(snapshot.workspaces.map((workspace) => [workspace.workspace_id, workspace]));
     return workspaceOrder.map((id) => byId.get(id)).filter((workspace): workspace is WorkspaceInfo => workspace !== undefined);
   }, [snapshot, workspaceOrder]);
-  const directories = useMemo(() => groupDirectories(orderedWorkspaces, snapshot?.panes ?? []), [orderedWorkspaces, snapshot?.panes]);
+  const roster = useMemo(() => rosterPanes(snapshot?.panes ?? [], selectedPaneId), [snapshot?.panes, selectedPaneId]);
+  const directories = useMemo(() => groupDirectories(orderedWorkspaces, roster), [orderedWorkspaces, roster]);
   // herdr packs a repository's worktree workspaces under the one on its main checkout; a worktree
   // whose repository workspace is not open stays at the top level, in its own place
   const worktreeGroups = useMemo(() => {
@@ -519,12 +521,12 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
           </section>;
         }) : <ul className="workspace-list">{worktreeGroups.map(({ workspace, children }) => (
           <Fragment key={workspace.workspace_id}>
-            {renderWorkspace(workspace, snapshot?.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? [])}
+            {renderWorkspace(workspace, roster.filter((pane) => pane.workspace_id === workspace.workspace_id))}
             {/* a repository's worktree workspaces, packed under its row as herdr keeps them; a list of
                 their own, beside the row rather than inside it, so a hover or focus on a child row
                 does not light the repository's */}
             {children.length > 0 && <li className="worktree-children"><ul className="workspace-list">
-              {children.map((child) => renderWorkspace(child, snapshot?.panes.filter((pane) => pane.workspace_id === child.workspace_id) ?? []))}
+              {children.map((child) => renderWorkspace(child, roster.filter((pane) => pane.workspace_id === child.workspace_id)))}
             </ul></li>}
           </Fragment>
         ))}</ul>}
