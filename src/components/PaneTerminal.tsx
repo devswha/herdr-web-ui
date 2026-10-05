@@ -259,10 +259,10 @@ export function PaneTerminal({
   const [promptDock, setPromptDock] = useState<HTMLDivElement | null>(null);
   // Answered from the card, the card goes and would take the keyboard's focus with it: the message
   // box is the next thing to type in. Not after a tap, which would raise the keyboard: the card
-  // tells a tap by the press itself (a touch-screen laptop has a fine pointer), and a phone is
-  // also told by its pointer, for a browser whose click does not say what made it.
+  // tells a key, a mouse and a tap by the press itself (lib/promptAnswer.ts), so a key on a
+  // tablet hands the focus on and a tap on a touch-screen laptop does not.
   const onPromptAnswered = useCallback((toMessageBox: boolean) => {
-    if (toMessageBox && !coarseRef.current) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
+    if (toMessageBox) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
   }, []);
   // only the pick of that pane and prompt: an answer that comes back late must not take another's
   const clearPendingAnswer = useCallback((pane: string, promptId?: string) => {

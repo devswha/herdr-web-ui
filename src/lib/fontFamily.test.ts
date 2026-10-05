@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import { chatFontStack, loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "./fontFamily.ts";
 
@@ -15,6 +16,17 @@ describe("terminal font stack", () => {
     // a missing font falls through to today's order, and Malgun Gothic stays the last resort
     expect(stack.replace('D2Coding, "Cascadia Mono", ', "")).toBe(TERMINAL_FONT_STACK);
     expect(stack.endsWith('monospace, "Malgun Gothic"')).toBe(true);
+  });
+
+  it("takes none of the faces the app bundles for its own text: xterm would size its cells from one", () => {
+    const sheets = ["../fonts/fonts.css", "../fonts/pretendard/pretendardvariable-dynamic-subset.css"].map((file) => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
+    const bundled = new Set([...sheets.matchAll(/font-family:\s*["']([^"']+)["']/g)].map((match) => match[1]!));
+    expect([...bundled].sort()).toEqual(["JetBrains Mono Web", "Pretendard Variable"]);
+    const named = TERMINAL_FONT_STACK.split(",").map((name) => name.trim().replace(/["']/g, ""));
+    for (const family of bundled) expect(named).not.toContain(family);
+    // the chat's and the chrome's code face does take it, after the icon font
+    const mono = /--font-mono:\s*([^;]+);/.exec(readFileSync(new URL("../styles.css", import.meta.url), "utf8"))![1]!;
+    expect(mono.startsWith('"Symbols Nerd Font Mono", "JetBrains Mono Web", ')).toBe(true);
   });
 
   it("never lets an unsanitized list through", () => {

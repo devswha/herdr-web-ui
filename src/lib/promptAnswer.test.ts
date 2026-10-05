@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { InteractivePrompt } from "../../shared/protocol.ts";
-import { answerFromText, answerHint, answerRefusal, focusFollowsAnswer, needsConfirmation, pressedByTouch } from "./promptAnswer.ts";
+import { answerFromText, answerHint, answerRefusal, focusFollowsAnswer, needsConfirmation, pressOrigin, type PressOrigin } from "./promptAnswer.ts";
 
 const prompt = (options: string[], custom: number | null, multi = false): InteractivePrompt => ({
   id: "p", agent: "claude", kind: "question", title: "Question", question: "?", body: null,
@@ -58,8 +58,47 @@ describe("answering a prompt from the chat", () => {
   });
 });
 
+describe("pressOrigin", () => {
+  it("takes the pointer a click names", () => {
+    for (const pointerType of ["mouse", "touch", "pen"] as const) {
+      expect(pressOrigin({ pointerType, detail: 1, keyed: false })).toBe(pointerType);
+      // a keydown left over on the button does not make a pointer's click a key
+      expect(pressOrigin({ pointerType, detail: 1, keyed: true })).toBe(pointerType);
+    }
+  });
+
+  it("takes the pointer that went down on the button, and a finger or a pen over a mouse", () => {
+    // a browser whose click names no pointer
+    for (const downType of ["mouse", "touch", "pen"] as const) expect(pressOrigin({ downType, detail: 1, keyed: false })).toBe(downType);
+    // iOS Safari has called a tap's click a mouse's
+    expect(pressOrigin({ downType: "touch", pointerType: "mouse", detail: 1, keyed: false })).toBe("touch");
+    expect(pressOrigin({ downType: "pen", pointerType: "mouse", detail: 1, keyed: false })).toBe("pen");
+    expect(pressOrigin({ downType: "mouse", pointerType: "touch", detail: 1, keyed: false })).toBe("touch");
+    expect(pressOrigin({ downType: "mouse", pointerType: "mouse", detail: 1, keyed: false })).toBe("mouse");
+  });
+
+  it("calls a click a key only with no click count and its keydown on the button", () => {
+    // Chromium and Firefox: a PointerEvent with an empty pointer type; Safari: a MouseEvent with none
+    expect(pressOrigin({ pointerType: "", detail: 0, keyed: true })).toBe("keyboard");
+    expect(pressOrigin({ detail: 0, keyed: true })).toBe("keyboard");
+    // a script's click() or an assistive technology's activation: no key went down
+    expect(pressOrigin({ pointerType: "", detail: 0, keyed: false })).toBe("unknown");
+    expect(pressOrigin({ detail: 0, keyed: false })).toBe("unknown");
+  });
+
+  it("does not guess at a counted click that names no pointer", () => {
+    expect(pressOrigin({ detail: 1, keyed: false })).toBe("unknown");
+    expect(pressOrigin({ pointerType: "", detail: 1, keyed: true })).toBe("unknown");
+    expect(pressOrigin({ keyed: true })).toBe("unknown");
+  });
+
+  it("reads Enter in the card's own field, which has no click, as a key", () => {
+    expect(pressOrigin(undefined)).toBe("keyboard");
+  });
+});
+
 describe("focusFollowsAnswer", () => {
-  const still = { fromCard: true, touch: false, cardMounted: true, inCard: false, onPage: true };
+  const still = { fromCard: true, origin: "mouse" as PressOrigin, coarse: false, cardMounted: true, inCard: false, onPage: true };
 
   it("hands the focus on when the pressed button lost it to the page, or still has it", () => {
     expect(focusFollowsAnswer(still)).toBe(true);
@@ -68,20 +107,30 @@ describe("focusFollowsAnswer", () => {
 
   it("leaves the focus where the user put it while the answer was on its way", () => {
     expect(focusFollowsAnswer({ ...still, onPage: false })).toBe(false);
+    expect(focusFollowsAnswer({ ...still, origin: "keyboard", coarse: true, onPage: false })).toBe(false);
   });
 
   it("does nothing for a card that is gone, or an answer that did not start in the card", () => {
     expect(focusFollowsAnswer({ ...still, cardMounted: false })).toBe(false);
     expect(focusFollowsAnswer({ ...still, fromCard: false })).toBe(false);
+    expect(focusFollowsAnswer({ ...still, origin: "keyboard", coarse: true, cardMounted: false })).toBe(false);
+    expect(focusFollowsAnswer({ ...still, origin: "keyboard", coarse: true, fromCard: false })).toBe(false);
   });
 
-  it("stays out of the message box after a tap, whatever pointer the device reports", () => {
-    // a touch-screen laptop: (pointer: fine), and the option was still tapped
-    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("touch") })).toBe(false);
-    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("pen") })).toBe(false);
-    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("mouse") })).toBe(true);
-    // a key press (Enter or Space on the option) has no pointer type
-    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch("") })).toBe(true);
-    expect(focusFollowsAnswer({ ...still, touch: pressedByTouch(undefined) })).toBe(true);
-  });
+  // fine: a desktop, or a touch-screen laptop; coarse: a phone, or a tablet with a keyboard or a mouse
+  const follows: Record<PressOrigin, { fine: boolean; coarse: boolean }> = {
+    keyboard: { fine: true, coarse: true },
+    mouse: { fine: true, coarse: true },
+    touch: { fine: false, coarse: false },
+    pen: { fine: false, coarse: false },
+    unknown: { fine: true, coarse: false },
+  };
+  for (const [origin, expected] of Object.entries(follows) as [PressOrigin, { fine: boolean; coarse: boolean }][]) {
+    it(`${expected.fine ? "hands the focus on" : "stays out of the message box"} after a ${origin} press on a fine pointer`, () => {
+      expect(focusFollowsAnswer({ ...still, origin, coarse: false })).toBe(expected.fine);
+    });
+    it(`${expected.coarse ? "hands the focus on" : "stays out of the message box"} after a ${origin} press on a coarse pointer`, () => {
+      expect(focusFollowsAnswer({ ...still, origin, coarse: true })).toBe(expected.coarse);
+    });
+  }
 });

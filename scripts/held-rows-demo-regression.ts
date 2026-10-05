@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
+import { appFaces } from "./app-faces.ts";
 import panes from "../site/demo/fixtures/panes.json";
 
 // The held messages' fold, on the unmodified app over the demo's fixture transport: the demo's
@@ -119,6 +120,7 @@ try {
         await page.locator(".conn-live").waitFor({ state: "attached" });
         await page.locator(".terminal-stack.is-chat").waitFor();
         await page.locator(".composer-queue").waitFor();
+        await appFaces(page);
         return { page, errors, close: () => context.close() };
       };
 

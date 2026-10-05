@@ -8,6 +8,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- The app brings its own typefaces instead of counting on the ones a device has: Pretendard for
+  the interface and the chat, and JetBrains Mono for code in the chat and the interface, so a
+  phone or a PC without them draws Latin text and Korean in the same letters as one with them.
+  Japanese and Chinese are not the same everywhere: Pretendard has kana and only a few hundred
+  ideographs, so kanji and Chinese text are still drawn in the device's own font, and a Japanese
+  line mixes the two. Nothing is fetched from the internet: the files come from your own PC
+  with the app, a page downloads only the pieces of
+  Pretendard its text needs (about 90 KB for a chat in English, about 200 KB more once Korean
+  is on the page), and each piece is kept for offline use after that. The terminal is untouched: its
+  font, its **Terminal font** setting and its grid are as before, and a **Chat font** you chose
+  still comes first. In the chat, answers, your own messages and what the agent says while it
+  works are a step larger (15px at the default **Chat font size**, which still scales
+  everything) on a looser line; bold is a semibold; inline code sits a little under its line and
+  code blocks are a step larger with more room; the message box is typed at the same size with
+  a mouse and stays 16px on touch; the empty chat's question is a larger line. Tool rows, times
+  and other small labels keep their size.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
 - In the chat's message box the agent's mark, the model, the reasoning level and the context
   ring sit together in one quiet pill, and the model is shown by its name where the id is a
   regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
@@ -17,8 +34,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   shown exactly as received, in the code font. Behind a name the id
   as received is in the name's tooltip and is read by a screen reader; on a touch screen it is
   not shown yet. A pane that records no reasoning level shows the name alone. The pill only shows the model, it is not a button yet. Where the
-  pill does not fit beside Queue (on a phone with a background-task chip, every named model
-  with a level) it steps aside whole while Queue is showing, and the context ring stays.
+  pill does not fit beside Queue (seen on a 390px phone) it steps aside whole while Queue is
+  showing, and the context ring stays.
   ([#467](https://github.com/devswha/herdr-web-ui/pull/467))
 - In the chat, the line with the model sits inside the message box, as its last row, instead of
   above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
@@ -78,10 +95,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   block reads "Needs you" with a still red dot in place of "Working…". Answering works as
   before: a press on an option, a typed number followed by Confirm, or your own reply; Enter in
   an empty box answers nothing. After a press with a mouse or keyboard, focus goes to the
-  message box. The card keeps following Settings → Chat font size and Chat font, and on a phone
+  message box, on a tablet or a touch-screen laptop too; a tap never moves it there. The card keeps following Settings → Chat font size and Chat font, and on a phone
   with its keyboard up a tap on the card's text, or a drag down it, puts the keyboard away as
   on the conversation.
-  ([#468](https://github.com/devswha/herdr-web-ui/pull/468))
+  ([#468](https://github.com/devswha/herdr-web-ui/pull/468),
+  [#475](https://github.com/devswha/herdr-web-ui/pull/475))
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
@@ -142,25 +160,25 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
-- An answer tapped in the chat is checked against the prompt it was made for, as far as the app
-  can tell from the screen and from the agent's state. Two things could send it elsewhere. A
-  menu answered in the terminal while the chat's answer was on its way could be replaced by
-  another menu, which then took the rest of the keys: the Enter after the cursor moves, or the
-  text and Enter of a typed answer. An answer that sends more than one key now looks at the
-  screen again before each key that does more than move the cursor, and stops with "the prompt
-  changed" when the menu, its options or the cursor's row are no longer the card's, or when a
-  typed answer does not show on the screen before its Enter. When the screen cannot be read in
-  time it says so and keeps the card, with what was written in it. And a question asked twice in a row
-  with the same text was one card: a typed pick waiting for Confirm, or the card still open on
-  another device, could answer the second asking. A second asking is now its own card where the
-  app can detect that the first one ended: it was answered from the app, the agent went back to
-  work, the prompt left the screen, or (the card for Codex's collapsed queue, OmO's forms) the
-  agent asked it under another call. Where it cannot, the two still look like one prompt: a prompt answered
-  in a terminal outside the app and asked again word for word before the app's next read, by an
-  agent that reports no work in between (pi's dialogs, a question open in Codex's queue). A screen the app has no reader for, in
-  the place of a row opened for typing, is not recognised as another prompt either. Remote PCs
-  get this with the next `remote-vN` runtime.
+- An answer tapped in the chat for a row the cursor is not on looks at the screen again before
+  it presses Enter (or the first key that does more than move the cursor). A menu answered in
+  the terminal while the answer was moving the cursor could be replaced by another menu, which
+  then took the Enter; the answer now stops with "the prompt changed" unless the screen still
+  shows the card's menu with the cursor on its row, having pressed only ↑ and ↓. It also stops
+  once the agent is back at work under it. And a question asked again with the same text is a
+  card of its own where the app can see that the first asking ended (it was answered from the
+  app, the agent went back to work, or the prompt left the screen), so a typed pick waiting for
+  Confirm, or the card still open on another device, no longer answers the second asking. Not
+  covered: the keys after the first one that does more than move (the text and Enter of a typed
+  answer, the later ticks of a multiple choice), and a prompt answered in a terminal and asked
+  again word for word with nothing the app can see in between. Remote PCs get this with the
+  next `remote-vN` runtime.
   ([#470](https://github.com/devswha/herdr-web-ui/pull/470))
+- The installed app opens without a network right after an update that renewed its offline
+  store, as this one does. The old store used to be emptied the moment the new version took
+  over, so until the app had been opened online once more, a reload with no connection showed
+  the browser's error page. The old store is now kept until the new one holds the app.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
 - Ctrl+Enter typed into the live terminal reaches Claude Code as Ctrl+Enter, so a message typed
   while it works is sent at once instead of waiting in its queue. The terminal sent plain Enter; it
   now sends the key the way the pane's program asked for (modifyOtherKeys), also to a device that

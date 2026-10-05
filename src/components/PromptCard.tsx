@@ -6,7 +6,7 @@ import "./PromptCard.css";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
-import { focusFollowsAnswer, pressedByTouch, type TypedAnswer } from "../lib/promptAnswer.ts";
+import { focusFollowsAnswer, pressOrigin, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { useT } from "../lib/i18n.ts";
 
@@ -20,7 +20,7 @@ export interface PromptCardProps {
   paneId: string;
   prompt: InteractivePrompt;
   onPromptChanged(): void;
-  /** the answer went out; `toMessageBox`: the keyboard's focus was in the card, which is about to go, nothing else has taken it since, and the press was not a touch */
+  /** the answer went out; `toMessageBox`: the keyboard's focus was in the card, which is about to go, nothing else has taken it since, and the press was a key or a mouse, not a tap */
   onAnswered(toMessageBox: boolean): void;
   /** an option picked by a typed message, sent only on Confirm */
   typedAnswer?: TypedAnswer | null;
@@ -36,6 +36,10 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLElement | null>(null);
   const confirmRef = useRef<HTMLDivElement | null>(null);
+  // the control Enter or Space last went down on: the click that follows on it is that key's
+  const keyed = useRef<EventTarget | null>(null);
+  // and the button a pointer last went down on, with what it was: a click can misname its pointer
+  const down = useRef<{ target: EventTarget; pointerType: string } | null>(null);
   // false once the card is gone: its prompt was replaced, or its pane left
   const shown = useRef(false);
   useEffect(() => {
@@ -62,10 +66,15 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
    * Resolves to whether this card is still the one shown: an answer that comes back after another
    * prompt took its place, or after its pane was left, changes nothing there.
    */
-  const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">, press?: { nativeEvent: Event }): Promise<boolean> => {
+  const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">, press?: { nativeEvent: Event; currentTarget: EventTarget }): Promise<boolean> => {
     // read now: the pressed button is disabled while the answer is on its way, and loses the focus
     const fromCard = cardRef.current?.contains(document.activeElement) === true;
-    const touch = pressedByTouch((press?.nativeEvent as PointerEvent | undefined)?.pointerType);
+    const click = press?.nativeEvent as Partial<PointerEvent> | undefined;
+    const origin = pressOrigin(press === undefined ? undefined : { pointerType: click?.pointerType, downType: down.current?.target === press.currentTarget ? down.current.pointerType : undefined, detail: click?.detail, keyed: keyed.current === press.currentTarget });
+    keyed.current = null;
+    down.current = null;
+    // the device's own pointer, asked only for a press that does not say what made it
+    const coarse = window.matchMedia?.("(pointer: coarse)").matches === true;
     setPending(true);
     setError(null);
     try {
@@ -74,7 +83,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       // and read again: the answer took a moment, and the user may have gone on to something else
       const card = cardRef.current;
       const active = document.activeElement;
-      onAnswered(focusFollowsAnswer({ fromCard, touch, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
+      onAnswered(focusFollowsAnswer({ fromCard, origin, coarse, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
     } catch (cause) {
       if (!shown.current) return false;
       if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
@@ -106,7 +115,13 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const hasChoices = prompt.options.some((_, index) => index !== prompt.custom_option_index);
 
   return (
-    <section className="prompt-card" ref={cardRef} role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
+    <section className="prompt-card" ref={cardRef} role="region" aria-label={t("Agent is asking")} aria-busy={pending}
+      onKeyDown={(event) => { down.current = null; keyed.current = event.key === "Enter" || event.key === " " ? event.target : null; }}
+      onPointerDown={(event) => {
+        keyed.current = null;
+        const button = (event.target as Element).closest("button");
+        down.current = button === null ? null : { target: button, pointerType: event.pointerType };
+      }}>
       <header className="prompt-card-header">
         {/* read, not drawn: the title is the card's one red */}
         <span className="visually-hidden">{t("input needed")}</span>

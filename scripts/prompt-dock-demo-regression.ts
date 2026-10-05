@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
+import { appFaces } from "./app-faces.ts";
 import panes from "../site/demo/fixtures/panes.json";
 
 // The prompt card's place, on the unmodified app over the demo's fixture transport: the demo's
@@ -250,6 +251,7 @@ try {
         if (prompt !== null) await setPrompt(page, prompt);
         await page.locator(".prompt-card").waitFor();
         if (prompt !== null) await page.locator(".prompt-card").getByText((prompt as { question: string }).question).waitFor();
+        await appFaces(page);
         return { page, errors, close: () => context.close(), shot: async (name) => { if (shots !== null) await page.screenshot({ path: join(shots, `${name}.png`) }); } };
       };
 
@@ -434,10 +436,10 @@ try {
           assert.deepEqual(await reach(page, ".prompt-card-custom .btn"), { hit: "self", visible: true });
           assert.deepEqual(await hitOf(page, ".prompt-card-custom .btn", "bottom"), { hit: "self", visible: true });
           await page.locator(".prompt-card-custom .input").fill("sqlite, one file");
-          await page.locator(".prompt-card-custom").getByRole("button", { name: "Send" }).click();
+          await page.locator(".prompt-card-custom").getByRole("button", { name: "Send" }).tap();
           await page.locator(".prompt-card").getByText(FORM.question).waitFor({ state: "detached" });
           assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-form", custom_text: "sqlite, one file" }]);
-          // a touch screen: the answer does not raise the keyboard by moving focus to the message box
+          // a tap: the answer does not raise the keyboard by moving focus to the message box
           assert.notEqual(await page.evaluate(() => document.activeElement?.className.split(" ")[0]), "composer-text");
           assert.deepEqual(errors, []);
         } finally { await close(); }
@@ -764,6 +766,87 @@ try {
           assert.deepEqual(errors, []);
         } finally { await close(); }
         console.log("PASS on a touch-screen laptop a tapped answer leaves the message box alone; a mouse press or a key hands the focus on");
+      }
+
+      {
+        // A tablet with a keyboard or a mouse, or a phone with a keyboard: the pointer is coarse,
+        // and a key or a mouse press still hands the focus on. The card goes with the answer, so
+        // the focus would otherwise fall to the page and the keyboard user would lose their place
+        const { page, errors, close } = await open({ width: 1024, height: 768, touch: true, prompt: FORM });
+        try {
+          assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), true, "the app is told the pointer is coarse");
+          // where the focus was at the moment each card left the dock
+          await page.evaluate(() => {
+            const seen = window as unknown as { focusAtRemoval: string[] };
+            seen.focusAtRemoval = [];
+            new MutationObserver((records) => { for (const record of records) for (const node of record.removedNodes) if (node instanceof HTMLElement && node.classList.contains("prompt-card")) seen.focusAtRemoval.push(document.activeElement === null || document.activeElement === document.body ? "page" : document.activeElement.className.split(" ")[0]!); }).observe(document.querySelector(".prompt-dock")!, { childList: true });
+          });
+          const focusAtRemoval = (): Promise<string[]> => page.evaluate(() => (window as unknown as { focusAtRemoval: string[] }).focusAtRemoval);
+          const option = page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ });
+          const ask = async (): Promise<void> => { await setPrompt(page, FORM); await page.locator(".prompt-card").getByText(FORM.question).waitFor(); };
+          const gone = (): Promise<void> => page.locator(".prompt-card").getByText(FORM.question).waitFor({ state: "detached" });
+          const active = (): Promise<string | undefined> => page.evaluate(() => document.activeElement === document.body ? "page" : document.activeElement?.className.split(" ")[0]);
+
+          // Enter and Space on an option, and Enter in the card's own field
+          for (const key of ["Enter", "Space"]) {
+            await option.focus();
+            await page.keyboard.press(key);
+            await gone();
+            assert.equal(await active(), "composer-text", `${key} on an option hands the focus to the message box on a coarse pointer`);
+            await ask();
+          }
+          await page.locator(".prompt-card-custom .input").fill("sqlite, one file");
+          await page.locator(".prompt-card-custom .input").press("Enter");
+          await gone();
+          assert.equal(await active(), "composer-text", "Enter in the card's field hands the focus to the message box");
+          await ask();
+          // an answer that takes a moment: the pressed option is disabled meanwhile, and the focus still goes on
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 400; });
+          await option.focus();
+          await page.keyboard.press("Enter");
+          await page.locator(".prompt-card[aria-busy=true]").waitFor();
+          await gone();
+          assert.equal(await active(), "composer-text", "and after an answer that took a moment");
+          await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 0; });
+          await ask();
+          // a mouse on the same device
+          await option.click();
+          await gone();
+          assert.equal(await active(), "composer-text", "a mouse press hands the focus on with a coarse pointer too");
+          // (the demo's own approval, shown between two forms, leaves the dock too)
+          assert.deepEqual([...new Set(await focusAtRemoval())], ["composer-text"], "the focus of a key or a mouse press was never left on the page when its card went");
+          assert.equal((await answersOf(page)).length, 5, "each press answered once");
+
+          // a tap answers and stays out of the message box
+          await page.locator(".composer-text").evaluate((node: HTMLElement) => node.blur());
+          await ask();
+          await option.tap();
+          await gone();
+          await page.waitForTimeout(300);
+          assert.notEqual(await active(), "composer-text", "a tap does not move the focus into the message box");
+          // a click that names no pointer and had no key (a script, an assistive technology): the
+          // coarse pointer decides, and the keyboard is not raised
+          await ask();
+          await option.focus();
+          await option.evaluate((node: HTMLElement) => node.click());
+          await gone();
+          await page.waitForTimeout(300);
+          assert.notEqual(await active(), "composer-text", "a click of unknown origin stays out of the message box on a coarse pointer");
+          // a finger went down on the option and its click says "mouse", as iOS Safari has done
+          // (WebKit bug 282988): the pointerdown is believed, and the keyboard is not raised
+          await ask();
+          await option.focus();
+          await option.evaluate((node: HTMLElement) => {
+            node.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+            node.dispatchEvent(new PointerEvent("click", { bubbles: true, pointerType: "mouse", detail: 1 }));
+          });
+          await gone();
+          await page.waitForTimeout(300);
+          assert.notEqual(await active(), "composer-text", "a tap whose click is called a mouse's stays out of the message box");
+          assert.equal((await answersOf(page)).length, 8);
+          assert.deepEqual(errors, []);
+        } finally { await close(); }
+        console.log("PASS with a coarse pointer a key (Enter, Space, the card's field) or a mouse press hands the focus to the message box and never leaves it on the page; a tap, an unnamed click or a tap misnamed a mouse does not");
       }
 
       for (const language of ["ko", "ja", "zh"]) {

@@ -36,6 +36,7 @@ import {
   terminalOnlyCommand,
 } from "../lib/compose.ts";
 import { modelLabel } from "../lib/modelName.ts";
+import { useFacesArrived } from "../lib/fontFaces.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -310,6 +311,12 @@ export function Composer({
     };
   }, []);
 
+  // The app's faces swap in after the first paint (fonts/fonts.css, font-display: swap) and are
+  // not as wide as the fallback they replace. No box changes size for that, so nothing else
+  // would measure again: each face's arrival (lib/fontFaces.ts) renders the composer once more, which sizes the message
+  // box (below) and fits the model label (fitStatus) with the face that is drawn.
+  const facesLoaded = useFacesArrived();
+
   useLayoutEffect(() => {
     const element = textareaRef.current;
     if (!element) return;
@@ -323,7 +330,7 @@ export function Composer({
     element.style.height = `${element.scrollHeight}px`;
     const height = Math.round(element.getBoundingClientRect().height);
     setAutoHeight((current) => current === height ? current : height);
-  }, [text, manualHeight, placeholder, boxWidth]);
+  }, [text, manualHeight, placeholder, boxWidth, facesLoaded]);
 
   useEffect(() => {
     const element = textareaRef.current;
