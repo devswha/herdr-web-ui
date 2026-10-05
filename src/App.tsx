@@ -197,6 +197,16 @@ export function App() {
   // the header's More menu: its button, and whether it opened on a phone-width screen
   const [more, setMore] = useState<{ anchor: HTMLElement; phone: boolean } | null>(null);
   const closeMore = useCallback(() => setMore(null), []);
+  const moreOpen = more !== null;
+  // a sheet stays up through a resize: its palette item follows the header's palette button,
+  // which the same breakpoint hides
+  useEffect(() => {
+    if (!moreOpen) return;
+    const media = window.matchMedia("(max-width: 480px)");
+    const onChange = (): void => setMore((open) => open && { ...open, phone: media.matches });
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [moreOpen]);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
   const { viewing, openFile, closeFile } = useFileViewer();
