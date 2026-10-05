@@ -395,10 +395,14 @@ try {
     const pane = await page.locator(".terminal-stack.is-chat").boundingBox();
     const card = await page.locator(".composer-surface").boundingBox();
     assert.ok(pane && card);
-    const status = await page.locator(".composer-surface > .composer-status").boundingBox();
-    assert.ok(status, ".composer-status");
-    // the row spans the card's inner width: inside its hairline border, a fraction of a px either way
-    assert.ok(Math.abs(status.x - card.x) <= 2.5 && Math.abs(status.width - card.width) <= 4, `.composer-status spans the box: ${JSON.stringify({ status, card })}`);
+    const [text, left, status, right] = await Promise.all([".composer-text", ".composer-controls-left", ".composer-status", ".composer-controls-right"]
+      .map((selector) => page.locator(`.composer-surface > ${selector}`).boundingBox()));
+    assert.ok(text && left && status && right, "the message box and the three cells of the controls row");
+    // each row spans the card's inner width: inside its hairline border, a fraction of a px either way
+    assert.ok(Math.abs(text.x - card.x) <= 2.5 && Math.abs(text.width - card.width) <= 4, `.composer-text spans the box: ${JSON.stringify({ text, card })}`);
+    // the status content is the middle cell of the last row: add on its left, the round button on its right, no gap between the cells
+    assert.ok(Math.abs(left.x - card.x) <= 2.5 && Math.abs(status.x - (left.x + left.width)) <= 1 && Math.abs(right.x - (status.x + status.width)) <= 1
+      && Math.abs(right.x + right.width - left.x - card.width) <= 4, `the controls row spans the box: ${JSON.stringify({ left, status, right, card })}`);
     for (const selector of [".composer-queue", ".chat-transcript"]) {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box, selector);
