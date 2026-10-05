@@ -622,8 +622,12 @@ One set for both themes: the card is island black wherever it shows.
   name for certain, from the vendor's own regular naming and matched whole:
   `claude-<family>-<major>[-<minor>]`, also behind `anthropic/`, is `<Family> <major>.<minor>`
   (`Opus 5.5`, `Sonnet 5`); `gpt-<version>` is `GPT-<version>` and `gpt-<version>-sol` is `GPT-<version>-Sol`, as
-  Codex's own status line writes it; `glm-<version>` is `GLM-<version>`. A name is never guessed. Any other id — a dated snapshot, another tier or
-  product suffix, another provider's prefix, another vendor — is drawn exactly as received in
+  Codex's own status line writes it; `glm-<version>` is `GLM-<version>`. A name is never guessed. The rule is the
+  vendor's id syntax, not a list of released versions, so a new model needs no change and a
+  well-formed id of a version that does not exist is named too. Any other id — a dated snapshot, another tier or
+  product suffix, another provider's prefix, another vendor, a spelling that is not the vendor's
+  canonical one (a leading zero as in `claude-sonnet-5-05`, uppercase, a stray separator or
+  space) — is drawn exactly as received in
   `--font-mono` at regular weight (`.composer-model.is-id`), so it reads as an identifier and no
   suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
@@ -634,8 +638,9 @@ One set for both themes: the card is island black wherever it shows.
   fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
   the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word. The
   pill goes with its label: the ring then stands alone, with no empty pill around it. On a
-  `390px` phone the pill never fits beside the task chip and Queue together, so it is out for as
-  long as Queue shows there.
+  `390px` phone, beside the task chip, the ring and Queue, that is the case for every named model
+  with a level, so there the pill is out for as long as Queue shows; a label short enough to
+  fit (a short id with no level) stays drawn.
   Without Queue the level steps out whole first, never drawn in part; a name still too long is
   ellipsized inside the pill as the last resort, then the opened context text. The context ring
   is never cut. Over a sentence that took a line of its own the pill is `--chip-h` tall, so the

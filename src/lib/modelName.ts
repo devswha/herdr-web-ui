@@ -14,6 +14,16 @@
  *   in server/prompt.test.ts). No other tier word has a source here, so none is named.
  * - Z.ai: `glm-<version>` is "GLM-<version>" (glm-5.3 is GLM-5.3).
  *
+ * The patterns follow the vendor's id SYNTAX, not a list of released versions. That was chosen
+ * so a new model needs no change here, and its cost is accepted: an id of the right shape for a
+ * version that does not exist (claude-opus-9-9, gpt-10) is named too.
+ *
+ * In return the syntax is read strictly: an id that is not in the vendor's canonical form is not
+ * named. A version part is one or two digits with no leading zero (claude-sonnet-5-05, gpt-05.6
+ * and glm-5.03 stay ids), a major is never 0, and a minor of 0 is canonical only where the
+ * vendor writes one: Anthropic does (claude-opus-4-0), OpenAI and Z.ai write the bare major
+ * (gpt-5, not gpt-5.0). The id is lowercase, with nothing before, between or after its parts.
+ *
  * Everything else is drawn as the identifier it is: a dated snapshot (claude-haiku-4-5-20251001),
  * a tier or product word this file cannot name for certain (gpt-5.6-sol-max, gpt-4.1-mini), an
  * older id order (claude-3-5-sonnet), another provider's route to a model (bedrock/…), and every
@@ -27,9 +37,11 @@ export interface ModelLabel {
   named: boolean;
 }
 
-const CLAUDE = /^(?:anthropic\/)?claude-(opus|sonnet|haiku|fable|mythos)-(\d{1,2})(?:-(\d{1,2}))?$/u;
-const GPT = /^gpt-(\d{1,2}(?:\.\d{1,2})?)(-sol)?$/u;
-const GLM = /^glm-(\d{1,2}(?:\.\d{1,2})?)$/u;
+// a version part in canonical form: no leading zero, two digits at most
+const NUMBER = "[1-9]\\d?";
+const CLAUDE = new RegExp(`^(?:anthropic/)?claude-(opus|sonnet|haiku|fable|mythos)-(${NUMBER})(?:-(0|${NUMBER}))?$`, "u");
+const GPT = new RegExp(`^gpt-(${NUMBER}(?:\\.${NUMBER})?)(-sol)?$`, "u");
+const GLM = new RegExp(`^glm-(${NUMBER}(?:\\.${NUMBER})?)$`, "u");
 
 export function modelLabel(id: string): ModelLabel {
   const claude = CLAUDE.exec(id);

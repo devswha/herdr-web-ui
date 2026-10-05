@@ -272,7 +272,22 @@ try {
         await page.getByRole("textbox", { name: "Message", exact: true }).fill("");
         await drawn(page, "full", `${model} on a phone, the draft cleared`);
       });
-      console.log("PASS on a phone the pill is whole beside Stop and steps out, ring kept, while Queue shows");
+      // the pill steps out where it does not fit, not on a phone as such: a short id with no
+      // level is drawn whole there beside the task chip, the ring and Queue
+      await withCard(browser, 390, { model: "o3", effort: null }, async (page) => {
+        await draft(page, true);
+        const row = await drawn(page, "full", "a short id with no level on a phone, a draft");
+        assert.ok(row.chip && row.ring && row.queue, `the task chip, the ring and Queue are in the row: ${JSON.stringify(row)}`);
+        assert.deepEqual([row.name, row.named], ["o3", false]);
+        assert.ok((row.effort?.width ?? 0) <= 1.5, `no level is drawn: ${JSON.stringify(row)}`);
+      });
+      // the shortest label a named model with a level can have still has no room there
+      await withCard(browser, 390, { model: "gpt-6", effort: "low" }, async (page) => {
+        await draft(page, true);
+        const row = await drawn(page, "out", "the shortest name with a level on a phone, a draft");
+        assert.ok(row.chip && row.ring && row.queue, JSON.stringify(row));
+      });
+      console.log("PASS on a phone the pill is whole beside Stop and steps out, ring kept, while Queue shows; a short id with no level stays drawn beside Queue");
 
       // without Queue the level alone steps out, and no sliver of it is left beside the number
       await withCard(browser, 390, { model: "gpt-5.6", status: "idle" }, async (page) => {
