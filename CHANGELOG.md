@@ -21,6 +21,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   code blocks are a step larger with more room; the message box is typed at the same size with
   a mouse and stays 16px on touch; the empty chat's question is a larger line. Tool rows, times
   and other small labels keep their size.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
 - In the chat's message box the agent's mark, the model, the reasoning level and the context
   ring sit together in one quiet pill, and the model is shown by its name where the id is a
   regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
