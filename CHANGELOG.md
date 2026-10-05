@@ -23,8 +23,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   beside it. A message is still edited in place and still goes out only when you press
   **Send now**. The rows are as wide as the message box at every window width, and the list
   scrolls after two and a half rows. When the agent is ready, the clock and **Send now** take
-  the accent colour. While an approval card is open, or on a phone with its keyboard up, the rows
-  fold into that one line; tap it to open them. On a phone, **Discard** is an X, and the message
+  the accent colour. While an approval card is open, or in a phone window 600px tall or less (an
+  Android phone with its keyboard up), the rows fold into that one line; tap it to open them. On a phone, **Discard** is an X, and the message
   box keeps the same side margin as the conversation.
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited

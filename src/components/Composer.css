@@ -742,7 +742,15 @@
   display: none;
 }
 
+/* focus lands here when the caption stops being a button; the list is not a control */
+.composer-queue-list:focus {
+  outline: none;
+}
+
+/* positioned: the row's hidden label (and a phone's hidden "Discard") are absolute, and must
+   scroll with the list instead of lying under the pane */
 .composer-queue-item {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

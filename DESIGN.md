@@ -575,20 +575,23 @@ One set for both themes: the card is island black wherever it shows.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
   card's width and gutter at every window width, no tint and no box. One `--border` hairline
   above the group, then one caption line in `--text-dim` at `--fs-xs` (a clock and the sentence
-  `Held until the agent is ready`, plus `· 2 messages` from two), then a row per message: its
-  text, still a box to edit (transparent until focused, up to four lines), `Send now` and
-  `Discard`. Hairlines between rows run the column's width; every line of text starts `--space-3`
+  `Held until the agent is ready`, plus `· 2 messages` from two; a translation too long for a
+  phone's column takes a second line, it is never cut), then a row per message: its text, still
+  a box to edit (transparent until focused, up to four lines, two at `480px` and below),
+  `Send now` and `Discard`. Hairlines between rows run the column's width; every line of text starts `--space-3`
   in. The list, not the group, has the height limit (two and a half rows, then it scrolls), and it
   gives way before the caption does. "Queued messages (n)" and each row's "Message n" stay for
   assistive tech only (`.visually-hidden`).
 - When the agent is ready the sentence becomes `Held message — review and send`, in `--text`, and
   the `--accent` goes on the clock and on the outline of `Send now`; the hairline stays `--border`.
   Nothing is sent without that button.
-- While a prompt card is open, or on a short phone (`480px` wide and `600px` tall or less: its
-  keyboard is up), the rows fold into the caption, which becomes a disclosure button
-  (`aria-expanded`, a chevron, `--touch-target` tall on touch) and counts a single message too.
-  The rows stay mounted and one tap opens them. A list that is ready, a row being edited and a
-  row with an error are never folded away.
+- While a prompt card is open, or in a short phone window (`480px` wide and `600px` tall or
+  less, as a media query: Android's keyboard shrinks the window to that, iOS Safari's does not),
+  the rows fold into the caption, which becomes a disclosure button (`aria-expanded`, a chevron,
+  `--touch-target` tall on touch) and counts a single message too. The rows stay mounted and one
+  tap opens them. A list that is ready, a row being edited and a row with an error are never
+  folded away; while a row's error holds the rows open the caption is plain text, not a button.
+  When the button goes, focus on it moves to the list.
 - At `480px` and below a held row is its text, `Send now` and a `--touch-target` X whose name is
   still `Discard`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;

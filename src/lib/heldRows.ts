@@ -1,6 +1,10 @@
 /** How the held-message list above the composer shows: its rows, or only its caption. */
 
-/** A phone with too little height for the rows: its keyboard is up, or it lies on its side. */
+/**
+ * A phone window with too little height for the rows. This is the layout viewport: Android
+ * Chrome shrinks it for the keyboard, iOS Safari does not (see lib/viewport.ts), so an iPhone
+ * with its keyboard up is not a short phone here.
+ */
 export const SHORT_PHONE_QUERY = "(max-width: 480px) and (max-height: 600px)";
 
 export interface HeldRowsState {
@@ -18,6 +22,31 @@ export interface HeldRowsState {
  */
 export function heldRowsFold({ promptOpen, shortPhone, ready }: HeldRowsState): boolean {
   return !ready && (promptOpen || shortPhone);
+}
+
+/**
+ * Whether a row shows a send error right now. The error outlives its message (it is cleared by
+ * the next send only), so one whose message was discarded, or belongs to another pane, is no row's.
+ */
+export function heldRowError(error: { owner: string; id: string } | null, owner: string | null, ids: readonly string[]): boolean {
+  return error !== null && error.owner === owner && ids.includes(error.id);
+}
+
+/**
+ * Whether a fold that starts now starts with its rows open: only when the user is in one of this
+ * pane's rows at that moment (a phone's keyboard came up for the message being edited). Another
+ * pane's rows, or a list that was just emptied, say nothing about this one.
+ */
+export function heldOpenAtFold({ fold, sameOwner, focusInRows }: { fold: boolean; sameOwner: boolean; focusInRows: boolean }): boolean {
+  return fold && sameOwner && focusInRows;
+}
+
+/**
+ * Whether the caption is the disclosure button. While a row's error holds the rows open the
+ * button could not close them, so the caption is plain text until the error is gone.
+ */
+export function heldToggleShown(fold: boolean, rowError: boolean): boolean {
+  return fold && !rowError;
 }
 
 /**
