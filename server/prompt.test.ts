@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1725,12 +1725,19 @@ ${MODEL_HINT}
 // The answer route against a herdr that only holds a screen: what the pane shows is the test's to
 // change, between two reads or under an answer's own keys, and every key the route sends is kept.
 describe("an answer and the menu it was made for", () => {
-  interface Pane { agent: string; status: string; screen: string; sent: string[]; onSent?: (sent: string) => void }
+  interface Pane {
+    agent: string; status: string; screen: string; sent: string[]; onSent?: (sent: string) => void;
+    /** the pane's folder and its Codex rollout, for a prompt named by the agent's own call */
+    cwd?: string; rollout?: string;
+    /** how long herdr takes over each screen read from now on */
+    readDelay?: number;
+    root: string;
+  }
 
   async function withPane(agent: string, status: string, screen: string, run: (pane: Pane) => Promise<void>): Promise<void> {
     const root = mkdtempSync(join(tmpdir(), "herdr-prompt-answer-"));
     const path = join(root, "herdr.sock");
-    const pane: Pane = { agent, status, screen, sent: [] };
+    const pane: Pane = { agent, status, screen, sent: [], root };
     const sockets = new Set<Socket>();
     const server = createServer((socket) => {
       sockets.add(socket);
@@ -1742,8 +1749,9 @@ describe("an answer and the menu it was made for", () => {
         if (!input.includes("\n")) return;
         const request = JSON.parse(input.split("\n")[0]!) as { id: string; method: string; params: { keys?: string[]; text?: string } };
         const answer = (result: unknown) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
-        if (request.method === "session.snapshot") return answer({ snapshot: { panes: [{ pane_id: "p_1", agent: pane.agent, agent_status: pane.status }], layouts: [] } });
-        if (request.method === "pane.read") return answer({ read: { text: pane.screen } });
+        if (request.method === "session.snapshot") return answer({ snapshot: { panes: [{ pane_id: "p_1", agent: pane.agent, agent_status: pane.status, cwd: pane.cwd }], layouts: [] } });
+        if (request.method === "pane.read") return void setTimeout(() => answer({ read: { text: pane.screen } }), pane.readDelay ?? 0);
+        if (request.method === "agent.get") return answer({ agent: pane.rollout ? { agent_session: { kind: "path", value: pane.rollout } } : {} });
         if (request.method !== "pane.send_keys" && request.method !== "pane.send_text") throw new Error(`unexpected fixture RPC: ${request.method}`);
         for (const sent of request.params.keys ?? [`text:${request.params.text}`]) {
           pane.sent.push(sent);
@@ -1764,14 +1772,14 @@ describe("an answer and the menu it was made for", () => {
     }
   }
 
-  async function card(): Promise<InteractivePrompt | null> {
+  async function card(codexHome?: string): Promise<InteractivePrompt | null> {
     const url = new URL("http://127.0.0.1/api/pane/prompt?pane_id=p_1");
-    return ((await (await handlePromptRequest(new Request(url), url))!.json()) as { prompt: InteractivePrompt | null }).prompt;
+    return ((await (await handlePromptRequest(new Request(url), url, { codexHome }))!.json()) as { prompt: InteractivePrompt | null }).prompt;
   }
 
-  async function answer(promptId: string, choice: { option_index?: number; option_indices?: number[]; custom_text?: string }): Promise<{ status: number; code?: string }> {
+  async function answer(promptId: string, choice: { option_index?: number; option_indices?: number[]; custom_text?: string }, more: { signal?: AbortSignal; codexHome?: string } = {}): Promise<{ status: number; code?: string }> {
     const url = new URL("http://127.0.0.1/api/pane/prompt/answer");
-    const response = (await handlePromptRequest(new Request(url, { method: "POST", body: JSON.stringify({ pane_id: "p_1", prompt_id: promptId, ...choice }) }), url))!;
+    const response = (await handlePromptRequest(new Request(url, { method: "POST", signal: more.signal, body: JSON.stringify({ pane_id: "p_1", prompt_id: promptId, ...choice }) }), url, { codexHome: more.codexHome }))!;
     const body = await response.json() as { error?: { code: string } };
     return { status: response.status, code: body.error?.code };
   }
@@ -1783,8 +1791,8 @@ describe("an answer and the menu it was made for", () => {
   const DELETE = ["Keep the branch", "Delete the branch", "Quit"];
 
   /** the pane as a menu would run it: ↓ and ↑ move the cursor, and the screen shows it */
-  function moving(pane: Pane, rows: string[], draw: (at: number) => string = (at) => menu(rows, at)): void {
-    let at = 0;
+  function moving(pane: Pane, rows: string[], draw: (at: number) => string = (at) => menu(rows, at), start = 0): void {
+    let at = start;
     pane.onSent = (sent) => {
       if (sent === "down") at = Math.min(rows.length - 1, at + 1);
       if (sent === "up") at = Math.max(0, at - 1);
@@ -2106,6 +2114,163 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     expect(asked("toolu_1").question).toBe("Which store?");
     expect(asked("toolu_1").id).toBe(asked("toolu_1").id);
     expect(asked("toolu_2").id).not.toBe(asked("toolu_1").id);
+  });
+
+  test("sends nothing for a request given up before its turn, even to the row the cursor is on", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      const prompt = (await card())!;
+      const abort = new AbortController();
+      abort.abort();
+      expect((await answer(prompt.id, { option_index: 0 }, { signal: abort.signal })).status).toBe(409);
+      expect(pane.sent).toEqual([]);
+    });
+    // and a fallback card's single key
+    await withPane("gjc", "blocked", "Which environment?\n\n  1. Staging\n  2. Production\n\nEnter a number, or Esc to cancel\n", async (pane) => {
+      const prompt = (await card())!;
+      expect(prompt.fallback).toBe(true);
+      const abort = new AbortController();
+      abort.abort();
+      expect((await answer(prompt.id, { option_index: 0 }, { signal: abort.signal })).status).toBe(409);
+      expect(pane.sent).toEqual([]);
+    });
+  });
+
+  // An ordinary answer that needs a move, on a screen drawn again the way each agent draws it
+  // with the cursor on another row: every reader must still know its own menu there.
+  describe("moves to a row that is not the cursor's and answers it", () => {
+    const rule = "─".repeat(120);
+    const omoFooter = `${rule}\n/private/tmp/omo-ask${" ".repeat(74)}[----------] 42K/1M (4.2%)\n${" ".repeat(86)}claude-opus-5-5 · high · OmO 5.1.7\n`;
+    const mark = (at: number, row: number, on = "❯") => at === row ? on : " ";
+    const cases: { name: string; agent: string; status?: string; rows: number; start?: number; draw: (at: number, ticked: number[]) => string; choice: Parameters<typeof answer>[1]; sent: string[] }[] = [
+      {
+        name: "omp's permission: Deny", agent: "omp", rows: 2, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `\n╭─ Permission ────────────╮\n│ Allow tool: bash        │\n│ curl -I example.com     │\n│${mark(at, 0)} Approve               │\n│${mark(at, 1)} Deny                  │\n╰─────────────────────────╯\n`,
+      },
+      {
+        name: "omp's question", agent: "omp", rows: 3, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => OMP(TARGETS, at),
+      },
+      {
+        name: "omp's multiple choice", agent: "omp", rows: 4, choice: { option_indices: [0, 2] }, sent: ["space", "down", "down", "space", "tab", "enter"],
+        draw: (at, ticked) => `\n╭─ Ask ───────────────────╮\n│ Which checks?           │\n├─────────────────────────┤\n${["Lint", "Tests", "Build", "Other (type your own)"].map((row, index) => `│${mark(at, index)} ${ticked.includes(index) ? "☑" : "☐"} ${row}`).join("\n")}\n├─────────────────────────┤\n│ Space/Enter toggle · n note · ↑/↓ move · Tab/←/→ · Esc cancel\n╰─────────────────────────╯\n`,
+      },
+      {
+        name: "Codex's approval", agent: "codex", rows: 3, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `\nWould you like to run the following command?\necho first\n${mark(at, 0, "›")} 1. Yes, proceed\n${mark(at, 1, "›")} 2. Yes, and don't ask again for this command\n${mark(at, 2, "›")} 3. No, cancel\nPress enter to confirm or esc to cancel\n`,
+      },
+      {
+        name: "Codex's question", agent: "codex", rows: 3, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `\nWhich backend?\n\n${mark(at, 0, "›")} 1. CUDA\n${mark(at, 1, "›")} 2. CPU\n${mark(at, 2, "›")} 3. None of the above  Add details in notes (tab).\n\ntab to add notes | enter to submit answer | esc to interrupt\n`,
+      },
+      {
+        name: "Claude's approval, to its last row", agent: "claude", rows: 3, choice: { option_index: 2 }, sent: ["down", "down", "enter"],
+        draw: (at) => `\nBash command\n\n  curl -I https://example.com\n  Fetch HTTP headers.\n\nThis command requires approval\n\nDo you want to proceed?\n${mark(at, 0)} 1. Yes\n${mark(at, 1)} 2. Yes, and don’t ask again for: curl *\n${mark(at, 2)} 3. No\n\nEsc to cancel · Tab to amend · ctrl+e to explain\n`,
+      },
+      {
+        name: "Claude's plan", agent: "claude", rows: 4, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `\nReady to code?\n\nHere is Claude's plan:\nAdd a heading to the README file.\n\nClaude has written up a plan and is ready to execute. Would you like to proceed?\n\n${mark(at, 0)} 1. Yes, auto-accept edits\n${mark(at, 1)} 2. Yes, manually approve edits\n${mark(at, 2)} 3. No, refine with Ultraplan on Claude Code on the web\n${mark(at, 3)} 4. Tell Claude what to change\n     shift+tab to approve with this feedback\n`,
+      },
+      {
+        name: "Claude's review of its answers: Cancel", agent: "claude", rows: 2, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `\n←  ☒ Route  ☒ Author  ✔ Submit  →\nReview your answers\n ● Which way should the PR go?\n   → Log in as owner\n ● Who should author the commits?\n   → Repo owner\nReady to submit your answers?\n${mark(at, 0)} 1. Submit answers\n${mark(at, 1)} 2. Cancel\n`,
+      },
+      {
+        name: "Claude's folder-trust check", agent: "claude", rows: 2, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `\n Accessing workspace:\n\n /home/user/projects/new-app\n\n Quick safety check: Is this a project you created or one you trust?\n\n ${mark(at, 0)} No, exit\n ${mark(at, 1)} Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n`,
+      },
+      {
+        name: "pi's confirmation: No", agent: "pi", status: "idle", rows: 2, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `────────────────────────────────────────\n\n Clear session?\n All messages will be lost.\n\n${[" Yes", " No"].map((row, index) => `${at === index ? " →" : "  "}${row}`).join("\n")}\n ↑↓ navigate  enter select  escape/ctrl+c cancel\n────────────────────────────────────────${FOOTER}`,
+      },
+      {
+        name: "pi's model list", agent: "pi", status: "idle", rows: 2, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `────────────────────────────────────────\n\nOnly showing models from configured providers. Use /login to add providers.\n>\n\n${at === 0 ? "→" : " "} ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default\n${at === 1 ? "→" : " "}   vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]\n Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel\n────────────────────────────────────────${FOOTER}`,
+      },
+      {
+        name: "omo's review, from its comment up to an answer", agent: "pi", rows: 3, start: 2, choice: { option_index: 2 }, sent: ["up", "enter"],
+        draw: (at) => `\n [표시 위치] [월 한도] wait for answer\n\n${rule}\n\n Ask user · 30m\n   표시 위치 ✓    월 한도 ✓  → Submit\n Review your answers\n ${at === 0 ? "→" : " "} 표시 위치: 설정 > 음성 입력 (추천)\n ${at === 1 ? "→" : " "} 월 한도: 월 $5 한도\n\n Comment (optional; unanswered questions are reported)\n>\n Submit (2/2 answered)\n ${at === 2 ? "enter submit  ↑ review answers  shift+tab back  tab next question  esc back" : "enter edit answer  ↑↓ move  tab next question  esc back"}\n${omoFooter}`,
+      },
+    ];
+    for (const { name, agent, status = "blocked", rows, start = 0, draw, choice, sent } of cases) {
+      test(name, async () => {
+        await withPane(agent, status, draw(start, []), async (pane) => {
+          let at = start;
+          const ticked: number[] = [];
+          pane.onSent = (key) => {
+            if (key === "down") at = Math.min(rows - 1, at + 1);
+            if (key === "up") at = Math.max(0, at - 1);
+            if (key === "space") ticked.push(at);
+            pane.screen = draw(at, ticked);
+          };
+          const prompt = (await card())!;
+          expect(prompt).not.toBeNull();
+          expect(await answer(prompt.id, choice)).toEqual({ status: 200, code: undefined });
+          expect(pane.sent).toEqual(sent);
+        });
+      });
+    }
+  });
+
+  test("ticks no row of a menu with the same question and other options", async () => {
+    await withPane("claude", "blocked", CHECKS(KINDS, 0), async (pane) => {
+      let at = 0;
+      // after the first tick the question reads the same and the cursor is where it was, but
+      // the rows are another menu's
+      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = CHECKS(["Wipe cache", "Delete backups", "Type something."], at); };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_indices: [0, 1] })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["enter", "down"]);
+    });
+  });
+
+  test("a screen read that comes back after the deadline authorises no key", async () => {
+    await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+      moving(pane, RESUME);
+      const prompt = (await card())!;
+      const moved = pane.onSent!;
+      pane.onSent = (sent) => { moved(sent); pane.readDelay = 900; };
+      const started = Date.now();
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+      // cut off at the deadline, not waited out
+      expect(Date.now() - started).toBeLessThan(890);
+    });
+  }, 4_000);
+
+  test("a question in Codex's queue is the call's that asked it, open or collapsed", async () => {
+    const collapsed = "\n• WAITING\n• Queued follow-up inputs\n  ? 1 question · 8s\n    alt+↑ to answer\n› Ask Codex to do anything\n  GPT-6-Sol xhigh · ~/lab · Context 97% left\n";
+    const open = "\n• Queued follow-up inputs\n  Which split?\n  › 1. train\n    2. test\n    3. Other\n  enter submit   ctrl+] skip   alt+↓ main prompt\n";
+    const item = (payload: unknown) => `${JSON.stringify({ type: "response_item", payload })}\n`;
+    const ask = (call: string) => item({ type: "function_call", name: "request_user_input_async", call_id: call, arguments: JSON.stringify({ questions: [{ title: "Which split?", options: ["train", "test"] }] }) });
+    const reply = (call: string) => item({ type: "message", role: "user", content: [{ type: "input_text", text: `<send_user_message_question_reply>\n${JSON.stringify([{ answer: "train", question: "Which split?", questionItemId: JSON.stringify(["request_user_input_async", call, 0]) }])}\n</send_user_message_question_reply>` }] });
+    await withPane("codex", "working", open, async (pane) => {
+      const home = join(pane.root, "codex");
+      mkdirSync(join(home, "sessions"), { recursive: true });
+      pane.rollout = join(home, "sessions", "rollout.jsonl");
+      pane.cwd = pane.root;
+      writeFileSync(pane.rollout, `${JSON.stringify({ type: "session_meta", payload: { id: "t", source: "cli" } })}\n${ask("call_1")}`);
+      // open in the terminal: the screen is the same for either call, the rollout tells them apart
+      const first = (await card(home))!;
+      expect(first.queued).toBe("open");
+      expect((await card(home))!.id).toBe(first.id);
+      appendFileSync(pane.rollout, reply("call_1") + ask("call_2"));
+      const second = (await card(home))!;
+      expect(second.id).not.toBe(first.id);
+      expect(await answer(first.id, { option_index: 0 }, { codexHome: home })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+
+      // collapsed: the card is call_2's. By the time alt+↑ opens the queue that call is answered
+      // and call_3 asks the same thing: the question that opens is not the card's
+      pane.screen = collapsed;
+      const queued = (await card(home))!;
+      expect(queued.queued).toBe("collapsed");
+      pane.onSent = (sent) => {
+        if (sent === "alt+up") { appendFileSync(pane.rollout!, reply("call_2") + ask("call_3")); pane.screen = open; }
+        if (sent === "alt+down") pane.screen = collapsed;
+      };
+      expect(await answer(queued.id, { option_index: 0 }, { codexHome: home })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["alt+up", "alt+down"]);
+    });
   });
 
   test("a prompt keeps its id from read to read while it waits", async () => {

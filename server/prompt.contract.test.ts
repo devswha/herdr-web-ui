@@ -346,6 +346,7 @@ describe("an answer whose menu changes under it", () => {
   let ended: Menu;
   let ticked: Menu;
   let typed: Menu;
+  let denied: Menu;
 
   beforeAll(async () => {
     writeFileSync(join(root, "screens.js"), SCREENS);
@@ -354,6 +355,7 @@ describe("an answer whose menu changes under it", () => {
     ended = await screens("codex-ended", "codex", { frames: [resume], hold: true });
     ticked = await screens("claude-ticked", "claude", { frames: [checks("Which checks should run?", ["Lint", "Tests"]), checks("Which branches should be deleted?", ["main", "release"])], swap: "enter" });
     typed = await screens("omp-typed", "omp", { frames: [ask, permission], swap: "enter" });
+    denied = await screens("omp-denied", "omp", { frames: [permission] });
   }, 60_000);
 
   it("moves to the row of a Codex menu and confirms it", async () => {
@@ -361,6 +363,14 @@ describe("an answer whose menu changes under it", () => {
     expect(prompt.options.map((option) => option.label)).toEqual(["Resume the task", "Start over", "Quit"]);
     expect((await send(steady, prompt.id, { option_index: 2 })).status).toBe(200);
     expect(await keys(steady)).toEqual(["down", "down", "enter"]);
+  });
+
+  it("moves to Deny on omp's permission and presses it", async () => {
+    const prompt = await card(denied);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Approve", "Deny"]);
+    // the move draws the last row as the selected one, and the card must still be that menu's
+    expect((await send(denied, prompt.id, { option_index: 1 })).status).toBe(200);
+    expect(await keys(denied)).toEqual(["down", "enter"]);
   });
 
   it("presses no Enter into the menu that took a Codex menu's place under its move", async () => {
@@ -385,12 +395,16 @@ describe("an answer whose menu changes under it", () => {
       const response = send(ended, prompt.id, { option_index: 1 });
       // the ↓ has gone out and the answer waits for the menu to show the cursor on its row
       for (let i = 0; i < 100 && !chosen(ended).includes("down"); i++) await Bun.sleep(20);
+      const waiting = performance.now();
       expect(chosen(ended)).toEqual(["down"]);
       // answered in the terminal: herdr says the agent works again, and the server has heard it
       await herdrRpc("pane.report_agent", { pane_id: ended.pane, source: "manual", agent: "codex", state: "working" });
       await working;
       // the same menu, asked again, with its cursor on the very row the Enter was for
       await herdrRpc("pane.report_agent", { pane_id: ended.pane, source: "manual", agent: "codex", state: "blocked" });
+      // well inside the answer's own wait (750 ms) for the cursor: the refusal below is for the
+      // asking that ended, not for a menu that never showed the move
+      expect(performance.now() - waiting).toBeLessThan(600);
       writeFileSync(`${ended.log}.go`, "");
       expect((await response).status).toBe(409);
       expect(await keys(ended)).toEqual(["down"]);
