@@ -788,6 +788,11 @@ ${rows}
     const later = question + "\n⏺ 만들지 않음으로 진행합니다.\n\n────────\n❯ \n────────\n  ⏵⏵ bypass permissions on\n" + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비");
     expect(parseInteractivePrompt("claude", later)).toBeNull();
   });
+
+  test("keeps output that ends in … after the list: only an in-progress task's activity is the list's", () => {
+    const after = question + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비") + "⏺ Done…\n";
+    expect(parseInteractivePrompt("claude", after)).toBeNull();
+  });
 });
 
 describe("Claude's unnumbered menus", () => {

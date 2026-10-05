@@ -1137,11 +1137,16 @@ function parseClaudeConfirm(screen: string): ParsedPrompt | null {
  * activity (`…`) and `… +2 pending`. Cut off, the panel is the last thing on screen again.
  */
 const CLAUDE_TASKS_HEAD_RE = /^\d+ tasks \(\d+ done, (?:\d+ in progress, )?\d+ open\)$/;
-const CLAUDE_TASK_ROW_RE = /^(?:[◻◼✔]\s|…\s\+\d+ )|…$/;
+const CLAUDE_TASK_ROW_RE = /^(?:[◻◼✔]\s|…\s\+\d+ )/;
 const LABELED_RULE_RE = /^─{3,}\s.*─$/;
 function withoutClaudeTasks(shown: string[]): string[] {
   const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
-  let end = head >= 0 && shown.slice(head + 1).every((line) => CLAUDE_TASK_ROW_RE.test(line)) ? head : shown.length;
+  const rows = shown.slice(head + 1);
+  // an activity line belongs to the in-progress task right above it: other output that ends
+  // in `…` after the list is not the list's
+  const isRow = (line: string, index: number): boolean =>
+    CLAUDE_TASK_ROW_RE.test(line) || (line.endsWith("…") && (rows[index - 1] ?? "").startsWith("◼"));
+  let end = head >= 0 && rows.every(isRow) ? head : shown.length;
   // the session's rule is drawn with no task list too
   if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
   return shown.slice(0, end);
