@@ -1062,6 +1062,24 @@
   line-height: var(--lh-base);
 }
 
+/* and so do the parts of it that name a size of their own: a heading from h3 down is the size
+   of the summary's text, and code is the step below it */
+.chat-compact-text .markdown h3,
+.chat-compact-text .markdown h4,
+.chat-compact-text .markdown h5,
+.chat-compact-text .markdown h6 {
+  font-size: inherit;
+}
+
+.chat-compact-text .markdown :not(pre) > code {
+  font-size: var(--fs-xs);
+}
+
+.chat-compact-text .markdown-code pre {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-base);
+}
+
 /* a notice named by its own first line: one line, cut short, between the divider rules */
 .chat-notice-label {
   flex: 0 1 auto;
