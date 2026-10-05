@@ -8,13 +8,13 @@ const publicDir = join(import.meta.dir, "..", "public");
 function serviceWorkerFetch(): (request: { method: string; url: string; mode: string }) => boolean {
   const listeners = new Map<string, (event: unknown) => void>();
   const self = { location: { origin: "https://app.test" }, addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener) };
-  const caches = { match: async () => new Response("cached"), open: async () => ({ match: async () => undefined, put: () => {} }) };
+  const caches = { match: async () => new Response("cached"), open: async () => ({ match: async () => undefined, put: async () => undefined }) };
   const fetch = async () => new Response("network");
   new Function("self", "caches", "fetch", readFileSync(join(publicDir, "sw.js"), "utf8"))(self, caches, fetch);
   const listener = listeners.get("fetch")!;
   return (request) => {
     let answered = false;
-    listener({ request, respondWith: () => { answered = true; } });
+    listener({ request, respondWith: () => { answered = true; }, waitUntil: () => undefined });
     return answered;
   };
 }
