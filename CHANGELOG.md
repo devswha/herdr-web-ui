@@ -239,6 +239,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   row reads the summary the call gave its task instead of its short description, and opened
   it lists each task it started with its agent and prompt, instead of its raw input or a
   checklist of "task 1", "task 2" nobody ticks.
+  ([#477](https://github.com/devswha/herdr-web-ui/pull/477) by @nahwan-kim)
 
 ## [0.3.49] - 2026-10-04
 
