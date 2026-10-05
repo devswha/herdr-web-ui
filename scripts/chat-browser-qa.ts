@@ -60,7 +60,18 @@ try {
   assert.equal((await log.innerText()).includes("PRIVATE"), false);
   const modelInfo = page.getByLabel("Model and reasoning");
   await modelInfo.getByText("codex-test-model", { exact: true }).waitFor();
-  await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor();
+  // the level is drawn as one word; the sentence is the screen reader's
+  await modelInfo.getByText("xhigh", { exact: true }).waitFor();
+  await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor({ state: "attached" });
+  assert.equal(await page.locator(".composer-surface > .composer-status").count(), 1, "the status row is the input card's last row");
+  assert.equal(await page.locator(".composer-status").evaluate((node) => {
+    // DONE is the one state word the row draws; READY, RUN and INPUT are read, not drawn
+    const word = node.querySelector("strong");
+    const hidden = [node.querySelector(".composer-agent-label"), node.querySelector(".composer-reasoning-full")];
+    if (node.getAttribute("data-status") !== "done") hidden.push(word);
+    else if (word === null || word.getBoundingClientRect().width <= 1) return false;
+    return hidden.every((item) => item !== null && item.textContent !== "" && item.getBoundingClientRect().width <= 1);
+  }), true, "the agent's name, the state word (unless DONE) and the reasoning sentence are read, not drawn");
   const work = log.locator(".work-block-head");
   assert.equal(await work.getAttribute("aria-expanded"), "true");
   assert.match(await work.innerText(), /Worked for 7s/);
@@ -81,7 +92,8 @@ try {
 
   records.push({ type: "turn_context", payload: { model: "codex-updated-model", effort: "low" } }); persist();
   await modelInfo.getByText("codex-updated-model", { exact: true }).waitFor();
-  await modelInfo.getByText("Reasoning low", { exact: true }).waitFor();
+  await modelInfo.getByText("low", { exact: true }).waitFor();
+  await modelInfo.getByText("Reasoning low", { exact: true }).waitFor({ state: "attached" });
   assert.equal(await modelInfo.getByText("codex-test-model", { exact: true }).count(), 0);
   console.log("PASS model and reasoning metadata update without a new message");
 

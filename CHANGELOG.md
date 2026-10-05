@@ -8,6 +8,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- In the chat, the line with the model sits inside the message box, as its last row, instead of
+  above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
+  the reasoning level as one word (`high`) and the context ring. The agent's written name and the
+  READY / RUN / INPUT word are no longer drawn there (a screen reader still reads them): the
+  header names the pane, and Stop, the working row and the approval card say the state. DONE is
+  still drawn, since nothing else in the chat says a turn ended and has not been seen. Where
+  the box is narrow, beside the sidebar for one, the background-task chip shows its count
+  before the model's name is cut. In dark themes Queue loses its outline.
+  ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
 - The chat is wider on a large screen: the conversation and the message box follow the pane,
   at least 820px and at most 960px wide, 71% of the pane between. A laptop window keeps the
   820px it had and a large monitor grows to 960px. Settings → Chat → **Chat width** chooses
