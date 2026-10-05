@@ -1,4 +1,5 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, Target,
   type LucideProps,
@@ -16,7 +17,7 @@ import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
-import { isLiveWorkTurn, formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
+import { isLiveWorkTurn, isWaitingWorkTurn, formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
@@ -69,6 +70,11 @@ export interface ChatViewProps {
   /** a typed pick of an approval's option, waiting in the card for Confirm */
   pendingAnswer?: { promptId: string; answer: TypedAnswer } | null;
   onPendingAnswerDone?: () => void;
+  /** where the prompt card is drawn: on the composer's column, over the input card (PaneTerminal
+   * owns the place). The chat still owns the prompt, so the card is rendered from here into it */
+  promptDock?: HTMLElement | null;
+  /** a prompt was answered from its card; `fromCard`: the keyboard's focus was in the card */
+  onPromptAnswered?: (fromCard: boolean) => void;
 }
 
 interface ChatState {
@@ -297,7 +303,7 @@ function ThinkingRow({ text }: { text: string }) {
  * between them — under one header ("Worked for 7s · 1 edit"). Rows stay one line
  * each until opened; the narration between them is answer prose while the turn runs, dim after.
  */
-function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinking }: { paneId: string; parts: ConversationPart[]; duration: string | null; live: boolean; defaultOpen: boolean; showThinking: boolean }) {
+function WorkBlockView({ paneId, parts, duration, live, waiting, defaultOpen, showThinking }: { paneId: string; parts: ConversationPart[]; duration: string | null; live: boolean; waiting: boolean; defaultOpen: boolean; showThinking: boolean }) {
   const t = useT();
   const [chosenOpen, setOpen] = useState<boolean | null>(null);
   const open = chosenOpen ?? defaultOpen;
@@ -308,8 +314,9 @@ function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinkin
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
   const failed = workFailed(parts);
-  const title = live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
-  return <section className={`work-block${live ? " is-live" : ""}${open ? "" : " is-folded"}`}>
+  // a blocked agent is not working: the open block takes the sidebar's words for it
+  const title = waiting ? t("Needs you") : live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
+  return <section className={`work-block${live ? " is-live" : ""}${waiting ? " is-waiting" : ""}${open ? "" : " is-folded"}`}>
     <button type="button" className="work-block-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <span className="work-block-title">{title}</span>
@@ -393,6 +400,8 @@ interface TurnProps {
   turn: ConversationTurn;
   /** the last turn while the agent runs: its work block reads "Working…" */
   live: boolean;
+  /** ...and "Needs you" while the agent is blocked */
+  waiting: boolean;
   showThinking: boolean;
 }
 
@@ -404,7 +413,7 @@ function noticeLabel(t: ReturnType<typeof useT>, notice: Extract<ConversationPar
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
-const Turn = memo(function Turn({ paneId, turn, live, showThinking }: TurnProps) {
+const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: TurnProps) {
   const t = useT();
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
@@ -441,7 +450,7 @@ const Turn = memo(function Turn({ paneId, turn, live, showThinking }: TurnProps)
   return <article className="chat-turn chat-turn-agent">
     <SkillActivityList parts={turn.parts} />
     {goal !== null && <GoalActivity goal={goal} />}
-    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={workStartsOpen(live, turn.parts)} showThinking={showThinking} />}
+    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} waiting={waiting} defaultOpen={workStartsOpen(live, turn.parts)} showThinking={showThinking} />}
     {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
       {/* a mouse reads one copy glyph and the words "Plain text"; touch reads the two formats */}
@@ -455,11 +464,11 @@ const Turn = memo(function Turn({ paneId, turn, live, showThinking }: TurnProps)
 function FallbackTurn({ paneId, message }: { paneId: string; message: TranscriptMessage }) {
   if (message.role === "status") return null;
   const turn: ConversationTurn = { role: message.role === "user" ? "user" : "assistant", ts: null, parts: [{ kind: "text", text: message.text }] };
-  return <Turn paneId={paneId} turn={turn} live={false} showThinking={false} />;
+  return <Turn paneId={paneId} turn={turn} live={false} waiting={false} showThinking={false} />;
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -813,8 +822,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       {state.source === "conversation"
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
+            const live = isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend);
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} showThinking={settings.showThinking} />
+              <Turn paneId={paneId} turn={turn} live={live} waiting={isWaitingWorkTurn(live, agentStatus)} showThinking={settings.showThinking} />
             </RenderBoundary>;
           })
         : agent !== null
@@ -824,16 +834,21 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? "locked — the token gate is asking again" : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && empty && error === null && prompt === null && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
-      {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={() => {
-        setPrompt(null);
-        // a form of several questions goes on to its next one: read it now, not at the next poll
-        if (prompt.steps) setPromptPollKey((key) => key + 1);
-        onPendingAnswerDone?.();
-      }} />}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
       : away && <button type="button" className="btn chat-new-messages is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>}
   </div>
+  {/* The prompt card is not part of the transcript: it is drawn on the composer's column, over the
+      input card, where PaneTerminal keeps its place. The prompt itself (its poll, the answer, the
+      re-read) stays here. */}
+  {prompt !== null && promptDock !== null && createPortal(
+    <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null} onTypedAnswerDone={onPendingAnswerDone} onPromptChanged={() => setPromptPollKey((key) => key + 1)} onAnswered={(fromCard) => {
+      onPromptAnswered?.(fromCard);
+      setPrompt(null);
+      // a form of several questions goes on to its next one: read it now, not at the next poll
+      if (prompt.steps) setPromptPollKey((key) => key + 1);
+      onPendingAnswerDone?.();
+    }} />, promptDock)}
   </ChatHistoryContext.Provider></ChatPaneContext.Provider>;
 });

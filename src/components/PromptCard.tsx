@@ -13,7 +13,8 @@ export interface PromptCardProps {
   paneId: string;
   prompt: InteractivePrompt;
   onPromptChanged(): void;
-  onAnswered(): void;
+  /** the answer went out; `fromCard`: the keyboard's focus was in the card, which is about to go */
+  onAnswered(fromCard: boolean): void;
   /** an option picked by a typed message, sent only on Confirm */
   typedAnswer?: TypedAnswer | null;
   onTypedAnswerDone?(): void;
@@ -26,11 +27,13 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const [custom, setCustom] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
   const confirmRef = useRef<HTMLDivElement | null>(null);
 
-  // the question to confirm comes into view, clear of the chat's floating buttons
+  // the question to confirm stays on the card's fold (PromptCard.css); a card scrolled past it
+  // comes back to it, and nothing outside the card moves
   useEffect(() => {
-    confirmRef.current?.scrollIntoView({ block: "center" });
+    confirmRef.current?.scrollIntoView({ block: "nearest" });
   }, [typedAnswer]);
 
   useEffect(() => {
@@ -41,11 +44,13 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   }, [prompt.id]);
 
   const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">): Promise<void> => {
+    // read now: the pressed button is disabled while the answer is on its way, and loses the focus
+    const fromCard = cardRef.current?.contains(document.activeElement) === true;
     setPending(true);
     setError(null);
     try {
       await answerPanePrompt({ pane_id: paneId, prompt_id: prompt.id, ...choice });
-      onAnswered();
+      onAnswered(fromCard);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
         setError("the prompt changed — re-read");
@@ -76,9 +81,10 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const hasChoices = prompt.options.some((_, index) => index !== prompt.custom_option_index);
 
   return (
-    <section className="prompt-card" role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
+    <section className="prompt-card" ref={cardRef} role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
       <header className="prompt-card-header">
-        <span className="badge badge-blocked">{t("input needed")}</span>
+        {/* read, not drawn: the title is the card's one red */}
+        <span className="visually-hidden">{t("input needed")}</span>
         <h2>{prompt.title}</h2>
       </header>
       {/* a form of several questions (omo): each one, answered or not, and the one asked now */}
@@ -102,7 +108,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
             : t("Codex keeps working meanwhile. Answer here; the message box still talks to Codex.")}
         </p>
       )}
-      {prompt.body !== null && prompt.body.length > 0 && <pre className="prompt-card-body">{prompt.body}</pre>}
+      {/* the reference text (a command, a plan, a diff) is the one part that gives way when the card is short */}
+      {prompt.body !== null && prompt.body.length > 0 && <pre className={`prompt-card-body${prompt.body.includes("\n") ? "" : " is-line"}`}>{prompt.body}</pre>}
       {hasChoices && (
         <div className="prompt-card-options" role={prompt.multi_select ? "group" : undefined} aria-label={prompt.multi_select ? prompt.question : undefined}>
           {prompt.options.map((option, index) => {
@@ -114,18 +121,21 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
                 {option.description !== null && <span className="prompt-card-option-description">{option.description}</span>}
               </span>
             );
+            // the key the user can type, drawn as a keycap; the option's name keeps the menu's "1."
+            const number = <span className="prompt-card-number"><span aria-hidden="true">{index + 1}</span><span className="visually-hidden">{index + 1}.</span></span>;
+            const described = option.description !== null ? " has-description" : "";
             if (prompt.multi_select) {
               const checked = selected.has(index);
               return (
-                <label className={`prompt-card-option${checked ? " is-checked" : ""}`} key={index}>
+                <label className={`prompt-card-option${described}${checked ? " is-checked" : ""}`} key={index}>
                   <input type="checkbox" checked={checked} disabled={pending} onChange={() => toggle(index)} />
-                  <span className="prompt-card-number">{index + 1}.</span> {content}
+                  {number} {content}
                 </label>
               );
             }
             return (
-              <button key={index} type="button" className={`prompt-card-option${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => void answer({ option_index: index })}>
-                <span className="prompt-card-number">{index + 1}.</span> {content}
+              <button key={index} type="button" className={`prompt-card-option${described}${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => void answer({ option_index: index })}>
+                {number} {content}
               </button>
             );
           })}

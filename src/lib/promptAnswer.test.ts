@@ -17,14 +17,17 @@ describe("answering a prompt from the chat", () => {
     // the "type something" row is answered with text, not picked by its number
     expect(answerFromText(question, "3")).toEqual({ custom_text: "3" });
     expect(answerFromText(question, "use T-LESS instead")).toEqual({ custom_text: "use T-LESS instead" });
-    expect(answerHint(question)).toBe("Answer above: type 1–2 or your own reply…");
+    expect(answerHint(question)).toBe("Type 1–2 or your own reply…");
   });
 
   it("answers a free-form question (Codex's queue) with the text itself, numbers included", () => {
     const freeForm = prompt([], 0);
     expect(answerFromText(freeForm, "1")).toEqual({ custom_text: "1" });
     expect(answerFromText(freeForm, "keep the logs")).toEqual({ custom_text: "keep the logs" });
-    expect(answerHint(freeForm)).toBe("Answer above: type your reply…");
+    expect(answerHint(freeForm)).toBe("Type your reply…");
+    expect(answerHint(prompt(["A", "B", "C"], null, true))).toBe("Type the numbers you choose, e.g. 1 3");
+    // one option beside the custom answer: its number, not a range
+    expect(answerHint(prompt(["LM-O"], 1))).toBe("Type 1 or your own reply…");
   });
 
   it("takes only an option for an approval", () => {
@@ -34,7 +37,7 @@ describe("answering a prompt from the chat", () => {
     expect(answerFromText(approval, "no, and tell codex what to do differently")).toEqual({ option_index: 2 });
     expect(answerFromText(approval, "4")).toBeNull();
     expect(answerFromText(approval, "maybe later")).toBeNull();
-    expect(answerHint(approval)).toBe("Answer above: type 1–3 to choose…");
+    expect(answerHint(approval)).toBe("Type 1–3 to choose…");
     expect(answerRefusal(approval)).toBe("Choose one of the options above: type 1–3.");
     // typed, an approval's pick waits for Confirm; a question's does not
     expect(needsConfirmation(approval, { option_index: 0 })).toBe(true);

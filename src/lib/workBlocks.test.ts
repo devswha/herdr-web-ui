@@ -144,3 +144,13 @@ it("does not title a finished turn as running after a message was sent over it",
   expect(isLiveWorkTurn(finished, true, "working", null)).toBe(true);
   expect(isLiveWorkTurn(finished, true, "working")).toBe(true);
 });
+
+it("says the open block waits for the user while the agent is blocked, and only then", async () => {
+  const { isWaitingWorkTurn } = await import("./workBlocks.ts");
+  expect(isWaitingWorkTurn(true, "blocked")).toBe(true);
+  // a question in Codex's queue: Codex keeps working
+  expect(isWaitingWorkTurn(true, "working")).toBe(false);
+  // a settled turn keeps "Worked for …" whatever the pane's status
+  expect(isWaitingWorkTurn(false, "blocked")).toBe(false);
+  expect(isWaitingWorkTurn(true, undefined)).toBe(false);
+});

@@ -55,12 +55,12 @@ function range(prompt: InteractivePrompt): string {
 
 /** How a typed message answers this prompt: the composer's placeholder while it waits. */
 export function answerHint(prompt: InteractivePrompt): string {
-  if (prompt.multi_select) return t("Answer above: type the numbers you choose, e.g. 1 3");
+  if (prompt.multi_select) return t("Type the numbers you choose, e.g. 1 3");
   // a free-form question (Codex's queue) has no options to number
-  if (choices(prompt).length === 0) return t("Answer above: type your reply…");
+  if (choices(prompt).length === 0) return t("Type your reply…");
   return prompt.custom_option_index !== null
-    ? t("Answer above: type {range} or your own reply…", { range: range(prompt) })
-    : t("Answer above: type {range} to choose…", { range: range(prompt) });
+    ? t("Type {range} or your own reply…", { range: range(prompt) })
+    : t("Type {range} to choose…", { range: range(prompt) });
 }
 
 /** Why a message was not sent: the prompt takes only its options (answerFromText gave null). */

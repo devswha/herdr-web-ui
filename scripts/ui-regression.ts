@@ -892,6 +892,12 @@ try {
   await page.locator('.composer-status[data-status="idle"]').waitFor();
   const startupPrompt = page.locator(".prompt-card");
   await startupPrompt.getByRole("button", { name: "1. Yes, continue", exact: true }).waitFor();
+  // the card is docked on the composer's column, directly over it, and is no part of the transcript
+  assert.deepEqual(await startupPrompt.evaluate((node) => ({
+    inTranscript: node.closest(".chat-view") !== null,
+    next: node.parentElement?.nextElementSibling?.classList.contains("composer") ?? false,
+    over: node.getBoundingClientRect().bottom <= document.querySelector(".composer-surface")!.getBoundingClientRect().top,
+  })), { inTranscript: false, next: true, over: true });
   assert.equal(await page.locator('.composer-status[data-status="idle"]').count(), 1);
   assert.equal(await page.locator(".chat-empty").count(), 0);
   await startupPrompt.getByRole("button", { name: "1. Yes, continue", exact: true }).click();
