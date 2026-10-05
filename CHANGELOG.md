@@ -18,6 +18,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   not shown yet. A pane that records no reasoning level shows the name alone. The pill only shows the model, it is not a button yet. Where the
   pill does not fit beside Queue (on a phone with a background-task chip, always) it steps
   aside whole while Queue is showing, and the context ring stays.
+  ([#467](https://github.com/devswha/herdr-web-ui/pull/467))
 - In the chat, the line with the model sits inside the message box, as its last row, instead of
   above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
   the reasoning level as one word (`high`) and the context ring. The agent's written name and the
