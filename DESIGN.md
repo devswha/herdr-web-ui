@@ -563,7 +563,8 @@ One set for both themes: the card is island black wherever it shows.
   a verb the tool's own id (`exec`, `Bash`, `apply_patch`) is the first line of that detail
   (`.work-row-tool`, mono, dim) and the row's title.
 - Mid-work narration sits between rows. While the turn runs it is the agent's voice: answer prose
-  (`--text`, `--fs-chat`) on the prose edge. Once the turn settles it is dim, one step smaller.
+  (`--text`, `--fs-chat` on `--lh-prose`) on the prose edge. Once the turn settles it is a quiet
+  row again: `--text-dim`, `--fs-sm`.
 - Only the running turn's block is open (working or blocked). A settled turn folds to its header
   with a hairline under it, and the header reads as a footnote: `--text-dim`, regular weight (the
   live one keeps medium weight and its state color). The answer is outside the fold. A settled

@@ -611,7 +611,7 @@
   color: var(--text-dim);
 }
 
-/* what the agent said mid-work: prose, dim and one step smaller than the answer once the turn settles */
+/* what the agent said mid-work: once the turn settles, a quiet row again (dim, --fs-sm) */
 .work-narration {
   padding: var(--space-1) 0 var(--space-2);
   color: var(--text-dim);
