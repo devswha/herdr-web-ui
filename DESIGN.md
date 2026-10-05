@@ -488,8 +488,8 @@ One set for both themes: the card is island black wherever it shows.
   `lib/settings.ts`); `--chat-w` never holds that percentage, because each column would resolve
   it against its own box and they would differ by their gutters.
   The ceiling is in rem because Wide is (`72rem`), and it stays `60rem` inside the length, so
-  Default is never wider than Wide at another browser font size, also when that size changes
-  while the page is open. The
+  Default is never wider than Wide at a root font of 11.4px and up, also when that size changes
+  while the page is open (under 11.4px the 820px floor is itself wider than Wide's 72rem). The
   floor stays in px (`--content-w` is px); under a 13.67px root, where 60rem is less than 820px, the
   floor wins and Default is the same lane as Narrow.
   Structured Claude/omp transcripts fall back to ANSI-stripped pane scrollback when unavailable.

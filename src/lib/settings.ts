@@ -173,7 +173,8 @@ export function chatFontSize(settings: Settings): number {
 /** The Default chat lane never runs narrower than this, in px: --content-w, the Narrow step. */
 export const CHAT_LANE_MIN = 820;
 /** ...or wider than this, in rem: 960px at a 16px root. In rem because Wide is (72rem, styles.css),
- *  so Default stays the narrower of the two whatever the browser's font size is. */
+ *  so Default stays the narrower of the two at a root font of 11.39px and up; under that the
+ *  820px floor wins and is itself wider than Wide (see chatLaneLength). */
 export const CHAT_LANE_MAX_REM = 60;
 /** The share of its pane the Default chat lane takes between the two. */
 export const CHAT_LANE_RATIO = 0.7143;

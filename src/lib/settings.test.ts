@@ -97,7 +97,7 @@ describe("the default chat lane", () => {
     for (const width of [0, 390, 780, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(chatLaneWidth(width)).toBe(820);
   });
 
-  it("has its ceiling in rem, so it is never wider than Wide's 72rem at another root font size", () => {
+  it("has its ceiling in rem, so it is never wider than Wide's 72rem at a root font of 11.4px and up", () => {
     const wide = (root: number): number => 72 * root;
     // 16px: the sizes above, whether the root is passed or not
     expect([960, 1149, 1300, 1344, 1600, 4000].map((pane) => chatLaneWidth(pane, 16))).toEqual([820, 821, 929, 960, 960, 960]);
