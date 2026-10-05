@@ -53,6 +53,14 @@
   overflow: hidden;
 }
 
+/* the one state word the row draws: a turn that ended and was not seen yet */
+.composer-status[data-status="done"] strong {
+  flex: none;
+  color: var(--status-done);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-caps);
+}
+
 .composer-model-info {
   /* no box of its own: the name and the level sit in the status line itself, so the name can
      give way before anything else does and the level never overlaps what follows */

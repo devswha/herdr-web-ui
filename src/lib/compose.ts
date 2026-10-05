@@ -108,6 +108,16 @@ export function composerStatusWord(status?: AgentStatus): string {
 }
 
 /**
+ * Whether the composer draws its status word. Only DONE is drawn: a turn that ended and was not
+ * seen yet is told by nothing else in the chat (Stop and the live row say RUN, the prompt card
+ * says INPUT, and READY is the resting case), and on a phone the sidebar's label is in a closed
+ * drawer. The other words stay in the row for assistive tech.
+ */
+export function composerStatusWordDrawn(status?: AgentStatus): boolean {
+  return knownStatus(status) === "done";
+}
+
+/**
  * Below this card width the status row cannot hold the background-task chip's words beside the
  * model, the effort and the offline sentence, so the chip shows its icon and count instead.
  * The input card is at most 820px wide (`--content-w`); a 1024px window with the sidebar open

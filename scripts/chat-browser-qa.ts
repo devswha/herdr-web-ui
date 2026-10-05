@@ -65,9 +65,13 @@ try {
   await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor({ state: "attached" });
   assert.equal(await page.locator(".composer-surface > .composer-status").count(), 1, "the status row is the input card's last row");
   assert.equal(await page.locator(".composer-status").evaluate((node) => {
-    const hidden = [node.querySelector(".composer-agent-label"), node.querySelector("strong"), node.querySelector(".composer-reasoning-full")];
+    // DONE is the one state word the row draws; READY, RUN and INPUT are read, not drawn
+    const word = node.querySelector("strong");
+    const hidden = [node.querySelector(".composer-agent-label"), node.querySelector(".composer-reasoning-full")];
+    if (node.getAttribute("data-status") !== "done") hidden.push(word);
+    else if (word === null || word.getBoundingClientRect().width <= 1) return false;
     return hidden.every((item) => item !== null && item.textContent !== "" && item.getBoundingClientRect().width <= 1);
-  }), true, "the agent's name, the state word and the reasoning sentence are read, not drawn");
+  }), true, "the agent's name, the state word (unless DONE) and the reasoning sentence are read, not drawn");
   const work = log.locator(".work-block-head");
   assert.equal(await work.getAttribute("aria-expanded"), "true");
   assert.match(await work.innerText(), /Worked for 7s/);

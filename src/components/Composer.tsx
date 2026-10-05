@@ -22,7 +22,7 @@ import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
   composerStatusCompact,
-  composerStatusWord,
+  composerStatusWord, composerStatusWordDrawn,
   contextLeftPercent,
   formatTokens,
   imageMention,
@@ -880,12 +880,12 @@ export function Composer({
         </div>
         {/* the card's last row, at its full width. The agent's name, its separator and the state word are
             read, not drawn: the mark and the header name the agent, and Stop, the live row and the prompt
-            card say the state */}
+            card say the state. DONE alone is drawn: nothing else in the chat says a turn ended unseen */}
         <div className="composer-status" role="status" data-status={agentStatus ?? "unknown"} data-compact={statusCompact ? "" : undefined}>
           {agent && <AgentMark agent={agent} size={14} />}
           <span className="composer-agent-label visually-hidden">{agentLabel}</span>
           <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
-          <strong className="visually-hidden">{t(composerStatusWord(agentStatus))}</strong>
+          <strong className={composerStatusWordDrawn(agentStatus) ? undefined : "visually-hidden"}>{t(composerStatusWord(agentStatus))}</strong>
           <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
           {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
             <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>

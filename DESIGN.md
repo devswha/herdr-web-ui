@@ -490,9 +490,11 @@ One set for both themes: the card is island black wherever it shows.
   width, phones included, and never wraps. It draws, in `--text-dim` at `--fs-xs`: the agent mark,
   the background-task chip, the model, the reasoning level as one word with no outline (`high`),
   the context ring, and the uploading or reconnecting sentence. The agent's written name, its
-  separator, the state word (`READY` / `RUN` / `INPUT` / `DONE`) and the sentence `Reasoning high`
+  separator, the state words `READY` / `RUN` / `INPUT` and the sentence `Reasoning high`
   stay in the row for assistive tech only (`.visually-hidden`): the header names the pane, and
-  the state is told by Stop, the live row and the prompt card.
+  the state is told by Stop, the live row and the prompt card. `DONE` alone is drawn, after the
+  mark, in `--status-done` caps: nothing else in the chat says a turn ended and was not seen yet,
+  and on a phone the sidebar's label is in a closed drawer.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
   a `640px` card — the card's own width, `composerStatusCompact`, not the window's), the model's
   name down to a few letters, the reasoning level, then the opened context text. The context ring

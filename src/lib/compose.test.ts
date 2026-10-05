@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerStatusCompact, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
+import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerStatusCompact, composerStatusWord, composerStatusWordDrawn, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -102,6 +102,14 @@ describe("composer presentation helpers", () => {
     expect(composerStatusWord("blocked")).toBe("INPUT");
     expect(composerStatusWord("done")).toBe("DONE");
     expect(composerStatusWord("paused")).toBe("READY");
+  });
+  it("draws only the DONE word in the composer", () => {
+    expect(composerStatusWordDrawn("done")).toBe(true);
+    expect(composerStatusWordDrawn("idle")).toBe(false);
+    expect(composerStatusWordDrawn("working")).toBe(false);
+    expect(composerStatusWordDrawn("blocked")).toBe(false);
+    expect(composerStatusWordDrawn("paused")).toBe(false);
+    expect(composerStatusWordDrawn(undefined)).toBe(false);
   });
 
   it("makes the status row compact by the card's width, not the window's", () => {

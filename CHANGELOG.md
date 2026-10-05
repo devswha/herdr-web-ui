@@ -12,7 +12,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
   the reasoning level as one word (`high`) and the context ring. The agent's written name and the
   READY / RUN / INPUT word are no longer drawn there (a screen reader still reads them): the
-  header names the pane, and Stop, the working row and the approval card say the state. Where
+  header names the pane, and Stop, the working row and the approval card say the state. DONE is
+  still drawn, since nothing else in the chat says a turn ended and has not been seen. Where
   the box is narrow, beside the sidebar for one, the background-task chip shows its count
   before the model's name is cut. In dark themes Queue loses its outline.
   ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
