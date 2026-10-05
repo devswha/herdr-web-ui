@@ -624,7 +624,7 @@ One set for both themes: the card is island black wherever it shows.
   `--touch-target` tall on touch) and counts a single message too. The rows stay mounted and one
   tap opens them. A list that is ready, a row being edited and a row with an error are never
   folded away; while a row's error holds the rows open the caption is plain text, not a button.
-  When the button goes, focus on it moves to the list.
+  When the button goes, focus on it moves to the list, unless it went because the pane changed.
 - At `480px` and below a held row is its text, `Send now` and a `--touch-target` X whose name is
   still `Discard`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;

@@ -42,11 +42,29 @@ export function heldOpenAtFold({ fold, sameOwner, focusInRows }: { fold: boolean
 }
 
 /**
+ * Whether the rows count as opened by the user once focus is in one of them. Under a fold they can
+ * be in sight for another reason (a row's error); when that reason goes, from another tab too, the
+ * row being edited must not fold away with it.
+ */
+export function heldOpenOnFocus(fold: boolean, opened: boolean): boolean {
+  return opened || fold;
+}
+
+/**
  * Whether the caption is the disclosure button. While a row's error holds the rows open the
  * button could not close them, so the caption is plain text until the error is gone.
  */
 export function heldToggleShown(fold: boolean, rowError: boolean): boolean {
   return fold && !rowError;
+}
+
+/**
+ * Whether focus that was on the button as it went moves to the list now in the page: only to the
+ * list that button controlled. After a pane switch the list is the other pane's, and that pane's
+ * own focus (its message box, or none on a touch screen) is left alone.
+ */
+export function heldRefocusDue(controlled: string | null, listId: string | null): boolean {
+  return controlled !== null && controlled === listId;
 }
 
 /**

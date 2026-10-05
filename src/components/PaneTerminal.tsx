@@ -10,7 +10,7 @@ import { HerdrSocket } from "../lib/ws.ts";
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
-import { heldCountShown, heldOpenAtFold, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
+import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
@@ -1304,7 +1304,8 @@ export function PaneTerminal({
       focusInRows: heldListRef.current?.contains(document.activeElement) === true,
     }));
   }
-  // a row's error is for the user to read: it opens the rows too, and the caption is then no button
+  // a row's error is for the user to read: it opens the rows too, and the caption is then no button.
+  // Rows it opened are the user's own once focus is in one (the list's onFocus), whatever ends the error
   const heldRowFailed = heldRowError(queueError, queueOwner, queued.map((message) => message.id));
   const heldHidden = heldRowsHidden(heldFold, heldOpened, heldRowFailed);
   const heldToggle = heldToggleShown(heldFold, heldRowFailed);
@@ -1313,16 +1314,19 @@ export function PaneTerminal({
   // The list, not a message box: on a phone that would raise the keyboard unasked.
   // React detaches the button's ref just before it removes the node, while focus is still on it:
   // that is read in the commit, never in a render React may discard.
-  const heldRefocusRef = useRef(false);
+  // The button names its list (aria-controls) and that is what is kept: a button that goes because
+  // the user moved to another pane stood for another list, and this pane's is not focused for it.
+  const heldRefocusRef = useRef<string | null>(null);
   const setHeldToggle = useCallback((node: HTMLButtonElement | null) => {
-    if (node === null && heldToggleRef.current !== null && document.activeElement === heldToggleRef.current) heldRefocusRef.current = true;
+    if (node === null && heldToggleRef.current !== null && document.activeElement === heldToggleRef.current) heldRefocusRef.current = heldToggleRef.current.getAttribute("aria-controls");
     heldToggleRef.current = node;
   }, []);
   // every commit, so a flag set as the whole list went is dropped with it
   useLayoutEffect(() => {
-    if (!heldRefocusRef.current) return;
-    heldRefocusRef.current = false;
-    heldListRef.current?.focus({ preventScroll: true });
+    const left = heldRefocusRef.current;
+    if (left === null) return;
+    heldRefocusRef.current = null;
+    if (heldRefocusDue(left, heldListRef.current?.id ?? null)) heldListRef.current?.focus({ preventScroll: true });
   });
   // an empty chat: one greeting line over the composer, which a mouse-driven window centres
   const folder = greetingFolder(cwd);
@@ -1533,7 +1537,8 @@ export function PaneTerminal({
             </div>;
           })()}
           {queueStore.isUnsaved(queueOwner) && <p className="composer-queue-error" role="status">{t("Queue could not be saved. Keep this tab open or copy the messages before reloading.")}</p>}
-          <ol className="composer-queue-list" id={`queued-list-${queueOwner}`} ref={heldListRef} tabIndex={-1}>
+          <ol className="composer-queue-list" id={`queued-list-${queueOwner}`} ref={heldListRef} tabIndex={-1}
+            onFocus={() => { setHeldOpened((opened) => heldOpenOnFocus(heldFold, opened)); }}>
           {queued.map((message, index) => <li className="composer-queue-item" key={message.id}>
             <label className="visually-hidden" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>
             <textarea

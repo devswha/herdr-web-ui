@@ -106,8 +106,8 @@ try {
   try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
     try {
-      const open = async (seed: Record<string, string>, pane: string): Promise<{ page: Page; errors: string[]; close: () => Promise<void> }> => {
-        const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "en-US" });
+      const open = async (seed: Record<string, string>, pane: string, touch = false): Promise<{ page: Page; errors: string[]; close: () => Promise<void> }> => {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "en-US", hasTouch: touch });
         await context.addInitScript((queues) => {
           localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
           for (const [owner, value] of Object.entries(queues)) localStorage.setItem(`herdr-web-ui:queue:${owner}`, value);
@@ -190,6 +190,71 @@ try {
           assert.equal(await page.locator(".conn-live").count(), 1);
           assert.deepEqual(errors, []);
           console.log("PASS focus on the button moves to the list when the fold ends");
+        } finally { await close(); }
+      }
+
+      {
+        const { page, errors, close } = await open({ [panes.web]: stored(["first held", "second held"]), [panes.infra]: stored(["infra held"]) }, panes.web);
+        try {
+          const toggle = page.locator(".composer-queue-toggle");
+          await toggle.waitFor();
+          await page.evaluate(() => { (window as unknown as { refuseSubmits: boolean }).refuseSubmits = true; });
+          await toggle.click();
+          await page.getByRole("button", { name: "Send now" }).first().click();
+          await page.locator(".composer-queue-item .composer-queue-error").waitFor();
+          await page.evaluate(() => { (window as unknown as { refuseSubmits: boolean }).refuseSubmits = false; });
+          // back in the pane, the error alone holds the rows open: the user never opened them here
+          await select(page, panes.infra);
+          await page.locator(".composer-queue.is-ready").waitFor();
+          await select(page, panes.web);
+          await page.locator(".composer-queue-item .composer-queue-error").waitFor();
+          assert.equal((await heldOf(page)).toggle, false);
+          const second = page.locator(".composer-queue-text").nth(1);
+          await second.focus();
+          await page.keyboard.type("edited ");
+          // another tab discards the failed message: the row being edited keeps its id, and its place
+          await page.evaluate((key) => {
+            const queue = JSON.parse(localStorage.getItem(key)!) as { version: number; messages: { id: string; text: string }[] };
+            const next = JSON.stringify({ ...queue, messages: queue.messages.slice(1) });
+            localStorage.setItem(key, next);
+            window.dispatchEvent(new StorageEvent("storage", { key, newValue: next, storageArea: localStorage }));
+          }, `herdr-web-ui:queue:${panes.web}`);
+          await toggle.waitFor();
+          const edited = await heldOf(page);
+          assert.equal(edited.rows, 1);
+          assert.equal(edited.expanded, "true", "the row the user is in keeps the rows open once the error is gone");
+          assert.ok(edited.listHeight > 0);
+          assert.equal(edited.active, "composer-queue-text");
+          assert.equal(await page.locator(".composer-queue-text").inputValue(), "edited second held");
+          console.log("PASS a row being edited stays in sight when another tab discards the failed message");
+
+          // focus on this pane's button says nothing about the pane the user moves to
+          await toggle.focus();
+          await select(page, panes.infra);
+          await page.locator(".composer-queue.is-ready").waitFor();
+          await page.waitForFunction(() => document.activeElement?.classList.contains("composer-text") === true, undefined, { timeout: 3_000 });
+          await page.keyboard.type("typed here");
+          assert.equal(await page.locator(".composer-text").inputValue(), "typed here");
+          assert.equal(await page.locator(".composer-queue-text").inputValue(), "infra held");
+          assert.deepEqual(errors, []);
+          console.log("PASS leaving a pane from its folded caption leaves the next pane's message box the typing");
+        } finally { await close(); }
+      }
+
+      {
+        // a touch screen gives the next pane's message box no focus: nothing else may take it there
+        const { page, errors, close } = await open({ [panes.web]: stored(["first held"]), [panes.infra]: stored(["infra held"]) }, panes.web, true);
+        try {
+          assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), true);
+          const toggle = page.locator(".composer-queue-toggle");
+          await toggle.waitFor();
+          await toggle.focus();
+          await select(page, panes.infra);
+          await page.locator(".composer-queue.is-ready").waitFor();
+          assert.equal(await page.locator(".composer-queue-text").inputValue(), "infra held");
+          assert.notEqual((await heldOf(page)).active, "composer-queue-list", "the other pane's list is not the one the button stood for");
+          assert.deepEqual(errors, []);
+          console.log("PASS on a touch screen, leaving a pane from its folded caption puts no focus in the next pane's list");
         } finally { await close(); }
       }
 
