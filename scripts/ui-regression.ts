@@ -26,6 +26,7 @@ import { checkDroplet } from "./droplet-regression.ts";
 import { checkAlertSound } from "./alert-sound-regression.ts";
 import { checkChatKeepsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
+import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
@@ -227,6 +228,7 @@ try {
   console.log("PASS terminal Shift+Enter sends a newline chord once and preserves Enter, Alt+Enter and IME");
   console.log("PASS pending IME commit precedes Shift+Enter without duplicate text");
   await checkCommandBackspace(browser, origin, paneA);
+  await checkCtrlEnter(browser, origin, paneA);
   await checkCommandArrows(browser, origin, paneA);
   // a pane shortcut switches panes and types nothing: xterm used to send ESC[1;6B / ESC[1;6A too
   const selectedTitle = () => page.locator(".pane-item.is-selected .pane-select").getAttribute("title");
