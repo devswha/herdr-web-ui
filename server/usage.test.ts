@@ -475,6 +475,13 @@ describe("providers", () => {
     expect(usage).toMatchObject({ id: "opencode", windows: [{ kind: "week", scope: null, used_percent: 8 }] });
     expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_env");
   });
+
+  it("treats HTTP 403 from OpenCode Go as null usage for accounts without a Go subscription", async () => {
+    write(join(home, ".local", "share", "opencode", "auth.json"), { "opencode-go": { key: "oc_sk_no_sub" } });
+    replies.set("https://opencode.ai/zen/go/v1/usage", { status: 403, body: { error: "No subscription" } });
+    const report = await new UsageService(context("linux"), only("opencode")).report();
+    expect(report.providers).toEqual([]);
+  });
 });
 
 describe("the service", () => {

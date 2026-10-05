@@ -697,9 +697,15 @@ const opencode: UsageProvider = {
     return [];
   },
   async read(ctx, signIn) {
-    const body = await requestJson(ctx, "https://opencode.ai/zen/go/v1/usage", {
-      headers: { authorization: `Bearer ${signIn.token}`, accept: "application/json", "user-agent": USER_AGENT },
-    });
+    let body: Json;
+    try {
+      body = await requestJson(ctx, "https://opencode.ai/zen/go/v1/usage", {
+        headers: { authorization: `Bearer ${signIn.token}`, accept: "application/json", "user-agent": USER_AGENT },
+      });
+    } catch (error) {
+      if (error instanceof UsageHttpError && error.status === 403) return null;
+      throw error;
+    }
     const usage = record(body["usage"]);
     const windows: UsageWindow[] = [];
     const rolling = record(usage["rolling"]);
