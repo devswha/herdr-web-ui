@@ -2,6 +2,7 @@
  * conversation records belong in chat; developer prompts and terminal chrome do not. */
 import { Database } from "bun:sqlite";
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
@@ -253,7 +254,7 @@ export async function processCodexHome(pid: number): Promise<string | null> {
   let home: string | null = null;
   try {
     if (process.platform === "linux") {
-      home = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").find((entry) => entry.startsWith("CODEX_HOME="))?.slice(11) || null;
+      home = (await readFile(`/proc/${pid}/environ`, "utf8")).split("\0").find((entry) => entry.startsWith("CODEX_HOME="))?.slice(11) || null;
     } else if (process.platform === "darwin") {
       const child = Bun.spawn(["/bin/ps", "-E", "-ww", "-p", String(pid), "-o", "command="], { stdout: "pipe", stderr: "ignore" });
       const timer = setTimeout(() => child.kill(), 3000);
@@ -268,13 +269,13 @@ export async function processCodexHome(pid: number): Promise<string | null> {
       } finally { clearTimeout(timer); }
     }
   } catch { home = null; }
-  return home !== null && isCodexHomeDir(home) ? home : null;
+  return home !== null && (await isCodexHomeDir(home)) ? home : null;
 }
 
 /** An absolute path to a directory that is there: `ps` cannot tell an argument from the environment, a store can be checked. */
-function isCodexHomeDir(home: string): boolean {
+async function isCodexHomeDir(home: string): Promise<boolean> {
   if (!isAbsolute(home)) return false;
-  try { return statSync(home).isDirectory(); } catch { return false; }
+  try { return (await stat(home)).isDirectory(); } catch { return false; }
 }
 
 /**
