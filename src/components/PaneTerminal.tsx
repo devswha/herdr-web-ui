@@ -1311,13 +1311,19 @@ export function PaneTerminal({
   // The button goes when the fold ends (the agent is ready, the prompt was answered). Focus on it
   // would fall to the page, so it moves to the list the button stood for: Tab goes on from there.
   // The list, not a message box: on a phone that would raise the keyboard unasked.
+  // React detaches the button's ref just before it removes the node, while focus is still on it:
+  // that is read in the commit, never in a render React may discard.
   const heldRefocusRef = useRef(false);
-  if (!heldToggle && heldToggleRef.current !== null && document.activeElement === heldToggleRef.current) heldRefocusRef.current = true;
-  useEffect(() => {
+  const setHeldToggle = useCallback((node: HTMLButtonElement | null) => {
+    if (node === null && heldToggleRef.current !== null && document.activeElement === heldToggleRef.current) heldRefocusRef.current = true;
+    heldToggleRef.current = node;
+  }, []);
+  // every commit, so a flag set as the whole list went is dropped with it
+  useLayoutEffect(() => {
     if (!heldRefocusRef.current) return;
     heldRefocusRef.current = false;
     heldListRef.current?.focus({ preventScroll: true });
-  }, [heldToggle]);
+  });
   // an empty chat: one greeting line over the composer, which a mouse-driven window centres
   const folder = greetingFolder(cwd);
   const greetingDue = chatView && paneId !== null && agent !== null && !secretActive && !observing && !ended
@@ -1518,7 +1524,7 @@ export function PaneTerminal({
               {/* the count stays for assistive tech, beside the button and not in its name */}
               <strong className="visually-hidden">{t("Queued messages ({n})", { n: queued.length })}</strong>
               {heldToggle
-                ? <button type="button" className="composer-queue-toggle" ref={heldToggleRef} aria-expanded={!heldHidden} aria-controls={`queued-list-${queueOwner}`}
+                ? <button type="button" className="composer-queue-toggle" ref={setHeldToggle} aria-expanded={!heldHidden} aria-controls={`queued-list-${queueOwner}`}
                     onClick={() => { setHeldOpened(heldHidden); }}>
                     {caption}
                     <span className="composer-queue-toggle-caret" aria-hidden="true"><ChevronRight /></span>
