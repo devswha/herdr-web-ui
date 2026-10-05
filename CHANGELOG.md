@@ -8,6 +8,46 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- In the chat, the line with the model sits inside the message box, as its last row, instead of
+  above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
+  the reasoning level as one word (`high`) and the context ring. The agent's written name and the
+  READY / RUN / INPUT word are no longer drawn there (a screen reader still reads them): the
+  header names the pane, and Stop, the working row and the approval card say the state. DONE is
+  still drawn, since nothing else in the chat says a turn ended and has not been seen. Where
+  the box is narrow, beside the sidebar for one, the background-task chip shows its count
+  before the model's name is cut. In dark themes Queue loses its outline.
+  ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
+
+- In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
+  src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
+  rows start on the same left edge as the block's header and the prose. The tool's own id
+  (`exec`, `Bash`, `apply_patch`) is the row's tooltip and the first line of the row once
+  opened; a tool without a verb keeps its id in the row. While the agent works, what it says
+  between tool calls is in the answer's size and colour instead of small and dim.
+  ([#457](https://github.com/devswha/herdr-web-ui/pull/457))
+
+- The chat transcript is quieter. A finished turn folds its work under one dim "Worked for" row
+  and only the running turn stays open; a block you open, fold or work inside stays as you left
+  it, and a turn that ended without an answer keeps its words in view. The line
+  above your messages is gone, answers sit closer to their prompt, and your bubble has even
+  corners (no edge in the dark amber, report and charcoal palettes). File paths and links are
+  underlined quietly and take the accent color on hover or focus. With a mouse, a code block's
+  language and copy button appear in its corner on hover, a message's time and copy sit beside
+  the bubble, and an answer has one copy button with "Plain text" beside it; touch keeps the
+  code strip and the MD and TXT buttons.
+  ([#458](https://github.com/devswha/herdr-web-ui/pull/458))
+
+- A chat whose conversation was read and holds no messages yet asks "What should Omo do in
+  my-project?" over the message box, with the PC and the full path under it, instead of a dim
+  "No conversation yet" line in the middle of an empty pane. In a desktop window the question
+  and the message box sit in the middle of the pane until the first message is sent; on a phone
+  the box stays at the bottom. The question is not asked while the agent is working or waiting
+  for an answer, or while a message is held for it. A pane without an agent, or one whose
+  conversation could not be read, looks as before. That still includes a new Claude Code or
+  Codex pane: neither writes its conversation before the first message, so the chat shows the
+  terminal output until then.
+  ([#460](https://github.com/devswha/herdr-web-ui/pull/460))
+
 - The header is one line at every width: the pane's title, then PC › workspace › folder beside
   it. The folder shows as its last name, and only when the title, the PC or the workspace does
   not already say it; where the line has no room for the whole of it, it is left out rather than

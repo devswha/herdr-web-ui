@@ -34,6 +34,7 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Surface/input | `--bg-input` | `#1c1916` | `#fffdf9` |
 | Border | `--border` | `#2d2924` | `#dcd4c6` |
 | Border/strong | `--border-strong` | `#3e3830` | `#c5baa8` |
+| Chat bubble edge | `--bubble-border` | `transparent` | `var(--border)` |
 | Text/primary | `--text` | `#d8d0c3` | `#2a251f` |
 | Text/dim | `--text-dim` | `#9b9183` | `#685e52` |
 | Text/strong | `--text-strong` | `#f2ebdf` | `#16120d` |
@@ -62,6 +63,11 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 `settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`) is written as `data-palette`. The
 tables above are amber, the base blocks; the three opt-in palettes override them in
 `[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
+
+`--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
+alone parts the bubble from `--bg`: dark amber, dark report and dark charcoal. It is `var(--border)`
+where the two surfaces sit close: every light theme (the `[data-theme="light"]` block sets it for
+all four palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
 
 - **Dark report** is a near-black blue-grey canvas with hairlines: `--bg` `#0a0d12`, panel and
   terminal `#0f1319`, text `#b4bdc9` / `#8792a3` / `#e8ecf2`. Primary (the user's action) is white
@@ -476,20 +482,67 @@ One set for both themes: the card is island black wherever it shows.
 - The chat lens is a centered `--content-w` transcript over the still-attached terminal surface.
   Structured Claude/omp transcripts fall back to ANSI-stripped pane scrollback when unavailable.
 - The register is Codex / gajae-code-app: a quiet document. User turns are right-aligned neutral
-  cards (`--bg-elevated`, hairline edge, `--radius-lg` with a `--radius-sm` tail corner, ≤80% wide,
-  no avatar or name) and open a new exchange with a hairline above. Assistant turns have no header: the answer is plain prose; a meta row (MD / TXT
-  copy, time) fades in on hover (always visible on coarse pointers).
+  cards (`--bg-elevated`, a `--bubble-border` edge, `--radius-lg` on all four corners, ≤80% wide,
+  no avatar or name). Assistant turns have no header: the answer is plain prose.
+- Space separates exchanges, not a rule: the transcript's gap is `--space-3`, so an answer sits
+  close under its prompt, and a user turn that follows an assistant turn takes `--space-5` more.
+  The one rule of an exchange is the hairline under its folded work block.
+- Meta (time, copy) fades in on hover or focus and takes no click or tap while unseen; with any
+  coarse pointer (a phone, or a touch screen beside a mouse) it is always visible. With a mouse and no touch screen (`(hover: hover) and
+  (pointer: fine) and (not (any-pointer: coarse))`): from 481px a user turn's time and copy sit
+  beside its bubble, and an answer has one copy glyph (it copies Markdown) with a **Plain text**
+  text button in the regular weight beside it. Otherwise the answer keeps two labelled buttons,
+  glyph + MD and glyph + TXT; where the primary pointer is coarse each is a `--touch-target` target on a
+  one-line row, as is a user turn's copy, and a skill list under a user turn clears that target.
 - Markdown supports headings, lists, links, quotes, tables, inline/fenced code and code-copy actions.
-  Code blocks never scroll inside: one longer than 30 lines opens at its first 20 behind **Show all N lines**.
+  A link keeps `--accent` and a file chip reads in `--text-strong` with a dotted underline; both
+  underlines are `--text-dim` at rest and both take the accent on hover and focus-visible.
+  Code blocks are `--radius-lg` and never scroll inside: one longer than 30 lines opens at its
+  first 20 behind **Show all N lines**. On touch a block has a header strip (language, copy);
+  with a mouse and no touch screen the strip becomes a corner control over the block's top right,
+  shown on hover or focus-within (no transition under reduced motion).
   Thinking renders as a folded block only when **Show thinking** is enabled.
 - Auto-follow stops when the reader scrolls up; later output raises a **New messages** pill.
+- An empty chat is greeted from the composer (`.composer-greeting`, below), only where the agent's
+  conversation was read and holds no turn. A chat still loading, one whose read failed, an agent
+  whose transcript could not be read and a pane with no recognized agent keep their own lines
+  (`Loading conversation…`, the error, the terminal-output fallback, `No conversation yet — say
+  something below`), as does an agent that is working or asking. A history read again after it
+  changed is loading, not empty. The server answers the terminal-output fallback for an agent
+  that has not written its transcript yet (a new Claude Code or Codex pane before its first
+  message), so those are not greeted; an omo session not yet written answers an empty
+  conversation and is.
 
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
   timestamp minus this one's; "Working…" in `--status-working` behind a breathing dot while the agent runs) over
-  one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
-  sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones
-  fold. A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane.
+  one-line rows on the header's own left edge, which is the prose edge too (the hover plate
+  overhangs it by `--space-1`).
+- A row is caret + verb + object: `▸ Read src/metrics.ts`, `▸ Edited src/pages/Reports.tsx`,
+  `▸ Ran pnpm test`. The caret is always shown; there is no per-tool icon and no separator. The
+  verb (Read, Edited, Wrote, Ran; `lib/toolVerbs.ts`, by exact tool id) is in the interface face,
+  `--fs-sm`, `--text-dim`; the object is mono `--fs-xs`. A tool the table does not know, a call
+  with no object, or a call summed up by something other than its own command or path (omp's
+  `intent`: `bash Checking ports`) keeps its id in mono `--text` in the verb's place. A failed row
+  turns the verb or id `--status-blocked` and adds the word "failed": after the object under a
+  verb (`▸ Ran pnpm test [failed]`), after the id otherwise.
+- A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane. Under
+  a verb the tool's own id (`exec`, `Bash`, `apply_patch`) is the first line of that detail
+  (`.work-row-tool`, mono, dim) and the row's title.
+- Mid-work narration sits between rows. While the turn runs it is the agent's voice: answer prose
+  (`--text`, `--fs-md`) on the prose edge. Once the turn settles it is dim, one step smaller.
+- Only the running turn's block is open (working or blocked). A settled turn folds to its header
+  with a hairline under it, and the header reads as a footnote: `--text-dim`, regular weight (the
+  live one keeps medium weight and its state color). The answer is outside the fold. A settled
+  turn stays open when its work holds text the answer does not end on: text with no answer at all
+  (an action or Codex commentary came last) or text recorded after the answer, so the agent's
+  words are never behind the fold. A block the reader opened or folded stays as they left it, and
+  so does one they focused or clicked inside: the fold at the end of a turn never takes the rows
+  from under them.
+- The header is one line: the counts (`.work-block-summary`) take the width the title and the
+  failure count leave and end in an ellipsis. `· 1 failed` (`.work-block-failed`) is its own item
+  and is never cut, because the fold hides the failed row; at the largest chat type on the
+  narrowest phone the title wraps to a second line instead.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,
@@ -510,12 +563,42 @@ One set for both themes: the card is island black wherever it shows.
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
   and the composer column equals the transcript column (`--content-w`, same `--space-4` gutter).
   The only card is the input box: `--bg-elevated`, hairline border, `--radius-xl`, `--shadow-card`;
-  focus turns its border `--accent` (no inner outline). Above it the agent/status line and the
-  completion popover; inside, ONE row — attach control | auto-growing textarea | Send / Queue /
-  Stop — with the controls bottom-aligned so they stay beside the last line as the box grows;
-  the image strip is its own row above that line.
-- The status line ends, on fine pointers, with `/` commands and `@` files keycaps (plus `Mod+Enter`
-  sends when **Enter sends** is off); the placeholder is just `Message <agent>…`.
+  focus turns its border `--accent` (no inner outline). Above it the completion popover and the
+  background-task list; inside, the image strip is its own row at the top, then ONE row — attach
+  control | auto-growing textarea | Send / Queue / Stop — with the controls bottom-aligned so they
+  stay beside the last line as the box grows, then the status row as the card's last row.
+- Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
+  `What should <agent> do in <folder>?` in `--text-strong`, `--fs-xl`, `--fw-semibold`, centred,
+  and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
+  recording pill is open over the composer the greeting is hidden (its box stays). No suggestion
+  chips or starter prompts. The greeting is out of the flow, so it takes no row from the terminal
+  surface. In a mouse-driven window from `769px` the composer is moved up (a transform, nothing
+  else changes size) so the greeting and the input card sit at the pane's vertical centre; a
+  phone keeps the composer docked with the greeting above it. The first message sent removes the
+  greeting and the composer is back at the bottom at once: it snaps, with no animation. Held
+  messages keep the composer docked. Once a message went out, the greeting stays away for that
+  pane until the conversation shows a turn or becomes another history: another lens, another
+  pane or a failed read does not bring it back. A stack too short for the composer and the
+  greeting leaves the greeting out (`.is-out`, hidden and `aria-hidden`) and the chat shows its
+  own empty line. While the composer is lifted, the completion menu's height is capped to the
+  room over the input card, where it scrolls. On a coarse pointer the greeting takes no touch:
+  a tap or drag on it reaches the chat under it, which puts the keyboard away.
+- The status row (`.composer-status`, `role="status"`) spans the card's full width at every window
+  width, phones included, and never wraps. It draws, in `--text-dim` at `--fs-xs`: the agent mark,
+  the background-task chip, the model, the reasoning level as one word with no outline (`high`),
+  the context ring, and the uploading or reconnecting sentence. The agent's written name, its
+  separator, the state words `READY` / `RUN` / `INPUT` and the sentence `Reasoning high`
+  stay in the row for assistive tech only (`.visually-hidden`): the header names the pane, and
+  the state is told by Stop, the live row and the prompt card. `DONE` alone is drawn, after the
+  mark, in `--status-done` caps: nothing else in the chat says a turn ended and was not seen yet,
+  and on a phone the sidebar's label is in a closed drawer.
+- What does not fit the row gives way in this order: the task chip's words (icon and count below
+  a `640px` card — the card's own width, `composerStatusCompact`, not the window's), the model's
+  name down to a few letters, the reasoning level, then the opened context text. The context ring
+  is never cut. At `480px` and below the reconnecting sentence is the placeholder's and the header
+  chip's, not the row's.
+- Queue is a `--primary-tint` pill; its `--primary` outline is drawn in light themes only, where
+  the tint alone does not separate it from the card. The placeholder is just `Message <agent>…`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;
   `@` completions query `GET /api/pane/files`. Arrow keys navigate, Enter/Tab accepts, Escape closes.
 - Paste, picker or drag/drop accepts up to four png/jpeg/gif/webp files per action. Each gets a local
