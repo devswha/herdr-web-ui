@@ -349,6 +349,13 @@
   cursor: pointer;
 }
 
+/* the header, its rows and the prose around them start on one line: the hover plate overhangs it */
+.work-block-head,
+.work-row-head {
+  width: calc(100% + 2 * var(--space-1));
+  margin-inline: calc(-1 * var(--space-1));
+}
+
 .work-block-head:hover,
 .work-row-head:hover {
   background: var(--bg-hover);
@@ -397,11 +404,10 @@
   white-space: nowrap;
 }
 
-/* rows hang under the header, indented past its caret */
+/* rows hang under the header on its own left edge */
 .work-block-rows {
   display: flex;
   flex-direction: column;
-  padding-left: var(--space-5);
 }
 
 .work-row {
@@ -415,20 +421,17 @@
   font-size: var(--fs-xs);
 }
 
-.work-row-icon {
-  flex: none;
-  width: var(--fs-sm);
-  height: var(--fs-sm);
-}
-
 .work-row-name {
   flex: none;
   color: var(--text);
   font-weight: var(--fw-medium);
 }
 
-.work-row-sep {
-  flex: none;
+/* a tool the verb table knows: "Ran" in the interface face, its object after it in mono */
+.work-row-name.is-verb {
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
 }
 
 .work-row-summary {
@@ -448,14 +451,32 @@
   color: var(--text-dim);
 }
 
-/* what the agent said mid-work: prose, but dim and one step smaller than the answer */
+/* what the agent said mid-work: prose, dim and one step smaller than the answer once the turn settles */
 .work-narration {
-  padding: var(--space-1) var(--space-1) var(--space-2);
+  padding: var(--space-1) 0 var(--space-2);
   color: var(--text-dim);
 }
 
 .work-narration .markdown {
   font-size: var(--fs-sm);
+}
+
+/* while the agent runs it is its voice: answer prose, on the prose edge */
+.work-block.is-live .work-narration {
+  color: var(--text);
+}
+
+.work-block.is-live .work-narration .markdown {
+  font-size: var(--fs-md);
+}
+
+/* the tool's own id, first in the opened detail of a row that shows a verb in its place */
+.work-row-tool {
+  margin: 0;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
 }
 
 .work-row-detail {
@@ -727,8 +748,7 @@
 }
 
 /* a call that failed: its name in the alert colour and a word that says so, even folded */
-.work-row.is-error .work-row-name,
-.work-row.is-error .work-row-icon {
+.work-row.is-error .work-row-name {
   color: var(--status-blocked);
 }
 

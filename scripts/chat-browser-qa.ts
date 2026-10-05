@@ -64,7 +64,13 @@ try {
   const work = log.locator(".work-block-head");
   assert.equal(await work.getAttribute("aria-expanded"), "true");
   assert.match(await work.innerText(), /Worked for 7s/);
-  await log.getByRole("button", { name: /exec_command/ }).click();
+  // a tool the verb table knows reads as verb + object; its id is the title and the detail's first line
+  const row = log.getByRole("button", { name: "Ran git status", exact: true });
+  assert.equal(await row.getAttribute("title"), "exec_command · git status");
+  assert.equal(await row.locator(".work-row-caret").isVisible(), true);
+  assert.equal(await row.locator(".work-row-icon, .work-row-sep").count(), 0);
+  await row.click();
+  assert.equal(await log.locator(".work-row-detail > :first-child").innerText(), "exec_command");
   await log.getByText("git status", { exact: true }).last().waitFor();
   assert.equal(await log.locator(".chat-agent-meta").count(), 1);
   console.log("PASS native user/answer rendering, internal context filtering, tool expansion, duration");
