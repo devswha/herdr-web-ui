@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   **Default**, **Wide** (1152px) or **Full**, the whole pane. The held messages, the approval
   card and the background-task list keep the same column. Phones and narrow panes look the
   same as before.
+  ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 
 ### Fixed
 - An update asked for in the first moments after the app starts, or right after another update,
