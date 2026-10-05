@@ -88,7 +88,8 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   useLayoutEffect(() => {
     const list = menu.current;
     const anchor = list?.offsetParent;
-    const frame = anchor?.parentElement;
+    // the list is anchored to the input card, inside the composer: the room is the pane's, above the card
+    const frame = (anchor?.closest(".composer") ?? anchor)?.parentElement;
     if (!open || !list || !anchor || !frame) return;
     const measure = (): void => list.style.setProperty("--bg-tasks-room", `${anchor.getBoundingClientRect().top - frame.getBoundingClientRect().top}px`);
     measure();

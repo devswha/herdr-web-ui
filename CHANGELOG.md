@@ -7,6 +7,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- In the chat, the line with the model sits inside the message box, as its last row, instead of
+  above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
+  the reasoning level as one word (`high`) and the context ring. The agent's written name and the
+  READY / RUN / INPUT word are no longer drawn there (a screen reader still reads them): the
+  header names the pane, and Stop, the working row and the approval card say the state. Where
+  the box is narrow, beside the sidebar for one, the background-task chip shows its count
+  before the model's name is cut. In dark themes Queue loses its outline.
+
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
   panes, instead of sounding over itself. A pane that needs input right after one that finished
