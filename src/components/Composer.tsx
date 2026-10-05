@@ -940,15 +940,21 @@ export function Composer({
             <strong className={composerStatusWordDrawn(agentStatus) ? undefined : "visually-hidden"}>{t(composerStatusWord(agentStatus))}</strong>
             {/* the mark, the model, the level and the context ring as one quiet pill. It only shows: no role,
                 no focus, nothing to press but the ring inside it. A pane that names no model draws no pill
-                (.is-bare): the mark and the ring stand in the row as they are */}
-            <span className={`composer-pill${modelShown ? "" : " is-bare"}`}>
+                (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
+            <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
               {agent && <AgentMark agent={agent} size={14} />}
               {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
                 {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
-                <span className={`composer-model${model && !model.named ? " is-id" : ""}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
-                <span className="composer-reasoning" title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
+                {/* behind a name the id as received is still read; a touch cannot reach the title */}
+                {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
+                {/* no level recorded: nothing is drawn for it, no dot and no dash; the sentence is still read */}
+                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
                   <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
-                  <span className="composer-reasoning-short" aria-hidden="true">{metadata?.reasoning_effort ?? "—"}</span>
+                  {metadata?.reasoning_effort && <>
+                    <span className="composer-reasoning-dot" aria-hidden="true">·</span>
+                    <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
+                  </>}
                 </span>
               </span>}
               {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} onToggle={() => setContextShown((open) => !open)} />}

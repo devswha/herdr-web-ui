@@ -609,18 +609,21 @@ One set for both themes: the card is island black wherever it shows.
 - The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
   context ring in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
   `--space-3` inline padding, `--space-2` between its parts. The model is in `--text` at
-  `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own word with
-  only its first letter drawn as a capital (`text-transform`, the text is not rewritten). On the
-  fill the ring's track is `--border-strong`. It is display only: a `span` with no role, no
+  `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own words with
+  only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
+  that records no level draws no dot and no dash, only the name. On the
+  fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`. It is display only: a `span` with no role, no
   focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
   one thing to press. The `title` of the model is the id as received, and the level's is its
-  sentence. A pane that names no model draws no pill: the mark and the ring stand alone.
+  sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
+  cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
+  alone, with a dim `Model —` and the level between them if the pane records only a level.
 - The model is drawn by name only where its id is one `modelLabel` (`src/lib/modelName.ts`) can
   name for certain, from the vendor's own regular naming and matched whole:
   `claude-<family>-<major>[-<minor>]`, also behind `anthropic/`, is `<Family> <major>.<minor>`
-  (`Opus 5.5`, `Sonnet 5`); `gpt-<version>` is `GPT-<version>`; `glm-<version>` is
-  `GLM-<version>`. A name is never guessed. Any other id — a dated snapshot, a tier or product
-  suffix, another provider's prefix, another vendor — is drawn exactly as received in
+  (`Opus 5.5`, `Sonnet 5`); `gpt-<version>` is `GPT-<version>` and `gpt-<version>-sol` is `GPT-<version>-Sol`, as
+  Codex's own status line writes it; `glm-<version>` is `GLM-<version>`. A name is never guessed. Any other id — a dated snapshot, another tier or
+  product suffix, another provider's prefix, another vendor — is drawn exactly as received in
   `--font-mono` at regular weight (`.composer-model.is-id`), so it reads as an identifier and no
   suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below

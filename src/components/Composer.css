@@ -241,9 +241,15 @@
   font-weight: var(--fw-regular);
 }
 
-/* the level as one word after a middle dot, dim beside the name. The word is the agent's own;
-   only its first letter is drawn as a capital. The sentence ("Reasoning high") is the screen
-   reader's and the tooltip's */
+/* a pane that names no model: the placeholder is not a name, so it is dim like the row */
+.composer-model.is-none {
+  color: inherit;
+  font-weight: var(--fw-regular);
+}
+
+/* the level after a middle dot, dim beside the name. The words are the agent's own; only the
+   first letter of the first one is drawn as a capital. The sentence ("Reasoning high") is the
+   screen reader's and the tooltip's */
 .composer-reasoning {
   flex: 0 100 auto;
   min-width: 0;
@@ -252,13 +258,18 @@
   white-space: nowrap;
 }
 
-.composer-reasoning-short {
-  text-transform: capitalize;
+.composer-reasoning-dot {
+  margin-right: var(--space-2);
 }
 
-.composer-reasoning-short::before {
-  content: "·";
-  margin-right: var(--space-2);
+/* a block of its own, which is what ::first-letter needs */
+.composer-reasoning-short {
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+.composer-reasoning-short::first-letter {
+  text-transform: uppercase;
 }
 
 /* what is left of the context: plain until a compaction is near */
@@ -300,8 +311,9 @@
   stroke: var(--border);
 }
 
-/* on the pill's fill --border would be the fill itself in two palettes: the track stays a ring */
-.composer-pill:not(.is-bare) .composer-context-track {
+/* on the pill's fill --border would be the fill itself in two palettes: the track stays a ring.
+   Only on the fill: a ring left bare by a label that stepped out has the bare ring's track */
+.composer-status:not([data-model="out"]) .composer-pill:not(.is-bare) .composer-context-track {
   stroke: var(--border-strong);
 }
 

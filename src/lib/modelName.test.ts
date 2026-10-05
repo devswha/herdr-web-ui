@@ -20,6 +20,11 @@ describe("modelLabel", () => {
     expect(modelLabel("glm-5.3")).toEqual({ text: "GLM-5.3", named: true });
   });
 
+  test("names the one GPT tier Codex's own status line writes, with its hyphen", () => {
+    expect(modelLabel("gpt-5.6-sol")).toEqual({ text: "GPT-5.6-Sol", named: true });
+    expect(modelLabel("gpt-6-sol")).toEqual({ text: "GPT-6-Sol", named: true });
+  });
+
   test("shows an id it cannot name for certain exactly as received", () => {
     for (const id of [
       // a dated snapshot: the date is not dropped
@@ -27,7 +32,7 @@ describe("modelLabel", () => {
       // the older order of family and version, and a family the vendor does not list
       "claude-3-5-sonnet-20241022", "claude-3", "claude-nova-5",
       // tier and product words
-      "gpt-5.6-sol", "gpt-5.6-sol-max", "gpt-5.6-sol-codex-preview-2026-10", "gpt-4.1-mini", "gpt-transcribe",
+      "gpt-5.6-sol-max", "gpt-5.6-Sol", "gpt-5.6-solo", "gpt-sol", "gpt-5.6-sol-codex-preview-2026-10", "gpt-4.1-mini", "gpt-transcribe",
       // another provider's route, another vendor, and ids that only look close
       "bedrock/claude-opus-5-5", "openrouter/anthropic/claude-opus-5-5", "openai/gpt-5.6", "anthropic/x",
       "qwen-3-8-flash", "grok-4.7", "glm-5.3-air", "Claude-Opus-5-5", " claude-opus-5-5", "codex-test-model", "<synthetic>", "",
