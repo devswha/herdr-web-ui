@@ -8,6 +8,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- The app brings its own typefaces instead of counting on the ones a device has: Pretendard for
+  the interface and the chat, and JetBrains Mono for code in the chat and the interface, so a
+  phone or a PC without them draws the same letters as one with them. Nothing is fetched from the
+  internet: the files come from your own PC with the app, a page downloads only the pieces of
+  Pretendard its text needs (about 90 KB for a chat in English, about 200 KB more once Korean
+  is on the page), and each piece is kept for offline use after that. The terminal is untouched: its
+  font, its **Terminal font** setting and its grid are as before, and a **Chat font** you chose
+  still comes first. In the chat, answers, your own messages and what the agent says while it
+  works are a step larger (15px at the default **Chat font size**, which still scales
+  everything) on a looser line; bold is a semibold; inline code sits a little under its line and
+  code blocks are a step larger with more room; the message box is typed at the same size with
+  a mouse and stays 16px on touch; the empty chat's question is a larger line. Tool rows, times
+  and other small labels keep their size.
 - In the chat's message box the agent's mark, the model, the reasoning level and the context
   ring sit together in one quiet pill, and the model is shown by its name where the id is a
   regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`

@@ -5,7 +5,11 @@
 // never changes and the browser rereads it to update the installed app, so a
 // cached copy would pin every install to its first manifest. API and websocket
 // traffic is never intercepted so live workspace data is always fresh.
-const CACHE_NAME = "herdr-web-ui-v3-ram";
+// Nothing is precached. The typefaces are /assets/ files too (src/fonts/fonts.css): Pretendard
+// comes as 92 chunks split by unicode-range and the browser asks only for those whose characters
+// a page draws, so each is cached as it is first fetched and a phone that has shown Korean once
+// draws it offline. Never list them for install: that would download all 3 MB on every device.
+const CACHE_NAME = "herdr-web-ui-v4-ram";
 
 const CACHE_FIRST_PATHS = new Set([
   "/favicon.png",
