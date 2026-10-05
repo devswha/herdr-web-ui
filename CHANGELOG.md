@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the process start time it is matched by was read as UTC, so on any other time zone every fresh
   breadcrumb looked hours old and was passed over. Process start times, which Codex, OmO and gjc
   panes are matched by, are now read on macOS too (they were only read from Linux `/proc`).
+  ([#484](https://github.com/devswha/herdr-web-ui/pull/484) by @kilhyeonjun)
 - A table in the chat that is wider than the reply scrolls sideways in its own box. Before, it
   squeezed every column to fit, down to a letter or two, so words and file paths broke after
   any letter. A column is now never narrower than its longest word.
