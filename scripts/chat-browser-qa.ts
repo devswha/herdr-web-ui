@@ -65,7 +65,16 @@ try {
   // the level is drawn as one word; the sentence is the screen reader's
   await modelInfo.getByText("xhigh", { exact: true }).waitFor();
   await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor({ state: "attached" });
-  assert.equal(await page.locator(".composer-surface > .composer-status").count(), 1, "the status row is the input card's last row");
+  assert.equal(await page.locator(".composer-surface > .composer-status").count(), 1, "the status content is inside the input card");
+  assert.equal(await page.locator(".composer-surface").evaluate((card) => {
+    const box = (selector: string): DOMRect => card.querySelector(selector)!.getBoundingClientRect();
+    const [text, attach, status, action] = [box(".composer-text"), box(".composer-attach"), box(".composer-status"), box(".composer-action")];
+    return card.querySelectorAll(".composer-action").length === 1 && action.width === action.height
+      // the message is the first row, at the card's full width
+      && text.width >= card.getBoundingClientRect().width - 4 && text.bottom <= Math.min(attach.top, action.top)
+      // and one row under it: add, then the status content, then the round button
+      && attach.right <= status.left && status.right <= action.left && status.top < action.bottom && status.bottom > action.top;
+  }), true, "the message on top, one row of controls under it, one round button");
   assert.equal(await page.locator(".composer-status").evaluate((node) => {
     // DONE is the one state word the row draws; READY, RUN and INPUT are read, not drawn
     const word = node.querySelector("strong");
@@ -171,7 +180,12 @@ try {
   // the wrapper has no box of its own (display: contents): measure the name and the level themselves
   const statusItems = page.locator(".composer-model, .composer-reasoning");
   assert.equal(await statusItems.evaluateAll((items) => items.length === 2 && items.every((item) => item.getBoundingClientRect().width > 0 && item.getBoundingClientRect().right <= innerWidth)), true, "model and reasoning stay visible on mobile");
-  assert.equal(await page.locator(".composer-status").evaluate((node) => node.scrollWidth <= node.clientWidth), true, "the status line fits its one row");
+  assert.equal(await page.locator(".composer-status").evaluate((node) => node.scrollWidth <= node.clientWidth), true, "the status content fits its place in the controls row");
+  // a level that does not fit steps out whole (read, not drawn): it is never drawn in part
+  await page.waitForFunction(() => {
+    const level = document.querySelector(".composer-reasoning");
+    return level !== null && (level.scrollWidth <= level.clientWidth || level.getBoundingClientRect().width <= 1);
+  }, undefined, { timeout: 5_000 });
   mkdirSync("evidence/chat-mode", { recursive: true });
   await page.screenshot({ path: "evidence/chat-mode/mobile.png", fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 1280, height: 800 });

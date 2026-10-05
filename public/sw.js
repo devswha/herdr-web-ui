@@ -5,7 +5,16 @@
 // never changes and the browser rereads it to update the installed app, so a
 // cached copy would pin every install to its first manifest. API and websocket
 // traffic is never intercepted so live workspace data is always fresh.
-const CACHE_NAME = "herdr-web-ui-v3-ram";
+// Nothing is precached. The typefaces are /assets/ files too (src/fonts/fonts.css): Pretendard
+// comes as 92 chunks split by unicode-range and the browser asks only for those whose characters
+// a page draws, so each is cached as it is first fetched and a phone that has shown Korean once
+// draws it offline. Never list them for install: that would download all 3 MB on every device.
+// A new CACHE_NAME starts empty for the same reason, so the cache of the name before it is kept
+// until this one holds a shell: the page that brought this worker was loaded through the old
+// one, and its shell, bundles and font chunks are all there. Deleted at activation, the first
+// reload without a network would find no shell at all. Nothing is copied across, so no hashed
+// file of an old build outlives the first navigation that reaches the server.
+const CACHE_NAME = "herdr-web-ui-v4-ram";
 
 const CACHE_FIRST_PATHS = new Set([
   "/favicon.png",
@@ -23,14 +32,23 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    (async () => {
-      const names = await caches.keys();
-      await Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
-      await self.clients.claim();
-    })(),
-  );
+  // no cache is deleted here: see CACHE_NAME
+  event.waitUntil(self.clients.claim());
 });
+
+/** The shell just fetched is this cache's "/", and only then do the caches of other names go. */
+async function keepShell(response) {
+  const cache = await caches.open(CACHE_NAME);
+  await cache.put("/", response);
+  const names = await caches.keys();
+  await Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
+}
+
+/** The shell to start from offline: this cache's, else the one a cache not yet deleted holds. */
+async function cachedShell() {
+  const cache = await caches.open(CACHE_NAME);
+  return (await cache.match("/")) || (await caches.match("/"));
+}
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -43,17 +61,21 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       (async () => {
+        let response;
         try {
-          const response = await fetch(request);
-          if (response.ok) {
-            const cache = await caches.open(CACHE_NAME);
-            cache.put("/", response.clone());
-          }
-          return response;
+          response = await fetch(request);
         } catch (err) {
-          const cached = await caches.match("/");
-          return cached || Response.error();
+          return (await cachedShell()) || Response.error();
         }
+        if (response.ok) {
+          // not awaited: the page gets its shell as it comes, and the worker lives until the
+          // copy is kept (a put reads the whole body). A bundle asked for meanwhile may still
+          // be answered by the old cache: a hashed file is the same file in either, and only
+          // what the network gave is put in this one. A cache that cannot be written does not
+          // cost the page.
+          event.waitUntil(keepShell(response.clone()).catch(() => undefined));
+        }
+        return response;
       })(),
     );
     return;
@@ -62,8 +84,17 @@ self.addEventListener("fetch", (event) => {
   if (isCacheFirst(url.pathname)) {
     event.respondWith(
       (async () => {
-        const cached = await caches.match(request);
-        if (cached) return cached;
+        const cache = await caches.open(CACHE_NAME);
+        const own = await cache.match(request);
+        if (own) return own;
+        const older = await caches.match(request);
+        if (older) {
+          // a file only the cache of the name before still holds, asked for while the new shell's
+          // copy is being kept: it is kept here too, so keepShell's retirement of that cache does
+          // not take the only copy of a file the new shell uses
+          event.waitUntil(cache.put(request, older.clone()).catch(() => undefined));
+          return older;
+        }
         const response = await fetch(request);
         if (response.ok && response.type === "basic") {
           const cache = await caches.open(CACHE_NAME);

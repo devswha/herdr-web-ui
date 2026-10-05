@@ -26,6 +26,7 @@ import { checkDroplet } from "./droplet-regression.ts";
 import { checkAlertSound } from "./alert-sound-regression.ts";
 import { checkChatKeepsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
+import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
@@ -227,6 +228,7 @@ try {
   console.log("PASS terminal Shift+Enter sends a newline chord once and preserves Enter, Alt+Enter and IME");
   console.log("PASS pending IME commit precedes Shift+Enter without duplicate text");
   await checkCommandBackspace(browser, origin, paneA);
+  await checkCtrlEnter(browser, origin, paneA);
   await checkCommandArrows(browser, origin, paneA);
   // a pane shortcut switches panes and types nothing: xterm used to send ESC[1;6B / ESC[1;6A too
   const selectedTitle = () => page.locator(".pane-item.is-selected .pane-select").getAttribute("title");
@@ -373,10 +375,25 @@ try {
     await page.getByRole("button", { name: "Queue message", exact: true }).click();
   }
   assert.equal(await page.locator(".composer-queue-text").count(), 3);
+  // Queue follows the draft: once the box is empty again, Stop is the one resting control
+  await page.getByRole("button", { name: "Queue message", exact: true }).waitFor({ state: "detached" });
+  assert.equal(await composer.inputValue(), "");
+  // the pressed Queue had the focus and is gone: the message box has it, not the page
+  assert.equal(await composer.evaluate((box) => box === document.activeElement), true, "focus goes to the message box when Queue leaves");
+  assert.equal(await page.getByRole("button", { name: "Stop agent", exact: true }).count(), 1);
+  assert.equal(await page.locator(".composer-action").count(), 1, "one round button");
+  // the held rows sit on the input card's column, under one caption that counts them
+  const heldBox = await page.locator(".composer-queue").boundingBox();
+  const cardBox = await page.locator(".composer-surface").boundingBox();
+  assert.ok(heldBox && cardBox);
+  assert.equal(Math.round(heldBox.x), Math.round(cardBox.x));
+  assert.equal(Math.round(heldBox.width), Math.round(cardBox.width));
+  assert.match(await page.locator(".composer-queue-heading").innerText(), /Held until the agent is ready · 3 messages/);
+  assert.equal(await page.locator(".composer-queue-toggle").count(), 0, "no prompt and no short phone: the rows are not folded");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
   // one column: the held list, the box and the conversation share their edges, and the status
   // line is the box's own last row, inside it.
-  // The default Chat width follows the pane: min 820px, max 960px, 71% of the pane between. This
+  // The default Chat width follows the pane: min 820px, max 60rem (960px at this 16px root), 71% of the pane between. This
   // pane is under 1148px, so the lane is its 820px floor, as at Narrow; at Wide the lane is wider
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
@@ -388,10 +405,14 @@ try {
     const pane = await page.locator(".terminal-stack.is-chat").boundingBox();
     const card = await page.locator(".composer-surface").boundingBox();
     assert.ok(pane && card);
-    const status = await page.locator(".composer-surface > .composer-status").boundingBox();
-    assert.ok(status, ".composer-status");
-    // the row spans the card's inner width: inside its hairline border, a fraction of a px either way
-    assert.ok(Math.abs(status.x - card.x) <= 2.5 && Math.abs(status.width - card.width) <= 4, `.composer-status spans the box: ${JSON.stringify({ status, card })}`);
+    const [text, left, status, right] = await Promise.all([".composer-text", ".composer-controls-left", ".composer-status", ".composer-controls-right"]
+      .map((selector) => page.locator(`.composer-surface > ${selector}`).boundingBox()));
+    assert.ok(text && left && status && right, "the message box and the three cells of the controls row");
+    // each row spans the card's inner width: inside its hairline border, a fraction of a px either way
+    assert.ok(Math.abs(text.x - card.x) <= 2.5 && Math.abs(text.width - card.width) <= 4, `.composer-text spans the box: ${JSON.stringify({ text, card })}`);
+    // the status content is the middle cell of the last row: add on its left, the round button on its right, no gap between the cells
+    assert.ok(Math.abs(left.x - card.x) <= 2.5 && Math.abs(status.x - (left.x + left.width)) <= 1 && Math.abs(right.x - (status.x + status.width)) <= 1
+      && Math.abs(right.x + right.width - left.x - card.width) <= 4, `the controls row spans the box: ${JSON.stringify({ left, status, right, card })}`);
     for (const selector of [".composer-queue", ".chat-transcript"]) {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box, selector);
@@ -893,6 +914,12 @@ try {
   await page.locator('.composer-status[data-status="idle"]').waitFor();
   const startupPrompt = page.locator(".prompt-card");
   await startupPrompt.getByRole("button", { name: "1. Yes, continue", exact: true }).waitFor();
+  // the card is docked on the composer's column, directly over it, and is no part of the transcript
+  assert.deepEqual(await startupPrompt.evaluate((node) => ({
+    inTranscript: node.closest(".chat-view") !== null,
+    next: node.parentElement?.nextElementSibling?.classList.contains("composer") ?? false,
+    over: node.getBoundingClientRect().bottom <= document.querySelector(".composer-surface")!.getBoundingClientRect().top,
+  })), { inTranscript: false, next: true, over: true });
   assert.equal(await page.locator('.composer-status[data-status="idle"]').count(), 1);
   assert.equal(await page.locator(".chat-empty").count(), 0);
   await startupPrompt.getByRole("button", { name: "1. Yes, continue", exact: true }).click();

@@ -55,12 +55,12 @@ function range(prompt: InteractivePrompt): string {
 
 /** How a typed message answers this prompt: the composer's placeholder while it waits. */
 export function answerHint(prompt: InteractivePrompt): string {
-  if (prompt.multi_select) return t("Answer above: type the numbers you choose, e.g. 1 3");
+  if (prompt.multi_select) return t("Type the numbers you choose, e.g. 1 3");
   // a free-form question (Codex's queue) has no options to number
-  if (choices(prompt).length === 0) return t("Answer above: type your reply…");
+  if (choices(prompt).length === 0) return t("Type your reply…");
   return prompt.custom_option_index !== null
-    ? t("Answer above: type {range} or your own reply…", { range: range(prompt) })
-    : t("Answer above: type {range} to choose…", { range: range(prompt) });
+    ? t("Type {range} or your own reply…", { range: range(prompt) })
+    : t("Type {range} to choose…", { range: range(prompt) });
 }
 
 /** Why a message was not sent: the prompt takes only its options (answerFromText gave null). */
@@ -78,4 +78,38 @@ export function answerRefusal(prompt: InteractivePrompt): string {
  */
 export function needsConfirmation(prompt: InteractivePrompt, answer: TypedAnswer): boolean {
   return (prompt.kind === "approval" || prompt.kind === "plan" || prompt.kind === "menu") && answer.option_index !== undefined;
+}
+
+/** What pressed an answer in the card; `unknown` when the browser's click does not say. */
+export type PressOrigin = "keyboard" | "mouse" | "touch" | "pen" | "unknown";
+
+/**
+ * What made the click that answered. Asked of the press itself and not of the device: a laptop
+ * with a touch screen reports a fine pointer and is still tapped, and a tablet with a keyboard
+ * reports a coarse one. A click names its pointer in `pointerType`, and so does the pointerdown on
+ * that button before it (`downType`): a finger or a pen in either one wins, since iOS Safari has
+ * called a tap's click a mouse's (WebKit bug 282988). A key's click (Enter, Space) has no pointer
+ * and a `detail` of 0, and so has a script's `click()` or an assistive technology's activation,
+ * which is why a key also needs its keydown on that button (`keyed`). No `press` at all is Enter
+ * in the card's own field.
+ */
+export function pressOrigin(press: { pointerType?: string; downType?: string; detail?: number; keyed: boolean } | undefined): PressOrigin {
+  if (press === undefined) return "keyboard";
+  for (const pointer of ["touch", "pen", "mouse"] as const) {
+    if (press.downType === pointer || press.pointerType === pointer) return pointer;
+  }
+  return press.detail === 0 && press.keyed ? "keyboard" : "unknown";
+}
+
+/**
+ * After an answer pressed in the card went out: may the keyboard's focus go on to the message box?
+ * Only if the card is still there and nothing else took the focus while the answer was on its way
+ * (a palette, a held message being edited, another pane): `inCard` and `onPage` say where it is now.
+ * After a key or a mouse press, on any device: the card goes, and the focus would fall to the page.
+ * Never after a tap or a pen: focus in the message box would raise the on-screen keyboard. A press
+ * of unknown origin is a tap where the device's pointer is `coarse`.
+ */
+export function focusFollowsAnswer({ fromCard, origin, coarse, cardMounted, inCard, onPage }: { fromCard: boolean; origin: PressOrigin; coarse: boolean; cardMounted: boolean; inCard: boolean; onPage: boolean }): boolean {
+  const pressed = origin === "keyboard" || origin === "mouse" || (origin === "unknown" && !coarse);
+  return fromCard && pressed && cardMounted && (inCard || onPage);
 }

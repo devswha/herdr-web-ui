@@ -14,7 +14,41 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   now follows herdr's order instead of the tabs' numbers, so a tab moved in herdr's own UI shows
   in its new place here too.
 
+## [0.3.50] - 2026-10-06
+
 ### Changed
+- The app brings its own typefaces instead of counting on the ones a device has: Pretendard for
+  the interface and the chat, and JetBrains Mono for code in the chat and the interface, so a
+  phone or a PC without them draws Latin text and Korean in the same letters as one with them.
+  Japanese and Chinese are not the same everywhere: Pretendard has kana and only a few hundred
+  ideographs, so kanji and Chinese text are still drawn in the device's own font, and a Japanese
+  line mixes the two. Nothing is fetched from the internet: the files come from your own PC
+  with the app, a page downloads only the pieces of
+  Pretendard its text needs (about 90 KB for a chat in English, about 200 KB more once Korean
+  is on the page), and each piece is kept for offline use after that. The terminal is untouched: its
+  font, its **Terminal font** setting and its grid are as before, and a **Chat font** you chose
+  still comes first. In the chat, answers, your own messages and what the agent says while it
+  works are a step larger (15px at the default **Chat font size**, which still scales
+  everything) on a looser line; bold is a semibold; inline code sits a little under its line and
+  code blocks are a step larger with more room; the message box is typed at the same size with
+  a mouse and stays 16px on touch; the empty chat's question is a larger line. Tool rows, times
+  and other small labels keep their size. A typeface that arrives late redraws the tabs' names
+  at another width, and the tab strip then brings the open tab back into view, unless you have
+  scrolled the strip yourself to look at other tabs: it stays where you left it until you open
+  a tab.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473), [#479](https://github.com/devswha/herdr-web-ui/pull/479))
+- In the chat's message box the agent's mark, the model, the reasoning level and the context
+  ring sit together in one quiet pill, and the model is shown by its name where the id is a
+  regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
+  **GPT-5.6**, `gpt-5.6-sol` **GPT-5.6-Sol**, `glm-5.3` **GLM-5.3**, and the level follows as **High**. No name is ever
+  guessed: any other id (a dated snapshot, a suffix such as `gpt-5.6-sol-max`, another provider's
+  prefix, another vendor, a spelling that is not the vendor's own such as `claude-sonnet-5-05`) is
+  shown exactly as received, in the code font. Behind a name the id
+  as received is in the name's tooltip and is read by a screen reader; on a touch screen it is
+  not shown yet. A pane that records no reasoning level shows the name alone. The pill only shows the model, it is not a button yet. Where the
+  pill does not fit beside Queue (seen on a 390px phone) it steps aside whole while Queue is
+  showing, and the context ring stays.
+  ([#467](https://github.com/devswha/herdr-web-ui/pull/467))
 - In the chat, the line with the model sits inside the message box, as its last row, instead of
   above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
   the reasoning level as one word (`high`) and the context ring. The agent's written name and the
@@ -24,6 +58,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the box is narrow, beside the sidebar for one, the background-task chip shows its count
   before the model's name is cut. In dark themes Queue loses its outline.
   ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
+- The chat's message box is laid out like a chat app's: a rounder card with the message on top
+  at the card's full width, and one row of controls under it. On the left a **+** button
+  attaches files (it was a paperclip) and the background-task chip follows it; on the right are
+  the model, the reasoning level and the context ring, then one round button. Send is an arrow
+  pointing up, and Stop is the same circle in the same place, so only the glyph changes when a
+  turn starts and ends. While the agent works, Queue appears once the box holds text or a
+  file that is still uploading; with an empty box Stop is the only button, and Queue still holds a message only
+  when you press it, after which the keyboard's focus is back in the message box. Where the two
+  do not fit side by side (a phone, or a long model name beside the sidebar) the model's name
+  steps aside while Queue is showing, so neither is cut; without Queue the reasoning level
+  steps aside before the name loses a letter. While reconnecting, "Reconnecting… message held here, never queued" is said once: in
+  the empty box, and under the model once there is a draft, on a phone too, where it used to be
+  hidden. It is no longer cut with an ellipsis, and neither is "Uploading file…"; Queue is not
+  shown while not connected, and a disabled Stop loses its colour. With a mouse, the bar that
+  resizes the box shows when the pointer is over the box, while dragging, on keyboard focus
+  and while a height is set by hand; on a touch screen it is always shown.
+  ([#465](https://github.com/devswha/herdr-web-ui/pull/465))
 - The chat is wider on a large screen: the conversation and the message box follow the pane,
   at least 820px and at most 960px wide, 71% of the pane between. A laptop window keeps the
   820px it had and a large monitor grows to 960px. Settings → Chat → **Chat width** chooses
@@ -31,6 +82,36 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   The held messages, the approval card and the background-task list keep the same column.
   Phones and narrow panes look the same as before.
   ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
+- Held messages above the message box are quiet rows instead of a tinted box: one line above
+  them, a clock with the sentence the box already showed ("Held until the agent is ready", and
+  "· 2 messages" from two), then each message on its own row with **Send now** and **Discard**
+  beside it. A message is still edited in place and still goes out only when you press
+  **Send now**. The rows are as wide as the message box at every window width, and the list
+  scrolls after two and a half rows. When the agent is ready, the clock and **Send now** take
+  the accent colour. While an approval card is open, or in a phone window 600px tall or less (an
+  Android phone with its keyboard up), the rows fold into that one line; tap it to open them. On
+  a phone, **Discard** is an X, and the message box keeps the same side margin as the
+  conversation.
+  ([#466](https://github.com/devswha/herdr-web-ui/pull/466))
+- In the chat, an agent's question, approval or plan no longer sits at the end of the
+  conversation: its card is docked directly above the message box, on the same column, so what
+  is asked and where you answer are one block and the conversation scrolls freely behind it.
+  Held messages stay above it, folded to their one line. The card is plainer: no shadow, its
+  title is the one thing in red (the "INPUT NEEDED" badge is still read by a screen reader),
+  and the options are flat rows with their number as a key, all of equal weight. A command or
+  plan to approve stays in the card's code box and is the only part that shrinks when room is
+  short (six lines, down to two); the card itself is at most 60% of the window, or six rows on a
+  phone with its keyboard up, and scrolls beyond that with Confirm always in sight. The message
+  box says "Type 1–3 to choose…" (or "Type 1–3 or your own reply…") in place of "Answer above:
+  type 1–3 to choose…", which was cut on a phone. While the agent waits for you, the open work
+  block reads "Needs you" with a still red dot in place of "Working…". Answering works as
+  before: a press on an option, a typed number followed by Confirm, or your own reply; Enter in
+  an empty box answers nothing. After a press with a mouse or keyboard, focus goes to the
+  message box, on a tablet or a touch-screen laptop too; a tap never moves it there. The card keeps following Settings → Chat font size and Chat font, and on a phone
+  with its keyboard up a tap on the card's text, or a drag down it, puts the keyboard away as
+  on the conversation.
+  ([#468](https://github.com/devswha/herdr-web-ui/pull/468),
+  [#475](https://github.com/devswha/herdr-web-ui/pull/475))
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The
@@ -91,9 +172,41 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
+- An answer tapped in the chat for a row the cursor is not on looks at the screen again before
+  it presses Enter (or the first key that does more than move the cursor). A menu answered in
+  the terminal while the answer was moving the cursor could be replaced by another menu, which
+  then took the Enter; the answer now stops with "the prompt changed" unless the screen still
+  shows the card's menu with the cursor on its row, having pressed only ↑ and ↓. It also stops
+  once the agent is back at work under it. And a question asked again with the same text is a
+  card of its own where the app can see that the first asking ended (it was answered from the
+  app, the agent went back to work, or the prompt left the screen), so a typed pick waiting for
+  Confirm, or the card still open on another device, no longer answers the second asking. Not
+  covered: the keys after the first one that does more than move (the text and Enter of a typed
+  answer, the later ticks of a multiple choice), and a prompt answered in a terminal and asked
+  again word for word with nothing the app can see in between. Remote PCs get this with the
+  next `remote-vN` runtime.
+  ([#470](https://github.com/devswha/herdr-web-ui/pull/470))
+- The installed app opens without a network right after an update that renewed its offline
+  store, as this one does. The old store used to be emptied the moment the new version took
+  over, so until the app had been opened online once more, a reload with no connection showed
+  the browser's error page. The old store is now kept until the new one holds the app.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
+- Ctrl+Enter typed into the live terminal reaches Claude Code as Ctrl+Enter, so a message typed
+  while it works is sent at once instead of waiting in its queue. The terminal sent plain Enter; it
+  now sends the key the way the pane's program asked for (modifyOtherKeys), also to a device that
+  opens the pane later, and keeps Enter for programs that asked for nothing. A phone's input line
+  and a Windows mirror pane send Enter as before.
+  ([#471](https://github.com/devswha/herdr-web-ui/pull/471) by @WOULDU-pres)
 - A draft in the message box keeps its full height when the window or the pane is resized, or
   the chat width changes: the box used to keep the height of its old line breaks until the next
   key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
+- With a browser font size other than 16px (from 11.4px up), the Default chat width is never
+  wider than Wide.
+  Its widest was a fixed 960px while Wide follows the font size, so at a 13px font Wide (936px)
+  made the chat narrower than Default on a large monitor. Default's widest now follows the font
+  size too (960px at 16px, 1200px at 20px), and it is never narrower than Narrow's 820px: under
+  an 11.4px font that 820px is itself wider than Wide.
+  ([#474](https://github.com/devswha/herdr-web-ui/pull/474))
 - An update asked for in the first moments after the app starts, or right after another update,
   waits until the start is over. It used to stop the app in the middle of its start-up check,
   and the app then fell back to the source checkout or did not come up.
@@ -1837,7 +1950,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...HEAD
+[0.3.50]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...v0.3.50
 [0.3.49]: https://github.com/devswha/herdr-web-ui/compare/v0.3.48...v0.3.49
 [0.3.48]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...v0.3.47

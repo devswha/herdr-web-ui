@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, Page } from "playwright-core";
+import { appFaces } from "./app-faces.ts";
 import { herdrRpc, tabCreate, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 type Box = { left: number; top: number; right: number; bottom: number; width: number; height: number };
@@ -128,6 +129,54 @@ export async function checkMobileTabs(browser: Browser, origin: string): Promise
     await assertShell(page, "a 320px phone", 0);
     await screenshot("narrow");
     assert.deepEqual(errors, []);
+
+    // The app's faces come after the first paint (src/fonts/fonts.css, font-display: swap) and
+    // every tab's name is redrawn with them, wider or narrower: the strip that brought the open
+    // tab into view in the fallback brings it into view again. The font files are held here until
+    // the fallback drawing is seen; no service worker, so that nothing answers them from a cache.
+    // A strip the user scrolled themselves, to look at other tabs, is left where they put it by a
+    // face that comes after: the scroll below is not the strip's own, which is all the app can
+    // know of a wheel or a drag. Opening a tab ends that.
+    for (const scrolled of [false, true]) {
+      const slow = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US", serviceWorkers: "block" });
+      try {
+        await slow.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
+        const late = await slow.newPage();
+        const lateErrors: string[] = [];
+        late.on("pageerror", (error) => lateErrors.push(error.message));
+        let release = (): void => undefined;
+        const released = new Promise<void>((done) => { release = done; });
+        await late.route("**/*.woff2", async (route) => { await released; await route.continue().catch(() => undefined); });
+        const strip = late.locator(".tab-strip");
+        const openInView = (): Promise<boolean> => strip.evaluate((node) => {
+          const item = node.querySelector(".tab-strip-item.is-active")!.getBoundingClientRect();
+          return item.left >= node.getBoundingClientRect().left - 1 && item.right <= node.querySelector(".tab-strip-add")!.getBoundingClientRect().left + 1;
+        });
+        try {
+          await late.goto(`${origin}/?pane=${encodeURIComponent(last)}`);
+          await late.locator(".conn-live").waitFor();
+          await late.locator('.tab-strip [role="tab"][aria-selected="true"]', { hasText: "docs" }).waitFor();
+          assert.equal(await late.evaluate(() => [...document.fonts].filter((face) => face.family.replace(/["']/g, "") === "Pretendard Variable" && face.status === "loaded").length), 0, "the strip is first drawn before its face comes");
+          await activeTabInView(late, "the last tab, before the faces came");
+          if (scrolled) {
+            await strip.evaluate((node) => { node.scrollLeft = 0; });
+            await late.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            assert.equal(await openInView(), false, "the user scrolled the strip away from the open tab");
+          }
+        } finally { release(); }
+        await appFaces(late);
+        if (scrolled) {
+          assert.equal(await strip.evaluate((node) => node.scrollLeft), 0, "a strip the user scrolled is left there when the faces come");
+          assert.equal(await openInView(), false);
+          await late.getByRole("tab", { name: "Tab 1", exact: true }).tap();
+          await late.locator('.tab-strip [role="tab"][aria-selected="true"]', { hasText: "Tab 1" }).waitFor();
+          await activeTabInView(late, "a tab opened after the user's scroll");
+        } else {
+          await activeTabInView(late, "the last tab, after the faces came");
+        }
+        assert.deepEqual(lateErrors, []);
+      } finally { await slow.close(); }
+    }
     console.log("PASS a phone keeps the pane's title in the header and the open tab and the + in the strip, in both lenses and with the keyboard up");
   } finally {
     await context.close();
