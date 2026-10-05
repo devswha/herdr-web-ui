@@ -162,6 +162,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
+- An answer tapped in the chat for a row the cursor is not on looks at the screen again before
+  it presses Enter (or the first key that does more than move the cursor). A menu answered in
+  the terminal while the answer was moving the cursor could be replaced by another menu, which
+  then took the Enter; the answer now stops with "the prompt changed" unless the screen still
+  shows the card's menu with the cursor on its row, having pressed only ↑ and ↓. It also stops
+  once the agent is back at work under it. And a question asked again with the same text is a
+  card of its own where the app can see that the first asking ended (it was answered from the
+  app, the agent went back to work, or the prompt left the screen), so a typed pick waiting for
+  Confirm, or the card still open on another device, no longer answers the second asking. Not
+  covered: the keys after the first one that does more than move (the text and Enter of a typed
+  answer, the later ticks of a multiple choice), and a prompt answered in a terminal and asked
+  again word for word with nothing the app can see in between. Remote PCs get this with the
+  next `remote-vN` runtime.
+  ([#470](https://github.com/devswha/herdr-web-ui/pull/470))
 - The installed app opens without a network right after an update that renewed its offline
   store, as this one does. The old store used to be emptied the moment the new version took
   over, so until the app had been opened online once more, a reload with no connection showed
