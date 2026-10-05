@@ -22,6 +22,7 @@ import { useFacesArrived } from "../lib/fontFaces.ts";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { useT } from "../lib/i18n.ts";
 import { customTabLabel, tabLabel } from "../lib/tabName.ts";
+import { STRIP_AT_REST, stripPlaced, stripScrolled, stripSelected, type StripScroll } from "../lib/tabStripScroll.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { knownStatus } from "../lib/status.ts";
@@ -109,20 +110,39 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
 
   // the open tab is in view: a pane opened from the sidebar, the palette or an alert can be on a
   // tab scrolled out of a phone's strip. Only the strip scrolls, never the page around it.
-  // A face that arrives after that (lib/fontFaces.ts) redraws every name wider or narrower with
-  // no tab added or opened, so the open tab is brought into view again for each.
   const shown = panes.length >= 2;
-  const faces = useFacesArrived();
-  useLayoutEffect(() => {
+  const scroll = useRef<StripScroll>(STRIP_AT_REST);
+  const bringOpenTab = (): void => {
     const row = strip.current;
-    const open = row?.querySelector<HTMLElement>(".tab-strip-item.is-active");
-    if (!row || !open) return;
+    if (!row) { scroll.current = STRIP_AT_REST; return; }
+    const open = row.querySelector<HTMLElement>(".tab-strip-item.is-active");
+    if (!open) return;
     const view = row.getBoundingClientRect();
     const item = open.getBoundingClientRect();
     const end = row.querySelector<HTMLElement>(".tab-strip-add")?.getBoundingClientRect().left ?? view.right;
+    const before = row.scrollLeft;
     if (item.left < view.left) row.scrollLeft -= view.left - item.left;
     else if (item.right > end) row.scrollLeft += item.right - end;
-  }, [selectedPane.tab_id, tabs.length, shown, faces]);
+    // where the browser really left it; a strip that did not have to move may hold a scroll of
+    // the user's whose event is still to come, and that one is left for the event to tell
+    if (row.scrollLeft !== before || scroll.current.at === null) scroll.current = stripPlaced(scroll.current, row.scrollLeft);
+  };
+  useLayoutEffect(() => {
+    scroll.current = stripSelected(scroll.current);
+  }, [selectedPane.tab_id]);
+  useLayoutEffect(bringOpenTab, [selectedPane.tab_id, tabs.length, shown]);
+  // A face that arrives after that (lib/fontFaces.ts) redraws every name wider or narrower with
+  // no tab added or opened, so the open tab is brought into view again for each: unless the user
+  // has scrolled the strip themselves since a tab was last opened (lib/tabStripScroll.ts), and is
+  // looking at other tabs. A chunk can come long after the page, with the first Korean on it.
+  const faces = useFacesArrived();
+  useLayoutEffect(() => {
+    if (!scroll.current.moved) bringOpenTab();
+  }, [faces]);
+  const onScroll = (): void => {
+    const row = strip.current;
+    if (row) scroll.current = stripScrolled(scroll.current, row.scrollLeft, row.scrollWidth - row.clientWidth);
+  };
 
   if (!shown) return null;
 
@@ -235,7 +255,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
 
   return (
     <>
-      <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} onKeyDown={onKeyDown}>
+      <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} onKeyDown={onKeyDown} onScroll={onScroll}>
         {tabs.map((tab) => {
           const active = tab.tab_id === selectedPane.tab_id;
           const own = panesOf(tab);
