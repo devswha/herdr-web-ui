@@ -25,6 +25,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   task list under its panel (`3 tasks (0 done, 3 open)` and a row per task), and a named
   session's rule drawn under the question with no task list. Before, the first showed the
   fallback card and the other two were taken for answered questions, so the chat showed none.
+  ([#485](https://github.com/devswha/herdr-web-ui/pull/485) by @kilhyeonjun)
 - A table in the chat that is wider than the reply scrolls sideways in its own box. Before, it
   squeezed every column to fit, down to a letter or two, so words and file paths broke after
   any letter. A column is now never narrower than its longest word.

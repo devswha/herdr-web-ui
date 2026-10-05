@@ -743,6 +743,15 @@ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questi
     expect(() => answerKeys(prompt!, { custom_text: "x" })).toThrow();
   });
 
+  test("cuts the box off at its own column only: a bar inside an option's text stays", () => {
+    // the same screen with qualifiers after a bar, padded so the box keeps its column
+    const relabel = (screen: string, from: string, to: string) => { expect(screen).toContain(from); return screen.replace(from, to.padEnd(from.length)); };
+    const screen = relabel(relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. Grid  │ compact"), "  2. List                         ", "  2. List  │ spacious");
+    const prompt = parseInteractivePrompt("claude", screen);
+    expect(prompt?.kind === "question" ? prompt.options.map((option) => `${option.label}${option.description === null ? "" : ` / ${option.description}`}`) : prompt)
+      .toEqual(["Grid  │ compact", "List  │ spacious"]);
+  });
+
   test("does not take an answered form above later output for an open one", () => {
     expect(parseInteractivePrompt("claude", withPreview + "\n● Done.\n\n> ")).toBeNull();
   });
@@ -792,6 +801,21 @@ ${rows}
   test("keeps output that ends in … after the list: only an in-progress task's activity is the list's", () => {
     const after = question + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비") + "⏺ Done…\n";
     expect(parseInteractivePrompt("claude", after)).toBeNull();
+  });
+
+  test("does not take an answered form for an open one when the agent's own lines follow the task header", () => {
+    // the old panel is still in the buffer; the agent went on and the input line is the user's again
+    const after = question + "\n  3 tasks (0 done, 3 open)\n● Continuing with the first option…\n❯ Explain the remaining work…\n";
+    expect(parseInteractivePrompt("claude", after)).toBeNull();
+  });
+
+  test("does not take an answered form for an open one when output sits between the panel and the task list", () => {
+    const after = question + "\n⏺ 만들지 않음으로 진행합니다.\n" + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비");
+    expect(parseInteractivePrompt("claude", after)).toBeNull();
+  });
+
+  test("does not take a rule of another program under the panel for Claude's own", () => {
+    expect(parseInteractivePrompt("claude", question + "\n⏺ Done.\n──── user@host:~/project ─\n")).toBeNull();
   });
 });
 
