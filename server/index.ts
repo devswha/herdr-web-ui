@@ -888,6 +888,8 @@ export function createServer(
 
   /** Status of EVERY pane, attached or not: one collector feeds all connected clients and web push. */
   function omoChanged(paneId: string, derived: AgentStatus, background: number, turn: boolean): void {
+    // OmO's own turn, which herdr's status never shows: back at work, its form has had its answer
+    if (turn && derived === "working") promptWaitEnded(paneId);
     // a background task starting or ending is no turn: the status stands, and nothing is alerted
     const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
     broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: background });
