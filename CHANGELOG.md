@@ -25,6 +25,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   again after it on its own, for a monitor's event or a background command that ended. Before,
   what it did after the wake-up ran into the same turn, and the answer, a whole review for
   example, was folded away under "Worked for" while the terminal showed it.
+  ([#483](https://github.com/devswha/herdr-web-ui/pull/483))
 
 ## [0.3.50] - 2026-10-06
 
