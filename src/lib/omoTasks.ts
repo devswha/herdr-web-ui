@@ -35,6 +35,57 @@ export function clockOffsetMs(serverTime: string | null, receivedAt: number): nu
   return Number.isFinite(server) ? server - receivedAt : 0;
 }
 
+/** One task an OmO or omp `task` call starts: what it is for, the agent it runs as, and what it was told. */
+export interface TaskCallItem { title: string; agent: string | null; prompt: string }
+
+/**
+ * The tasks one `task` call starts: OmO's single call (`task_summary`, `description`, `prompt`,
+ * `subagent_type` or `category`) or batch (`tasks`, each item taking the call's agent unless it
+ * names its own), and omp's batch (`agent`, items with `description` and `assignment`). Null when
+ * the input is no such call.
+ */
+export function taskCallItems(input: Record<string, unknown>): TaskCallItem[] | null {
+  const str = (row: Record<string, unknown>, ...keys: string[]): string | null => {
+    for (const key of keys) { const value = row[key]; if (typeof value === "string" && value.trim().length > 0) return value.trim(); }
+    return null;
+  };
+  const agentOf = (row: Record<string, unknown>): string | null => str(row, "subagent_type", "agent", "category");
+  const shared = agentOf(input);
+  const rows = Array.isArray(input["tasks"]) ? input["tasks"] : [input];
+  const items = rows.flatMap((value, index): TaskCallItem[] => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+    const row = value as Record<string, unknown>;
+    const prompt = str(row, "prompt", "assignment") ?? "";
+    const title = str(row, "task_summary", "description", "name", "id");
+    if (title === null && prompt.length === 0) return [];
+    return [{ title: title ?? `#${index + 1}`, agent: agentOf(row) ?? shared, prompt }];
+  });
+  return items.length > 0 ? items : null;
+}
+
+/**
+ * A task's answer as the chat reads it. OmO's agents often frame theirs in bare section tags on
+ * lines of their own (`<analysis>` … `</analysis>`, `<next_steps>`): an opening tag becomes the
+ * section's name in bold, a closing one goes. Tags inside a code block, and any line with more
+ * on it than the tag, are the answer's own and stay. A code block opens and closes as the chat's
+ * Markdown (lib/markdown.ts) reads one: it opens at a line starting with three backticks, after
+ * up to three spaces (a tab is not a fence there), and closes only at a line of three backticks
+ * alone, so a fence line that names a language inside a block is part of the block.
+ */
+export function taskResultMarkdown(text: string): string {
+  let fenced = false;
+  const lines: string[] = [];
+  for (const line of text.split("\n")) {
+    if (fenced ? /^\s{0,3}```\s*$/.test(line) : /^ {0,3}```/.test(line)) { fenced = !fenced; lines.push(line); continue; }
+    const tag = fenced ? null : /^\s*<(\/?)([a-z][a-z0-9_-]*)>\s*$/.exec(line);
+    if (tag === null) { lines.push(line); continue; }
+    if (tag[1] === "/") continue;
+    const name = tag[2]!.replace(/[_-]+/g, " ");
+    lines.push(`**${name[0]!.toUpperCase()}${name.slice(1)}**`);
+  }
+  return lines.join("\n").trim();
+}
+
 /** `8s`, `4m 12s`, `1h 3m` */
 export function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);

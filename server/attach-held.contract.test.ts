@@ -164,6 +164,48 @@ describe("a terminal another web bridge holds", () => {
       b.ws.close();
     }
   }, 30_000);
+
+  it("takes the pane when asked, and the bridge it was taken from waits in turn", async () => {
+    const paneId = await pane();
+    const a = connect(first.port, paneId);
+    const b = connect(second.port, paneId);
+    const watcher = connect(first.port, paneId);
+    try {
+      await a.open;
+      a.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+      await until(() => a.state.frames > 0, "first bridge attached");
+      await b.open;
+      b.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+      await until(() => b.state.errors.includes("attach_held"), "second bridge told the pane is held");
+
+      // an observer may not take it
+      await watcher.open;
+      watcher.send({ type: "role", mode: "observe" });
+      watcher.send({ type: "take-over", pane_id: paneId });
+      await until(() => watcher.state.errors.includes("read_only"), "observer refused");
+
+      // the second bridge takes it: it types into the pane now
+      b.send({ type: "take-over", pane_id: paneId });
+      await until(() => b.state.resumed === 1 && b.state.ready > 0, "second bridge took the pane");
+      // the first bridge waits, its terminal not ended
+      await until(() => a.state.errors.includes("attach_held"), "first bridge told the pane is held");
+      expect(a.state.exits).toBe(0);
+      const marker = join(rootA, "typed-after-take-over");
+      b.send({ type: "input", pane_id: paneId, text: `touch '${marker}'\r` });
+      await until(() => existsSync(marker), "second bridge types into the pane");
+
+      // and takes it back the same way
+      a.send({ type: "take-over", pane_id: paneId });
+      await until(() => a.state.resumed === 1, "first bridge took it back");
+      await until(() => b.state.errors.filter((code) => code === "attach_held").length === 2, "second bridge waits again");
+      expect(b.state.exits).toBe(0);
+      expect(a.state.exits).toBe(0);
+    } finally {
+      a.ws.close();
+      b.ws.close();
+      watcher.ws.close();
+    }
+  }, 30_000);
 });
 
 describe("an attach classified as held", () => {

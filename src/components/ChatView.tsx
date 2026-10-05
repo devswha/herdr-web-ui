@@ -1,7 +1,7 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 import {
-  ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, Copy, Target,
+  ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, CircleX, Copy, Layers, Target,
   type LucideProps,
 } from "lucide-react";
 
@@ -34,12 +34,13 @@ import { fileUrl } from "../lib/api.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { lineDiff } from "../lib/diff.ts";
 import { formatTokens } from "../lib/compose.ts";
+import { formatElapsed, taskCallItems, taskResultMarkdown } from "../lib/omoTasks.ts";
 
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
-import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
@@ -209,6 +210,12 @@ function ToolInputView({ part }: { part: ToolPartType }) {
   try { parsed = JSON.parse(part.input) as Record<string, unknown>; }
   catch { return <pre className="chat-tool-io">{part.input}</pre>; }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return <pre className="chat-tool-io">{part.input}</pre>;
+  // an OmO or omp `task` call: the tasks it starts, not its JSON or a checklist nobody ticks
+  const spawned = part.name === "task" ? taskCallItems(parsed) : null;
+  if (spawned !== null) return <ol className="chat-task-calls">{spawned.map((item, index) => <li key={index} className="chat-task-call">
+    <p className="chat-task-call-head"><span className="chat-task-call-title">{item.title}</span>{item.agent !== null && <span className="chat-task-call-agent">{item.agent}</span>}</p>
+    {item.prompt.length > 0 && <pre className="chat-tool-io chat-task-call-prompt">{item.prompt}</pre>}
+  </li>)}</ol>;
   const str = (key: string): string | undefined => typeof parsed[key] === "string" ? parsed[key] : undefined;
   const command = str("command") ?? str("cmd");
   if (command !== undefined) return <div className="chat-tool-io"><pre>{command}</pre>{(str("cwd") ?? str("description")) !== undefined && <p className="chat-tool-io-meta">{str("cwd") ?? str("description")}</p>}</div>;
@@ -407,6 +414,38 @@ interface TurnProps {
   showThinking: boolean;
 }
 
+const TASK_RESULT_ICONS: Record<OmoTaskResult["status"], ComponentType<LucideProps>> = { completed: CircleCheck, failed: CircleX, cancelled: CircleSlash };
+
+/** One OmO background task that ended: what it was and how it went, and what it found on request. */
+function TaskResultRow({ task }: { task: OmoTaskResult }) {
+  const t = useT();
+  const Icon = TASK_RESULT_ICONS[task.status];
+  const word: Record<OmoTaskResult["status"], string> = { completed: t("done"), failed: t("failed"), cancelled: t("cancelled") };
+  const meta = [
+    task.agent, task.model, task.duration_ms === null ? null : formatElapsed(task.duration_ms),
+    task.turns === null ? null : t(task.turns === 1 ? "{n} turn" : "{n} turns", { n: task.turns }),
+    task.tool_calls === null ? null : t(task.tool_calls === 1 ? "{n} tool call" : "{n} tool calls", { n: task.tool_calls }),
+    task.tokens === null || task.tokens === 0 ? null : t("{n} tokens", { n: formatTokens(task.tokens) }),
+  ].filter((item) => item !== null).join(" · ");
+  // the answer is drawn once the row is opened: a wake can carry many tasks, each with a long answer
+  const [opened, setOpened] = useState(false);
+  return <details className={`chat-task-result is-${task.status}`} onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
+    <summary>
+      <Icon className="chat-task-result-icon" aria-hidden="true" />
+      <span className="chat-task-result-main">
+        <span className="chat-task-result-title">{task.title}</span>
+        {meta.length > 0 && <span className="chat-task-result-meta">{meta}</span>}
+      </span>
+      <span className="chat-task-result-status">{word[task.status]}</span>
+      <ChevronDown className="chat-skill-caret" aria-hidden="true" />
+    </summary>
+    {opened && <div className="chat-task-result-body">
+      {task.result.length > 0 ? <Markdown>{taskResultMarkdown(task.result)}</Markdown> : <p className="chat-task-result-note">{t("The task reported no result")}</p>}
+      {task.result_cut === true && <p className="chat-task-result-note">{t("This is the first part of a longer result")}</p>}
+    </div>}
+  </details>;
+}
+
 /** what a runtime notice was: a background result by name, anything else by its own first line */
 function noticeLabel(t: ReturnType<typeof useT>, notice: Extract<ConversationPart, { kind: "notice" }>): string {
   if (notice.source === undefined || notice.source === "async-result") return t("Background result delivered");
@@ -424,6 +463,15 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
       <summary>{t("Conversation compacted")}{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
       <div className="chat-compact-text"><Markdown>{compact.text}</Markdown></div>
     </details>;
+  }
+  // OmO's background tasks reported back: a card of what ended, each result on request
+  const ended = turn.parts.find((part): part is Extract<ConversationPart, { kind: "task_result" }> => part.kind === "task_result");
+  if (ended !== undefined) {
+    const heading = ended.tasks.length === 1 ? t("Background task ended") : t("{n} background tasks ended", { n: ended.tasks.length });
+    return <section className="chat-task-results" aria-label={heading}>
+      <p className="chat-task-results-head"><Layers aria-hidden="true" /><span>{heading}</span>{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</p>
+      {ended.tasks.map((task) => <TaskResultRow key={task.id} task={task} />)}
+    </section>;
   }
   // the runtime spoke, not the user: a quiet divider like a compaction, the text on request
   const notice = turn.parts.find((part): part is Extract<ConversationPart, { kind: "notice" }> => part.kind === "notice");

@@ -75,6 +75,38 @@ it("requires attachment readiness and never replays held input after a detach", 
   client.close();
 });
 
+it("takes a held pane only from a server that knows how, while interacting with an attached pane", () => {
+  const takes = (socket: FakeSocket) => socket.sent.filter((m) => m.type === "take-over");
+  const old = new HerdrSocket("ws://test/ws");
+  old.connect();
+  const oldSocket = FakeSocket.last;
+  oldSocket.open();
+  oldSocket.receive(snapshot(["submit", "input-ready"]));
+  old.attach("w1:p1", 80, 24);
+  expect(old.canTakeOver()).toBe(false);
+  expect(old.takeOver("w1:p1")).toBe(false);
+  expect(takes(oldSocket)).toEqual([]);
+  old.close();
+
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["submit", "input-ready", "take-over"]));
+  expect(client.takeOver("w1:p1")).toBe(false);
+  client.attach("w1:p1", 80, 24);
+  expect(client.takeOver("w1:p1")).toBe(true);
+  // The open handler replays role and attach state, never the explicit takeover.
+  socket.open();
+  socket.receive(snapshot(["submit", "input-ready", "take-over"]));
+  expect(takes(socket)).toEqual([{ type: "take-over", pane_id: "w1:p1" }]);
+  client.setMode("observe");
+  expect(client.takeOver("w1:p1")).toBe(false);
+  expect(takes(socket)).toEqual([{ type: "take-over", pane_id: "w1:p1" }]);
+  client.close();
+  expect(client.takeOver("w1:p1")).toBe(false);
+});
+
 it("attaches a grid the chat lens covers without resizing the shared pty, on a reconnect too, until it drives the size again", () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();

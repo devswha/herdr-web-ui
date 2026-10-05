@@ -543,6 +543,9 @@ One set for both themes: the card is island black wherever it shows.
   first 20 behind **Show all N lines**. On touch a block has a header strip (language, copy);
   with a mouse and no touch screen the strip becomes a corner control over the block's top right,
   shown on hover or focus-within (no transition under reduced motion).
+  A table fills the reply's width; its cells, file paths included, break between words only, so a
+  column is never narrower than its longest word, and a table without room scrolls sideways in
+  its own box.
   Thinking renders as a folded block only when **Show thinking** is enabled.
 - Auto-follow stops when the reader scrolls up; later output raises a **New messages** pill.
 - An empty chat is greeted from the composer (`.composer-greeting`, below), only where the agent's
@@ -588,6 +591,18 @@ One set for both themes: the card is island black wherever it shows.
   failure count leave and end in an ellipsis. `· 1 failed` (`.work-block-failed`) is its own item
   and is never cut, because the fold hides the failed row; at the largest chat type on the
   narrowest phone the title wraps to a second line instead.
+- An OmO or omp `task` row opens to the tasks it starts (`.chat-task-calls`): each summary in
+  `--text`, the agent as a hairline mono pill, the prompt in the bounded mono input box.
+
+### Background tasks ended (`.chat-task-results`)
+- Where OmO reports background tasks that ended, the transcript shows one `--bg-elevated` card
+  (hairline edge, `--radius-lg`) on the prose column: a dim `--fs-xs` line with the layers icon,
+  "2 background tasks ended" and the time, then one hairline-separated row per task.
+- A row is the status icon (`--status-done` check, `--status-blocked` x, dim slash for
+  cancelled), the task's summary (`--fs-sm`, medium) over a dim `--fs-xs` meta line (agent ·
+  model · duration · turns · tool calls · tokens), and the status word at the right in the
+  icon's color, with the skill caret. Opened, the task's answer renders as Markdown, indented to
+  the title, bounded to 60vh.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,

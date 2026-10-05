@@ -488,6 +488,10 @@ class DemoSocket extends EventTarget {
     switch (message.type) {
       case "role": this.push({ type: "role-ack", mode: message.mode === "observe" ? "observe" : "interact" }); break;
       case "attach": if (message.pane_id) this.attach(message.pane_id); break;
+      // The demo has no competing attach slots and does not advertise this capability.
+      case "take-over":
+        this.push({ type: "error", code: "unsupported", message: "The demo has no competing terminal attachments.", pane_id: message.pane_id });
+        break;
       case "detach": if (message.pane_id) this.attached.delete(message.pane_id); break;
       case "input": if (message.pane_id && message.text !== undefined) this.typed(message.pane_id, message.text); break;
       case "keys": if (message.pane_id) for (const key of message.keys ?? []) this.typed(message.pane_id, key === "Enter" ? "\r" : key === "Backspace" ? "\x7f" : key.length === 1 ? key : ""); break;
