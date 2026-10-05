@@ -741,10 +741,14 @@ button {
 }
 
 /* the menu's first thing, two lines on purpose: "PC › workspace", then the whole path in the
-   mono face. It is where a touch screen reads the path. */
+   mono face. It is where a touch screen reads the path. A path longer than six lines scrolls
+   here, so the items under it stay on the screen. */
 .header-more-crumb {
   display: flex;
   flex-direction: column;
+  max-height: calc(6em * var(--lh-base));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   color: var(--text-dim);
   font-size: var(--fs-xs);
   line-height: var(--lh-base);
