@@ -156,7 +156,7 @@ describe("composer presentation helpers", () => {
     expect(composerStatusHint({ uploading: true, connected: true, text: "" })).toBe("uploading");
     // an upload caught by a dropped connection: the box is empty, so the placeholder says why
     expect(composerStatusHint({ uploading: true, connected: false, text: "" })).toBe("uploading");
-    // with a draft the placeholder is gone: the reconnecting sentence goes first (the tile says Uploading)
+    // with a draft the placeholder is gone: the reconnecting sentence is the one said (the tile says Uploading)
     expect(composerStatusHint({ uploading: true, connected: false, text: "draft" })).toBe("offline");
   });
 

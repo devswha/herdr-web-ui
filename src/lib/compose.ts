@@ -151,9 +151,9 @@ export function composerQueueShown(state: { queueMode: boolean; connected: boole
 /**
  * The sentence in the status content, if any. The reconnecting sentence is said once: it is the
  * placeholder while the box is empty, and moves here once there is a draft, which hides the
- * placeholder. It goes before an upload's: the attachment's own tile says it is uploading, and
- * nothing else in the card would say why Stop and add are off. Otherwise an upload says so
- * while it runs.
+ * placeholder. It is said instead of an upload's, never both: the attachment's own tile says
+ * it is uploading, and nothing else in the card would say why Stop and add are off. Otherwise
+ * an upload says so while it runs.
  */
 export function composerStatusHint(state: { uploading: boolean; connected: boolean; text: string }): "uploading" | "offline" | null {
   if (!state.connected && state.text.length > 0) return "offline";

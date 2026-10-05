@@ -632,8 +632,8 @@ One set for both themes: the card is island black wherever it shows.
   the sentence takes a line: the mark, the model, the level and the ring stay one row over it
   (`.composer-status-meta`), where the label gives way exactly as it does with no sentence. The
   status content is then left-aligned, beside the add button. Add and Stop are disabled and
-  Queue is not drawn. With a draft, the reconnecting sentence goes before `Uploading file…`: the
-  attachment's own tile says it is uploading.
+  Queue is not drawn. With a draft, the reconnecting sentence is said instead of
+  `Uploading file…`, never both: the attachment's own tile says it is uploading.
 - The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
   (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,
   while it is dragged, on its own keyboard focus, and while a manual height is set; on any coarse
