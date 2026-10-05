@@ -370,6 +370,14 @@ export const KO: Record<string, string> = {
   "Left": "왼쪽",
   "Right": "오른쪽",
   "Control C": "Control C",
+  "Control D": "Control D",
+  "Control Z": "Control Z",
+  "Shift Tab": "Shift Tab",
+  "Page up": "페이지 업",
+  "Page down": "페이지 다운",
+  "Page up and Page down": "페이지 업, 페이지 다운",
+  "Key bar": "키 바",
+  "Extra keys in the bar under the terminal on a touch screen. Esc, Tab, Ctrl, the arrows and ^C are always there.": "터치 화면에서 터미널 아래 키 바에 더할 키입니다. Esc, Tab, Ctrl, 화살표, ^C는 항상 있습니다.",
 
   // ---- prompt card ----
   "Submit": "제출",

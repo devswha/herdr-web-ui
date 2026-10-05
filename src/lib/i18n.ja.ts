@@ -372,6 +372,14 @@ export const JA: Record<string, string> = {
   "Left": "左",
   "Right": "右",
   "Control C": "Control C",
+  "Control D": "Control D",
+  "Control Z": "Control Z",
+  "Shift Tab": "Shift Tab",
+  "Page up": "ページアップ",
+  "Page down": "ページダウン",
+  "Page up and Page down": "ページアップとページダウン",
+  "Key bar": "キーバー",
+  "Extra keys in the bar under the terminal on a touch screen. Esc, Tab, Ctrl, the arrows and ^C are always there.": "タッチ画面でターミナルの下のキーバーに加えるキーです。Esc、Tab、Ctrl、矢印、^C は常にあります。",
 
   // ---- prompt card ----
   "Submit": "送信",

@@ -13,6 +13,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   back automatically. Available on supporting bridges, for interact connections only.
   ([#368](https://github.com/devswha/herdr-web-ui/pull/368) by @WOULDU-pres)
 
+- The terminal's key bar on a touch screen has an **Alt** key beside Ctrl. Like Ctrl it holds for
+  one key: Alt then a letter, Backspace or Enter sends ESC before it, and Alt then an arrow sends
+  Alt+arrow. **Settings → Appearance → Key bar** turns Alt off or adds Shift+Tab, Home/End,
+  PgUp/PgDn, Ctrl+D, Ctrl+Z, `|`, `~` and `/`, each in a fixed place in the row. Esc, Tab, Ctrl,
+  the arrows and Ctrl+C stay as they were. ([#487](https://github.com/devswha/herdr-web-ui/pull/487))
+
 ### Fixed
 - On macOS, a gjc pane's chat finds its session from the terminal breadcrumb gjc leaves. Before,
   the process start time it is matched by was read as UTC, so on any other time zone every fresh

@@ -374,6 +374,14 @@ export const ZH: Record<string, string> = {
   "Left": "左",
   "Right": "右",
   "Control C": "Control C",
+  "Control D": "Control D",
+  "Control Z": "Control Z",
+  "Shift Tab": "Shift Tab",
+  "Page up": "向上翻页",
+  "Page down": "向下翻页",
+  "Page up and Page down": "向上翻页和向下翻页",
+  "Key bar": "按键栏",
+  "Extra keys in the bar under the terminal on a touch screen. Esc, Tab, Ctrl, the arrows and ^C are always there.": "触屏上终端下方按键栏中的额外按键。Esc、Tab、Ctrl、方向键和 ^C 始终都在。",
 
   // ---- prompt card ----
   "Submit": "提交",
