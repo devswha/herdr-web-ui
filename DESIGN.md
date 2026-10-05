@@ -484,9 +484,9 @@ One set for both themes: the card is island black wherever it shows.
 - The chat lens is a centered `--chat-w` transcript over the still-attached terminal surface.
   At the Default chat width the lane follows the pane: min 820px, max 60rem (960px at a 16px
   root), 71% of the pane (`.terminal-stack`) between. `PaneTerminal` measures the pane and writes
-  the lane on it as one px
-  length (`chatLaneWidth`, `lib/settings.ts`); `--chat-w` never holds that percentage, because each
-  column would resolve it against its own box and they would differ by their gutters.
+  the lane on it as one px length (`chatLaneWidth`, `lib/settings.ts`); `--chat-w` never holds
+  that percentage, because each column would resolve it against its own box and they would
+  differ by their gutters.
   The ceiling is in rem because Wide is (`72rem`): resolved with the root's computed font size each
   time the pane is measured, so Default is never wider than Wide at another browser font size. The
   floor stays in px (`--content-w` is px); under a 13.67px root, where 60rem is less than 820px, the
