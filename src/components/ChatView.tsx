@@ -262,8 +262,10 @@ function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       {verb !== null ? <span className="work-row-name is-verb">{t(verb)}</span> : <span className="work-row-name">{part.name}</span>}
       {/* the spaces are for a screen reader: the row is read as words, not "Ranbun test" */}
-      {part.error && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
+      {part.error && verb === null && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
       {summary.length > 0 && summary !== part.name && <>{" "}<span className="work-row-summary">{summary}</span></>}
+      {/* after a verb the word follows the object: "Ran pnpm test failed", not "Ran failed pnpm test" */}
+      {part.error && verb !== null && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
     </button>
     {open && <div className="work-row-detail">{verb !== null && <p className="work-row-tool">{part.name}</p>}<ToolInputView part={part} /><ToolImages paneId={paneId} part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className={`chat-tool-io${whole.text !== null ? " is-whole" : ""}`}>{output}</pre>
       {part.output_ref !== undefined && whole.text === null && <button type="button" className="btn btn-ghost chat-tool-more" disabled={whole.state === "loading"} onClick={whole.load}>

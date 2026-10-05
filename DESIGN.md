@@ -464,9 +464,11 @@ One set for both themes: the card is island black wherever it shows.
 - A row is caret + verb + object: `▸ Read src/metrics.ts`, `▸ Edited src/pages/Reports.tsx`,
   `▸ Ran pnpm test`. The caret is always shown; there is no per-tool icon and no separator. The
   verb (Read, Edited, Wrote, Ran; `lib/toolVerbs.ts`, by exact tool id) is in the interface face,
-  `--fs-sm`, `--text-dim`; the object is mono `--fs-xs`. A tool the table does not know, or a call
-  with no object, keeps its id in mono `--text` in the verb's place. A failed row turns the verb or
-  id `--status-blocked` and adds the word "failed".
+  `--fs-sm`, `--text-dim`; the object is mono `--fs-xs`. A tool the table does not know, a call
+  with no object, or a call summed up by something other than its own command or path (omp's
+  `intent`: `bash Checking ports`) keeps its id in mono `--text` in the verb's place. A failed row
+  turns the verb or id `--status-blocked` and adds the word "failed": after the object under a
+  verb (`▸ Ran pnpm test [failed]`), after the id otherwise.
 - A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane. Under
   a verb the tool's own id (`exec`, `Bash`, `apply_patch`) is the first line of that detail
   (`.work-row-tool`, mono, dim) and the row's title.
