@@ -22,7 +22,7 @@ export type UsageGlance = "week" | "session";
  *  catppuccin: Catppuccin Mocha in dark, Latte in light */
 export type Palette = "amber" | "report" | "charcoal" | "catppuccin";
 /** the chat lane's widest: the transcript, the composer column and the held list share it (--chat-w in src/styles.css).
- *  narrow: 820px; default: follows the pane (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
+ *  narrow: 820px; default: follows the pane, up to 60rem (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
 export type ChatWidth = "narrow" | "default" | "wide" | "full";
 export const CHAT_WIDTHS: readonly ChatWidth[] = ["narrow", "default", "wide", "full"];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
@@ -170,22 +170,45 @@ export function chatFontSize(settings: Settings): number {
   return settings.chatFontSize ?? CHAT_BASE_FONT[settings.density];
 }
 
-/** The Default chat lane never runs narrower or wider than this, in px. */
+/** The Default chat lane never runs narrower than this, in px: --content-w, the Narrow step. */
 export const CHAT_LANE_MIN = 820;
-export const CHAT_LANE_MAX = 960;
+/** ...or wider than this, in rem: 960px at a 16px root. In rem because Wide is (72rem, styles.css),
+ *  so Default stays the narrower of the two at a root font of 11.39px and up; under that the
+ *  820px floor wins and is itself wider than Wide (see chatLaneLength). */
+export const CHAT_LANE_MAX_REM = 60;
 /** The share of its pane the Default chat lane takes between the two. */
 export const CHAT_LANE_RATIO = 0.7143;
+/** The root font size chatLaneWidth resolves the rem ceiling with when none is given. */
+export const ROOT_FONT_PX = 16;
+
+/** The Default lane's pane-following part in whole px, before the rem ceiling: 71.43% of the pane, min 820px. */
+function chatLaneFollow(paneWidth: number): number {
+  if (!Number.isFinite(paneWidth)) return CHAT_LANE_MIN;
+  return Math.max(CHAT_LANE_MIN, Math.round(paneWidth * CHAT_LANE_RATIO));
+}
 
 /**
- * The Default chat lane for a pane this wide, in whole px: 71.43% of the pane, min 820, max 960.
- * A length, not a CSS percentage: the lane's columns sit in boxes of different widths (the
+ * The Default chat lane for a pane this wide, as the CSS length PaneTerminal writes to --chat-w:
+ * 71.43% of the pane, min 820px, max 60rem.
+ * A length with no percentage in it: the lane's columns sit in boxes of different widths (the
  * transcript and the composer column inside a gutter, the held list and the menus outside it),
- * and one px value is what keeps them equal. A pane narrower than the result is unaffected:
+ * and one length is what keeps them equal. A pane narrower than the result is unaffected:
  * every column is min(100%, lane).
+ * The ceiling is left to the stylesheet engine as 60rem, not resolved here: Wide's 72rem follows
+ * the root font size the moment it changes, and so must this, or Default would be the wider of
+ * the two until the pane was next measured.
+ * Where the two ends cross (60rem is under 820px below a 13.67px root) the floor wins: Default is
+ * then the same lane as Narrow, never narrower than it, and still no wider than Wide down to an
+ * 11.39px root, under which Narrow's own 820px is already wider than Wide's 72rem.
  */
-export function chatLaneWidth(paneWidth: number): number {
-  if (!Number.isFinite(paneWidth)) return CHAT_LANE_MIN;
-  return Math.min(CHAT_LANE_MAX, Math.max(CHAT_LANE_MIN, Math.round(paneWidth * CHAT_LANE_RATIO)));
+export function chatLaneLength(paneWidth: number): string {
+  return `min(max(${CHAT_LANE_MIN}px, ${CHAT_LANE_MAX_REM}rem), ${chatLaneFollow(paneWidth)}px)`;
+}
+
+/** What chatLaneLength resolves to at this root font size, in px (960 at most at 16px): the rule in numbers. */
+export function chatLaneWidth(paneWidth: number, rootFontPx: number = ROOT_FONT_PX): number {
+  const root = Number.isFinite(rootFontPx) && rootFontPx > 0 ? rootFontPx : ROOT_FONT_PX;
+  return Math.min(Math.max(CHAT_LANE_MIN, CHAT_LANE_MAX_REM * root), chatLaneFollow(paneWidth));
 }
 
 /** Only known keys with the right type survive: a stale or hand-edited record never breaks the UI. */

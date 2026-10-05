@@ -208,7 +208,7 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--rail-w` | `3px` | — | Selected-row rail |
 | `--hairline` | `1px` | — | Borders |
 | `--content-w` | `820px` | — | Settings and dialog content |
-| `--chat-w` | `--content-w`, then the pane's lane in px | — | Chat lane: transcript, composer column, held list. Settings → Chat width: Narrow `--content-w`; Default follows the pane (min 820px, max 960px, 71% of the pane between); Wide `72rem` (1152px); Full `100%` |
+| `--chat-w` | `--content-w`, then the pane's lane as one length | — | Chat lane: transcript, composer column, held list. Settings → Chat width: Narrow `--content-w`; Default follows the pane (min 820px, max `60rem` = 960px, 71% of the pane between; the px floor wins where 60rem is under it); Wide `72rem` (1152px); Full `100%` |
 | `--palette-w` | `640px` | — | Command palette |
 | `--palette-top` | `12vh` | — | Palette top offset |
 
@@ -482,10 +482,16 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Chat turn (`.chat-turn`)
 - The chat lens is a centered `--chat-w` transcript over the still-attached terminal surface.
-  At the Default chat width the lane follows the pane: min 820px, max 960px, 71% of the pane
-  (`.terminal-stack`) between. `PaneTerminal` measures the pane and writes the lane on it as one px
-  length (`chatLaneWidth`, `lib/settings.ts`); `--chat-w` never holds that percentage, because each
-  column would resolve it against its own box and they would differ by their gutters.
+  At the Default chat width the lane follows the pane: min 820px, max 60rem (960px at a 16px
+  root), 71% of the pane (`.terminal-stack`) between. `PaneTerminal` measures the pane and writes
+  the lane on it as one length, `min(max(820px, 60rem), <the pane's share>px)` (`chatLaneLength`,
+  `lib/settings.ts`); `--chat-w` never holds that percentage, because each column would resolve
+  it against its own box and they would differ by their gutters.
+  The ceiling is in rem because Wide is (`72rem`), and it stays `60rem` inside the length, so
+  Default is never wider than Wide at a root font of 11.4px and up, also when that size changes
+  while the page is open (under 11.4px the 820px floor is itself wider than Wide's 72rem). The
+  floor stays in px (`--content-w` is px); under a 13.67px root, where 60rem is less than 820px, the
+  floor wins and Default is the same lane as Narrow.
   Structured Claude/omp transcripts fall back to ANSI-stripped pane scrollback when unavailable.
 - The register is Codex / gajae-code-app: a quiet document. User turns are right-aligned neutral
   cards (`--bg-elevated`, a `--bubble-border` edge, `--radius-lg` on all four corners, ≤80% wide,
