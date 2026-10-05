@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.3.50] - 2026-10-06
+
 ### Changed
 - The app brings its own typefaces instead of counting on the ones a device has: Pretendard for
   the interface and the chat, and JetBrains Mono for code in the chat and the interface, so a
@@ -170,6 +172,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   now sends the key the way the pane's program asked for (modifyOtherKeys), also to a device that
   opens the pane later, and keeps Enter for programs that asked for nothing. A phone's input line
   and a Windows mirror pane send Enter as before.
+  ([#471](https://github.com/devswha/herdr-web-ui/pull/471) by @WOULDU-pres)
 - A draft in the message box keeps its full height when the window or the pane is resized, or
   the chat width changes: the box used to keep the height of its old line breaks until the next
   key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
@@ -1923,7 +1926,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...HEAD
+[0.3.50]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...v0.3.50
 [0.3.49]: https://github.com/devswha/herdr-web-ui/compare/v0.3.48...v0.3.49
 [0.3.48]: https://github.com/devswha/herdr-web-ui/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/devswha/herdr-web-ui/compare/v0.3.46...v0.3.47
