@@ -497,7 +497,8 @@ One set for both themes: the card is island black wherever it shows.
   the image strip is its own row above that line.
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
   `What should <agent> do in <folder>?` in `--text-strong`, `--fs-xl`, `--fw-semibold`, centred,
-  and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. No suggestion
+  and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
+  recording pill is open over the composer the greeting is hidden (its box stays). No suggestion
   chips or starter prompts. The greeting is out of the flow, so it takes no row from the terminal
   surface. In a mouse-driven window from `769px` the composer is moved up (a transform, nothing
   else changes size) so the greeting and the input card sit at the pane's vertical centre; a

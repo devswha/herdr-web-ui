@@ -15,6 +15,8 @@ export interface BlankChat {
   transcript: boolean;
   /** turns on the page and the pages above it */
   turns: number;
+  /** pages above the newest were not read yet: the conversation holds more than this page shows */
+  older: boolean;
   /** turns a /tree left behind: they are listed where the conversation would start */
   abandoned: number;
   /** a question, approval or menu waits in the chat */
@@ -25,7 +27,7 @@ export interface BlankChat {
 /** A conversation read in full that holds nothing: the only chat a greeting may stand in. */
 export function chatIsBlank(chat: BlankChat): boolean {
   return chat.loaded && !chat.failed && chat.transcript && chat.agent !== null
-    && chat.turns === 0 && chat.abandoned === 0 && !chat.prompt;
+    && chat.turns === 0 && !chat.older && chat.abandoned === 0 && !chat.prompt;
 }
 
 /** What one answered read of a pane's conversation says; null where nothing is known (loading, a failed read, the chat not shown). */
@@ -51,10 +53,11 @@ export const NO_MEMORY: GreetingMemory = { blank: false, history: null, sent: fa
 /**
  * A read came in. Nothing known (the chat is loading, its read failed, or it left the screen) is
  * not blank, and it forgets no message: only a turn or another history ends what a send began.
+ * A read that names no history (the scrollback standing in) is of the one already held.
  */
 export function afterRead(memory: GreetingMemory, read: ChatRead | null): GreetingMemory {
   if (read === null) return memory.blank ? { ...memory, blank: false } : memory;
-  const history = read.history ?? "";
+  const history = read.history ?? memory.history ?? "";
   const moved = memory.history !== null && memory.history !== history;
   const sent = memory.sent && read.turns === 0 && !moved;
   return memory.blank === read.blank && memory.history === history && memory.sent === sent ? memory : { blank: read.blank, history, sent };
@@ -63,6 +66,24 @@ export function afterRead(memory: GreetingMemory, read: ChatRead | null): Greeti
 /** A message went out from the composer, read or not yet. */
 export function afterSend(memory: GreetingMemory): GreetingMemory {
   return memory.sent ? memory : { ...memory, sent: true };
+}
+
+/** That message did not go out after all: nothing was typed into the pane. */
+export function afterUnsent(memory: GreetingMemory): GreetingMemory {
+  return memory.sent ? { ...memory, sent: false } : memory;
+}
+
+// Held outside any component: PaneTerminal is mounted again for each PC (App.tsx), and a look at
+// another PC's pane must not bring the greeting back. Keyed by paneStorageId(machineId, paneId).
+const remembered = new Map<string, GreetingMemory>();
+
+export function greetingMemory(owner: string): GreetingMemory {
+  return remembered.get(owner) ?? NO_MEMORY;
+}
+
+export function rememberGreeting(owner: string, memory: GreetingMemory): void {
+  if (memory === NO_MEMORY) remembered.delete(owner);
+  else remembered.set(owner, memory);
 }
 
 export interface GreetingState {
@@ -83,12 +104,17 @@ export function showsGreeting(state: GreetingState): boolean {
     && state.queued === 0 && state.folder !== "";
 }
 
-/** The folder a path ends in: its last segment, the root itself for a root, "" for no path. */
+/**
+ * The folder a path ends in: its last segment, the root itself for a root, "" for no path.
+ * A backslash separates only in a Windows path (a drive letter or UNC): elsewhere it is a
+ * character of the name.
+ */
 export function greetingFolder(cwd: string | null | undefined): string {
   if (!cwd) return "";
-  const trimmed = cwd.replace(/[\\/]+$/u, "");
+  const separator = /^(?:[A-Za-z]:[\\/]|\\\\)/u.test(cwd) ? /[\\/]+/u : /\/+/u;
+  const trimmed = cwd.replace(new RegExp(`(?:${separator.source})$`, "u"), "");
   if (trimmed === "") return cwd.charAt(0);
-  const parts = trimmed.split(/[\\/]/u);
+  const parts = trimmed.split(separator);
   return parts[parts.length - 1] ?? "";
 }
 

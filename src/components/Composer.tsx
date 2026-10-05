@@ -647,7 +647,7 @@ export function Composer({
   const menuId = `composer-menu-${paneId}`;
 
   return (
-    <div className="composer" role="group" aria-label={t("Message composer")}>
+    <div className="composer" role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined}>
       {greeting}
       <div className="composer-status" role="status" data-status={agentStatus ?? "unknown"}>
         {agent && <AgentMark agent={agent} size={14} />}

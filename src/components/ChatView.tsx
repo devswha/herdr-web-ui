@@ -761,8 +761,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
-  const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
-  const known = loaded && error === null && !ended;
+  const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, older: typeof olderCursor === "string", abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
+  // the scrollback standing in says nothing of the conversation: it has no history to compare
+  const known = loaded && error === null && !ended && state.source === "conversation";
   const held = turns.length + (abandoned?.count ?? 0);
   // before paint: the greeting replaces the line below in the same frame, not one after it
   useLayoutEffect(() => {

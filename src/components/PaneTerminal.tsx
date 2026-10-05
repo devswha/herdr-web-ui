@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -10,8 +10,8 @@ import { HerdrSocket } from "../lib/ws.ts";
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
-import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
-import { NO_MEMORY, afterRead, afterSend, composerLift, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead, type GreetingMemory } from "../lib/greeting.ts";
+import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
+import { afterRead, afterSend, afterUnsent, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
@@ -208,14 +208,14 @@ export function PaneTerminal({
   // What each pane's chat last read, and whether a message went out since: kept per pane here,
   // not in the chat, so a message sent ends the greeting at once and neither another lens, another
   // pane nor a failed read brings it back before the conversation shows a turn or a new history.
-  const [chatMemory, setChatMemory] = useState<Record<string, GreetingMemory>>({});
+  // It lives in lib/greeting.ts, over this component, which another PC's pane mounts again.
+  const [, redrawGreeting] = useReducer((count: number) => count + 1, 0);
   const onChatRead = useCallback((pane: string, read: ChatRead | null) => {
     const owner = paneStorageId(machineId, pane);
-    setChatMemory((all) => {
-      const memory = all[owner] ?? NO_MEMORY;
-      const next = afterRead(memory, read);
-      return next === memory ? all : { ...all, [owner]: next };
-    });
+    const memory = greetingMemory(owner);
+    const next = afterRead(memory, read);
+    if (next === memory) return;
+    rememberGreeting(owner, next); redrawGreeting();
   }, [machineId]);
   // the stack holds the composer and the greeting over it (measured below)
   const [greetingRoom, setGreetingRoom] = useState(true);
@@ -1183,11 +1183,16 @@ export function PaneTerminal({
     term.scrollToBottom();
     setChatSent((current) => current + 1);
     const owner = paneStorageId(machineId, pane);
-    setChatMemory((all) => ({ ...all, [owner]: afterSend(all[owner] ?? NO_MEMORY) }));
+    const first = !greetingMemory(owner).sent;
+    rememberGreeting(owner, afterSend(greetingMemory(owner))); redrawGreeting();
     // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
     onChatSuggestion(pane, null);
     return sent.then((result) => {
-      if (!result.ok) return submitNote(result.code, result.message);
+      if (!result.ok) {
+        // nothing was typed: the message that took the greeting away did not go out
+        if (first && submitNotTyped(result.code)) { rememberGreeting(owner, afterUnsent(greetingMemory(owner))); redrawGreeting(); }
+        return submitNote(result.code, result.message);
+      }
       // the chat lens refetches at once so the sent prompt appears without a poll beat
       setChatRefresh((current) => current + 1);
       return true;
@@ -1261,7 +1266,7 @@ export function PaneTerminal({
   // an empty chat: one greeting line over the composer, which a mouse-driven window centres
   const folder = greetingFolder(cwd);
   const greetingDue = chatView && paneId !== null && agent !== null && !secretActive && !observing && !ended
-    && showsGreeting({ memory: chatMemory[paneStorageId(machineId, paneId)] ?? NO_MEMORY, agentStatus, queued: queued.length, folder });
+    && showsGreeting({ memory: greetingMemory(paneStorageId(machineId, paneId)), agentStatus, queued: queued.length, folder });
   // a stack too short for the composer and the greeting keeps the chat's own empty line
   const greeted = greetingDue && greetingRoom;
   // Only the composer moves (Composer.css): the surface under it keeps its box, so the xterm
@@ -1514,7 +1519,8 @@ export function PaneTerminal({
           greeting={greetingDue ? (
             <div className={`composer-greeting${greeted ? "" : " is-out"}`} ref={greetingRef} aria-hidden={greeted ? undefined : true}>
               <p className="composer-greeting-title">{t("What should {agent} do in {folder}?", { agent: agentDisplayLabel(agent), folder })}</p>
-              <p className="composer-greeting-where">{[machineName, cwd].filter(Boolean).join(" · ")}</p>
+              {/* each part keeps its own direction: a right-to-left PC name does not reorder the path */}
+              <p className="composer-greeting-where">{machineName && <bdi>{machineName}</bdi>}{machineName && cwd ? " · " : ""}{cwd && <bdi>{cwd}</bdi>}</p>
             </div>
           ) : null}
           onSend={composerSend}

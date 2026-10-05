@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { NO_MEMORY, afterRead, afterSend, chatIsBlank, composerLift, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type BlankChat, type ChatRead, type GreetingState } from "./greeting.ts";
+import { NO_MEMORY, afterRead, afterSend, afterUnsent, chatIsBlank, composerLift, greetingFits, greetingFolder, greetingMemory, rememberGreeting, roomOverComposer, showsGreeting, type BlankChat, type ChatRead, type GreetingState } from "./greeting.ts";
 
-const blank: BlankChat = { loaded: true, failed: false, transcript: true, turns: 0, abandoned: 0, prompt: false, agent: "claude" };
+const blank: BlankChat = { loaded: true, failed: false, transcript: true, turns: 0, older: false, abandoned: 0, prompt: false, agent: "claude" };
 const read: ChatRead = { blank: true, turns: 0, history: "h1" };
 const shown: GreetingState = { memory: afterRead(NO_MEMORY, read), agentStatus: "idle", queued: 0, folder: "infra" };
 
@@ -32,6 +32,11 @@ describe("chatIsBlank", () => {
     expect(chatIsBlank({ ...blank, abandoned: 3 })).toBe(false);
     expect(chatIsBlank({ ...blank, prompt: true })).toBe(false);
   });
+
+  // the newest record alone can fill a page's byte budget: no turn on it, and pages above it
+  test("a newest page with no turns under pages not read yet is not", () => {
+    expect(chatIsBlank({ ...blank, older: true })).toBe(false);
+  });
 });
 
 describe("showsGreeting", () => {
@@ -61,6 +66,26 @@ describe("showsGreeting", () => {
     expect(away.sent).toBe(true);
     expect(showsGreeting({ ...shown, memory: afterRead(away, read) })).toBe(false);
     expect(showsGreeting({ ...shown, memory: afterRead(afterRead(afterRead(away, read), null), read) })).toBe(false);
+  });
+
+  test("a read that names no history (the scrollback standing in) does not bring it back after a send", () => {
+    const stoodIn = afterRead(afterSend(shown.memory), { blank: false, turns: 0, history: undefined });
+    expect(stoodIn.sent).toBe(true);
+    expect(showsGreeting({ ...shown, memory: afterRead(stoodIn, read) })).toBe(false);
+  });
+
+  test("a message that was not typed after all leaves the greeting where it was", () => {
+    expect(showsGreeting({ ...shown, memory: afterUnsent(afterSend(shown.memory)) })).toBe(true);
+    expect(afterUnsent(shown.memory)).toBe(shown.memory);
+  });
+
+  test("what is remembered is held per PC and pane, outside the component that shows it", () => {
+    const sent = afterSend(shown.memory);
+    rememberGreeting("remote-a:w1:p1", sent);
+    expect(greetingMemory("remote-a:w1:p1")).toBe(sent);
+    expect(greetingMemory("w1:p1")).toBe(NO_MEMORY);
+    rememberGreeting("remote-a:w1:p1", NO_MEMORY);
+    expect(greetingMemory("remote-a:w1:p1")).toBe(NO_MEMORY);
   });
 
   test("a chat that was never sent to is greeted again when it comes back", () => {
@@ -108,6 +133,13 @@ describe("greetingFolder", () => {
     expect(greetingFolder("C:\\Users\\demo\\web app")).toBe("web app");
     expect(greetingFolder("C:\\Users\\demo\\web app\\")).toBe("web app");
     expect(greetingFolder("C:\\")).toBe("C:");
+    expect(greetingFolder("C:/Users/demo")).toBe("demo");
+    expect(greetingFolder("\\\\server\\share\\dir")).toBe("dir");
+  });
+
+  test("a backslash in a POSIX path is part of the name", () => {
+    expect(greetingFolder("/tmp/my\\project")).toBe("my\\project");
+    expect(greetingFolder("/tmp/odd\\")).toBe("odd\\");
   });
 
   test("a root is itself", () => {

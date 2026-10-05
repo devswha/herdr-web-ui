@@ -37,6 +37,12 @@
   visibility: hidden;
 }
 
+/* dictation's pill (VoiceInput.css) opens over the composer, where the greeting stands: the
+   greeting keeps its box and yields until the pill is gone */
+.composer[data-dictating] .composer-greeting {
+  visibility: hidden;
+}
+
 /* it has no control: on a touch screen a tap or a drag on it goes to the chat under it, which
    puts the keyboard away (lib/keyboard.ts) */
 @media (pointer: coarse) {
