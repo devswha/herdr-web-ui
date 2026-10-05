@@ -71,6 +71,7 @@ function labelMapKeys(): string[] {
     ...grab("lib/updateProgress.ts", "STEPS", /label: "([^"]+)"/g),
     ...grab("lib/workBlocks.ts", "CATEGORY_LABEL", /\["([^"]+)", "([^"]+)"\]/g),
     ...grab("lib/usage.ts", "WINDOW_LABEL", value),
+    ...grab("lib/toolVerbs.ts", "VERB_LABEL", value),
   ];
 }
 
