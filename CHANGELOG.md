@@ -7,6 +7,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- In the chat of an OmO pane, a background task that ends shows where OmO reported it: a
+  card that says how many tasks ended, and for each its summary, whether it finished, failed
+  or was cancelled, the agent and model it ran as, how long it took, its turns, tool calls and
+  tokens, and its answer on request. Before, the chat showed nothing when a task ended, and
+  what the agent did after it ran on in the same block as if nothing had come in. The `task`
+  row reads the summary the call gave its task instead of its short description, and opened
+  it lists each task it started with its agent and prompt, instead of its raw input or a
+  checklist of "task 1", "task 2" nobody ticks.
+  ([#477](https://github.com/devswha/herdr-web-ui/pull/477) by @nahwan-kim)
+
 ## [0.3.50] - 2026-10-06
 
 ### Changed
@@ -231,15 +242,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   carries an earlier Codex session report. It used to follow that report, ask the wrong agent
   and fail to load.
   ([#423](https://github.com/devswha/herdr-web-ui/pull/423) by @Kinetic27)
-- In the chat of an OmO pane, a background task that ends shows where OmO reported it: a
-  card that says how many tasks ended, and for each its summary, whether it finished, failed
-  or was cancelled, the agent and model it ran as, how long it took, its turns, tool calls and
-  tokens, and its answer on request. Before, the chat showed nothing when a task ended, and
-  what the agent did after it ran on in the same block as if nothing had come in. The `task`
-  row reads the summary the call gave its task instead of its short description, and opened
-  it lists each task it started with its agent and prompt, instead of its raw input or a
-  checklist of "task 1", "task 2" nobody ticks.
-  ([#477](https://github.com/devswha/herdr-web-ui/pull/477) by @nahwan-kim)
 
 ## [0.3.49] - 2026-10-04
 
