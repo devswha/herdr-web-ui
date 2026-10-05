@@ -377,7 +377,7 @@ try {
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
     await page.keyboard.press("Control+Shift+Comma");
-    await page.locator('.segmented[aria-label="Chat width"]').getByRole("button", { name, exact: true }).click();
+    await page.getByRole("group", { name: "Chat width", exact: true }).getByRole("button", { name, exact: true }).click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
   };
   const laneColumn = async (): Promise<{ x: number; width: number; pane: number }> => {

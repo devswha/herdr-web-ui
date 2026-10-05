@@ -398,7 +398,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Chat width")}</span><span className="settings-description">{t("How wide the conversation and the message box run on a large screen")}</span></div>
-              <div className="segmented" aria-label={t("Chat width")}>
+              <div className="segmented" role="group" aria-label={t("Chat width")}>
                 {CHAT_WIDTHS.map((chatWidth) => (
                   <button key={chatWidth} type="button" aria-pressed={settings.chatWidth === chatWidth} onClick={() => update({ chatWidth })}>
                     {t(chatWidth === "narrow" ? "Narrow" : chatWidth === "wide" ? "Wide" : chatWidth === "full" ? "Full" : "Default")}

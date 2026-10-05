@@ -17,6 +17,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 
 ### Fixed
+- A draft in the message box keeps its full height when the window or the pane is resized, or
+  the chat width changes: the box used to keep the height of its old line breaks until the next
+  key press. ([#463](https://github.com/devswha/herdr-web-ui/pull/463))
 - An update asked for in the first moments after the app starts, or right after another update,
   waits until the start is over. It used to stop the app in the middle of its start-up check,
   and the app then fell back to the source checkout or did not come up.
