@@ -729,7 +729,7 @@ export function Composer({
 
   const isWorking = agentStatus === "working";
   const statusCompact = composerStatusCompact(cardWidth);
-  const queueShown = composerQueueShown({ queueMode, connected, text, attachments: attachments.length });
+  const queueShown = composerQueueShown({ queueMode, connected, text, uploading });
   const hint = composerStatusHint({ uploading, connected, text });
   const hintText = hint === null ? null : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
   const menuId = `composer-menu-${paneId}`;

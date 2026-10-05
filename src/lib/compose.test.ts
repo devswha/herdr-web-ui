@@ -131,12 +131,16 @@ describe("composer presentation helpers", () => {
   });
 
   it("draws Queue only while the agent works, the bridge is live and there is something to hold", () => {
-    const working = { queueMode: true, connected: true, text: "", attachments: 0 };
+    const working = { queueMode: true, connected: true, text: "", uploading: false };
     // an empty box: Stop is the one resting control
     expect(composerQueueShown(working)).toBe(false);
     expect(composerQueueShown({ ...working, text: "  \n" })).toBe(false);
     expect(composerQueueShown({ ...working, text: "also check the tests" })).toBe(true);
-    expect(composerQueueShown({ ...working, attachments: 1 })).toBe(true);
+    // a file on its way: its mention is about to land, so the pill is already in place
+    expect(composerQueueShown({ ...working, uploading: true })).toBe(true);
+    // an uploaded tile whose mention was deleted, or a failed one, is not uploading: the box is
+    // empty and only text is sent, so nothing offers to queue
+    expect(composerQueueShown({ ...working, uploading: false })).toBe(false);
     // not connected: nothing can be queued, so nothing offers to
     expect(composerQueueShown({ ...working, connected: false, text: "also check the tests" })).toBe(false);
     // the agent is not working: the round button is Send

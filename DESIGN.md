@@ -614,8 +614,9 @@ One set for both themes: the card is island black wherever it shows.
   the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word.
   Without Queue the level steps out whole first, never drawn in part; a name still too long is
   ellipsized as the last resort, then the opened context text. The context ring is never cut.
-- Queue is drawn only while the agent works, the bridge is live and the box holds a draft or an
-  attachment (`composerQueueShown`): with an empty box Stop is the one resting control. The rule
+- Queue is drawn only while the agent works, the bridge is live and the box holds a draft or a
+  file still uploading (`composerQueueShown`): with an empty box Stop is the one resting control,
+  also when an attachment tile is left in it without its mention, since only the text is sent. The rule
   reads the draft, not `:disabled`, so the pill stays in place, disabled, while a file uploads
   or the message is on its way. It is a `--primary-tint` pill; its `--primary` outline is drawn
   in light themes only, where the tint alone does not separate it from the card. Pressing it is
