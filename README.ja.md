@@ -26,9 +26,9 @@
 
 ---
 
-https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
+https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
-<p align="center"><sub>ターミナルのペインで動く Claude Code。同じセッションをチャットで、さらにスマートフォンで操作 · 実際の動作を収録 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒の紹介動画</a></sub></p>
+<p align="center"><sub>herdr のターミナルで Claude Code が確認を求め、同じ質問がブラウザとスマートフォンにも表示。スマートフォンで 1 回タップして回答 · 実際の動作を収録、カットなし</sub></p>
 
 **Claude Code と Codex を、スマートフォンから。**
 

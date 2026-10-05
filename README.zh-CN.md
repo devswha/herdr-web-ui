@@ -26,9 +26,9 @@
 
 ---
 
-https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
+https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
-<p align="center"><sub>在终端窗格中运行 Claude Code，同一会话切换为聊天，再到手机上继续 · 实机录制 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56 秒演示影片</a></sub></p>
+<p align="center"><sub>Claude Code 在 herdr 终端中提问，浏览器和手机上显示同一个问题，在手机上点一下即可回答 · 实机录制，无剪辑</sub></p>
 
 **在手机上使用 Claude Code 和 Codex。**
 

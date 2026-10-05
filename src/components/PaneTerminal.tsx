@@ -12,7 +12,7 @@ import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib
 import { messageQueues } from "../lib/messageQueue.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
-import { ApiError, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
+import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
 import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
@@ -765,6 +765,18 @@ export function PaneTerminal({
         && event.key === "Backspace" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
         && !event.isComposing && event.keyCode !== 229;
     });
+    // xterm ignores Cmd+arrows. Handle them on the bubble phase, after its textarea
+    // keydown listener drains pending IME text, so movement never precedes that text.
+    const onCommandArrow = (event: KeyboardEvent): void => {
+      if (!isMac || event.target !== term.textarea || event.defaultPrevented || term.options.disableStdin
+        || composingRef.current || event.isComposing || event.keyCode === 229
+        || !event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const sequence = event.key === "ArrowLeft" ? "\x01" : event.key === "ArrowRight" ? "\x05" : null;
+      if (sequence === null) return;
+      event.preventDefault();
+      term.input(sequence);
+    };
+    host.addEventListener("keydown", onCommandArrow);
     const onData = term.onData((data) => {
       if (shiftEnter && data === "\r") data = "\x1b\r";
       shiftEnter = false;
@@ -800,6 +812,8 @@ export function PaneTerminal({
     const uploadBatch = async (pane: string, files: File[]): Promise<void> => {
       if (paneRef.current !== pane || !socket.connected || term.options.disableStdin) return;
       try {
+        // the paths of a batch are pasted together: one file too large and none is uploaded
+        for (const file of files) assertAttachable(file);
         const paths: string[] = [];
         for (const file of files) paths.push(await uploadFileRef.current(pane, file));
         // An upload can finish after the user has switched panes or lost input access.
@@ -961,6 +975,7 @@ export function PaneTerminal({
       document.removeEventListener("visibilitychange", onVisible);
       onShiftEnter.dispose();
       onCommandBackspace.dispose();
+      host.removeEventListener("keydown", onCommandArrow);
       onData.dispose();
       host.removeEventListener("paste", onFilePaste, { capture: true });
       host.removeEventListener("dragover", onDragOver);

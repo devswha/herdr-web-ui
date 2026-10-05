@@ -21,7 +21,7 @@ import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PushTestControls } from "./PushTestControls.tsx";
-import { playAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
+import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
@@ -439,7 +439,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
                 alertSoundWanted.current = alertSound;
                 // this tap is the gesture the page needs to play audio; the chime is the preview,
                 // unless the switch went off again while the audio was getting ready
-                if (alertSound) void unlockAlertSound().then((ready) => { if (ready && alertSoundWanted.current) playAlertSound("done"); });
+                if (alertSound) void unlockAlertSound().then((ready) => { if (ready && alertSoundWanted.current) previewAlertSound(); });
               }} />
             </div>
           </section>

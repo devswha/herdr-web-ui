@@ -26,9 +26,9 @@
 
 ---
 
-https://github.com/user-attachments/assets/6162cf5a-b29b-4f14-b2a2-7a01564791d6
+https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
-<p align="center"><sub>터미널 pane의 Claude Code를 같은 세션 그대로 채팅으로, 이어서 폰으로 · 실제 화면 녹화 · <a href="https://devswha.github.io/herdr-web-ui/media/herdr-web-ui-film.mp4">▶ 56초 영상</a></sub></p>
+<p align="center"><sub>herdr 터미널에서 Claude Code가 묻는 질문을 브라우저와 폰에서도 그대로, 폰에서 한 번 탭해 답하기 · 실제 화면 녹화, 컷 없음</sub></p>
 
 **Claude Code와 Codex를 폰에서.**
 
