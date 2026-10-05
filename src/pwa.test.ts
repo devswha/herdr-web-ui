@@ -8,7 +8,7 @@ const publicDir = join(import.meta.dir, "..", "public");
 function serviceWorkerFetch(): (request: { method: string; url: string; mode: string }) => boolean {
   const listeners = new Map<string, (event: unknown) => void>();
   const self = { location: { origin: "https://app.test" }, addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener) };
-  const caches = { match: async () => new Response("cached"), open: async () => ({ put: () => {} }) };
+  const caches = { match: async () => new Response("cached"), open: async () => ({ match: async () => undefined, put: () => {} }) };
   const fetch = async () => new Response("network");
   new Function("self", "caches", "fetch", readFileSync(join(publicDir, "sw.js"), "utf8"))(self, caches, fetch);
   const listener = listeners.get("fetch")!;
@@ -106,6 +106,8 @@ function serviceWorker(stored: Record<string, Record<string, string>>) {
     update: async () => { await dispatch("install"); await dispatch("activate"); },
     navigate: (path = "/") => text({ method: "GET", url: `${origin}${path}`, mode: "navigate" }),
     get: (path: string) => text({ method: "GET", url: `${origin}${path}`, mode: "no-cors" }),
+    /** an asset request as fired, its answer apart from what the worker keeps alive for it */
+    ask: (path: string) => fire("fetch", { request: { method: "GET", url: `${origin}${path}`, mode: "no-cors" } }),
   };
 }
 
@@ -158,6 +160,26 @@ describe("a service worker under a new cache name", () => {
     await kept();
     expect(worker.entries(current)).toEqual(["/"]);
     expect(worker.names()).toEqual([current]);
+  });
+
+  it("keeps a file the old cache answered while the new shell's copy was still being kept", async () => {
+    const worker = serviceWorker(old());
+    await worker.update();
+    worker.network.shell = "new shell";
+    let written = (): void => undefined;
+    worker.disk.ready = new Promise<void>((done) => { written = done; });
+    const { answer, kept } = worker.fire();
+    expect(await (await answer)!.text()).toBe("new shell");
+    // the page asks for a bundle only the old cache holds, before that cache is retired
+    const asked = worker.ask("/assets/index-old.js");
+    expect(await (await asked.answer)!.text()).toBe("old bundle");
+    written();
+    await kept();
+    await asked.kept();
+    expect(worker.names()).toEqual([current]);
+    expect(worker.entries(current)).toEqual(["/", "/assets/index-old.js"]);
+    worker.network.online = false;
+    expect(await worker.get("/assets/index-old.js")).toBe("old bundle");
   });
 
   it("keeps the old cache through a navigation the server refused", async () => {

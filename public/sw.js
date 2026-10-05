@@ -84,8 +84,17 @@ self.addEventListener("fetch", (event) => {
   if (isCacheFirst(url.pathname)) {
     event.respondWith(
       (async () => {
-        const cached = await caches.match(request);
-        if (cached) return cached;
+        const cache = await caches.open(CACHE_NAME);
+        const own = await cache.match(request);
+        if (own) return own;
+        const older = await caches.match(request);
+        if (older) {
+          // a file only the cache of the name before still holds, asked for while the new shell's
+          // copy is being kept: it is kept here too, so keepShell's retirement of that cache does
+          // not take the only copy of a file the new shell uses
+          event.waitUntil(cache.put(request, older.clone()).catch(() => undefined));
+          return older;
+        }
         const response = await fetch(request);
         if (response.ok && response.type === "basic") {
           const cache = await caches.open(CACHE_NAME);
