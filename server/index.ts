@@ -323,6 +323,8 @@ export function createServer(
     registerBridge?: boolean;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
+    /** SUBMIT_DELAY_MS; a test lengthens it to hold a second message behind the first */
+    submitDelayMs?: number;
     /** how long a push alert waits for the pane to change first (server/push.ts); tests send at once */
     alertTiming?: Partial<AlertTiming>;
     /** ATTACH_RETRY_FOR_MS; tests shorten it */
@@ -426,7 +428,7 @@ export function createServer(
     const shaped = await mirrorInput(payload, async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
     inTime();
     await paneSendText(paneId, shaped);
-    await Bun.sleep(SUBMIT_DELAY_MS);
+    await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
     authorize();
     await paneSendKeys(paneId, ["Enter"]);
   }
