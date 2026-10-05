@@ -9,7 +9,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Changed
 - The chat transcript is quieter. A finished turn folds its work under one dim "Worked for" row
-  and only the running turn stays open; a block you open or fold stays as you left it. The line
+  and only the running turn stays open; a block you open, fold or work inside stays as you left
+  it, and a turn that ended without an answer keeps its words in view. The line
   above your messages is gone, answers sit closer to their prompt, and your bubble has even
   corners (no edge in the dark amber, report and charcoal palettes). File paths and links are
   underlined quietly and take the accent color on hover or focus. With a mouse, a code block's

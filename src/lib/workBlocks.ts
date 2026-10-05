@@ -34,18 +34,17 @@ export function splitTurn(parts: ConversationPart[]): SplitTurn {
  * A work block is open while its turn runs and folded once the turn settles: the answer stays
  * outside the fold, so a finished turn reads as its answer under one "Worked for" row.
  *
- * A settled turn that left no answer and whose work ends in prose (Codex commentary with no
- * final answer after it) keeps its block open: folding it would hide the last thing the agent said.
+ * A settled turn keeps its block open when the work holds words the answer does not end on:
+ * prose with no answer at all (an action came after the last words, or Codex commentary had no
+ * final answer), or prose recorded after the last answer part. Folding would hide the newest
+ * thing the agent said, or all of it. It takes the turn's parts, not the split: the order decides.
  */
-export function workStartsOpen(live: boolean, { work, answer }: SplitTurn): boolean {
+export function workStartsOpen(live: boolean, parts: ConversationPart[]): boolean {
   if (live) return true;
-  if (answer.length > 0) return false;
-  // reasoning or a skill record after the last words does not make them any less the last words
-  for (let index = work.length - 1; index >= 0; index -= 1) {
-    const kind = work[index]?.kind;
-    if (kind === "text" || kind === "tool") return kind === "text";
-  }
-  return false;
+  const lastAnswer = splitTurn(parts).answer.at(-1);
+  const after = lastAnswer === undefined ? 0 : parts.lastIndexOf(lastAnswer) + 1;
+  // everything readable after the last answer part is work: it is inside the fold
+  return parts.slice(after).some((part) => part.kind === "text" && part.text.trim().length > 0);
 }
 
 type WorkCategory = "edit" | "read" | "command" | "other";

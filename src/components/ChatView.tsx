@@ -302,6 +302,9 @@ function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinkin
   const t = useT();
   const [chosenOpen, setOpen] = useState<boolean | null>(null);
   const open = chosenOpen ?? defaultOpen;
+  // reading or working inside the block is a choice to keep it: the fold at the end of the turn
+  // must not take the rows from under the reader's focus or close the row they opened
+  const keepOpen = () => { if (chosenOpen === null) setOpen(true); };
   const visible = parts.filter((part) => part.kind !== "skill" && (showThinking || part.kind !== "thinking"));
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
@@ -312,7 +315,7 @@ function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinkin
       <span className="work-block-title">{title}</span>
       {summary.length > 0 && <span className="work-block-summary">· {summary}</span>}
     </button>
-    {open && <div className="work-block-rows">{visible.map((part, index) =>
+    {open && <div className="work-block-rows" onFocus={keepOpen} onClick={keepOpen}>{visible.map((part, index) =>
       part.kind === "thinking" ? <ThinkingRow key={index} text={part.text} />
         : part.kind === "text" ? <div key={index} className="work-narration"><Markdown>{part.text}</Markdown></div>
           : part.kind === "tool" ? <WorkRow key={index} paneId={paneId} part={part} /> : null)}</div>}
@@ -436,7 +439,7 @@ const Turn = memo(function Turn({ paneId, turn, live, showThinking }: TurnProps)
   return <article className="chat-turn chat-turn-agent">
     <SkillActivityList parts={turn.parts} />
     {goal !== null && <GoalActivity goal={goal} />}
-    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={workStartsOpen(live, { work, answer })} showThinking={showThinking} />}
+    {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} defaultOpen={workStartsOpen(live, turn.parts)} showThinking={showThinking} />}
     {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
       {/* a mouse reads one copy glyph and the words "Plain text"; touch reads the two formats */}

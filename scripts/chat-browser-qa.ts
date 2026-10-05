@@ -62,6 +62,27 @@ try {
   await modelInfo.getByText("codex-test-model", { exact: true }).waitFor();
   await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor();
   const work = log.locator(".work-block-head");
+  const report = (state: "working" | "idle") => herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state, agent_session_path: rollout });
+  const head = (expanded: boolean, title: string) => log.locator(`.work-block-head[aria-expanded="${expanded}"]`).filter({ hasText: title });
+  await head(false, "Worked for 7s").waitFor();
+  await report("working");
+  await head(true, "Working…").waitFor();
+  assert.equal(await log.locator(".work-block.is-folded").count(), 0, "the running turn's work is open");
+  await report("idle");
+  await head(false, "Worked for 7s").waitFor();
+  // working inside the block is a choice to keep it: the fold must not take a focused row away
+  await report("working");
+  await head(true, "Working…").waitFor();
+  const toolRow = log.getByRole("button", { name: /exec_command/ });
+  await toolRow.click();
+  await log.getByText("git status", { exact: true }).last().waitFor();
+  await report("idle");
+  await head(true, "Worked for 7s").waitFor();
+  assert.equal(await toolRow.evaluate((node) => node === document.activeElement), true, "the row the reader opened keeps focus when the turn settles");
+  await log.getByText("git status", { exact: true }).last().waitFor();
+  await work.click();
+  await head(false, "Worked for 7s").waitFor();
+  console.log("PASS the running turn's work is open, folds when it settles, and stays open under a reader working inside it");
   assert.equal(await work.getAttribute("aria-expanded"), "false", "a settled turn folds its work: only a running turn is open");
   assert.equal(await log.locator(".work-block.is-folded").count(), 1);
   assert.match(await work.innerText(), /Worked for 7s/);

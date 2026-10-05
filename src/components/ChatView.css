@@ -741,6 +741,14 @@
   }
 
   .chat-agent-meta .chat-meta-btn:first-child { margin-left: calc(-1 * var(--space-2)); }
+
+  /* the skill a message invoked sits clear of the copy target that reaches below the row */
+  .chat-turn-user .chat-user-row + .chat-skills { margin-top: calc((var(--touch-target) - var(--chip-h)) / 2); }
+}
+
+/* a mouse with a touch screen beside it: a finger has no hover, so the meta is never unseen */
+@media (pointer: fine) and (any-pointer: coarse) {
+  .chat-turn-meta { opacity: 1; pointer-events: auto; }
 }
 
 @media (max-width: 480px) {

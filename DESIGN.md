@@ -459,13 +459,13 @@ One set for both themes: the card is island black wherever it shows.
 - Space separates exchanges, not a rule: the transcript's gap is `--space-3`, so an answer sits
   close under its prompt, and a user turn that follows an assistant turn takes `--space-5` more.
   The one rule of an exchange is the hairline under its folded work block.
-- Meta (time, copy) fades in on hover or focus and takes no click or tap while unseen; on coarse
-  pointers it is always visible. With a mouse and no touch screen (`(hover: hover) and
+- Meta (time, copy) fades in on hover or focus and takes no click or tap while unseen; with any
+  coarse pointer (a phone, or a touch screen beside a mouse) it is always visible. With a mouse and no touch screen (`(hover: hover) and
   (pointer: fine) and (not (any-pointer: coarse))`): from 481px a user turn's time and copy sit
   beside its bubble, and an answer has one copy glyph (it copies Markdown) with a **Plain text**
   text button in the regular weight beside it. Otherwise the answer keeps two labelled buttons,
-  glyph + MD and glyph + TXT; on coarse pointers each is a `--touch-target` target on a
-  one-line row, as is a user turn's copy.
+  glyph + MD and glyph + TXT; where the primary pointer is coarse each is a `--touch-target` target on a
+  one-line row, as is a user turn's copy, and a skill list under a user turn clears that target.
 - Markdown supports headings, lists, links, quotes, tables, inline/fenced code and code-copy actions.
   A link keeps `--accent` and a file chip reads in `--text-strong` with a dotted underline; both
   underlines are `--text-dim` at rest and both take the accent on hover and focus-visible.
@@ -485,8 +485,11 @@ One set for both themes: the card is island black wherever it shows.
 - Only the running turn's block is open (working or blocked). A settled turn folds to its header
   with a hairline under it, and the header reads as a footnote: `--text-dim`, regular weight (the
   live one keeps medium weight and its state color). The answer is outside the fold. A settled
-  turn with no answer whose work ends in text (Codex commentary) stays open, so its last words
-  are not hidden. A block the reader opened or folded stays as they left it.
+  turn stays open when its work holds text the answer does not end on: text with no answer at all
+  (an action or Codex commentary came last) or text recorded after the answer, so the agent's
+  words are never behind the fold. A block the reader opened or folded stays as they left it, and
+  so does one they focused or clicked inside: the fold at the end of a turn never takes the rows
+  from under them.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,

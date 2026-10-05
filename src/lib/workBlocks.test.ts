@@ -39,29 +39,39 @@ describe("workStartsOpen", () => {
   const final = (value: string) => ({ ...text(value), phase: "final_answer" as const });
 
   it("is open while the turn runs, whatever it holds", () => {
-    expect(workStartsOpen(true, splitTurn([tool("read"), text("done")]))).toBe(true);
-    expect(workStartsOpen(true, splitTurn([tool("bash")]))).toBe(true);
+    expect(workStartsOpen(true, [tool("read"), text("done")])).toBe(true);
+    expect(workStartsOpen(true, [tool("bash")])).toBe(true);
   });
 
   it("folds a settled turn: its answer stays outside the fold", () => {
-    expect(workStartsOpen(false, splitTurn([thinking("hm"), tool("read"), text("looking…"), tool("edit"), text("done")]))).toBe(false);
-    expect(workStartsOpen(false, splitTurn([commentary("Checking."), tool("exec_command"), final("All good.")]))).toBe(false);
+    expect(workStartsOpen(false, [thinking("hm"), tool("read"), text("looking…"), tool("edit"), text("done")])).toBe(false);
+    expect(workStartsOpen(false, [commentary("Checking."), tool("exec_command"), final("All good.")])).toBe(false);
+    // an action after the answer hides no words
+    expect(workStartsOpen(false, [commentary("Checking."), tool("exec_command"), final("Done"), tool("cleanup")])).toBe(false);
   });
 
-  it("folds a settled turn that ended on an action: no closing words would be hidden", () => {
-    expect(workStartsOpen(false, splitTurn([text("on it"), tool("bash")]))).toBe(false);
+  it("keeps a settled turn open when its words are followed by an action and no answer: the fold would hide all of them", () => {
+    expect(workStartsOpen(false, [text("on it"), tool("bash")])).toBe(true);
+    // a todo update after the closing summary is not even counted in the header
+    expect(workStartsOpen(false, [tool("read"), text("Here is the full answer."), tool("TodoWrite")])).toBe(true);
   });
 
   it("keeps a settled turn open when it ends in Codex commentary: folding would hide its last text", () => {
-    expect(workStartsOpen(false, splitTurn([tool("exec_command"), commentary("Still investigating")]))).toBe(true);
-    expect(workStartsOpen(false, splitTurn([commentary("Checking the second request.")]))).toBe(true);
+    expect(workStartsOpen(false, [tool("exec_command"), commentary("Still investigating")])).toBe(true);
+    expect(workStartsOpen(false, [commentary("Checking the second request.")])).toBe(true);
     // reasoning recorded after the last words does not hide them either
-    expect(workStartsOpen(false, splitTurn([tool("exec_command"), commentary("Still investigating"), thinking("hm")]))).toBe(true);
+    expect(workStartsOpen(false, [tool("exec_command"), commentary("Still investigating"), thinking("hm")])).toBe(true);
+  });
+
+  it("keeps a settled turn open when commentary comes after its final answer: the answer is not the end", () => {
+    expect(workStartsOpen(false, [tool("exec_command"), final("Done."), commentary("Resumed: still looking")])).toBe(true);
+    expect(workStartsOpen(false, [tool("exec_command"), final("Done."), commentary("Resumed"), tool("exec_command")])).toBe(true);
   });
 
   it("stays folded when the turn did nothing readable", () => {
-    expect(workStartsOpen(false, { work: [], answer: [] })).toBe(false);
-    expect(workStartsOpen(false, splitTurn([thinking("hm")]))).toBe(false);
+    expect(workStartsOpen(false, [])).toBe(false);
+    expect(workStartsOpen(false, [thinking("hm")])).toBe(false);
+    expect(workStartsOpen(false, [tool("bash"), text("  ")])).toBe(false);
   });
 });
 
