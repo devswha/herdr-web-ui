@@ -254,7 +254,8 @@ function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
   const [open, setOpen] = useState(false);
   const whole = useWholeOutput(part.output_ref);
   const summary = todoCallSummary(part) ?? part.summary;
-  const verb = toolVerb(part, summary);
+  // reads the call's input: once per call, not on every poll of the transcript
+  const verb = useMemo(() => toolVerb({ name: part.name, input: part.input }, summary), [part.name, part.input, summary]);
   // the list is the answer of a todo call: its raw text would say it twice
   const output = isTodoTool(part.name) && parseTodoAnswer(part.output) !== null ? "" : whole.text ?? part.output;
   return <div className={`work-row${part.error ? " is-error" : ""}`}>
