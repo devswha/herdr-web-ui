@@ -17,6 +17,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the box is narrow, beside the sidebar for one, the background-task chip shows its count
   before the model's name is cut. In dark themes Queue loses its outline.
   ([#456](https://github.com/devswha/herdr-web-ui/pull/456))
+- Held messages above the message box are quiet rows instead of a tinted box: one line above
+  them, a clock with the sentence the box already showed ("Held until the agent is ready", and
+  "· 2 messages" from two), then each message on its own row with **Send now** and **Discard**
+  beside it. A message is still edited in place and still goes out only when you press
+  **Send now**. The rows are as wide as the message box at every window width, and the list
+  scrolls after two and a half rows. When the agent is ready, the clock and **Send now** take
+  the accent colour. While an approval card is open, or on a phone with its keyboard up, the rows
+  fold into that one line; tap it to open them. On a phone, **Discard** is an X, and the message
+  box keeps the same side margin as the conversation.
 
 ### Fixed
 - An update asked for in the first moments after the app starts, or right after another update,

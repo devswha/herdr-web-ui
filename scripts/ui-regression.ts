@@ -370,6 +370,14 @@ try {
     await page.getByRole("button", { name: "Queue message", exact: true }).click();
   }
   assert.equal(await page.locator(".composer-queue-text").count(), 3);
+  // the held rows sit on the input card's column, under one caption that counts them
+  const heldBox = await page.locator(".composer-queue").boundingBox();
+  const cardBox = await page.locator(".composer-surface").boundingBox();
+  assert.ok(heldBox && cardBox);
+  assert.equal(Math.round(heldBox.x), Math.round(cardBox.x));
+  assert.equal(Math.round(heldBox.width), Math.round(cardBox.width));
+  assert.match(await page.locator(".composer-queue-heading").innerText(), /Held until the agent is ready · 3 messages/);
+  assert.equal(await page.locator(".composer-queue-toggle").count(), 0, "no prompt and no short phone: the rows are not folded");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "multiple-queue.png") });
   await page.locator(".composer-queue-text").nth(1).fill("# edited second message");
   await page.reload();
