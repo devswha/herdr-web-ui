@@ -418,17 +418,30 @@ function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueF
  */
 const CLAUDE_PREVIEW_HINT_RE = /\bn to add notes\b/i;
 const PREVIEW_EDGE = "┌│└├╭╰┐┘╮╯";
+/** where the terminal column `column` begins in `line`: wide characters take two columns, so the index may be smaller */
+function indexAtColumn(line: string, column: number): number {
+  let index = 0;
+  let width = 0;
+  for (const char of line) {
+    if (width === column) return index;
+    width += Bun.stringWidth(char);
+    index += char.length;
+  }
+  return width === column ? index : -1;
+}
 function withoutPreview(lines: string[], from: number, to: number): string[] {
   let column = -1;
   for (let index = from; index <= to && column < 0; index += 1) {
-    const corner = /\s{2,}[┌╭]/.exec(lines[index] ?? "");
-    if (corner !== null) column = corner.index + corner[0].length - 1;
+    const line = lines[index] ?? "";
+    const corner = /\s{2,}[┌╭]/.exec(line);
+    if (corner !== null) column = Bun.stringWidth(line.slice(0, corner.index + corner[0].length - 1));
   }
   return lines.map((line) => {
-    const edge = line[column];
-    const boxed = column >= 2 && edge !== undefined && PREVIEW_EDGE.includes(edge) && line.slice(column - 2, column) === "  ";
+    const at = column >= 2 ? indexAtColumn(line, column) : -1;
+    const edge = at >= 0 ? line[at] : undefined;
+    const boxed = edge !== undefined && PREVIEW_EDGE.includes(edge) && line.slice(Math.max(0, at - 2), at) === "  ";
     // only the preview's own notes line goes: a question may begin with "Notes:" too
-    return (boxed ? line.slice(0, column).trimEnd() : line).replace(/^\s*Notes:\s+press n to add notes\b.*$/i, "");
+    return (boxed ? line.slice(0, at).trimEnd() : line).replace(/^\s*Notes:\s+press n to add notes\b.*$/i, "");
   });
 }
 

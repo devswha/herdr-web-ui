@@ -745,11 +745,14 @@ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questi
 
   test("cuts the box off at its own column only: a bar inside an option's text stays", () => {
     // the same screen with qualifiers after a bar, padded so the box keeps its column
-    const relabel = (screen: string, from: string, to: string) => { expect(screen).toContain(from); return screen.replace(from, to.padEnd(from.length)); };
+    // padded by display width, so the box keeps its terminal column: a wide character takes two
+    const relabel = (screen: string, from: string, to: string) => { expect(screen).toContain(from); return screen.replace(from, to + " ".repeat(Bun.stringWidth(from) - Bun.stringWidth(to))); };
     const screen = relabel(relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. Grid  │ compact"), "  2. List                         ", "  2. List  │ spacious");
-    const prompt = parseInteractivePrompt("claude", screen);
-    expect(prompt?.kind === "question" ? prompt.options.map((option) => `${option.label}${option.description === null ? "" : ` / ${option.description}`}`) : prompt)
-      .toEqual(["Grid  │ compact", "List  │ spacious"]);
+    const labelsOf = (prompt: InteractivePrompt | null) => prompt?.kind === "question" ? prompt.options.map((option) => `${option.label}${option.description === null ? "" : ` / ${option.description}`}`) : prompt;
+    expect(labelsOf(parseInteractivePrompt("claude", screen))).toEqual(["Grid  │ compact", "List  │ spacious"]);
+    // an option in wide characters: its box edge stands at the same column, at a smaller string index
+    const wide = relabel(relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. 격자 보기"), "  2. List                         ", "  2. 目录列表  │ 宽");
+    expect(labelsOf(parseInteractivePrompt("claude", wide))).toEqual(["격자 보기", "目录列表  │ 宽"]);
   });
 
   test("does not take an answered form above later output for an open one", () => {
