@@ -84,7 +84,7 @@ all four palettes) and dark Catppuccin, whose elevated surface is darker than it
   ink accent and cursor `#242424`.
 - **Catppuccin** follows [catppuccin.com/palette](https://catppuccin.com/palette/), its style guide
   and its Zed port: Mocha in dark, Latte in light. In both the content (chat canvas `--bg`,
-  terminal) is Base, the chrome (`--bg-panel`: sidebar, header, tabs) and elevated surfaces Mantle,
+  terminal) is Base, the chrome (`--bg-panel`: sidebar, the header over it and on a phone, tabs) and elevated surfaces Mantle,
   dimmed text Subtext1, cursor Rosewater, selection Overlay2 at 25% over Base. Dark uses palette
   colors (only the primary hover `#d3b3f8`, Mauve lightened, and the tints are derived): Base
   `#1e1e2e`, Mantle `#181825`, input Crust, hover Surface0, text Text `#cdd6f4` / Subtext1 `#bac2de`,
@@ -192,7 +192,8 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 
 | Token | Comfortable | Compact | Usage |
 |-------|-------------|---------|-------|
-| `--header-h` | `52px` | `46px` | App header |
+| `--header-h` | `52px` | `46px` | App header below `769px` |
+| `--header-h-wide` | `46px` | — | App header from `769px`, in either density (`--header-h` takes this value there) |
 | `--sidebar-w` | `320px` | `300px` | Sidebar/drawer |
 | `--control-h` | `34px` | `32px` | Buttons and fields |
 | `--touch-target` | `40px` | — | Coarse-pointer minimum |
@@ -242,17 +243,32 @@ One set for both themes: the card is island black wherever it shows.
   `.terminal-host`. While a phone's soft keyboard is up (`data-keyboard`), `--app-height` follows
   `visualViewport` so the keyboard does not cover input; otherwise the shell is `100dvh`, because an
   iPhone home screen app reports a visual viewport shorter than the screen without a keyboard.
-- Header anatomy, left to right: mobile drawer toggle / desktop sidebar toggle; flexible context
-  title plus PC/workspace/cwd subtitle; segmented Chat/Terminal switch; the connection chip (herdr
-  version in its tooltip) and meta actions for palette, notifications, settings and lock. Theme
-  lives in Settings and the palette; the herdr version also sits in the sidebar footer.
+- The header is one line at every width. Anatomy, left to right: mobile drawer toggle / desktop
+  sidebar toggle and the command palette (`.header-side`); the flexible context, agent mark and
+  title then the PC › workspace › folder crumb; segmented Chat/Terminal switch; the connection
+  chip while the bridge is not live (herdr version in its tooltip), the offline pill, sign out and
+  the More menu (`⋯`). Theme lives in Settings and the palette; the herdr version also sits in
+  the sidebar footer.
+- From `769px` the header is two zones. Over the sidebar, `.header-side` is the sidebar's own top
+  row (toggle at its start, palette at its end) on `--bg-panel`, as wide as `--sidebar-w`, and the
+  sidebar's seam runs to the top of the window. Over the pane, the header takes the pane's
+  surface: under the chat lens `--bg` with no bottom rule, the transcript scrolling under a
+  `--space-5` fade from `--bg`; under the terminal lens, with no pane, or with a pane herdr could
+  not restore, `--term-bg` and the rule. A tab strip takes the same surface as the header over
+  it from `769px` (`--strip-bg`: `--bg` under the chat lens, `--term-bg` otherwise, `--bg-panel`
+  below `769px`) and keeps its hairline, under the chat the one line over the transcript (no
+  fade under it). The update notice and a PC's action banner are drawn in the pane column, over
+  the tab strip, never across the window: the sidebar and its top row stay one piece. With the
+  sidebar collapsed the toggle and the palette sit in the one bar. Below `769px` the header is the `--bg-panel` bar with
+  its rule: the installed app's `theme-color` matches it.
 - The sidebar is fixed-width on desktop and a `<=768px` drawer. The desktop collapse removes its
   column; the drawer uses a scrim and keeps safe-area insets. On touch, a mostly horizontal swipe in
   from the left `24px` edge opens the drawer and a swipe to the left closes it (`56px` of travel).
 - The terminal stack contains a positioned terminal surface, then composer or key bar. The xterm
   mount stays alive under the chat lens; changing views never creates a second connection.
-- At `<=480px`, labels shed in priority order: version, brand name, context subtitle, connection
-  text and desktop-only control labels. Icons and selected context remain.
+- At `<=480px` the brand name, the offline pill and desktop-only control labels go, and the
+  palette's button gives its room to the title: the palette is the More menu's first item there.
+  Icons and selected context remain.
 
 ## 5. Components
 
@@ -389,7 +405,7 @@ One set for both themes: the card is island black wherever it shows.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
-- As **New tab** (from a row's `⋯` menu, the header's New tab, the strip's `+` or the palette),
+- As **New tab** (from a row's `⋯` menu, the header's More menu, the strip's `+` or the palette),
   the same dialog is titled `New tab · <workspace>`, shows the workspace's folder as a fact in a
   dashed box (`.new-session-folder`: a worktree's checkout, else the folder of the pane in front)
   instead of asking for one, and its name is the tab's (optional; the placeholder is the number
@@ -441,14 +457,26 @@ One set for both themes: the card is island black wherever it shows.
   leaves the worktree there: the dialog says why, locks its fields, and its button reads **Open**.
 
 ### Header context and connection
-- A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills
-  the context slot.
-- Beside the view switch, on a desktop only, a ghost **New tab** button (`.new-tab-button`, plus
-  sign and the words) opens the New tab dialog for the selected pane's workspace; a phone has the
-  action in the row's `⋯` menu and the strip's `+`.
+- A selected pane shows agent mark + title (`--fs-md`), then on the same line the crumb
+  PC › workspace › folder (`--fs-xs`, `--text-dim`). The folder shows as its last name, and only
+  when the title, the PC or the workspace does not already say it (`lib/headerCrumb.ts`). The
+  title may shorten with an ellipsis; the crumb never does: when it does not fit whole beside the
+  whole title it is not drawn, and the title has the row. The full path is in the context's
+  tooltip and at the top of the More menu. With no selection, the brand fills the context slot.
+- The More menu (`.header-more-button`, the `RowMenu` popover, a bottom sheet at `<=640px`) opens
+  with the location on two lines, "PC › workspace" then the full path in mono, and holds **New
+  tab** (the selected pane's workspace), **Browse files** and **Alerts**, each under the condition
+  its own button had; at `<=480px` **Command palette** is its first item. The Alerts item says
+  this device's state in words after its label ("On in the app", "On in this tab", "On, pushed to
+  this device", "Off on this device") and switches it: it is a `menuitemcheckbox` with
+  `aria-checked` in the popover and a button with `aria-pressed` in the sheet. While alerts are off on this device the
+  More button carries a `--dot-size` `--accent` dot and its name says "alerts are off": the dot
+  marks the state that needs a look, never "on".
 - The segmented Chat/Terminal view switch lives in the header. There is no floating view-toggle pill.
-- Connection is one quiet chip: a dot plus the written live/reconnecting/disconnected state;
-  reconnecting pulses the dot. On phones the chip keeps only its dot.
+- Connection is one quiet chip, drawn only while the bridge is not live: a pulsing dot plus the
+  written reconnecting/disconnected state. Below `900px` it keeps only its dot; the word stays as
+  its accessible text and in its tooltip. While live the chip takes no room and stays in the
+  document as a `role="status"` a screen reader can read (`.conn-live`; never `display: none`).
 
 ### Chat turn (`.chat-turn`)
 - The chat lens is a centered `--content-w` transcript over the still-attached terminal surface.

@@ -102,6 +102,8 @@
 
   /* sizes */
   --header-h: 52px;
+  /* the header from 769px, in either density: one line beside the sidebar's own top row */
+  --header-h-wide: 46px;
   --sidebar-w: 320px;
   --control-h: 34px;
   --touch-target: 40px;
@@ -407,6 +409,14 @@
   --avatar-size: 26px;
 }
 
+/* after the density block on purpose: same specificity, and from 769px both densities share one
+   header height */
+@media (min-width: 769px) {
+  :root {
+    --header-h: var(--header-h-wide);
+  }
+}
+
 /* ---------- reset + base ---------- */
 
 * {
@@ -569,13 +579,24 @@ button {
   font-weight: var(--fw-medium);
 }
 
-/* the selected pane: title line + workspace › agent subtitle, like a chat app's header */
+/* The selected pane on one line: mark and title, then PC › workspace › folder. The title may
+   shorten; the crumb may not: when it does not fit whole beside a whole title it wraps to a second
+   line that the height clips, so it is all there or gone, and the title has the row. The full
+   location is in the tooltip and at the top of the More menu. */
 .context {
+  --context-line: calc(var(--fs-lg) * var(--lh-base));
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-start;
+  column-gap: var(--space-3);
+  row-gap: var(--header-h);
   flex: 1 1 auto;
   min-width: 0;
+  max-height: var(--context-line);
+  /* the title never touches the lens switch */
+  margin-right: var(--space-1);
+  overflow: hidden;
   line-height: var(--lh-tight);
 }
 
@@ -583,8 +604,13 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex: 0 1 auto;
   min-width: 0;
-  font-size: var(--fs-lg);
+  max-width: 100%;
+  /* the first line is as tall as the box that clips the second: the title sits the same with
+     the crumb beside it or gone */
+  min-height: var(--context-line);
+  font-size: var(--fs-md);
   font-weight: var(--fw-semibold);
   color: var(--text-strong);
   letter-spacing: var(--tracking-tight);
@@ -601,21 +627,17 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  min-width: 0;
-  margin-top: 2px;
+  flex: 0 0 auto;
   font-size: var(--fs-xs);
   color: var(--text-dim);
   white-space: nowrap;
 }
 
-.context-sub > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.context-sep {
-  flex: 0 0 auto;
+/* the PC's name is whole in the crumb, like the rest of it: the crumb fits or is not drawn.
+   Its cap (Machines.css) is for the header with no pane, where it sits beside the brand. */
+.context-sub .machine-context-name {
+  max-width: none;
+  overflow: visible;
 }
 
 /* the switch keeps its size; the pane title (.context) is the header's one flexible item */
@@ -623,17 +645,10 @@ button {
   flex: 0 0 auto;
 }
 
-/* New tab beside the switch, on a desktop: a phone has it in the row's menu */
-.new-tab-button {
-  flex: 0 0 auto;
-}
-
-/* under the header, so .btn's own display (further down) does not bring it back on a phone,
-   where it took the pane title's room */
-@media (max-width: 768px) {
-  .app-header .new-tab-button {
-    display: none;
-  }
+/* the workspace-list toggle and the palette: in the bar below 769px and beside a collapsed
+   sidebar, the sidebar's own top row otherwise (further down) */
+.header-side {
+  display: contents;
 }
 
 .header-meta {
@@ -645,8 +660,10 @@ button {
   font-size: var(--fs-xs);
 }
 
-/* one chip for the connection; the herdr version lives in its tooltip and the sidebar footer */
+/* one chip for the connection, drawn only while the bridge is not live; the herdr version lives
+   in its tooltip and the sidebar footer */
 .conn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -658,7 +675,20 @@ button {
   color: var(--text-dim);
 }
 
+/* live is the state nobody needs told: the chip stays in the document as a status a screen
+   reader can read, and takes no room. Never display: none. */
+.conn-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
 .conn-dot {
+  flex: 0 0 auto;
   width: var(--dot-size);
   height: var(--dot-size);
   border-radius: var(--radius-pill);
@@ -674,11 +704,101 @@ button {
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
-/* the bell while alerts reach this device (pushed, in this tab, or in the app only):
-   the accent reads as "on"; a plain .icon-button is off. The title explains the state */
-.bell-button.is-on {
-  color: var(--accent);
-  border-color: var(--accent);
+/* A narrow window: the chip keeps its pulsing dot and gives its word's room to the pane title.
+   The word stays for a screen reader and in the chip's title. */
+@media (max-width: 900px) {
+  .conn-reconnecting {
+    gap: 0;
+  }
+
+  .conn-reconnecting .conn-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* New tab, Browse files and Alerts are one menu's items (RowMenu, through its portal) */
+.header-more {
+  position: relative;
+  display: inline-flex;
+}
+
+/* nothing to offer but the palette, which has its own button above phone width */
+.header-more.is-phone-only {
+  display: none;
+}
+
+/* alerts are off on this device: the one state of the menu worth a glance. The button's name
+   and the Alerts item say it in words. */
+.header-more-dot {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* the menu's first thing, two lines on purpose: "PC › workspace", then the whole path in the
+   mono face. It is where a touch screen reads the path. A path longer than six lines scrolls
+   here, so the items under it stay on the screen. */
+.header-more-crumb {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(6em * var(--lh-base));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-base);
+  overflow-wrap: anywhere;
+}
+
+.header-more-path {
+  color: var(--text);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+
+/* From 769px the header is two zones. Over the sidebar, the sidebar's own top row (its toggle
+   and the palette) on the sidebar's surface, the seam between sidebar and pane running to the
+   top of the window. Over the pane, the pane's surface: under the chat lens no bar and no rule,
+   the transcript scrolls under a short fade (ChatView.css); under the terminal lens the
+   terminal's colour and the rule. A collapsed sidebar leaves one bar. A phone keeps the
+   --bg-panel bar and its rule: the installed app's theme-color matches it. */
+@media (min-width: 769px) {
+  .app-header.is-zoned {
+    background: var(--term-bg);
+  }
+
+  .app-header.is-zoned.is-chat {
+    border-bottom-color: transparent;
+    background: var(--bg);
+  }
+
+  .app:not(.sidebar-collapsed) .app-header.is-zoned {
+    padding-left: 0;
+  }
+
+  /* stretched over the header's top inset and its bottom rule, so the sidebar's surface is
+     one piece from the window's top down */
+  .app:not(.sidebar-collapsed) .header-side {
+    display: flex;
+    flex: 0 0 var(--sidebar-w);
+    align-items: center;
+    align-self: stretch;
+    justify-content: space-between;
+    margin: calc(-1 * env(safe-area-inset-top, 0px)) var(--space-2) calc(-1 * var(--hairline)) 0;
+    padding: env(safe-area-inset-top, 0px) var(--space-3) 0 calc(var(--space-3) + env(safe-area-inset-left, 0px));
+    border-right: var(--hairline) solid var(--border);
+    background: var(--bg-panel);
+  }
 }
 
 /* ---------- primitives ---------- */
@@ -1252,10 +1372,6 @@ button {
     z-index: var(--z-scrim);
     background: var(--scrim);
   }
-
-  .context-title {
-    font-size: var(--fs-md);
-  }
 }
 
 /* the key bar (KeyBar.css) shows under the same query and carries env(safe-area-inset-bottom) itself */
@@ -1265,8 +1381,9 @@ button {
   }
 }
 
-/* phones: the version pill is the least useful header item; below that, the brand word
-   and the subtitle go too - the drawer names the workspace, and the mark keeps the identity */
+/* phones: the version pill is the least useful header item; below that, the brand word goes
+   too - the mark keeps the identity. The palette's button gives its room to the pane's title:
+   the palette is the More menu's first item there. */
 @media (max-width: 480px) {
   .conn {
     padding: 0 var(--space-1);
@@ -1276,14 +1393,14 @@ button {
   .pill-version,
   .pill-offline,
   .brand-name,
-  .conn-text,
+  .palette-button,
   .header-desktop-only {
     display: none;
   }
-}
 
-@media (max-width: 480px) {
-  .context-sub > span:not(.machine-context-name) { display: none; }
+  .header-more.is-phone-only {
+    display: inline-flex;
+  }
 }
 
 /* just above phone width the lens labels would squeeze the pane title to a glyph: icons only */
@@ -1303,11 +1420,6 @@ button {
   .conn-reconnecting .conn-dot {
     animation: none;
   }
-}
-
-/* a narrow phone header has no room for it: the command palette offers Browse files */
-@media (max-width: 480px) {
-  .files-button { display: none; }
 }
 
 /* Keep native tap overlays from obscuring the app's own pressed/selected states. */
