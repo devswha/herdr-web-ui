@@ -15,8 +15,9 @@ describe("runningAppVersion", () => {
     expect(runningAppVersion({ current_version: "0.3.49", current_revision: "1c4ad6a0e5021234abcd" }, "0.3.48")).toBe("v0.3.49 (1c4ad6a0e502)");
   });
 
-  test("is the commit alone from a server that names no version", () => {
-    expect(runningAppVersion({ current_version: null, current_revision: "1c4ad6a0e5021234abcd" }, "0.3.48")).toBe("1c4ad6a0e502");
+  test("keeps the client's own build beside the commit from a server that names no version", () => {
+    expect(runningAppVersion({ current_version: null, current_revision: "1c4ad6a0e5021234abcd" }, "0.3.48")).toBe("v0.3.48 (1c4ad6a0e502)");
+    expect(staleClientVersion({ current_version: null }, "0.3.48")).toBeNull();
   });
 
   test("is the server's version without a commit, as an install outside git answers", () => {

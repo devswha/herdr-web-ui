@@ -9,10 +9,11 @@ export function versionLabel(version: string | null | undefined, revision: strin
 
 /**
  * The app version Settings prints. The server's answer names the version and commit it runs;
- * before it answers, and where it names neither, the version this client was built from.
+ * before it answers, and where it names no version (an older server sent only the commit), the
+ * version this client was built from: the line always carries a version number.
  */
 export function runningAppVersion(status: Pick<UpdateStatus, "current_version" | "current_revision"> | null, built: string): string {
-  return versionLabel(status?.current_version, status?.current_revision) ?? `v${built}`;
+  return versionLabel(status?.current_version || built, status?.current_revision) ?? `v${built}`;
 }
 
 /**
