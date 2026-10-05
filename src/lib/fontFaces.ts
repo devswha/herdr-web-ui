@@ -22,17 +22,51 @@ export function facesToFollow<Face extends WatchedFace>(faces: Iterable<Face>, f
   return next;
 }
 
-/** Calls `arrived` once for each of those faces when it has loaded. Returns how many it took on. */
-export function followFaces<Face extends WatchedFace>(faces: Iterable<Face>, followed: WeakSet<Face>, arrived: () => void): number {
-  const next = facesToFollow(faces, followed);
-  for (const face of next) face.loaded.then(arrived, () => undefined);
-  return next.length;
+/**
+ * The faces that have loaded and were not counted yet; each is marked counted. A face is seen
+ * here twice, when its own `loaded` promise resolves and again in the set's "loadingdone", and
+ * is one arrival. A face that failed is none.
+ */
+export function facesArrived<Face extends WatchedFace>(faces: Iterable<Face>, counted: WeakSet<Face>): number {
+  let fresh = 0;
+  for (const face of faces) {
+    if (face.status !== "loaded" || counted.has(face)) continue;
+    counted.add(face);
+    fresh += 1;
+  }
+  return fresh;
+}
+
+/** What this needs of a FontFaceSet: its faces, and word of a load starting and of all having settled. */
+export interface WatchedFaceSet<Face extends WatchedFace> extends Iterable<Face> {
+  addEventListener(type: "loading" | "loadingdone", listener: () => void): void;
+}
+
+/**
+ * Calls `arrived` once for each face of the set that loads, now or later, and for none that
+ * fails. Each face is followed by itself: the set's "loadingdone" waits for every pending load,
+ * and one chunk stalled on a bad link would hold back the ones already drawn.
+ */
+export function watchFaces<Face extends WatchedFace>(fonts: WatchedFaceSet<Face>, arrived: () => void): void {
+  const followed = new WeakSet<Face>();
+  const counted = new WeakSet<Face>();
+  const count = (faces: Iterable<Face>): void => { if (facesArrived(faces, counted) > 0) arrived(); };
+  // a face already drawn when the watch starts is not an arrival
+  facesArrived(fonts, counted);
+  const sweep = (): void => {
+    for (const face of facesToFollow(fonts, followed)) face.loaded.then(() => count([face]), () => undefined);
+  };
+  sweep();
+  // a face declared later (a stylesheet that came after this) is taken on when the set next stirs
+  fonts.addEventListener("loading", sweep);
+  // the backstop, for a face that loaded without having been followed: every pending load has
+  // settled, and the ones counted by their own promise are not counted again
+  fonts.addEventListener("loadingdone", () => { sweep(); count(fonts); });
 }
 
 let arrivals = 0;
 let started = false;
 const listeners = new Set<() => void>();
-const followed = new WeakSet<FontFace>();
 
 const arrived = (): void => {
   arrivals += 1;
@@ -44,12 +78,7 @@ function start(): void {
   started = true;
   const fonts = typeof document === "undefined" ? undefined : document.fonts as FontFaceSet | undefined;
   if (!fonts || typeof fonts.addEventListener !== "function") return;
-  const sweep = (): void => { followFaces(fonts, followed, arrived); };
-  sweep();
-  // a face declared later (a stylesheet that came after this) is taken on when the set next stirs
-  fonts.addEventListener("loading", sweep);
-  // the backstop: every pending load has settled
-  fonts.addEventListener("loadingdone", () => { sweep(); arrived(); });
+  watchFaces(fonts, arrived);
 }
 
 const subscribe = (listener: () => void): (() => void) => {
@@ -62,8 +91,7 @@ const subscribe = (listener: () => void): (() => void) => {
  * A number that grows each time one of the page's faces arrives. The app's faces swap in after
  * the first paint (fonts/fonts.css, `font-display: swap`) and are not as wide as the fallback
  * they replace: text rewraps and no box, font-size or family string changes for it, so nothing
- * else measures again. Each face is followed by itself: the set's `loadingdone` waits for every
- * pending load, and one chunk stalled on a bad link would hold back the ones already drawn.
+ * else measures again.
  */
 export function useFacesArrived(): number {
   return useSyncExternalStore(subscribe, () => arrivals, () => 0);
