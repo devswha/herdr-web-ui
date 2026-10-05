@@ -1944,6 +1944,24 @@ describe("an answer and the menu it was made for", () => {
     });
   });
 
+  /** Claude's question with option previews, its cursor on `at`: the box is redrawn for the option under it */
+  const previewQuestion = (at: number): string => {
+    const rows = ["Grid", "List"];
+    const box = ["┌──────────────────┐", `│ ${rows[at]!.padEnd(16)} │`, "└──────────────────┘"];
+    const option = (row: string, index: number) => `${index === at ? "❯" : " "} ${index + 1}. ${row.padEnd(20)}${box[index] ?? ""}`;
+    return `${"─".repeat(80)}\n←  ☐ Layout  ✔ Submit  →\n\nWhich layout?\n\n${rows.map(option).join("\n")}\n${" ".repeat(25)}${box[2]}\n\n${" ".repeat(25)}Notes: press n to add notes\n\n${"─".repeat(80)}\n  Chat about this\n\nEnter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel\n`;
+  };
+
+  test("moves to a previewed option and confirms it while the box is redrawn for it", async () => {
+    await withPane("claude", "blocked", previewQuestion(0), async (pane) => {
+      moving(pane, ["Grid", "List"], previewQuestion);
+      const prompt = (await card())!;
+      expect(labels(prompt)).toEqual(["Grid", "List"]);
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "enter"]);
+    });
+  });
+
   test("waits out a screen caught half drawn after a move", async () => {
     await withPane("codex", "blocked", menu(RESUME), async (pane) => {
       const prompt = (await card())!;

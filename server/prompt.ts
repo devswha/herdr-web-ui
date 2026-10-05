@@ -427,7 +427,8 @@ function withoutPreview(lines: string[], from: number, to: number): string[] {
   return lines.map((line) => {
     const edge = line[column];
     const boxed = column >= 2 && edge !== undefined && PREVIEW_EDGE.includes(edge) && line.slice(column - 2, column) === "  ";
-    return (boxed ? line.slice(0, column).trimEnd() : line).replace(/^\s*Notes:\s.*$/, "");
+    // only the preview's own notes line goes: a question may begin with "Notes:" too
+    return (boxed ? line.slice(0, column).trimEnd() : line).replace(/^\s*Notes:\s+press n to add notes\b.*$/i, "");
   });
 }
 
