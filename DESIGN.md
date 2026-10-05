@@ -521,7 +521,9 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
-  timestamp minus this one's; "Working…" in `--status-working` behind a breathing dot while the agent runs) over
+  timestamp minus this one's; "Working…" in `--status-working` behind a breathing dot while the agent runs;
+  "Needs you", the sidebar's words, in `--text-dim` behind a still `--status-blocked` dot while the
+  agent is blocked, by the pane's status and not by whether a prompt card was parsed) over
   one-line rows on the header's own left edge, which is the prose edge too (the hover plate
   overhangs it by `--space-1`).
 - A row is caret + verb + object: `▸ Read src/metrics.ts`, `▸ Edited src/pages/Reports.tsx`,
@@ -553,15 +555,60 @@ One set for both themes: the card is island black wherever it shows.
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,
   omo or codex question, approval or plan menu.
+- Placement: docked on the composer's column, directly above the input card, on the card's width
+  and gutter (`--chat-w`). It is not part of the transcript and does not scroll with it. The
+  stack from the top is transcript, held messages (folded to their caption while a card is
+  open), prompt card, input card; PaneTerminal owns that order (`.prompt-dock`) and ChatView,
+  which owns the prompt, renders the card into it. The dock is an `aria-live="polite"` region, as
+  the transcript's log was for the card. It stays rendered while it is empty (zero height, never
+  `display: none`): a live region that appears together with its content is not announced.
+- Type: the card follows Settings → Chat font size and Chat font, as the transcript does. The dock
+  scales the `--fs-*` tokens by `--chat-scale` and sets `--font-chat`; the reference text, the
+  keycaps and the step numbers stay `--font-mono`. The height limit does not scale.
+- Look: `--bg-elevated`, a `--border-strong` hairline, `--radius-xl`, no shadow. The title is
+  the card's one red (`--status-blocked`, `--fs-sm`, semibold); the "input needed" badge is read
+  by assistive tech and not drawn. The question is prose in `--text-strong`. Reference text (the
+  command of an approval, a plan, a diff: the prompt's `body`) is the card's one mono box
+  (`--bg`, `--fs-xs`); a question in words is never set in mono.
+- Height: at most the larger of 60% of the app's height (`--app-height`, so a phone's keyboard
+  counts) and six touch rows (`240px`), at every width. Only the reference text gives way: six
+  lines at rest, two at the least (one for a one-line command), scrolling in itself with a fade
+  on its fold. The header, step chips, question, hint, options, custom answer and confirm row
+  never shrink. A card still taller than its limit scrolls as a whole with a fade at its bottom
+  edge, and the confirm row of a typed pick stays pinned on that edge. The card's scroll is
+  contained (`overscroll-behavior: contain`), so a drag past its top is never the page's
+  pull-to-refresh.
+- The confirm row is kept short, since it is pinned over the options: its question
+  (`Send 2. <label>?`) shows two lines at most and scrolls in itself, whatever the label's
+  length, and Confirm and Cancel are one group on one line, beside the question when there is
+  room and under it when there is not.
+- Each prompt that appears has a card of its own: the next prompt opens at its top with nothing
+  picked or typed, also when it asks the same question again. An answer that comes back after
+  its card is gone (the next prompt is showing, or another pane is open) changes nothing on
+  screen.
+- The composer keeps the resize grip's hit strip (`--composer-grip-h`) for itself under the card,
+  as it does under the held messages: the grip never lies over the card's last row.
 - A form of several questions (omo) shows a row of step chips (`.prompt-card-steps`) under the
   header: a chip per question, pill-shaped, mono number or a check once answered (`--accent`), the
   one asked now with an `--accent` border, `--accent-tint` fill and a `--primary` number. The title
   then reads `Question 1 of 2`; the review after the last question keeps the chips, all checked.
 - Single options submit immediately; multi-select exposes checks plus Submit; supported custom input
   has its own labelled field. The prompt content hash rejects a stale answer with `prompt_changed`.
-- Options are full-width rows (`.prompt-card-option`): the menu's number in mono, the label, its
-  description under it in `--text-dim`. No option is filled as a default; a checked or typed pick
-  gets `--accent-tint` + an `--accent` border. A `(Recommended)` suffix renders as a tag.
+- Options are flat full-width rows (`.prompt-card-option`), not boxes in the box: the menu's
+  number as a keycap (mono, `--fs-2xs`, a `--border-strong` outline; the option's name keeps
+  `1.`), the label, its description under it in `--text-dim`. All rows weigh the same: none is
+  filled, outlined or put first as a default, since herdr has no ground to recommend one. Hover
+  and focus fill a row `--bg-hover`; a checked or typed pick gets `--accent-tint` + an `--accent`
+  border and keycap. A `(Recommended)` suffix, the agent's own mark, renders as a tag. On a
+  coarse pointer a row is `--touch-target` tall.
+- While a card that takes typed answers is open the message box's placeholder says how:
+  `Type 1–3 to choose…`, or `Type 1–3 or your own reply…` when the card has a custom answer.
+  Enter in an empty box answers nothing. A typed pick of an approval, plan or menu waits for
+  Confirm in the card. After an answer pressed in the card with the keyboard or the mouse, focus
+  moves to the message box, unless the user moved it somewhere else while the answer was on its
+  way or the card is gone. A tap never moves it there (that would raise the on-screen keyboard):
+  the press itself says what made it, so this holds on a touch-screen laptop with a fine pointer
+  too, and a coarse pointer rules it out as well.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 
@@ -569,7 +616,8 @@ One set for both themes: the card is island black wherever it shows.
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
   and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter,
   `--space-3` at `480px` and below).
-  The only card is the input box: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`;
+  The input box is a card: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`
+  (the only other card on this surface is the prompt card docked over it, while an agent asks);
   focus turns its border `--accent` (no inner outline). Above it the completion popover and the
   background-task list; inside, the image strip is its own row at the top, then the auto-growing
   message box as a row of its own at the card's full width, then ONE row of controls under it:
@@ -598,24 +646,53 @@ One set for both themes: the card is island black wherever it shows.
   `--status-blocked` on hover and focus. Not connected, Stop is disabled and loses its fill
   (`--border-strong` outline, `--text-dim` glyph).
 - The status content (`.composer-status`, `role="status"`) sits between the two control groups,
-  pushed to the button's side. It draws, in `--text-dim` at `--fs-xs`: the agent mark, the
-  model, the reasoning level as one word with no outline (`high`), the context ring, and the
-  uploading or reconnecting sentence. The background-task chip is a button in the left controls;
+  pushed to the button's side. It draws, at `--fs-xs`: the model pill, `DONE`, and the uploading
+  or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;
   its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
   `READY` / `RUN` / `INPUT` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
-  and the prompt card. `DONE` alone is drawn, after the mark, in `--status-done` caps: nothing
+  and the prompt card. `DONE` alone is drawn, before the pill, in `--status-done` caps: nothing
   else in the chat says a turn ended and was not seen yet, and on a phone the sidebar's label is
   in a closed drawer.
+- The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
+  context ring in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
+  `--space-3` inline padding, `--space-2` between its parts. The model is in `--text` at
+  `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own words with
+  only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
+  that records no level draws no dot and no dash, only the name. On the
+  fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`. It is display only: a `span` with no role, no
+  focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
+  one thing to press. The `title` of the model is the id as received, and the level's is its
+  sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
+  cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
+  alone, with a dim `Model —` and the level between them if the pane records only a level.
+- The model is drawn by name only where its id is one `modelLabel` (`src/lib/modelName.ts`) can
+  name for certain, from the vendor's own regular naming and matched whole:
+  `claude-<family>-<major>[-<minor>]`, also behind `anthropic/`, is `<Family> <major>.<minor>`
+  (`Opus 5.5`, `Sonnet 5`); `gpt-<version>` is `GPT-<version>` and `gpt-<version>-sol` is `GPT-<version>-Sol`, as
+  Codex's own status line writes it; `glm-<version>` is `GLM-<version>`. A name is never guessed. The rule is the
+  vendor's id syntax, not a list of released versions, so a new model needs no change and a
+  well-formed id of a version that does not exist is named too. Any other id — a dated snapshot, another tier or
+  product suffix, another provider's prefix, another vendor, a spelling that is not the vendor's
+  canonical one (a leading zero as in `claude-sonnet-5-05`, uppercase, a stray separator or
+  space) — is drawn exactly as received in
+  `--font-mono` at regular weight (`.composer-model.is-id`), so it reads as an identifier and no
+  suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
   a `640px` card — the card's own width, `composerStatusCompact`, not the window's); then the
   model label, decided from the measured row and not from a width (`composerModelDraw`), so the
   mic, a long model id, the language and the opened context text all count: the row is measured
   again when that text opens or closes. While Queue is showing, a label that does not
   fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
-  the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word.
+  the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word. The
+  pill goes with its label: the ring then stands alone, with no empty pill around it. On a
+  `390px` phone, beside the task chip, the ring and Queue, that is the case for every named model
+  with a level, so there the pill is out for as long as Queue shows; a label short enough to
+  fit (a short id with no level) stays drawn.
   Without Queue the level steps out whole first, never drawn in part; a name still too long is
-  ellipsized as the last resort, then the opened context text. The context ring is never cut.
+  ellipsized inside the pill as the last resort, then the opened context text. The context ring
+  is never cut. Over a sentence that took a line of its own the pill is `--chip-h` tall, so the
+  card does not grow.
 - Queue is drawn only while the agent works, the bridge is live and the box holds a draft or a
   file still uploading (`composerQueueShown`): with an empty box Stop is the one resting control,
   also when an attachment tile is left in it without its mention, since only the text is sent. The rule
@@ -639,7 +716,9 @@ One set for both themes: the card is island black wherever it shows.
   (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,
   while it is dragged, on its own keyboard focus, and while a manual height is set; on any coarse
   pointer it is always drawn. Its hit area lies above the card (`--composer-grip-h`), and the
-  composer keeps that strip free after the held-message list.
+  composer keeps that strip free after the held-message list and after a prompt card.
+- The stack over the input card, on its column, is written once (PaneTerminal): held messages,
+  then the prompt card (see Prompt card), then the input card.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
   card's width and gutter at every window width, no tint and no box. One `--border` hairline
   above the group, then one caption line in `--text-dim` at `--fs-xs` (a clock and the sentence
@@ -667,7 +746,10 @@ One set for both themes: the card is island black wherever it shows.
 - Paste, picker or drag/drop accepts up to four png/jpeg/gif/webp files per action. Each gets a local
   preview, uploads through `POST /api/pane/image`, and inserts a removable editable `@path` mention.
 - While a phone's keyboard is up, a tap on the transcript or a drag down it (`32px`) puts the
-  keyboard away. Each only blurs the field, so the draft stays.
+  keyboard away. Each only blurs the field, so the draft stays. The prompt card, which can stand
+  where the transcript was on a short screen, does the same: a tap on its text (never on an
+  option, a box or its field), or a drag down it once the card and its reference text are
+  scrolled to their top.
 - On a touch screen, picking a pane (drawer, palette, notification) or switching its lens never
   raises the keyboard: the user reads first, and a tap on the message box or the grid raises it.
   A desktop's picked pane takes typing at once.

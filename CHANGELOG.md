@@ -8,6 +8,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- In the chat's message box the agent's mark, the model, the reasoning level and the context
+  ring sit together in one quiet pill, and the model is shown by its name where the id is a
+  regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
+  **GPT-5.6**, `gpt-5.6-sol` **GPT-5.6-Sol**, `glm-5.3` **GLM-5.3**, and the level follows as **High**. No name is ever
+  guessed: any other id (a dated snapshot, a suffix such as `gpt-5.6-sol-max`, another provider's
+  prefix, another vendor, a spelling that is not the vendor's own such as `claude-sonnet-5-05`) is
+  shown exactly as received, in the code font. Behind a name the id
+  as received is in the name's tooltip and is read by a screen reader; on a touch screen it is
+  not shown yet. A pane that records no reasoning level shows the name alone. The pill only shows the model, it is not a button yet. Where the
+  pill does not fit beside Queue (on a phone with a background-task chip, every named model
+  with a level) it steps aside whole while Queue is showing, and the context ring stays.
+  ([#467](https://github.com/devswha/herdr-web-ui/pull/467))
 - In the chat, the line with the model sits inside the message box, as its last row, instead of
   above it, on a phone as on a desktop. It shows the agent's mark, background tasks, the model,
   the reasoning level as one word (`high`) and the context ring. The agent's written name and the
@@ -52,6 +64,24 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   a phone, **Discard** is an X, and the message box keeps the same side margin as the
   conversation.
   ([#466](https://github.com/devswha/herdr-web-ui/pull/466))
+- In the chat, an agent's question, approval or plan no longer sits at the end of the
+  conversation: its card is docked directly above the message box, on the same column, so what
+  is asked and where you answer are one block and the conversation scrolls freely behind it.
+  Held messages stay above it, folded to their one line. The card is plainer: no shadow, its
+  title is the one thing in red (the "INPUT NEEDED" badge is still read by a screen reader),
+  and the options are flat rows with their number as a key, all of equal weight. A command or
+  plan to approve stays in the card's code box and is the only part that shrinks when room is
+  short (six lines, down to two); the card itself is at most 60% of the window, or six rows on a
+  phone with its keyboard up, and scrolls beyond that with Confirm always in sight. The message
+  box says "Type 1–3 to choose…" (or "Type 1–3 or your own reply…") in place of "Answer above:
+  type 1–3 to choose…", which was cut on a phone. While the agent waits for you, the open work
+  block reads "Needs you" with a still red dot in place of "Working…". Answering works as
+  before: a press on an option, a typed number followed by Confirm, or your own reply; Enter in
+  an empty box answers nothing. After a press with a mouse or keyboard, focus goes to the
+  message box. The card keeps following Settings → Chat font size and Chat font, and on a phone
+  with its keyboard up a tap on the card's text, or a drag down it, puts the keyboard away as
+  on the conversation.
+  ([#468](https://github.com/devswha/herdr-web-ui/pull/468))
 
 - In chat, a tool row reads as what the agent did: "Read src/metrics.ts", "Edited
   src/pages/Reports.tsx", "Ran pnpm test", in place of an icon, the tool's id and a slash. The

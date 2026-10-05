@@ -55,12 +55,12 @@ function range(prompt: InteractivePrompt): string {
 
 /** How a typed message answers this prompt: the composer's placeholder while it waits. */
 export function answerHint(prompt: InteractivePrompt): string {
-  if (prompt.multi_select) return t("Answer above: type the numbers you choose, e.g. 1 3");
+  if (prompt.multi_select) return t("Type the numbers you choose, e.g. 1 3");
   // a free-form question (Codex's queue) has no options to number
-  if (choices(prompt).length === 0) return t("Answer above: type your reply…");
+  if (choices(prompt).length === 0) return t("Type your reply…");
   return prompt.custom_option_index !== null
-    ? t("Answer above: type {range} or your own reply…", { range: range(prompt) })
-    : t("Answer above: type {range} to choose…", { range: range(prompt) });
+    ? t("Type {range} or your own reply…", { range: range(prompt) })
+    : t("Type {range} to choose…", { range: range(prompt) });
 }
 
 /** Why a message was not sent: the prompt takes only its options (answerFromText gave null). */
@@ -78,4 +78,23 @@ export function answerRefusal(prompt: InteractivePrompt): string {
  */
 export function needsConfirmation(prompt: InteractivePrompt, answer: TypedAnswer): boolean {
   return (prompt.kind === "approval" || prompt.kind === "plan" || prompt.kind === "menu") && answer.option_index !== undefined;
+}
+
+/**
+ * What made a click, from its `pointerType`: a finger or a pen, not a mouse or a key (a key
+ * press has no pointer type). Asked of the press itself and not of the device: a laptop with a
+ * touch screen reports a fine pointer and is still tapped.
+ */
+export function pressedByTouch(pointerType: string | undefined): boolean {
+  return pointerType === "touch" || pointerType === "pen";
+}
+
+/**
+ * After an answer pressed in the card went out: may the keyboard's focus go on to the message box?
+ * Only if the card is still there and nothing else took the focus while the answer was on its way
+ * (a palette, a held message being edited, another pane): `inCard` and `onPage` say where it is now.
+ * Never after a tap (`touch`): focus in the message box would raise the on-screen keyboard.
+ */
+export function focusFollowsAnswer({ fromCard, touch, cardMounted, inCard, onPage }: { fromCard: boolean; touch: boolean; cardMounted: boolean; inCard: boolean; onPage: boolean }): boolean {
+  return fromCard && !touch && cardMounted && (inCard || onPage);
 }

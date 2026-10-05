@@ -116,3 +116,12 @@ export function isLiveWorkTurn(turn: ConversationTurn, last: boolean, status?: s
   if (turn === sentOver) return false;
   return last && turn.role === "assistant" && (status === "working" || status === "blocked");
 }
+
+/**
+ * Whether the open work block's head says the agent waits for the user ("Needs you") instead of
+ * "Working…". By the pane's status, not by a parsed prompt: a blocked pane whose menu no reader
+ * knows waits just the same, and a question in Codex's queue leaves Codex working.
+ */
+export function isWaitingWorkTurn(live: boolean, status?: string): boolean {
+  return live && status === "blocked";
+}
