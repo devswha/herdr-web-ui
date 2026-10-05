@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   state: **Updates** always opens with the running app version, and **herdr** shows the running
   herdr version also where herdr cannot be updated from the app, such as on Windows. A tab that
   has not been reloaded since the server updated says which version it still runs.
+  ([#462](https://github.com/devswha/herdr-web-ui/pull/462))
 
 ### Fixed
 - An update asked for in the first moments after the app starts, or right after another update,
