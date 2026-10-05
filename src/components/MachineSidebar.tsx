@@ -13,8 +13,6 @@ import { UsageMeters } from "./UsageMeters.tsx";
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
 
-declare const __APP_VERSION__: string;
-
 /** The PC header's state word; "connected" is the quiet default and shows as a dot alone. */
 export const STATE_WORD: Readonly<Record<MachineState, string>> = {
   connecting: "Connecting…",
@@ -24,7 +22,7 @@ export const STATE_WORD: Readonly<Record<MachineState, string>> = {
   error: "Connection error",
 };
 
-interface Props { machines: Machine[]; selectedMachineId: string; selectedPaneId: string | null; actions: AppActions; version: string | null; onSelect(machineId: string, paneId: string | null): void; onNew(machineId: string): void; onSetup(machine: Machine, update?: boolean): void }
+interface Props { machines: Machine[]; selectedMachineId: string; selectedPaneId: string | null; actions: AppActions; onSelect(machineId: string, paneId: string | null): void; onNew(machineId: string): void; onSetup(machine: Machine, update?: boolean): void }
 export function MachineSidebar(props: Props) {
   const t = useT();
   const { canInstall, installed, install, help } = useInstallPrompt();
@@ -46,10 +44,6 @@ export function MachineSidebar(props: Props) {
           <span className="sidebar-footer-label">{t("Settings")}</span>
         </button>
         <UsageMeters />
-      </div>
-      <div className="sidebar-brandline">
-        <span className="sidebar-app-name">herdr web ui v{__APP_VERSION__}</span>
-        {props.version && <span className="pill">herdr {props.version}</span>}
       </div>
     </footer>
   </div>;
@@ -149,7 +143,8 @@ function MachineActionNotice({ machine, onSetup }: { machine: Machine; onSetup(m
     <p className="machine-action-text">
       <strong>{t(update ? "Bridge update needed" : "Setup needed")}</strong>
       <span>{t(update ? "This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running." : "Reconnecting needs your approval on this PC.")}</span>
-      {update && machine.error && !/different version/.test(machine.error) && <span className="machine-action-reason">{machine.error}</span>}
+      {/* the two generic reasons only repeat the sentence above */}
+      {machine.error && !/different version|setup needs approval/.test(machine.error) && <span className="machine-action-reason">{machine.error}</span>}
     </p>
     {update ? <div className="machine-action-buttons">
       <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void run(() => machineRequest(`/${encodeURIComponent(machine.id)}/update-bridge`, "POST"))}>{t("Update bridge")}</button>

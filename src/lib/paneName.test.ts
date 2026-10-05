@@ -29,6 +29,7 @@ it("finds the folder of a Windows path as of a POSIX one", () => {
   expect(folderName("C:/")).toBe("C:/");
   expect(folderName("/home/haemin/dev/api/")).toBe("api");
   expect(folderName("/")).toBe("/");
+  expect(folderName("/repo/branch ")).toBe("branch ");
   expect(placeLine("api", folderName("C:\\work\\api"))).toBe("api");
   expect(placeLine("api", folderName("C:\\work\\server"))).toBe("api · server");
 });

@@ -31,7 +31,8 @@ try {
   await page.goto(`http://127.0.0.1:${server.port}/`);
   await page.getByText("Skill requested", { exact: true }).waitFor();
   assert.equal(await page.locator(".chat-skill").count(), 1);
-  await page.locator(".work-block-head").click();
+  // the turn is settled (no agent runs in this fixture): its work is folded without a click
+  assert.equal(await page.locator(".work-block-head").getAttribute("aria-expanded"), "false");
   assert.equal(await page.locator(".work-block-rows").count(), 0);
   assert.equal(await page.locator(".chat-skill-name").textContent(), "team:review");
   rows.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "one", content: "Launching skill" }] } });

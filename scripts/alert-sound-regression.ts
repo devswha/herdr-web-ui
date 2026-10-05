@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Browser } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 /**
  * The alert sound: real herdr status changes make the open tab chime, once a tap let the page
- * play audio, and never for the pane already open. The page's AudioContext is a recorder that
- * starts suspended like a real one, so what would have sounded is the notes it was asked for.
+ * play audio, and never for the pane already open. Alerts that come together in
+ * a tab chime once. The page's AudioContext is a recorder that starts suspended
+ * like a real one, so what would have sounded is the notes it was asked for.
  */
 export async function checkAlertSound(browser: Browser, origin: string): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-alert-sound-"));
@@ -16,30 +17,38 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   try {
     const panes: string[] = [];
-    for (const suffix of ["open", "other"]) {
+    for (const suffix of ["open", "other", "third"]) {
       const cwd = join(root, suffix);
       mkdirSync(cwd);
       const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-sound-${suffix}` });
       workspaces.push(created.workspace.workspace_id);
       panes.push(created.root_pane.pane_id);
     }
-    const [openPane, otherPane] = panes as [string, string];
+    const [openPane, otherPane, thirdPane] = panes as [string, string, string];
     const report = (pane: string, state: string) => herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state });
     await report(openPane, "idle");
     await report(otherPane, "idle");
+    await report(thirdPane, "idle");
 
     await context.addInitScript(() => {
       if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertDone: "off", alertSound: true }));
       const notes: number[] = [];
-      (window as unknown as { chimes: number[] }).chimes = notes;
+      const recorded = window as unknown as { chimes: number[]; chimeEnd: number };
+      recorded.chimes = notes;
+      recorded.chimeEnd = 0;
       class RecordingAudioContext {
         state = "suspended";
-        currentTime = 0;
+        // a real context's clock runs on its own: the app tells a chime still sounding by it
+        get currentTime() { return performance.now() / 1000; }
         destination = {};
         async resume() { this.state = "running"; }
         createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (node: unknown) => node }; }
         createOscillator() {
-          const oscillator = { type: "", frequency: { value: 0 }, connect: (node: unknown) => node, start() { notes.push(oscillator.frequency.value); }, stop() {} };
+          const oscillator = {
+            type: "", frequency: { value: 0 }, connect: (node: unknown) => node,
+            start() { notes.push(oscillator.frequency.value); },
+            stop(at: number) { recorded.chimeEnd = Math.max(recorded.chimeEnd, at); },
+          };
           return oscillator;
         }
       }
@@ -50,9 +59,11 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`${origin}/?pane=${encodeURIComponent(openPane)}`);
     await page.locator(".conn-live").waitFor();
-    const chimes = () => page.evaluate(() => [...(window as unknown as { chimes: number[] }).chimes]);
+    const chimes = (tab: Page = page) => tab.evaluate(() => [...(window as unknown as { chimes: number[] }).chimes]);
     // the app must have seen the pane work before it waits: a wait first seen is no news
-    const seen = (pane: string, status: string) => page.locator(`.pane-item:has(.pane-select[title^="${pane} —"]) [data-status="${status}"]`).first().waitFor({ state: "attached" });
+    const seen = (pane: string, status: string, tab: Page = page) => tab.locator(`.pane-item:has(.pane-select[title^="${pane} —"]) [data-status="${status}"]`).first().waitFor({ state: "attached" });
+    // a tab's last chime ended: an alert after it is not told by it
+    const quiet = (tab: Page) => tab.waitForFunction(() => performance.now() / 1000 >= (window as unknown as { chimeEnd: number }).chimeEnd);
     // The card for a waiting pane leaves by itself after a few seconds, so nothing is awaited
     // between the report and the wait for the card. Only the pane in front, which gets no card,
     // is followed to `blocked` in the sidebar.
@@ -94,6 +105,26 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     await sound.scrollIntoViewIfNeeded();
     if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "alert-sound-settings.png") });
     console.log("PASS Settings turns the alert sound off and on, with a preview");
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog", { name: "Settings" }).waitFor({ state: "detached" });
+
+    // two panes start waiting at the same moment: one chime tells both
+    await quiet(page);
+    const before = (await chimes()).length;
+    await report(openPane, "idle");
+    for (const pane of [openPane, thirdPane]) {
+      await report(pane, "working");
+      await seen(pane, "working");
+    }
+    await Promise.all([report(openPane, "blocked"), report(thirdPane, "blocked")]);
+    for (const pane of [openPane, thirdPane]) await seen(pane, "blocked");
+    // the chime for the two is asked for, and then it has ended: a second one, for the other
+    // pane, would have been asked for while the first still sounded
+    await page.waitForFunction((count) => (window as unknown as { chimes: number[] }).chimes.length >= count + 2, before);
+    await quiet(page);
+    assert.deepEqual((await chimes()).slice(before), [660, 880], "one chime for two panes that wait together");
+    console.log("PASS two panes that wait together chime once");
+
     assert.deepEqual(errors, []);
   } finally {
     await context.close();

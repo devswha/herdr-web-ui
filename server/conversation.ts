@@ -37,7 +37,7 @@ import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeProcessSession, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
-import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
+import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { piTranscriptPath } from "./pi.ts";
 import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
@@ -516,6 +516,8 @@ interface SettledTurns {
   metadata: ConversationMetadata;
   /** the bytes just before `end` (see LiveScan.tail) */
   tail: string;
+  /** what OmO's `task` calls on the page called their tasks: a task can end in a later turn than the one that started it */
+  taskTitles: Map<string, string>;
 }
 const settledTurns = new Map<string, SettledTurns>();
 
@@ -557,12 +559,12 @@ function newestPage(path: string, stream: TranscriptStream, source: RecognizedCo
   return start === undefined ? null : { start, starts };
 }
 
-function parseTurns(source: RecognizedConversation["source"], text: string): ConversationTurn[] {
+function parseTurns(source: RecognizedConversation["source"], text: string, taskTitles?: Map<string, string>): ConversationTurn[] {
   return source === "codex-transcript" ? parseCodexTranscript(text, Infinity)
     // only pi keeps a tool's images in the entry as base64; omp, omo and gjc are read the same
     // way but would carry image refs nothing can answer, so the option stays with pi alone
     : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity)
-      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript" });
+      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript", taskTitles });
 }
 
 interface LiveCodexTurn {
@@ -627,11 +629,15 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
   let settled = settledTurns.get(key);
   if (!settled || settled.id !== stream.id || settled.end > last || bytesBefore(stream, settled.end) !== settled.tail) {
     const head = start > stream.floor ? metadataHead(path, stream, source, start) : "";
-    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start) };
+    // a page that starts past the turn that started a task keeps the title that turn gave it,
+    // as long as this stream was watched while the title was on a page (a cold read cannot)
+    const earlier = [...settledTurns.values()].filter((kept) => kept.id === stream.id && kept.start < start && kept.end <= start && kept.taskTitles.size > 0);
+    const taskTitles = new Map(earlier.flatMap((kept) => [...kept.taskTitles]));
+    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles };
   }
   if (settled.end < last) {
     const text = readStream(stream, settled.end, last).toString("utf8");
-    settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
+    settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text, settled.taskTitles)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
   }
   remember(settledTurns, key, settled, 8);
   if (source === "codex-transcript") {
@@ -639,7 +645,9 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
     return { turns: [...settled.turns, ...live.turns], metadata: live.metadata };
   }
   const text = readStream(stream, last, stream.length).toString("utf8");
-  return { turns: [...settled.turns, ...parseTurns(source, text)], metadata: parseConversationMetadata(text, source, settled.metadata) };
+  // the live turn is parsed again on every poll: what it teaches about titles is kept only
+  // once it settles, so a read titles a task exactly as a cold read of the same bytes does
+  return { turns: [...settled.turns, ...parseTurns(source, text, new Map(settled.taskTitles))], metadata: parseConversationMetadata(text, source, settled.metadata) };
 }
 
 /** Forget every scan and parse kept between polls (tests compare against a cold read). */
@@ -758,7 +766,20 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
  */
 async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: RecognizedConversation["source"]; path: string }> {
   const paneId = pane.pane_id;
-  const agent = pane.agent ?? pane.agent_session?.agent ?? "";
+  let agent = pane.agent ?? pane.agent_session?.agent ?? "";
+  // herdr names no agent for this pane: a session report an earlier agent left behind says
+  // nothing about what runs now, so the pane's processes are asked before it is followed.
+  // A pane herdr does label is not asked: the lookup would cost every chat poll an RPC (and
+  // a process-table read on Windows), and a gjc below another agent would take its chat.
+  if (!pane.agent) {
+    const info = await herdrRpc<{ process_info?: { shell_pid?: number; foreground_processes?: { argv?: unknown }[] } }>(
+      "pane.process_info", { pane_id: paneId },
+    ).catch(() => null);
+    const running = (info?.process_info?.foreground_processes ?? []).some((process) =>
+      isGjcProcess(Array.isArray(process.argv) ? process.argv.map(String) : []),
+    );
+    if (running || await gjcPidUnderShell(info?.process_info?.shell_pid)) agent = "gjc";
+  }
   if ((agent === "omo" || agent === "pi" || agent === "claude") && await paneRunsOmo(paneId)) {
     return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes) };
   }

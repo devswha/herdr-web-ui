@@ -37,6 +37,8 @@ try {
   add(message("assistant", "I am checking the transcript.", "commentary"), 1);
   add({ type: "function_call", name: "exec_command", call_id: "c1", arguments: '{"cmd":"git status"}' }, 2);
   add({ type: "function_call_output", call_id: "c1", output: "clean" }, 3);
+  add({ type: "function_call", name: "exec_command", call_id: "c2", arguments: '{"cmd":"bun test"}' }, 4);
+  add({ type: "function_call_output", call_id: "c2", output: "Process exited with code 1\n1 fail" }, 5);
   add(message("assistant", answer, "final_answer"), 8);
   persist();
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-chat-browser" });
@@ -60,28 +62,87 @@ try {
   assert.equal((await log.innerText()).includes("PRIVATE"), false);
   const modelInfo = page.getByLabel("Model and reasoning");
   await modelInfo.getByText("codex-test-model", { exact: true }).waitFor();
-  await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor();
+  // the level is drawn as one word; the sentence is the screen reader's
+  await modelInfo.getByText("xhigh", { exact: true }).waitFor();
+  await modelInfo.getByText("Reasoning xhigh", { exact: true }).waitFor({ state: "attached" });
+  assert.equal(await page.locator(".composer-surface > .composer-status").count(), 1, "the status content is inside the input card");
+  assert.equal(await page.locator(".composer-surface").evaluate((card) => {
+    const box = (selector: string): DOMRect => card.querySelector(selector)!.getBoundingClientRect();
+    const [text, attach, status, action] = [box(".composer-text"), box(".composer-attach"), box(".composer-status"), box(".composer-action")];
+    return card.querySelectorAll(".composer-action").length === 1 && action.width === action.height
+      // the message is the first row, at the card's full width
+      && text.width >= card.getBoundingClientRect().width - 4 && text.bottom <= Math.min(attach.top, action.top)
+      // and one row under it: add, then the status content, then the round button
+      && attach.right <= status.left && status.right <= action.left && status.top < action.bottom && status.bottom > action.top;
+  }), true, "the message on top, one row of controls under it, one round button");
+  assert.equal(await page.locator(".composer-status").evaluate((node) => {
+    // DONE is the one state word the row draws; READY, RUN and INPUT are read, not drawn
+    const word = node.querySelector("strong");
+    const hidden = [node.querySelector(".composer-agent-label"), node.querySelector(".composer-reasoning-full")];
+    if (node.getAttribute("data-status") !== "done") hidden.push(word);
+    else if (word === null || word.getBoundingClientRect().width <= 1) return false;
+    return hidden.every((item) => item !== null && item.textContent !== "" && item.getBoundingClientRect().width <= 1);
+  }), true, "the agent's name, the state word (unless DONE) and the reasoning sentence are read, not drawn");
   const work = log.locator(".work-block-head");
-  assert.equal(await work.getAttribute("aria-expanded"), "true");
+  const report = (state: "working" | "idle") => herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state, agent_session_path: rollout });
+  const head = (expanded: boolean, title: string) => log.locator(`.work-block-head[aria-expanded="${expanded}"]`).filter({ hasText: title });
+  await head(false, "Worked for 7s").waitFor();
+  await report("working");
+  await head(true, "Working…").waitFor();
+  assert.equal(await log.locator(".work-block.is-folded").count(), 0, "the running turn's work is open");
+  await report("idle");
+  await head(false, "Worked for 7s").waitFor();
+  // working inside the block is a choice to keep it: the fold must not take a focused row away
+  await report("working");
+  await head(true, "Working…").waitFor();
+  // the row reads as verb + object (#457); its tool id is the title
+  const toolRow = log.getByRole("button", { name: "Ran git status", exact: true });
+  await toolRow.click();
+  await log.getByText("git status", { exact: true }).last().waitFor();
+  await report("idle");
+  await head(true, "Worked for 7s").waitFor();
+  assert.equal(await toolRow.evaluate((node) => node === document.activeElement), true, "the row the reader opened keeps focus when the turn settles");
+  await log.getByText("git status", { exact: true }).last().waitFor();
+  await work.click();
+  await head(false, "Worked for 7s").waitFor();
+  console.log("PASS the running turn's work is open, folds when it settles, and stays open under a reader working inside it");
+  assert.equal(await work.getAttribute("aria-expanded"), "false", "a settled turn folds its work: only a running turn is open");
+  assert.equal(await log.locator(".work-block.is-folded").count(), 1);
   assert.match(await work.innerText(), /Worked for 7s/);
-  await log.getByRole("button", { name: /exec_command/ }).click();
+  await work.click();
+  assert.equal(await work.getAttribute("aria-expanded"), "true");
+  // a tool the verb table knows reads as verb + object; its id is the title and the detail's first line
+  const row = log.getByRole("button", { name: "Ran git status", exact: true });
+  assert.equal(await row.getAttribute("title"), "exec_command · git status");
+  assert.equal(await row.locator(".work-row-caret").isVisible(), true);
+  assert.equal(await row.locator(".work-row-icon, .work-row-sep").count(), 0);
+  // a failed call says so after its object, never between the verb and what it ran
+  const failedRow = log.getByRole("button", { name: "Ran bun test failed", exact: true });
+  assert.equal(await failedRow.evaluate((node) => node.lastElementChild?.className), "work-row-failed");
+  assert.equal(await failedRow.getAttribute("title"), "exec_command · bun test");
+  await row.click();
+  assert.equal(await log.locator(".work-row-detail > :first-child").innerText(), "exec_command");
   await log.getByText("git status", { exact: true }).last().waitFor();
   assert.equal(await log.locator(".chat-agent-meta").count(), 1);
-  console.log("PASS native user/answer rendering, internal context filtering, tool expansion, duration");
+  console.log("PASS native user/answer rendering, internal context filtering, settled work folded, tool expansion, duration");
 
   add(message("user", "A second request."), 20); persist();
   await log.getByText("A second request.", { exact: true }).waitFor();
-  assert.equal(await work.getAttribute("aria-expanded"), "false", "old work auto-folds when a new turn arrives");
+  assert.equal(await work.getAttribute("aria-expanded"), "true", "manual expansion is preserved when a new turn arrives");
   await work.click();
+  assert.equal(await work.getAttribute("aria-expanded"), "false", "and so is folding it again");
   add(message("assistant", "Checking the second request.", "commentary"), 21); persist();
+  // the pane is idle: this turn is settled and has no answer, so folding it would hide its only text
   await log.getByText("Checking the second request.", { exact: true }).waitFor();
-  assert.equal(await work.first().getAttribute("aria-expanded"), "true", "manual expansion is preserved");
+  assert.equal(await work.first().getAttribute("aria-expanded"), "false", "manual folding is preserved");
+  assert.equal(await work.nth(1).getAttribute("aria-expanded"), "true", "a settled turn that ends in commentary keeps its text in view");
   assert.equal(await log.locator(".chat-agent-meta").count(), 1, "commentary is not a final answer");
-  console.log("PASS old work folds, manual state persists, live commentary stays inside work");
+  console.log("PASS manual state persists, commentary stays inside work and stays visible when the turn has no answer");
 
   records.push({ type: "turn_context", payload: { model: "codex-updated-model", effort: "low" } }); persist();
   await modelInfo.getByText("codex-updated-model", { exact: true }).waitFor();
-  await modelInfo.getByText("Reasoning low", { exact: true }).waitFor();
+  await modelInfo.getByText("low", { exact: true }).waitFor();
+  await modelInfo.getByText("Reasoning low", { exact: true }).waitFor({ state: "attached" });
   assert.equal(await modelInfo.getByText("codex-test-model", { exact: true }).count(), 0);
   console.log("PASS model and reasoning metadata update without a new message");
 
@@ -119,7 +180,12 @@ try {
   // the wrapper has no box of its own (display: contents): measure the name and the level themselves
   const statusItems = page.locator(".composer-model, .composer-reasoning");
   assert.equal(await statusItems.evaluateAll((items) => items.length === 2 && items.every((item) => item.getBoundingClientRect().width > 0 && item.getBoundingClientRect().right <= innerWidth)), true, "model and reasoning stay visible on mobile");
-  assert.equal(await page.locator(".composer-status").evaluate((node) => node.scrollWidth <= node.clientWidth), true, "the status line fits its one row");
+  assert.equal(await page.locator(".composer-status").evaluate((node) => node.scrollWidth <= node.clientWidth), true, "the status content fits its place in the controls row");
+  // a level that does not fit steps out whole (read, not drawn): it is never drawn in part
+  await page.waitForFunction(() => {
+    const level = document.querySelector(".composer-reasoning");
+    return level !== null && (level.scrollWidth <= level.clientWidth || level.getBoundingClientRect().width <= 1);
+  }, undefined, { timeout: 5_000 });
   mkdirSync("evidence/chat-mode", { recursive: true });
   await page.screenshot({ path: "evidence/chat-mode/mobile.png", fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 1280, height: 800 });

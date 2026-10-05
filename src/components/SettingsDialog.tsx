@@ -6,7 +6,7 @@ import "./SettingsDialog.css";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
@@ -21,7 +21,7 @@ import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PushTestControls } from "./PushTestControls.tsx";
-import { playAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
+import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
@@ -31,6 +31,8 @@ export interface SettingsDialogProps {
   updates: UpdatesModel;
   /** how this browser got in, from the last health check */
   auth: HealthAuth | null;
+  /** the herdr this app's server talks to, from the last health check */
+  herdrVersion: string | null;
   onEnableNotifications: () => Promise<boolean>;
 }
 
@@ -134,7 +136,7 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   );
 }
 
-export function SettingsDialog({ open, onClose, actions, updates, auth, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   // the accounts to order and hide: the same report the meters show, from the server's cache
   const usage = useUsage(open && settings.showUsage);
@@ -397,6 +399,16 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
               <Toggle label={t("Show thinking")} checked={settings.showThinking} onChange={(showThinking) => update({ showThinking })} />
             </div>
             <div className="settings-row">
+              <div><span className="settings-label">{t("Chat width")}</span><span className="settings-description">{t("How wide the conversation and the message box run on a large screen")}</span></div>
+              <div className="segmented" role="group" aria-label={t("Chat width")}>
+                {CHAT_WIDTHS.map((chatWidth) => (
+                  <button key={chatWidth} type="button" aria-pressed={settings.chatWidth === chatWidth} onClick={() => update({ chatWidth })}>
+                    {t(chatWidth === "narrow" ? "Narrow" : chatWidth === "wide" ? "Wide" : chatWidth === "full" ? "Full" : "Default")}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="settings-row">
               <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code and prompt cards in the chat view")}</span></div>
               <div className="settings-stepper" aria-label={t("Chat font size")}>
                 <button type="button" className="icon-button" aria-label={t("Decrease chat font size")} disabled={chatFontSize(settings) <= CHAT_FONT_MIN} onClick={() => update({ chatFontSize: chatFontSize(settings) - 1 })}><Minus /></button>
@@ -439,7 +451,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
                 alertSoundWanted.current = alertSound;
                 // this tap is the gesture the page needs to play audio; the chime is the preview,
                 // unless the switch went off again while the audio was getting ready
-                if (alertSound) void unlockAlertSound().then((ready) => { if (ready && alertSoundWanted.current) playAlertSound("done"); });
+                if (alertSound) void unlockAlertSound().then((ready) => { if (ready && alertSoundWanted.current) previewAlertSound(); });
               }} />
             </div>
           </section>
@@ -573,7 +585,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
             <a href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
           </section>
           <UpdateControls updates={updates} bridgesFollow={pcSettings?.auto_update_bridges === true} />
-          <HerdrUpdateControls enabled={open} />
+          <HerdrUpdateControls enabled={open} herdrVersion={herdrVersion} />
         </div>
       </section>
     </div>

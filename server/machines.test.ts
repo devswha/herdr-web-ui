@@ -19,6 +19,33 @@ import { CompletionTracker } from "./completion.ts";
 import type { PushService } from "./push.ts";
 import { recentSshOutput } from "./ssh.ts";
 
+describe("independently managed bridge updates", () => {
+  it("requires the owning app's update controls before installing a remote bundle", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-bridge-owner-"));
+    const manager = new MachineManager(dir, {} as PushService, {} as CompletionTracker, async () => { throw new Error("local offline"); });
+    const socket = "/home/u/.config/herdr/herdr.sock";
+    const descriptor = { pid: process.pid, port: 7317, token: "a".repeat(64), socket_path: socket, bridge_protocol: 1, bundle_version: "older", managed_remote: false };
+    const commands: string[] = [];
+    const ssh = { run: async (script: string) => {
+      commands.push(script);
+      if (script.includes("uname")) return `Linux\nx86_64\n/home/u\n/home/u/.config\n/usr/bin/herdr\nbundle-older\n${JSON.stringify(descriptor)}\n`;
+      if (script.includes("socket=")) return socket;
+      if (script.includes("--version")) return "herdr 0.9.3";
+      if (script.includes("kill -0")) return "live";
+      throw new Error("Unexpected remote mutation");
+    } } as unknown as SshConnection;
+    const prepare = (manager as unknown as { prepare(runtime: unknown, job?: unknown): Promise<void> }).prepare.bind(manager);
+    const runtime = { generation: 0, ssh, machine: { target: { destination: "pc" } } };
+    try {
+      await expect(prepare(runtime)).rejects.toMatchObject({ action: "setup" });
+      await expect(prepare(runtime, { update: true, auto: true, public: { installations: [] }, abort: new AbortController() })).rejects.toMatchObject({ action: "setup" });
+      descriptor.managed_remote = true;
+      await expect(prepare(runtime)).rejects.toMatchObject({ action: "update_bridge" });
+      expect(commands.every(script => script.includes("uname") || script.includes("socket=") || script.includes("--version") || script.includes("kill -0"))).toBe(true);
+    } finally { manager.stop(); rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
 describe("machine boundaries", () => {
   it("separates equal pane IDs while preserving historical local storage", () => {
     expect(paneStorageId("local", "p:1")).toBe("p:1");

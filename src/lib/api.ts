@@ -31,6 +31,8 @@ import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { HerdrUpdateStatus, UpdateCommand, UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
+import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
+import { t } from "./i18n.ts";
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
@@ -235,13 +237,36 @@ function base64FromBytes(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/** Megabytes to one decimal, rounded up: a file just over the limit never reads as the limit itself. */
+const megabytes = (bytes: number): string => `${Math.ceil((bytes / (1024 * 1024)) * 10) / 10} MB`;
+
+/** A file over the attachment limit. Its message is what the person reads: the file, its size, the limit. */
+export class AttachmentTooLargeError extends Error {
+  readonly fileName: string;
+  readonly size: number;
+
+  constructor(fileName: string, size: number) {
+    super(t("Too large to attach: {name} ({size}). A file can be up to {limit}.", { name: fileName, size: megabytes(size), limit: megabytes(MAX_ATTACHMENT_BYTES) }));
+    this.name = "AttachmentTooLargeError";
+    this.fileName = fileName;
+    this.size = size;
+  }
+}
+
+/** Throws for a file the server would refuse, before any of it is read or sent. */
+export function assertAttachable(file: Blob): void {
+  if (file.size > MAX_ATTACHMENT_BYTES) throw new AttachmentTooLargeError(file instanceof File && file.name ? file.name : file.type || "file", file.size);
+}
+
 /**
  * POST /api/pane/image: stores one pasted or file-picked image next to the pane and
  * resolves to the absolute path the prompt should reference (the composer inserts
- * `@path`). ApiError 413 image_too_large / 415 unsupported_media_type on bad input.
+ * `@path`). AttachmentTooLargeError for a file over the limit, with nothing sent;
+ * ApiError 413 image_too_large from a server whose limit is lower.
  */
 /** Any file: an image is stored as a paste, anything else under its own (sanitised) name. */
 export async function uploadPaneImage(paneId: string, image: Blob, machineId = "local"): Promise<string> {
+  assertAttachable(image);
   const data_base64 = base64FromBytes(new Uint8Array(await image.arrayBuffer()));
   const response = await fetch(machinePath(machineId, "pane/image"), {
     method: "POST",

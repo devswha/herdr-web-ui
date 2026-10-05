@@ -53,6 +53,11 @@ The update runs on the server, not in a dialog: closing the dialog after approva
 
 A verified runtime is installed into a checksum-addressed directory before the selected managed bridge is restarted. Existing runtime directories remain available to other running bridges. The updater authenticates the old bridge and checks its PID before stopping it; herdr itself is left running. A separately managed server must use its own update controls. The connection server's own app update (Settings → Updates) is separate from these bridge updates.
 
+An independently managed server is detected before downloading or installing a remote bundle and
+does not enter the automatic bridge-update queue. Update its app through its own Settings, then
+reconnect the PC here. On Windows, extraction always uses `%SystemRoot%\System32\tar.exe`, so Git
+or MSYS tools earlier on PATH cannot reinterpret the archive's drive-letter path.
+
 ## Building and distributing runtimes
 
 `bun run build:remote` builds for the host OS and CPU after `bun run build`. Linux and macOS bundles use checksum-pinned Node 22.23.2. Linux bundles copy the installed Bun, so they must be built on the target OS/CPU. macOS bundles use checksum-pinned Bun 1.4.2 plus that platform's prebuilt PTY package (`@lydell/node-pty-<platform>`, fetched checksum-pinned from the npm registry when it is not the host's); they can also be assembled on Linux. The Windows bundle (`win32-x64`) is checksum-pinned Bun 1.4.2 alone, with no Node, PTY package or herdr, and is assembled on any OS:

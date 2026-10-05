@@ -160,7 +160,7 @@ running llama.cpp server that this app cannot ask. The model and reasoning effor
 | **Follow the plan** | A supported todo-tool call folds into the turn's work block like any tool: it reads as the done count or the step it took, and opened, as the whole list by phase. |
 | **Drop into the real terminal** | xterm.js on the live pane: full-screen TUIs, raw keys and herdr's scrollback, shared with your own herdr TUI. Drag to select and it is copied on release; the wheel or the screen's edge scrolls further back while you drag. Ctrl+C copies a selection instead of interrupting. |
 | **Answer prompts** | Approval, question and plan menus become cards. Tap an option, or type its number in the composer. The server checks that the menu is still current before answering. |
-| **Compose** | `/` commands and `@` file mentions, any file or image attached by path, a draft per pane, and multiple queued messages while the agent works. |
+| **Compose** | `/` commands and `@` file mentions, any file or image up to 8 MB attached by path, a draft per pane, and multiple queued messages while the agent works. |
 | **Follow every agent** | Live RUN / INPUT / DONE / READY status for all panes, and alerts when an agent needs input, finishes or its terminal ends. |
 | **Open what agents make** | A file path in an answer opens in a viewer (images, video, audio, PDF, text), or find it with **Browse files**, and download it to your phone. |
 | **Manage sessions** | Start an agent in a folder you type or pick with **Browse**, add a tab to a workspace (as herdr's prefix+c) and switch tabs from the strip over the pane, rename workspaces and panes, reorder workspaces, and jump anywhere from the command palette. |
@@ -215,7 +215,7 @@ Only devices in your tailnet can open that address, and only yours get in withou
 
 1. Open the address.
 2. Install the app: in Safari, choose **Share → Add to Home Screen**; in Chrome, choose **Install app**.
-3. Tap the bell to turn on alerts for that device. iPhone needs iOS 16.4+ and the home-screen app.
+3. Open the **⋯** menu at the top right and tap **Alerts** to turn on alerts for that device. iPhone needs iOS 16.4+ and the home-screen app.
 
 To check alerts later, choose **Settings → Alerts → Send test**. The result tells you
 whether the test was sent or failed; a missing subscription offers **Turn alerts on again**.
@@ -451,6 +451,12 @@ No. The server reads session files and terminals locally, and serves them only t
 <summary><b>An agent is missing from the chat, or shows only terminal text.</b></summary>
 
 The chat needs the agent's own session file. Check that the agent runs in a herdr pane on this PC (or on an added PC) and has already written its first message. Agents without a native reader always get the terminal-text view, and the Terminal view always works.
+</details>
+
+<details>
+<summary><b>The colors look too dark, or the light theme looks dark, in Samsung Internet.</b></summary>
+
+Samsung Internet has a forced dark mode that repaints every page, including one that brings its own light and dark themes, as this app does. A light theme comes out dark, and a dark one is darkened a second time: similar shades run together, and the bars of the plan meters can look empty. Turn off **Force dark mode for web content** (**웹 콘텐츠에 어두운 화면 모드 강제 적용**) in Samsung Internet's settings, or open the app in Chrome. Reported on a Galaxy Tab S7+ ([#451](https://github.com/devswha/herdr-web-ui/issues/451)).
 </details>
 
 <details>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { DISMISS_DRAG_PX, dismissKeyboardOn, dragDismisses, tapDismisses } from "./keyboard.ts";
+import { DISMISS_DRAG_PX, dismissKeyboardOn, dragDismisses, scrolledDown, tapDismisses } from "./keyboard.ts";
 
 describe("dragDismisses", () => {
   test("a drag down the transcript puts the keyboard away", () => {
@@ -45,10 +45,10 @@ describe("dismissKeyboardOn", () => {
     for (const name of names) (globalThis as Record<string, unknown>)[name] = saved[name];
   });
 
-  const drag = (target: unknown, during?: () => void): number => {
+  const drag = (target: unknown, during?: () => void, card?: { scrollTop: number }): number => {
     const listeners = new Map<string, Handler>();
-    const node = { addEventListener: (type: string, handler: Handler) => listeners.set(type, handler), removeEventListener: () => {} };
-    const stop = dismissKeyboardOn(node as unknown as HTMLElement);
+    const node = { ...card, addEventListener: (type: string, handler: Handler) => listeners.set(type, handler), removeEventListener: () => {} };
+    const stop = dismissKeyboardOn(node as unknown as HTMLElement, { atTopOnly: card !== undefined });
     const touch = (y: number) => ({ target, touches: [{ clientX: 100, clientY: y }] });
     listeners.get("touchstart")!(touch(200));
     during?.();
@@ -67,5 +67,33 @@ describe("dismissKeyboardOn", () => {
 
   test("a drag that starts on a field in the transcript keeps the keyboard", () => {
     expect(drag({ closest: (selector: string) => (selector.includes("input") ? {} : null) })).toBe(0);
+  });
+
+  test("a drag down a prompt card at its top puts the keyboard away", () => {
+    expect(drag({ closest: () => null }, undefined, { scrollTop: 0 })).toBe(1);
+  });
+
+  test("a drag down a scrolled prompt card scrolls it back and keeps the keyboard", () => {
+    expect(drag({ closest: () => null }, undefined, { scrollTop: 40 })).toBe(0);
+  });
+
+  test("a drag down the card's scrolled reference text keeps the keyboard", () => {
+    expect(drag({ closest: () => null, scrollTop: 12, parentElement: null }, undefined, { scrollTop: 0 })).toBe(0);
+  });
+});
+
+describe("scrolledDown", () => {
+  test("looks at every scroller from the touched element up to the node, and no further", () => {
+    const page = { scrollTop: 300, parentElement: null };
+    const card = { scrollTop: 0, parentElement: page };
+    const body = { scrollTop: 0, parentElement: card };
+    const line = { parentElement: body };
+    expect(scrolledDown(line, card)).toBe(false);
+    body.scrollTop = 8;
+    expect(scrolledDown(line, card)).toBe(true);
+    body.scrollTop = 0;
+    card.scrollTop = 8;
+    expect(scrolledDown(line, card)).toBe(true);
+    expect(scrolledDown(null, card)).toBe(true);
   });
 });
