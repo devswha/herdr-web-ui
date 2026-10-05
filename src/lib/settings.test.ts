@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
@@ -38,6 +38,37 @@ describe("chat font size", () => {
     expect(sanitizeSettings({ chatFontSize: 15.6 }).chatFontSize).toBe(16);
     expect(sanitizeSettings({ chatFontSize: "18" }).chatFontSize).toBeNull();
     expect(sanitizeSettings({ terminalFontSize: 15 }).chatFontSize).toBeNull();
+  });
+});
+
+describe("chat width", () => {
+  it("is the default lane until one is chosen, and accepts only the four steps", () => {
+    expect(DEFAULT_SETTINGS.chatWidth).toBe("default");
+    expect(sanitizeSettings({}).chatWidth).toBe("default");
+    expect([...CHAT_WIDTHS]).toEqual(["narrow", "default", "wide", "full"]);
+    for (const chatWidth of CHAT_WIDTHS) expect(sanitizeSettings({ chatWidth }).chatWidth).toBe(chatWidth);
+    for (const chatWidth of [null, true, 960, "huge", "Wide", ["wide"]]) expect(sanitizeSettings({ chatWidth }).chatWidth).toBe("default");
+  });
+
+  it("has one lane token with an override per step, and the dialogs keep their own width", () => {
+    const css = (name: string): string => readFileSync(join(import.meta.dir, "..", name), "utf8");
+    const tokens = css("styles.css");
+    expect(tokens).toContain("--content-w: 820px;");
+    expect(tokens).toContain("--chat-w: 60rem;");
+    const step = (name: string): string | undefined => new RegExp(`\\[data-chat-width="${name}"\\] \\{\\s*--chat-w: ([^;]+);`).exec(tokens)?.[1];
+    expect(step("narrow")).toBe("var(--content-w)");
+    expect(step("wide")).toBe("72rem");
+    expect(step("full")).toBe("100%");
+    // the default step is the token itself: no override to drift from it
+    expect(step("default")).toBeUndefined();
+    // every chat column follows the lane; Settings and New workspace stay on --content-w
+    for (const file of ["components/ChatView.css", "components/Composer.css", "components/BackgroundTasks.css"]) expect(css(file)).toContain("var(--chat-w)");
+    expect(css("components/ChatView.css")).not.toContain("var(--content-w)");
+    expect(css("components/BackgroundTasks.css")).not.toContain("var(--content-w)");
+    for (const file of ["components/SettingsDialog.css", "components/NewSessionDialog.css"]) {
+      expect(css(file)).toContain("var(--content-w)");
+      expect(css(file)).not.toContain("var(--chat-w)");
+    }
   });
 });
 

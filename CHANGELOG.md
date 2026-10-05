@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The chat is wider on a large screen: the conversation and the message box run up to 960px,
+  from 820px. Settings → Chat → **Chat width** chooses **Narrow** (820px, as before),
+  **Default**, **Wide** (1152px) or **Full**, the whole pane. The held messages, the approval
+  card and the background-task list keep the same column. Phones and narrow panes look the
+  same as before.
+
 ### Fixed
 - In one tab of the app, the alert sound chimes once for alerts that come together from several
   panes, instead of sounding over itself. A pane that needs input right after one that finished

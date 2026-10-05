@@ -65,7 +65,7 @@
   bottom: calc(100% + var(--space-2));
   left: var(--space-4);
   z-index: var(--z-popover);
-  max-width: var(--content-w);
+  max-width: var(--chat-w);
   max-height: max(var(--row-h), min(calc(var(--row-h) * 9), calc(var(--bg-tasks-room, 100vh) - var(--space-2) * 2)));
   margin-inline: auto;
   overflow-y: auto;

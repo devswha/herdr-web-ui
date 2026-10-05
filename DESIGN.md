@@ -199,7 +199,8 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--dot-size` | `7px` | — | Connection dot |
 | `--rail-w` | `3px` | — | Selected-row rail |
 | `--hairline` | `1px` | — | Borders |
-| `--content-w` | `820px` | — | Chat/settings content |
+| `--content-w` | `820px` | — | Settings and dialog content |
+| `--chat-w` | `60rem` (960px) | — | Chat lane: transcript, composer column, held list. Settings → Chat width: Narrow `--content-w`, Default, Wide `72rem` (1152px), Full `100%` |
 | `--palette-w` | `640px` | — | Command palette |
 | `--palette-top` | `12vh` | — | Palette top offset |
 
@@ -445,7 +446,7 @@ One set for both themes: the card is island black wherever it shows.
   reconnecting pulses the dot. On phones the chip keeps only its dot.
 
 ### Chat turn (`.chat-turn`)
-- The chat lens is a centered `--content-w` transcript over the still-attached terminal surface.
+- The chat lens is a centered `--chat-w` transcript over the still-attached terminal surface.
   Structured Claude/omp transcripts fall back to ANSI-stripped pane scrollback when unavailable.
 - The register is Codex / gajae-code-app: a quiet document. User turns are right-aligned neutral
   cards (`--bg-elevated`, hairline edge, `--radius-lg` with a `--radius-sm` tail corner, ≤80% wide,
@@ -480,7 +481,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Composer (`.composer`)
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
-  and the composer column equals the transcript column (`--content-w`, same `--space-4` gutter).
+  and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter).
   The only card is the input box: `--bg-elevated`, hairline border, `--radius-xl`, `--shadow-card`;
   focus turns its border `--accent` (no inner outline). Above it the agent/status line and the
   completion popover; inside, ONE row — attach control | auto-growing textarea | Send / Queue /
@@ -515,7 +516,8 @@ One set for both themes: the card is island black wherever it shows.
 ### Settings dialog
 - Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`, terminal font
   family.
-- Composer: Enter sends. Chat: Show thinking, chat font size and family. Shortcuts: the complete
+- Composer: Enter sends. Chat: Show thinking, chat width (Narrow / Default / Wide / Full), chat font
+  size and family. Shortcuts: the complete
   platform-resolved table.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not
   per keystroke.

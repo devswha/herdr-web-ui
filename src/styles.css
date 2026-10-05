@@ -112,6 +112,8 @@
   --rail-w: 3px;
   --hairline: 1px;
   --content-w: 820px;
+  /* the chat lane: transcript, composer column, held list (Settings → Chat width, lib/settings.ts) */
+  --chat-w: 60rem;
   --palette-w: 640px;
   --palette-top: 12vh;
 
@@ -384,6 +386,19 @@
   --term-fg: #4c4f69;
   --term-cursor: #dc8a78;
   --term-selection: #d2d4dc;
+}
+
+[data-chat-width="narrow"] {
+  --chat-w: var(--content-w);
+}
+
+[data-chat-width="wide"] {
+  --chat-w: 72rem;
+}
+
+/* the whole pane: each column keeps its own gutter */
+[data-chat-width="full"] {
+  --chat-w: 100%;
 }
 
 [data-density="compact"] {
