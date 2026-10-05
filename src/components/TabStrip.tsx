@@ -21,6 +21,7 @@ import { ApiError } from "../lib/api.ts";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { useT } from "../lib/i18n.ts";
 import { customTabLabel, tabLabel } from "../lib/tabName.ts";
+import { rosterPanes } from "../lib/dagPane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { knownStatus } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -61,7 +62,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // what is on screen now, for a close that answers after the selection or the PC has moved on
   const latest = useRef({ machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id });
   latest.current = { machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id };
-  const panes = snapshot.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
+  const panes = rosterPanes(snapshot.panes.filter((pane) => pane.workspace_id === workspace.workspace_id), selectedPane.pane_id);
   const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id).sort((a, b) => a.number - b.number);
   const nameOf = (tab: HerdrTab): string => sent?.tabId === tab.tab_id ? sent.label : tabLabel(tab, t, tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id) + 1);
 
