@@ -61,6 +61,9 @@ it("opens a PC's file from a navigation another site started, and keeps every ot
     expect(response.headers.get("content-type")).toBe("application/pdf");
     expect(await response.text()).toBe("%PDF-1.7");
   }
+  const head = await handleMachineRequest(new Request(file, { method: "HEAD", headers: { "sec-fetch-site": "cross-site" } }), manager);
+  expect(head.status).toBe(200);
+  expect(head.headers.get("content-type")).toBe("application/pdf");
   const crossSite = { "sec-fetch-site": "cross-site" };
   for (const request of [
     new Request("http://127.0.0.1/api/machines/pc1/fs/stat?path=%2Ftmp%2Freport.pdf", { headers: crossSite }),
