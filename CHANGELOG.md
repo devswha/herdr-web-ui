@@ -25,6 +25,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   breadcrumb looked hours old and was passed over. Process start times, which Codex, OmO and gjc
   panes are matched by, are now read on macOS too (they were only read from Linux `/proc`).
   ([#484](https://github.com/devswha/herdr-web-ui/pull/484) by @kilhyeonjun)
+- The chat of a Codex pane started with its own `CODEX_HOME` (a launcher that keeps one store
+  per profile) shows its conversation. Before, the server looked for every rollout under its own
+  `CODEX_HOME` or `~/.codex`, found none for that pane and fell back to the terminal scrollback.
+  The store is now read from the pane's Codex process (its environment), for the conversation,
+  images, tool output and queued questions; a configured Codex home still wins.
+  ([#486](https://github.com/devswha/herdr-web-ui/pull/486) by @kilhyeonjun)
 - The chat shows the card for a question Claude Code asks with `AskUserQuestion` in three
   layouts it missed: options that carry a preview (drawn in a box to the right of the options,
   with a notes line and an unnumbered "Chat about this"), a question asked while Claude keeps a
