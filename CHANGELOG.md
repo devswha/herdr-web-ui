@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- Attaching a file over 8 MB says so at once, with its size and the limit, instead of uploading
+  it first and answering `/api/pane/image failed (413)`. Past about 96 MB that message gave no
+  reason at all.
+  ([#446](https://github.com/devswha/herdr-web-ui/pull/446))
 - Switching to another pane no longer shows the previous pane's chat for a moment before the
   new one loads.
   ([#422](https://github.com/devswha/herdr-web-ui/pull/422) by @Haeminway1)
