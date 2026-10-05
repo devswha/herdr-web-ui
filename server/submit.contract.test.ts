@@ -194,7 +194,8 @@ describe("WebSocket submit", () => {
       expect(typed(agent, from)).toBe("2\r");
       // the Enter keeps its own gap after the text, as a composer message's does
       const enter = read.findIndex((chunk) => chunk.data.includes("\r"));
-      if (enter > 0) expect(read[enter]!.at - read[enter - 1]!.at).toBeGreaterThanOrEqual(SUBMIT_DELAY_MS);
+      // measured in the pane's own process, whose clock reads a millisecond or so off the server's
+      if (enter > 0) expect(read[enter]!.at - read[enter - 1]!.at).toBeGreaterThanOrEqual(SUBMIT_DELAY_MS - 20);
     } finally {
       await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "idle" });
       socket.close();
@@ -264,8 +265,9 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("types nothing of a message that waited past its deadline behind another", async () => {
-    // a deadline of 50ms: the second message waits longer than that behind the first one's gap
-    const hurried = createServer({ port: 0, stateDir: join(root, "push-hurried"), submitDeadlineMs: 50 });
+    // the second message waits a second behind the first one's gap, twice its deadline; the first
+    // has the whole 500ms to start, which a busy runner did not always give it out of 50 (#450)
+    const hurried = createServer({ port: 0, stateDir: join(root, "push-hurried"), submitDeadlineMs: 500, submitDelayMs: 1000 });
     const ws = new WebSocket(`ws://localhost:${hurried.port}/ws`);
     const seen: any[] = [];
     ws.addEventListener("message", (event) => seen.push(JSON.parse(String((event as MessageEvent).data))));
