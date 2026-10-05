@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- The DAG viewer pane omo-herdr-dag opens beside an OmO pane no longer appears in the
+  sidebar or the tab strip: an OmO workspace with its viewer shows as a single pane, as it does
+  without one. The viewer can still be opened from the command palette.
 - Switching to another pane no longer shows the previous pane's chat for a moment before the
   new one loads.
   ([#422](https://github.com/devswha/herdr-web-ui/pull/422) by @Haeminway1)
