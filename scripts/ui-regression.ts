@@ -857,11 +857,14 @@ try {
   const numbersBefore = new Map((await sessionSnapshot()).tabs.map((tab) => [tab.tab_id, tab.number]));
   await third.dragTo(strip.getByRole("tab", { name: "first", exact: true }), { targetPosition: { x: 2, y: 4 } });
   await until(async () => (await tabsInHerdr()).join() === "third,first,build", "a tab dropped on another's near half lands before it");
-  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["third", "first", "build"]);
+  // herdr can answer before the browser has its snapshot: the strip is waited for, not caught
+  const stripShows = (order: string): Promise<void> => until(async () => (await strip.getByRole("tab").allTextContents()).join() === order, `the strip shows ${order}`);
+  await stripShows("third,first,build");
   for (const tab of (await sessionSnapshot()).tabs) if (numbersBefore.has(tab.tab_id)) assert.equal(tab.number, numbersBefore.get(tab.tab_id), "a moved tab keeps its number");
   await third.focus();
   await page.keyboard.press("Alt+ArrowRight");
   await until(async () => (await tabsInHerdr()).join() === "first,third,build", "Alt+→ moves the focused tab one place");
+  await stripShows("first,third,build");
   await until(async () => await third.evaluate((tab) => tab === document.activeElement), "the moved tab keeps the focus");
   assert.equal(await third.getAttribute("aria-selected"), "true", "the open tab stays open as it moves");
   await third.click({ button: "right" });
@@ -870,7 +873,7 @@ try {
   assert.deepEqual(await thirdMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Move left", "Move right", "Close tab"]);
   await thirdMenu.getByRole("menuitem", { name: "Move right", exact: true }).click();
   await until(async () => (await tabsInHerdr()).join() === "first,build,third", "the menu's Move right reaches herdr");
-  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["first", "build", "third"]);
+  await stripShows("first,build,third");
   console.log("PASS a tab is moved by a drag, Alt+arrows and its menu, in herdr's order");
   // a held Delete is one press: its repeats close nothing
   await third.dispatchEvent("keydown", { key: "Delete", repeat: true, bubbles: true });

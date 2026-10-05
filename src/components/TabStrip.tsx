@@ -60,8 +60,12 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // the name just sent, shown until herdr's snapshot carries it
   const [sent, setSent] = useState<{ tabId: string; label: string } | null>(null);
   const [confirm, setConfirm] = useState<{ tab: HerdrTab; title: string; body: string } | null>(null);
-  // the row just sent to herdr, shown until its snapshot carries it
-  const [moved, setMoved] = useState<{ workspaceId: string; order: string[] } | null>(null);
+  // the row just sent to herdr, on the PC and in the workspace it was made in, shown until herdr
+  // has answered its last move (`settled`) and the snapshot carries it
+  const [moved, setMoved] = useState<{ machineId: string; workspaceId: string; order: string[]; seq: number; settled: boolean } | null>(null);
+  // moves go to herdr one at a time, each counted on the row the ones before it leave; a refusal
+  // drops the moves queued behind it (`epoch`), which were counted on a row herdr never had
+  const moves = useRef({ chain: Promise.resolve(), seq: 0, epoch: 0 });
   // the tab being dragged, and the edge of the tab it would land beside
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<{ tabId: string; after: boolean } | null>(null);
@@ -79,7 +83,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // herdr's order: a tab moved in the TUI or here keeps its number
   const herdrTabs = snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id);
   const herdrOrder = herdrTabs.map((tab) => tab.tab_id);
-  const pending = moved?.workspaceId === workspace.workspace_id
+  const pending = moved?.machineId === machineId && moved.workspaceId === workspace.workspace_id
     && moved.order.length === herdrOrder.length && herdrOrder.every((id) => moved.order.includes(id)) ? moved.order : null;
   const tabs = pending ? pending.map((id) => herdrTabs.find((tab) => tab.tab_id === id)!) : herdrTabs;
   const nameOf = (tab: HerdrTab): string => sent?.tabId === tab.tab_id ? sent.label : tabLabel(tab, t, tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id) + 1);
@@ -95,8 +99,10 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     if (editing && !here(editing.tabId)) setEditing(null);
     if (confirm && !here(confirm.tab.tab_id)) setConfirm(null);
     if (sent && tabs.find((tab) => tab.tab_id === sent.tabId)?.label.trim() === sent.label) setSent(null);
-    // a row herdr now shows, or one a tab came or went from, is no longer the one sent
-    if (moved && (moved.workspaceId !== workspace.workspace_id || !pending || moved.order.join("\u0000") === herdrOrder.join("\u0000"))) setMoved(null);
+    // another PC or workspace, a row a tab came or went from, or the row herdr shows once it has
+    // answered the last move: the one sent is no longer needed. A snapshot that only matches it
+    // before then can be one from between two moves.
+    if (moved && (!pending || (moved.settled && moved.order.join("\u0000") === herdrOrder.join("\u0000")))) setMoved(null);
     if (dragging && !here(dragging)) { setDragging(null); setDropAt(null); }
   });
   useLayoutEffect(() => {
@@ -121,9 +127,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     const timer = window.setTimeout(() => setSent(null), 8000);
     return () => window.clearTimeout(timer);
   }, [sent]);
-  // a row herdr never showed back (moved again elsewhere) does not stay
+  // a row herdr answered but never showed back (moved again elsewhere) does not stay
   useEffect(() => {
-    if (!moved) return;
+    if (!moved?.settled) return;
     const timer = window.setTimeout(() => setMoved(null), 8000);
     return () => window.clearTimeout(timer);
   }, [moved]);
@@ -155,7 +161,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   useLayoutEffect(() => {
     scroll.current = stripSelected(scroll.current);
   }, [selectedPane.tab_id]);
-  useLayoutEffect(bringOpenTab, [selectedPane.tab_id, tabs.length, shown]);
+  // a move can carry the open tab past the strip's edge
+  const orderKey = tabs.map((tab) => tab.tab_id).join("\u0000");
+  useLayoutEffect(bringOpenTab, [selectedPane.tab_id, tabs.length, shown, orderKey]);
   // A face that arrives after that (lib/fontFaces.ts) redraws every name wider or narrower with
   // no tab added or opened, so the open tab is brought into view again for each: unless the user
   // has scrolled the strip themselves since a tab was last opened (lib/tabStripScroll.ts), and is
@@ -209,10 +217,23 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     const next = movedTabOrder(order, tab.tab_id, gap);
     if (!next) return;
     setError(null);
-    setMoved({ workspaceId: workspace.workspace_id, order: next });
-    void moveTab(tab.tab_id, gap).catch((reason: unknown) => {
-      setMoved(null);
-      setError(t("Reorder failed: {reason}", { reason: said(reason) }));
+    const target = { machineId, workspaceId: workspace.workspace_id };
+    const queue = moves.current;
+    const seq = ++queue.seq;
+    const epoch = queue.epoch;
+    setMoved({ ...target, order: next, seq, settled: false });
+    const here = (): boolean => latest.current.machineId === target.machineId && latest.current.workspaceId === target.workspaceId;
+    queue.chain = queue.chain.then(async () => {
+      if (queue.epoch !== epoch) return;
+      try {
+        await moveTab(tab.tab_id, gap);
+        setMoved((current) => current?.seq === seq ? { ...current, settled: true } : current);
+      } catch (reason: unknown) {
+        queue.epoch += 1;
+        // the row goes back to herdr's, here only: another PC's or workspace's is left as it is
+        setMoved((current) => current?.machineId === target.machineId && current.workspaceId === target.workspaceId ? null : current);
+        if (here()) setError(t("Reorder failed: {reason}", { reason: said(reason) }));
+      }
     });
   };
 

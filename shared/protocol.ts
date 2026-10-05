@@ -99,7 +99,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/tab/rename { tab_id, label } -> { ok: true } (tab.rename; an empty label is refused:
  *         herdr would keep it as the name)
  *  POST   /api/tab/move   { tab_id, insert_index } -> { ok: true } (tab.move: insert_index is a gap in
- *         the workspace's tab order before the move, 0 to the tab count; tab strip reorder)
+ *         the workspace's tab order before the move, 0 to the tab count, past which it is
+ *         invalid_index; tab strip reorder)
  *  POST   /api/tab/close  { tab_id } -> { ok: true } (tab.close: every pane in the tab closes, and
  *         a workspace's last tab takes the workspace with it)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }

@@ -473,7 +473,9 @@ One set for both themes: the card is island black wherever it shows.
   Alt+←/→, the focus staying on it. The menu has **Move left** and **Move right** between
   **Rename tab** and **Close tab**, each only when the tab has a neighbour that way, so a touch
   screen, which has no drag, moves it from the sheet. The row changes at once and herdr's order
-  follows; a refusal puts it back and shows at the strip's end, as a failed close does.
+  follows: moves go to herdr one at a time, and the row waits for herdr's answer to the last one.
+  A refusal puts it back, drops the moves queued behind it, and shows at the strip's end, as a
+  failed close does.
 - The underline runs under the whole tab (`.tab-strip-item.is-active`), its `x` included. A tab
   herdr names itself reads **Tab n** by its place in the row: herdr relabels it when a tab
   before it closes or it moves. The row is herdr's order, not the tabs' numbers: a moved tab

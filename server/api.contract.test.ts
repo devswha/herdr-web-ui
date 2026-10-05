@@ -298,8 +298,10 @@ describe("tab rename and close", () => {
       expect(alias.status).toBe(200);
       expect((await tabsOf(id)).map((t) => t.tab_id)).toEqual([b, a, c]);
 
-      // past the end herdr refuses, and the row stays
-      expect((await post("move", { tab_id: a, insert_index: 9 })).status).toBeGreaterThanOrEqual(400);
+      // past the end is refused before herdr, and the row stays
+      const past = await post("move", { tab_id: a, insert_index: 4 });
+      expect(past.status).toBe(400);
+      expect(((await past.json()) as ApiError).error.code).toBe("invalid_index");
       expect((await tabsOf(id)).map((t) => t.tab_id)).toEqual([b, a, c]);
     } finally { await workspaceClose(id); }
   });

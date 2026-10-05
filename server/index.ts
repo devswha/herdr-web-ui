@@ -1325,6 +1325,13 @@ export function createServer(
         }
         try {
           if (pathname === "/api/tab/move") {
+            // a gap past the row's end is the caller's mistake, not a missing tab: herdr's refusal
+            // of it would come back as a 404. An unknown tab is left for herdr's tab_not_found.
+            const tabs = (await sessionSnapshot()).tabs;
+            const workspaceId = tabs.find((tab) => tab.tab_id === payload.tab_id)?.workspace_id;
+            if (workspaceId !== undefined && (payload.insert_index as number) > tabs.filter((tab) => tab.workspace_id === workspaceId).length) {
+              return badRequest("invalid_index", "insert_index must not exceed the workspace's tab count");
+            }
             await tabMove(payload.tab_id, payload.insert_index as number);
             // no pane event follows a move either
             broadcastAll({ type: "session-changed" });

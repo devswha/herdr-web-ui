@@ -290,13 +290,16 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   }
   if (path === "/api/tab/move") {
     const body = await bodyOf(init, input);
+    // as the server: a non-negative integer no larger than the tab count, else invalid_index
+    const gap = body["insert_index"];
+    const invalid = () => error("invalid_index", "insert_index must be a non-negative integer no larger than the tab count", 400);
+    if (typeof gap !== "number" || !Number.isInteger(gap) || gap < 0) return invalid();
     const snap = snapshot();
     const tab = snap.tabs.find((t) => t.tab_id === body["tab_id"]);
     if (!tab) return error("tab_not_found", "no such tab", 404);
     const slots = snap.tabs.flatMap((t, i) => (t.workspace_id === tab.workspace_id ? [i] : []));
     const row = slots.map((i) => snap.tabs[i]!);
-    const gap = Number(body["insert_index"] ?? 0);
-    if (!Number.isInteger(gap) || gap < 0 || gap > row.length) return error("tab_move_failed", "insert_index is out of bounds", 404);
+    if (gap > row.length) return invalid();
     // herdr counts the gap before the move: the tab lands before the one at it, or last
     const from = row.indexOf(tab);
     const next = row.filter((t) => t !== tab);
