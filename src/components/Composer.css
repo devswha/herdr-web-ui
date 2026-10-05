@@ -665,9 +665,7 @@
 }
 
 @media (max-width: 480px) {
-  /* the transcript's gutter: the composer column equals the transcript column on a phone too.
-     The card is 4px a side wider for it; the message row spans the card (its own padding, below)
-     and the control cells keep their phone padding, so the extra width goes to the message */
+  /* the transcript's gutter: the composer column equals the transcript column on a phone too */
   .composer {
     padding-inline: var(--space-3);
   }
@@ -686,6 +684,16 @@
 
   .composer-controls-right {
     padding: var(--space-1) var(--space-2) var(--space-2) 0;
+  }
+
+  /* the 4px a side the 12px gutter took come back inside the card, after the cells' own phone
+     padding above: the control row is as wide as it was with the 8px gutter */
+  .composer-controls-left {
+    padding-left: var(--space-1);
+  }
+
+  .composer-controls-right {
+    padding-right: var(--space-1);
   }
 
   .composer-status {
