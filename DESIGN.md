@@ -612,9 +612,11 @@ One set for both themes: the card is island black wherever it shows.
   Enter in an empty box answers nothing. A typed pick of an approval, plan or menu waits for
   Confirm in the card. After an answer pressed in the card with the keyboard or the mouse, focus
   moves to the message box, unless the user moved it somewhere else while the answer was on its
-  way or the card is gone. A tap never moves it there (that would raise the on-screen keyboard):
-  the press itself says what made it, so this holds on a touch-screen laptop with a fine pointer
-  too, and a coarse pointer rules it out as well.
+  way or the card is gone. A tap or a pen never moves it there (that would raise the on-screen
+  keyboard). The press itself says what made it, not the device: a key or a mouse hands the focus
+  on with a coarse pointer too (a tablet with a keyboard), and a tap does not on a touch-screen
+  laptop with a fine pointer. Only a press that does not say what made it is read by the device's
+  pointer, and stays out of the message box where that is coarse.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 
