@@ -1,0 +1,245 @@
+/* Comments on blocks of an agent's final reply (Markdown.tsx, lib/blockComments.ts): a "+" for
+   a block, and on a commented one an accent bar and the comment under it. Beside a wide chat
+   column the "+" and the bar sit in the left gutter, so a block's text never moves; where the
+   column has no room beside it (a phone, a narrow window) the "+" sits at the block's top right. */
+.is-commentable {
+  position: relative;
+  /* from the element's left edge back to where the reply's text column starts */
+  --comment-edge: 0px;
+  --comment-add-size: 28px;
+  /* the tint of the block under the pointer or the finger. It reaches a little past the text, and
+     on the left always to one step before the text column, a list item's marker included, so the
+     tint, the bar and the "+" of every block line up however deep it sits. Opaque: the two
+     shadows that widen it overlap, and a translucent tint would draw a darker band there */
+  --comment-tint: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  --comment-tint-reach: var(--space-1);
+  --comment-tint-left: calc(var(--comment-edge) + var(--space-2));
+  --comment-tint-shadow:
+    calc(var(--comment-tint-reach) - var(--comment-tint-left)) 0 0 var(--comment-tint-reach) var(--comment-tint),
+    var(--space-1) 0 0 var(--comment-tint-reach) var(--comment-tint);
+  /* the bar on the tint's left edge, the "+" a step left of the bar (in the gutter layout) */
+  --comment-bar-x: calc(-1 * var(--comment-tint-left));
+  --comment-add-x: calc(var(--comment-bar-x) - var(--space-2) - var(--comment-add-size));
+  /* how far the "+" stands out past the block's top right corner, as a badge (no gutter) */
+  --comment-badge-out: 10px;
+  transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+
+/* a block in a list starts past the list's indent (ChatView.css): its gutter starts where the
+   outermost list's does */
+.markdown-list .is-commentable {
+  --comment-edge: var(--space-5);
+}
+
+.markdown-list .markdown-list .is-commentable {
+  --comment-edge: calc(2 * var(--space-5));
+}
+
+.markdown-list .markdown-list .markdown-list .is-commentable {
+  --comment-edge: calc(3 * var(--space-5));
+}
+
+/* a code block clips and a table scrolls its own box: they sit on this host instead, which takes
+   over their spacing (Markdown.tsx renders it in every reply, commentable or not) */
+.markdown-block {
+  margin-bottom: var(--space-3);
+}
+
+.markdown-block > .markdown-code,
+.markdown-block > .markdown-table-wrap,
+.markdown-block > .markdown-math-display {
+  margin-bottom: 0;
+}
+
+/* a table in a list item: a little air above and below, as between two items (ChatView.css) */
+.markdown-list .markdown-block:has(> .markdown-table-wrap) {
+  margin: var(--space-1) 0;
+}
+
+.markdown-list .markdown-block > .markdown-table-wrap {
+  margin: 0;
+}
+
+.block-comment-add {
+  position: absolute;
+  top: calc(-1 * var(--comment-badge-out));
+  right: calc(-1 * var(--comment-badge-out));
+  z-index: 1;
+  width: var(--comment-add-size);
+  height: var(--comment-add-size);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: pointer;
+  /* hidden but still a Tab stop: the keyboard shows it by focusing it. Going, it fades a moment
+     late; the pointer cannot press it unseen */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease 300ms;
+}
+
+/* a finger gets the whole touch target, the eye the small badge: the tap area reaches past it */
+@media (pointer: coarse) {
+  .block-comment-add::before {
+    content: "";
+    position: absolute;
+    inset: calc((var(--comment-add-size) - var(--touch-target)) / 2);
+  }
+}
+
+.block-comment-add svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (hover: hover) {
+  .block-comment-add:hover {
+    color: var(--text-strong);
+    border-color: var(--accent);
+  }
+}
+
+/* a code block's top right is its copy button */
+.markdown-block:has(> .markdown-code) > .block-comment-add {
+  top: 4px;
+  right: 44px;
+}
+
+/* the innermost block under the pointer, not every item it is nested in. Its "+" and tint wait a
+   moment: a pointer sweeping across the reply passes blocks it does not mean, and lights none */
+@media (hover: hover) {
+  .is-commentable:hover:not(:has(.is-commentable:hover)) > .block-comment-add {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity var(--dur-fast) var(--ease-out) 150ms;
+  }
+
+  /* the block the "+" belongs to, tinted as a tap tints it on a phone */
+  .is-commentable:hover:not(:has(.is-commentable:hover)) {
+    border-radius: var(--radius-sm);
+    background: var(--comment-tint);
+    box-shadow: var(--comment-tint-shadow);
+    transition-delay: 150ms;
+  }
+
+  /* the pointer on another block: the "+" it left goes at once, so only one shows. The lingering
+     above is for a pointer that left a block for the gutter or the margin, on its way to the "+" */
+  .chat-view:has(.is-commentable:hover) .block-comment-add {
+    transition: opacity 80ms ease;
+  }
+}
+
+/* the keyboard or a tap chose it: no reason to wait. Keyboard focus only: the focus a closed
+   editor hands back to its "+" after a click must not keep that "+" up */
+.chat-view .block-comment-add:focus-visible,
+.chat-view .is-commentable:has(:focus-visible):not(:has(.is-commentable :focus-visible)) > .block-comment-add,
+.chat-view .is-selected > .block-comment-add {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.is-commentable.is-selected {
+  border-radius: var(--radius-sm);
+  background: var(--comment-tint);
+  box-shadow: var(--comment-tint-shadow);
+}
+
+/* A chat column with room beside it (ChatView.css names the container): the "+" moves into the
+   left gutter, out of the text's way. From 880px the 820px column and the view's padding leave
+   it the 44px it takes. */
+@container chat (min-width: 880px) {
+  /* flush with the top of the tint, which reaches past the text. Out in the gutter it covers no
+     text, so it needs no surface of its own: a quiet icon, with a surface under the pointer */
+  .block-comment-add,
+  .markdown-block:has(> .markdown-code) > .block-comment-add {
+    top: calc(-1 * var(--comment-tint-reach));
+    right: auto;
+    left: var(--comment-add-x);
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .block-comment-add:hover {
+    border-color: transparent;
+    background: var(--bg-hover);
+  }
+
+  /* the gutter beside a block, all the way down, is the block's: the pointer travelling from any
+     of its lines to the "+" keeps it hovered */
+  .is-commentable::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 100%;
+    width: calc(-1 * var(--comment-add-x));
+  }
+}
+
+/* above the tint's shadow, which reaches under it */
+.is-commented::before {
+  content: "";
+  z-index: 1;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--comment-bar-x);
+  width: var(--rail-w);
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* The comment is the reader's own note, so it reads as one: a tinted box, in the text colour, not a
+   dim caption. Close under its block: the block's bottom margin stays below the row instead. Its
+   box starts where the block's tint does, so the words stay under the block's words. */
+.block-comment-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: calc(100% + var(--space-2));
+  margin: calc(var(--space-1) - var(--space-3)) 0 var(--space-3) calc(-1 * var(--space-2));
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+li > .block-comment-row {
+  margin: var(--space-1) 0 0 calc(-1 * var(--space-2));
+}
+
+.block-comment-row svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 0.25em;
+  color: var(--accent);
+}
+
+.block-comment-row span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+  .block-comment-row:hover {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--text-strong);
+  }
+}

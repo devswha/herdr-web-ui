@@ -168,6 +168,27 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("never types an agent-only message into a pane without an agent; an agent still gets it", async () => {
+    const socket = await Socket.connect();
+    try {
+      expect(socket.seen.find((message) => message.type === "snapshot")?.features).toContain("submit-agent-only");
+      // the quoted reply of a comment: a shell would take "> " for a redirect and run $(…)
+      const comment = "> quoted $(touch pwned)\nlooks wrong";
+      const from = chunks(shell).length;
+      socket.send({ type: "submit", id: 13, pane_id: shell.pane, text: comment, payload: paste(comment), agent_only: true });
+      expect(await socket.result(13)).toMatchObject({ ok: false, code: "agent_only" });
+      await Bun.sleep(SUBMIT_DELAY_MS * 3);
+      expect(chunks(shell).slice(from)).toEqual([]);
+      const sent = chunks(agent).length;
+      socket.send({ type: "submit", id: 14, pane_id: agent.pane, text: comment, payload: "unused", agent_only: true });
+      expect(await socket.result(14)).toMatchObject({ ok: true });
+      await received(agent, sent, 1);
+      expect(typed(agent, sent)).toBe(`${paste(comment)}\r`);
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
   it("refuses a message while the agent waits for an answer, typing nothing", async () => {
     const socket = await Socket.connect();
     await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "blocked" });

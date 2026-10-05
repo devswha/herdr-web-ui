@@ -110,3 +110,28 @@ it("waits for capabilities when output precedes snapshot, and supports old bridg
     client.close();
   }
 });
+
+it("sends an agent-only message marked as such, and refuses it, sending nothing, to a server that cannot keep it from a shell", async () => {
+  const submits = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "submit" || frame.type === "input");
+  for (const features of [["submit"], []]) {
+    const client = new HerdrSocket("ws://test/ws");
+    client.connect();
+    const socket = FakeSocket.last;
+    socket.open();
+    socket.receive(snapshot(features));
+    expect(await client.submit("w1:p1", "> quoted\ncomment", "> quoted\ncomment", false, true)).toMatchObject({ ok: false, code: "agent_only_unsupported" });
+    expect(submits(socket)).toEqual([]);
+    client.close();
+  }
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["submit", "submit-agent-only"]));
+  const result = client.submit("w1:p1", "> quoted\ncomment", "payload", false, true);
+  for (let turn = 0; turn < 10 && submits(socket).length === 0; turn++) await Promise.resolve();
+  expect(submits(socket)).toMatchObject([{ type: "submit", pane_id: "w1:p1", text: "> quoted\ncomment", agent_only: true }]);
+  socket.receive({ type: "submit-result", id: submits(socket)[0]!["id"], pane_id: "w1:p1", ok: true });
+  expect(await result).toEqual({ ok: true });
+  client.close();
+});

@@ -141,7 +141,7 @@ const TYPED_SETTLE_MS = 300;
  * reaches the pane later.
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready", "submit-agent-only"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -399,8 +399,12 @@ export function createServer(
    * through send_text, then Enter SUBMIT_DELAY_MS later; both return once the pane has
    * the bytes, so the pane sees the whole gap. So does a Codex "blocked" only by questions
    * waiting collapsed in its queue: its main prompt still takes the message.
+   *
+   * `agentOnly` (a message carrying comments, which quote the agent's reply) never takes the
+   * send_text way: typed into a shell, the quote's "> " would redirect into a file and each
+   * line would run. Without an agent in front it is refused, nothing typed.
    */
-  async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {}): Promise<void> {
+  async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {}, agentOnly = false): Promise<void> {
     const inTime = (): void => {
       authorize();
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) {
@@ -413,13 +417,15 @@ export function createServer(
     inTime();
     // the terminal's input line stands in for the keyboard: it types what the user wrote, an
     // answer into an open menu included, where agent.prompt would refuse
-    if (!fromTerminal) try {
+    if (!fromTerminal || agentOnly) try {
       await agentPrompt(paneId, text);
       return;
     } catch (error) {
       if (!(error instanceof HerdrError)) throw error;
       const queuedOnly = error.code === "agent_blocked" && await blockedOnlyByCodexQueue(paneId);
       if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
+      // a Codex blocked only by its queue is an agent, and its prompt takes the message
+      if (agentOnly && !queuedOnly) throw new HerdrError("agent_only", "no agent runs in this pane, and this message is only sent to one; nothing was typed");
     }
     inTime();
     // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
@@ -1876,7 +1882,7 @@ export function createServer(
                 await serialize(message.pane_id, () => {
                   // held while this waited its turn (the attach was refused after the check above)
                   if (attachments.get(message.pane_id)?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
-                  return submitText(message.pane_id, message.text, message.payload, arrivedAt, message.typed === true, () => authorizeSocket(client));
+                  return submitText(message.pane_id, message.text, message.payload, arrivedAt, message.typed === true, () => authorizeSocket(client), message.agent_only === true);
                 });
                 result(true);
               } catch (error) {

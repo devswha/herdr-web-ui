@@ -1,0 +1,51 @@
+.comment-editor {
+  width: min(100%, 560px);
+}
+
+/* the block quoted, as the chat shows a "> quote" and as the message will carry it: context for
+   the comment, not the text being written; a long one scrolls */
+.comment-editor-block {
+  max-height: 40dvh;
+  overflow: auto;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--rail-w) solid var(--border-strong);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  /* the page's own ground, darker than the dialog: the quote reads as quoted, and stays legible */
+  background: var(--bg);
+  color: var(--text);
+}
+
+.comment-editor-field {
+  display: block;
+  width: 100%;
+  /* grows with the comment (CommentEditor.tsx), then scrolls */
+  max-height: calc(4lh + 2 * var(--space-2) + 2 * var(--hairline));
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-input);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--fs-input);
+  line-height: var(--lh-base);
+  resize: none;
+  overflow-y: auto;
+}
+
+.comment-editor-field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Delete stands apart from the two that leave the comment as it is, and stays quiet: a ghost
+   button, not a red one beside Save, since deleting is not what the dialog is for */
+.comment-editor-delete {
+  margin-right: auto;
+}
+
+.comment-editor-plain {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

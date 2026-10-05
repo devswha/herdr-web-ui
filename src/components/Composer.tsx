@@ -12,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ArrowUp, Clock, FileText, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Clock, FileText, MessageSquare, Plus, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -41,6 +41,8 @@ import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { useT } from "../lib/i18n.ts";
+import { blockComments, commentTarget, outgoingMessage, useBlockComments, type BlockComment } from "../lib/blockComments.ts";
+import { CommentEditor } from "./CommentEditor.tsx";
 
 export interface ComposerProps {
   connected: boolean;
@@ -59,8 +61,10 @@ export interface ComposerProps {
   suggestion?: string | null;
   /** an empty chat's greeting: it stands over the composer's column and takes no row of its own */
   greeting?: ReactNode;
-  /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
-  onSend: (text: string) => boolean | string | Promise<boolean | string>;
+  /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either.
+   * `agentOnly`: the text carries comments, which quote the reply: it goes to an agent only,
+   * queued or not, never typed into a shell */
+  onSend: (text: string, options?: { agentOnly?: boolean }) => boolean | string | Promise<boolean | string>;
   onAbort: () => void;
   onUploadImage: (file: File) => Promise<string>;
 }
@@ -225,6 +229,30 @@ export function Composer({
   const draftKey = `herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`;
   const { text, sending } = useSyncExternalStore(composerDrafts.subscribe, () => composerDrafts.read(draftKey));
   const setText = useCallback((value: string | ((previous: string) => string)) => composerDrafts.set(draftKey, value), [draftKey]);
+  // comments on blocks of the agent's replies (lib/blockComments.ts) go out with the next message
+  const commentOwner = paneStorageId(machineId, paneId);
+  const comments = useBlockComments(commentOwner);
+  // an open question reads the text as its answer, and without an agent the text is typed into
+  // whatever runs in the pane (a shell, perhaps): the comments wait for a message to the agent
+  const outgoing = outgoingMessage(comments, text, { answering: answerHint !== null, agent: agent !== null });
+  // the comment as it was opened: a send acknowledged meanwhile must not close the editor on what is being typed
+  const [editedComment, setEditedComment] = useState<BlockComment | null>(null);
+  // the chip in the status line walks the commented parts of the chat, one per tap
+  const nextComment = useRef(0);
+  const goToComment = (): void => {
+    const marked = [...document.querySelectorAll<HTMLElement>(".chat-view .is-commented")];
+    // a comment whose part is not in the chat (older history not loaded, a reply that changed)
+    // is a stop of its own that opens its editor, so the chip reaches every comment it counts
+    const shown = new Set([...document.querySelectorAll<HTMLElement>(".chat-view .block-comment-row")].map((row) => row.dataset.commentId));
+    const missing = comments.filter((comment) => !shown.has(comment.id));
+    const stops = marked.length + missing.length;
+    if (stops === 0) return;
+    const stop = nextComment.current % stops;
+    nextComment.current = (stop + 1) % stops;
+    if (stop >= marked.length) { setEditedComment(missing[stop - marked.length]!); return; }
+    const target = marked[stop]!;
+    target.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  };
   const mounted = useRef(true);
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
@@ -257,7 +285,13 @@ export function Composer({
   const trigger = useMemo(() => activeTrigger(text, caret, { skills: agent === "codex" }), [agent, caret, text]);
   /** a command the agent runs but the chat cannot finish, while it is what the box holds */
   const terminalOnly = useMemo(() => terminalOnlyCommand(agent, text), [agent, text]);
+  // a note from the last send comes first; then what the comments have to say
+  const shownNote = note ?? (outgoing.tooLong ? t("Too long to send. Shorten the message or remove comments.")
+    : blockComments.isUnsaved(commentOwner) ? t("Comments could not be saved. They are lost on reload.") : null);
   const uploading = attachments.some((attachment) => attachment.state === "uploading");
+  /** the comments that go with the next message: on the send buttons, where it is sent from */
+  const goingComments = outgoing.sentIds.length;
+  const withComments = (label: string): string => goingComments > 0 ? `${label} · ${t("Comments to send: {count}", { count: goingComments })}` : label;
   const agentLabel = agentDisplayLabel(agent);
   // the agent's suggestion stands in the empty box as it does in its own input, until anything is typed
   const offered = connected && answerHint === null && suggestion !== null ? suggestion : null;
@@ -610,15 +644,17 @@ export function Composer({
 
   const send = useCallback(() => {
     if (composingRef.current) return;
-    if (!connected || uploading || sending || text.trim().length === 0) return;
+    if (!connected || uploading || sending || !outgoing.sendable) return;
     const sent = text;
     const sentAttachments = attachments;
+    const { message, sentIds, commentsHeld } = outgoing;
     // Queue leaves with the draft it held. If it was pressed from the keyboard or a mouse it has
     // the focus, which would fall to the page: the message box takes it then. A touch press
     // moves nothing (Android focuses a tapped button, iOS does not), so no keyboard is raised
     const fromQueue = queueRef.current !== null && document.activeElement === queueRef.current && !queueTouched.current;
     const settle = (result: boolean | string): void => {
       const acknowledged = result === true ? composerDrafts.settle(draftKey, sent) : null;
+      if (result === true) blockComments.remove(commentOwner, sentIds);
       if (!mounted.current) return;
       if (typeof result === "string") setNote(result);
       if (acknowledged === null) return;
@@ -628,7 +664,9 @@ export function Composer({
       setCaret(rest.length);
       textRef.current = rest;
       caretRef.current = rest.length;
-      setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.") : null);
+      setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.")
+        : commentsHeld !== null ? t(commentsHeld === "no-agent" ? "Comments stay here: they are only sent to an agent."
+          : commentsHeld === "answer" ? "Comments stay here: they are not sent with an answer." : "Comments stay here: they are not sent with a command.") : null);
       for (const attachment of sentAttachments) URL.revokeObjectURL(attachment.previewUrl);
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
       // unless the focus was moved somewhere else while the message was on its way
@@ -639,14 +677,14 @@ export function Composer({
     // a polish landing before the acknowledgement would count as an edit and keep the sent message here
     dictation.forget();
     try {
-      const result = onSend(text);
+      const result = onSend(message, { agentOnly: sentIds.length > 0 });
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
     } catch {
       composerDrafts.end(draftKey);
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [attachments, connected, dictation.forget, draftKey, onSend, sending, text, uploading]);
+  }, [attachments, commentOwner, connected, dictation.forget, draftKey, onSend, outgoing, sending, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
@@ -734,7 +772,8 @@ export function Composer({
 
   const isWorking = agentStatus === "working";
   const statusCompact = composerStatusCompact(cardWidth);
-  const queueShown = composerQueueShown({ queueMode, connected, text, uploading });
+  // comments alone are a message too: Queue holds them while the agent works
+  const queueShown = composerQueueShown({ queueMode, connected, text, uploading }) || (queueMode && connected && goingComments > 0);
   const hint = composerStatusHint({ uploading, connected, text });
   const hintText = hint === null ? null : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
   const menuId = `composer-menu-${paneId}`;
@@ -943,6 +982,20 @@ export function Composer({
                 <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort ?? "—"}</span>
               </span>
             </span>}
+            {comments.length > 0 && (
+              <button
+                type="button"
+                className="composer-comments-chip"
+                // the status content is a live region; a count that changes with every comment is not news
+                aria-live="off"
+                aria-label={t("Comments to send: {count}", { count: comments.length })}
+                title={`${t("Comments to send: {count}", { count: comments.length })}\n${t("Go to the next comment")}`}
+                onClick={goToComment}
+              >
+                <MessageSquare aria-hidden="true" />
+                {comments.length}
+              </button>
+            )}
             {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} onToggle={() => setContextShown((open) => !open)} />}
             {/* the chip is a button in the left controls; its count is still said here, where a change is announced */}
             {backgroundTasks > 0 && <span className="composer-task-count visually-hidden">{t(backgroundTasks === 1 ? "{n} background task" : "{n} background tasks", { n: backgroundTasks })}</span>}
@@ -959,9 +1012,9 @@ export function Composer({
               ref={queueRef}
               type="button"
               className="composer-queue-button"
-              aria-label={t("Queue message")}
-              title={t("Queue as the next message")}
-              disabled={!connected || uploading || sending || text.trim().length === 0}
+              aria-label={withComments(t("Queue message"))}
+              title={withComments(t("Queue as the next message"))}
+              disabled={!connected || uploading || sending || !outgoing.sendable}
               onClick={(event) => {
                 // a click says what made it (a key press has no pointer type)
                 queueTouched.current = (event.nativeEvent as PointerEvent).pointerType === "touch";
@@ -970,6 +1023,7 @@ export function Composer({
             >
               <Clock aria-hidden="true" />
               {t("Queue")}
+              {goingComments > 0 && <span className="composer-send-count" aria-hidden="true">{goingComments}</span>}
             </button>
           )}
           {isWorking ? (
@@ -987,21 +1041,34 @@ export function Composer({
             <button
               type="button"
               className="composer-action composer-send"
-              aria-label={t("Send message")}
-              title={t("Send message")}
-              disabled={!connected || uploading || sending || text.trim().length === 0}
+              aria-label={withComments(t("Send message"))}
+              title={withComments(t("Send message"))}
+              disabled={!connected || uploading || sending || !outgoing.sendable}
               onClick={send}
             >
               <ArrowUp aria-hidden="true" />
+              {goingComments > 0 && <span className="composer-send-count" aria-hidden="true">{goingComments}</span>}
             </button>
           ) : null}
         </div>
       </div>
-      {note && <div className="composer-note" role="alert">{note}</div>}
+      {shownNote && <div className="composer-note" role="alert">{shownNote}</div>}
+      {/* outside the surface: it takes drops, and a file dropped on the portalled editor would
+          bubble there through React and start an upload */}
+      {editedComment && <CommentEditor
+        block={editedComment.block}
+        initialComment={editedComment.comment}
+        onSave={(value) => {
+          if (value.trim() === "") textareaRef.current?.focus({ preventScroll: true });
+          blockComments.save(commentOwner, commentTarget(editedComment), value);
+          setEditedComment(null);
+        }}
+        onClose={() => setEditedComment(null)}
+      />}
       {/* said while typing, before the send: after it the browser is already open and the reader is
           already in the state the words describe. Not a block — the text still goes, and pi runs the
           command in the terminal the way its own palette would */}
-      {!note && terminalOnly !== null && (
+      {!shownNote && terminalOnly !== null && (
         <div className="composer-hint">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
       )}
       {/* above the whole composer: inside the surface it would cover the text being dictated */}

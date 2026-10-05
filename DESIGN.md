@@ -276,7 +276,10 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Button (`.btn`, `.icon-button`)
 - `.btn` is a medium text control. Variants: neutral, `.btn-primary`, `.btn-danger`, `.btn-ghost`.
-  Primary uses `--primary`; danger uses danger tint plus blocked border; ghost removes fill/edge.
+  Primary uses `--primary`; danger uses danger tint plus blocked border, and keeps both a shade
+  stronger under the pointer instead of the neutral hover grey; ghost removes fill/edge.
+- A destructive action that is not what its dialog is for (Delete in the comment editor, a device's
+  first Revoke) is ghost; danger is for the confirmation.
 - `.icon-button` is a square unlabeled visual control with mandatory `aria-label`; `.is-outlined`
   adds the border. Both families use `--control-h`, `--radius-md`, focus ring, hover and disabled.
 - Coarse pointers grow controls to `--touch-target`.
@@ -508,6 +511,21 @@ One set for both themes: the card is island black wherever it shows.
   with a mouse and no touch screen the strip becomes a corner control over the block's top right,
   shown on hover or focus-within (no transition under reduced motion).
   Thinking renders as a folded block only when **Show thinking** is enabled.
+- Block comments (`BlockComments.css`): every part of a final reply (paragraph, heading, list item,
+  code block, table, display formula, a whole blockquote) takes a comment. Hovering a part for
+  150ms tints it with an 8% `--accent` mix and shows its comment button (`MessageSquarePlus`,
+  28px, `--radius-sm`); on a touch screen a tap chooses the part. The tint starts `--space-2`
+  before the text column, a list item's marker included, so the tints, bars and buttons of all
+  parts line up at any list depth. Beside a chat column of 880px and more the button sits in the
+  left gutter, `--space-2` from the tint, as a bare icon that takes `--bg-hover` under the pointer,
+  so no text moves; narrower, it is a hairline `--bg-panel` badge on the part's top right corner,
+  with a tap area of `--touch-target`. A commented part gets an `--accent` bar of `--rail-w` on the
+  tint's left edge. Its comment is the reader's own note, so it is a box right under the part
+  (`--accent-tint`, `--radius-sm`, `--text` in `--fs-sm`, clamped to two lines, starting where the
+  tint does), not a dim caption; a click there edits it, and Delete is in the editor.
+- The comment editor is a 560px `.modal` (a bottom sheet on a phone): the part quoted on `--bg`
+  with a `--border-strong` rail, a field that grows from one line to four, then Delete (ghost, on
+  the left), Cancel and Save.
 - Auto-follow stops when the reader scrolls up; later output raises a **New messages** pill.
 - An empty chat is greeted from the composer (`.composer-greeting`, below), only where the agent's
   conversation was read and holds no turn. A chat still loading, one whose read failed, an agent
@@ -625,6 +643,17 @@ One set for both themes: the card is island black wherever it shows.
   the only thing that holds a message. When a pressed Queue leaves with its draft, its focus goes
   to the message box (a touch press moves no focus, so no keyboard is raised). The placeholder is
   just `Message <agent>…`.
+- Block comments waiting for the next message are shown where they were written, under their part
+  in the chat. The composer only counts them: a chip in the status content, after the reasoning level and
+  before the context ring (hairline, `--radius-sm`, `--fs-xs`, a line high) with an `--accent` speech bubble
+  and edge, so they take no row of their own and the box is untouched. A tap walks the chat to
+  the next commented part, round again; a comment whose part is not in the chat is a stop of
+  its own that opens its editor, so the chip reaches every comment it counts. On touch the chip keeps its size and its tap area grows to `--touch-target`
+  (the status content clips its sides only). The chip counts every stored comment; the Send and Queue
+  buttons carry a small count badge (`--bg-elevated`, `--accent` edge, `--fs-2xs`, top right) of
+  the comments this send takes, with the number in their name and tooltip: it is where the eyes
+  are when the message goes out, and comments stored for a pane outlive a reload. No badge when
+  they wait (a command, an answer, no agent).
 - Not connected, the sentence `Reconnecting… message held here, never queued` is said once and
   whole: it is the placeholder while the box is empty and moves into the status content once
   there is a draft (`composerStatusHint`), on a phone too. A sentence there (this one, or

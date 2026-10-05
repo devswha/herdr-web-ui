@@ -39,6 +39,8 @@ export function submitNotTyped(code: string): boolean {
 export function submitNote(code: string, message: string): string {
   if (code === "agent_blocked") return t("Not sent: the agent is waiting for an answer in the terminal. Answer it first.");
   if (code === "read_only") return t("Not sent: this view only watches the pane.");
+  if (code === "agent_only") return t("Not sent: comments go to an agent only, and none runs in this pane now.");
+  if (code === "agent_only_unsupported") return t("Not sent: update this PC to send comments.");
   if (code === "submit_timeout") return t("Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.");
   if (code === "disconnected" || code === "timeout") return t("Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.");
   return t("Not sent: {message}", { message });
@@ -94,13 +96,21 @@ const TERMINAL_ONLY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
   tree: ["pi", "omp"],
 };
 
+/**
+ * Whether `text` is a slash command: a "/" and a command name (letters, digits, `_ : . -`) as the
+ * first word. A path ("/Users/me/x.ts fails") or "//" is text.
+ */
+export function isSlashCommand(text: string): boolean {
+  return /^\/[\w:.-]+(?:\s|$)/.test(text.trimStart());
+}
+
 /** The command `text` types, if it is one of those: its name, or null. Case and arguments aside,
  * a message only has to *be* the command — prose that merely mentions it, or a word that only
  * begins like it (`/treemap`), is not one. */
 export function terminalOnlyCommand(agent: string | null, text: string): string | null {
   if (agent === null) return null;
   const trimmed = text.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  if (!isSlashCommand(trimmed)) return null;
   const [word] = trimmed.slice(1).toLowerCase().split(/\s+/);
   const agents = TERMINAL_ONLY_COMMANDS[word ?? ""];
   return agents !== undefined && agents.includes(agent) ? (word ?? null) : null;

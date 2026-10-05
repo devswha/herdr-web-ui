@@ -475,6 +475,32 @@
   border-color: var(--primary);
 }
 
+/* how many comments this send carries (the status line's chip counts all of them) */
+.composer-send,
+.composer-queue-button {
+  position: relative;
+}
+
+.composer-send-count {
+  position: absolute;
+  top: calc(-1 * var(--space-1));
+  right: calc(-1 * var(--space-1));
+  display: grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  padding: 0 var(--space-1);
+  border: var(--hairline) solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--text-strong);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+}
+
 /* the one round button: Stop is Send's circle in the text colour, in the same place at the same
    size, so only the glyph changes when the agent starts and ends a turn */
 .composer-stop {
@@ -594,6 +620,46 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* comments on blocks of the agent's replies, waiting for the next message: how many, among the
+   chips of the status line. They are shown where they were written (BlockComments.css); this walks
+   to them. It is the reasoning chip's size and edge, with the accent on its icon and edge: a thing
+   that is on, not a second kind of control. */
+.composer-comments-chip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  /* the height of a line of the status text, so the chip never makes the line taller */
+  height: calc(var(--fs-xs) * var(--lh-base));
+  padding: 0 var(--space-1);
+  border: var(--hairline) solid color-mix(in srgb, var(--accent) 50%, var(--border));
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.composer-comments-chip svg {
+  width: 12px;
+  height: 12px;
+  color: var(--accent);
+}
+
+/* the status line clips what leaves it, a ring outside the chip included */
+.composer-comments-chip:focus-visible {
+  outline-offset: calc(-1 * var(--space-1));
+}
+
+@media (hover: hover) {
+  .composer-comments-chip:hover {
+    border-color: var(--accent);
+  }
 }
 
 .composer-attachments {
@@ -733,6 +799,25 @@
 
   .composer {
     --composer-grip-h: 20px;
+  }
+
+  /* The chip stays the size of its neighbours, and the line one row high. A finger gets the
+     --touch-target around it: the line may overflow upward and downward, only its sides clip. */
+  .composer-status {
+    overflow-x: clip;
+    overflow-y: visible;
+  }
+
+  /* above the box, which is later in the tree and would take the tap area's lower half */
+  .composer-comments-chip {
+    z-index: 1;
+  }
+
+  .composer-comments-chip::before {
+    content: "";
+    position: absolute;
+    /* the chip is a line (18px) high: 12px more above and below make the touch target */
+    inset: calc(-1 * var(--space-3)) calc(-1 * var(--space-2));
   }
 
   .composer-resize {

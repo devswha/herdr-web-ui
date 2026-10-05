@@ -606,8 +606,10 @@ export type ClientMessage =
    * its own Enter after a short gap, and answers with a submit-result of the same id. `text` is
    * the message as written (agent.prompt pastes it itself), `payload` the same shaped for the
    * pane's bracketed-paste mode, typed when no agent is in front. `typed`: the terminal's own
-   * input line, which types `payload` like the keyboard would even into an agent's open menu */
-  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean }
+   * input line, which types `payload` like the keyboard would even into an agent's open menu.
+   * `agent_only` (servers listing "submit-agent-only"): only an agent gets it, never the pane's
+   * input, so a message quoting a reply never reaches a shell; refused with code agent_only */
+  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; agent_only?: boolean }
   /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
   | { type: "secret"; id: number; pane_id: string; prompt: string; secret: string }
@@ -617,7 +619,7 @@ export type ClientMessage =
   | { type: "role"; mode: ClientRole };
 
 /** What a server supports beyond the base protocol, listed in its first snapshot; older bridges list nothing. */
-export type ServerFeature = "submit" | "secret-input" | "input-ready";
+export type ServerFeature = "submit" | "secret-input" | "input-ready" | "submit-agent-only";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }
