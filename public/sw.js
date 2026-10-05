@@ -68,11 +68,12 @@ self.addEventListener("fetch", (event) => {
           return (await cachedShell()) || Response.error();
         }
         if (response.ok) {
-          // awaited: the bundles this page asks for next must not be answered from a cache
-          // that is on its way out. A cache that cannot be written does not cost the page.
-          try {
-            await keepShell(response.clone());
-          } catch (err) {}
+          // not awaited: the page gets its shell as it comes, and the worker lives until the
+          // copy is kept (a put reads the whole body). A bundle asked for meanwhile may still
+          // be answered by the old cache: a hashed file is the same file in either, and only
+          // what the network gave is put in this one. A cache that cannot be written does not
+          // cost the page.
+          event.waitUntil(keepShell(response.clone()).catch(() => undefined));
         }
         return response;
       })(),

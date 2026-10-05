@@ -45,7 +45,7 @@ function serviceWorker(stored: Record<string, Record<string, string>>) {
   const store = new Map(Object.entries(stored).map(([name, entries]) => [name, new Map(Object.entries(entries))]));
   const cacheOf = (entries: Map<string, string>) => ({
     match: async (request: string | WorkerRequest) => (entries.has(keyOf(request)) ? new Response(entries.get(keyOf(request))) : undefined),
-    put: async (request: string | WorkerRequest, response: Response) => { entries.set(keyOf(request), await response.text()); },
+    put: async (request: string | WorkerRequest, response: Response) => { await disk.ready; entries.set(keyOf(request), await response.text()); },
   });
   const caches = {
     keys: async () => [...store.keys()],
@@ -60,6 +60,8 @@ function serviceWorker(stored: Record<string, Record<string, string>>) {
       return undefined;
     },
   };
+  /** `ready` is awaited by every write: a test replaces it to hold the cache back. */
+  const disk = { ready: Promise.resolve() as Promise<void> };
   const network = { online: true, shell: "shell", status: 200, fetched: [] as string[] };
   const fetch = async (request: WorkerRequest) => {
     if (!network.online) throw new TypeError("Failed to fetch");
@@ -72,12 +74,20 @@ function serviceWorker(stored: Record<string, Record<string, string>>) {
   const listeners = new Map<string, (event: unknown) => void>();
   const self = { location: { origin }, clients: { claim: async () => undefined }, skipWaiting: () => undefined, addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener) };
   new Function("self", "caches", "fetch", readFileSync(join(publicDir, "sw.js"), "utf8"))(self, caches, fetch);
-  const dispatch = async (type: string, event: Record<string, unknown> = {}): Promise<Response | undefined> => {
+  /** The answer as the page gets it, and `kept`: everything the worker asked to stay alive for. */
+  const fire = (type: string, event: Record<string, unknown> = {}): { answer: Promise<Response> | undefined; kept: () => Promise<void> } => {
     let answer: Promise<Response> | undefined;
     const waits: Promise<unknown>[] = [];
     listeners.get(type)!({ ...event, respondWith: (response: Promise<Response>) => { answer = response; }, waitUntil: (work: Promise<unknown>) => { waits.push(work); } });
-    await Promise.all(waits);
-    return answer;
+    // a wait may be added while the answer is made, so the list is read again until it is still
+    const kept = async (): Promise<void> => { for (let seen = -1; seen !== waits.length;) { seen = waits.length; await Promise.all(waits); } };
+    return { answer, kept };
+  };
+  const dispatch = async (type: string, event: Record<string, unknown> = {}): Promise<Response | undefined> => {
+    const { answer, kept } = fire(type, event);
+    const response = await answer;
+    await kept();
+    return response;
   };
   const text = async (request: WorkerRequest): Promise<string | null> => {
     // a rejected answer is what the page sees as a network error
@@ -89,6 +99,8 @@ function serviceWorker(stored: Record<string, Record<string, string>>) {
   };
   return {
     network,
+    disk,
+    fire: (path = "/") => fire("fetch", { request: { method: "GET", url: `${origin}${path}`, mode: "navigate" } }),
     names: () => [...store.keys()],
     entries: (name: string) => [...(store.get(name)?.keys() ?? [])],
     update: async () => { await dispatch("install"); await dispatch("activate"); },
@@ -129,6 +141,23 @@ describe("a service worker under a new cache name", () => {
     expect(await worker.navigate()).toBe("new shell");
     expect(await worker.get("/assets/index-new.js")).toBe("network /assets/index-new.js");
     expect(await worker.get("/assets/index-old.js")).toBeNull();
+  });
+
+  it("gives the page its shell without waiting for the copy to be kept", async () => {
+    const worker = serviceWorker(old());
+    await worker.update();
+    worker.network.shell = "new shell";
+    let written = (): void => undefined;
+    worker.disk.ready = new Promise<void>((done) => { written = done; });
+    const { answer, kept } = worker.fire();
+    // the answer settles while the write is still held
+    expect(await (await answer)!.text()).toBe("new shell");
+    expect(worker.entries(current)).toEqual([]);
+    expect(worker.names()).toContain(before);
+    written();
+    await kept();
+    expect(worker.entries(current)).toEqual(["/"]);
+    expect(worker.names()).toEqual([current]);
   });
 
   it("keeps the old cache through a navigation the server refused", async () => {
