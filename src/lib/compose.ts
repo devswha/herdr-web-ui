@@ -169,14 +169,19 @@ export function composerStatusHint(state: { uploading: boolean; connected: boole
  * - "out": while Queue is showing, a label that does not fit steps out whole (read, not drawn),
  *   so Queue keeps its word and no name is cut mid-word. It is back once the draft is sent, held
  *   or cleared.
- * - "no-effort": without Queue the effort word steps out whole before the name gives a letter,
- *   so a sliver of a word is never drawn. A name still too long is ellipsized as the last resort.
+ * - "row": a selectable model and effort stay together in the controls row while their pill
+ *   grows to fit both labels. Neither label is shortened.
+ * - "no-effort": a display-only effort steps out whole before the name gives a letter, so a
+ *   sliver of a word is never drawn. A name still too long is ellipsized as the last resort.
  */
-export type ComposerModelDraw = "full" | "no-effort" | "out";
+export type ComposerModelDraw = "full" | "row" | "no-effort" | "out";
 
-export function composerModelDraw(state: { queueShown: boolean; modelClipped: boolean; effortClipped: boolean }): ComposerModelDraw {
+export function composerModelDraw(state: { queueShown: boolean; modelClipped: boolean; effortClipped: boolean; preserveEffort?: boolean }): ComposerModelDraw {
   if (!state.modelClipped && !state.effortClipped) return "full";
-  return state.queueShown ? "out" : "no-effort";
+  if (state.queueShown) return "out";
+  // Model and effort are separate controls. When both are selectable, let their pill size to
+  // both whole labels instead of shortening either one.
+  return state.preserveEffort ? "row" : "no-effort";
 }
 
 /** Herdr agent ids are machine-friendly; the composer presents a short human label. */

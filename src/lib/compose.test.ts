@@ -160,7 +160,7 @@ describe("composer presentation helpers", () => {
     expect(composerStatusHint({ uploading: true, connected: false, text: "draft" })).toBe("offline");
   });
 
-  it("steps the model label out whole while Queue shows, and only the effort word without it", () => {
+  it("keeps model metadata whole when the controls row is narrow", () => {
     const fits = { modelClipped: false, effortClipped: false };
     expect(composerModelDraw({ queueShown: true, ...fits })).toBe("full");
     expect(composerModelDraw({ queueShown: false, ...fits })).toBe("full");
@@ -173,6 +173,11 @@ describe("composer presentation helpers", () => {
     expect(composerModelDraw({ queueShown: false, modelClipped: false, effortClipped: true })).toBe("no-effort");
     expect(composerModelDraw({ queueShown: false, modelClipped: true, effortClipped: true })).toBe("no-effort");
     expect(composerModelDraw({ queueShown: false, modelClipped: true, effortClipped: false })).toBe("no-effort");
+    // Live model and effort pickers stay together in a content-sized pill; neither loses its label.
+    expect(composerModelDraw({ queueShown: false, modelClipped: true, effortClipped: false, preserveEffort: true })).toBe("row");
+    expect(composerModelDraw({ queueShown: false, modelClipped: false, effortClipped: true, preserveEffort: true })).toBe("row");
+    // Queue still owns the row while a draft is waiting to send.
+    expect(composerModelDraw({ queueShown: true, modelClipped: true, effortClipped: false, preserveEffort: true })).toBe("out");
   });
 
   it("turns machine agent ids into labels", () => {

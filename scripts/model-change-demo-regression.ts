@@ -91,6 +91,28 @@ try {
         const input = page.locator(".composer textarea");
         assert.ok(await page.locator('.composer-model-label').isVisible(), 'current model is shown before opening');
         assert.ok(await page.locator('.composer-reasoning-short').isVisible(), 'current effort is shown before opening');
+        await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
+        await page.waitForFunction(() => document.querySelector('.composer-surface')?.hasAttribute('data-model-row'));
+        assert.ok(await page.locator('.composer-reasoning-short').isVisible(), 'current effort stays visible at 200% zoom');
+        const zoomedLabels = await page.evaluate(() => {
+          const model = document.querySelector<HTMLElement>('.composer-model-label')!;
+          const effort = document.querySelector<HTMLElement>('.composer-reasoning-short')!;
+          const pill = document.querySelector<HTMLElement>('.composer-pill')!;
+          const status = document.querySelector<HTMLElement>('.composer-status')!;
+          const send = document.querySelector<HTMLElement>('.composer-send')!;
+          const pillBox = pill.getBoundingClientRect();
+          const sendBox = send.getBoundingClientRect();
+          const first = pill.querySelector<HTMLElement>('.agent-mark')!.getBoundingClientRect();
+          const last = pill.querySelector<HTMLElement>('.composer-reasoning.is-switchable')!.getBoundingClientRect();
+          return { model: model.textContent, effort: effort.textContent, modelWhole: model.scrollWidth <= model.clientWidth, effortWhole: effort.scrollWidth <= effort.clientWidth, modelWidth: [model.scrollWidth, model.clientWidth], pillWidth: pillBox.width, statusWidth: status.getBoundingClientRect().width, contentSlack: pillBox.width - (last.right - first.left), pillCenter: pillBox.top + pillBox.height / 2, sendCenter: sendBox.top + sendBox.height / 2, draw: status.getAttribute('data-model'), row: document.querySelector('.composer-surface')?.hasAttribute('data-model-row') };
+        });
+        assert.equal(zoomedLabels.modelWhole, true, `current model stays whole at 200% zoom: ${JSON.stringify(zoomedLabels)}`);
+        assert.equal(zoomedLabels.effortWhole, true, `current effort stays whole at 200% zoom: ${JSON.stringify(zoomedLabels)}`);
+        assert.ok(zoomedLabels.pillWidth < zoomedLabels.statusWidth, `model pill stays inside the status row at 200% zoom: ${JSON.stringify(zoomedLabels)}`);
+        assert.ok(zoomedLabels.contentSlack <= 64, `model pill grows only by its content and padding at 200% zoom: ${JSON.stringify(zoomedLabels)}`);
+        assert.ok(Math.abs(zoomedLabels.pillCenter - zoomedLabels.sendCenter) <= 4, `send button stays on the model row at 200% zoom: ${JSON.stringify(zoomedLabels)}`);
+        await page.locator('.composer').screenshot({ path: `/tmp/herdr-model-change-${agent}-zoom.png` });
+        await page.evaluate(() => { document.documentElement.style.zoom = "1"; });
         assert.equal(await page.locator('.prompt-card').count(), 0);
 
         await input.fill("Keep this draft");
@@ -201,7 +223,8 @@ try {
           assert.equal(await mobile.evaluate(() => (window as any).submits.length), count, 'context ring does not submit');
           assert.ok(await button.isVisible());
           const box = await button.boundingBox();
-          assert.ok(box && box.width >= 14 && box.x >= 0 && box.x + box.width <= 390);
+          const layout = await mobile.evaluate(() => ({ draw: document.querySelector('.composer-status')?.getAttribute('data-model'), row: document.querySelector('.composer-surface')?.hasAttribute('data-model-row') }));
+          assert.ok(box && box.width >= 14 && box.x >= 0 && box.x + box.width <= 390, `model control outside phone: ${JSON.stringify({ box, layout })}`);
           await button.tap();
           await mobile.locator('.prompt-card').waitFor();
           await mobile.screenshot({ path: '/tmp/herdr-model-change-mobile.png' });

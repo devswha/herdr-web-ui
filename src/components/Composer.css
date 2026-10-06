@@ -160,10 +160,10 @@
    card). What does not fit gives way in this order: the task chip's words (BackgroundTasks.css,
    by the card's width); then the model label, as composerModelDraw says of the measured row
    (Composer.tsx marks data-model): while Queue is showing the mark, the name and the level step
-   out whole and their pill with them, without it the level alone does, each read and not drawn,
-   so no word is drawn in part; then, with no Queue, the model's name and the opened context
-   text. Nothing overlaps its neighbour, and the context ring at the end is never the part that
-   is cut. */
+   out whole and their pill with them; without Queue, selectable model and effort controls keep
+   their full labels in a content-sized pill, while a display-only level steps out whole. No word is drawn in part.
+   Then, with no Queue, the opened context text gives way. Nothing overlaps its neighbour, and
+   the context ring at the end is never the part that is cut. */
 .composer-status {
   grid-area: status;
   display: flex;
@@ -420,6 +420,36 @@
   transition:
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out);
+}
+
+/* At large browser zoom, let the pill grow with both independent selectors while it remains
+   in the bottom controls row. The send button keeps its own grid column. */
+.composer-surface[data-model-row] .composer-pill {
+  flex: none;
+  width: max-content;
+  max-width: 100%;
+  height: auto;
+  min-height: var(--control-h);
+  flex-wrap: nowrap;
+  overflow: visible;
+}
+
+.composer-surface[data-model-row] .composer-model-change {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: var(--control-h);
+  white-space: normal;
+}
+
+.composer-surface[data-model-row] .composer-model-label {
+  min-width: 0;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /* focus is the surface's: the accent border on the rounded box, not a rectangle on the
@@ -1259,7 +1289,7 @@
 .composer-status[data-model="out"] .is-switchable .composer-model-label,
 .composer-status[data-model="out"] .is-switchable .composer-reasoning:not(.is-switchable) { display: none; }
 
-.composer-reasoning.is-switchable { display: inline-flex; align-items: center; gap: var(--space-1); }
+.composer-reasoning.is-switchable { display: inline-flex; flex: none; align-items: center; gap: var(--space-1); }
 .composer-effort-change {
   display: inline-flex;
   align-items: center;

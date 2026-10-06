@@ -360,8 +360,8 @@ export function Composer({
    * Two things the controls row asks of the layout itself, since what fits depends on the
    * model's name, the mic, the chip and the language, not on a width.
    * - The model label: measured with everything drawn, then drawn as composerModelDraw says
-   *   (stepped out whole while Queue shows, the effort word alone without it). Stepping out is
-   *   CSS on the mark's attribute, so the label is still read. It runs after every render of the
+   *   (stepped out whole while Queue shows, or kept with the effort control in a content-sized pill).
+   *   Stepping out is CSS on the mark's attribute, so the label is still read. It runs after every render of the
    *   composer, which is why the context ring's open number is this component's state: opening it
    *   takes room from the label without changing the card's size.
    * - The sentence is never cut. Where it does not fit beside the model it wraps to a line of its
@@ -375,6 +375,8 @@ export function Composer({
     status.removeAttribute("data-model");
     status.removeAttribute("data-hint-alone");
     status.removeAttribute("data-meta-empty");
+    const surface = status.closest<HTMLElement>(".composer-surface");
+    surface?.removeAttribute("data-model-row");
     const clipped = (selector: string): boolean => {
       const item = status.querySelector<HTMLElement>(selector);
       return item !== null && item.scrollWidth > item.clientWidth;
@@ -383,8 +385,10 @@ export function Composer({
       queueShown: queueRef.current !== null,
       modelClipped: clipped(".composer-model") || clipped(".composer-model-label"),
       effortClipped: clipped(".composer-reasoning"),
+      preserveEffort: onChangeEffort !== undefined,
     });
     if (draw !== "full") status.setAttribute("data-model", draw);
+    if (draw === "row") surface?.setAttribute("data-model-row", "");
     const hint = hintRef.current;
     if (!hint) return;
     // with the label stepped out and no ring, the row beside the sentence draws nothing: it gives
@@ -394,7 +398,7 @@ export function Composer({
     const line = hint.getBoundingClientRect();
     const beside = meta !== undefined && meta.width > 1 && meta.bottom > line.top && meta.top < line.top + line.height / 2 && meta.right <= line.left + 1;
     if (!beside) status.setAttribute("data-hint-alone", "");
-  }, []);
+  }, [onChangeEffort]);
   useLayoutEffect(fitStatus);
 
   // the card's own width decides, not the window's: a sidebar or a narrow lane shrinks the card
@@ -953,7 +957,7 @@ export function Composer({
         {/* between the two control groups of the card's last row. The agent's name, its separator and the
             state word are read, not drawn: the mark and the header name the agent, and Stop, the live row and
             the prompt card say the state. DONE alone is drawn: nothing else in the chat says a turn ended unseen.
-            Where the model label does not fit, it steps out and is still read (fitStatus marks data-model) */}
+            Where the model and effort controls do not fit, fitStatus lets their pill grow with both labels. */}
         <div ref={statusRef} className="composer-status" role="status" data-status={agentStatus ?? "unknown"}
           data-offline={connected ? undefined : ""} data-hint={hint ?? undefined}>
           {/* everything but the sentence: one row that never wraps, also where the sentence takes a line of its own */}
