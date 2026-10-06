@@ -66,6 +66,7 @@ function labelMapKeys(): string[] {
     ...grab("components/Composer.tsx", "SOURCE_LABEL", value),
     ...grab("components/DevicesPanel.tsx", "VIA", value),
     ...grab("components/KeyBar.tsx", "ARROWS", /label: "([^"]+)"/g),
+    ...grab("components/KeyBar.tsx", "EXTRA_KEY_CAPS", /label: "([^"]+)"/g),
     ...grab("lib/shortcuts.ts", "SHORTCUTS", /label: "([^"]+)"/g),
     ...grab("lib/bridgeProgress.ts", "STAGES", /label: "([^"]+)"/g),
     ...grab("lib/updateProgress.ts", "STEPS", /label: "([^"]+)"/g),
@@ -102,7 +103,7 @@ describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary)
 
   it("is not just the English repeated", () => {
     // names and key caps read the same in every language; Chinese UIs leave "Shell" and "Agent" in English
-    const sameOnPurpose = new Set(["PC {name}", "Control C", "Shell", "Agent", "Catppuccin"]);
+    const sameOnPurpose = new Set(["PC {name}", "Control C", "Control D", "Control Z", "Shift Tab", "Shell", "Agent", "Catppuccin"]);
     const same = Object.entries(dictionary).filter(([en, text]) => en === text && /[a-z]{3}/i.test(en) && !sameOnPurpose.has(en));
     expect(same.map(([en]) => en)).toEqual([]);
   });

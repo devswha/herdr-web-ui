@@ -312,8 +312,11 @@ export function gjcTerminal(pid: number): GjcTerminal | null {
       return { id: tty.slice(5).replaceAll("/", "-"), startedAt };
     }
     if (process.platform === "darwin") {
+      // lstart is local time without a zone: print it in the zone Date.parse reads it in,
+      // which is not always $TZ (bun test runs in UTC without setting it)
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const output = execFileSync("ps", ["-p", String(pid), "-o", "tty=", "-o", "lstart="], {
-        encoding: "utf8", timeout: 1500, maxBuffer: 4096, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "ignore"],
+        encoding: "utf8", timeout: 1500, maxBuffer: 4096, env: { ...process.env, LC_ALL: "C", TZ: zone }, stdio: ["ignore", "pipe", "ignore"],
       });
       return parseGjcPs(output);
     }
