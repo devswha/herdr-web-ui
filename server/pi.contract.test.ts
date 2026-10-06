@@ -39,7 +39,7 @@ const turns = (prompt: string, answer: string) => page([
 ]);
 
 async function createPiPane(): Promise<string> {
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-pi-contract", focus: false });
+  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-pi-contract" });
   workspaces.push(created.workspace.workspace_id);
   const target = created.root_pane.pane_id;
   await herdrRpc("pane.send_text", { pane_id: target, text: `${fakePi}\n` });
