@@ -98,6 +98,7 @@ let workspace: string | undefined;
 let deadline: ReturnType<typeof setTimeout> | undefined;
 const connections = new Set<Socket>();
 let stopping: Promise<void> | undefined;
+/** Close owned resources once and retain the trace-to-PTY comparison for manual inspection. */
 function stop(): Promise<void> {
   return stopping ??= (async () => {
     clearTimeout(deadline);

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import type { Browser } from "playwright-core";
 
+/** Replay Safari replacement edits and assert emitted bytes, commit order and pane isolation. */
 export async function checkSafariIme(browser: Browser, origin: string, pane: string, otherPane: string): Promise<void> {
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/26.6.2 Safari/605.1.15",

@@ -122,7 +122,10 @@ process.stdin.on('data', bytes => {
       }
       const actual = JSON.parse(readFileSync(results, "utf8")) as Array<{ actual: string; pass: boolean }>;
       if (label === "after") assert(actual.every(test => test.pass), JSON.stringify(actual));
-      else assert.equal(actual[0]!.actual, "abcㅎㄱ ", "baseline must reproduce the recorded native failure");
+      else {
+        assert.equal(actual[0]!.actual, "abcㅎㄱ ", "baseline must reproduce the recorded native failure");
+        assert(actual.every(test => test.pass === false), "baseline must fail all five recorded cases");
+      }
       await until(async () => (await paneRead({ paneId: pane, source: "visible" })).text.includes("Completed:"), "rendered PTY report must complete");
       // The visible screen arrives over the attach stream; wait for its xterm render callback.
       await page.waitForFunction(() => Array.from(document.querySelectorAll(".xterm-rows > div")).some(row => row.textContent?.includes("Completed:")));
