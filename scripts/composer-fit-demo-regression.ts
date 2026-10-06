@@ -393,6 +393,51 @@ try {
         if (chatFontSize === null) assert.equal(box, width <= 480 ? 16 : 15, "with no size chosen the box keeps its size");
       });
       console.log("PASS the message box follows Chat font size: with a mouse at the transcript's size, on a phone never under 16px");
+
+      // Changing the setting in an already-open chat rewraps the existing draft: an automatic
+      // box grows and shrinks with it, while a height chosen with the grip stays chosen.
+      for (const width of [390, 1440]) await withCard(browser, width, { model: "claude-opus-5-5" }, async (page) => {
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        const grip = page.getByRole("separator", { name: "Resize message box", exact: true });
+        const text = "An unsent draft changes size with the transcript.\nIts second line stays visible.\nThe third line stays visible too.";
+        const height = () => box.evaluate((node) => node.clientHeight);
+        const chooseSize = async (size: number) => {
+          await page.keyboard.press("ControlOrMeta+Shift+Comma");
+          await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
+          const current = Number.parseInt(await page.locator('.settings-stepper[aria-label="Chat font size"] output').innerText(), 10);
+          const button = page.getByRole("button", { name: size > current ? "Increase chat font size" : "Decrease chat font size", exact: true });
+          for (let step = 0; step < Math.abs(size - current); step++) await button.click();
+          await page.getByRole("button", { name: "Close settings", exact: true }).click();
+        };
+        await box.fill(text);
+        const initial = await height();
+        await chooseSize(20);
+        await page.waitForFunction((before) => {
+          const box = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return box.clientHeight > before && box.scrollHeight <= box.clientHeight + 1;
+        }, initial);
+        const large = await height();
+        assert.equal(await box.inputValue(), text, "resizing keeps the draft whole");
+        await chooseSize(11);
+        await page.waitForFunction((before) => document.querySelector(".composer-text")!.clientHeight < before, large);
+        assert.equal(await box.inputValue(), text, "shrinking keeps the draft whole");
+        assert.equal(await grip.getAttribute("aria-valuetext"), "automatic height");
+
+        await grip.press("ArrowUp");
+        const chosen = await height();
+        assert.equal(await box.evaluate((node) => node.classList.contains("is-sized")), true);
+        await chooseSize(20);
+        await page.waitForFunction(() => parseFloat(getComputedStyle(document.querySelector(".composer-text")!).fontSize) > 21);
+        assert.equal(await height(), chosen, "a font-size change preserves the chosen height");
+        assert.equal(await box.inputValue(), text, "a manual box keeps the draft whole too");
+        await grip.press("Home");
+        await page.waitForFunction(() => {
+          const box = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return !box.classList.contains("is-sized") && box.scrollHeight <= box.clientHeight + 1;
+        });
+        assert.equal(await box.inputValue(), text);
+      });
+      console.log("PASS changing Chat font size grows and shrinks an existing draft's automatic box and preserves a chosen height");
     } finally {
       await browser.close();
     }

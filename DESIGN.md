@@ -765,8 +765,11 @@ One set for both themes: the card is island black wherever it shows.
   in light themes only, where the tint alone does not separate it from the card. Pressing it is
   the only thing that holds a message. When a pressed Queue leaves with its draft, its focus goes
   to the message box (a touch press moves no focus, so no keyboard is raised). The placeholder is
-  just `Message <agent>…`. The message is typed at `--fs-chat` on `--lh-code` with a mouse
-  (`(hover: hover) and (pointer: fine)`) and at `--fs-input` otherwise.
+  just `Message <agent>…`. The message is typed at `--fs-chat` scaled by `--chat-scale` on
+  `--lh-code` with a mouse (`(hover: hover) and (pointer: fine)`), matching the transcript's
+  reading size. Otherwise it uses that scaled size or `--fs-input`, whichever is larger, on
+  `--lh-base`, keeping the 16px floor that avoids iOS zoom. Changing Chat font size or density
+  resizes an automatic box around its existing draft; a height chosen with the grip stays chosen.
 - Not connected, the sentence `Reconnecting… message held here, never queued` is said once and
   whole: it is the placeholder while the box is empty and moves into the status content once
   there is a draft (`composerStatusHint`), on a phone too. A sentence there (this one, or

@@ -317,7 +317,7 @@ export function Composer({
   // box (below) and fits the model label (fitStatus) with the face that is drawn.
   const facesLoaded = useFacesArrived();
 
-  useLayoutEffect(() => {
+  const sizeTextarea = useCallback(() => {
     const element = textareaRef.current;
     if (!element) return;
     const floor = Math.round(parseFloat(getComputedStyle(element).minHeight)) || 0;
@@ -330,7 +330,16 @@ export function Composer({
     element.style.height = `${element.scrollHeight}px`;
     const height = Math.round(element.getBoundingClientRect().height);
     setAutoHeight((current) => current === height ? current : height);
-  }, [text, manualHeight, placeholder, boxWidth, facesLoaded]);
+  }, [manualHeight]);
+
+  useLayoutEffect(sizeTextarea, [sizeTextarea, text, placeholder, boxWidth, facesLoaded]);
+
+  // SettingsProvider writes --chat-scale in a passive effect. Measure on the next frame,
+  // after that CSS is applied, so a draft rewraps without waiting for another keystroke.
+  useEffect(() => {
+    const frame = requestAnimationFrame(sizeTextarea);
+    return () => cancelAnimationFrame(frame);
+  }, [sizeTextarea, settings.chatFontSize, settings.density]);
 
   useEffect(() => {
     const element = textareaRef.current;
