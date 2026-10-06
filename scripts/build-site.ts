@@ -137,6 +137,8 @@ for (let pageNumber = 1; contributors !== null && pageNumber <= 10; pageNumber +
   }
   contributors += body.filter((entry) => entry && typeof entry === "object" && entry.type !== "Bot").length;
   if (body.length < 100) break;
+  // a full tenth page: there may be more, so the sum is not the count
+  if (pageNumber === 10) contributors = null;
 }
 page = page.replaceAll("{{contributors}}", contributors === null ? "—" : contributors.toLocaleString("en-US"));
 // where the plugin stands in herdr's marketplace index: one more than the repositories with more stars
