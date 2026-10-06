@@ -19,7 +19,7 @@ const LONG_MODEL = "gpt-5.6-sol-codex-preview-2026-10";
 // ids it names: "GPT-5.6" and "Opus 5.5"; null: the conversation names no model
 const NAMED = ["gpt-5.6", "claude-opus-5-5"] as const;
 
-interface Case { model: string | null; effort?: string | null; status?: "working" | "idle"; mic?: boolean; ring?: boolean }
+interface Case { model: string | null; effort?: string | null; status?: "working" | "idle"; mic?: boolean; ring?: boolean; chatFontSize?: number | null }
 type Draw = "full" | "no-effort" | "out";
 
 const measure = (page: Page) => page.evaluate(() => {
@@ -184,7 +184,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: touch, isMobile: touch, locale: "en-US" });
     try {
       await context.addInitScript((fitCase) => {
-        localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", voiceInput: fitCase.mic }));
+        localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", voiceInput: fitCase.mic, chatFontSize: fitCase.chatFontSize ?? null }));
         Object.assign(window, { fitCase });
       }, { status: "working", effort: "xhigh", mic: false, ring: true, ...state });
       const page = await context.newPage();
@@ -376,6 +376,23 @@ try {
         await drawn(page, open, `${model}, ${width}px${mic ? ", the mic" : ""}, the context number open`);
       });
       console.log("PASS at 390, 800, 1024 and 1440px a short name and a long model id are whole or stepped out beside the chip, the ring, the mic and Queue");
+
+      // The message box is typed at the transcript's size (Settings → Chat font size): with a mouse
+      // exactly, on a phone never under 16px, the smallest size iOS does not zoom the page for
+      for (const width of [390, 1440]) for (const chatFontSize of [null, 20]) await withCard(browser, width, { model: "claude-opus-5-5", chatFontSize }, async (page) => {
+        const [box, body] = await page.evaluate(() => {
+          const probe = document.createElement("span");
+          probe.style.fontSize = "var(--chat-fs-body)";
+          document.querySelector(".chat-view")!.append(probe);
+          const sizes = [document.querySelector(".composer-text")!, probe].map((node) => parseFloat(getComputedStyle(node).fontSize));
+          probe.remove();
+          return sizes;
+        });
+        const want = width <= 480 ? Math.max(16, body!) : body!;
+        assert.ok(Math.abs(box! - want) < 0.05, `${width}px, chat size ${chatFontSize ?? "default"}: the box is ${box}px, the transcript ${body}px`);
+        if (chatFontSize === null) assert.equal(box, width <= 480 ? 16 : 15, "with no size chosen the box keeps its size");
+      });
+      console.log("PASS the message box follows Chat font size: with a mouse at the transcript's size, on a phone never under 16px");
     } finally {
       await browser.close();
     }
