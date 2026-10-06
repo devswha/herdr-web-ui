@@ -160,6 +160,7 @@ describe("claudeTranscriptFile", () => {
 });
 
 describe("CLAUDE_CONFIG_DIR", () => {
+  afterEach(() => forgetClaudeSessions());
   it("reads the last assignment of a ps line, through a path with spaces", () => {
     expect(configDirInPsLine("claude --resume HOME=/h CLAUDE_CONFIG_DIR=/Users/me/.cac/envs/work/.claude PATH=/bin")).toBe("/Users/me/.cac/envs/work/.claude");
     expect(configDirInPsLine("claude CLAUDE_CONFIG_DIR=/a b/.claude")).toBe("/a b/.claude");
@@ -181,9 +182,14 @@ describe("CLAUDE_CONFIG_DIR", () => {
 
   it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("reads a running process's own store", async () => {
     const dir = mkdtempSync(join(tmpdir(), "herdr-claude-env-"));
-    const child = Bun.spawn(["sleep", "30"], { env: { ...process.env, CLAUDE_CONFIG_DIR: dir }, stdout: "ignore" });
-    const bare = Bun.spawn(["sleep", "30"], { env: { PATH: process.env["PATH"] ?? "" }, stdout: "ignore" });
+    // macOS hides system binaries' environments; use a started user process, as Claude is.
+    const sleeper = (env: Record<string, string | undefined>) => Bun.spawn(
+      [process.execPath, "-e", "console.log('ready'); await Bun.sleep(5000)"], { env, stdout: "pipe" },
+    );
+    const child = sleeper({ ...process.env, CLAUDE_CONFIG_DIR: dir });
+    const bare = sleeper({ PATH: process.env["PATH"] ?? "" });
     try {
+      for (const process of [child, bare]) await process.stdout.getReader().read();
       expect(await processClaudeConfigDir(child.pid)).toBe(dir);
       expect(await processClaudeConfigDir(bare.pid)).toBeNull();
     } finally { child.kill(); bare.kill(); rmSync(dir, { recursive: true, force: true }); }

@@ -41,7 +41,11 @@ export function defaultClaudeConfigDir(home: string): string {
 const processDirs = new Map<string, { dir: string | null; at: number }>();
 const PROCESS_DIR_TTL_MS = 30_000;
 
-/** The CLAUDE_CONFIG_DIR in one `ps -E -o command=` line: the last assignment, running to the next `NAME=`. */
+/**
+ * The CLAUDE_CONFIG_DIR in one `ps -E -o command=` line: the last assignment, to the next `NAME=`.
+ * As with CODEX_HOME, ps cannot distinguish an argument or a value containing ` NAME=` from an
+ * assignment. A process that overwrites its argument/environment memory may expose no value.
+ */
 export function configDirInPsLine(text: string): string | null {
   return [...text.matchAll(/(?:^|\s)CLAUDE_CONFIG_DIR=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)/g)].at(-1)?.[1] || null;
 }
@@ -96,6 +100,7 @@ const found = new Map<string, string>();
 
 export function forgetClaudeSessions(): void {
   found.clear();
+  processDirs.clear();
 }
 
 /** macOS has no /proc: Claude records the process's start as `ps -o lstart` text in UTC, which a reused PID cannot repeat. */
