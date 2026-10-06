@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that started the task, as 0.3.51 meant to. Before, the title was kept only when a transcript
   deleted earlier had used the same inode (as Linux reuses them) and left its titles behind, and
   such a transcript's titles could name another session's tasks with the same id.
+  ([#498](https://github.com/devswha/herdr-web-ui/pull/498) by @kilhyeonjun)
 
 ## [0.3.51] - 2026-10-06
 
