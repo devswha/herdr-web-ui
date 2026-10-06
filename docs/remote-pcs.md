@@ -107,3 +107,5 @@ The default manifest is `https://github.com/devswha/herdr-web-ui/releases/downlo
 - `bun run test:ui`: existing composer/session/mobile browser regressions.
 
 macOS Codex discovery uses `lsof` for open rollout files instead of `/proc`; canonical-store validation and the unambiguous transcript matching rules are unchanged. Platform jobs must run on their corresponding runners before all-platform release readiness can be claimed. The Docker password test can run locally without sudo; macOS/arm64 binaries still require their corresponding runners.
+
+After **Continue in background**, the download icon beside **Settings** lists installations started in this browser tab, including new PCs not yet in the sidebar. Open it for progress or to reopen setup. Completed and failed jobs remain until opened or dismissed. Reloading the page clears this local list; the server-side install continues.

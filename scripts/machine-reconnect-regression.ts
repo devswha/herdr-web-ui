@@ -10,6 +10,7 @@ const local = { id: "local", name: "QA host", kind: "local", state: "connected",
 const pc: Machine = { ...local, id: "qa-remote", name: "QA remote", kind: "ssh", target: { destination: "qa.invalid" } };
 const requests: SetupRequest[] = [];
 let conflict = false;
+let installing = false;
 let job: SetupJob | null = null;
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
@@ -19,10 +20,17 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (path === "/api/machines/settings") return Response.json({ auto_update_bridges: false });
   if (path === "/api/machines/setup" && request.method === "POST") {
     const body = await request.json() as SetupRequest; requests.push(body);
-    job = { id: "qa-job", machine_id: pc.id, target: pc.target!, phase: conflict ? "failed" : "connected", step: conflict ? "Connection failed" : "Connected", challenge: null, installations: [], error: conflict ? "Another app reconnected with a different version." : null, ssh_output: null, ...(conflict ? { action_required: "bridge_conflict" } : {}) };
+    job = { id: "qa-job", machine_id: body.machine_id ?? "qa-new", target: { destination: body.destination }, phase: installing ? "approval" : conflict ? "failed" : "connected", step: installing ? "Review the changes on this PC" : conflict ? "Connection failed" : "Connected", challenge: null, installations: [], error: conflict ? "Another app reconnected with a different version." : null, ssh_output: null, ...(conflict ? { action_required: "bridge_conflict" } : {}) };
     return Response.json(job, { status: 202 });
   }
-  if (path === "/api/machines/setup/qa-job") return Response.json(job);
+  if (path === "/api/machines/setup/qa-job") {
+    if (request.method === "POST") {
+      const action = await request.json() as { action: string };
+      if (action.action === "approve") job = { ...job!, phase: "installing", step: "Downloading the bridge", progress: { stage: "download", done: 25, total: 100, rate: 10, elapsed_ms: 1000 } };
+      if (action.action === "cancel") job = { ...job!, phase: "cancelled", step: "Cancelled" };
+    }
+    return Response.json(job);
+  }
   if (path.startsWith("/api/") || path === "/ws") return Response.json({ error: { code: "qa", message: "Unavailable in fixture" } }, { status: 404 });
   const file = Bun.file(resolve("dist", path === "/" ? "index.html" : path.slice(1)));
   return new Response(await file.exists() ? file : Bun.file("dist/index.html"));
@@ -70,6 +78,49 @@ try {
   await dialog.getByRole("button", { name: "Open PC", exact: true }).waitFor();
   assert.equal(requests.at(-1)!.update_remote, undefined);
   assert.equal(await dialog.getByText("Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.", { exact: true }).count(), 0);
+  await dialog.getByRole("button", { name: "Close PC setup" }).click();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  delete pc.action_required; pc.state = "connected"; pc.error = null;
+  await page.reload();
+  installing = true;
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Add PC", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Add PC", exact: true });
+  await dialog.getByLabel("SSH alias or user@address").fill("new-pc.invalid");
+  await dialog.getByRole("button", { name: "Connect", exact: true }).click();
+  await dialog.getByRole("button", { name: "Install and connect", exact: true }).click();
+  await dialog.getByRole("button", { name: "Continue in background", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  const status = page.getByRole("button", { name: "PC installations", exact: true });
+  await status.click();
+  const progress = page.locator(".machine-setup-list");
+  await progress.getByRole("progressbar").waitFor();
+  assert.equal(await progress.getByRole("progressbar").getAttribute("aria-valuenow"), "25");
+  job = { ...job!, progress: { ...job!.progress!, done: 75 } };
+  await page.waitForFunction(() => document.querySelector('.machine-setup-list [role="progressbar"]')?.getAttribute("aria-valuenow") === "75");
+  await page.screenshot({ path: `${shots}/background-install.png` });
+  const beforeResume = requests.length;
+  await progress.getByRole("button", { name: "Open PC setup" }).click();
+  await dialog.getByRole("button", { name: "Continue in background" }).waitFor();
+  assert.equal(requests.length, beforeResume);
+  await dialog.getByRole("button", { name: "Continue in background" }).click();
+  job = { ...job!, phase: "failed", step: "Connection failed", error: "Fixture download failed" };
+  await progress.getByText("Fixture download failed", { exact: true }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Open workspace list", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("#workspace-drawer")!.getBoundingClientRect().left >= -0.5);
+  const panelBounds = await progress.boundingBox();
+  assert.ok(panelBounds && panelBounds.x >= 0 && panelBounds.x + panelBounds.width <= 390);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: `${shots}/background-install-mobile.png` });
+  await progress.getByRole("button", { name: "Open PC setup" }).click();
+  await dialog.getByRole("button", { name: "Retry connection", exact: true }).click();
+  await dialog.getByRole("button", { name: "Install and connect" }).click();
+  await dialog.getByRole("button", { name: "Continue in background" }).click();
+  job = { ...job!, phase: "connected", step: "Connected", error: null };
+  await progress.getByText("Connected", { exact: true }).waitFor();
+  await progress.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await status.waitFor({ state: "detached" });
   assert.deepEqual(errors, []);
-  console.log("PASS: connected-PC reconnect, conflict notice, and retry without reinstall; screenshots:", shots);
+  console.log("PASS: reconnect, conflicts, background progress, resume, failure, retry, completion and mobile layout; screenshots:", shots);
 } finally { await browser.close(); server.stop(true); }

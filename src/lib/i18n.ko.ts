@@ -6,6 +6,9 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "PC installations": "PC 설치",
+  "Open PC setup": "PC 설치 열기",
+  "You can close this; check the download icon next to Settings for progress.": "창을 닫아도 됩니다. 설정 옆 다운로드 아이콘에서 진행 상황을 확인하세요.",
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Direct typing": "직접 입력",
@@ -321,7 +324,6 @@ export const KO: Record<string, string> = {
   "herdr session name": "herdr 세션 이름",
   "Default session": "기본 세션",
   "Uses the web server account’s SSH config and ssh-agent. Agent CLI tools and logins use the environment on the target PC.": "웹 서버 계정의 SSH 설정과 ssh-agent를 씁니다. 에이전트 CLI와 로그인은 대상 PC의 환경을 따릅니다.",
-  "You can close this; the install keeps going and the sidebar shows it.": "이 창을 닫아도 설치는 계속되고 사이드바에 진행이 보입니다.",
   "Installs into your home directory. Existing herdr sessions keep running.": "홈 디렉터리에 설치합니다. 기존 herdr 세션은 계속 돕니다.",
   "Compare this fingerprint with the PC before accepting it.": "수락하기 전에 이 지문을 PC의 것과 비교하세요.",
   "SSH output": "SSH 출력",

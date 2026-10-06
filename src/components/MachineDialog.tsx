@@ -7,16 +7,16 @@ import { BridgeUpdateProgress } from "./MachineSidebar.tsx";
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
 
-export function MachineDialog({ machine, updateRemote = false, onClose, onConnected }: { machine?: Machine; updateRemote?: boolean; onClose(): void; onConnected(id: string): void }) {
+export function MachineDialog({ machine, updateRemote = false, initialJob, initialName, onBackground, onClose, onConnected }: { machine?: Machine; updateRemote?: boolean; initialJob?: SetupJob; initialName?: string; onBackground(job: SetupJob, name: string): void; onClose(): void; onConnected(id: string): void }) {
   const t = useT();
   const dialog = useRef<HTMLDialogElement>(null);
   const destinationField = useRef<HTMLInputElement>(null);
-  const [destination, setDestination] = useState(machine?.target?.destination ?? "");
-  const [name, setName] = useState(machine?.name ?? "");
-  const [port, setPort] = useState(String(machine?.target?.port ?? ""));
-  const [key, setKey] = useState(machine?.target?.identity_file ?? "");
-  const [session, setSession] = useState(machine?.target?.session ?? "");
-  const [job, setJob] = useState<SetupJob | null>(null);
+  const [destination, setDestination] = useState((initialJob?.target ?? machine?.target)?.destination ?? "");
+  const [name, setName] = useState(initialName ?? machine?.name ?? "");
+  const [port, setPort] = useState(String((initialJob?.target ?? machine?.target)?.port ?? ""));
+  const [key, setKey] = useState((initialJob?.target ?? machine?.target)?.identity_file ?? "");
+  const [session, setSession] = useState((initialJob?.target ?? machine?.target)?.session ?? "");
+  const [job, setJob] = useState<SetupJob | null>(initialJob ?? null);
   const jobRef = useRef(job); jobRef.current = job;
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +61,9 @@ export function MachineDialog({ machine, updateRemote = false, onClose, onConnec
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setPending(false); }
   };
-  return <dialog ref={dialog} className="modal machine-dialog" aria-labelledby="machine-dialog-title" onCancel={(e) => { e.preventDefault(); onClose(); }}>
-    <header className="modal-header"><h2 id="machine-dialog-title" className="modal-title"><Monitor size={18} /> {t(updateRemote ? "Update remote bridge" : machine ? "Reconnect PC" : "Add PC")}</h2><button className="icon-button" aria-label={t("Close PC setup")} onClick={onClose}><X /></button></header>
+  const close = () => { if (running && job) onBackground(job, name); else onClose(); };
+  return <dialog ref={dialog} className="modal machine-dialog" aria-labelledby="machine-dialog-title" onCancel={(e) => { e.preventDefault(); close(); }}>
+    <header className="modal-header"><h2 id="machine-dialog-title" className="modal-title"><Monitor size={18} /> {t(updateRemote ? "Update remote bridge" : machine ? "Reconnect PC" : "Add PC")}</h2><button className="icon-button" aria-label={t("Close PC setup")} onClick={close}><X /></button></header>
     <div className="modal-body">
       {(!job || finished && job.phase !== "connected") && <form id="machine-connect-form" onSubmit={(e) => { e.preventDefault(); void begin(conflict); }}>
         <label className="field"><span className="field-label">{t("SSH alias or user@address")}</span><input ref={destinationField} autoFocus className="input" required autoComplete="off" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="devbox or user@192.168.1.20" /></label>
@@ -77,7 +78,7 @@ export function MachineDialog({ machine, updateRemote = false, onClose, onConnec
       {job && <div className="machine-progress" role="status">{running && job.progress ? <BridgeUpdateProgress update={{ job_id: job.id, step: job.step, progress: job.progress }} /> : <strong>{job.step}</strong>}{job.error && <p>{job.error}</p>}{job.ssh_output && <pre className="machine-ssh-output" aria-label={t("SSH output")}>{sshOutputParts(job.ssh_output).map((part, i) => part.type === "link" ? <a key={i} href={part.href} target="_blank" rel="noopener noreferrer">{part.value}</a> : part.value)}</pre>}</div>}
       {conflict && <p className="field-hint">{t("Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.")}</p>}
       {needsBridgeUpdate && <p className="field-hint">{t("This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.")}</p>}
-      {running && <p className="field-hint">{t("You can close this; the install keeps going and the sidebar shows it.")}</p>}
+      {running && <p className="field-hint">{t("You can close this; check the download icon next to Settings for progress.")}</p>}
       {job?.phase === "approval" && <><ul className="machine-install-list">{job.installations.map((item) => <li key={item}>{item}</li>)}</ul><p className="field-hint">{t("Installs into your home directory. Existing herdr sessions keep running.")}</p></>}
       {job?.challenge && <div className="machine-challenge"><pre>{job.challenge.prompt}</pre>{job.challenge.kind === "host_key" ? <p className="field-hint">{t("Compare this fingerprint with the PC before accepting it.")}</p> : <form onSubmit={(e) => { e.preventDefault(); void act({ action: "answer", challenge_id: job.challenge!.id, answer: secret }); }}>
         <label className="field"><span className="field-label">{t("Password or key passphrase")}</span><input autoFocus className="input" type="password" autoComplete="off" value={secret} disabled={!secretAllowed || pending} onChange={(e) => setSecret(e.target.value)} /></label>
@@ -88,7 +89,7 @@ export function MachineDialog({ machine, updateRemote = false, onClose, onConnec
     </div>
     <footer className="modal-footer">
       {job && !finished && <button className="btn" disabled={pending} onClick={() => void act({ action: "cancel" })}>{t(running ? "Cancel install" : "Cancel connection")}</button>}
-      {running && <button className="btn btn-primary" onClick={onClose}>{t("Continue in background")}</button>}
+      {running && <button className="btn btn-primary" onClick={close}>{t("Continue in background")}</button>}
       {job?.challenge?.kind === "host_key" && <><button className="btn" disabled={pending} onClick={() => void act({ action: "answer", challenge_id: job.challenge!.id, answer: "no" })}>{t("Reject")}</button><button className="btn btn-primary" disabled={pending} onClick={() => void act({ action: "answer", challenge_id: job.challenge!.id, answer: "yes" })}>{t("Trust fingerprint")}</button></>}
       {job?.phase === "approval" && <button className="btn btn-primary" disabled={pending} onClick={() => void act({ action: "approve" })}>{t("Install and connect")}</button>}
       {needsBridgeUpdate && <button className="btn" disabled={pending} onClick={() => void begin(true)}>{t("Reconnect without updating")}</button>}

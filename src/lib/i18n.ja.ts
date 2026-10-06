@@ -8,6 +8,9 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "PC installations": "PC のインストール",
+  "Open PC setup": "PC セットアップを開く",
+  "You can close this; check the download icon next to Settings for progress.": "閉じてもかまいません。設定の横のダウンロードアイコンで進捗を確認できます。",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Direct typing": "直接入力",
@@ -323,7 +326,6 @@ export const JA: Record<string, string> = {
   "herdr session name": "herdr セッション名",
   "Default session": "デフォルトのセッション",
   "Uses the web server account’s SSH config and ssh-agent. Agent CLI tools and logins use the environment on the target PC.": "Web サーバーのアカウントの SSH 設定と ssh-agent を使用します。エージェントの CLI ツールとログインは接続先 PC の環境を使用します。",
-  "You can close this; the install keeps going and the sidebar shows it.": "この画面を閉じてもインストールは続行され、進行状況はサイドバーに表示されます。",
   "Installs into your home directory. Existing herdr sessions keep running.": "ホームディレクトリにインストールします。既存の herdr セッションは実行されたままです。",
   "Compare this fingerprint with the PC before accepting it.": "承認する前に、このフィンガープリントを PC 側のものと比較してください。",
   "SSH output": "SSH 出力",

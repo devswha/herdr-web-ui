@@ -14,6 +14,7 @@ import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
+import { MachineSetupStatus, type BackgroundSetup } from "./components/MachineSetupStatus.tsx";
 import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
 import { focusWorkspaceListToggle } from "./lib/focus.ts";
@@ -150,11 +151,14 @@ export function App() {
   const machinesRef = useRef(machines); machinesRef.current = machines;
   const [updateRemote, setUpdateRemote] = useState(false);
   const [machineDialog, setMachineDialog] = useState<Machine | "new" | null>(null);
+  const [backgroundSetups, setBackgroundSetups] = useState<BackgroundSetup[]>([]);
+  const [resumedSetup, setResumedSetup] = useState<BackgroundSetup | null>(null);
   // Add PC from Settings or the palette leaves no trigger to return focus to once its dialog
   // closes (Settings closed when it opened): the header's workspace-list toggle stands in
   const addPcFocusReturn = useRef(false);
   const closeMachineDialog = useCallback(() => {
     setMachineDialog(null);
+    setResumedSetup(null);
     if (!addPcFocusReturn.current) return;
     addPcFocusReturn.current = false;
     focusWorkspaceListToggle();
@@ -836,7 +840,10 @@ export function App() {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          <MachineSidebar setupStatus={<MachineSetupStatus entries={backgroundSetups} onDismiss={(id) => setBackgroundSetups((entries) => entries.filter((entry) => entry.job.id !== id))} onOpen={(entry) => {
+            setBackgroundSetups((entries) => entries.filter((item) => item.job.id !== entry.job.id));
+            setResumedSetup(entry); setUpdateRemote(entry.updateRemote); setMachineDialog(entry.machine ?? "new");
+          }} />} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
         </aside>
 
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
@@ -890,7 +897,10 @@ export function App() {
           void load();
         }}
       /></MachineContext.Provider>
-      {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={closeMachineDialog} onConnected={(id) => { closeMachineDialog(); selectTarget(id, null); void load(); }} />}
+      {machineDialog && <MachineDialog initialJob={resumedSetup?.job} initialName={resumedSetup?.name} onBackground={(job, name) => {
+        setBackgroundSetups((entries) => [...entries.filter((entry) => entry.job.id !== job.id), { job, name, machine: machineDialog === "new" ? undefined : machineDialog, updateRemote }]);
+        closeMachineDialog();
+      }} updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={closeMachineDialog} onConnected={(id) => { closeMachineDialog(); selectTarget(id, null); void load(); }} />}
       <Droplet onOpen={(machineId, paneId) => {
         // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
         if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;
