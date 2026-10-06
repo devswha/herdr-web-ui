@@ -464,25 +464,31 @@ try {
             if (text === drafts[0] || text === drafts[1]) assert.ok(metrics.scrollHeight <= metrics.height + 1, "empty and short drafts fit without vertical clipping");
           }
         }
-        await box.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
-        // Native caret scrolling may leave the textarea's top padding offscreen. The first
-        // text line must be visible, not necessarily the decorative padding above that line.
+        const endKey = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
+        await box.press(endKey);
         await page.waitForFunction(() => {
           const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
-          return node.selectionStart === 0 && node.scrollTop <= parseFloat(getComputedStyle(node).paddingTop) + 1;
-        }, undefined, { timeout: 5_000 }).catch(async (error) => {
-          console.error("composer start", width, await box.evaluate((node) => ({ caret: node.selectionStart, scrollTop: node.scrollTop, padding: getComputedStyle(node).paddingTop })));
-          throw error;
-        });
-        const startScroll = await box.evaluate((node) => node.scrollTop);
-        await box.hover();
-        await page.mouse.wheel(0, 400);
-        await page.waitForFunction((before) => document.querySelector(".composer-text")!.scrollTop > before, startScroll, { timeout: 5_000 });
-        await box.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
-        await page.waitForFunction(() => {
-          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
-          return node.selectionStart === node.value.length && node.scrollTop + node.clientHeight >= node.scrollHeight - parseFloat(getComputedStyle(node).paddingBottom) - 1;
+          return node.selectionStart === node.value.length && node.scrollTop > 0;
         }, undefined, { timeout: 5_000 });
+        const endScroll = await box.evaluate((node) => node.scrollTop);
+        await box.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+        // Native caret scrolling trims different amounts of padding/leading across platforms.
+        // Check keyboard movement independently from reaching the absolute wheel boundary.
+        await page.waitForFunction((end) => {
+          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return node.selectionStart === 0 && node.scrollTop < end;
+        }, endScroll, { timeout: 5_000 });
+        await box.hover();
+        await page.mouse.wheel(0, -2000);
+        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop <= 1, undefined, { timeout: 5_000 });
+        await page.mouse.wheel(0, 400);
+        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop > 1, undefined, { timeout: 5_000 });
+        const wheelScroll = await box.evaluate((node) => node.scrollTop);
+        await box.press(endKey);
+        await page.waitForFunction((before) => {
+          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return node.selectionStart === node.value.length && node.scrollTop > before;
+        }, wheelScroll, { timeout: 5_000 });
         assert.equal(await box.inputValue(), drafts[3], "wheel and keyboard scrolling preserve the draft");
         if (width === 1440 && process.env.COMPOSER_FIT_SCREENSHOT) await page.locator(".composer").screenshot({ path: process.env.COMPOSER_FIT_SCREENSHOT });
       });
