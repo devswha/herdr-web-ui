@@ -13,6 +13,7 @@
   <a href="#install">install</a> ·
   <a href="https://devswha.github.io/herdr-web-ui/demo/">try the demo</a> ·
   <a href="docs/guide.md#quick-start">quick start</a> ·
+  <a href="#faq">faq</a> ·
   <a href="#docs">docs</a>
 </p>
 
@@ -113,6 +114,40 @@ herdr plugin install devswha/herdr-web-ui
 With herdr running, open **[localhost:7317](http://localhost:7317)**. Pick a pane or start an agent with **New workspace**. To use your phone, scan the installer's QR code and add the app to your home screen. [Quick start →](docs/guide.md#quick-start)
 
 The server listens on `127.0.0.1` by default. For access from another device, see [phone setup](docs/guide.md#on-your-phone) and [access and safety](docs/guide.md#access-and-safety).
+
+## faq
+
+**Can I use Claude Code or Codex from my phone?**
+
+Yes. Run the agent in a [herdr](https://github.com/herdrdev/herdr) pane on your computer, and this app shows the same pane in your phone's browser: the agent's own transcript as a chat, its approvals and questions as cards you tap, and the live terminal a tap away. It installs to the home screen as a PWA and sends a push alert when an agent needs you. [Phone setup →](docs/guide.md#on-your-phone)
+
+**Which agents does the chat view support?**
+
+Claude Code, Codex, omp, omo, gjc and pi are read from their own session files. Any other program in a herdr pane gets the live terminal and its status. [Supported agents →](docs/guide.md#supported-agents)
+
+**Does it replace herdr's own TUI?**
+
+No. Both attach to the same terminals at the same time, so the pane stays live at your desk, in the browser and on the phone. Nothing is stopped or handed over. [TUI and browser →](docs/guide.md#faq)
+
+**Do I need Tailscale?**
+
+No. Tailscale, an SSH tunnel, a VPN or your own HTTPS proxy can provide a route to the PC. Installation and push alerts need a secure context such as HTTPS or localhost; basic browsing also works over plain HTTP on a LAN. [The options →](docs/guide.md#faq)
+
+**Does my code or conversation leave my machine?**
+
+Session files stay on the PC running each agent, and their contents are served to browsers you connect. The app has no hosted relay or account service of its own. Optional voice input sends audio (and text when polishing) to the configured provider; enabled usage meters contact provider APIs. Updates, remote-PC setup and push alerts can also use external services. The agents’ own model connections depend on their configuration. [Data flow and access →](docs/guide.md#faq)
+
+**Does it work on Windows?**
+
+Yes, on Windows x64 without WSL. Until herdr can attach a terminal there, the terminal is a [screen mirror](docs/remote-pcs.md#windows-pcs) with typing and a fixed grid.
+
+**How is it different from collie, roamgate or herdr-remote?**
+
+These are other phone or browser clients for herdr. This one reads the agent's own transcript, so a pane is a chat with the work folded per turn rather than terminal output, and other PCs join over SSH from the sidebar. It brings no tunnel and drives only herdr: if you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit. [The full comparison →](docs/guide.md#faq)
+
+**How is it different from Happy, Paseo or CloudCLI UI?**
+
+Those projects provide their own ways to start or manage agent sessions. This app works with the herdr panes you already run, keeping the same terminals available in the TUI and browser. If you do not use herdr, compare those projects’ deployment options and agent support. [The full comparison →](docs/guide.md#faq)
 
 ## docs
 

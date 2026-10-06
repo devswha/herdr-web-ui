@@ -13,6 +13,7 @@
   <a href="#install">安装</a> ·
   <a href="https://devswha.github.io/herdr-web-ui/demo/">体验演示</a> ·
   <a href="docs/guide.md#quick-start">快速入门</a> ·
+  <a href="#faq">常见问题</a> ·
   <a href="#docs">文档</a>
 </p>
 
@@ -107,6 +108,42 @@ herdr plugin install devswha/herdr-web-ui
 在 herdr 运行时，打开 **[localhost:7317](http://localhost:7317)**。选择一个窗格，或点击 **New workspace（新建工作区）** 启动智能体。要在手机上使用，请扫描安装程序提供的二维码，并将应用添加到主屏幕。[快速入门 →](docs/guide.md#quick-start)
 
 服务器默认监听 `127.0.0.1`。如需从其他设备访问，请参阅[手机设置](docs/guide.md#on-your-phone)和[访问与安全](docs/guide.md#access-and-safety)。
+
+<a id="faq"></a>
+
+## 常见问题
+
+**可以在手机上使用 Claude Code 或 Codex 吗？**
+
+可以。在电脑上的 [herdr](https://github.com/herdrdev/herdr) 窗格里运行智能体，本应用就会在手机浏览器中显示同一个窗格：智能体自己的会话记录显示为聊天，审批和提问显示为可点按回答的卡片，随时可以切换到实时终端。它可以作为 PWA 安装到主屏幕，并在智能体需要你时发送推送提醒。[手机设置 →](docs/guide.md#on-your-phone)
+
+**聊天视图支持哪些智能体？**
+
+Claude Code、Codex、omp、omo、gjc 和 pi 直接从各自的会话文件读取。herdr 窗格里的其他程序则显示实时终端和状态。[支持的智能体 →](docs/guide.md#supported-agents)
+
+**它会取代 herdr 自带的 TUI 吗？**
+
+不会。两者同时连接到同一批终端，所以窗格在桌面、浏览器和手机上都保持实时。不需要停止或交接任何东西。 [TUI 与浏览器 →](docs/guide.md#faq)
+
+**必须使用 Tailscale 吗？**
+
+不必。Tailscale、SSH 隧道、VPN 或自行配置的 HTTPS 代理都可以提供访问电脑的通路。安装应用和推送提醒需要 HTTPS 或 localhost 等安全上下文；基本浏览也可以使用局域网中的普通 HTTP 地址。[其他方式 →](docs/guide.md#faq)
+
+**我的代码或对话会离开我的电脑吗？**
+
+会话文件保留在运行各个智能体的电脑上，内容会发送到你连接的浏览器。本应用没有自有的云端中继或账号服务。可选的语音输入会把录音发送给配置的服务商；启用文字整理时也会发送文本。启用用量显示后，会连接服务商的 API。更新、远程电脑设置和推送提醒也可能连接外部服务。智能体自身如何连接模型，取决于它的配置。[数据传输与访问 →](docs/guide.md#faq)
+
+**支持 Windows 吗？**
+
+支持，在 Windows x64 上无需 WSL。在 herdr 支持 Windows 终端附加之前，终端是一个可以输入、网格固定的[屏幕镜像](docs/remote-pcs.md#windows-pcs)。
+
+**它与 collie、roamgate、herdr-remote 有什么不同？**
+
+这些项目也提供 herdr 的手机或浏览器客户端。本应用直接读取智能体自己的会话记录，所以窗格显示的是按轮次折叠工作过程的聊天，而不是终端输出；其他电脑可以从侧边栏通过 SSH 加入。它不自带隧道，也只支持 herdr：如果你需要 tmux 或 zellij、差异查看、Telegram 或开箱即用的隧道，其他几个更合适。[完整对比 →](docs/guide.md#faq)
+
+**它与 Happy、Paseo、CloudCLI UI 有什么不同？**
+
+这些项目有各自启动或管理智能体会话的方式。本应用使用你已经运行的 herdr 窗格，让 TUI 和浏览器继续访问同一个终端。如果你不使用 herdr，可以比较这些项目的部署方式和智能体支持情况。[完整对比 →](docs/guide.md#faq)
 
 <a id="docs"></a>
 
