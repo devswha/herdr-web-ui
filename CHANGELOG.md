@@ -30,6 +30,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
 
 ### Fixed
+- With Language set to **System**, English stays selected when it is the browser's first
+  supported language, even if Japanese, Korean or Chinese appears later in its preferences.
+  Before, English was skipped in favor of a later supported language.
+  ([#496](https://github.com/devswha/herdr-web-ui/pull/496) by @snowykr)
+- An OmO pane's chat keeps a background task's title after the newest page moves past the prompt
+  that started the task, as 0.3.51 meant to. Before, the title was kept only when a transcript
+  deleted earlier had used the same inode (as Linux reuses them) and left its titles behind, and
+  such a transcript's titles could name another session's tasks with the same id.
+  ([#498](https://github.com/devswha/herdr-web-ui/pull/498) by @kilhyeonjun)
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
   waits on read RUN, and one it asks without waiting (it keeps working, or ends its turn, with
   the question folded over its input box) read RUN or DONE.
@@ -37,6 +46,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A question OmO asks without waiting gets its card in the chat: tap an option, or type a reply
   to answer it. Before, the chat showed no card for it, so an option could only be picked in the
   terminal. ([#488](https://github.com/devswha/herdr-web-ui/pull/488))
+- A Claude, omp or pi pane that has just started opens its chat on the greeting ("What should
+  Claude do in …?"), as an OmO pane already did. Before, until the first message the chat
+  showed the terminal's text or an empty line instead, so a new workspace or worktree never
+  greeted you. ([#500](https://github.com/devswha/herdr-web-ui/pull/500))
 - `/model` sent from a Claude Code pane's chat shows Claude's model list as a card: tap a model,
   or type its number, and that pane's session switches to it. Before, the chat showed nothing
   while the terminal waited on the list, so a model could only be picked there. The card picks

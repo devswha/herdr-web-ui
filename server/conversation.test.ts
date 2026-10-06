@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 
 import { forgetHistoryChains } from "./codex.ts";
-import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { ConversationUnavailable, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isOmoProcess, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 import { MAX_TURNS, parseOmpTranscript } from "./transcript-records.ts";
 import { toolVerb } from "../src/lib/toolVerbs.ts";
 import type { ConversationTurn } from "../shared/protocol.ts";
@@ -409,7 +409,10 @@ const omoWake = (ts: string, tasks: Record<string, unknown>[]) => JSON.stringify
 
 describe("transcript pages", () => {
   const roots: string[] = [];
-  afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+  afterEach(() => {
+    forgetTranscriptState();
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
   const temp = (): string => { const root = mkdtempSync(join(tmpdir(), "herdr-pages-")); roots.push(root); return root; };
   /** a prompt, a tool call and its result: the result answers the turn, never the next page */
   const claudeTurn = (n: number) => [
@@ -446,21 +449,51 @@ describe("transcript pages", () => {
     return ended?.kind === "task_result" ? ended.tasks.map((task) => task.title) : ended;
   };
 
-  it("keeps a task's title when the newest page moves past the turn that started it, while the file is watched", () => {
-    const path = join(temp(), "omo.jsonl");
-    writeFileSync(path, `${[
-      omoUser("2026-10-05T00:00:00.000Z", "start it"),
-      omoSpawn("2026-10-05T00:00:01.000Z", "c1", { task_summary: "Survey the repo", subagent_type: "explore", prompt: "go" }, { task_id: "st_1", task_summary: "Survey the repo" }),
-    ].join("\n")}\n`);
-    // polled as it grows: the page start passes the spawning turn once more prompts than a page holds followed
+  const spawning = (taskId: string) => `${[
+    omoUser("2026-10-05T00:00:00.000Z", "start it"),
+    omoSpawn("2026-10-05T00:00:01.000Z", "c1", { task_summary: "Survey the repo", subagent_type: "explore", prompt: "go" }, { task_id: taskId, task_summary: "Survey the repo" }),
+  ].join("\n")}\n`;
+  /** polled as it grows until the page start passes the first turn, then st_1 ends */
+  const pollPastFirstTurn = (path: string) => {
+    // the page start passes the first turn once more prompts than a page holds followed
     for (let n = 0; n < MAX_TURNS / 2 + 2; n += 1) {
       expect(transcriptPage("omo-transcript", path).turns.length).toBeGreaterThan(0);
       appendFileSync(path, `${omoUser(`2026-10-05T00:${String(10 + Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}.000Z`, `prompt ${n}`)}\n`);
     }
-    const before = transcriptPage("omo-transcript", path);
-    expect(before.turns[0]?.parts[0]).toEqual({ kind: "text", text: "prompt 2" });
+    expect(transcriptPage("omo-transcript", path).turns[0]?.parts[0]).toEqual({ kind: "text", text: "prompt 2" });
+    appendFileSync(path, `${omoWake("2026-10-05T00:20:00.000Z", [completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", final_response: "done" })])}\n`);
+    return endedTitles(transcriptPage("omo-transcript", path));
+  };
+
+  it("keeps a task's title when the newest page moves past the turn that started it, while the file is watched", () => {
+    const path = join(temp(), "omo.jsonl");
+    writeFileSync(path, spawning("st_1"));
+    expect(pollPastFirstTurn(path)).toEqual(["Survey the repo"]);
+  });
+
+  it("keeps the last observed task title when many prompts arrive between polls", () => {
+    const path = join(temp(), "omo.jsonl");
+    writeFileSync(path, spawning("st_1"));
+    transcriptPage("omo-transcript", path);
+    for (let n = 0; n < MAX_TURNS / 2 + 2; n++) {
+      appendFileSync(path, `${omoUser(`2026-10-05T00:10:${String(n % 60).padStart(2, "0")}.000Z`, `prompt ${n}`)}\n`);
+    }
     appendFileSync(path, `${omoWake("2026-10-05T00:20:00.000Z", [completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", final_response: "done" })])}\n`);
     expect(endedTitles(transcriptPage("omo-transcript", path))).toEqual(["Survey the repo"]);
+  });
+
+  it("never titles a task from another file that had the same inode", () => {
+    const root = temp();
+    const gone = join(root, "gone.jsonl");
+    writeFileSync(gone, spawning("st_1"));
+    transcriptPage("omo-transcript", gone);
+    appendFileSync(gone, `${omoUser("2026-10-05T00:02:00.000Z", "meanwhile, something else")}\n`);
+    transcriptPage("omo-transcript", gone);
+    // Linux gives a deleted file's inode to the next file; a hard link rewritten in place does so anywhere
+    const path = join(root, "omo.jsonl");
+    linkSync(gone, path);
+    writeFileSync(path, spawning("st_2"));
+    expect(pollPastFirstTurn(path)).toEqual(["explore"]);
   });
 
   it("titles a wake read before the call that names its task as a cold read does, on every poll", () => {
