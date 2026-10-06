@@ -2052,7 +2052,8 @@ ${"─".repeat(120)}
     const prompt = parseInteractivePrompt("claude", PHONE)!;
     expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 7 more models are listed in the terminal.");
     expect(prompt.options).toEqual(CLAUDE_MODELS.slice(0, 5).map(([label, description]) => ({ label, description })));
-    // the same pane 40 lines tall draws ten rows, and cuts the one word longer than its column
+    // the same pane 40 lines tall draws ten rows, and cuts the one word longer than its column:
+    // it stays cut as the pane shows it, since a line that fills its column says nothing of a space
     const cut = `    7.  Opus 5                 Best for
                                everyday,
                                complex tasks
@@ -2074,7 +2075,7 @@ ${"─".repeat(120)}
   Enter to set as default · s to use this
   session only · Esc to cancel
 `;
-    expect(parseInteractivePrompt("claude", cut)!.options).toEqual(CLAUDE_MODELS.slice(6, 10).map(([label, description]) => ({ label, description })));
+    expect(parseInteractivePrompt("claude", cut)!.options).toEqual(CLAUDE_MODELS.slice(6, 10).map(([label, description]) => ({ label, description: description.replace("longest-running", "longest-runni ng") })));
   });
 
   test("picks with s, the key for this session only, and never with Enter", () => {
@@ -2129,9 +2130,15 @@ ${"─".repeat(120)}
     // an answer's own list in the transcript, right above the panel
     const answered = `● Here are the steps:\n  1. Read the file\n  2. Run the tests\n\n${claudeModelList(1)}`;
     expect(labels(parseInteractivePrompt("claude", answered))).toEqual(CLAUDE_MODELS.slice(0, 10).map(([name]) => name));
-    // even where its count runs on into the window's first row
-    const ranOn = `● Options:\n  1. Keep it\n${claudeModelList(10, 1)}`;
+    // even right above the window with its count running on into it: `↑` is the window's first row
+    const window = claudeModelList(10, 1);
+    const ranOn = `● Options:\n  1. Keep it\n${window.slice(window.indexOf("  ↑ 2. "))}`;
+    expect(ranOn).toContain("  1. Keep it\n  ↑ 2.  Opus 5.5 ✔");
     expect(labels(parseInteractivePrompt("claude", ranOn))).toEqual(CLAUDE_MODELS.slice(1, 11).map(([name]) => name));
+    // and `↓` is its last: a numbered line right under that row is none of the list's
+    const under = claudeModelList(1).replace("     … +2 models\n", "    11. Read the file\n");
+    expect(under).toContain("  ↓ 10. Opus 4.7               Best for everyday, complex tasks\n    11. Read the file\n");
+    expect(parseInteractivePrompt("claude", under)).toBeNull();
   });
 });
 
@@ -2762,15 +2769,6 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["text:s"]);
     });
-    // closed in the terminal right after the answer read it, with no move to wait on: the look
-    // before the letter is what keeps it out of Claude's own prompt
-    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
-      const prompt = (await card())!;
-      let reads = 1;
-      pane.onRead = () => { if ((reads += 1) === 3) pane.screen = CLAUDE_MODEL_CLOSED; };
-      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual([]);
-    });
     // a pane made shorter under the moves: Claude draws five rows of the list, another card, and
     // the model under the cursor is still the one that was tapped
     await withPane("claude", "idle", claudeModelList(1), async (pane) => {
@@ -2781,12 +2779,26 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["down", "down", "text:s"]);
     });
-    // closed in the terminal under the moves: the letter would be typed into Claude's own prompt
+  });
+
+  // each refusal waits out the answer's own 1.5 s for the list to show the row
+  test("types no s, and no further arrow, once Claude's model list is not the one that was tapped", async () => {
+    // closed in the terminal right after the answer read it, with no move to wait on: the look
+    // before the letter is what keeps it out of Claude's own prompt
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let reads = 1;
+      pane.onRead = () => { if ((reads += 1) === 3) pane.screen = CLAUDE_MODEL_CLOSED; };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+    });
+    // closed in the terminal under the first move: no second arrow into Claude's own prompt,
+    // where it would walk the prompt's history, and no letter
     await withPane("claude", "idle", claudeModelList(1), async (pane) => {
       const prompt = (await card())!;
       pane.onSent = () => { pane.screen = CLAUDE_MODEL_CLOSED; };
       expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
-      expect(pane.sent).toEqual(["down", "down"]);
+      expect(pane.sent).toEqual(["down"]);
     });
     // a key typed in the terminal at the same moment, one more row down: another model's row
     await withPane("claude", "idle", claudeModelList(1), async (pane) => {
@@ -2794,7 +2806,44 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       let at = 1;
       pane.onSent = (sent) => { if (sent === "down") at += at === 1 ? 2 : 1; pane.screen = claudeModelList(at); };
       expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+    // another list in its place under the last move, the same number and name on another model
+    // (a list by family names the model in what the row says): not the row that was tapped
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let at = 1;
+      pane.onSent = (sent) => {
+        if (sent === "down") at += 1;
+        pane.screen = at === 3 ? claudeModelList(at).replace("Most efficient for simpler tasks", "Sonnet 5 · Efficient for routine tasks") : claudeModelList(at);
+      };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
       expect(pane.sent).toEqual(["down", "down"]);
+    });
+  }, 20_000);
+
+  test("offers no fallback card over Claude's model list, whose Enter would save a default", async () => {
+    // a name the pane cut in two: no reader takes the list, and herdr reports the pane blocked
+    // (a status left over from an approval): the fallback card's Enter is not offered here
+    const unread = claudeModelList(1).replace("  ↓ 10. Opus 4.7               Best for everyday, complex tasks", "  ↓ 10. Opus\n        4.7                    Best for everyday, complex tasks");
+    expect(parseInteractivePrompt("claude", unread)).toBeNull();
+    expect(parseFallbackPrompt("claude", unread).options.map((option) => option.label)).toContain("Enter");
+    await withPane("claude", "blocked", unread, async () => {
+      expect(await card()).toBeNull();
+    });
+    // its hint wrapped further than the reader follows it, in a pane narrower than any measured
+    const narrow = unread.replace(CLAUDE_MODEL_HINT, "  Enter to set as\n  default · s to use\n  this session\n  only · Esc to\n  cancel");
+    await withPane("claude", "blocked", narrow, async () => {
+      expect(await card()).toBeNull();
+    });
+    // a list the reader does take is its own card under any status
+    await withPane("claude", "blocked", claudeModelList(1), async (pane) => {
+      let at = 1;
+      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = claudeModelList(at); };
+      const prompt = (await card())!;
+      expect(prompt.fallback).toBeUndefined();
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "text:s"]);
     });
   });
 

@@ -293,6 +293,8 @@ const draw = () => {
 process.stdin.setRawMode(true);
 process.stdin.resume();
 process.stdin.on("data", (chunk) => {
+  // a key that comes after the list has closed went to Claude's own prompt: logged, so a test sees it
+  if (taken !== null) return void appendFileSync(out, "stray: " + JSON.stringify(chunk.toString("utf8")) + "\\n");
   for (const key of chunk.toString("utf8").match(/\\u001b[\\[O][AB]|\\r|s/g) ?? []) {
     if (taken !== null) break;
     if (key.endsWith("B")) cursor = Math.min(models.length - 1, cursor + 1);

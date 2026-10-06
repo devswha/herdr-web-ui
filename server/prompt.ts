@@ -1269,6 +1269,8 @@ const CLAUDE_MODEL_UNDER_LINES = 3;
 
 interface ClaudeModelRow {
   number: number; label: string; cursor: boolean; current: boolean;
+  /** `↑` or `↓` in the cursor's column: the window's first or last row, with more of the list beyond it */
+  edge: string | null;
   /** what the row says of its model, a line of it per entry, and the column it is drawn at */
   said: string[]; column: number;
 }
@@ -1282,10 +1284,24 @@ function claudeModelRow(line: string): ClaudeModelRow | null {
   const said = gap ? text.slice(gap.index + gap[0].length) : null;
   return {
     number: Number.parseInt(match[2]!, 10), label: name.replace(/\s*[✔✓]$/, ""), cursor: SELECTED_RE.test(match[1] ?? ""),
+    edge: match[1] === "↑" || match[1] === "↓" ? match[1] : null,
     current: /\s[✔✓]$/.test(name), said: said === null ? [] : [said],
     // in the terminal's columns, as the lines wrapped under it are indented: a wide glyph in the name takes two
     column: said === null ? -1 : Bun.stringWidth(line.slice(0, line.length - said.length)),
   };
+}
+
+/**
+ * Whether Claude Code's model list holds the end of the screen, by its hint alone: also a list
+ * parseClaudeModel could not read (a name the pane cut in two). Such a list gets no fallback card
+ * while herdr happens to report the pane blocked: that card offers Enter, and Enter on this list
+ * saves the row under the cursor as the default for every new session.
+ */
+function claudeModelListWaits(screen: string): boolean {
+  const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
+  const shown = withoutClaudeTasks(visible);
+  // wider than the reader's own window: a hint wrapped further than it reads is still this list's
+  return [1, 2, 3, 4, 5, 6].some((span) => CLAUDE_MODEL_HINT_RE.test(shown.slice(-span).join(" ")));
 }
 
 function parseClaudeModel(screen: string): ParsedPrompt | null {
@@ -1293,7 +1309,8 @@ function parseClaudeModel(screen: string): ParsedPrompt | null {
   const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_MODEL_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
   // The rows right above the hint, read downward. A row that does not count on from the one
-  // above it, or that follows anything but its own wrapped text, starts the list again: numbered
+  // above it, that follows anything but its own wrapped text, or that carries the window's `↑`
+  // starts the list again, and so does any row under the one that carries its `↓`: numbered
   // lines further up (an answer's own list) are nothing of this menu's.
   let rows: ClaudeModelRow[] = [];
   let below = 0;
@@ -1312,7 +1329,7 @@ function parseClaudeModel(screen: string): ParsedPrompt | null {
     }
     const row = claudeModelRow(line);
     if (row) {
-      if (above === undefined || row.number !== above.number + 1) rows = [];
+      if (above === undefined || row.number !== above.number + 1 || row.edge === "↑" || above.edge === "↓") rows = [];
       rows.push(row);
       [below, ended, unread, last] = [0, false, false, index];
       continue;
@@ -1326,11 +1343,10 @@ function parseClaudeModel(screen: string): ParsedPrompt | null {
   const under = lines.slice(last + 1, hintIndex).filter((line) => line.trim() !== "").length;
   const selectedIndex = rows.findIndex((row) => row.cursor);
   if (unread || under > CLAUDE_MODEL_UNDER_LINES || rows.length < 2 || rows.filter((row) => row.cursor).length !== 1) return null;
-  // A word longer than its column is cut where the column ends and goes on with no space
-  // (`longest-runni` / `ng tasks`); any other line ends where a space was.
-  const width = Math.max(0, ...rows.flatMap((row) => row.said.length > 1 ? row.said.map((part) => part.length) : []));
-  const said = (parts: string[]): string | null => parts.length === 0 ? null
-    : parts.reduce((text, part, index) => `${text}${parts[index - 1]!.length === width && !/\s/.test(parts[index - 1]!) ? "" : " "}${part}`);
+  // Wrapped lines are joined with a space, as most of them broke at one. A word longer than its
+  // column is cut where the column ends (`longest-runni` / `ng tasks`) and stays cut, as the pane
+  // shows it: a line that fills its column says nothing of whether a space was there.
+  const said = (parts: string[]): string | null => parts.length === 0 ? null : parts.join(" ");
   // counted, not named: the rows above the window (the list counts from 1) and the ones below it
   const hidden = rows[0]!.number - 1 + below;
   const current = rows.find((row) => row.current);
@@ -1345,8 +1361,9 @@ function parseClaudeModel(screen: string): ParsedPrompt | null {
     multi_select: false,
     custom_option_index: null,
   }, {
-    // a row by its number in the whole list too: the window moves, and two rows may share a name
-    responder: "claude-model", menuLabels: rows.map((row) => `${row.number}. ${row.label}`), selectedIndex,
+    // a row by its number in the whole list and by what it says too: the window moves, two rows
+    // may share a name, and a list by family names the model itself only in what the row says
+    responder: "claude-model", menuLabels: rows.map((row) => `${row.number}. ${row.label}  ${said(row.said) ?? ""}`), selectedIndex,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     // `s`, never Enter: the pick stays in this session, and the default for new ones is left alone
     optionSteps: rows.map((_, index) => [...keySteps(navigationKeys(index - selectedIndex)), { text: "s" }]),
@@ -2213,8 +2230,9 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   }
   // herdr says the agent waits on the user and no reader knows the screen: the fallback card
   const screen = known.screen ?? await liveScreen(paneId);
-  // Codex's collapsed question queue reads blocked while its main prompt takes a message
-  if (agent === "codex" && codexQuestionsCollapsed(screen)) {
+  // Codex's collapsed question queue reads blocked while its main prompt takes a message; Claude
+  // Code's model list that no reader could read is left to the terminal (claudeModelListWaits)
+  if ((agent === "codex" && codexQuestionsCollapsed(screen)) || claudeModelListWaits(screen)) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: asked(paneId, null, turns), pane, panes };
   }
@@ -2501,7 +2519,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           // entry, answers every later turn silently
           if (responder === "pi-model") return shown?.responder === "pi-model" && shown.options[shown.selectedIndex]?.label === parsed.options[cursor]?.label;
           // Claude's list is a window too, drawn with fewer rows in a pane made shorter meanwhile:
-          // the model under the cursor, by its number in the list and its name
+          // the model under the cursor, by its number in the list, its name and what the row says
           if (responder === "claude-model") return shown?.responder === "claude-model" && shown.menuLabels[shown.selectedIndex] === parsed.menuLabels[cursor];
           // a dialog of pi's has a card only with its cursor on the first row (parsePiDialog),
           // which the answer's own moves have just left: read off the screen itself
@@ -2511,11 +2529,39 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           }
           return shown?.id === parsed.id && shown.selectedIndex === cursor;
         };
+        /**
+         * Waits for the screen to show the card's own menu with the cursor where the moves sent
+         * so far leave it. False: the asking ended, nobody waits for the answer, or the menu did
+         * not show so within SETTLE_MS.
+         */
+        const onRow = async (): Promise<boolean> => {
+          const deadline = Date.now() + SETTLE_MS;
+          for (;;) {
+            // nobody waits for this answer any more: nothing that cannot be undone is started
+            if (!asks() || request.signal.aborted) return false;
+            const left = deadline - Date.now();
+            if (left <= 0) return false;
+            // a read that outlasts the wait is no read
+            const reading = readKnownPrompt(body.pane_id, pane, agent, options.codexHome, panes);
+            reading.catch(() => undefined);
+            const read = await Promise.race([reading, Bun.sleep(left).then(() => null)]);
+            if (!read || Date.now() > deadline) return false;
+            const shown = read.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
+            if (asks() && aimed(shown, read.screen ?? "")) return true;
+            await Bun.sleep(50);
+          }
+        };
+        // whether a move of this answer has gone out
+        let walked = false;
         for (let index = 0; index < steps.length; index += 1) {
           const step = steps[index]!;
           const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
           // the asking ended under the answer: no further key, whatever the screen shows
           if (!asks()) return promptChanged();
+          // Claude's model list can be nine rows from the cursor, and an Esc in the terminal hands
+          // its keys to Claude's own prompt, where an arrow walks the prompt's history: each move
+          // after the first goes only once the list shows the one before it
+          if (move && walked && responder === "claude-model" && !(await onRow())) return promptChanged();
           if (!move && !committed) {
             // An answer is only as good as the menu and the cursor it moves from, and both are
             // as old as the read above by the time its moves are done: the menu answered in the
@@ -2525,23 +2571,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             // once the screen shows this menu again, with the cursor on the row the moves were
             // for. The keys after that one follow as they always did: the menu itself changes
             // under them.
-            if (moved) {
-              const deadline = Date.now() + SETTLE_MS;
-              for (;;) {
-                // nobody waits for this answer any more: nothing that cannot be undone is started
-                if (!asks() || request.signal.aborted) return promptChanged();
-                const left = deadline - Date.now();
-                if (left <= 0) return promptChanged();
-                // a read that outlasts the wait is no read
-                const reading = readKnownPrompt(body.pane_id, pane, agent, options.codexHome, panes);
-                reading.catch(() => undefined);
-                const read = await Promise.race([reading, Bun.sleep(left).then(() => null)]);
-                if (!read || Date.now() > deadline) return promptChanged();
-                const shown = read.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
-                if (asks() && aimed(shown, read.screen ?? "")) break;
-                await Bun.sleep(50);
-              }
-            }
+            if (moved && !(await onRow())) return promptChanged();
             // given up before anything that cannot be undone, with or without a move before it
             if (request.signal.aborted) return promptChanged();
           }
@@ -2559,6 +2589,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           }
           if (move) {
             moved = true;
+            walked = true;
             for (const key of step.keys!) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
           }
           if (index < steps.length - 1) await Bun.sleep(30);
