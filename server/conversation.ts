@@ -29,7 +29,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
@@ -224,7 +224,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
   return turns.filter((turn) => turn.parts.length > 0).slice(-maxTurns);
 }
 
-/** Sessions whose transcript has been read, by source and file name: one gone since is missing, not unwritten. */
+/** Read sessions by source and canonical path (Claude uses its unique session id): a removed file is not unwritten. */
 const writtenSessions = new Set<string>();
 
 /** Re-parse on file changes, including replacement and same-size rewrites. */
@@ -239,7 +239,7 @@ export class ConversationUnavailable extends Error {
 
 /** The pane's agent holds a session it has not written yet: a conversation with no turns, not a missing one. */
 export class ConversationNotStarted extends ConversationUnavailable {
-  constructor(readonly sessionId: string, readonly source: RecognizedConversation["source"] = "omo-transcript") {
+  constructor(readonly sessionId: string, readonly source: RecognizedConversation["source"] = "omo-transcript", readonly identity: string = sessionId) {
     super("session_not_written");
     this.name = "ConversationNotStarted";
   }
@@ -760,7 +760,7 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
   if (!path) throw new ConversationUnavailable("no_session_path");
   // omp names its session file at start and writes it with the first answer
   const unwritten = unwrittenSession(path, nodePath.join(process.env["HOME"] ?? "", ".omp", "agent", "sessions"));
-  if (unwritten !== null) throw new ConversationNotStarted(unwritten, "omp-transcript");
+  if (unwritten !== null) throw new ConversationNotStarted(unwritten.id, "omp-transcript", unwritten.path);
   return path;
 }
 
@@ -811,7 +811,7 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     if (agent === "pi") {
       const found = await piTranscriptPath(paneId);
       if (found === null) throw new ConversationUnavailable("no_session_path");
-      if ("unwritten" in found) throw new ConversationNotStarted(found.unwritten, "pi-transcript");
+      if ("unwritten" in found) throw new ConversationNotStarted(found.unwritten.id, "pi-transcript", found.unwritten.path);
       return { source: "pi-transcript", path: found.path };
     }
     throw new ConversationUnavailable("no_recognized_transcript");
@@ -853,7 +853,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   } catch (error) {
     if (!(error instanceof ConversationNotStarted)) throw error;
     // a file read before and gone since is no conversation not begun: the terminal stands in for it
-    if (writtenSessions.has(`${error.source}\0${error.sessionId}`)) throw new ConversationUnavailable("transcript_missing");
+    if (writtenSessions.has(`${error.source}\0${error.identity}`)) throw new ConversationUnavailable("transcript_missing");
     // nothing comes before a conversation not begun: a cursor into it is another one's
     if (page.before !== undefined || page.since !== undefined || page.from !== undefined) throw new HistoryChanged();
     // an agent at work on its first turn has written nothing yet, but its terminal shows the turn
@@ -863,8 +863,10 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     const id = `unwritten:${error.sessionId}`;
     return { source: error.source, turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
   }
+  const identity = resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
+    : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
   const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
-  writtenSessions.add(`${resolved.source}\0${nodePath.basename(resolved.path, ".jsonl")}`);
+  if (identity !== null) writtenSessions.add(`${resolved.source}\0${identity}`);
   return answer;
 }
 

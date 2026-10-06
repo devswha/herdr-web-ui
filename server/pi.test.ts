@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, appendFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, appendFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { defaultPiSessionDir, piTranscriptInStore, unwrittenSession } from "./pi.ts";
@@ -50,8 +50,8 @@ describe("pi's session store holds the transcript a pane reads", () => {
   });
 
   it("names a session pi has not written yet only when its path is in the store", () => {
-    expect(unwrittenSession(join(slug, "2026-10-06_fresh.jsonl"), store)).toBe("2026-10-06_fresh");
-    expect(unwrittenSession(join(store, "new-cwd", "fresh.jsonl"), store)).toBe("fresh");
+    expect(unwrittenSession(join(slug, "2026-10-06_fresh.jsonl"), store)).toEqual({ id: "2026-10-06_fresh", path: join(realpathSync(slug), "2026-10-06_fresh.jsonl") });
+    expect(unwrittenSession(join(store, "new-cwd", "fresh.jsonl"), store)).toEqual({ id: "fresh", path: join(realpathSync(store), "new-cwd", "fresh.jsonl") });
     expect(unwrittenSession(session("written"), store)).toBeNull();
     expect(unwrittenSession(join(root, "missing.jsonl"), store)).toBeNull();
     expect(unwrittenSession(join(store, "..", "missing.jsonl"), store)).toBeNull();
@@ -76,8 +76,8 @@ describe("pi's session store holds the transcript a pane reads", () => {
     // the store reached through a link is still the store
     const alias = join(root, "store-alias");
     symlinkSync(store, alias);
-    expect(unwrittenSession(join(slug, "fresh.jsonl"), alias)).toBe("fresh");
-    expect(unwrittenSession(join(alias, "fresh.jsonl"), store)).toBe("fresh");
+    expect(unwrittenSession(join(slug, "fresh.jsonl"), alias)).toEqual({ id: "fresh", path: join(realpathSync(slug), "fresh.jsonl") });
+    expect(unwrittenSession(join(alias, "fresh.jsonl"), store)).toEqual({ id: "fresh", path: join(realpathSync(store), "fresh.jsonl") });
   });
 
   it("follows PI_CODING_AGENT_SESSION_DIR the way Codex follows CODEX_HOME", () => {

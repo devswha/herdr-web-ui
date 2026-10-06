@@ -45,9 +45,9 @@ const absent = (error: unknown): boolean => (error as { code?: unknown } | null)
  * once the first answer is in (pi's SessionManager waits for an assistant message), so until
  * then the reported path does not exist. Only an absent `.jsonl` file whose nearest existing
  * ancestor is a directory inside the store, both resolved, counts: nothing is read from it,
- * the session's name (the file's, without `.jsonl`) is all that is returned.
+ * its display id and canonical prospective path keep equally named sessions distinct.
  */
-export function unwrittenSession(path: string, sessionDir: string): string | null {
+export function unwrittenSession(path: string, sessionDir: string): { id: string; path: string } | null {
   if (!isAbsolute(path) || !path.endsWith(".jsonl")) return null;
   let root: string;
   try { root = realpathSync(sessionDir); } catch { return null; }
@@ -61,7 +61,7 @@ export function unwrittenSession(path: string, sessionDir: string): string | nul
       if (!statSync(real).isDirectory()) return null;
       const inside = relative(root, real);
       if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return null;
-      return basename(path, ".jsonl");
+      return { id: basename(path, ".jsonl"), path: join(real, relative(dir, path)) };
     } catch (error) {
       if (!absent(error) || dirname(dir) === dir) return null;
       // a link to nowhere is a place the agent cannot write to, not a directory still to come
@@ -75,7 +75,7 @@ export function unwrittenSession(path: string, sessionDir: string): string | nul
  * re-reports the session file on every `session_start`, so `/new`, `/resume`, `/fork` and
  * `/clone` need no inference here: the next read names the file that replaced the old one.
  */
-export async function piTranscriptPath(paneId: string, sessionDir = defaultPiSessionDir()): Promise<{ path: string } | { unwritten: string } | null> {
+export async function piTranscriptPath(paneId: string, sessionDir = defaultPiSessionDir()): Promise<{ path: string } | { unwritten: { id: string; path: string } } | null> {
   const info = await herdrRpc<{ agent: { agent_session?: { agent?: unknown; kind?: unknown; value?: unknown } } }>(
     "agent.get",
     { target: paneId },
