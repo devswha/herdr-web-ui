@@ -11,6 +11,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - New workspace's **Browse** filters the loaded folders in the current directory as you type.
   Navigation clears the filter, and a truncated listing says when search covers only the first
   500 folders. ([#430](https://github.com/devswha/herdr-web-ui/pull/430) by @suho-han)
+- The usage meters read OpenCode Go's limits too: its rolling session, the week and the month,
+  with the key OpenCode keeps in `~/.local/share/opencode/auth.json` (under `XDG_DATA_HOME`
+  when it is set) or the `OPENCODE_API_KEY` variable. An OpenCode key without a Go
+  subscription shows no meter.
+  ([#444](https://github.com/devswha/herdr-web-ui/pull/444) by @diogo7dias)
 
 ### Fixed
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
