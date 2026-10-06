@@ -7,7 +7,9 @@
  * (docs/media/readme/*.webp) and the installer still. A video's poster frame is cut with ffmpeg when it
  * is installed (the workflow installs it); without it the still stays full size and a poster that
  * could not be made is dropped from the page. `{{version}}` and `{{stars}}` in the page are filled in
- * here, from package.json and the GitHub API.
+ * here, from package.json and the GitHub API. The page's FAQ rows are also written into its head as
+ * FAQPage structured data, so the two cannot differ, and sitemap.xml lists the page (the demo is
+ * noindex and stays out of it).
  *
  * demo/ is the app itself, built by Vite with relative asset paths into demo/app/, loaded behind
  * site/demo/transport.ts (bundled to demo-transport.js and injected before the app's scripts) so it
@@ -134,7 +136,25 @@ for (const name of pageMedia) {
     page = page.replace(new RegExp(` (?:${attrs})="media/${file.split("/").pop()!.replace(".", "\\.")}"`, "g"), "");
   }
 }
+
+// the FAQ as structured data, read from the rows the page shows
+// (a row's closing "… →" link is navigation, not part of the answer)
+const text = (html: string) => html.replace(/<a [^>]*>[^<]*→<\/a>/g, "").replace(/<[^>]+>/g, "").replaceAll("&amp;", "&").replace(/\s+/g, " ").trim();
+const questions = [...page.matchAll(/<div class="qa">\s*<dt>(.*?)<\/dt>\s*<dd>(.*?)<\/dd>\s*<\/div>/gs)].map(([, question, answer]) => ({
+  "@type": "Question",
+  name: text(question),
+  acceptedAnswer: { "@type": "Answer", text: text(answer) },
+}));
+const rowCount = [...page.matchAll(/<div class="qa">/g)].length;
+if (questions.length === 0 || questions.length !== rowCount) throw new Error("site/index.html has missing or unparseable FAQ rows (<div class=\"qa\">)");
+const faq = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: questions }).replaceAll("<", "\\u003c");
+page = page.replace("</head>", () => `  <script type="application/ld+json">${faq}</script>\n  </head>`);
 writeFileSync(join(out, "index.html"), page);
+// A rebuild is not necessarily a content change; omit the optional lastmod rather than invent it.
+writeFileSync(
+  join(out, "sitemap.xml"),
+  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://devswha.github.io/herdr-web-ui/</loc></url>\n</urlset>\n`,
+);
 
 // the demo: the real client, relative paths, the transport in front of it
 const demoApp = join(out, "demo", "app");
@@ -155,7 +175,8 @@ let html = readFileSync(appPage, "utf8");
 // the demo is not an app to install (its scope and start_url name a root that is not it).
 html = html.replace(/\s*<link rel="manifest"[^>]*>/, "");
 html = html.replace(/(href|src)="\/(?!\/)/g, '$1="./');
-html = html.replace(/<meta name="viewport"/, '<meta name="robots" content="noindex" />\n    <meta name="viewport"');
+if (!html.includes("</head>")) throw new Error("the built demo app has no head for its noindex directive");
+html = html.replace("</head>", '  <meta name="robots" content="noindex" />\n  </head>');
 if (!/<script type="module"/.test(html)) throw new Error("the built app has no module script to load the demo transport before");
 html = html.replace(/<script type="module"/, '<script src="./demo-transport.js"></script>\n    <script type="module"');
 writeFileSync(appPage, html);
