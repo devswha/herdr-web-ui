@@ -1,3 +1,5 @@
+import { readHerdrProfiles } from "./herdr-profiles.ts";
+import type { HerdrMachineProfile } from "../shared/machines.ts";
 import { randomBytes } from "node:crypto";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -323,6 +325,8 @@ export function createServer(
     /** voice input's key, provider and models; tests pass one with their own env and fetch */
     voice?: VoiceService;
     machines?: boolean;
+    /** Read-only saved profiles from the local herdr client; tests supply their own catalog. */
+    herdrProfiles?: () => Promise<HerdrMachineProfile[]>;
     registerBridge?: boolean;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
@@ -531,6 +535,7 @@ export function createServer(
     return { ...snapshot, panes: snapshot.panes.map((pane) => omo.backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: omo.backgroundOf(pane.pane_id) } : pane) };
   };
   const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions, clientSnapshot);
+  if (machines && options.herdrProfiles) machines.watchHerdrProfiles(options.herdrProfiles);
   const bridgeToken = randomBytes(32).toString("hex");
 
   function broadcast(paneId: string, message: ServerMessage): void {
@@ -2021,7 +2026,7 @@ export function createServer(
 }
 
 if (import.meta.main) {
-  const instance = createServer({ updates: connectUpdater(), herdrUpdate: new HerdrUpdater(), registerBridge: true });
+  const instance = createServer({ updates: connectUpdater(), herdrUpdate: new HerdrUpdater(), registerBridge: true, herdrProfiles: readHerdrProfiles });
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;

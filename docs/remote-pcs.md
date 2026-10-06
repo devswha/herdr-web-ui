@@ -2,6 +2,20 @@
 
 Use **Add PC** in Settings → Remote PCs (the command palette has it too) to connect a Linux or macOS computer (x64 or arm64) or a Windows PC (x64) running OpenSSH Server. Enter an SSH alias or `user@hostname`; the name defaults to that address. Advanced settings accept a port, a key path on the **web server**, and a named herdr session. Each registration selects one herdr socket. The sidebar groups PC → workspace → pane, and the header and new-session dialog show the destination PC.
 
+**Machines already saved in herdr appear automatically.** The connection server reads its account's
+`herdr machine list --json` at startup and every five seconds after the previous read finishes. It
+preserves SSH aliases, explicit URI ports and named sessions, follows renames and enabled state,
+and removes inherited rows when their profiles disappear. A failed catalog read keeps the previous
+roster. Exact destinations/sessions already added manually keep their existing web UI registration.
+
+Compatible running web bridges reconnect automatically through the account's SSH configuration.
+A first bridge installation, bridge update or authentication prompt still requires **Set up…** or
+**Update bridge** on the inherited PC; its address and session are supplied automatically. Discovering
+a saved profile never approves installation or starts a remote daemon. Rename, disable and remove
+inherited PCs in herdr. These rows are derived from herdr rather than copied into `machines.json`;
+their stable IDs preserve browser selections and drafts across web UI restarts. Unsupported SSH
+addresses/sessions appear with an error and do not connect.
+
 The connection server uses its own operating-system account’s OpenSSH configuration and ssh-agent. The browser never opens SSH itself. Existing keys are tried first; unknown host fingerprints and password/key-passphrase prompts appear in the setup dialog. Secret entry requires HTTPS or localhost. Verify a new fingerprint against the target PC. A changed host key fails closed; correcting trust is a deliberate administrator action, not an automatic reset.
 
 After inspection, **Install and connect** lists the proposed changes. The installer uses a private runtime bundle containing Bun, Node and native node-pty, plus a pinned herdr fallback. It uses an existing herdr where available, starts a daemon only when its socket is absent, and never stops/replaces a running herdr daemon. Agent CLI installation and login remain the remote account’s responsibility. Cancelling a setup closes its SSH processes; already-created remote work is preserved.

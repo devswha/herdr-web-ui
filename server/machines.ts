@@ -1,16 +1,17 @@
 import { authenticatedWebSocket } from "./remote-websocket.ts";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer as tcpServer } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { BRIDGE_PROTOCOL, LOCAL_MACHINE, REMOTE_BUNDLE_VERSION, type BridgeIdentity, type Machine, type MachineAction, type MachineEvent, type MachineSettings, type SetupAction, type SetupJob, type SetupProgress, type SetupRequest, type SshTarget } from "../shared/machines.ts";
+import { BRIDGE_PROTOCOL, LOCAL_MACHINE, REMOTE_BUNDLE_VERSION, type HerdrMachineProfile, type BridgeIdentity, type Machine, type MachineAction, type MachineEvent, type MachineSettings, type SetupAction, type SetupJob, type SetupProgress, type SetupRequest, type SshTarget } from "../shared/machines.ts";
 import type { ServerMessage, SessionSnapshot, HerdrPane } from "../shared/protocol.ts";
 import type { PushService } from "./push.ts";
 import type { BridgeDescriptor } from "./bridge.ts";
 import { sessionSnapshot } from "./herdr/client.ts";
 import { labelOmoPanes } from "./conversation.ts";
 import type { CompletionTracker } from "./completion.ts";
+import { sameSshSession } from "./herdr-profiles.ts";
 import { validateTarget } from "./machine-security.ts";
 import { detectHost, HERDR_INSTALL_CMD } from "./remote-host.ts";
 import { SshConnection } from "./ssh.ts";
@@ -90,6 +91,8 @@ export class MachineManager {
   private statePath: string;
   private sshDir: string;
   private local: Machine = { id: LOCAL_MACHINE, name: hostname(), kind: "local", enabled: true, state: "connecting", error: null, snapshot: null };
+  private discoveryTimer?: ReturnType<typeof setTimeout>;
+  private discoveryStarted = false;
   private settingsPath: string;
   private preferences: MachineSettings = { ...DEFAULT_SETTINGS };
   /** automatic bridge updates run one at a time: they share one bundle download */
@@ -119,6 +122,59 @@ export class MachineManager {
     void this.refreshLocal();
     this.localTimer = setInterval(() => void this.refreshLocal(), 5000);
     this.localTimer.unref();
+  }
+  /** Serial polling: a broken catalog preserves the last roster instead of removing PCs. */
+  watchHerdrProfiles(read: () => Promise<HerdrMachineProfile[]>, intervalMs = 5000): void {
+    if (this.discoveryStarted || this.stopped) return;
+    this.discoveryStarted = true;
+    const poll = async () => {
+      try { const profiles = await read(); if (!this.stopped) this.syncHerdrProfiles(profiles); }
+      catch (error) { console.error("Saved herdr machines could not be refreshed:", error instanceof Error ? error.message : "read failed"); }
+      if (!this.stopped) { this.discoveryTimer = setTimeout(poll, intervalMs); this.discoveryTimer.unref(); }
+    };
+    void poll();
+  }
+  syncHerdrProfiles(profiles: HerdrMachineProfile[]): void {
+    if (this.stopped) return;
+    const wanted = new Set<string>();
+    let changed = false;
+    for (const profile of profiles) {
+      // Manual registrations keep their identity and credentials. Exact matches already have a row.
+      if (profile.target && [...this.machines.values()].some(({ machine }) => !machine.herdr_profile_id && machine.target && sameSshSession(profile.target!, machine.target))) continue;
+      const digest = createHash("sha256").update("herdr-profile:" + profile.id).digest("hex");
+      const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`;
+      wanted.add(id);
+      let runtime = this.machines.get(id);
+      const enabled = profile.enabled && !!profile.target;
+      const targetChanged = !!runtime && JSON.stringify(runtime.machine.target) !== JSON.stringify(profile.target ?? undefined);
+      const reconnect = !runtime || targetChanged || runtime.machine.enabled !== enabled;
+      if (!runtime) {
+        runtime = this.runtime({ id, herdr_profile_id: profile.id, name: profile.label, kind: "ssh", target: profile.target ?? undefined, enabled, state: "disconnected", error: null, snapshot: null });
+        this.machines.set(id, runtime);
+        changed = true;
+      } else if (reconnect) {
+        this.disconnect(runtime);
+        for (const [jobId, job] of this.jobs) if (job.public.machine_id === id) this.cancelJob(jobId);
+        // A new destination/session cannot inherit the previous target's pane snapshot.
+        if (targetChanged) runtime.machine.snapshot = null;
+        changed = true;
+      }
+      if (runtime.machine.name !== profile.label) { runtime.machine.name = profile.label; changed = true; }
+      runtime.machine.enabled = enabled;
+      runtime.machine.target = profile.target ?? undefined;
+      if (!enabled) {
+        runtime.machine.action_required = null;
+        runtime.machine.error = profile.target ? "Disabled in herdr" : "This saved herdr machine uses an unsupported SSH address or session.";
+      } else if (reconnect) void this.reconnect(runtime);
+    }
+    for (const [id, runtime] of this.machines) {
+      if (!runtime.machine.herdr_profile_id || wanted.has(id)) continue;
+      runtime.machine.enabled = false; this.disconnect(runtime);
+      for (const [jobId, job] of this.jobs) if (job.public.machine_id === id) this.cancelJob(jobId);
+      this.machines.delete(id);
+      changed = true;
+    }
+    if (changed) this.emit();
   }
   private runtime(machine: Machine): Runtime { return { machine, attempts: 0, generation: 0, refreshing: false, refreshQueued: false, snapshotRevision: 0, terminals: new Set() }; }
   list(): Machine[] { return [this.local, ...[...this.machines.values()].map((r) => r.machine)]; }
@@ -172,7 +228,7 @@ export class MachineManager {
   }
   private persist(): void {
     mkdirSync(this.stateDir, { recursive: true, mode: 0o700 });
-    const data: StoredMachine[] = [...this.machines.values()].map(({ machine: m }) => ({ id: m.id, name: m.name, target: m.target!, enabled: m.enabled, snapshot: m.snapshot }));
+    const data: StoredMachine[] = [...this.machines.values()].filter(({ machine }) => !machine.herdr_profile_id).map(({ machine: m }) => ({ id: m.id, name: m.name, target: m.target!, enabled: m.enabled, snapshot: m.snapshot }));
     const tmp = this.statePath + ".tmp";
     writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
     chmodSync(tmp, 0o600); renameSync(tmp, this.statePath);
@@ -210,6 +266,7 @@ export class MachineManager {
     if (existing && [...this.jobs.values()].some((j) => j.public.machine_id === existing.machine.id && !["connected", "failed", "cancelled"].includes(j.public.phase))) throw new Error("A connection job for this PC is already running");
     const id = randomUUID();
     const machineId = existing?.machine.id ?? randomUUID();
+    if (existing?.machine.herdr_profile_id && (!existing.machine.enabled || !existing.machine.target || !sameSshSession(target, existing.machine.target))) throw new Error("This PC is managed by herdr; refresh its saved machine before setup");
     const auto = options.auto === true && request.update_remote === true && !!existing;
     const job: JobState = { update: request.update_remote === true, auto, public: { id, machine_id: machineId, target, phase: "connecting", step: "Connecting with SSH keys and ssh-agent…", challenge: null, installations: [], error: null, ssh_output: null, progress: null }, abort: new AbortController(), timer: setTimeout(() => this.cancelJob(id), 600_000), stageStartedAt: Date.now(), finished: Promise.resolve() };
     if (job.update && existing) job.runtime = existing;
@@ -388,6 +445,7 @@ export class MachineManager {
       await Bun.sleep(2500);
       descriptor = undefined;
     }
+    if (!descriptor && runtime.machine.herdr_profile_id && !job) throw new MachineActionRequired("The saved herdr machine needs a web bridge. Set it up here; the SSH address and session are already filled in.", "setup");
     if (!descriptor) {
       if (job) this.stage(job, "starting", "Starting the remote bridge…");
       await host.start(ssh, { session, herdrPath, inspection });
@@ -498,7 +556,7 @@ export class MachineManager {
       runtime.machine.state = "error"; runtime.machine.action_required = error.action;
       this.emit();
       // SSH itself just worked without a password, so the update can run unattended
-      if (error.action === "update_bridge" && this.preferences.auto_update_bridges) this.queueAutoUpdate(runtime.machine.id);
+      if (error.action === "update_bridge" && !runtime.machine.herdr_profile_id && this.preferences.auto_update_bridges) this.queueAutoUpdate(runtime.machine.id);
       return;
     }
     runtime.machine.state = "reconnecting";
@@ -544,6 +602,7 @@ export class MachineManager {
   patch(id: string, patch: { name?: unknown; enabled?: unknown }): void {
     const runtime = this.machines.get(id);
     if (!runtime) throw new Error("PC not found");
+    if (runtime.machine.herdr_profile_id) throw new Error("Rename or disable this machine in herdr");
     if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") throw new Error("enabled must be boolean");
     if (patch.name !== undefined) { if (typeof patch.name !== "string" || !patch.name.trim() || patch.name.length > 100) throw new Error("Enter a PC name (1–100 characters)"); runtime.machine.name = patch.name.trim(); }
     if (patch.enabled !== undefined) {
@@ -558,6 +617,7 @@ export class MachineManager {
   remove(id: string): void {
     const runtime = this.machines.get(id);
     if (!runtime) throw new Error("PC not found");
+    if (runtime.machine.herdr_profile_id) throw new Error("Remove this machine in herdr");
     runtime.machine.enabled = false; this.disconnect(runtime);
     for (const [jobId, job] of this.jobs) if (job.public.machine_id === id) this.cancelJob(jobId);
     this.machines.delete(id); this.persist();
@@ -565,7 +625,7 @@ export class MachineManager {
     this.emit();
   }
   stop(): void {
-    this.stopped = true; clearInterval(this.localTimer); clearTimeout(this.saveTimer);
+    this.stopped = true; clearTimeout(this.discoveryTimer); clearInterval(this.localTimer); clearTimeout(this.saveTimer);
     for (const id of this.jobs.keys()) this.cancelJob(id);
     for (const runtime of this.machines.values()) this.disconnect(runtime);
     this.listeners.clear();

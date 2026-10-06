@@ -8,6 +8,8 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Managed by herdr. Rename, disable or remove it there.": "herdr で管理されています。名前の変更、無効化、削除は herdr で行ってください。",
+
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Direct typing": "直接入力",

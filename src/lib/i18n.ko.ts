@@ -6,6 +6,8 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Managed by herdr. Rename, disable or remove it there.": "herdr에서 관리합니다. 이름 변경, 비활성화 또는 삭제는 herdr에서 하세요.",
+
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Direct typing": "직접 입력",

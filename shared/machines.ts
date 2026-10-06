@@ -11,7 +11,17 @@ export interface SshTarget {
   identity_file?: string;
   session?: string;
 }
+/** Saved by the local herdr client; reading its catalog never connects to a host. */
+export interface HerdrMachineProfile {
+  id: string;
+  label: string;
+  enabled: boolean;
+  /** null when herdr accepts an address this web client cannot represent safely. */
+  target: SshTarget | null;
+}
 export interface Machine {
+  /** Read-only identity inherited from the local herdr catalog. */
+  herdr_profile_id?: string;
   id: string;
   name: string;
   kind: "local" | "ssh";

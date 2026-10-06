@@ -10,6 +10,8 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Managed by herdr. Rename, disable or remove it there.": "由 herdr 管理。请在 herdr 中重命名、禁用或移除。",
+
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Direct typing": "直接输入",
