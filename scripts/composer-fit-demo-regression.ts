@@ -465,14 +465,23 @@ try {
           }
         }
         await box.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
-        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop === 0, undefined, { timeout: 5_000 });
+        // Native caret scrolling may leave the textarea's top padding offscreen. The first
+        // text line must be visible, not necessarily the decorative padding above that line.
+        await page.waitForFunction(() => {
+          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return node.selectionStart === 0 && node.scrollTop <= parseFloat(getComputedStyle(node).paddingTop) + 1;
+        }, undefined, { timeout: 5_000 }).catch(async (error) => {
+          console.error("composer start", width, await box.evaluate((node) => ({ caret: node.selectionStart, scrollTop: node.scrollTop, padding: getComputedStyle(node).paddingTop })));
+          throw error;
+        });
+        const startScroll = await box.evaluate((node) => node.scrollTop);
         await box.hover();
         await page.mouse.wheel(0, 400);
-        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop > 0, undefined, { timeout: 5_000 });
+        await page.waitForFunction((before) => document.querySelector(".composer-text")!.scrollTop > before, startScroll, { timeout: 5_000 });
         await box.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
         await page.waitForFunction(() => {
           const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
-          return node.selectionStart === node.value.length && node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+          return node.selectionStart === node.value.length && node.scrollTop + node.clientHeight >= node.scrollHeight - parseFloat(getComputedStyle(node).paddingBottom) - 1;
         }, undefined, { timeout: 5_000 });
         assert.equal(await box.inputValue(), drafts[3], "wheel and keyboard scrolling preserve the draft");
         if (width === 1440 && process.env.COMPOSER_FIT_SCREENSHOT) await page.locator(".composer").screenshot({ path: process.env.COMPOSER_FIT_SCREENSHOT });
