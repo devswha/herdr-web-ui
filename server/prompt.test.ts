@@ -769,6 +769,23 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
   });
 
+  test("does not take the menu's column from a numbered line under its last option", () => {
+    const prompt = parseInteractivePrompt("codex", `
+› 1. 먼저 이것부터 해줘
+
+✨ Update available! 0.146.0 -> 0.146.1
+
+› 1. Update now
+  2. Skip
+  3. Skip until next version
+     1. Asks again at the next release.
+
+Press enter to continue
+`);
+    expect(prompt).toMatchObject({ kind: "menu", question: "Choose how to continue" });
+    expect(labels(prompt)).toEqual(["Update now", "Skip", "Skip until next version"]);
+  });
+
   test("reads Codex's question under its own sent message", () => {
     const prompt = parseInteractivePrompt("codex", `
 › 1. 먼저 이것부터 해줘
