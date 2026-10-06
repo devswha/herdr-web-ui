@@ -69,12 +69,6 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
     await input.press("a"); await input.press("b"); await input.press("c");
     await syllable(["ㅎ", "하", "한"]);
     assert.equal(sent.map((frame) => frame.text).join(""), "abc", "provisional Hangul must stay local");
-    if (process.env.UI_EVIDENCE_DIR) {
-      const { mkdirSync } = await import("node:fs");
-      const { join } = await import("node:path");
-      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
-      await page.locator(".xterm").screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "safari-hangul-preedit.png") });
-    }
     await edit("insertReplacementText", "한", 0, 1);
     await syllable(["ㄱ", "그", "글"], 1);
     await edit("insertReplacementText", "글", 1, 2);

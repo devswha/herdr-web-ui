@@ -136,10 +136,42 @@ event replay failed before the patch and passes after it; this is distinct from 
 The patched build still needs a physical Safari IME retest and the remote shell/Codex/omp
 checks from #432 before the issue can be considered fully verified.
 
-[Owned test-pane screenshot](screenshots/safari-ime/safari-hangul-preedit.png): local `한`
-preedit while the replay asserts that only the English prefix has been emitted. Captured in
-Chromium with the recorded Safari event sequence; it is not a native Safari screenshot.
-Set `UI_EVIDENCE_DIR` when running the replay to capture it again.
+#### Before/after PTY screenshots
+
+Updated: 2026-10-07
+
+The same five event sequences were replayed against the pre-fix client (`54e5a1f`) and patched
+client (`7666d17`). Input travels through the real WS/attach path into an owned raw-mode PTY
+process. That process prints the expected string and the bytes it actually receives; the
+screenshots capture its terminal output. The first baseline failure matches the earlier native
+Safari capture. These are fresh Chromium replay captures, not original native Safari screenshots.
+
+| Case | Before: received | After: received |
+| --- | --- | --- |
+| English → Korean + Space | `abcㅎㄱ ` | `abc한글 ` |
+| Korean → English + Space | `ㅎㄱabc ` | `한글abc ` |
+| Final consonant: 값 + 아 | `ㄱ사 ` | `갑사 ` |
+| Backspace preedit, then retype | `ㅎㅎ ` | `한 ` |
+| English → Korean + Enter | `abcㅎㄱ\r` | `abc한글\r` |
+
+**Before — all five cases fail:**
+
+![Before: five incorrect PTY results](screenshots/safari-ime/safari-ime-before.png)
+
+**After — all five cases pass:**
+
+![After: five correct PTY results](screenshots/safari-ime/safari-ime-after.png)
+
+The [comparison data](screenshots/safari-ime/comparison.json) retains the expected and actual
+strings with their build revisions. To regenerate after building each checkout:
+
+```sh
+UI_EVIDENCE_DIR=evidence/safari-ime \
+  bun scripts/terminal-safari-ime-evidence.ts /path/to/before/dist /path/to/after/dist
+```
+
+The command asserts the known baseline failure and all five patched outcomes, saves PNG/JSON
+artifacts, and closes its owned workspaces and servers. It refuses `HERDR_TEST_LIVE=1`.
 
 #### Recording a native English-to-Korean transition (#432)
 
