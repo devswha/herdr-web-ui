@@ -1026,7 +1026,7 @@ export function createServer(
       const tokenMatched = token !== "" && isAuthenticated(request, token);
       const pairedDevice = devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE));
       const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
-      const identity = await identityOf(!tokenMatched && pairedDevice === null && isServeOwnerRequest(requestShape), requestHost);
+      const identity = await identityOf(token === "" && pairedDevice === null && isServeOwnerRequest(requestShape), requestHost);
       const access = decideAccess({
         ...requestShape,
         host: requestHost,
