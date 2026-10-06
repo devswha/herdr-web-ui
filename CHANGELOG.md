@@ -18,7 +18,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A Claude, omp or pi pane that has just started opens its chat on the greeting ("What should
   Claude do in …?"), as an OmO pane already did. Before, until the first message the chat
   showed the terminal's text or an empty line instead, so a new workspace or worktree never
-  greeted you.
+  greeted you. ([#500](https://github.com/devswha/herdr-web-ui/pull/500))
 
 ## [0.3.51] - 2026-10-06
 
