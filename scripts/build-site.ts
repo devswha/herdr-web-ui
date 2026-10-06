@@ -145,6 +145,9 @@ page = page.replaceAll("{{contributors}}", contributors === null ? "—" : contr
 // counts the same repositories as the rank, not the index's separate pluginCount.
 const index = await fetch("https://assets.herdr.dev/plugins/index.json", { signal: AbortSignal.timeout(10_000) }).catch(() => null);
 const indexBody: unknown = index?.ok ? await index.json().catch(() => null) : null;
+const repositoryCount = indexBody && typeof indexBody === "object" && "repositoryCount" in indexBody &&
+  typeof indexBody.repositoryCount === "number" && Number.isSafeInteger(indexBody.repositoryCount) && indexBody.repositoryCount >= 0
+  ? indexBody.repositoryCount : null;
 const listed = indexBody && typeof indexBody === "object" && "plugins" in indexBody && Array.isArray(indexBody.plugins) ? indexBody.plugins : [];
 const starsByRepo = new Map<string, number>();
 for (const plugin of listed) {
@@ -154,7 +157,7 @@ const listedStars = starsByRepo.get("devswha/herdr-web-ui");
 const rank = listedStars === undefined ? null : [...starsByRepo.values()].filter((count) => count > listedStars).length + 1;
 if (rank === null) console.warn(`herdr plugin index unavailable (${index ? `HTTP ${index.status}` : "no connection"}) or the plugin is not in it: the page shows a dash`);
 page = page.replaceAll("{{plugin_rank}}", rank === null ? "—" : `#${rank}`);
-page = page.replaceAll("{{plugin_repo_count}}", rank === null ? "all" : starsByRepo.size.toLocaleString("en-US"));
+page = page.replaceAll("{{plugin_repo_count}}", repositoryCount === null ? "—" : repositoryCount.toLocaleString("en-US"));
 
 // the page's own media: cut a missing poster from its video, then unlink whatever is still missing
 const pageMedia = ["herdr-web-ui-film", "chat-loop"];
