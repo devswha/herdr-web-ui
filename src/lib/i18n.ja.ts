@@ -73,7 +73,7 @@ export const JA: Record<string, string> = {
   "Wide": "広い",
   "Full": "全幅",
   "Chat font size": "チャットのフォントサイズ",
-  "Messages, code and prompt cards in the chat view": "チャット画面のメッセージ、コード、質問カード",
+  "Messages, code, prompt cards and the message box in the chat view": "チャット画面のメッセージ、コード、質問カード、入力欄",
   "Decrease chat font size": "チャットの文字を小さく",
   "Increase chat font size": "チャットの文字を大きく",
   "Chat font": "チャットのフォント",

@@ -45,7 +45,7 @@ bun scripts/keyboard-viewport-regression.ts   # keyboard, rotation and measured 
 bun scripts/keyboard-viewport-demo-regression.ts # original real-app viewport suite on disposable demo fixtures
 bun scripts/droplet-demo-regression.ts        # real-app alerts below the header, keyboard and landscape
 bun scripts/chat-greeting-demo-regression.ts  # an empty chat's greeting: centred on a desktop, docked on a phone
-bun scripts/composer-fit-demo-regression.ts   # the input card's model label: whole or stepped out beside Queue, the context number and an upload
+bun scripts/composer-fit-demo-regression.ts   # the input card's model label: whole or stepped out beside Queue, the context number and an upload; the box's text at Chat font size
 bun scripts/held-rows-demo-regression.ts      # held messages: the fold under an approval card, its button, a row's error
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put

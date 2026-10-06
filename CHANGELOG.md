@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The message box follows **Settings → Chat font size**, as the transcript and prompt cards
+  already did: with a mouse it is typed at the transcript's size, and on a touch screen it
+  grows with a size above 16px (it stays at 16px or more, so iOS still does not zoom).
+  ([#515](https://github.com/devswha/herdr-web-ui/pull/515) by @phirschybar)
+
 ### Fixed
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
