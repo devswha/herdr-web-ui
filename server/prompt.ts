@@ -31,6 +31,12 @@ const CLAUDE_CONFIRM_HINT_RE = /enter to confirm.*esc to (?:cancel|exit|go back)
 // Claude Code's `/model` list, by the two keys it takes a pick with: Enter saves it as the default
 // for new sessions, `s` keeps it to this session
 const CLAUDE_MODEL_HINT_RE = /enter to set as default.*\bs to use this session only.*esc to cancel/i;
+// Codex's `/model` lists, by the footer of the row under the cursor (its keymap's own words): a
+// row that only opens the next list takes Enter, a row that picks takes `s` for this session and
+// Enter to save the pick as the default (`enter apply` on Ultra)
+const CODEX_MODEL_OPEN_HINT_RE = /^enter select\s*·\s*esc back$/i;
+const CODEX_MODEL_PICK_HINT_RE = /^enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i;
+const CODEX_MODEL_TITLE_RE = /^(?:Select Model(?: and Effort)?|Select Reasoning Level for (\S.*)|Advanced Reasoning)$/;
 const SOLID_RULE_RE = /^[─━]{8,}$/;
 const CODEX_APPROVAL_HEADER_RE =
   /(?:Would you like to (?:run|make|apply|continue|grant)|Allow Codex to|Approve (?:this )?(?:app )?tool call|Do you trust the contents|Trust this folder\?|Enable full access)/i;
@@ -86,6 +92,7 @@ type Responder =
   | "claude-plan"
   | "claude-confirm"
   | "claude-model"
+  | "codex-model"
   | "omo-question"
   | "omo-review"
   | "omo-typing"
@@ -112,9 +119,12 @@ type ParsedPrompt = InteractivePrompt & {
   customSteps?: (text: string) => AnswerStep[];
   /** the steps for a multiple choice, for a card whose menu does not toggle the usual way */
   multiSteps?: (choices: number[]) => AnswerStep[];
+  /** the key the menu itself names for the row under the cursor now, for a card whose rows do not all take the same one */
+  rowKey?: AnswerStep | null;
 };
 
-type AnswerStep = { keys?: string[]; text?: string };
+/** `pick`: the menu's own key for the row the moves end on, read off the screen once the cursor is there (`rowKey`) */
+type AnswerStep = { keys?: string[]; text?: string; pick?: true };
 type MenuRow = { label: string; selected: boolean; checked: boolean; description?: string; lineIndex: number };
 type NumberedRow = MenuRow & { number: number };
 
@@ -1267,7 +1277,7 @@ const CLAUDE_MODEL_MORE_RE = /^…\s*\+(\d+) models?$/;
 /** lines between the rows and the hint, at most: the effort line, wrapped by a narrow pane */
 const CLAUDE_MODEL_UNDER_LINES = 3;
 
-interface ClaudeModelRow {
+interface ListRow {
   number: number; label: string; cursor: boolean; current: boolean;
   /** `↑` or `↓` in the cursor's column: the window's first or last row, with more of the list beyond it */
   edge: string | null;
@@ -1275,7 +1285,7 @@ interface ClaudeModelRow {
   said: string[]; column: number;
 }
 
-function claudeModelRow(line: string): ClaudeModelRow | null {
+function claudeModelRow(line: string): ListRow | null {
   const match = CLAUDE_MODEL_ROW_RE.exec(line);
   if (!match) return null;
   const text = match[3]!;
@@ -1289,6 +1299,149 @@ function claudeModelRow(line: string): ClaudeModelRow | null {
     // in the terminal's columns, as the lines wrapped under it are indented: a wide glyph in the name takes two
     column: said === null ? -1 : Bun.stringWidth(line.slice(0, line.length - said.length)),
   };
+}
+
+/**
+ * The numbered rows right above a list's hint, read downward. A row that does not count on from
+ * the one above it, that follows anything but its own wrapped text, or that carries the window's
+ * `↑` starts the list again, and so does any row under the one that carries its `↓`: numbered
+ * lines further up (an answer's own list) are nothing of this menu's.
+ * `below`: the rows a line under them counts (`more`). `first` and `last`: the first row's line
+ * and the last line that was the list's.
+ * `unread`: a line under a row that is not its wrapped text (a name the pane cut in two), so the
+ * rows are not the list as it was drawn.
+ */
+function listRows(lines: string[], hintIndex: number, read: (line: string) => ListRow | null, more: RegExp | null): { rows: ListRow[]; below: number; first: number; last: number; unread: boolean } {
+  let rows: ListRow[] = [];
+  let below = 0;
+  let ended = false;
+  let unread = false;
+  let first = -1;
+  let last = -1;
+  for (let index = Math.max(0, hintIndex - 80); index < hintIndex; index += 1) {
+    const line = lines[index]!;
+    const text = line.trim();
+    const above = ended ? undefined : rows.at(-1);
+    // what a row says, wrapped under itself: told by its column, before anything it happens to begin with
+    if (above !== undefined && text !== "" && above.column >= 0 && line.length - line.trimStart().length === above.column) {
+      above.said.push(text);
+      last = index;
+      continue;
+    }
+    const row = read(line);
+    if (row) {
+      if (above === undefined || row.number !== above.number + 1 || row.edge === "↑" || above.edge === "↓") [rows, first] = [[], index];
+      rows.push(row);
+      [below, ended, unread, last] = [0, false, false, index];
+      continue;
+    }
+    if (above === undefined || text === "") { ended = true; continue; }
+    const counted = more?.exec(text);
+    if (counted) [below, ended, last] = [Number(counted[1]), true, index];
+    else [ended, unread] = [true, true];
+  }
+  return { rows, below, first, last, unread };
+}
+
+/**
+ * Codex's `/model` lists, live in 0.160.1 and as its source draws them
+ * (tui/src/chatwidget/model_popups.rs, session_model_selection.rs):
+ *
+ *   Select Model and Effort                      Select Reasoning Level for GPT-6-Astra
+ *
+ *     1. GPT-6.1-Sol (default)  Latest workhorse…   1. Low                         Fast responses…
+ *   › 2. GPT-6-Astra (current)  Frontier intelli… › 2. Medium (default) (current)  Balances speed…
+ *     …                                             5. More reasoning…             Max and Ultra…
+ *
+ *     enter select · esc back                       enter default · s session · esc back
+ *
+ * and, behind "More reasoning…", `Advanced Reasoning` over `⚠ Consumes usage limits faster` with
+ * Max and Ultra. An account with quick presets gets `Select Model` first, its last row "All
+ * models". herdr never reports the pane blocked while one waits (working, done), so the card can
+ * only come from the screen.
+ *
+ * The footer is the row's own, not the list's. Under `enter select` Enter only opens the next
+ * list. Under `enter default · s session` (`enter apply` on Ultra) the row picks: `s` for this
+ * session, Enter to save the pick as the default for every new one. A model with a single
+ * reasoning level picks from the first list already. So which key a row takes is only known
+ * with the cursor on it: `rowKey` is that key for the row under the cursor now, and an answer
+ * takes it from the screen it reads after its moves (the `pick` step), never Enter under a
+ * footer that offers `s`.
+ *
+ * The list is known by its title, since `enter select · esc back` is the footer of every list
+ * Codex draws. A pane too narrow for what a row says draws the names alone, or wraps it under
+ * itself (the advanced list at 46 columns).
+ */
+const CODEX_MODEL_ROW_RE = /^\s*([❯›>])?\s*(\d+)\.\s+(\S.*)$/;
+/** lines of the list's own header looked at above its first row: title, a line or two under it, blanks */
+const CODEX_MODEL_HEADER_LINES = 8;
+
+function codexModelRow(line: string): ListRow | null {
+  const match = CODEX_MODEL_ROW_RE.exec(line);
+  if (!match) return null;
+  const text = match[3]!;
+  const gap = /\s{2,}/.exec(text);
+  const name = gap ? text.slice(0, gap.index) : text;
+  const said = gap ? text.slice(gap.index + gap[0].length) : null;
+  return {
+    number: Number.parseInt(match[2]!, 10), label: name.replace(/\s*\(current\)$/, ""), cursor: match[1] !== undefined, edge: null,
+    current: /\s\(current\)$/.test(name), said: said === null ? [] : [said],
+    column: said === null ? -1 : Bun.stringWidth(line.slice(0, line.length - said.length)),
+  };
+}
+
+/** The key a Codex list's footer names for picking the row under the cursor; null for any other footer. */
+function codexModelRowKey(footer: string): AnswerStep | null {
+  if (CODEX_MODEL_PICK_HINT_RE.test(footer)) return { text: "s" };
+  return CODEX_MODEL_OPEN_HINT_RE.test(footer) ? { keys: [KEY.enter] } : null;
+}
+
+/**
+ * Whether a Codex list whose row picks with `s` holds the end of the screen, by its footer alone:
+ * also a list parseCodexModel could not read. Such a list gets no fallback card while herdr
+ * happens to report the pane blocked: that card offers Enter, and Enter under this footer saves
+ * the row as the default for every new session.
+ */
+function codexModelPickWaits(screen: string): boolean {
+  const shown = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
+  return [1, 2, 3, 4, 5, 6].some((span) => /enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i.test(shown.slice(-span).join(" ")));
+}
+
+function parseCodexModel(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
+  const hintIndex = findLastIndex(lines, (_, index) => codexModelRowKey(wrapped(lines, index)) !== null);
+  if (hintIndex < 0) return null;
+  const { rows, first, last, unread } = listRows(lines, hintIndex, codexModelRow, null);
+  // the rows end right over their footer, and one of them carries the cursor
+  if (unread || rows.length < 2 || rows.filter((row) => row.cursor).length !== 1 || lines.slice(last + 1, hintIndex).some((line) => line.trim() !== "")) return null;
+  // the list's own header right above its rows: its title, then what Codex says of the list
+  const header = lines.slice(Math.max(0, first - CODEX_MODEL_HEADER_LINES), first).map(cleanLine).filter(Boolean);
+  const titleAt = findLastIndex(header, (line) => CODEX_MODEL_TITLE_RE.test(line));
+  if (titleAt < 0) return null;
+  const title = header[titleAt]!;
+  const model = CODEX_MODEL_TITLE_RE.exec(title)![1];
+  const said = (parts: string[]): string | null => parts.length === 0 ? null : parts.join(" ");
+  const current = rows.find((row) => row.current);
+  // "Medium (default)" in use reads as Medium: the tag is the list's, not the level's name
+  const now = current ? ` (currently ${current.label.replace(/\s*\(default\)$/i, "")})` : "";
+  const asked = title === "Advanced Reasoning" ? "Select advanced reasoning for this session"
+    : model !== undefined ? `Select reasoning level for ${model} for this session` : "Select model for this session";
+  const selectedIndex = rows.findIndex((row) => row.cursor);
+  return finishPrompt("codex", {
+    kind: "question",
+    title: "",
+    question: `${asked}${now}`,
+    body: header.slice(titleAt + 1).join("\n") || null,
+    options: rows.map((row) => ({ label: row.label, description: said(row.said) })),
+    multi_select: false,
+    custom_option_index: null,
+  }, {
+    // a row by its list, its number and what it says: the reasoning list of another model has the same rows
+    responder: "codex-model", menuLabels: rows.map((row) => `${title}  ${row.number}. ${row.label}  ${said(row.said) ?? ""}`), selectedIndex,
+    checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+    optionSteps: rows.map((_, index) => [...keySteps(navigationKeys(index - selectedIndex)), { pick: true as const }]),
+    rowKey: codexModelRowKey(wrapped(lines, hintIndex)),
+  });
 }
 
 /**
@@ -1308,38 +1461,7 @@ function parseClaudeModel(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
   const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_MODEL_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  // The rows right above the hint, read downward. A row that does not count on from the one
-  // above it, that follows anything but its own wrapped text, or that carries the window's `↑`
-  // starts the list again, and so does any row under the one that carries its `↓`: numbered
-  // lines further up (an answer's own list) are nothing of this menu's.
-  let rows: ClaudeModelRow[] = [];
-  let below = 0;
-  let ended = false;
-  let unread = false;
-  let last = -1;
-  for (let index = Math.max(0, hintIndex - 80); index < hintIndex; index += 1) {
-    const line = lines[index]!;
-    const text = line.trim();
-    const above = ended ? undefined : rows.at(-1);
-    // what a row says, wrapped under itself: told by its column, before anything it happens to begin with
-    if (above !== undefined && text !== "" && above.column >= 0 && line.length - line.trimStart().length === above.column) {
-      above.said.push(text);
-      last = index;
-      continue;
-    }
-    const row = claudeModelRow(line);
-    if (row) {
-      if (above === undefined || row.number !== above.number + 1 || row.edge === "↑" || above.edge === "↓") rows = [];
-      rows.push(row);
-      [below, ended, unread, last] = [0, false, false, index];
-      continue;
-    }
-    if (above === undefined || text === "") { ended = true; continue; }
-    const more = CLAUDE_MODEL_MORE_RE.exec(text);
-    if (more) [below, ended, last] = [Number(more[1]), true, index];
-    // a line under a row that is not its wrapped text (a name the pane cut in two): not a row to offer
-    else [ended, unread] = [true, true];
-  }
+  const { rows, below, last, unread } = listRows(lines, hintIndex, claudeModelRow, CLAUDE_MODEL_MORE_RE);
   const under = lines.slice(last + 1, hintIndex).filter((line) => line.trim() !== "").length;
   const selectedIndex = rows.findIndex((row) => row.cursor);
   if (unread || under > CLAUDE_MODEL_UNDER_LINES || rows.length < 2 || rows.filter((row) => row.cursor).length !== 1) return null;
@@ -1430,6 +1552,7 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   if (prompt.responder === "claude-approval") return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain/i);
   if (prompt.responder === "claude-confirm") return ends(CLAUDE_CONFIRM_HINT_RE);
   if (prompt.responder === "claude-model") return ends(CLAUDE_MODEL_HINT_RE);
+  if (prompt.responder === "codex-model") return ends(/(?:^|\s)enter select\s*·\s*esc back$|(?:^|\s)enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i);
   if (prompt.responder === "omo-question" || prompt.responder === "omo-review" || prompt.responder === "omo-typing") {
     // The form is live only with nothing but OmO's own footer under its hint: blank lines, one
     // rule, then the footer's few lines (cwd, context, model). Anything else is the form's text
@@ -1742,7 +1865,7 @@ function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null
     return [...(omoOpen.length > 0 ? matched.length === 1 ? matched : [] : forms(omoAsk, omoTrusted)), parseOmoPending(screen, omoOpen)];
   };
   const candidates = agent === "codex"
-    ? [parseCodexContinueMenu(screen), parseCodexQuestion(screen), parseCodexAsyncQuestion(screen), parseCodexApproval(screen)]
+    ? [parseCodexContinueMenu(screen), parseCodexQuestion(screen), parseCodexAsyncQuestion(screen), parseCodexApproval(screen), parseCodexModel(screen)]
     : agent === "omp"
       ? [parseOmpQuestion(screen), parseOmpApproval(screen)]
       // herdr names an omo pane `pi` while omo waits (or no agent at all, as it can for an omo
@@ -2230,9 +2353,10 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   }
   // herdr says the agent waits on the user and no reader knows the screen: the fallback card
   const screen = known.screen ?? await liveScreen(paneId);
-  // Codex's collapsed question queue reads blocked while its main prompt takes a message; Claude
-  // Code's model list that no reader could read is left to the terminal (claudeModelListWaits)
-  if ((agent === "codex" && codexQuestionsCollapsed(screen)) || claudeModelListWaits(screen)) {
+  // Codex's collapsed question queue reads blocked while its main prompt takes a message; a
+  // model list of Claude Code's or Codex's that no reader could read is left to the terminal
+  // (claudeModelListWaits, codexModelPickWaits)
+  if ((agent === "codex" && codexQuestionsCollapsed(screen)) || claudeModelListWaits(screen) || codexModelPickWaits(screen)) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: asked(paneId, null, turns), pane, panes };
   }
@@ -2378,10 +2502,11 @@ async function closeOpenQuestion(paneId: string): Promise<void> {
 const SETTLE_MS = 1_500;
 
 /**
- * After an answer to a form of several questions (omo): back once the pane shows its next step
- * (the next question, the review, or no form when it was submitted), so the card's read right
- * after the answer gets that step and never the one just answered. A screen that does not move
- * within a second leaves it to the card's next poll.
+ * After an answer to a form of several questions (omo) or to a model list (Claude Code, Codex):
+ * back once the pane shows its next step (the next question, the review, a model's levels, or
+ * nothing when it was submitted or closed), so the card's read right after the answer gets that
+ * step and never the one just answered. A screen that does not move within a second leaves it to
+ * the card's next poll.
  */
 async function formMovedOn(paneId: string, answered: string, codexHome?: string): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -2510,7 +2635,11 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         // Claude's unnumbered rows and pi's models are read with no number to aim at: looked at
         // again before the Enter even when it needs no move. So is Claude's model list, picked
         // with a letter: typed after the list has gone, it would stand in the agent's own prompt
-        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question" || responder === "claude-model";
+        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question" || responder === "claude-model" || responder === "codex-model";
+        // Claude's and Codex's model lists: a window on a list, picked with a letter
+        const list = responder === "claude-model" || responder === "codex-model";
+        /** the menu as the last look before a key showed it */
+        let seen: ParsedPrompt | null = null;
         /** Whether the screen is the card's own menu, with the cursor on the row the moves were for. */
         const aimed = (shown: ParsedPrompt | null, screen: string): boolean => {
           // pi's catalogue shows ten rows of a longer list and scrolls under the cursor, so the
@@ -2520,7 +2649,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           if (responder === "pi-model") return shown?.responder === "pi-model" && shown.options[shown.selectedIndex]?.label === parsed.options[cursor]?.label;
           // Claude's list is a window too, drawn with fewer rows in a pane made shorter meanwhile:
           // the model under the cursor, by its number in the list, its name and what the row says
-          if (responder === "claude-model") return shown?.responder === "claude-model" && shown.menuLabels[shown.selectedIndex] === parsed.menuLabels[cursor];
+          // Codex's lists the same way, the list's title with the row: the reasoning levels of
+          // another model are the same rows
+          if (list) return shown?.responder === responder && shown.menuLabels[shown.selectedIndex] === parsed.menuLabels[cursor];
           // a dialog of pi's has a card only with its cursor on the first row (parsePiDialog),
           // which the answer's own moves have just left: read off the screen itself
           if ((responder === "pi-question" || responder === "pi-confirm") && cursor !== 0) {
@@ -2547,7 +2678,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             const read = await Promise.race([reading, Bun.sleep(left).then(() => null)]);
             if (!read || Date.now() > deadline) return false;
             const shown = read.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
-            if (asks() && aimed(shown, read.screen ?? "")) return true;
+            if (asks() && aimed(shown, read.screen ?? "")) { seen = shown; return true; }
             await Bun.sleep(50);
           }
         };
@@ -2558,10 +2689,10 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
           // the asking ended under the answer: no further key, whatever the screen shows
           if (!asks()) return promptChanged();
-          // Claude's model list can be nine rows from the cursor, and an Esc in the terminal hands
-          // its keys to Claude's own prompt, where an arrow walks the prompt's history: each move
+          // A model list can be nine rows from the cursor, and an Esc in the terminal hands its
+          // keys to the agent's own prompt, where an arrow walks the prompt's history: each move
           // after the first goes only once the list shows the one before it
-          if (move && walked && responder === "claude-model" && !(await onRow())) return promptChanged();
+          if (move && walked && list && !(await onRow())) return promptChanged();
           if (!move && !committed) {
             // An answer is only as good as the menu and the cursor it moves from, and both are
             // as old as the read above by the time its moves are done: the menu answered in the
@@ -2577,11 +2708,15 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           }
           // before the key goes: herdr may press it and the reply still be lost, and a key that
           // may have been pressed has ended the asking as much as one that was
+          // the menu's own key for the row the moves ended on, as the look just before showed it:
+          // none where no look was taken or the row names no key this reader knows
+          const key: AnswerStep | null = step.pick ? (seen as ParsedPrompt | null)?.rowKey ?? null : step;
+          if (key === null) return promptChanged();
           const first = !move && !committed;
           if (!move) committed = true;
           try {
-            if (step.keys) await paneSendKeys(body.pane_id, step.keys);
-            else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
+            if (key.keys) await paneSendKeys(body.pane_id, key.keys);
+            else if (key.text !== undefined) await paneSendText(body.pane_id, key.text);
           } catch (error) {
             // herdr was never reached, so nothing was pressed: the card is still to be answered
             if (first && error instanceof HerdrError && error.code === "connect_failed") committed = false;
@@ -2618,7 +2753,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         formsAnswered.set(body.pane_id, Date.now());
         if (formsAnswered.size > 64) formsAnswered.delete(formsAnswered.keys().next().value!);
       }
-      if (target.steps) form.answered = contentId(target);
+      // A model list closes, or opens its next list, a moment after its key: the same wait, so
+      // the card's read right after the answer does not get the list just answered once more
+      if (target.steps || responder === "claude-model" || responder === "codex-model") form.answered = contentId(target);
       return jsonResponse({ ok: true });
     });
     // the wait for the form's next step only reads the pane: after the pane's turn, so a message

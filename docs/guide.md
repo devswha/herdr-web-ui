@@ -131,7 +131,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | Agent | Chat | Answer prompts from chat |
 | --- | --- | --- |
 | **Claude Code** | Native transcript, resolved through herdr | ✓ approvals, questions, plan and menu picks, and the `/model` list (picked for the session) |
-| **Codex** | Native rollout, with tool results and commentary/final phases | ✓ approvals and questions, including queued ones |
+| **Codex** | Native rollout, with tool results and commentary/final phases | ✓ approvals and questions, including queued ones, and the `/model` lists (picked for the session) |
 | **omp** | Native session file | ✓ |
 | **omo** | Native session file, found through the pane's process tree | — use Terminal |
 | **gjc** | Native session file, from the session directory gjc keeps open | — use Terminal |
