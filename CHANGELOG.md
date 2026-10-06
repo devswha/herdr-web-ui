@@ -17,6 +17,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
   keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
+- A Claude or Codex question asked right after a message that began with a number ("1. …") shows
+  as a question card in the chat again. The sent message, still on screen above the question, was
+  read as an option of its own, so the question fell back to a card of arrow keys. Option
+  descriptions that wrap over two lines are shown whole, not cut off at the first line.
 
 ## [0.3.52] - 2026-10-06
 
