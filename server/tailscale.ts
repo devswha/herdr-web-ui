@@ -181,15 +181,17 @@ export function setTailnetStatusReader(read: (() => Promise<string | null>) | nu
   readStatus = read ?? cliStatus;
 }
 
+async function readIdentity(): Promise<void> {
+  const status = await readStatus();
+  // a read that failed keeps what it last said about the owner, so the owner is not taken for a
+  // stranger, nor a stranger let in, until it is asked again; it withdraws the sole-login proof,
+  // since a grant never rests on a read that failed
+  if (status === null && ownerCache !== null) ownerCache = { ...ownerCache, soleLogin: null, at: Date.now() };
+  else rememberTailnetStatus(status);
+}
+
 function refreshIdentity(): Promise<void> {
-  ownerRefresh ??= (async () => {
-    const status = await readStatus();
-    // a read that failed keeps what it last said about the owner, so the owner is not taken for a
-    // stranger, nor a stranger let in, until it is asked again; it withdraws the sole-login proof,
-    // since a grant never rests on a read that failed
-    if (status === null && ownerCache !== null) ownerCache = { ...ownerCache, soleLogin: null, at: Date.now() };
-    else rememberTailnetStatus(status);
-  })().finally(() => { ownerRefresh = null; });
+  ownerRefresh ??= readIdentity().finally(() => { ownerRefresh = null; });
   return ownerRefresh;
 }
 
@@ -210,12 +212,11 @@ export function tailscaleIdentity(): TailnetIdentity {
 }
 
 /**
- * `tailscaleIdentity` for a request the owner's sole-login proof would admit: when the cached read is
- * older than the TTL it waits for a fresh read first, bounded by the status read's own timeout, so a
- * tagged node that joined since the last read is seen before the decision. A failed read leaves no
- * sole-login proof. Every other request uses `tailscaleIdentity`.
+ * `tailscaleIdentity` for a request the owner's sole-login proof would admit: it always reads the
+ * status now, bounded by the read's own timeout, so a node tagged since the last read is seen before
+ * the decision. A failed read leaves no sole-login proof. Every other request uses `tailscaleIdentity`.
  */
 export async function freshTailscaleIdentity(): Promise<TailnetIdentity> {
-  if (ownerCache === null || Date.now() - ownerCache.at >= OWNER_TTL_MS) await refreshIdentity();
+  await readIdentity();
   return tailscaleIdentity();
 }

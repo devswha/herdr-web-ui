@@ -108,7 +108,7 @@ export function decideAccess(input: AccessInput): Access {
     return { level: "full", via: "tailscale", role: "drive", login: input.owner };
   }
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
-  if (input.loopback && input.forwarded && (input.owner !== null || input.tagged)) return { level: "none", reason: "pairing_required" };
+  if (input.loopback && input.forwarded && (input.owner !== null || input.tagged || input.serveOnly)) return { level: "none", reason: "pairing_required" };
   // the public internet is never "open", whatever is paired
   if (!input.gated && !input.funnel) return { level: "full", via: "open", role: "drive" };
   return { level: "none", reason: "pairing_required" };

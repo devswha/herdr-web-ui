@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll, spyOn } from "bun:test";
+import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -13,7 +13,7 @@ import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
-import { forgetTailscaleIdentity, rememberTailnetStatus, setTailnetStatusReader } from "./tailscale.ts";
+import { forgetTailscaleIdentity, setTailnetStatusReader } from "./tailscale.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -1803,7 +1803,7 @@ describe("pairing and identity", () => {
     // what `tailscale status --json` says for the reported tailnet: one login, every node untagged
     const status = JSON.stringify({ BackendState: "Running", Self: { DNSName: "denisss-macbook-pro-m1.tail5cc90b.ts.net.", UserID: 7 }, Peer: { phone: { DNSName: "phone.tail5cc90b.ts.net.", UserID: 7 } }, User: { "7": { LoginName: OWNER } } });
     await forgetTailscaleIdentity();
-    rememberTailnetStatus(status);
+    setTailnetStatusReader(async () => status);
     process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = "1";
     const sole = createServer({ port: 0, stateDir: state });
     if (savedServeOnly === undefined) delete process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"]; else process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = savedServeOnly;
@@ -1831,6 +1831,7 @@ describe("pairing and identity", () => {
       off.stop();
       named.stop();
       other.stop();
+      setTailnetStatusReader(null);
       await forgetTailscaleIdentity();
       if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
       rmSync(state, { recursive: true, force: true });
@@ -1841,12 +1842,8 @@ describe("pairing and identity", () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-stale-identity-"));
     const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
     delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    const sole = JSON.stringify({ BackendState: "Running", Self: { UserID: 7 }, User: { "7": { LoginName: OWNER } } });
     const tagged = JSON.stringify({ BackendState: "Running", Self: { UserID: 7, Tags: ["tag:server"] }, User: { "7": { LoginName: OWNER } } });
     await forgetTailscaleIdentity();
-    rememberTailnetStatus(sole);
-    const start = Date.now();
-    const clock = spyOn(Date, "now").mockImplementation(() => start + 6 * 60_000);
     setTailnetStatusReader(async () => tagged);
     const serveOnly = createServer({ port: 0, stateDir: state, tailscaleServeOnly: true });
     try {
@@ -1854,7 +1851,6 @@ describe("pairing and identity", () => {
       expect(auth).toMatchObject({ authenticated: false, reason: "pairing_required" });
     } finally {
       serveOnly.stop();
-      clock.mockRestore();
       setTailnetStatusReader(null);
       await forgetTailscaleIdentity();
       if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
