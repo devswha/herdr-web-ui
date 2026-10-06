@@ -53,6 +53,20 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
         }
       }
       Object.assign(window, { AudioContext: RecordingAudioContext });
+      // A visible working badge can come from a roster snapshot before the collector has
+      // subscribed to these newly created panes. Observe a real status event before testing alerts.
+      const statuses: Record<string, string> = {};
+      const NativeEvents = window.EventSource;
+      class ObservedEvents extends NativeEvents {
+        constructor(url: string | URL, init?: EventSourceInit) {
+          super(url, init);
+          this.addEventListener("message", (event) => {
+            const message = JSON.parse(event.data)?.message;
+            if (message?.type === "pane-status") statuses[message.pane_id] = message.agent_status;
+          });
+        }
+      }
+      Object.assign(window, { EventSource: ObservedEvents, soundStatuses: statuses });
     });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -74,6 +88,15 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
       if (inFront) await seen(pane, "blocked");
     };
 
+    // The collector reopens its subscriptions after the pane set changes. Prime only owned
+    // fixture statuses until working arrives as an event, not merely in a polled snapshot.
+    for (const deadline = Date.now() + 10_000; !(await page.evaluate((pane) =>
+      (window as unknown as { soundStatuses: Record<string, string> }).soundStatuses[pane] === "working", otherPane));) {
+      assert.ok(Date.now() < deadline, "the status subscription includes the new panes");
+      await report(otherPane, "idle");
+      await report(otherPane, "working");
+      await page.waitForTimeout(50);
+    }
     // no tap yet: the page may not play, and nothing is kept to sound later
     await block(otherPane);
     await page.locator(".droplet-card").waitFor({ state: "visible" });
