@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- With Language set to **System**, English stays selected when it is the browser's first
+  supported language, even if Japanese, Korean or Chinese appears later in its preferences.
+  Before, English was skipped in favor of a later supported language.
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
   waits on read RUN, and one it asks without waiting (it keeps working, or ends its turn, with
   the question folded over its input box) read RUN or DONE.
