@@ -13,7 +13,7 @@ import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
-import { forgetTailscaleIdentity, rememberTailnetStatus, setTailnetStatusReader } from "./tailscale.ts";
+import { TailnetIdentitySource } from "./tailscale.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -1803,14 +1803,13 @@ describe("pairing and identity", () => {
     // what `tailscale status --json` says for the reported tailnet: one login, every node untagged
     const NODE = "denisss-macbook-pro-m1.tail5cc90b.ts.net";
     const status = JSON.stringify({ BackendState: "Running", Self: { DNSName: `${NODE}.`, UserID: 7, TailscaleIPs: ["100.101.102.103"] }, Peer: { phone: { DNSName: "phone.tail5cc90b.ts.net.", UserID: 7 } }, User: { "7": { LoginName: OWNER } } });
-    await forgetTailscaleIdentity();
-    setTailnetStatusReader(async () => status);
+    const tailnet = new TailnetIdentitySource(async () => status);
     process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = "1";
-    const sole = createServer({ port: 0, stateDir: state });
+    const sole = createServer({ port: 0, stateDir: state, tailnet });
     if (savedServeOnly === undefined) delete process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"]; else process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = savedServeOnly;
-    const off = createServer({ port: 0, stateDir: state, tailscaleServeOnly: false });
-    const named = createServer({ port: 0, stateDir: state, tailscaleOwner: OWNER, tailscaleServeOnly: true });
-    const other = createServer({ port: 0, stateDir: state, tailscaleOwner: "named@example.com", tailscaleServeOnly: true });
+    const off = createServer({ port: 0, stateDir: state, tailscaleServeOnly: false, tailnet });
+    const named = createServer({ port: 0, stateDir: state, tailscaleOwner: OWNER, tailscaleServeOnly: true, tailnet });
+    const other = createServer({ port: 0, stateDir: state, tailscaleOwner: "named@example.com", tailscaleServeOnly: true, tailnet });
     const at = async (port: number, headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
     try {
       // the captain's phone: tailscale serve proxied it, names no person, and the address is this PC's Tailscale name
@@ -1839,8 +1838,6 @@ describe("pairing and identity", () => {
       off.stop();
       named.stop();
       other.stop();
-      setTailnetStatusReader(null);
-      await forgetTailscaleIdentity();
       if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
       rmSync(state, { recursive: true, force: true });
     }
@@ -1850,19 +1847,19 @@ describe("pairing and identity", () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-stale-identity-"));
     const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
     delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    const sole = JSON.stringify({ BackendState: "Running", Self: { UserID: 7 }, User: { "7": { LoginName: OWNER } } });
-    const tagged = JSON.stringify({ BackendState: "Running", Self: { UserID: 7 }, Peer: { node: { UserID: 7, Tags: ["tag:server"] } }, User: { "7": { LoginName: OWNER } } });
-    await forgetTailscaleIdentity();
-    rememberTailnetStatus(sole);
-    setTailnetStatusReader(async () => tagged);
-    const serveOnly = createServer({ port: 0, stateDir: state, tailscaleServeOnly: true });
+    const NODE = "stale-pc.example.ts.net";
+    const self = { DNSName: `${NODE}.`, TailscaleIPs: ["100.101.102.103"], UserID: 7 };
+    const sole = JSON.stringify({ BackendState: "Running", Self: self, User: { "7": { LoginName: OWNER } } });
+    const tagged = JSON.stringify({ BackendState: "Running", Self: self, Peer: { node: { UserID: 7, Tags: ["tag:server"] } }, User: { "7": { LoginName: OWNER } } });
+    let read = 0;
+    const tailnet = new TailnetIdentitySource(() => Promise.resolve(read++ === 0 ? sole : tagged));
+    await tailnet.freshIdentity(NODE);
+    const serveOnly = createServer({ port: 0, stateDir: state, tailscaleServeOnly: true, tailnet });
     try {
-      const auth = ((await (await fetch(`http://127.0.0.1:${serveOnly.port}/api/health?scope=bridge`, { headers: proxied() })).json()) as { auth: HealthAuth }).auth;
+      const auth = ((await (await fetch(`http://127.0.0.1:${serveOnly.port}/api/health?scope=bridge`, { headers: { ...proxied(), host: NODE } })).json()) as { auth: HealthAuth }).auth;
       expect(auth).toMatchObject({ authenticated: false, reason: "pairing_required" });
     } finally {
       serveOnly.stop();
-      setTailnetStatusReader(null);
-      await forgetTailscaleIdentity();
       if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
       rmSync(state, { recursive: true, force: true });
     }

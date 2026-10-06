@@ -1,6 +1,6 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import { decideAccess, type AccessInput } from "./access.ts";
-import { forgetTailscaleIdentity, freshTailscaleIdentity, parseSoleTailnetLogin, parseTailscale, parseTailscaleIp, rememberTailnetStatus, setTailnetStatusReader } from "./tailscale.ts";
+import { parseSoleTailnetLogin, parseTailscale, parseTailscaleIp, TailnetIdentitySource, type TailnetIdentity } from "./tailscale.ts";
 
 const status = (state = "Running", dns = "pc.example.ts.net.") => JSON.stringify({ BackendState: state, Self: { DNSName: dns } });
 /** a `tailscale serve status --json` document: listeners by port, and one "/" proxy per host:port */
@@ -42,49 +42,52 @@ describe("parseSoleTailnetLogin", () => {
 
 /** the access decision for a no-login request that `tailscale serve` forwarded, with the operator's serve-only switch on */
 const HOST = "pc.example.ts.net";
-const serveRequest = (identity: Awaited<ReturnType<typeof freshTailscaleIdentity>>, host: string | null = HOST) => {
+const serveRequest = (identity: TailnetIdentity, host: string | null = HOST) => {
   const input: AccessInput = { loopback: true, forwarded: true, funnel: false, tailscaleLogin: null, host, tokenMatched: false, device: null, ...identity, serveOnly: true, tokenConfigured: false, gated: false };
   const access = decideAccess(input);
   return access.level === "full" ? access.via : `refused:${access.reason}`;
 };
 
-/** warms the identity cache with `status` (none, when undefined), moves the clock `minutesAgo` past that read, and answers reads with `read` */
-async function withCachedStatus(status: string | null | undefined, minutesAgo: number, read: () => Promise<string | null>, body: () => Promise<void>): Promise<void> {
-  await forgetTailscaleIdentity();
-  if (status !== undefined) rememberTailnetStatus(status);
+/** a source whose cache holds `status` (none, when undefined) as read `minutesAgo` minutes ago, and whose reads from then on answer `read` */
+async function withCachedStatus(status: string | null | undefined, minutesAgo: number, read: () => Promise<string | null>, body: (source: TailnetIdentitySource) => Promise<void>): Promise<void> {
+  let warm = status !== undefined ? status : null;
+  const source = new TailnetIdentitySource(async () => {
+    if (warm !== null) { const first = warm; warm = null; return first; }
+    return read();
+  });
+  if (status !== undefined) await source.freshIdentity(null);
   const start = Date.now();
   const clock = spyOn(Date, "now").mockImplementation(() => start + minutesAgo * 60_000);
-  setTailnetStatusReader(read);
-  try { await body(); } finally { clock.mockRestore(); setTailnetStatusReader(null); await forgetTailscaleIdentity(); }
+  try { await body(source); } finally { clock.mockRestore(); }
 }
 
-describe("freshTailscaleIdentity", () => {
+describe("freshIdentity", () => {
   it("refuses the owner's grant once a node is tagged, even inside the cache's TTL", async () => {
     for (const minutesAgo of [2, 6]) {
-      await withCachedStatus(tailnet([42, undefined]), minutesAgo, async () => tailnet([42, undefined], [[42, ["tag:server"]]]), async () => {
-        expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("refused:pairing_required");
+      await withCachedStatus(tailnet([42, undefined]), minutesAgo, async () => tailnet([42, undefined], [[42, ["tag:server"]]]), async (source) => {
+        expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
       });
     }
   });
 
   it("grants the owner when the fresh read proves one login owns the tailnet, from a warm sole cache or an empty one", async () => {
     for (const status of [tailnet([42, undefined]), undefined]) {
-      await withCachedStatus(status, 2, async () => tailnet([42, undefined]), async () => {
-        expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("tailscale");
+      await withCachedStatus(status, 2, async () => tailnet([42, undefined]), async (source) => {
+        expect(serveRequest(await source.freshIdentity(HOST))).toBe("tailscale");
       });
     }
   });
 
   it("withdraws the sole-login proof when the fresh read fails, and keeps pairing the stranger", async () => {
-    await withCachedStatus(tailnet([42, undefined]), 2, async () => null, async () => {
-      expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("refused:pairing_required");
+    await withCachedStatus(tailnet([42, undefined]), 2, async () => null, async (source) => {
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
     });
   });
 
   it("shares one status read among concurrent owner grants", async () => {
     let reads = 0;
-    await withCachedStatus(tailnet([42, undefined]), 0, async () => { reads += 1; await new Promise((done) => setTimeout(done, 5)); return tailnet([42, undefined]); }, async () => {
-      const identities = await Promise.all([1, 2, 3, 4, 5].map(() => freshTailscaleIdentity(HOST)));
+    await withCachedStatus(tailnet([42, undefined]), 0, async () => { reads += 1; await new Promise((done) => setTimeout(done, 5)); return tailnet([42, undefined]); }, async (source) => {
+      const identities = await Promise.all([1, 2, 3, 4, 5].map(() => source.freshIdentity(HOST)));
       expect(identities.map((identity) => serveRequest(identity))).toEqual(["tailscale", "tailscale", "tailscale", "tailscale", "tailscale"]);
       expect(reads).toBe(1);
     });
@@ -92,9 +95,24 @@ describe("freshTailscaleIdentity", () => {
 
   it("reads once for a tagged node's first request, and its later polls pair without reading", async () => {
     let reads = 0;
-    await withCachedStatus(tailnet([42, undefined]), 0, async () => { reads += 1; return tailnet([42, undefined], [[42, ["tag:server"]]]); }, async () => {
-      expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("refused:pairing_required");
-      expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("refused:pairing_required");
+    await withCachedStatus(tailnet([42, undefined]), 0, async () => { reads += 1; return tailnet([42, undefined], [[42, ["tag:server"]]]); }, async (source) => {
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
+      expect(reads).toBe(1);
+    });
+  });
+
+  it("reads again after a status the daemon had not finished writing, so a Mac that wakes grants on its next request", async () => {
+    await withCachedStatus(tailnet([42, undefined], [], "Starting"), 2, async () => tailnet([42, undefined]), async (source) => {
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("tailscale");
+    });
+  });
+
+  it("keeps a negative a settled status itself states, once the daemon finished coming up", async () => {
+    let reads = 0;
+    await withCachedStatus(tailnet([42, undefined], [], "Starting"), 2, async () => { reads += 1; return tailnet([42, undefined], [[42, ["tag:server"]]]); }, async (source) => {
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
       expect(reads).toBe(1);
     });
   });
@@ -103,25 +121,25 @@ describe("freshTailscaleIdentity", () => {
 describe("the owner's grant read, by Host and by outcome", () => {
   it("answers a request addressed to another name from the cache, without reading the status", async () => {
     let reads = 0;
-    await withCachedStatus(tailnet([42, undefined]), 0, async () => { reads += 1; return tailnet([42, undefined]); }, async () => {
-      expect(serveRequest(await freshTailscaleIdentity("evil.example"), "evil.example")).toBe("refused:pairing_required");
+    await withCachedStatus(tailnet([42, undefined]), 0, async () => { reads += 1; return tailnet([42, undefined]); }, async (source) => {
+      expect(serveRequest(await source.freshIdentity("evil.example"), "evil.example")).toBe("refused:pairing_required");
       expect(reads).toBe(0);
     });
   });
 
   it("grants on the read after a failed one, and pairs while the read before it failed", async () => {
     let call = 0;
-    await withCachedStatus(tailnet([42, undefined]), 0, async () => (call += 1) === 1 ? null : tailnet([42, undefined]), async () => {
-      expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("refused:pairing_required");
-      expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("tailscale");
+    await withCachedStatus(tailnet([42, undefined]), 0, async () => (call += 1) === 1 ? null : tailnet([42, undefined]), async (source) => {
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("tailscale");
     });
   });
 
   it("pairs on the retry when the read after a failed one finds a node tagged", async () => {
     let call = 0;
-    await withCachedStatus(tailnet([42, undefined]), 0, async () => (call += 1) === 1 ? null : tailnet([42, undefined], [[42, ["tag:server"]]]), async () => {
-      expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("refused:pairing_required");
-      expect(serveRequest(await freshTailscaleIdentity(HOST))).toBe("refused:pairing_required");
+    await withCachedStatus(tailnet([42, undefined]), 0, async () => (call += 1) === 1 ? null : tailnet([42, undefined], [[42, ["tag:server"]]]), async (source) => {
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
+      expect(serveRequest(await source.freshIdentity(HOST))).toBe("refused:pairing_required");
       expect(call).toBe(2);
     });
   });

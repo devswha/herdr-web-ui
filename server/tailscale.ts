@@ -127,17 +127,28 @@ export function parseTailscaleOwner(status: string | null): string | null {
  * null: the proof has to be positive, never the benefit of the doubt.
  */
 export function parseSoleTailnetLogin(status: string | null): string | null {
+  return readSoleLogin(status).login;
+}
+
+/**
+ * `parseSoleTailnetLogin`'s proof together with what the status settles for good: a Running status
+ * that names this PC's user states whether one login owns the tailnet - the login above, or a tag
+ * or a second login against it. A daemon still coming up, a status that names no user for this
+ * PC, or one that names no login for a tailnet it would prove, leaves the question open instead.
+ */
+function readSoleLogin(status: string | null): { login: string | null; settled: boolean } {
   const parsed = parseJson<StatusJson>(status);
-  if (parsed === null || parsed.BackendState !== "Running") return null;
+  if (parsed === null || parsed.BackendState !== "Running") return { login: null, settled: false };
   const self = parsed.Self;
-  if (self === undefined) return null;
+  if (self === undefined || self.UserID === undefined || self.UserID === null) return { login: null, settled: false };
   const owner = self.UserID;
-  if (owner === undefined || owner === null) return null;
   // offline peers count: they are nodes of this tailnet and can come back at any moment
   const nodes: NodeJson[] = [self, ...Object.values(parsed.Peer ?? {})];
   const sole = nodes.every((node) => (node.Tags?.length ?? 0) === 0
     && node.UserID !== undefined && node.UserID !== null && String(node.UserID) === String(owner));
-  return sole ? parsed.User?.[String(owner)]?.LoginName || null : null;
+  if (!sole) return { login: null, settled: true };
+  const login = parsed.User?.[String(owner)]?.LoginName || null;
+  return { login, settled: login !== null };
 }
 
 /** This PC's IPv4 address on the tailnet (100.x.y.z), from `tailscale status --json`; null when it has none. */
@@ -159,92 +170,92 @@ export interface TailnetIdentity {
 }
 
 const OWNER_TTL_MS = 5 * 60_000;
-let ownerCache: (TailnetIdentity & { at: number; unreadable: boolean }) | null = null;
-let ownerRefresh: Promise<void> | null = null;
-
-/** Keeps what `tailscale status --json` says about this PC and its tailnet, as `tailscaleIdentity` reads it. */
-export function rememberTailnetStatus(status: string | null): void {
-  ownerCache = {
-    owner: parseTailscaleOwner(status),
-    tagged: isTaggedNode(status),
-    soleLogin: parseSoleTailnetLogin(status),
-    dnsName: parseNodeName(status),
-    tailnetIp: parseTailscaleIp(status),
-    unreadable: false,
-    at: Date.now(),
-  };
-}
-
-/** Tests: drops what was remembered, once any lookup in flight has landed. */
-export async function forgetTailscaleIdentity(): Promise<void> {
-  await ownerRefresh;
-  ownerCache = null;
-}
 
 const cliStatus = async (): Promise<string | null> => {
   const binary = tailscaleBinary();
   return binary === null ? null : run(binary, ["status", "--json"]);
 };
-let readStatus = cliStatus;
-
-/** Tests: supplies the status text in place of the tailscale CLI; null restores the CLI. */
-export function setTailnetStatusReader(read: (() => Promise<string | null>) | null): void {
-  readStatus = read ?? cliStatus;
-}
 
 /**
- * A read that failed is an unknown, not a finding: the owner it last named stands, the sole-login
- * proof is withdrawn, and the identity is marked unreadable, so the next grant-path request reads
- * again at once instead of waiting out the TTL. Readers that do not grant keep the TTL as before.
+ * What `tailscale status --json` says about this PC and its tailnet, read through `readStatus` and
+ * kept five minutes. `identity` answers every reader that does not grant from the cache, refreshing
+ * a stale value in the background, so those readers never wait on the tailscale CLI; the first
+ * lookup is what `createServer` starts. `freshIdentity` is the owner's grant path, the one reader
+ * that waits for a read, shared with any read already in flight.
  */
-async function readIdentity(): Promise<void> {
-  const status = await readStatus();
-  if (status === null) {
-    ownerCache = {
-      owner: ownerCache?.owner ?? null,
-      tagged: ownerCache?.tagged ?? false,
-      soleLogin: null,
-      dnsName: ownerCache?.dnsName ?? null,
-      tailnetIp: ownerCache?.tailnetIp ?? null,
-      unreadable: true,
+export class TailnetIdentitySource {
+  /** the last read's answer and when it landed; null until the first read lands */
+  private cache: (TailnetIdentity & { at: number; settled: boolean }) | null = null;
+  /** the read in flight, so concurrent grants share one bounded read */
+  private reading: Promise<void> | null = null;
+
+  constructor(private readonly readStatus: () => Promise<string | null> = cliStatus) {}
+
+  /**
+   * A read that failed, or one whose status leaves the sole-login question open, keeps what the
+   * last read said about this PC, withdraws the sole-login proof, and marks the cache unsettled,
+   * so the next grant-path request reads again at once instead of waiting out the TTL. A status
+   * that states the answer for good - one login's tailnet, or a tag or a second login against it
+   * - stands for the TTL. Readers that do not grant keep the TTL as before.
+   */
+  private async read(): Promise<void> {
+    const status = await this.readStatus();
+    if (status === null) {
+      this.cache = {
+        owner: this.cache?.owner ?? null,
+        tagged: this.cache?.tagged ?? false,
+        soleLogin: null,
+        dnsName: this.cache?.dnsName ?? null,
+        tailnetIp: this.cache?.tailnetIp ?? null,
+        settled: false,
+        at: Date.now(),
+      };
+      return;
+    }
+    const sole = readSoleLogin(status);
+    this.cache = {
+      owner: parseTailscaleOwner(status),
+      tagged: isTaggedNode(status),
+      soleLogin: sole.login,
+      dnsName: parseNodeName(status),
+      tailnetIp: parseTailscaleIp(status),
+      settled: sole.settled,
       at: Date.now(),
     };
-  } else rememberTailnetStatus(status);
-}
+  }
 
-function refreshIdentity(): Promise<void> {
-  ownerRefresh ??= readIdentity().finally(() => { ownerRefresh = null; });
-  return ownerRefresh;
-}
+  private refresh(): Promise<void> {
+    this.reading ??= this.read().finally(() => { this.reading = null; });
+    return this.reading;
+  }
 
-/**
- * The PC's own Tailscale login, or that its node is tagged and has none, and the one login that
- * owns this whole tailnet (`parseSoleTailnetLogin`), cached five minutes. A stale value is answered
- * at once and refreshed in the background, so these readers never wait on the tailscale CLI; the
- * first lookup is what `createServer` starts. Only the owner's grant path (`freshTailscaleIdentity`)
- * waits, for one bounded read shared with any read in flight.
- */
-export function tailscaleIdentity(): TailnetIdentity {
-  if (ownerCache === null || Date.now() - ownerCache.at >= OWNER_TTL_MS) void refreshIdentity();
-  return {
-    owner: ownerCache?.owner ?? null,
-    tagged: ownerCache?.tagged ?? false,
-    soleLogin: ownerCache?.soleLogin ?? null,
-    dnsName: ownerCache?.dnsName ?? null,
-    tailnetIp: ownerCache?.tailnetIp ?? null,
-  };
-}
+  /**
+   * The PC's own Tailscale login, or that its node is tagged and has none, and the one login that
+   * owns this whole tailnet (`parseSoleTailnetLogin`), cached five minutes. A stale value is
+   * answered at once and refreshed in the background.
+   */
+  identity(): TailnetIdentity {
+    if (this.cache === null || Date.now() - this.cache.at >= OWNER_TTL_MS) void this.refresh();
+    return {
+      owner: this.cache?.owner ?? null,
+      tagged: this.cache?.tagged ?? false,
+      soleLogin: this.cache?.soleLogin ?? null,
+      dnsName: this.cache?.dnsName ?? null,
+      tailnetIp: this.cache?.tailnetIp ?? null,
+    };
+  }
 
-/**
- * `tailscaleIdentity` for a request the owner's sole-login proof would admit. A cache that already
- * says a node is tagged, that the tailnet is not one login's, or that this Host is not this PC's name
- * answers at once and grants nothing. Otherwise this waits for one status read, shared with any read
- * in flight and bounded by the read's own timeout, so the grant never rests on a warm cache. A failed
- * read leaves no sole-login proof, and the next request reads again.
- */
-export async function freshTailscaleIdentity(host: string | null): Promise<TailnetIdentity> {
-  const cached = tailscaleIdentity();
-  if (ownerCache !== null && !ownerCache.unreadable && (ownerCache.soleLogin === null || !addressesNode({ host, dnsName: ownerCache.dnsName, tailnetIp: ownerCache.tailnetIp }))) return cached;
-  await refreshIdentity();
-  return tailscaleIdentity();
+  /**
+   * `identity` for a request the owner's sole-login proof would admit. A cache that already says
+   * a node is tagged, that the tailnet is not one login's, or that this Host is not this PC's name
+   * answers at once and grants nothing. Otherwise this waits for one status read, shared with any
+   * read in flight and bounded by the read's own timeout, so the grant never rests on a warm cache.
+   * A read that fails, or leaves the question open, grants nothing and is read again next request.
+   */
+  async freshIdentity(host: string | null): Promise<TailnetIdentity> {
+    const cached = this.identity();
+    if (this.cache !== null && this.cache.settled && (this.cache.soleLogin === null || !addressesNode({ host, dnsName: this.cache.dnsName, tailnetIp: this.cache.tailnetIp }))) return cached;
+    await this.refresh();
+    return this.identity();
+  }
 }
