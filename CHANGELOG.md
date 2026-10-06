@@ -22,6 +22,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the arrows and Ctrl+C stay as they were. ([#487](https://github.com/devswha/herdr-web-ui/pull/487))
 
 ### Fixed
+- A tab strip you scrolled yourself to look at other tabs stays where you left it when a
+  typeface arrives late and redraws the tabs' names at another width. Before, the strip
+  brought the open tab back into view then; it still does so until you have scrolled it.
+  ([#479](https://github.com/devswha/herdr-web-ui/pull/479))
 - On macOS, a gjc pane's chat finds its session from the terminal breadcrumb gjc leaves. Before,
   the process start time it is matched by was read as UTC, so on any other time zone every fresh
   breadcrumb looked hours old and was passed over. Process start times, which Codex, OmO and gjc
@@ -77,11 +81,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   everything) on a looser line; bold is a semibold; inline code sits a little under its line and
   code blocks are a step larger with more room; the message box is typed at the same size with
   a mouse and stays 16px on touch; the empty chat's question is a larger line. Tool rows, times
-  and other small labels keep their size. A typeface that arrives late redraws the tabs' names
-  at another width, and the tab strip then brings the open tab back into view, unless you have
-  scrolled the strip yourself to look at other tabs: it stays where you left it until you open
-  a tab.
-  ([#473](https://github.com/devswha/herdr-web-ui/pull/473), [#479](https://github.com/devswha/herdr-web-ui/pull/479))
+  and other small labels keep their size.
+  ([#473](https://github.com/devswha/herdr-web-ui/pull/473))
 - In the chat's message box the agent's mark, the model, the reasoning level and the context
   ring sit together in one quiet pill, and the model is shown by its name where the id is a
   regular one: `claude-opus-5-5` reads **Opus 5.5**, `claude-sonnet-5` **Sonnet 5**, `gpt-5.6`
