@@ -9,7 +9,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://devswha.github.io/herdr-web-ui/" />
     <meta property="og:title" content="herdr web ui: Claude Code and Codex from your phone" />
-    <meta property="og:description" content="Your agents, in plain conversation. Claude Code and Codex on your desktop and your phone, through a browser and phone client for herdr." />
+    <meta property="og:description" content="Run herdr from anywhere. Claude Code and Codex on your desktop and your phone, through a browser and phone client for herdr." />
     <meta property="og:image" content="https://devswha.github.io/herdr-web-ui/assets/social-preview.png" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
@@ -201,8 +201,8 @@
       .ev .opt { display: block; margin-top: 6px; padding: 5px 10px; border: 1px solid var(--line2); color: var(--dim); }
       .ev .opt.on { border-color: var(--spot); background: var(--spot-tint); color: var(--ink); }
       .ev .opt i { font-style: normal; color: var(--faint); margin-right: 8px; }
-      .keys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-      .keys kbd { padding: 3px 8px; border: 1px solid var(--line2); background: var(--raise); color: var(--ink); font-size: 11.5px; }
+      .keys { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+      .keys kbd { padding: 3px 6px; border: 1px solid var(--line2); background: var(--raise); color: var(--ink); font-size: 11.5px; }
       @media (max-width: 900px) {
         .row { grid-template-columns: minmax(0, 1fr); gap: 14px; }
         .row .n { font-size: 34px; }
@@ -334,11 +334,11 @@
       <section class="hero" aria-labelledby="hero-title">
         <span class="mark mascot" aria-hidden="true"></span>
         <div class="eyebrow caps"><s></s>a herdr plugin</div>
-        <h1 id="hero-title">Your agents, in<br /> <em>plain conversation.</em></h1>
+        <h1 id="hero-title">Run herdr<br /> <em>from anywhere.</em></h1>
         <p class="lede">On your desktop and your phone. A browser and phone client for <a href="https://herdr.dev">herdr</a>: open the sessions you already run, read what your agents are doing, and <b>answer them from wherever you are.</b></p>
         <div class="cmd"><code>curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh</code><button type="button" class="copy caps" data-copy="curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh">Copy</button></div>
         <div class="hero-meta">
-          <p>Linux · macOS · herdr 0.9.0+ · MIT — <a href="#install">plugin only, or from a checkout →</a></p>
+          <p>Linux · macOS · Windows · herdr 0.9.0+ · MIT — <a href="#install">plugin only, or from a checkout →</a></p>
           <a class="news" href="demo/"><span class="tag caps">Demo</span>Try it in your browser first<span class="arw" aria-hidden="true">→</span></a>
         </div>
       </section>
@@ -352,13 +352,13 @@
           <b>v{{version}}</b>
           <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM4 19h16v2H4z"/></svg>latest release</span>
         </a>
-        <a class="stat" href="https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#supported-agents">
-          <b>6</b>
-          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v11H9l-4 4v-4H3zm4 4v2h10V9zm0 3v2h7v-2z"/></svg>native transcripts</span>
+        <a class="stat" href="https://github.com/devswha/herdr-web-ui/graphs/contributors">
+          <b>{{contributors}}</b>
+          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9c0-3.3 3.1-6 7-6s7 2.7 7 6zm15-9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm1 9v-1c0-1.7-.7-3.2-1.8-4.3 2.7.3 4.8 2.3 4.8 5.3z"/></svg>contributors</span>
         </a>
-        <a class="stat" href="https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#access-and-safety">
-          <b>0</b>
-          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 3v6c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V5zm-1 13.4l6-6-1.4-1.4-4.6 4.6-2.1-2.1L7.5 12z"/></svg>accounts to create</span>
+        <a class="stat" href="https://herdr.dev/plugins/" title="Repositories ranked by GitHub stars in herdr's plugin index">
+          <b>{{plugin_rank}}</b>
+          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h4v8H4zm6-10h4v18h-4zm6 6h4v12h-4z"/></svg>of {{plugin_repo_count}} plugin repos</span>
         </a>
       </section>
 
@@ -383,13 +383,13 @@
           <div class="n">01</div>
           <div>
             <h3>Chat and terminal, one pane.<span class="arw" aria-hidden="true">→</span></h3>
-            <p>Native Claude Code, Codex, omp, omo and gjc transcripts, with the live terminal a click away. The chat is built from the agent's own session file, not from screen text, and each turn's commands and edits fold into one block.</p>
+            <p>Native Claude Code, Codex, omp, omo, gjc and pi transcripts, with the live terminal a click away. The chat is built from the agent's own session file, not from screen text, and each turn's commands and edits fold into one block.</p>
           </div>
           <div class="ev" aria-hidden="true">
             <div class="seg"><span class="on">chat</span><span>terminal</span></div>
             <div class="ev-row"><span>claude</span><b>native transcript</b></div>
             <div class="ev-row"><span>codex</span><b>native rollout</b></div>
-            <div class="ev-row"><span>omp · omo · gjc</span><b>session file</b></div>
+            <div class="ev-row"><span>omp · omo · gjc · pi</span><b>session file</b></div>
             <div class="ev-row"><span>anything else</span><b>terminal text</b></div>
           </div>
         </a>
@@ -411,7 +411,7 @@
           <div class="n">03</div>
           <div>
             <h3>Know when you're needed.<span class="arw" aria-hidden="true">→</span></h3>
-            <p>Live status for every pane, and push alerts when an agent needs input or finishes, even with the app closed.</p>
+            <p>Live status for every pane, an alert that drops in while the app is open, and push alerts when an agent needs input or finishes, even with the app closed.</p>
           </div>
           <div class="ev" aria-hidden="true">
             <div class="ev-row"><span>Guard the export button</span><b><i class="dot blocked"></i>needs input</b></div>
@@ -425,11 +425,11 @@
           <div class="n">04</div>
           <div>
             <h3>Install it on your phone.<span class="arw" aria-hidden="true">→</span></h3>
-            <p>A PWA with Esc, Tab, Ctrl and arrows above the keyboard, and a QR code to your Tailscale address. Your own Tailscale devices get in as you; any other device is paired once with a code.</p>
+            <p>A PWA with Esc, Tab, Ctrl, Alt and arrows above the keyboard, and a QR code to your Tailscale address. Your own Tailscale devices get in as you; any other device is paired once with a code.</p>
           </div>
           <div class="ev" aria-hidden="true">
             <div class="cmdline">tailscale serve --bg --https=443 http://127.0.0.1:7317</div>
-            <div class="keys"><kbd>esc</kbd><kbd>tab</kbd><kbd>ctrl</kbd><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd><kbd>^C</kbd></div>
+            <div class="keys"><kbd>esc</kbd><kbd>tab</kbd><kbd>ctrl</kbd><kbd>alt</kbd><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd><kbd>^C</kbd></div>
           </div>
         </a>
         <a class="row" href="https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#how-it-works">
@@ -442,6 +442,18 @@
             <div class="ev-row"><span>herdr</span><b><i class="dot done"></i>owns every pty</b></div>
             <div class="ev-row"><span>herdr web ui</span><b>herdr terminal attach</b></div>
             <div class="ev-note">listens on 127.0.0.1 · updates roll back on a failed health check</div>
+          </div>
+        </a>
+        <a class="row" href="https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#voice-input">
+          <div class="n">06</div>
+          <div>
+            <h3>Speak instead of typing.<span class="arw" aria-hidden="true">→</span></h3>
+            <p>Dictate into the chat or the terminal line, Korean and English mixed. Review the words before sending them to the agent; transcription uses your own OpenAI key or the browser's speech recognition.</p>
+          </div>
+          <div class="ev" aria-hidden="true">
+            <div class="ev-row"><span>hold the mic</span><b><i class="dot working"></i>recording 0:04</b></div>
+            <div class="q">테스트 다시 돌리고, fix the flaky one</div>
+            <div class="ev-note">goes in at the caret · never sent by itself</div>
           </div>
         </a>
       </section>
@@ -521,8 +533,8 @@
                 <th scope="row">Runs as</th>
                 <td class="us" data-client="herdr web ui">A herdr plugin. herdr builds it, starts it and it updates itself.</td>
                 <td data-client="collie">Its own bridge, from a curl installer or as a herdr plugin.</td>
-                <td data-client="roamgate">Its own server, from a curl installer.</td>
-                <td data-client="herdr-remote">A macOS menu-bar app, plus a Python relay for the phone.</td>
+                <td data-client="roamgate">Its own server, from a curl installer or as a herdr plugin.</td>
+                <td data-client="herdr-remote">A macOS menu-bar or Windows tray app, plus a Python relay for the phone.</td>
               </tr>
               <tr>
                 <th scope="row">Drives</th>
@@ -540,36 +552,36 @@
               </tr>
               <tr>
                 <th scope="row">Answering</th>
-                <td class="us" data-client="herdr web ui">Prompt cards checked against the live menu, or the terminal.</td>
+                <td class="us" data-client="herdr web ui">Prompt cards checked against the live menu, or the terminal. Dictation into either.</td>
                 <td data-client="collie">Prompts as tappable buttons, quick replies, voice input.</td>
-                <td class="dim" data-client="roamgate">Not in its docs</td>
+                <td data-client="roamgate">Typed into the terminal, from a composer or as direct keys.</td>
                 <td data-client="herdr-remote">One-tap approvals from the phone, the menu bar or Telegram.</td>
               </tr>
               <tr>
                 <th scope="row">Reaching your phone</th>
                 <td class="us" data-client="herdr web ui">Your Tailscale, SSH tunnel or HTTPS proxy. Your Tailscale login gets in; other devices are paired with a code.</td>
                 <td data-client="collie">Tailscale serve, or your own ingress.</td>
-                <td data-client="roamgate">Its own server on your LAN with a token, native HTTPS, web push.</td>
-                <td data-client="herdr-remote">A free Cloudflare tunnel, and Telegram.</td>
+                <td data-client="roamgate">Tailscale Serve, SSH forwarding or native HTTPS, behind a token or password. Web push.</td>
+                <td data-client="herdr-remote">A free Cloudflare tunnel, Telegram, web push.</td>
               </tr>
               <tr>
                 <th scope="row">Other machines</th>
-                <td class="us" data-client="herdr web ui">Linux and macOS PCs over SSH, added from the sidebar.</td>
+                <td class="us" data-client="herdr web ui">Linux, macOS and Windows PCs over SSH, added from Settings.</td>
                 <td data-client="collie">Crews: one collie per machine behind one URL.</td>
-                <td class="dim" data-client="roamgate">Not in its docs</td>
+                <td data-client="roamgate">SSH profiles to herdr on other Linux and macOS hosts.</td>
                 <td data-client="herdr-remote">The relay collects several machines.</td>
               </tr>
               <tr>
                 <th scope="row">Also</th>
                 <td class="us" data-client="herdr web ui">A viewer for the files agents make, web push, remote-PC bridges kept current with the app.</td>
-                <td data-client="collie">Six UI languages, device pairing, output search.</td>
-                <td data-client="roamgate">A file explorer with diff annotations, and it can install herdr for you.</td>
-                <td data-client="herdr-remote">A daily digest, a TUI, Windows support.</td>
+                <td data-client="collie">Six UI languages, device pairing, output search, a read-only view of changes.</td>
+                <td data-client="roamgate">A file explorer with diff annotations, the Ranger assistant, and it can install herdr for you.</td>
+                <td data-client="herdr-remote">A daily digest, a TUI, a notch panel on a MacBook.</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="legend">Read as of September 2026. If you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit.</p>
+        <p class="legend">Read as of October 2026. If you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit.</p>
       </section>
 
       <section class="faq" id="faq" aria-labelledby="faq-title">
@@ -612,9 +624,10 @@
 
       <section class="end" id="install" aria-labelledby="install-title">
         <div>
-          <h2 id="install-title">Answer them from wherever you are.</h2>
+          <h2 id="install-title">Take herdr with you.</h2>
           <p>Linux (x64, arm64) or macOS. It installs what is missing (herdr 0.9.0+, Bun 1.4+, Node 18+) for your user, then the app as a herdr plugin. With Tailscale running, it ends on a QR code for your phone.</p>
           <div class="cmd"><code>curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh</code><button type="button" class="copy caps" data-copy="curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh">Copy</button></div>
+          <p class="after">Windows x64, in PowerShell: <code>irm https://devswha.github.io/herdr-web-ui/install.ps1 | iex</code><br />It needs Git for Windows, and terminals there use the <a href="https://github.com/devswha/herdr-web-ui/blob/main/docs/remote-pcs.md#windows-pcs">screen mirror</a>.</p>
           <p class="after">Have herdr, Bun and Node already? <code>herdr plugin install devswha/herdr-web-ui</code><br />Then open <code>http://localhost:7317</code>. It starts with herdr from then on.<br /><a href="https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#quick-start">run it from a checkout</a> · <a href="https://github.com/devswha/herdr-web-ui/blob/main/INSTALL.md">INSTALL.md for a coding agent</a> · <a href="https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#access-and-safety">access and safety →</a></p>
         </div>
         <figure>

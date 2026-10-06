@@ -1904,6 +1904,441 @@ ${MODEL_HINT}
   });
 });
 
+// Claude Code 2.1.290 running /model in a pane of its own, captured at 120 columns, at 46 by 40
+// and at 46 by 24. The list held twelve models; the twelfth was never drawn in a capture, so
+// the fixtures that draw a window stop at the eleventh and count it.
+const CLAUDE_MODELS: [name: string, said: string][] = [
+  ["Default (recommended)", "Fable 5.1"], ["Opus 5.5", "For complex work and everyday tasks"], ["Fable 5.1", "For your toughest challenges"],
+  ["Sonnet 5.5", "Most efficient for simpler tasks"], ["Haiku 4.5", "Fastest for quick answers"], ["Sonnet 5", "Efficient for routine tasks"],
+  ["Opus 5", "Best for everyday, complex tasks"], ["Fable 5", "Most capable for your hardest and longest-running tasks"],
+  ["Opus 4.8", "Best for everyday, complex tasks"], ["Opus 4.7", "Best for everyday, complex tasks"], ["Opus 4.6", "Best for everyday, complex tasks"],
+];
+const CLAUDE_MODEL_HINT = "  Enter to set as default · s to use this session only · Esc to cancel";
+/** after Esc in the terminal: Claude says what it kept and has its input box back */
+const CLAUDE_MODEL_CLOSED = `❯ /model\n  ⎿  Kept model as Opus 5.5\n\n${"─".repeat(60)}\n❯ \n${"─".repeat(60)}\n  [Opus 5.5] │ app git:(main)\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n`;
+/**
+ * The list as a wide pane shows it: `shown` rows from row `from`, the cursor on row `at`, `✔` on
+ * the second. The cursor's column holds `↑` or `↓` on the window's first and last row when the
+ * list goes on beyond it, and the effort line under the rows follows the cursor.
+ */
+function claudeModelList(at: number, from = 0, shown = 10, hint = CLAUDE_MODEL_HINT): string {
+  const window = CLAUDE_MODELS.slice(from, from + shown);
+  const below = 12 - from - window.length;
+  const rows = window.map(([name, said], index) => {
+    const row = from + index;
+    const mark = row === at ? "❯" : index === 0 && from > 0 ? "↑" : index === window.length - 1 && below > 0 ? "↓" : " ";
+    return `  ${mark} ${`${row + 1}.`.padEnd(3)} ${`${name}${row === 1 ? " ✔" : ""}`.padEnd(21)}  ${said}`;
+  });
+  return [
+    "❯ /model", "", "─".repeat(120), "  Select model",
+    "  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names,",
+    "  specify with --model.", "", ...rows, ...(below > 0 ? [`     … +${below} model${below === 1 ? "" : "s"}`] : []), "",
+    at === 4 ? "  ○ Effort not supported for Haiku 4.5" : at === 2 ? "  ● High effort (default) ←/→ to adjust" : "  ◐ Medium effort (default) ←/→ to adjust",
+    "", hint, "",
+  ].join("\n");
+}
+
+describe("Claude Code's model list", () => {
+  test("reads the rows it draws, naming the model in use and counting the ones it holds back", () => {
+    // the capture itself, so that the drawing above is checked against what Claude drew
+    const captured = `❯ /model
+
+${"─".repeat(120)}
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names,
+  specify with --model.
+
+    1.  Default (recommended)  Fable 5.1
+  ❯ 2.  Opus 5.5 ✔             For complex work and everyday tasks
+    3.  Fable 5.1              For your toughest challenges
+    4.  Sonnet 5.5             Most efficient for simpler tasks
+    5.  Haiku 4.5              Fastest for quick answers
+    6.  Sonnet 5               Efficient for routine tasks
+    7.  Opus 5                 Best for everyday, complex tasks
+    8.  Fable 5                Most capable for your hardest and longest-running tasks
+    9.  Opus 4.8               Best for everyday, complex tasks
+  ↓ 10. Opus 4.7               Best for everyday, complex tasks
+     … +2 models
+
+  ◐ Medium effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this session only · Esc to cancel
+`;
+    expect(claudeModelList(1)).toBe(captured);
+    const prompt = parseInteractivePrompt("claude", captured)!;
+    expect(prompt).toMatchObject({ agent: "claude", kind: "question", title: "", body: null, multi_select: false, custom_option_index: null });
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 2 more models are listed in the terminal.");
+    expect(prompt.options).toEqual(CLAUDE_MODELS.slice(0, 10).map(([label, description]) => ({ label, description })));
+    // herdr reports the pane idle while the list waits: no other agent's reader takes it for its own
+    for (const agent of ["codex", "omp", "pi", "omo", ""]) expect(parseInteractivePrompt(agent, captured)).toBeNull();
+  });
+
+  test("is one card wherever the cursor stands, whatever effort the row under it would run at", () => {
+    const first = parseInteractivePrompt("claude", claudeModelList(1))!;
+    for (const at of [0, 2, 4, 9]) expect(parseInteractivePrompt("claude", claudeModelList(at))!.id).toBe(first.id);
+  });
+
+  test("reads a window further down the list, and the last row with the cursor on it", () => {
+    // nine ↓ from the second row: the window has moved one row down, `↑` on its first
+    const scrolled = claudeModelList(10, 1);
+    expect(scrolled).toContain("  ↑ 2.  Opus 5.5 ✔             For complex work and everyday tasks\n");
+    expect(scrolled).toContain("  ❯ 11. Opus 4.6               Best for everyday, complex tasks\n     … +1 model\n");
+    const prompt = parseInteractivePrompt("claude", scrolled)!;
+    expect(labels(prompt)).toEqual(CLAUDE_MODELS.slice(1, 11).map(([name]) => name));
+    // one above the window, one below it
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 2 more models are listed in the terminal.");
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 1))!.id).toBe(prompt.id);
+    expect(prompt.id).not.toBe(parseInteractivePrompt("claude", claudeModelList(1))!.id);
+    // the model in use above the window: the card does not name one
+    expect(parseInteractivePrompt("claude", claudeModelList(4, 2))!.question).toBe("Select model for this session. 3 more models are listed in the terminal.");
+  });
+
+  test("reads the list by family that another session drew, with nothing held back", () => {
+    // captured from the same Claude Code a few minutes apart: five rows, the name in what a row says
+    const families = `   Select model
+   Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names,
+   specify with --model.
+
+   ❯ 1. Default (recommended) ✔  Opus 5.5 · Best for everyday, complex tasks
+     2. Opus                     Opus 5.5 · Best for everyday, complex tasks
+     3. Fable                    Fable 5.1 · Most capable for your hardest and longest-running tasks
+     4. Sonnet                   Sonnet 5.5 · Efficient for routine tasks
+     5. Haiku                    Haiku 4.5 · Fastest for quick answers
+
+   ◐ Medium effort (default) ←/→ to adjust
+
+   Enter to set as default · s to use this session only · Esc to cancel
+`;
+    const prompt = parseInteractivePrompt("claude", families)!;
+    expect(prompt.question).toBe("Select model for this session (currently Default)");
+    expect(prompt.options).toEqual([
+      { label: "Default (recommended)", description: "Opus 5.5 · Best for everyday, complex tasks" },
+      { label: "Opus", description: "Opus 5.5 · Best for everyday, complex tasks" },
+      { label: "Fable", description: "Fable 5.1 · Most capable for your hardest and longest-running tasks" },
+      { label: "Sonnet", description: "Sonnet 5.5 · Efficient for routine tasks" },
+      { label: "Haiku", description: "Haiku 4.5 · Fastest for quick answers" },
+    ]);
+  });
+
+  // 46 columns by 24 lines, the pane a phone leaves: the title has scrolled off the top, Claude
+  // draws five rows of the twelve, and what a row says wraps under itself
+  const PHONE = `  becomes the default for new sessions. For
+  other/previous model names, specify with
+  --model.
+
+    1.  Default (recommended)  Fable 5.1
+  ❯ 2.  Opus 5.5 ✔             For complex
+                               work and
+                               everyday
+                               tasks
+    3.  Fable 5.1              For your
+                               toughest
+                               challenges
+    4.  Sonnet 5.5             Most
+                               efficient for
+                               simpler
+                               tasks
+  ↓ 5.  Haiku 4.5              Fastest for
+                               quick answers
+     … +7 models
+
+  ◐ Medium effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this
+  session only · Esc to cancel
+`;
+
+  test("reads the list off a phone's pane, with its title scrolled off and its rows wrapped", () => {
+    const prompt = parseInteractivePrompt("claude", PHONE)!;
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 7 more models are listed in the terminal.");
+    expect(prompt.options).toEqual(CLAUDE_MODELS.slice(0, 5).map(([label, description]) => ({ label, description })));
+    // the same pane 40 lines tall draws ten rows, and cuts the one word longer than its column:
+    // it stays cut as the pane shows it, since a line that fills its column says nothing of a space
+    const cut = `    7.  Opus 5                 Best for
+                               everyday,
+                               complex tasks
+  ❯ 8.  Fable 5                Most capable
+                               for your
+                               hardest and
+                               longest-runni
+                               ng tasks
+    9.  Opus 4.8               Best for
+                               everyday,
+                               complex tasks
+  ↓ 10. Opus 4.7               Best for
+                               everyday,
+                               complex tasks
+     … +2 models
+
+  ● High effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this
+  session only · Esc to cancel
+`;
+    expect(parseInteractivePrompt("claude", cut)!.options).toEqual(CLAUDE_MODELS.slice(6, 10).map(([label, description]) => ({ label, description: description.replace("longest-running", "longest-runni ng") })));
+  });
+
+  test("picks with s, the key for this session only, and never with Enter", () => {
+    const prompt = parseInteractivePrompt("claude", claudeModelList(1))!;
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ text: "s" }]);
+    expect(answerKeys(prompt, { option_index: 4 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["down"] }, { text: "s" }]);
+    expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["up"] }, { text: "s" }]);
+    // a window further down: the moves count from the cursor's place in it
+    expect(answerKeys(parseInteractivePrompt("claude", claudeModelList(10, 1))!, { option_index: 7 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { text: "s" }]);
+    expect(() => answerKeys(prompt, { custom_text: "opus" })).toThrow();
+    expect(() => answerKeys(prompt, { option_index: 10 })).toThrow();
+  });
+
+  test("offers no card for a list that is not waiting, or that names no key for this session", () => {
+    expect(parseInteractivePrompt("claude", CLAUDE_MODEL_CLOSED)).toBeNull();
+    // the list's text left above later output takes no key any more
+    expect(parseInteractivePrompt("claude", `${claudeModelList(1)}Some later output\nand more\n`)).toBeNull();
+    // a list that takes Enter alone would save the pick as the default: not this card's to press
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 0, 10, "  Enter to set as default · Esc to cancel"))).toBeNull();
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 0, 10, "  Enter to confirm · Esc to cancel"))).toBeNull();
+  });
+
+  test("offers no card for rows it cannot read as the list drew them", () => {
+    const list = claudeModelList(1);
+    // no cursor on any row drawn, or on two of them
+    expect(parseInteractivePrompt("claude", list.replace("  ❯ 2. ", "    2. "))).toBeNull();
+    expect(parseInteractivePrompt("claude", list.replace("    4. ", "  ❯ 4. "))).toBeNull();
+    // a name the pane cut in two stands under its row at the name's own column. Half a name is no
+    // model: that row is left to the terminal, and the rows under it are offered as they read
+    const split = PHONE.replace("    1.  Default (recommended)  Fable 5.1", "    1.  Default\n        (recommended)          Fable 5.1");
+    expect(parseInteractivePrompt("claude", split)).not.toBeNull();
+    expect(labels(parseInteractivePrompt("claude", split))).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 4.5"]);
+    expect(parseInteractivePrompt("claude", split)!.question).toBe("Select model for this session (currently Opus 5.5). 8 more models are listed in the terminal.");
+    // the last row cut so: nothing under it says where the list ends
+    expect(parseInteractivePrompt("claude", PHONE.replace("  ↓ 5.  Haiku 4.5              Fastest for\n                               quick answers", "  ↓ 5.  Haiku\n        4.5                    Fastest"))).toBeNull();
+    // one row is no choice
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 1, 1))).toBeNull();
+    // more under the rows than the effort line: another program's text over the same hint
+    expect(parseInteractivePrompt("claude", list.replace("\n\n  ◐ Medium", "\n\n  one\n  two\n  three\n  ◐ Medium"))).toBeNull();
+  });
+
+  test("reads a wrapped line by its column, whatever it begins with", () => {
+    // what a row says can wrap onto a line that begins like a row of its own
+    const numbered = PHONE.replace("                               work and\n                               everyday", "                               work and\n                               3. everyday");
+    expect(numbered).not.toBe(PHONE);
+    const prompt = parseInteractivePrompt("claude", numbered)!;
+    expect(labels(prompt)).toEqual(CLAUDE_MODELS.slice(0, 5).map(([name]) => name));
+    expect(prompt.options[1]!.description).toBe("For complex work and 3. everyday tasks");
+  });
+
+  test("takes no numbered line above the list for one of its rows", () => {
+    // an answer's own list in the transcript, right above the panel
+    const answered = `● Here are the steps:\n  1. Read the file\n  2. Run the tests\n\n${claudeModelList(1)}`;
+    expect(labels(parseInteractivePrompt("claude", answered))).toEqual(CLAUDE_MODELS.slice(0, 10).map(([name]) => name));
+    // even right above the window with its count running on into it: `↑` is the window's first row
+    const window = claudeModelList(10, 1);
+    const ranOn = `● Options:\n  1. Keep it\n${window.slice(window.indexOf("  ↑ 2. "))}`;
+    expect(ranOn).toContain("  1. Keep it\n  ↑ 2.  Opus 5.5 ✔");
+    expect(labels(parseInteractivePrompt("claude", ranOn))).toEqual(CLAUDE_MODELS.slice(1, 11).map(([name]) => name));
+    // and `↓` is its last: a numbered line right under that row is none of the list's
+    const under = claudeModelList(1).replace("     … +2 models\n", "    11. Read the file\n");
+    expect(under).toContain("  ↓ 10. Opus 4.7               Best for everyday, complex tasks\n    11. Read the file\n");
+    expect(parseInteractivePrompt("claude", under)).toBeNull();
+  });
+});
+
+// Codex 0.160.1 running /model in a pane of its own, captured at 120 columns and at 46 by 24:
+// the list of models, the reasoning levels behind a model's row, and the list behind "More
+// reasoning…". The footer is the one Codex draws for the row under the cursor.
+const CODEX_OPENS = "  enter select · esc back";
+const CODEX_PICKS = "  enter default · s session · esc back";
+const CODEX_MODELS: [name: string, said: string][] = [
+  ["GPT-6.1-Sol (default)", "Latest workhorse model for coding and everyday work."], ["GPT-6-Astra", "Frontier intelligence for the most demanding work."],
+  ["GPT-6-Sol", "Previous generation workhorse model."], ["GPT-6-Luna", "Fast and affordable model for easier tasks."],
+  ["GPT-5.6-Sol", "Older generation workhorse model."], ["GPT-5.6-Terra", "Older balanced model for straightforward work."],
+  ["GPT-5.6-Luna", "Older fast and efficient model."],
+];
+const CODEX_LEVELS: [name: string, said: string][] = [
+  ["Low", "Fast responses with lighter reasoning"], ["Medium (default)", "Balances speed and reasoning depth for everyday tasks"],
+  ["High", "Greater reasoning depth for complex problems"], ["Extra high", "Extra high reasoning depth for complex problems"],
+  ["More reasoning…", "Max and Ultra consume usage limits faster"],
+];
+const CODEX_HEAD = "\n  >_ OpenAI Codex (v0.160.1)\n     ~/app\n  permissions: YOLO mode\n\n  Hello, you. Got an idea?\n\n";
+/**
+ * One of Codex's lists with its cursor on row `at` and `(current)` on the second: the names in one
+ * column, what a row says in the next, and under them the footer of the row the cursor is on.
+ */
+function codexList(title: string, rows: [string, string][], at: number, footer: (row: number) => string): string {
+  const width = Math.max(...rows.map(([name], row) => name.length + (row === 1 ? " (current)".length : 0)));
+  return `${CODEX_HEAD}  ${title}\n\n\n${rows.map(([name, said], row) => `${row === at ? "›" : " "} ${row + 1}. ${`${name}${row === 1 ? " (current)" : ""}`.padEnd(width)}  ${said}`).join("\n")}\n\n${footer(at)}\n`;
+}
+const codexModels = (at: number, footer: (row: number) => string = () => CODEX_OPENS) => codexList("Select Model and Effort", CODEX_MODELS, at, footer);
+/** the levels of a model: every level picks, and the last row opens the list of the advanced ones */
+const codexLevels = (at: number, model = "GPT-6-Astra") => codexList(`Select Reasoning Level for ${model}`, CODEX_LEVELS, at, (row) => row === 4 ? CODEX_OPENS : CODEX_PICKS);
+
+describe("Codex's model lists", () => {
+  test("reads the list of models, whose rows open the next list", () => {
+    // the capture itself, so that the drawing above is checked against what Codex drew
+    const captured = `  Select Model and Effort
+
+
+  1. GPT-6.1-Sol (default)  Latest workhorse model for coding and everyday work.
+› 2. GPT-6-Astra (current)  Frontier intelligence for the most demanding work.
+  3. GPT-6-Sol              Previous generation workhorse model.
+  4. GPT-6-Luna             Fast and affordable model for easier tasks.
+  5. GPT-5.6-Sol            Older generation workhorse model.
+  6. GPT-5.6-Terra          Older balanced model for straightforward work.
+  7. GPT-5.6-Luna           Older fast and efficient model.
+
+  enter select · esc back
+`;
+    expect(codexModels(1)).toBe(`${CODEX_HEAD}${captured}`);
+    const prompt = parseInteractivePrompt("codex", codexModels(1))!;
+    expect(prompt).toMatchObject({ agent: "codex", kind: "question", title: "", body: null, multi_select: false, custom_option_index: null });
+    expect(prompt.question).toBe("Select model for this session (currently GPT-6-Astra)");
+    expect(prompt.options).toEqual(CODEX_MODELS.map(([label, description]) => ({ label, description })));
+    // the row's key is the screen's to name once the cursor is on it: the card only knows the moves
+    expect(answerKeys(prompt, { option_index: 3 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { pick: true }]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ pick: true }]);
+    for (const agent of ["claude", "omp", "pi", "omo", ""]) expect(parseInteractivePrompt(agent, codexModels(1))).toBeNull();
+  });
+
+  test("reads a model's reasoning levels without the row that opens the advanced ones", () => {
+    const captured = `  Select Reasoning Level for GPT-6-Astra
+
+
+  1. Low                         Fast responses with lighter reasoning
+› 2. Medium (default) (current)  Balances speed and reasoning depth for everyday tasks
+  3. High                        Greater reasoning depth for complex problems
+  4. Extra high                  Extra high reasoning depth for complex problems
+  5. More reasoning…             Max and Ultra consume usage limits faster
+
+  enter default · s session · esc back
+`;
+    expect(codexLevels(1)).toBe(`${CODEX_HEAD}${captured}`);
+    const prompt = parseInteractivePrompt("codex", codexLevels(1))!;
+    // "More reasoning…" takes Enter, beside levels whose Enter saves a default: left to the terminal
+    expect(prompt.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium). More levels are listed in the terminal.");
+    expect(prompt.options).toEqual(CODEX_LEVELS.slice(0, 4).map(([label, description]) => ({ label, description })));
+    expect(() => answerKeys(prompt, { option_index: 4 })).toThrow();
+    // with the cursor on that row in the terminal, its footer is the one of a row that opens a
+    // list: the same card, and the moves to a level count from where the cursor is
+    expect(codexLevels(4)).toContain("› 5. More reasoning…             Max and Ultra consume usage limits faster\n\n  enter select · esc back\n");
+    const onMore = parseInteractivePrompt("codex", codexLevels(4))!;
+    expect(onMore.id).toBe(prompt.id);
+    expect(answerKeys(onMore, { option_index: 2 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { pick: true }]);
+    // any other row under the cursor whose footer says it only opens a list is not offered either
+    const opener = codexList("Select Reasoning Level for GPT-6-Astra", CODEX_LEVELS.slice(0, 4), 2, () => CODEX_OPENS);
+    expect(labels(parseInteractivePrompt("codex", opener))).toEqual(["Low", "Medium (default)", "Extra high"]);
+    // the levels of another model are another card
+    expect(parseInteractivePrompt("codex", codexLevels(1, "GPT-6-Sol"))!.id).not.toBe(prompt.id);
+  });
+
+  test("reads the advanced levels with what Codex says over them, wrapped by a phone's pane", () => {
+    const wide = `${CODEX_HEAD}  Advanced Reasoning
+  ⚠ Consumes usage limits faster
+
+
+› 1. Max    For difficult problems when quality matters more than speed · higher usage
+  2. Ultra  For demanding work using multiple agents · highest usage
+
+  enter default · s session · esc back
+`;
+    const prompt = parseInteractivePrompt("codex", wide)!;
+    expect(prompt.question).toBe("Select advanced reasoning for this session");
+    expect(prompt.body).toBe("⚠ Consumes usage limits faster");
+    expect(prompt.options).toEqual([
+      { label: "Max", description: "For difficult problems when quality matters more than speed · higher usage" },
+      { label: "Ultra", description: "For demanding work using multiple agents · highest usage" },
+    ]);
+    // the capture at 46 columns, with the cursor moved to Ultra, whose Enter applies it at once
+    const phone = `  It’s dangerous to code alone. Take a prompt.
+
+  Advanced Reasoning
+  ⚠ Consumes usage limits faster
+
+
+  1. Max    For difficult problems when
+            quality matters more than speed ·
+            higher usage
+› 2. Ultra  For demanding work using multiple
+            agents · highest usage
+
+  enter apply · s session · esc back
+`;
+    expect(parseInteractivePrompt("codex", phone)!.options).toEqual(prompt.options);
+    expect(parseInteractivePrompt("codex", phone)!.id).toBe(prompt.id);
+  });
+
+  test("reads the names alone where the pane has no room for what a row says", () => {
+    // 46 columns: Codex leaves the second column out
+    const phone = `  Select Reasoning Level for GPT-6-Astra
+
+
+  1. Low
+› 2. Medium (default) (current)
+  3. High
+  4. Extra high
+  5. More reasoning…
+
+  enter default · s session · esc back
+`;
+    const prompt = parseInteractivePrompt("codex", phone)!;
+    expect(prompt.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium). More levels are listed in the terminal.");
+    expect(prompt.options).toEqual(CODEX_LEVELS.slice(0, 4).map(([label]) => ({ label, description: null })));
+  });
+
+  test("knows a list by the header right above its rows, wrapped or under the conversation's last line", () => {
+    // a pane too narrow for the levels' title: the model's name wraps under it
+    const wrapped = `  Select Reasoning Level for
+  GPT-5.6-Terra
+
+
+  1. Low
+› 2. Medium (default) (current)
+  3. High
+
+  enter default · s session ·
+  esc back
+`;
+    const prompt = parseInteractivePrompt("codex", wrapped)!;
+    expect(prompt.question).toBe("Select reasoning level for GPT-5.6-Terra for this session (currently Medium)");
+    expect(prompt.body).toBeNull();
+    expect(labels(prompt)).toEqual(["Low", "Medium (default)", "High"]);
+    // no blank between the conversation's last line and the title: the lines over the title are not the list's
+    const under = codexLevels(1).replace("Got an idea?\n\n  Select", "Got an idea?\n  Select");
+    expect(under).not.toBe(codexLevels(1));
+    expect(parseInteractivePrompt("codex", under)!.id).toBe(parseInteractivePrompt("codex", codexLevels(1))!.id);
+    // another list's header between a model list's title and the rows: the rows are that list's
+    const other = `  Select Model and Effort\n\n  Select Approval Mode\n\n› 1. Read only\n  2. Full access\n\n${CODEX_OPENS}\n`;
+    expect(parseInteractivePrompt("codex", other)).toBeNull();
+    expect(parseInteractivePrompt("codex", other.replace("\n\n  Select Approval Mode", "\n  Select Approval Mode\n  Choose what Codex may do\n  without asking"))).toBeNull();
+  });
+
+  test("keeps a gap inside one row's name out of what the rows say", () => {
+    // names alone, one of them written with two spaces: no column of descriptions to split it at
+    const names = `  Select Model and Effort\n\n\n› 1. Custom  Model (current)\n  2. GPT-6-Sol\n  3. GPT-6-Luna\n\n${CODEX_OPENS}\n`;
+    const prompt = parseInteractivePrompt("codex", names)!;
+    expect(prompt.options).toEqual([{ label: "Custom Model", description: null }, { label: "GPT-6-Sol", description: null }, { label: "GPT-6-Luna", description: null }]);
+    expect(prompt.question).toBe("Select model for this session (currently Custom Model)");
+    // and beside a column the other rows share
+    const beside = codexModels(1).replace("  3. GPT-6-Sol              Previous generation workhorse model.", "  3. GPT  6 Sol");
+    expect(parseInteractivePrompt("codex", beside)!.options[2]).toEqual({ label: "GPT 6 Sol", description: null });
+    expect(parseInteractivePrompt("codex", beside)!.options[3]).toEqual({ label: "GPT-6-Luna", description: "Fast and affordable model for easier tasks." });
+  });
+
+  test("offers no card for another list of Codex's, or for one that is not waiting", () => {
+    // the footer is every Codex list's: only the model lists' titles make it this card
+    expect(parseInteractivePrompt("codex", codexList("Select Approval Mode", CODEX_LEVELS, 1, () => CODEX_OPENS))).toBeNull();
+    // the list of quick presets, which mixes rows that pick with rows that open a list and was
+    // never looked at live: left to the terminal
+    expect(parseInteractivePrompt("codex", codexList("Select Model", CODEX_MODELS, 1, () => CODEX_PICKS))).toBeNull();
+    expect(parseInteractivePrompt("codex", codexList("Select Reasoning Level for GPT-6-Astra", CODEX_LEVELS, 1, () => "  enter confirm · esc back"))).toBeNull();
+    // answered, with Codex's own prompt under it
+    expect(parseInteractivePrompt("codex", `${codexLevels(1)}• Model changed to gpt-6-astra medium for this session only\n› Ask Codex to do anything\n`)).toBeNull();
+    // no cursor on a row, or one row alone
+    expect(parseInteractivePrompt("codex", codexLevels(1).replace("› 2. ", "  2. "))).toBeNull();
+    expect(parseInteractivePrompt("codex", codexList("Select Model and Effort", CODEX_MODELS.slice(0, 1), 0, () => CODEX_OPENS))).toBeNull();
+    // anything between the rows and their footer
+    expect(parseInteractivePrompt("codex", codexLevels(1).replace(`\n\n${CODEX_PICKS}`, `\n  Loading…\n${CODEX_PICKS}`))).toBeNull();
+  });
+});
+
 // The answer route against a herdr that only holds a screen: what the pane shows is the test's to
 // change, between two reads or under an answer's own keys, and every key the route sends is kept.
 describe("an answer and the menu it was made for", () => {
@@ -2494,6 +2929,27 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         draw: (at) => `────────────────────────────────────────\n\nOnly showing models from configured providers. Use /login to add providers.\n>\n\n${at === 0 ? "→" : " "} ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default\n${at === 1 ? "→" : " "}   vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]\n Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel\n────────────────────────────────────────${FOOTER}`,
       },
       {
+        // the last row drawn carries the cursor where it carried `↓`, under another effort line
+        name: "Claude's model list, to the last row it draws", agent: "claude", status: "idle", rows: 10, start: 1, choice: { option_index: 9 },
+        sent: [...Array.from({ length: 8 }, () => "down"), "text:s"],
+        draw: (at) => claudeModelList(at),
+      },
+      {
+        name: "Codex's model list: Enter, which there only opens the model's levels", agent: "codex", status: "done", rows: 7, start: 1, choice: { option_index: 4 },
+        sent: ["down", "down", "down", "enter"],
+        draw: (at) => codexModels(at),
+      },
+      {
+        name: "Codex's reasoning levels: s, for this session", agent: "codex", status: "done", rows: 5, start: 1, choice: { option_index: 3 },
+        sent: ["down", "down", "text:s"],
+        draw: (at) => codexLevels(at),
+      },
+      {
+        name: "Codex's reasoning levels, from the row that opens the advanced ones up to a level: s", agent: "codex", status: "done", rows: 5, start: 4, choice: { option_index: 0 },
+        sent: ["up", "up", "up", "up", "text:s"],
+        draw: (at) => codexLevels(at),
+      },
+      {
         name: "omo's review, from its comment up to an answer", agent: "pi", rows: 3, start: 2, choice: { option_index: 2 }, sent: ["up", "enter"],
         draw: (at) => `\n [표시 위치] [월 한도] wait for answer\n\n${rule}\n\n Ask user · 30m\n   표시 위치 ✓    월 한도 ✓  → Submit\n Review your answers\n ${at === 0 ? "→" : " "} 표시 위치: 설정 > 음성 입력 (추천)\n ${at === 1 ? "→" : " "} 월 한도: 월 $5 한도\n\n Comment (optional; unanswered questions are reported)\n>\n Submit (2/2 answered)\n ${at === 2 ? "enter submit  ↑ review answers  shift+tab back  tab next question  esc back" : "enter edit answer  ↑↓ move  tab next question  esc back"}\n${omoFooter}`,
       },
@@ -2516,6 +2972,259 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         });
       });
     }
+  });
+
+  test("picks Claude's model with s only where the list still shows that model under the cursor", async () => {
+    // the cursor's own row: the list is looked at again, then the letter alone, and never an Enter
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["text:s"]);
+    });
+    // a pane made shorter under the moves: Claude draws five rows of the list, another card, and
+    // the model under the cursor is still the one that was tapped
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let at = 1;
+      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = claudeModelList(at, 0, 5); };
+      expect(parseInteractivePrompt("claude", claudeModelList(3, 0, 5))!.id).not.toBe(parseInteractivePrompt("claude", claudeModelList(3))!.id);
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "text:s"]);
+    });
+  });
+
+  // each refusal waits out the answer's own 1.5 s for the list to show the row
+  test("types no s, and no further arrow, once Claude's model list is not the one that was tapped", async () => {
+    // closed in the terminal right after the answer read it, with no move to wait on: the look
+    // before the letter is what keeps it out of Claude's own prompt
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      // the card's read, the answer's own read of the card, then its look before the letter:
+      // the list is still up for the second and gone for the third
+      let reads = 0;
+      pane.onRead = () => { reads += 1; if (reads === 3) pane.screen = CLAUDE_MODEL_CLOSED; };
+      const prompt = (await card())!;
+      expect(reads).toBe(1);
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      // the answer got past its own read (a list gone by then is refused at once, with two reads)
+      expect(reads).toBeGreaterThanOrEqual(3);
+      expect(pane.sent).toEqual([]);
+    });
+    // closed in the terminal under the first move: no second arrow into Claude's own prompt,
+    // where it would walk the prompt's history, and no letter
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = CLAUDE_MODEL_CLOSED; };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+    // a key typed in the terminal at the same moment, one more row down: another model's row
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let at = 1;
+      pane.onSent = (sent) => { if (sent === "down") at += at === 1 ? 2 : 1; pane.screen = claudeModelList(at); };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+    // another list in its place under the last move, the same number and name on another model
+    // (a list by family names the model in what the row says): not the row that was tapped
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let at = 1;
+      pane.onSent = (sent) => {
+        if (sent === "down") at += 1;
+        pane.screen = at === 3 ? claudeModelList(at).replace("Most efficient for simpler tasks", "Sonnet 5 · Efficient for routine tasks") : claudeModelList(at);
+      };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down", "down"]);
+    });
+  }, 20_000);
+
+  test("takes the key Codex's footer names for the row the cursor is on, and never Enter where it offers s", async () => {
+    // a model with a single reasoning level picks from the first list: its row's footer offers s,
+    // and Enter there would save it as the default
+    const single = (row: number) => row === 3 ? CODEX_PICKS : CODEX_OPENS;
+    await withPane("codex", "done", codexModels(1, single), async (pane) => {
+      let at = 1;
+      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = codexModels(at, single); };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "text:s"]);
+    });
+    // the cursor's own row: looked at again, and the key is the one that look shows
+    await withPane("codex", "done", codexLevels(1), async (pane) => {
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["text:s"]);
+    });
+    // Ultra's footer says apply for Enter: s all the same
+    const advanced = (at: number) => codexList("Advanced Reasoning", [["Max", "For difficult problems"], ["Ultra", "For demanding work"]], at, (row) => row === 1 ? "  enter apply · s session · esc back" : CODEX_PICKS).replace(" (current)", "          ");
+    await withPane("codex", "done", advanced(0), async (pane) => {
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = advanced(1); };
+      const prompt = (await card())!;
+      expect(labels(prompt)).toEqual(["Max", "Ultra"]);
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "text:s"]);
+    });
+  });
+
+  test("answers a model list only once the pane shows what follows it, so its card does not come up again", async () => {
+    // Codex draws a model's levels a moment after the Enter: the read right after the answer is theirs
+    await withPane("codex", "done", codexModels(1), async (pane) => {
+      pane.onSent = (sent) => { if (sent === "enter") setTimeout(() => { pane.screen = codexLevels(1); }, 200); };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect((await card())!.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium). More levels are listed in the terminal.");
+    });
+    // and Claude closes its list a moment after the s: no card is left to read
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      pane.onSent = (sent) => { if (sent === "text:s") setTimeout(() => { pane.screen = CLAUDE_MODEL_CLOSED; }, 200); };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(await card()).toBeNull();
+    });
+    // also where the pane was made shorter under the moves, and the list was another window by the s
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      let at = 1;
+      pane.onSent = (sent) => {
+        if (sent === "down") at += 1;
+        pane.screen = claudeModelList(at, 0, 5);
+        if (sent === "text:s") setTimeout(() => { pane.screen = CLAUDE_MODEL_CLOSED; }, 200);
+      };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "text:s"]);
+      expect(await card()).toBeNull();
+    });
+  });
+
+  // each refusal waits out the answer's own 1.5 s for the list to show the row
+  test("presses nothing in Codex's list once it is not the list, or the row, that was tapped", async () => {
+    // the levels of another model in its place under the move: the same rows, another list
+    await withPane("codex", "done", codexLevels(1), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = codexLevels(2, "GPT-6-Sol"); };
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+    // closed in the terminal under the first move: no second arrow into Codex's own prompt
+    await withPane("codex", "done", codexLevels(1), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = `${CODEX_HEAD}› Ask Codex to do anything\n\n  GPT-6-Astra medium · main\n`; };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+    // a footer this reader does not know under the row: not a key to guess
+    await withPane("codex", "done", codexLevels(1), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = codexLevels(2).replace(CODEX_PICKS, "  enter default · esc back"); };
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+    // a level's row whose footer turns out to say Enter opens a list: no Enter goes into a list
+    // of levels, where the rows beside it save a default on that key
+    const opening = (at: number) => codexList("Select Reasoning Level for GPT-6-Astra", CODEX_LEVELS, at, (row) => row === 2 || row === 4 ? CODEX_OPENS : CODEX_PICKS);
+    await withPane("codex", "done", opening(1), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = opening(2); };
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  }, 20_000);
+
+  test("keeps fallback cards when a model title is only transcript text or belongs to another agent", async () => {
+    const unknown = "Advanced Reasoning\nThis section explains the tradeoff.\n\nChoose a deployment target:\n  1. Staging\n  2. Production\n\nEnter a number, or Esc to cancel\n";
+    for (const agent of ["claude", "pi", "omp", "codex"]) {
+      await withPane(agent, "blocked", unknown, async () => {
+        expect((await card())?.fallback).toBe(true);
+      });
+    }
+    await withPane("codex", "blocked", `${codexModels(1)}\nContinue deployment?\n${CODEX_OPENS}\n`, async () => {
+      expect((await card())?.fallback).toBe(true);
+    });
+    // Words before the footer are not a long, fictitious key name.
+    await withPane("codex", "blocked", codexModels(1).replace(CODEX_OPENS, `Continue deployment\n${CODEX_OPENS}`), async () => {
+      expect((await card())?.fallback).toBe(true);
+    });
+    // Even a Codex-shaped footer belongs to the other agent's unknown prompt here.
+    await withPane("pi", "blocked", codexLevels(1), async () => {
+      expect((await card())?.fallback).toBe(true);
+    });
+    // A newer picker title supersedes the older model heading in the visible transcript.
+    const other = `Advanced Reasoning\n\nSelect Deployment Target\n\n› 1. Staging\n  2. Production\n\n${CODEX_OPENS}\n`;
+    for (const screen of [other, other.replace("Select Deployment Target", "Choose a deployment target:"), other.replace("\n\nSelect Deployment Target", "\nSelect Deployment Target")]) {
+      await withPane("codex", "blocked", screen, async () => {
+        expect((await card())?.fallback).toBe(true);
+      });
+    }
+  });
+
+  test("offers no fallback card over a Codex list whose Enter would save a default", async () => {
+    // rows this reader cannot take (something between them and their footer), under a status of
+    // blocked left over from an approval: the fallback card's Enter is not offered here
+    const unread = codexLevels(1).replace(`\n\n${CODEX_PICKS}`, `\n  Loading…\n${CODEX_PICKS}`);
+    expect(parseInteractivePrompt("codex", unread)).toBeNull();
+    expect(parseFallbackPrompt("codex", unread).options.map((option) => option.label)).toContain("Enter");
+    await withPane("codex", "blocked", unread, async () => {
+      expect(await card()).toBeNull();
+    });
+    // its footer cut beyond reading by a pane a few columns wide: the list's title still says what it is
+    const cut = codexLevels(1).replace(CODEX_PICKS, "  enter\n  defa\n  ult ·\n  s\n  sessi\n  on ·\n  esc\n  back");
+    expect(parseInteractivePrompt("codex", cut)).toBeNull();
+    await withPane("codex", "blocked", cut, async () => {
+      expect(await card()).toBeNull();
+    });
+    await withPane("codex", "blocked", `Loading\n${CODEX_PICKS}`, async () => {
+      expect(await card()).toBeNull();
+    });
+    // A clipped title does not make a recognizable session/default footer safe to answer with Enter.
+    await withPane("codex", "blocked", cut.replace("Select Reasoning Level for GPT-6-Astra", "Older transcript"), async () => {
+      expect(await card()).toBeNull();
+    });
+    // An unreadable or remapped accept hint is still a model menu, not permission to offer Enter.
+    for (const footer of ["  enter confirm · esc back", "  tab default · s session · esc back"]) {
+      const unknown = codexLevels(1).replace(CODEX_PICKS, footer);
+      expect(parseInteractivePrompt("codex", unknown)).toBeNull();
+      await withPane("codex", "blocked", unknown, async () => {
+        expect(await card()).toBeNull();
+      });
+    }
+    // the list of quick presets has no card of its own, and no fallback one either
+    await withPane("codex", "blocked", codexList("Select Model", CODEX_MODELS, 1, () => CODEX_OPENS), async () => {
+      expect(await card()).toBeNull();
+    });
+    // a list the reader does take is its own card under any status
+    await withPane("codex", "blocked", codexLevels(1), async (pane) => {
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = codexLevels(2); };
+      const prompt = (await card())!;
+      expect(prompt.fallback).toBeUndefined();
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "text:s"]);
+    });
+  });
+
+  test("offers no fallback card over Claude's model list, whose Enter would save a default", async () => {
+    // a name the pane cut in two: no reader takes the list, and herdr reports the pane blocked
+    // (a status left over from an approval): the fallback card's Enter is not offered here
+    const unread = claudeModelList(1).replace("  ↓ 10. Opus 4.7               Best for everyday, complex tasks", "  ↓ 10. Opus\n        4.7                    Best for everyday, complex tasks");
+    expect(parseInteractivePrompt("claude", unread)).toBeNull();
+    expect(parseFallbackPrompt("claude", unread).options.map((option) => option.label)).toContain("Enter");
+    await withPane("claude", "blocked", unread, async () => {
+      expect(await card()).toBeNull();
+    });
+    // its hint wrapped further than the reader follows it, in a pane narrower than any measured
+    const narrow = unread.replace(CLAUDE_MODEL_HINT, "  Enter to set as\n  default · s to use\n  this session\n  only · Esc to\n  cancel");
+    await withPane("claude", "blocked", narrow, async () => {
+      expect(await card()).toBeNull();
+    });
+    // a list the reader does take is its own card under any status
+    await withPane("claude", "blocked", claudeModelList(1), async (pane) => {
+      let at = 1;
+      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = claudeModelList(at); };
+      const prompt = (await card())!;
+      expect(prompt.fallback).toBeUndefined();
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "text:s"]);
+    });
   });
 
   test("a screen read that comes back after the wait authorises no key", async () => {

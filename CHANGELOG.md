@@ -26,6 +26,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   phone), answers seven common questions in a new FAQ section, and gives search engines a sitemap
   and structured data for the app and the FAQ.
   ([#497](https://github.com/devswha/herdr-web-ui/pull/497))
+- The website's headline is "Run herdr from anywhere.", and the page catches up with the app:
+  the Windows install command, pi among the native transcripts, the Alt key and a card for voice
+  input. Its figures now show the contributor count and the plugin's place by stars among herdr
+  plugin repositories, and the comparison with other phone clients was read again in October 2026.
+  ([#494](https://github.com/devswha/herdr-web-ui/pull/494))
 - On macOS a Codex pane's chat costs the server about a sixth of what it did on each poll (a
   median of 16 ms instead of 103 ms, measured on two live Codex panes). The store a Codex process
   writes to is remembered for its pid and arguments instead of being read with `ps` every 2 s,
@@ -66,6 +71,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Claude do in …?"), as an OmO pane already did. Before, until the first message the chat
   showed the terminal's text or an empty line instead, so a new workspace or worktree never
   greeted you. ([#500](https://github.com/devswha/herdr-web-ui/pull/500))
+- `/model` sent from a Claude Code pane's chat shows Claude's model list as a card: tap a model,
+  or type its number, and that pane's session switches to it. Before, the chat showed nothing
+  while the terminal waited on the list, so a model could only be picked there. The card picks
+  for this session only (Claude's `s` key). Saving a model as the default for new sessions stays
+  in the terminal, where Enter on the list does it. The card offers the rows Claude draws (ten of
+  a longer list, fewer in a short pane) and says how many more the terminal lists.
+  ([#501](https://github.com/devswha/herdr-web-ui/pull/501))
+- `/model` sent from a Codex pane's chat shows Codex's lists as cards, one after the other: the
+  models, then the reasoning levels of the model you pick. The level you pick applies to that
+  pane's session only (Codex's `s` key). Saving a default stays in the terminal, where Enter
+  does it. Open "More reasoning…" in the terminal; once open, its Max and Ultra options can also
+  be picked for this session from the chat. Before, the chat showed nothing while the terminal
+  waited on the list.
+  ([#503](https://github.com/devswha/herdr-web-ui/pull/503))
 
 ## [0.3.51] - 2026-10-06
 
