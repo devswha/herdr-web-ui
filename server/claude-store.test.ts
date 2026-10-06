@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeProcessSession, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
 
+const NATIVE = process.platform === "linux" || process.platform === "darwin";
 const SESSION = "0b8e6f0e-8d3f-4c1a-9a53-6c2b7a1d9e42";
 
 describe("claudeProcessSession", () => {
@@ -14,14 +15,16 @@ describe("claudeProcessSession", () => {
     roots.push(home);
     const dir = join(home, ".claude", "sessions");
     mkdirSync(dir, { recursive: true });
-    const procStart = readFileSync("/proc/self/stat", "utf8").split(") ").pop()?.split(" ")[19];
+    const procStart = process.platform === "linux"
+      ? readFileSync("/proc/self/stat", "utf8").split(") ").pop()?.split(" ")[19]
+      : Bun.spawnSync(["/bin/ps", "-o", "lstart=", "-p", String(process.pid)], { env: { ...process.env, TZ: "UTC" } }).stdout.toString().trim();
     writeFileSync(join(dir, `${process.pid}.json`), JSON.stringify({
       pid: process.pid, sessionId: SESSION, procStart, kind: "interactive", ...patch,
     }));
     return home;
   }
 
-  it.skipIf(process.platform !== "linux")("reads an exact live PID's session without a cwd guess", async () => {
+  it.skipIf(!NATIVE)("reads an exact live PID's session without a cwd guess", async () => {
     const home = nativeRecord();
     expect(await claudeProcessSession(home, process.pid)).toBe(SESSION);
   });
@@ -34,13 +37,13 @@ describe("claudeProcessSession", () => {
     ["a path in place of a UUID", { sessionId: "../../other" }],
     ["a missing session ID", { sessionId: null }],
   ] satisfies [string, Record<string, unknown>][]) {
-    it.skipIf(process.platform !== "linux")(`rejects ${name}`, async () => {
+    it.skipIf(!NATIVE)(`rejects ${name}`, async () => {
       const home = nativeRecord(patch);
       expect(await claudeProcessSession(home, process.pid)).toBeNull();
     });
   }
 
-  it.skipIf(process.platform !== "linux")("returns no identity for absent, torn or oversized records", async () => {
+  it.skipIf(!NATIVE)("returns no identity for absent, torn or oversized records", async () => {
     const home = nativeRecord();
     const path = join(home, ".claude", "sessions", `${process.pid}.json`);
     rmSync(path);
@@ -52,7 +55,7 @@ describe("claudeProcessSession", () => {
     expect(await claudeProcessSession(home, -1)).toBeNull();
   });
 
-  it.skipIf(process.platform !== "linux")("does not wait on a FIFO or follow a link in the record's place", async () => {
+  it.skipIf(!NATIVE)("does not wait on a FIFO or follow a link in the record's place", async () => {
     const home = nativeRecord();
     const path = join(home, ".claude", "sessions", `${process.pid}.json`);
     const target = join(home, "elsewhere.json");

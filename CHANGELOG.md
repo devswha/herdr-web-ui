@@ -34,6 +34,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   store per environment) shows its chat. Before, only `~/.claude` was searched, so the chat was
   unavailable and only the terminal worked. The store is read from the pane's Claude process, as
   for Codex's `CODEX_HOME`, else from the server's own `CLAUDE_CONFIG_DIR`, else `~/.claude`.
+  On macOS the pane's session is also found from Claude's own process record when herdr's hook
+  has not reported one, as it already was on Linux.
 - With Language set to **System**, English stays selected when it is the browser's first
   supported language, even if Japanese, Korean or Chinese appears later in its preferences.
   Before, English was skipped in favor of a later supported language.

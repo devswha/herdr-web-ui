@@ -98,14 +98,25 @@ export function forgetClaudeSessions(): void {
   found.clear();
 }
 
+/** macOS has no /proc: Claude records the process's start as `ps -o lstart` text in UTC, which a reused PID cannot repeat. */
+async function darwinProcessStart(pid: number): Promise<string | null> {
+  const child = Bun.spawn(["/bin/ps", "-o", "lstart=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore", env: { ...process.env, TZ: "UTC" } });
+  const timer = setTimeout(() => child.kill(), 3000);
+  try {
+    const text = (await new Response(child.stdout).text()).replace(/\s+/g, " ").trim();
+    await child.exited;
+    return text || null;
+  } finally { clearTimeout(timer); }
+}
+
 /**
  * Claude's native PID record names the current session even without Herdr's hook.
- * Linux's exact process-start ticks reject leftovers after a PID is reused. Read
- * again on every request: /clear and resume can change sessions in the same process.
- * Other platforms and older records without procStart keep the hook-only path.
+ * The process's exact start (ticks on Linux, `ps` lstart text on macOS) rejects leftovers after a
+ * PID is reused. Read again on every request: /clear and resume can change sessions in the same
+ * process. Other platforms and older records without procStart keep the hook-only path.
  */
 export async function claudeProcessSession(home: string, pid: number, configDir = join(home, ".claude")): Promise<string | null> {
-  if (process.platform !== "linux" || !Number.isSafeInteger(pid) || pid <= 0) return null;
+  if ((process.platform !== "linux" && process.platform !== "darwin") || !Number.isSafeInteger(pid) || pid <= 0) return null;
   try {
     // Non-blocking and no symlinks: a FIFO or a link in the record's place must not hang the read.
     const file = await open(join(configDir, "sessions", `${pid}.json`), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
@@ -129,10 +140,13 @@ export async function claudeProcessSession(home: string, pid: number, configDir 
       !("kind" in record) || record.kind !== "interactive" ||
       !("sessionId" in record) || typeof record.sessionId !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(record.sessionId) ||
-      !("procStart" in record) || typeof record.procStart !== "string" || !/^\d+$/.test(record.procStart)) return null;
-    const processStat = await readFile(`/proc/${pid}/stat`, "utf8");
-    const fields = processStat.slice(processStat.lastIndexOf(") ") + 2).split(" ");
-    if (fields[19] !== record.procStart) return null;
+      !("procStart" in record) || typeof record.procStart !== "string") return null;
+    if (process.platform === "linux") {
+      if (!/^\d+$/.test(record.procStart)) return null;
+      const processStat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const fields = processStat.slice(processStat.lastIndexOf(") ") + 2).split(" ");
+      if (fields[19] !== record.procStart) return null;
+    } else if (await darwinProcessStart(pid) !== record.procStart.replace(/\s+/g, " ").trim()) return null;
     return record.sessionId;
   } catch (error) {
     // A closed process, absent/older native store or a torn write gives no identity.
