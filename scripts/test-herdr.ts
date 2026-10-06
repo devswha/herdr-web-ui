@@ -51,11 +51,20 @@ export async function useTestHerdr(): Promise<string | null> {
   const herdr = herdrBinary();
   if (!herdr) return null;
   const socket = testSocketPath();
+  // an empty ZDOTDIR: a pane's zsh (macOS's login shell) reads none of the user's own files,
+  // where a shell integration can start a CLI herdr takes for an agent, ending the agent a test
+  // reported, or set a title that names the pane's tab
+  const zdotdir = join(dirname(socket), "zdotdir");
+  // a server left running from before that directory existed has panes reading those files:
+  // it is stopped once, and started again below
+  if (!existsSync(zdotdir) && await answers(socket)) {
+    Bun.spawnSync([herdr, "--session", TEST_SESSION, "server", "stop"]);
+    for (const deadline = Date.now() + 15_000; await answers(socket);) {
+      if (Date.now() > deadline) throw new Error(`The test herdr session "${TEST_SESSION}" did not stop`);
+      await Bun.sleep(100);
+    }
+  }
   if (!(await answers(socket))) {
-    // an empty ZDOTDIR: a pane's zsh (macOS's login shell) reads none of the user's own files,
-    // where a shell integration can start a CLI herdr takes for an agent, ending the agent a test
-    // reported, or set a title that names the pane's tab
-    const zdotdir = join(dirname(socket), "zdotdir");
     mkdirSync(zdotdir, { recursive: true });
     Bun.spawn([herdr, "--session", TEST_SESSION, "server"], {
       stdin: "ignore",
