@@ -17,6 +17,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
   keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
+- With `HERDR_WEB_TAILSCALE_SERVE_ONLY=1`, which declares `tailscale serve` the only way in, your
+  own phone lands in the app as soon as it opens the `tailscale serve` address, with no pairing
+  code, on a tailnet that one Tailscale login owns and that has no tagged node on it. Before,
+  `tailscale serve` states no login for some of those requests, and every request without one was
+  taken for a tagged node's and asked to pair. Off by default, such a request still pairs. Another
+  Tailscale login is still refused, a tagged node still pairs, Funnel stays closed, a LAN client
+  that claims the same headers still gains nothing, and a configured token is still required of
+  everything but a paired device.
 
 ## [0.3.52] - 2026-10-06
 
@@ -62,14 +70,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
 
 ### Fixed
-- With `HERDR_WEB_TAILSCALE_SERVE_ONLY=1`, which declares `tailscale serve` the only way in, your
-  own phone lands in the app as soon as it opens the `tailscale serve` address, with no pairing
-  code, on a tailnet that one Tailscale login owns and that has no tagged node on it. Before,
-  `tailscale serve` states no login for some of those requests, and every request without one was
-  taken for a tagged node's and asked to pair. Off by default, such a request still pairs. Another
-  Tailscale login is still refused, a tagged node still pairs, Funnel stays closed, a LAN client
-  that claims the same headers still gains nothing, and a configured token is still required of
-  everything but a paired device.
 - A Claude Code pane started with its own `CLAUDE_CONFIG_DIR` (a launcher such as cac keeps one
   store per environment) shows its chat. Before, only `~/.claude` was searched, so the chat was
   unavailable and only the terminal worked. The store is read from the pane's Claude process, as
