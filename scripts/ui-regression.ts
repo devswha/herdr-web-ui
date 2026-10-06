@@ -812,6 +812,13 @@ try {
   assert.equal(await paneLine(created.pane_id).count(), 0, "off by default: no pane lines");
   await setSidebarPanes(true);
   await paneLine(createdTab.pane_id).waitFor();
+  // each line says its own pane's state, not the row's roll-up or its sibling's (the open pane
+  // waits, which brings no card; the other one's short run ends without a done alert)
+  const lineStatus = (paneId: string) => paneLine(paneId).locator(".badge").getAttribute("data-status");
+  await herdrRpc("pane.report_agent", { pane_id: created.pane_id, source: "manual", agent: "claude", state: "blocked" });
+  await herdrRpc("pane.report_agent", { pane_id: createdTab.pane_id, source: "manual", agent: "claude", state: "working" });
+  await until(async () => await lineStatus(created.pane_id) === "blocked" && await lineStatus(createdTab.pane_id) === "working", "each pane line shows its own state");
+  for (const pane of [created.pane_id, createdTab.pane_id]) await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "idle" });
   assert.equal(await paneLine(created.pane_id).count(), 1, "both panes of the workspace have a line");
   assert.equal(await paneLine(created.pane_id).getAttribute("aria-current"), "true", "the open pane's line is current");
   await paneLine(createdTab.pane_id).click();
