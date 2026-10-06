@@ -166,8 +166,8 @@ describe("claudeSubagents", () => {
     // 10 MB of lines, each a request of its own
     writeFileSync(file, Array.from({ length: 10_000 }, (_, n) => turn(n)).join(""));
     const first = claudeSubagents(s.path, true, NOW)[0]!.turns;
-    expect(first).toBeGreaterThan(0);
-    expect(first).toBeLessThan(10_000);
+    // a count that is not the whole is not shown as one
+    expect(first).toBeNull();
     expect(claudeSubagents(s.path, true, NOW)[0]!.turns).toBe(10_000);
   });
 
@@ -282,7 +282,8 @@ describe("claudeSubagents reading", () => {
     writeFileSync(next, assistant("n1", "q".repeat(400_000)));
     utimesSync(big, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
     const turns = () => claudeSubagents(s.path, true, NOW).find((task) => task.id === "next")?.turns;
-    expect(turns()).toBe(0);
+    // a whole file of one entry too long to tell its end from: not listed until it is read
+    expect(turns()).toBeUndefined();
     expect(turns()).toBe(1);
     expect(claudeSubagents(s.path, true, NOW).find((task) => task.id === "next")?.model).toBe("claude-opus-5");
   });
@@ -450,7 +451,8 @@ describe("claudeSubagents reading, upkeep", () => {
     writeFileSync(next, assistant("n1", "q".repeat(400_000)));
     utimesSync(big, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
     const turns = () => claudeSubagents(s.path, true, NOW).find((task) => task.id === "next")?.turns;
-    expect(turns()).toBe(0);
+    // a whole file of one entry too long to tell its end from: not listed until it is read
+    expect(turns()).toBeUndefined();
     expect(turns()).toBe(1);
   });
 
@@ -572,5 +574,43 @@ describe("claudeSubagents, an agent's own turn", () => {
       writeFileSync(join(dir, `agent-${id}.jsonl`), json({ type: "user", timestamp: at(1), message: { role: "user", content: "x" } }));
     }
     expect(Object.fromEntries(claudeSubagents(s.path, true, NOW).map((task) => [task.id, task.title]))).toEqual({ d: "D", n: "N", t: "T", i: "i" });
+  });
+});
+
+describe("claudeSubagents, before the files are read through", () => {
+  const body = (id: string, minute: number, stop: string | null) => json({ type: "assistant", timestamp: at(minute), message: { id, model: "claude-haiku-4-5", stop_reason: stop, usage: { output_tokens: 7 }, content: [{ type: "text", text: "x" }], pad: "p".repeat(1000) } });
+
+  it("tells the status of every agent on the first call, whatever the budget has reached", () => {
+    const s = session();
+    // eight idle teammates of 1.5 MB each and one agent at work: 13 MB, more than a call reads
+    for (let n = 0; n < 8; n++) {
+      const file = s.agent(`idle${n}`, { steps: [] });
+      writeFileSync(file, json({ type: "user", timestamp: at(1), message: { role: "user", content: "go" } }) + Array.from({ length: 1500 }, (_, i) => body(`m${i}`, 2, null)).join("") + body("last", 3, "end_turn"));
+    }
+    const busy = s.agent("busy", { steps: [] });
+    writeFileSync(busy, json({ type: "user", timestamp: at(1), message: { role: "user", content: "go" } }) + Array.from({ length: 1500 }, (_, i) => body(`b${i}`, 2, null)).join(""));
+    const first = claudeSubagents(s.path, true, NOW);
+    expect(first.filter((task) => task.status === "running").map((task) => task.id)).toEqual(["busy"]);
+    expect(first).toHaveLength(9);
+    // started at once; what it did only once it is counted through
+    expect(first.every((task) => task.started_at === at(1))).toBe(true);
+    expect(first.some((task) => task.turns === null)).toBe(true);
+    expect(first.find((task) => task.id === "idle0")).toMatchObject({ status: "completed", ended_at: at(3) });
+    for (let call = 0; call < 3; call++) claudeSubagents(s.path, true, NOW);
+    const done = claudeSubagents(s.path, true, NOW);
+    expect(done.every((task) => task.turns !== null)).toBe(true);
+    expect(done.find((task) => task.id === "idle0")?.turns).toBe(1501);
+    expect(done.filter((task) => task.status === "running")).toHaveLength(1);
+  });
+
+  it("leaves out an agent whose status cannot be told yet, rather than showing it running", () => {
+    const s = session();
+    const file = s.agent("long", { steps: [] });
+    // one entry larger than the tail, and more file than a call reads
+    writeFileSync(file, Array.from({ length: 9000 }, (_, i) => body(`m${i}`, 2, null)).join("") + body("last", 3, "end_turn").replace('"pad":"', `"pad":"${"p".repeat(200_000)}`));
+    expect(ids(s.path)).toEqual([]);
+    // read through, it ended
+    for (let call = 0; call < 3; call++) ids(s.path);
+    expect(ids(s.path)).toEqual(["long:completed"]);
   });
 });

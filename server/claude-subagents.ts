@@ -40,6 +40,8 @@ const MAX_NAMES = 5000;
 const RECENT_MS = 24 * 60 * 60 * 1000;
 const RECENT_LIMIT = 10;
 /** a process's start is known to the second, and the clock can step: only an agent quiet this long before the start is taken for another process's */
+/** how much of the end of an agent's file tells its status, whatever else has been read of it */
+const TAIL_BYTES = 64 * 1024;
 const START_SLACK_MS = 60_000;
 /** an agent id is a file name's part: nothing that could leave the folder */
 const AGENT_ID = /^[A-Za-z0-9_-]+$/;
@@ -295,12 +297,10 @@ function scanWork(path: string, budget: { left: number }): Work | null {
     if (entry === null) return;
     const at = stamp(entry["timestamp"]);
     if (at !== null) { state.firstAt ??= at; state.lastAt = at; }
-    // a message to it or a result for it starts its turn again; attachments and bookkeeping say nothing
-    if (entry["type"] === "user") state.turnEndedAt = null;
+    // attachments and bookkeeping say nothing of its turn
+    state.turnEndedAt = turnAfter(entry, at, state.turnEndedAt);
     if (entry["type"] !== "assistant") return;
     const message = row(entry["message"]);
-    // streamed blocks and tool calls say it is still at work
-    state.turnEndedAt = row(message)?.["stop_reason"] === "end_turn" ? at : null;
     // one request is written as one entry per content block, all with the same message id
     const id = text(message?.["id"]);
     if (id === null || id !== state.lastMessage) state.turns += 1;
@@ -320,6 +320,73 @@ function scanWork(path: string, budget: { left: number }): Work | null {
   state.skipping = read.skipping;
   state.behind = read.more;
   return state;
+}
+
+/** A message to an agent or a result for it starts its turn again; its own answer ends it, unless it goes on (streamed blocks, a tool call). */
+function turnAfter(entry: Row, at: number | null, turnEndedAt: number | null): number | null {
+  if (entry["type"] === "user") return null;
+  if (entry["type"] !== "assistant") return turnEndedAt;
+  return row(row(entry["message"]))?.["stop_reason"] === "end_turn" ? at : null;
+}
+
+function readBytes(path: string, from: number, length: number): Buffer | null {
+  let fd: number;
+  try { fd = openSync(path, "r"); } catch { return null; }
+  try {
+    const buffer = Buffer.alloc(length);
+    let got = 0;
+    while (got < length) {
+      const n = readSync(fd, buffer, got, length - got, from + got);
+      if (n === 0) break;
+      got += n;
+    }
+    return buffer.subarray(0, got);
+  } catch { return null; } finally { closeSync(fd); }
+}
+
+/** What the end of an agent's file says of it: when it was last written, and whether its turn ended. */
+interface Tail { known: boolean; firstAt: number | null; lastAt: number | null; turnEndedAt: number | null }
+const tails = new Map<string, { id: string; key: string; tail: Tail }>();
+
+/**
+ * The status of an agent must not wait for the whole of its file to be read, which takes calls:
+ * its last TAIL_BYTES (back to a line start) hold the last entries, whatever they are, and the
+ * first line its start. Read again only when the file changed; not counted against any budget.
+ * `known` false: the tail holds no whole line of it (one very long entry, or a file being written).
+ */
+function readTail(path: string, stat: { size: number; mtimeMs: number; id: string }): Tail {
+  const key = `${stat.size}:${stat.mtimeMs}`;
+  const kept = tails.get(path);
+  if (kept?.id === stat.id && kept.key === key) return kept.tail;
+  const tail: Tail = { known: false, firstAt: kept?.id === stat.id ? kept.tail.firstAt : null, lastAt: null, turnEndedAt: null };
+  if (stat.size === 0) { tail.known = true; return tail; }
+  const from = Math.max(0, stat.size - TAIL_BYTES);
+  const chunk = readBytes(path, from, stat.size - from);
+  if (chunk === null) return tail;
+  const end = chunk.lastIndexOf(0x0a) + 1;
+  const start = from === 0 ? 0 : chunk.indexOf(0x0a) + 1;
+  let decisive = false;
+  let lines = 0;
+  if (end > start) {
+    for (const line of chunk.subarray(start, end).toString("utf8").split("\n")) {
+      let entry: Row | null;
+      try { entry = row(JSON.parse(line)); } catch { continue; }
+      if (entry === null) continue;
+      lines += 1;
+      const at = stamp(entry["timestamp"]);
+      if (at !== null) { if (from === 0) tail.firstAt ??= at; tail.lastAt = at; }
+      if (entry["type"] === "user" || entry["type"] === "assistant") decisive = true;
+      tail.turnEndedAt = turnAfter(entry, at, tail.turnEndedAt);
+    }
+  }
+  tail.known = (from === 0 && end > 0) || decisive;
+  if (tail.firstAt === null && from > 0) {
+    const head = readBytes(path, 0, TAIL_BYTES);
+    const newline = head?.indexOf(0x0a) ?? -1;
+    if (head !== null && newline !== -1) { try { tail.firstAt = stamp(row(JSON.parse(head.subarray(0, newline).toString("utf8")))?.["timestamp"]); } catch { /* a long first line: no start yet */ } }
+  }
+  remember(tails, path, { id: stat.id, key, tail }, 4096);
+  return tail;
 }
 
 const subagentsDir = (parentPath: string): string => join(parentPath.replace(/\.jsonl$/, ""), "subagents");
@@ -391,7 +458,7 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   const dir = subagentsDir(parentPath);
   const files = agentIds(parentPath).flatMap((id) => {
     const stat = plain(join(dir, `agent-${id}.jsonl`));
-    return stat !== null && now - stat.mtimeMs <= RECENT_MS ? [{ id, mtimeMs: stat.mtimeMs }] : [];
+    return stat !== null && now - stat.mtimeMs <= RECENT_MS ? [{ id, mtimeMs: stat.mtimeMs, stat }] : [];
   }).sort((a, b) => Number(works.get(join(dir, `agent-${b.id}.jsonl`))?.hungry ?? false) - Number(works.get(join(dir, `agent-${a.id}.jsonl`))?.hungry ?? false) || b.mtimeMs - a.mtimeMs).slice(0, MAX_AGENTS);
   if (files.length === 0) return { tasks: [], settled: true, watch: [] };
   // each has a budget of its own: a long transcript must not keep the agents from being read
@@ -402,12 +469,20 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   const endedIds: string[] = [];
   const all = new Map<string, OmoTask>();
   let settled = parent !== null && !parent.behind;
-  for (const { id } of files) {
+  for (const { id, stat } of files) {
     const meta = readMeta(join(dir, `agent-${id}.meta.json`));
     const work = scanWork(join(dir, `agent-${id}.jsonl`), budget);
     // a file caught while it is written says nothing yet, and what was worked out without it is not final
     if (meta === null || work === null) { settled = false; continue; }
     if (work.behind) settled = false;
+    // its status from the end of its file, which no budget holds back; the whole file only when that tells nothing
+    const tail = readTail(join(dir, `agent-${id}.jsonl`), stat);
+    const view = tail.known ? tail : work.behind ? null : work;
+    // not told yet: neither running nor ended
+    if (view === null) { settled = false; continue; }
+    // what it did is counted from the whole file, and shown once it is
+    const counted = !work.behind;
+    const firstAt = tail.firstAt ?? work.firstAt;
     let status: OmoTask["status"] | null = null;
     let endedAt: number | null = null;
     // what ended it last: its notice, or the answer to its synchronous call
@@ -415,10 +490,10 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
     const answer = meta.toolUseId !== null ? parent?.results.get(meta.toolUseId) : undefined;
     const told = note && (!answer || note.at >= answer.at) ? { at: note.at, status: note.status, turn: false } : answer ? { at: answer.at, status: answer.error ? "failed" as const : "completed" as const, turn: false } : null;
     // its own file can say it stopped (a teammate gets no notification, and a notice may not be written yet)
-    const stopped = work.turnEndedAt !== null ? { at: work.turnEndedAt, status: "completed" as const, turn: true } : null;
+    const stopped = view.turnEndedAt !== null ? { at: view.turnEndedAt, status: "completed" as const, turn: true } : null;
     const end = told && (!stopped || told.at >= stopped.at) ? told : stopped;
     // an end older than the agent's last entry is from before it was resumed; its own last turn ended is that entry
-    if (end && (end.turn || work.lastAt === null || work.lastAt <= end.at)) { status = end.status; endedAt = end.at; }
+    if (end && (end.turn || view.lastAt === null || view.lastAt <= end.at)) { status = end.status; endedAt = end.at; }
     else if (parent === null) continue;
     // the transcript is not read to its end: what an agent was last read as stands until it is
     else if (parent.behind) {
@@ -428,22 +503,22 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
       endedAt = status === "running" ? null : time(old.ended_at) || null;
     }
     // the part read starts after it went quiet: not known to run
-    else if (parent.windowed && parent.firstAt !== null && (work.lastAt ?? 0) < parent.firstAt) continue;
+    else if (parent.windowed && parent.firstAt !== null && (view.lastAt ?? 0) < parent.firstAt) continue;
     else status = "running";
     if (status !== "running") endedIds.push(id);
-    const orphan = status === "running" && since !== null && work.lastAt !== null && work.lastAt < since - START_SLACK_MS;
+    const orphan = status === "running" && since !== null && view.lastAt !== null && view.lastAt < since - START_SLACK_MS;
     const lost = status === "running" && (!live || orphan);
     const task: OmoTask = {
       id,
       title: meta.title ?? meta.agent ?? id,
       category: meta.agent,
-      model: work.model,
+      model: counted ? work.model : null,
       status: lost ? "lost" : status,
-      started_at: iso(work.firstAt),
-      ended_at: iso(status === "running" ? (lost ? work.lastAt : null) : endedAt),
-      turns: work.turns,
-      tool_calls: work.toolCalls,
-      tokens: work.tokens,
+      started_at: iso(firstAt),
+      ended_at: iso(status === "running" ? (lost ? view.lastAt : null) : endedAt),
+      turns: counted ? work.turns : null,
+      tool_calls: counted ? work.toolCalls : null,
+      tokens: counted ? work.tokens : null,
     };
     all.set(id, task);
     if (task.status === "running") running.push(task);
@@ -465,6 +540,7 @@ export function forgetSubagents(): void {
   parents.clear();
   metas.clear();
   works.clear();
+  tails.clear();
   listings.clear();
   previous.clear();
 }
