@@ -94,6 +94,11 @@ export function DirectoryBrowser({ start, onPick, onOpenFile }: DirectoryBrowser
             autoComplete="off" spellCheck={false}
             onChange={(event) => { setQuery(event.target.value); listRef.current?.scrollTo({ top: 0 }); }}
             onKeyDown={(event) => {
+              // Enter confirms an IME candidate; Escape dismisses it, not this dialog.
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+                event.stopPropagation();
+                return;
+              }
               if (event.key === "Enter") event.preventDefault();
               if (event.key === "Escape" && query !== "") {
                 event.preventDefault();
