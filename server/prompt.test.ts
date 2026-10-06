@@ -2948,10 +2948,15 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     // closed in the terminal right after the answer read it, with no move to wait on: the look
     // before the letter is what keeps it out of Claude's own prompt
     await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      // the card's read, the answer's own read of the card, then its look before the letter:
+      // the list is still up for the second and gone for the third
+      let reads = 0;
+      pane.onRead = () => { reads += 1; if (reads === 3) pane.screen = CLAUDE_MODEL_CLOSED; };
       const prompt = (await card())!;
-      let reads = 1;
-      pane.onRead = () => { if ((reads += 1) === 3) pane.screen = CLAUDE_MODEL_CLOSED; };
+      expect(reads).toBe(1);
       expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      // the answer got past its own read (a list gone by then is refused at once, with two reads)
+      expect(reads).toBeGreaterThanOrEqual(3);
       expect(pane.sent).toEqual([]);
     });
     // closed in the terminal under the first move: no second arrow into Claude's own prompt,
