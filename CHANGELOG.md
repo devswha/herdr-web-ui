@@ -43,6 +43,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   for this session only (Claude's `s` key). Saving a model as the default for new sessions stays
   in the terminal, where Enter on the list does it. The card offers the rows Claude draws (ten of
   a longer list, fewer in a short pane) and says how many more the terminal lists.
+  ([#501](https://github.com/devswha/herdr-web-ui/pull/501))
 
 ## [0.3.51] - 2026-10-06
 
