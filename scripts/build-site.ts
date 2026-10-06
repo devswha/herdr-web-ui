@@ -122,10 +122,11 @@ const repoBody: unknown = repo?.ok ? await repo.json() : null;
 const stars = repoBody && typeof repoBody === "object" && "stargazers_count" in repoBody && typeof repoBody.stargazers_count === "number" ? repoBody.stargazers_count : null;
 if (stars === null) console.warn(`GitHub star count unavailable (${repo ? `HTTP ${repo.status}` : "no connection"}): the page shows a dash`);
 page = page.replaceAll("{{stars}}", stars === null ? "—" : stars.toLocaleString("en-US"));
-// the people with a commit on the default branch, bots left out
+// the people with a commit on the default branch, bots left out: at most ten pages, and a part of
+// the list is not a count, so a page that cannot be read leaves a dash
 let contributors: number | null = 0;
-for (let pageNumber = 1; contributors !== null; pageNumber += 1) {
-  const response = await fetch(`https://api.github.com/repos/devswha/herdr-web-ui/contributors?per_page=100&page=${pageNumber}`, { headers: { accept: "application/vnd.github+json" } }).catch(() => null);
+for (let pageNumber = 1; contributors !== null && pageNumber <= 10; pageNumber += 1) {
+  const response = await fetch(`https://api.github.com/repos/devswha/herdr-web-ui/contributors?per_page=100&page=${pageNumber}`, { headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
   const body: unknown = response?.ok ? await response.json().catch(() => null) : null;
   if (!Array.isArray(body)) {
     console.warn(`GitHub contributor count unavailable (${response ? `HTTP ${response.status}` : "no connection"}): the page shows a dash`);
@@ -137,7 +138,7 @@ for (let pageNumber = 1; contributors !== null; pageNumber += 1) {
 }
 page = page.replaceAll("{{contributors}}", contributors === null ? "—" : contributors.toLocaleString("en-US"));
 // where the plugin stands in herdr's marketplace index: one more than the repositories with more stars
-const index = await fetch("https://assets.herdr.dev/plugins/index.json").catch(() => null);
+const index = await fetch("https://assets.herdr.dev/plugins/index.json", { signal: AbortSignal.timeout(10_000) }).catch(() => null);
 const indexBody: unknown = index?.ok ? await index.json().catch(() => null) : null;
 const listed = indexBody && typeof indexBody === "object" && "plugins" in indexBody && Array.isArray(indexBody.plugins) ? indexBody.plugins : [];
 const starsByRepo = new Map<string, number>();
