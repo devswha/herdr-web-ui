@@ -30,6 +30,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
 
 ### Fixed
+- With Language set to **System**, English stays selected when it is the browser's first
+  supported language, even if Japanese, Korean or Chinese appears later in its preferences.
+  Before, English was skipped in favor of a later supported language.
+  ([#496](https://github.com/devswha/herdr-web-ui/pull/496) by @snowykr)
 - An OmO pane's chat keeps a background task's title after the newest page moves past the prompt
   that started the task, as 0.3.51 meant to. Before, the title was kept only when a transcript
   deleted earlier had used the same inode (as Linux reuses them) and left its titles behind, and
