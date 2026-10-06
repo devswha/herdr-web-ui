@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +44,12 @@ describe("a Codex process's own store", () => {
       expect(await processCodexHome(child.pid, ["codex", "--first"])).toBe(home);
       // other arguments under that pid are another process as far as the cache knows: read again
       expect(await processCodexHome(child.pid, ["codex", "--second"])).toBeNull();
+      // Even matching pid/argv must be re-read at the deadline, without a real 30-second sleep.
+      const expiredAt = Date.now() + 30_001;
+      const clock = spyOn(Date, "now").mockReturnValue(expiredAt);
+      try {
+        expect(await processCodexHome(child.pid, ["codex", "--first"])).toBeNull();
+      } finally { clock.mockRestore(); }
     } finally { child.kill(); rmSync(home, { recursive: true, force: true }); }
   });
 });
