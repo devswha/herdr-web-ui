@@ -7,7 +7,9 @@
  * (docs/media/readme/*.webp) and the installer still. A video's poster frame is cut with ffmpeg when it
  * is installed (the workflow installs it); without it the still stays full size and a poster that
  * could not be made is dropped from the page. `{{version}}` and `{{stars}}` in the page are filled in
- * here, from package.json and the GitHub API.
+ * here, from package.json and the GitHub API. The page's FAQ rows are also written into its head as
+ * FAQPage structured data, so the two cannot differ, and sitemap.xml lists the page (the demo is
+ * noindex and stays out of it).
  *
  * demo/ is the app itself, built by Vite with relative asset paths into demo/app/, loaded behind
  * site/demo/transport.ts (bundled to demo-transport.js and injected before the app's scripts) so it
@@ -134,7 +136,23 @@ for (const name of pageMedia) {
     page = page.replace(new RegExp(` (?:${attrs})="media/${file.split("/").pop()!.replace(".", "\\.")}"`, "g"), "");
   }
 }
+
+// the FAQ as structured data, read from the rows the page shows
+// (a row's closing "… →" link is navigation, not part of the answer)
+const text = (html: string) => html.replace(/<a [^>]*>[^<]*→<\/a>/g, "").replace(/<[^>]+>/g, "").replaceAll("&amp;", "&").trim();
+const questions = [...page.matchAll(/<div class="qa"><dt>(.*?)<\/dt><dd>(.*?)<\/dd><\/div>/g)].map(([, question, answer]) => ({
+  "@type": "Question",
+  name: text(question),
+  acceptedAnswer: { "@type": "Answer", text: text(answer) },
+}));
+if (questions.length === 0) throw new Error("site/index.html has no FAQ rows (<div class=\"qa\">) to build the FAQPage data from");
+const faq = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: questions }).replaceAll("<", "\\u003c");
+page = page.replace("</head>", () => `  <script type="application/ld+json">${faq}</script>\n  </head>`);
 writeFileSync(join(out, "index.html"), page);
+writeFileSync(
+  join(out, "sitemap.xml"),
+  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://devswha.github.io/herdr-web-ui/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod></url>\n</urlset>\n`,
+);
 
 // the demo: the real client, relative paths, the transport in front of it
 const demoApp = join(out, "demo", "app");
