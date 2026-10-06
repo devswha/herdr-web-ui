@@ -40,6 +40,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the status line lists what runs and what ended in the last day, the pane's badge counts the
   running ones, and a subagent that ends leaves a card in the chat with its answer instead of
   being hidden. They are read from the session's own `subagents/` files and its transcript.
+  ([#527](https://github.com/devswha/herdr-web-ui/pull/527))
 
 ### Changed
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
