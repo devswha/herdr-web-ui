@@ -438,6 +438,46 @@ try {
         assert.equal(await box.inputValue(), text);
       });
       console.log("PASS changing Chat font size grows and shrinks an existing draft's automatic box and preserves a chosen height");
+
+      // CSS layout zoom exercises fractional geometry and rewrapping; it is not native browser
+      // zoom or mobile pinch zoom. Keep one draft mounted while changing each scale.
+      for (const width of [390, 1440]) await withCard(browser, width, { model: "gpt-5.6-sol", status: "idle" }, async (page) => {
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        const drafts = ["", "A short message. 짧은 메시지", "long_unbroken_text_".repeat(100), Array.from({ length: 40 }, (_, i) => `Line ${i + 1}: a long draft`).join("\n")];
+        for (const text of drafts) {
+          await box.fill(text);
+          for (const zoom of [0.8, 1, 1.25, 1.5, 2, 1]) {
+            await page.evaluate((scale) => { document.documentElement.style.zoom = String(scale); }, zoom);
+            // The width observer commits the automatic height after layout zoom rewraps text.
+            await page.waitForFunction((short) => {
+              const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+              return node.scrollWidth <= node.clientWidth + 1 && (!short || node.scrollHeight <= node.clientHeight + 1);
+            }, text === drafts[0] || text === drafts[1], { timeout: 5_000 });
+            const metrics = await box.evaluate((node) => {
+              const style = getComputedStyle(node);
+              return { scrollbar: style.scrollbarWidth, fallback: getComputedStyle(node, "::-webkit-scrollbar").display, overflowY: style.overflowY, height: node.clientHeight, scrollHeight: node.scrollHeight };
+            });
+            assert.equal(metrics.scrollbar, "none", `${width}px at ${zoom}: scrollbar stays hidden`);
+            assert.equal(metrics.fallback, "none", "WebKit scrollbar fallback stays hidden");
+            assert.equal(metrics.overflowY, "auto", "long drafts remain scrollable");
+            assert.equal(await box.inputValue(), text, "changing zoom preserves the draft");
+            if (text === drafts[0] || text === drafts[1]) assert.ok(metrics.scrollHeight <= metrics.height + 1, "empty and short drafts fit without vertical clipping");
+          }
+        }
+        await box.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop === 0, undefined, { timeout: 5_000 });
+        await box.hover();
+        await page.mouse.wheel(0, 400);
+        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop > 0, undefined, { timeout: 5_000 });
+        await box.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+        await page.waitForFunction(() => {
+          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return node.selectionStart === node.value.length && node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+        }, undefined, { timeout: 5_000 });
+        assert.equal(await box.inputValue(), drafts[3], "wheel and keyboard scrolling preserve the draft");
+        if (width === 1440 && process.env.COMPOSER_FIT_SCREENSHOT) await page.locator(".composer").screenshot({ path: process.env.COMPOSER_FIT_SCREENSHOT });
+      });
+      console.log("PASS hidden scrollbars, wrapped drafts and wheel/keyboard scrolling at 80–200% CSS layout zoom");
     } finally {
       await browser.close();
     }
