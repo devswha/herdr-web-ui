@@ -10,7 +10,7 @@
  * HERDR_TEST_MODE=unit points HERDR_SOCKET at a socket that does not exist, so a test that
  * reaches for herdr in a unit run fails instead of working in the user's herdr.
  */
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ping, sessionSnapshot, workspaceCreate } from "../server/herdr/client.ts";
@@ -64,8 +64,13 @@ export async function useTestHerdr(): Promise<string | null> {
       await Bun.sleep(100);
     }
   }
+  // Empty of the user's files, not of every file: with no startup file at all, a zsh that ships
+  // its new-user wizard (zsh-newuser-install; Ubuntu's zsh does) opens it in every pane, and the
+  // wizard takes the first keys a test types into the shell. An empty .zshrc is read as nothing.
+  // A pane reads it when its shell starts, so a server already running needs no restart for it.
+  mkdirSync(zdotdir, { recursive: true });
+  if (!existsSync(join(zdotdir, ".zshrc"))) writeFileSync(join(zdotdir, ".zshrc"), "");
   if (!(await answers(socket))) {
-    mkdirSync(zdotdir, { recursive: true });
     Bun.spawn([herdr, "--session", TEST_SESSION, "server"], {
       stdin: "ignore",
       stdout: Bun.file(join(dirname(socket), "test-server.log")),
