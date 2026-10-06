@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- On macOS a Codex pane's chat costs the server about a sixth of what it did on each poll (a
+  median of 16 ms instead of 103 ms, measured on two live Codex panes). The store a Codex process
+  writes to is remembered for its pid and arguments instead of being read with `ps` every 2 s,
+  and the rollout it has open is found with one `lsof` run for the pane's processes (a wrapper
+  and the binary are two) that skips the stat calls a name does not need.
+  ([#491](https://github.com/devswha/herdr-web-ui/pull/491) by @kilhyeonjun)
+
 ## [0.3.51] - 2026-10-06
 
 ### Added

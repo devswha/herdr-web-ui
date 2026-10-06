@@ -32,6 +32,20 @@ describe("a Codex process's own store", () => {
       expect(await processCodexHome(spaced.pid)).toBe(join(tmpdir(), "harness codex test"));
     } finally { withHome.kill(); without.kill(); spaced.kill(); }
   });
+
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("keeps a process's store under its pid and argv, and reads it again for other arguments", async () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-codex-home-"));
+    const child = Bun.spawn([process.execPath, "-e", "console.log('up'); await Bun.sleep(5000)"], { env: { ...process.env, CODEX_HOME: home }, stdout: "pipe" });
+    try {
+      await child.stdout.getReader().read();
+      expect(await processCodexHome(child.pid, ["codex", "--first"])).toBe(home);
+      // the store goes away: the same pid and argv are answered from what was read, without reading again
+      rmSync(home, { recursive: true, force: true });
+      expect(await processCodexHome(child.pid, ["codex", "--first"])).toBe(home);
+      // other arguments under that pid are another process as far as the cache knows: read again
+      expect(await processCodexHome(child.pid, ["codex", "--second"])).toBeNull();
+    } finally { child.kill(); rmSync(home, { recursive: true, force: true }); }
+  });
 });
 
 describe("CODEX_HOME in a ps -E line", () => {
