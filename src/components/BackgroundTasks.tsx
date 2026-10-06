@@ -25,13 +25,22 @@ const NODE_ICONS: Record<OmoRunNode["state"], ComponentType<LucideProps>> = {
  * ended is one line that says how many ended and how many went wrong, and opens on request.
  * The server keeps the newest ten ended tasks and five ended workflows of the last day, so the
  * line counts those, and says "recently", not "in the last day".
+ * A Claude pane's tasks are its subagents. Most Claude panes have none, so it asks when
+ * the pane is shown (and when its count changes), and appears only when there are or were some.
  */
-export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count: number; omo: boolean }) {
+export function BackgroundTasks({ paneId, count, omo, claude = false }: { paneId: string; count: number; omo: boolean; claude?: boolean }) {
   const t = useT();
   const { fetchPaneOmoActivity } = useMachineApi();
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState(count > 0);
   useEffect(() => { if (count > 0) setSeen(true); }, [count]);
+  useEffect(() => {
+    if (!claude || count > 0) return;
+    let alive = true;
+    fetchPaneOmoActivity(paneId).then((found) => { if (alive && found.tasks.length > 0) setSeen(true); }, () => undefined);
+    return () => { alive = false; };
+    // asked when the pane is shown and again when its count changes: the server may not have found the pane's session yet
+  }, [claude, paneId, count]);
   const [tasks, setTasks] = useState<OmoTask[] | null>(null);
   const [runs, setRuns] = useState<OmoRun[]>([]);
   const [failed, setFailed] = useState(false);
