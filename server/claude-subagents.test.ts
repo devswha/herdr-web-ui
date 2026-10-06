@@ -515,3 +515,62 @@ describe("ClaudeSubagentStatus process", () => {
     expect([calls, status.sessionOf("p1")?.startedAt]).toEqual([2, 2000]);
   });
 });
+
+describe("claudeSubagents, an agent's own turn", () => {
+  const entry = (file: string, value: unknown) => appendFileSync(file, json({ isSidechain: true, ...(value as object) }));
+  const assistant = (file: string, minute: number, stop: string | null, kind = "text") => entry(file, { type: "assistant", timestamp: at(minute), message: { id: `m${minute}${kind}`, model: "claude-haiku-4-5", stop_reason: stop, content: [{ type: kind, text: "x" }] } });
+  /** a teammate: no notification, no toolUseId, a name of its own */
+  const teammate = (s: ReturnType<typeof session>, id: string) => {
+    writeFileSync(join(s.path, "..", "11111111-1111-4111-8111-111111111111", "subagents", `agent-${id}.meta.json`), JSON.stringify({ agentType: "local-harness-map", name: "local-harness-map", spawnDepth: 0, requestShape: "background", taskKind: "in_process_teammate", teamName: "session-1" }));
+    const file = join(s.path, "..", "11111111-1111-4111-8111-111111111111", "subagents", `agent-${id}.jsonl`);
+    writeFileSync(file, "");
+    entry(file, { type: "user", timestamp: at(1), message: { role: "user", content: "map it" } });
+    return file;
+  };
+
+  it("reads a teammate whose last turn ended as completed, at that entry's time, and titles it by its name", () => {
+    const s = session();
+    const file = teammate(s, "alocal-harness-map-f7b05717a4a23081");
+    assistant(file, 2, null, "thinking");
+    assistant(file, 3, "end_turn");
+    // bookkeeping after the end is not a message to it
+    entry(file, { type: "attachment", timestamp: at(4), attachment: { type: "queued_command" } });
+    expect(claudeSubagents(s.path, true, NOW)).toMatchObject([{ id: "alocal-harness-map-f7b05717a4a23081", title: "local-harness-map", category: "local-harness-map", status: "completed", ended_at: at(3) }]);
+  });
+
+  it("reads one still streaming or calling a tool as running, and one sent a message after its end as running again", () => {
+    const s = session();
+    const streaming = teammate(s, "streaming");
+    assistant(streaming, 2, null);
+    const calling = teammate(s, "calling");
+    assistant(calling, 2, "tool_use", "tool_use");
+    const woken = teammate(s, "woken");
+    assistant(woken, 2, "end_turn");
+    expect(ids(s.path).sort()).toEqual(["calling:running", "streaming:running", "woken:completed"]);
+    entry(woken, { type: "user", timestamp: at(5), message: { role: "user", content: "one more thing" } });
+    expect(ids(s.path).sort()).toEqual(["calling:running", "streaming:running", "woken:running"]);
+    assistant(woken, 6, "end_turn");
+    expect(claudeSubagents(s.path, true, NOW).find((task) => task.id === "woken")).toMatchObject({ status: "completed", ended_at: at(6) });
+  });
+
+  it("takes a background agent that ended its turn as done before its notification is written, and the newest word among them", () => {
+    const s = session();
+    const file = s.agent("bg", { steps: [[1, 1]] });
+    assistant(file, 2, "end_turn");
+    expect(claudeSubagents(s.path, true, NOW)).toMatchObject([{ id: "bg", status: "completed", ended_at: at(2) }]);
+    // its notice, written after, is newer and says it failed
+    s.notify("bg", 3, { status: "failed" });
+    expect(claudeSubagents(s.path, true, NOW)).toMatchObject([{ id: "bg", status: "failed", ended_at: at(3) }]);
+  });
+
+  it("titles by description, then name, then agent type, then id", () => {
+    const s = session();
+    const dir = join(s.path, "..", "11111111-1111-4111-8111-111111111111", "subagents");
+    const titles: [string, object][] = [["d", { description: "D", name: "N", agentType: "T" }], ["n", { name: "N", agentType: "T" }], ["t", { agentType: "T" }], ["i", {}]];
+    for (const [id, meta] of titles) {
+      writeFileSync(join(dir, `agent-${id}.meta.json`), JSON.stringify(meta));
+      writeFileSync(join(dir, `agent-${id}.jsonl`), json({ type: "user", timestamp: at(1), message: { role: "user", content: "x" } }));
+    }
+    expect(Object.fromEntries(claudeSubagents(s.path, true, NOW).map((task) => [task.id, task.title]))).toEqual({ d: "D", n: "N", t: "T", i: "i" });
+  });
+});

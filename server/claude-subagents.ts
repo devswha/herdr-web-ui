@@ -8,8 +8,9 @@ import type { HerdrPane, OmoTask } from "../shared/protocol.ts";
  * transcript `<project>/<session>.jsonl`, a folder `<session>/subagents/` with one pair per
  * subagent: `agent-<id>.meta.json` (description, agent type, the tool call that started it) and
  * `agent-<id>.jsonl`, its own transcript. Whether it ended is told only by the parent
- * transcript: a background subagent by the `<task-notification>` Claude queues when it stops, a
- * synchronous one by the tool_result of its call (the "Async agent launched" acknowledgement of
+ * transcript: a background subagent by the `<task-notification>` Claude queues when it stops (a
+ * teammate of an agent team gets none, and one's notice may not be written yet: its own file
+ * ending in an `end_turn` answer, with no message to it after, says it stopped), a synchronous one by the tool_result of its call (the "Async agent launched" acknowledgement of
  * a background call is no answer).
  *
  * A notification is carried up to three times (a user entry, a queue-operation, a queued_command
@@ -236,6 +237,7 @@ function scanParentLine(parent: Parent, line: string): void {
   if (parent.results.size > MAX_NAMES) parent.results.clear();
 }
 
+/** `title`: what it was called (description, else a teammate's name); a session resumed in a new file keeps neither toolUseId nor description */
 interface Meta { title: string | null; agent: string | null; toolUseId: string | null }
 const metas = new Map<string, { key: string; meta: Meta | null }>();
 
@@ -248,7 +250,7 @@ function readMeta(path: string): Meta | null {
   let meta: Meta | null = null;
   try {
     const record = row(JSON.parse(readFileSync(path, "utf8")));
-    if (record !== null) meta = { title: text(record["description"]), agent: text(record["agentType"]), toolUseId: text(record["toolUseId"]) };
+    if (record !== null) meta = { title: text(record["description"]) ?? text(record["name"]), agent: text(record["agentType"]), toolUseId: text(record["toolUseId"]) };
   } catch { return null; } // being written
   remember(metas, path, { key, meta }, 4096);
   return meta;
@@ -269,6 +271,8 @@ interface Work {
   toolCalls: number;
   tokens: number | null;
   lastMessage: string | null;
+  /** when its last request ended its turn, while nothing has been said to it or by it since */
+  turnEndedAt: number | null;
 }
 const works = new Map<string, Work>();
 
@@ -277,7 +281,7 @@ function scanWork(path: string, budget: { left: number }): Work | null {
   if (stat === null) return null;
   let work = works.get(path);
   if (!work || work.id !== stat.id || work.offset > stat.size) {
-    work = { id: stat.id, offset: 0, skipping: false, behind: false, hungry: false, firstAt: null, lastAt: null, model: null, turns: 0, toolCalls: 0, tokens: null, lastMessage: null };
+    work = { id: stat.id, offset: 0, skipping: false, behind: false, hungry: false, firstAt: null, lastAt: null, model: null, turns: 0, toolCalls: 0, tokens: null, lastMessage: null, turnEndedAt: null };
   }
   remember(works, path, work, 4096);
   if (work.offset >= stat.size) { work.behind = false; work.hungry = false; return work; }
@@ -291,8 +295,12 @@ function scanWork(path: string, budget: { left: number }): Work | null {
     if (entry === null) return;
     const at = stamp(entry["timestamp"]);
     if (at !== null) { state.firstAt ??= at; state.lastAt = at; }
+    // a message to it or a result for it starts its turn again; attachments and bookkeeping say nothing
+    if (entry["type"] === "user") state.turnEndedAt = null;
     if (entry["type"] !== "assistant") return;
     const message = row(entry["message"]);
+    // streamed blocks and tool calls say it is still at work
+    state.turnEndedAt = row(message)?.["stop_reason"] === "end_turn" ? at : null;
     // one request is written as one entry per content block, all with the same message id
     const id = text(message?.["id"]);
     if (id === null || id !== state.lastMessage) state.turns += 1;
@@ -405,9 +413,12 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
     // what ended it last: its notice, or the answer to its synchronous call
     const note = parent?.notes.get(id);
     const answer = meta.toolUseId !== null ? parent?.results.get(meta.toolUseId) : undefined;
-    const end = note && (!answer || note.at >= answer.at) ? { at: note.at, status: note.status } : answer ? { at: answer.at, status: answer.error ? "failed" as const : "completed" as const } : null;
-    // an end older than the agent's last entry is from before it was resumed
-    if (end && (work.lastAt === null || work.lastAt <= end.at)) { status = end.status; endedAt = end.at; }
+    const told = note && (!answer || note.at >= answer.at) ? { at: note.at, status: note.status, turn: false } : answer ? { at: answer.at, status: answer.error ? "failed" as const : "completed" as const, turn: false } : null;
+    // its own file can say it stopped (a teammate gets no notification, and a notice may not be written yet)
+    const stopped = work.turnEndedAt !== null ? { at: work.turnEndedAt, status: "completed" as const, turn: true } : null;
+    const end = told && (!stopped || told.at >= stopped.at) ? told : stopped;
+    // an end older than the agent's last entry is from before it was resumed; its own last turn ended is that entry
+    if (end && (end.turn || work.lastAt === null || work.lastAt <= end.at)) { status = end.status; endedAt = end.at; }
     else if (parent === null) continue;
     // the transcript is not read to its end: what an agent was last read as stands until it is
     else if (parent.behind) {
@@ -424,7 +435,7 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
     const lost = status === "running" && (!live || orphan);
     const task: OmoTask = {
       id,
-      title: meta.title ?? id,
+      title: meta.title ?? meta.agent ?? id,
       category: meta.agent,
       model: work.model,
       status: lost ? "lost" : status,
