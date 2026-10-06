@@ -313,6 +313,8 @@ export function createServer(
     stateDir?: string;
     /** the PC's own Tailscale login, for the identity check; tests set it, otherwise `tailscale status` says */
     tailscaleOwner?: string | null;
+    /** one login owns every node of the tailnet and none is tagged; only a test names it, otherwise `tailscale status` proves it */
+    tailscaleSoleUser?: boolean;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
     updates?: UpdateService;
@@ -377,7 +379,9 @@ export function createServer(
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
-  const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
+  const identityOf = namedOwner !== undefined
+    ? () => ({ owner: namedOwner, tagged: false, soleUser: options.tailscaleSoleUser ?? false })
+    : tailscaleIdentity;
   identityOf();
 
   /**

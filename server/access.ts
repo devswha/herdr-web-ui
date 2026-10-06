@@ -10,7 +10,10 @@
  * Without a token, and until the first device is paired, anything that reaches the server is
  * let in as it always was, except through a proxy
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
- * node (tailscale serve states no person for it), and a tailnet can hold many of those.
+ * node (tailscale serve states no person for it), and a tailnet can hold many of those. The
+ * exception is a tailnet Tailscale says holds no tagged node and no second login: no stranger
+ * exists there to be mistaken for, so a serve-proxied request with no login is the owner, and
+ * the owner's own phone opens the address without a code.
  * A PC whose own node is tagged has no login to compare with: its proxied requests pair, the
  * owner's included, unless HERDR_WEB_TAILSCALE_OWNER names the login to let in.
  *
@@ -39,6 +42,8 @@ export interface AccessInput {
   owner: string | null;
   /** this PC's Tailscale node is tagged: Tailscale runs here, and names no person as its owner */
   tagged: boolean;
+  /** `tailscale status` proves one login owns every node of this tailnet and none is tagged (`parseSoleTailnetUser`) */
+  soleUser: boolean;
   tokenConfigured: boolean;
   /** a device has been paired at some point: the gate is closed to strangers (server/devices.ts) */
   gated: boolean;
@@ -89,6 +94,13 @@ export function decideAccess(input: AccessInput): Access {
   if (input.loopback && input.tailscaleLogin !== null && input.owner !== null) {
     if (input.tailscaleLogin.toLowerCase() === input.owner.toLowerCase()) return { level: "full", via: "tailscale", role: "drive", login: input.tailscaleLogin };
     return { level: "none", reason: "other_user" };
+  }
+  // A proxied request with no login is a tagged node, which a tailnet can hold many of; where
+  // Tailscale says this one holds none and that a single login owns every node on it, there is
+  // nobody for that request to be but the owner, so the owner's own phone gets in by opening
+  // the address. Funnel is the public internet, which that proof says nothing about.
+  if (input.loopback && input.forwarded && !input.funnel && input.tailscaleLogin === null && input.owner !== null && input.soleUser) {
+    return { level: "full", via: "tailscale", role: "drive", login: input.owner };
   }
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
   if (input.loopback && input.forwarded && (input.owner !== null || input.tagged)) return { level: "none", reason: "pairing_required" };

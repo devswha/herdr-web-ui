@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackHost, type AccessInput } from "./access.ts";
 
 const device = { id: "d1", label: "Phone", role: "drive" as const };
-const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, owner: null, tagged: false, tokenConfigured: false, gated: false };
+const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, owner: null, tagged: false, soleUser: false, tokenConfigured: false, gated: false };
 const via = (input: Partial<AccessInput>) => { const a = decideAccess({ ...base, ...input }); return a.level === "full" ? a.via : `refused:${a.reason}`; };
 
 describe("decideAccess", () => {
@@ -34,6 +34,34 @@ describe("decideAccess", () => {
     expect(via({ forwarded: true, owner: "me@example.com", device })).toBe("device");
     // no owner known yet: the header decides nothing either way
     expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: null })).toBe("open");
+  });
+
+  it("lets the owner's own device in through serve with no login, on a tailnet one login owns", () => {
+    // the phone's shape: tailscale serve proxies from loopback, states no person, nothing is paired
+    expect(via({ forwarded: true, owner: "me@example.com", soleUser: true })).toBe("tailscale");
+    expect(via({ forwarded: true, owner: "me@example.com", soleUser: true, gated: true })).toBe("tailscale");
+    const access = decideAccess({ ...base, forwarded: true, owner: "me@example.com", soleUser: true });
+    expect(access).toEqual({ level: "full", via: "tailscale", role: "drive", login: "me@example.com" });
+    // the same request where Tailscale proves nothing is the stranger it always was
+    expect(via({ forwarded: true, owner: "me@example.com" })).toBe("refused:pairing_required");
+  });
+
+  it("holds the floor the sole-login rule sits on: another user, Funnel, a token, a tag, a LAN client", () => {
+    const sole = { forwarded: true, owner: "me@example.com", soleUser: true } as const;
+    // a login Tailscale did stage is still read, and still refused when it is not the owner's
+    expect(via({ ...sole, tailscaleLogin: "them@example.com" })).toBe("refused:other_user");
+    expect(via({ ...sole, tailscaleLogin: "me@example.com" })).toBe("tailscale");
+    // the public internet proves nothing about who is asking, whoever owns the tailnet
+    expect(via({ ...sole, funnel: true })).toBe("refused:pairing_required");
+    expect(via({ ...sole, funnel: true, gated: true })).toBe("refused:pairing_required");
+    // a token still gates everything but a paired device
+    expect(via({ ...sole, tokenConfigured: true })).toBe("refused:token_required");
+    expect(via({ ...sole, tokenConfigured: true, tokenMatched: true })).toBe("token");
+    // a tagged PC names no owner to be: its visitors pair, as before
+    expect(via({ forwarded: true, tagged: true, soleUser: true })).toBe("refused:pairing_required");
+    // off this machine the rule buys nothing: any LAN client could claim the same proxy
+    expect(via({ ...sole, loopback: false, gated: true })).toBe("refused:pairing_required");
+    expect(via({ ...sole, loopback: false, tailscaleLogin: "me@example.com", gated: true })).toBe("refused:pairing_required");
   });
 
   it("asks a tagged PC's visitors to pair, its owner included, and never calls them another user", () => {

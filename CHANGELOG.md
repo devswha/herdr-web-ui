@@ -62,6 +62,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
 
 ### Fixed
+- Your own phone lands in the app as soon as it opens the `tailscale serve` address, with no
+  pairing code, on a tailnet that one Tailscale login owns and that has no tagged node on it.
+  Before, `tailscale serve` states no login for some of those requests, and every request
+  without one was taken for a tagged node's and asked to pair. Another Tailscale login is still
+  refused, a tagged node still pairs, Funnel stays closed, a LAN client that claims the same
+  headers still gains nothing, and a configured token is still required of everything but a
+  paired device.
 - A Claude Code pane started with its own `CLAUDE_CONFIG_DIR` (a launcher such as cac keeps one
   store per environment) shows its chat. Before, only `~/.claude` was searched, so the chat was
   unavailable and only the terminal worked. The store is read from the pane's Claude process, as

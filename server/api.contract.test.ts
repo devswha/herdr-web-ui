@@ -1794,6 +1794,24 @@ describe("pairing and identity", () => {
     expect(((await refused.json()) as ApiError).error.code).toBe("other_user");
   });
 
+  it("lets the owner's own device in with no login header, on a tailnet one login owns", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-sole-user-"));
+    const sole = createServer({ port: 0, stateDir: state, tailscaleOwner: OWNER, tailscaleSoleUser: true });
+    try {
+      const at = async (headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${sole.port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
+      // the phone's request: tailscale serve proxied it and named no person, with no tagged node on the tailnet to be
+      expect(await at(proxied())).toMatchObject({ authenticated: true, via: "tailscale" });
+      expect((await fetch(`http://127.0.0.1:${sole.port}/api/session`, { headers: proxied() })).status).not.toBe(401);
+      // and the floor stays where it was: another login, Funnel and a LAN client gain nothing
+      expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "other_user" });
+      expect(await at(proxied(undefined, { "tailscale-funnel-request": "?1" }))).toMatchObject({ authenticated: false, reason: "pairing_required" });
+      expect(await at(proxied(OWNER))).toMatchObject({ authenticated: true, via: "tailscale" });
+    } finally {
+      sole.stop();
+      rmSync(state, { recursive: true, force: true });
+    }
+  });
+
   it("takes the login named in HERDR_WEB_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-named-owner-"));
     const before = process.env["HERDR_WEB_TAILSCALE_OWNER"];
