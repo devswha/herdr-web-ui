@@ -518,6 +518,8 @@ interface SettledTurns {
   tail: string;
   /** what OmO's `task` calls on the page called their tasks: a task can end in a later turn than the one that started it */
   taskTitles: Map<string, string>;
+  /** the titles it began with, from the pages before it */
+  inherited: Map<string, string>;
 }
 const settledTurns = new Map<string, SettledTurns>();
 
@@ -630,10 +632,16 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
   if (!settled || settled.id !== stream.id || settled.end > last || bytesBefore(stream, settled.end) !== settled.tail) {
     const head = start > stream.floor ? metadataHead(path, stream, source, start) : "";
     // a page that starts past the turn that started a task keeps the title that turn gave it,
-    // as long as this stream was watched while the title was on a page (a cold read cannot)
-    const earlier = [...settledTurns.values()].filter((kept) => kept.id === stream.id && kept.start < start && kept.end <= start && kept.taskTitles.size > 0);
-    const taskTitles = new Map(earlier.flatMap((kept) => [...kept.taskTitles]));
-    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles };
+    // as long as this stream was watched while the title was on a page (a cold read cannot).
+    // Only this file's pages count: another file can come to have its inode once it is gone.
+    let kept: SettledTurns | undefined;
+    for (const [other, page] of settledTurns) {
+      if (other.startsWith(`${path}\0`) && page.id === stream.id && page.start < start && page.start > (kept?.start ?? -1)) kept = page;
+    }
+    const inherited = new Map(kept === undefined ? [] : kept.end <= start ? kept.taskTitles : kept.inherited);
+    // the nearest earlier page usually runs past this start: its turns before it are read again
+    if (kept !== undefined && kept.end > start) parseTurns(source, readStream(stream, kept.start, start).toString("utf8"), inherited);
+    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles: new Map(inherited), inherited };
   }
   if (settled.end < last) {
     const text = readStream(stream, settled.end, last).toString("utf8");
