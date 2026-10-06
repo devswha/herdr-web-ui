@@ -29,6 +29,7 @@ import { checkChatKeepsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
+import { checkFolderFilter } from "./folder-filter-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
 
@@ -69,7 +70,8 @@ try {
   const origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
-    headless: true, args: ["--no-sandbox"],
+    // English whatever the machine's own languages are (macOS Chrome takes them from the system)
+    headless: true, args: ["--no-sandbox", "--accept-lang=en-US"],
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
@@ -155,10 +157,19 @@ try {
   await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
   await checkTerminalFileInput(page, sockets[0]!);
   const terminalInput = page.locator(".xterm-helper-textarea");
+  // Chrome on macOS pastes with ⌘V alone: its Ctrl+V pastes nothing, and must send nothing either
+  const mac = process.platform === "darwin";
+  if (mac) {
+    await terminalInput.focus();
+    const beforeCtrlV = inputs.length;
+    await page.keyboard.press("Control+v");
+    await page.waitForTimeout(NO_SEND_WAIT_MS);
+    assert.deepEqual(inputs.slice(beforeCtrlV), [], "Ctrl+V must never send the image-paste control key");
+  }
   for (const [shortcut, text] of [
-    ["Control+v", "# terminal paste 한글"],
-    ["Control+v", "# first line\n# second line"],
-    ["Control+Shift+v", "# plain text paste"],
+    [mac ? "Meta+v" : "Control+v", "# terminal paste 한글"],
+    [mac ? "Meta+v" : "Control+v", "# first line\n# second line"],
+    ...mac ? [] : [["Control+Shift+v", "# plain text paste"]],
   ]) {
     await page.evaluate((value) => navigator.clipboard.writeText(value), text!);
     await terminalInput.focus();
@@ -240,7 +251,7 @@ try {
     return page.evaluate(() => new Promise<boolean>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() =>
       resolve(document.activeElement?.classList.contains("xterm-helper-textarea") ?? false)))));
   }, "the terminal holds the focus");
-  for (const key of ["Control+Shift+ArrowDown", "Control+Shift+ArrowUp"]) {
+  for (const key of ["ControlOrMeta+Shift+ArrowDown", "ControlOrMeta+Shift+ArrowUp"]) {
     await focusTerminal();
     const beforeSwitch = inputs.length;
     await page.keyboard.press(key);
@@ -254,7 +265,7 @@ try {
   await composer.waitFor();
   console.log("PASS terminal clipboard paste sends text once and preserves Ctrl+C");
 
-  await page.keyboard.press("Control+Shift+Comma");
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
   await page.getByRole("dialog", { name: "Settings" }).waitFor();
   await page.getByRole("button", { name: "Light", exact: true }).click();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
@@ -263,7 +274,7 @@ try {
 
   // Add PC lives in Settings → Remote PCs, not in the sidebar; opening it closes Settings behind it
   assert.equal(await page.locator(".sidebar").getByRole("button", { name: "Add PC", exact: true }).count(), 0, "the sidebar has no Add PC button");
-  await page.keyboard.press("Control+Shift+Comma");
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add PC", exact: true }).click();
   await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
@@ -288,7 +299,7 @@ try {
   // the idle status poll runs every 30 s: a hide and a show restart it at once, onto the fake
   await setPageHidden(true);
   await setPageHidden(false);
-  await page.keyboard.press("Control+Shift+Comma");
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
   const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
   await checkUpdates.waitFor();
   await checkUpdates.click();
@@ -399,7 +410,7 @@ try {
   // pane is under 1148px, so the lane is its 820px floor, as at Narrow; at Wide the lane is wider
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
-    await page.keyboard.press("Control+Shift+Comma");
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await page.getByRole("group", { name: "Chat width", exact: true }).getByRole("button", { name, exact: true }).click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
   };
@@ -477,7 +488,7 @@ try {
   // a quick reply goes out as typed, and leaves a draft in the box alone; the row shows only when
   // chosen in Settings, and the box has no button for it
   const quickRow = async (show: boolean): Promise<void> => {
-    await page.keyboard.press("Control+Shift+Comma");
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
     const toggle = page.getByRole("switch", { name: "Show above the message box", exact: true });
     if ((await toggle.getAttribute("aria-checked")) !== String(show)) await toggle.click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
@@ -640,6 +651,7 @@ try {
   await page.getByRole("button", { name: /^New workspace on / }).click();
   const dialog = page.getByRole("dialog", { name: /^New workspace/ });
   await dialog.getByLabel(/^Directory/).fill(root);
+  await checkFolderFilter(page, dialog, () => createRequests);
   await dialog.getByLabel(/^Name/).fill("herdr-web-ui-test-browser-created");
   await dialog.getByRole("button", { name: "Start", exact: true }).click();
   await until(() => createRequests === 1, "creation started");
@@ -1198,7 +1210,7 @@ try {
   await securedContext.request.post(`${securedOrigin}/api/auth`, { data: { token: "browser-test-token" } });
   await securedPage.goto(`${securedOrigin}/?pane=${encodeURIComponent(securedWorkspace.root_pane.pane_id)}`);
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).waitFor();
-  await securedPage.keyboard.press("Control+Shift+K");
+  await securedPage.keyboard.press("ControlOrMeta+Shift+K");
   await securedPage.getByRole("option", { name: "Sign out", exact: true }).waitFor();
   // Simulate a late terminal focus change: Escape must still dismiss the modal.
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).focus();

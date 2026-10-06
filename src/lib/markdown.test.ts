@@ -1,12 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Markdown } from "../components/Markdown.tsx";
+import { loadKatex, Markdown } from "../components/Markdown.tsx";
 import { SettingsProvider } from "./settings.ts";
 import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, parseInline, parseMarkdown, safeMarkdownHref, type InlineNode, type ListBlock } from "./markdown.ts";
 
 describe("parseMarkdown", () => {
-  it("renders inline and display math while leaving fenced code untouched", () => {
+  it("renders inline and display math while leaving fenced code untouched", async () => {
+    // the chat fetches KaTeX with the first expression; a static render draws it once it is there
+    await loadKatex();
     const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
     Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
     try {

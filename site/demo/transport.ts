@@ -210,6 +210,11 @@ function usageReport(): UsageReport {
       { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290) },
       { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290) },
     ] },
+    { id: "opencode", key: "opencode:demo-opencode", account: null, plan: "Go", problem: null, checked_at: checked, windows: [
+      { kind: "session", scope: null, used_percent: 10, resets_at: at(3.2) },
+      { kind: "week", scope: null, used_percent: 28, resets_at: at(18) },
+      { kind: "month", scope: null, used_percent: 15, resets_at: at(520) },
+    ] },
   ] };
 }
 

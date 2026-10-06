@@ -51,8 +51,21 @@ export async function useTestHerdr(): Promise<string | null> {
   const herdr = herdrBinary();
   if (!herdr) return null;
   const socket = testSocketPath();
+  // an empty ZDOTDIR: a pane's zsh (macOS's login shell) reads none of the user's own files,
+  // where a shell integration can start a CLI herdr takes for an agent, ending the agent a test
+  // reported, or set a title that names the pane's tab
+  const zdotdir = join(dirname(socket), "zdotdir");
+  // a server left running from before that directory existed has panes reading those files:
+  // it is stopped once, and started again below
+  if (!existsSync(zdotdir) && await answers(socket)) {
+    Bun.spawnSync([herdr, "--session", TEST_SESSION, "server", "stop"]);
+    for (const deadline = Date.now() + 15_000; await answers(socket);) {
+      if (Date.now() > deadline) throw new Error(`The test herdr session "${TEST_SESSION}" did not stop`);
+      await Bun.sleep(100);
+    }
+  }
   if (!(await answers(socket))) {
-    mkdirSync(dirname(socket), { recursive: true });
+    mkdirSync(zdotdir, { recursive: true });
     Bun.spawn([herdr, "--session", TEST_SESSION, "server"], {
       stdin: "ignore",
       stdout: Bun.file(join(dirname(socket), "test-server.log")),
@@ -60,7 +73,7 @@ export async function useTestHerdr(): Promise<string | null> {
       // run from inside a herdr pane, this process carries that pane's HERDR_* variables; run by
       // an agent, it carries the agent's too (OMO_CODING_AGENT_DIR moves where a pane's omo is
       // read from), and every pane of this server would inherit them
-      env: Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(HERDR|OMO|SENPI|PI)_/.test(name))),
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(HERDR|OMO|SENPI|PI)_/.test(name))), ZDOTDIR: zdotdir },
     }).unref();
     const deadline = Date.now() + 15_000;
     while (!(existsSync(socket) && await answers(socket))) {
