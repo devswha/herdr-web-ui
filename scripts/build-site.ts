@@ -6,8 +6,9 @@
  * upload that is downloaded, never committed; docs/development.md, "README media"), its feature clips
  * (docs/media/readme/*.webp) and the installer still. A video's poster frame is cut with ffmpeg when it
  * is installed (the workflow installs it); without it the still stays full size and a poster that
- * could not be made is dropped from the page. `{{version}}` and `{{stars}}` in the page are filled in
- * here, from package.json and the GitHub API.
+ * could not be made is dropped from the page. `{{version}}`, `{{stars}}`, `{{contributors}}`,
+ * `{{plugin_rank}}` and `{{plugin_count}}` in the page are filled in here, from package.json, the
+ * GitHub API and herdr's plugin index.
  *
  * demo/ is the app itself, built by Vite with relative asset paths into demo/app/, loaded behind
  * site/demo/transport.ts (bundled to demo-transport.js and injected before the app's scripts) so it
@@ -121,6 +122,33 @@ const repoBody: unknown = repo?.ok ? await repo.json() : null;
 const stars = repoBody && typeof repoBody === "object" && "stargazers_count" in repoBody && typeof repoBody.stargazers_count === "number" ? repoBody.stargazers_count : null;
 if (stars === null) console.warn(`GitHub star count unavailable (${repo ? `HTTP ${repo.status}` : "no connection"}): the page shows a dash`);
 page = page.replaceAll("{{stars}}", stars === null ? "—" : stars.toLocaleString("en-US"));
+// the people with a commit on the default branch, bots left out
+let contributors: number | null = 0;
+for (let pageNumber = 1; contributors !== null; pageNumber += 1) {
+  const response = await fetch(`https://api.github.com/repos/devswha/herdr-web-ui/contributors?per_page=100&page=${pageNumber}`, { headers: { accept: "application/vnd.github+json" } }).catch(() => null);
+  const body: unknown = response?.ok ? await response.json().catch(() => null) : null;
+  if (!Array.isArray(body)) {
+    console.warn(`GitHub contributor count unavailable (${response ? `HTTP ${response.status}` : "no connection"}): the page shows a dash`);
+    contributors = null;
+    break;
+  }
+  contributors += body.filter((entry) => entry && typeof entry === "object" && entry.type !== "Bot").length;
+  if (body.length < 100) break;
+}
+page = page.replaceAll("{{contributors}}", contributors === null ? "—" : contributors.toLocaleString("en-US"));
+// where the plugin stands in herdr's marketplace index: one more than the repositories with more stars
+const index = await fetch("https://assets.herdr.dev/plugins/index.json").catch(() => null);
+const indexBody: unknown = index?.ok ? await index.json().catch(() => null) : null;
+const listed = indexBody && typeof indexBody === "object" && "plugins" in indexBody && Array.isArray(indexBody.plugins) ? indexBody.plugins : [];
+const starsByRepo = new Map<string, number>();
+for (const plugin of listed) {
+  if (plugin && typeof plugin === "object" && typeof plugin.fullName === "string" && typeof plugin.stars === "number") starsByRepo.set(plugin.fullName, plugin.stars);
+}
+const listedStars = starsByRepo.get("devswha/herdr-web-ui");
+const rank = listedStars === undefined ? null : [...starsByRepo.values()].filter((count) => count > listedStars).length + 1;
+if (rank === null) console.warn(`herdr plugin index unavailable (${index ? `HTTP ${index.status}` : "no connection"}) or the plugin is not in it: the page shows a dash`);
+page = page.replaceAll("{{plugin_rank}}", rank === null ? "—" : `#${rank}`);
+page = page.replaceAll("{{plugin_count}}", rank === null ? "all" : starsByRepo.size.toLocaleString("en-US"));
 
 // the page's own media: cut a missing poster from its video, then unlink whatever is still missing
 const pageMedia = ["herdr-web-ui-film", "chat-loop"];
