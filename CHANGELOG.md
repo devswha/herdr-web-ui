@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- New workspace's **Browse** filters the loaded folders in the current directory as you type.
+  Navigation clears the filter, and a truncated listing says when search covers only the first
+  500 folders. ([#430](https://github.com/devswha/herdr-web-ui/pull/430) by @suho-han)
 - The usage meters read OpenCode Go's limits too: its rolling session, the week and the month,
   with the key OpenCode keeps in `~/.local/share/opencode/auth.json` (under `XDG_DATA_HOME`
   when it is set) or the `OPENCODE_API_KEY` variable. An OpenCode key without a Go
