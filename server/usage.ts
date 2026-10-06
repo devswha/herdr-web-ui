@@ -648,7 +648,66 @@ const antigravity: UsageProvider = {
   },
 };
 
-export const USAGE_PROVIDERS: readonly UsageProvider[] = [claude, codex, cursor, copilot, grok, antigravity];
+// ---- OpenCode Go: the key OpenCode keeps in <XDG data>/opencode/auth.json, else OPENCODE_API_KEY ----
+
+/**
+ * OpenCode keeps every sign-in in that one file, keyed by provider id; an API key is
+ * `{ type: "api", key }` and names no account. The Go key is read first, then the Zen key: the Go
+ * endpoint takes any console key, and answers 403 for one without a Go subscription.
+ */
+function opencodeSignIn(source: string | null): SignIn | null {
+  const root = record(parseJson(source));
+  for (const provider of ["opencode-go", "opencode"]) {
+    const entry = record(root[provider]);
+    const token = entry["type"] === "api" ? text(entry["key"]) : null;
+    if (token) return { token, expiresAt: null };
+  }
+  return null;
+}
+
+const opencode: UsageProvider = {
+  id: "opencode",
+  async signIns(ctx) {
+    // xdg-basedir, as OpenCode resolves it: XDG_DATA_HOME, else ~/.local/share, on macOS too
+    const dir = join(ctx.env["XDG_DATA_HOME"] || join(ctx.home, ".local", "share"), "opencode");
+    const file = opencodeSignIn(readText(join(dir, "auth.json")));
+    if (file) return [{ ...file, source: dir }];
+    // the variable OpenCode itself reads for both providers (models.dev)
+    const token = text(ctx.env["OPENCODE_API_KEY"]);
+    return token ? [{ token, expiresAt: null, source: "env" }] : [];
+  },
+  async read(ctx, signIn) {
+    let body: Json;
+    try {
+      body = await requestJson(ctx, "https://opencode.ai/zen/go/v1/usage", {
+        headers: { authorization: `Bearer ${signIn.token}`, accept: "application/json", "user-agent": USER_AGENT },
+      });
+    } catch (error) {
+      if (error instanceof UsageHttpError && error.status === 403) return null;
+      throw error;
+    }
+    const usage = record(body["usage"]);
+    const windows: UsageWindow[] = [];
+    const rolling = record(usage["rolling"]);
+    const rollingPercent = number(rolling["percent"]);
+    if (rollingPercent !== null) {
+      windows.push({ kind: "session", scope: null, used_percent: percent(rollingPercent), resets_at: isoTime(rolling["resetsAt"]) });
+    }
+    const weekly = record(usage["weekly"]);
+    const weeklyPercent = number(weekly["percent"]);
+    if (weeklyPercent !== null) {
+      windows.push({ kind: "week", scope: null, used_percent: percent(weeklyPercent), resets_at: isoTime(weekly["resetsAt"]) });
+    }
+    const monthly = record(usage["monthly"]);
+    const monthlyPercent = number(monthly["percent"]);
+    if (monthlyPercent !== null) {
+      windows.push({ kind: "month", scope: null, used_percent: percent(monthlyPercent), resets_at: isoTime(monthly["resetsAt"]) });
+    }
+    return { plan: text(body["plan"]) ?? "Go", windows };
+  },
+};
+
+export const USAGE_PROVIDERS: readonly UsageProvider[] = [claude, codex, cursor, copilot, grok, antigravity, opencode];
 
 /** Keychain services whose read hung (an access prompt nobody answered): not asked again. */
 const promptedServices = new Set<string>();
