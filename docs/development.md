@@ -12,6 +12,11 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 
 `bun run server` and `bun run dev` never update themselves; only `bun run start` and the plugin run the update supervisor.
 
+Inside the terminal, Ctrl/Cmd + `+`/`-` changes **Terminal font size** and Ctrl/Cmd + `0`
+resets it. Ctrl/Cmd + wheel (including trackpad pinch) over the terminal uses the same
+setting; the surrounding UI keeps its size. Outside the terminal, browser zoom stays native.
+After building, `bun scripts/terminal-zoom-regression.ts` checks this on an owned test pane.
+
 ## Checks
 
 ```bash

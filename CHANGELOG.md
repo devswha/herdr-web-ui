@@ -14,6 +14,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#515](https://github.com/devswha/herdr-web-ui/pull/515) by @phirschybar)
 
 ### Fixed
+- Terminal rows leave room above enlarged Korean and accented letters, preventing their tops from being clipped when changing font size.
+- Zoom keys and modified wheel gestures inside the terminal change its font size without enlarging the rest of the page.
 - The message box hides scrollbars at every zoom level while keeping long drafts scrollable and wrapping long lines.
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples

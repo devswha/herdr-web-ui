@@ -864,6 +864,7 @@ One set for both themes: the card is island black wherever it shows.
   its eye closes; it stays listed so it can be shown again.
 
 ### Terminal host, key bar and drawer
+- xterm uses `lineHeight: 1.35` so enlarged CJK glyphs and accented letters fit inside its clipped rows, with room for pixel rounding.
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount clips its own gutter and hides the unused xterm scrollbar.
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.
