@@ -31,6 +31,10 @@
   font-size: var(--fs-xs);
 }
 
+.dir-browser-search {
+  padding: var(--space-2);
+}
+
 .dir-browser-list {
   max-height: calc(var(--control-h) * 7);
   margin: 0;

@@ -6,6 +6,7 @@ CHROME_PATH="$(bun -e 'console.log(require("playwright-core").chromium.executabl
 export CHROME_PATH
 bun scripts/ui-regression.ts
 bun scripts/chat-history-browser-qa.ts
+bun scripts/math-browser-qa.ts
 bun scripts/file-viewer-regression.ts
 bun scripts/keyboard-viewport-regression.ts
 bun scripts/file-viewer-mobile-regression.ts
