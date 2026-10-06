@@ -139,19 +139,21 @@ for (const name of pageMedia) {
 
 // the FAQ as structured data, read from the rows the page shows
 // (a row's closing "… →" link is navigation, not part of the answer)
-const text = (html: string) => html.replace(/<a [^>]*>[^<]*→<\/a>/g, "").replace(/<[^>]+>/g, "").replaceAll("&amp;", "&").trim();
-const questions = [...page.matchAll(/<div class="qa"><dt>(.*?)<\/dt><dd>(.*?)<\/dd><\/div>/g)].map(([, question, answer]) => ({
+const text = (html: string) => html.replace(/<a [^>]*>[^<]*→<\/a>/g, "").replace(/<[^>]+>/g, "").replaceAll("&amp;", "&").replace(/\s+/g, " ").trim();
+const questions = [...page.matchAll(/<div class="qa">\s*<dt>(.*?)<\/dt>\s*<dd>(.*?)<\/dd>\s*<\/div>/gs)].map(([, question, answer]) => ({
   "@type": "Question",
   name: text(question),
   acceptedAnswer: { "@type": "Answer", text: text(answer) },
 }));
-if (questions.length === 0) throw new Error("site/index.html has no FAQ rows (<div class=\"qa\">) to build the FAQPage data from");
+const rowCount = [...page.matchAll(/<div class="qa">/g)].length;
+if (questions.length === 0 || questions.length !== rowCount) throw new Error("site/index.html has missing or unparseable FAQ rows (<div class=\"qa\">)");
 const faq = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: questions }).replaceAll("<", "\\u003c");
 page = page.replace("</head>", () => `  <script type="application/ld+json">${faq}</script>\n  </head>`);
 writeFileSync(join(out, "index.html"), page);
+// A rebuild is not necessarily a content change; omit the optional lastmod rather than invent it.
 writeFileSync(
   join(out, "sitemap.xml"),
-  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://devswha.github.io/herdr-web-ui/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod></url>\n</urlset>\n`,
+  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://devswha.github.io/herdr-web-ui/</loc></url>\n</urlset>\n`,
 );
 
 // the demo: the real client, relative paths, the transport in front of it
@@ -173,7 +175,8 @@ let html = readFileSync(appPage, "utf8");
 // the demo is not an app to install (its scope and start_url name a root that is not it).
 html = html.replace(/\s*<link rel="manifest"[^>]*>/, "");
 html = html.replace(/(href|src)="\/(?!\/)/g, '$1="./');
-html = html.replace(/<meta name="viewport"/, '<meta name="robots" content="noindex" />\n    <meta name="viewport"');
+if (!html.includes("</head>")) throw new Error("the built demo app has no head for its noindex directive");
+html = html.replace("</head>", '  <meta name="robots" content="noindex" />\n  </head>');
 if (!/<script type="module"/.test(html)) throw new Error("the built app has no module script to load the demo transport before");
 html = html.replace(/<script type="module"/, '<script src="./demo-transport.js"></script>\n    <script type="module"');
 writeFileSync(appPage, html);
