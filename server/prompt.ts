@@ -1278,27 +1278,50 @@ const CLAUDE_MODEL_MORE_RE = /^…\s*\+(\d+) models?$/;
 const CLAUDE_MODEL_UNDER_LINES = 3;
 
 interface ListRow {
-  number: number; label: string; cursor: boolean; current: boolean;
+  number: number; cursor: boolean;
   /** `↑` or `↓` in the cursor's column: the window's first or last row, with more of the list beyond it */
   edge: string | null;
-  /** what the row says of its model, a line of it per entry, and the column it is drawn at */
-  said: string[]; column: number;
+  /** the row after its number, as drawn */
+  text: string;
+  /** the first gap of two spaces or more in it: where it begins and ends in `text`, and the
+   * terminal column the text after it is drawn at; -1 with no gap */
+  gap: number; resumes: number; column: number;
+  /** the lines wrapped under the row at that column */
+  wrapped: string[];
 }
 
-function claudeModelRow(line: string): ListRow | null {
-  const match = CLAUDE_MODEL_ROW_RE.exec(line);
+/** A row of a numbered list: the cursor or a scroll mark, the row's number, then its text. */
+function listRow(line: string, shape: RegExp): ListRow | null {
+  const match = shape.exec(line);
   if (!match) return null;
   const text = match[3]!;
   const gap = /\s{2,}/.exec(text);
-  const name = gap ? text.slice(0, gap.index) : text;
-  const said = gap ? text.slice(gap.index + gap[0].length) : null;
   return {
-    number: Number.parseInt(match[2]!, 10), label: name.replace(/\s*[✔✓]$/, ""), cursor: SELECTED_RE.test(match[1] ?? ""),
-    edge: match[1] === "↑" || match[1] === "↓" ? match[1] : null,
-    current: /\s[✔✓]$/.test(name), said: said === null ? [] : [said],
+    number: Number.parseInt(match[2]!, 10), cursor: SELECTED_RE.test(match[1] ?? ""), edge: match[1] === "↑" || match[1] === "↓" ? match[1] : null,
+    text, gap: gap?.index ?? -1, resumes: gap ? gap.index + gap[0].length : -1,
     // in the terminal's columns, as the lines wrapped under it are indented: a wide glyph in the name takes two
-    column: said === null ? -1 : Bun.stringWidth(line.slice(0, line.length - said.length)),
+    column: gap ? Bun.stringWidth(line.slice(0, line.length - text.length + gap.index + gap[0].length)) : -1,
+    wrapped: [],
   };
+}
+
+/**
+ * Each row's name and what the row says of it. What the rows say stands in one column for the
+ * whole list, so a gap at another column, or in one row alone, is part of that row's name
+ * (`Custom  Model`). Wrapped lines are joined with a space, as most of them broke at one. A word
+ * longer than its column is cut where the column ends (`longest-runni` / `ng tasks`) and stays
+ * cut, as the pane shows it: a line that fills its column says nothing of whether a space was
+ * there. Null: lines wrapped under a row whose gap was no column, so the rows are not as drawn.
+ */
+function listNames(rows: ListRow[]): { name: string; said: string | null }[] | null {
+  const counts = new Map<number, number>();
+  for (const row of rows) if (row.column >= 0) counts.set(row.column, (counts.get(row.column) ?? 0) + 1);
+  const [column, count] = [...counts].sort((left, right) => right[1] - left[1])[0] ?? [-1, 0];
+  const shared = count >= 2 ? column : -1;
+  if (rows.some((row) => row.column !== shared && row.wrapped.length > 0)) return null;
+  return rows.map((row) => shared >= 0 && row.column === shared
+    ? { name: row.text.slice(0, row.gap), said: [row.text.slice(row.resumes), ...row.wrapped].join(" ") }
+    : { name: normalizeText(row.text), said: null });
 }
 
 /**
@@ -1311,7 +1334,7 @@ function claudeModelRow(line: string): ListRow | null {
  * `unread`: a line under a row that is not its wrapped text (a name the pane cut in two), so the
  * rows are not the list as it was drawn.
  */
-function listRows(lines: string[], hintIndex: number, read: (line: string) => ListRow | null, more: RegExp | null): { rows: ListRow[]; below: number; first: number; last: number; unread: boolean } {
+function listRows(lines: string[], hintIndex: number, shape: RegExp, more: RegExp | null): { rows: ListRow[]; below: number; first: number; last: number; unread: boolean } {
   let rows: ListRow[] = [];
   let below = 0;
   let ended = false;
@@ -1324,11 +1347,11 @@ function listRows(lines: string[], hintIndex: number, read: (line: string) => Li
     const above = ended ? undefined : rows.at(-1);
     // what a row says, wrapped under itself: told by its column, before anything it happens to begin with
     if (above !== undefined && text !== "" && above.column >= 0 && line.length - line.trimStart().length === above.column) {
-      above.said.push(text);
+      above.wrapped.push(text);
       last = index;
       continue;
     }
-    const row = read(line);
+    const row = listRow(line, shape);
     if (row) {
       if (above === undefined || row.number !== above.number + 1 || row.edge === "↑" || above.edge === "↓") [rows, first] = [[], index];
       rows.push(row);
@@ -1365,29 +1388,42 @@ function listRows(lines: string[], hintIndex: number, read: (line: string) => Li
  * session, Enter to save the pick as the default for every new one. A model with a single
  * reasoning level picks from the first list already. So which key a row takes is only known
  * with the cursor on it: `rowKey` is that key for the row under the cursor now, and an answer
- * takes it from the screen it reads after its moves (the `pick` step), never Enter under a
- * footer that offers `s`.
+ * takes it from the screen it reads after its moves (the `pick` step). It never chooses Enter
+ * for a row whose footer offers `s`. The look and the key are still two herdr calls: a key
+ * pressed in the terminal between them can move the cursor under an Enter meant for a row that
+ * opens a list (the gap issue #469 records for every card).
  *
  * The list is known by its title, since `enter select · esc back` is the footer of every list
  * Codex draws. A pane too narrow for what a row says draws the names alone, or wraps it under
- * itself (the advanced list at 46 columns).
+ * itself (the advanced list at 46 columns). The advanced list does not name its model: two
+ * models' advanced lists read the same.
  */
 const CODEX_MODEL_ROW_RE = /^\s*([❯›>])?\s*(\d+)\.\s+(\S.*)$/;
-/** lines of the list's own header looked at above its first row: title, a line or two under it, blanks */
-const CODEX_MODEL_HEADER_LINES = 8;
+/** lines Codex puts under a list's title, at most: what the list is for, a warning */
+const CODEX_MODEL_NOTE_LINES = 2;
+/** how far back from the end of the screen a list's title is looked for, in lines that are not blank */
+const CODEX_MODEL_TAIL_LINES = 30;
 
-function codexModelRow(line: string): ListRow | null {
-  const match = CODEX_MODEL_ROW_RE.exec(line);
-  if (!match) return null;
-  const text = match[3]!;
-  const gap = /\s{2,}/.exec(text);
-  const name = gap ? text.slice(0, gap.index) : text;
-  const said = gap ? text.slice(gap.index + gap[0].length) : null;
-  return {
-    number: Number.parseInt(match[2]!, 10), label: name.replace(/\s*\(current\)$/, ""), cursor: match[1] !== undefined, edge: null,
-    current: /\s\(current\)$/.test(name), said: said === null ? [] : [said],
-    column: said === null ? -1 : Bun.stringWidth(line.slice(0, line.length - said.length)),
-  };
+/**
+ * A Codex model list's title and the lines under it, from the block of lines right above the
+ * rows (blank lines stand between the two). The title is looked for in that block alone: another
+ * list's header under an older title is another list. A pane too narrow for the levels' title
+ * wraps the model's name under it, and the two are read as one. Lines over the title are the
+ * conversation's.
+ */
+function codexModelHeader(lines: string[], first: number): { title: string; model: string | undefined; notes: string[] } | null {
+  let end = first - 1;
+  while (end >= 0 && !cleanLine(lines[end]!)) end -= 1;
+  let start = end;
+  while (start > 0 && cleanLine(lines[start - 1]!)) start -= 1;
+  const block = end < 0 ? [] : lines.slice(start, end + 1).map(cleanLine);
+  const at = findLastIndex(block, (line) => /^(?:Select (?:Model|Reasoning)\b|Advanced Reasoning$)/.test(line));
+  if (at < 0) return null;
+  // the levels' title runs on to the end of the block when it wrapped; the others are one line
+  const whole = /^Select Reasoning Level for(?: \S.*)?$/.test(block[at]!) ? block.slice(at).join(" ") : block[at]!;
+  const match = CODEX_MODEL_TITLE_RE.exec(whole);
+  const notes = whole === block[at] ? block.slice(at + 1) : [];
+  return match && notes.length <= CODEX_MODEL_NOTE_LINES ? { title: whole, model: match[1], notes } : null;
 }
 
 /** The key a Codex list's footer names for picking the row under the cursor; null for any other footer. */
@@ -1397,47 +1433,46 @@ function codexModelRowKey(footer: string): AnswerStep | null {
 }
 
 /**
- * Whether a Codex list whose row picks with `s` holds the end of the screen, by its footer alone:
- * also a list parseCodexModel could not read. Such a list gets no fallback card while herdr
- * happens to report the pane blocked: that card offers Enter, and Enter under this footer saves
- * the row as the default for every new session.
+ * Whether a Codex model list holds the end of the screen, read or not: by the footer of a row
+ * that picks, or by a list's title near the end where the footer is cut beyond reading. Such a
+ * list gets no fallback card while herdr happens to report the pane blocked: that card offers
+ * Enter, and Enter under a footer that offers `s` saves the row as the default for every new
+ * session.
  */
-function codexModelPickWaits(screen: string): boolean {
+function codexModelListWaits(screen: string): boolean {
   const shown = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
-  return [1, 2, 3, 4, 5, 6].some((span) => /enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i.test(shown.slice(-span).join(" ")));
+  return [1, 2, 3, 4, 5, 6].some((span) => /enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i.test(shown.slice(-span).join(" ")))
+    || shown.slice(-CODEX_MODEL_TAIL_LINES).some((line) => /^(?:Select Model(?: and Effort)?|Select Reasoning Level for\b.*|Advanced Reasoning)$/.test(line));
 }
 
 function parseCodexModel(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
   const hintIndex = findLastIndex(lines, (_, index) => codexModelRowKey(wrapped(lines, index)) !== null);
   if (hintIndex < 0) return null;
-  const { rows, first, last, unread } = listRows(lines, hintIndex, codexModelRow, null);
+  const { rows, first, last, unread } = listRows(lines, hintIndex, CODEX_MODEL_ROW_RE, null);
   // the rows end right over their footer, and one of them carries the cursor
   if (unread || rows.length < 2 || rows.filter((row) => row.cursor).length !== 1 || lines.slice(last + 1, hintIndex).some((line) => line.trim() !== "")) return null;
-  // the list's own header right above its rows: its title, then what Codex says of the list
-  const header = lines.slice(Math.max(0, first - CODEX_MODEL_HEADER_LINES), first).map(cleanLine).filter(Boolean);
-  const titleAt = findLastIndex(header, (line) => CODEX_MODEL_TITLE_RE.test(line));
-  if (titleAt < 0) return null;
-  const title = header[titleAt]!;
-  const model = CODEX_MODEL_TITLE_RE.exec(title)![1];
-  const said = (parts: string[]): string | null => parts.length === 0 ? null : parts.join(" ");
-  const current = rows.find((row) => row.current);
+  const header = codexModelHeader(lines, first);
+  const names = listNames(rows);
+  if (header === null || names === null) return null;
+  const options = names.map(({ name, said }) => ({ label: name.replace(/\s*\(current\)$/, ""), description: said }));
+  const current = names.findIndex(({ name }) => /\s\(current\)$/.test(name));
   // "Medium (default)" in use reads as Medium: the tag is the list's, not the level's name
-  const now = current ? ` (currently ${current.label.replace(/\s*\(default\)$/i, "")})` : "";
-  const asked = title === "Advanced Reasoning" ? "Select advanced reasoning for this session"
-    : model !== undefined ? `Select reasoning level for ${model} for this session` : "Select model for this session";
+  const now = current >= 0 ? ` (currently ${options[current]!.label.replace(/\s*\(default\)$/i, "")})` : "";
+  const asked = header.title === "Advanced Reasoning" ? "Select advanced reasoning for this session"
+    : header.model !== undefined ? `Select reasoning level for ${header.model} for this session` : "Select model for this session";
   const selectedIndex = rows.findIndex((row) => row.cursor);
   return finishPrompt("codex", {
     kind: "question",
     title: "",
     question: `${asked}${now}`,
-    body: header.slice(titleAt + 1).join("\n") || null,
-    options: rows.map((row) => ({ label: row.label, description: said(row.said) })),
+    body: header.notes.join("\n") || null,
+    options,
     multi_select: false,
     custom_option_index: null,
   }, {
     // a row by its list, its number and what it says: the reasoning list of another model has the same rows
-    responder: "codex-model", menuLabels: rows.map((row) => `${title}  ${row.number}. ${row.label}  ${said(row.said) ?? ""}`), selectedIndex,
+    responder: "codex-model", menuLabels: rows.map((row, index) => `${header.title}  ${row.number}. ${options[index]!.label}  ${options[index]!.description ?? ""}`), selectedIndex,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     optionSteps: rows.map((_, index) => [...keySteps(navigationKeys(index - selectedIndex)), { pick: true as const }]),
     rowKey: codexModelRowKey(wrapped(lines, hintIndex)),
@@ -1461,31 +1496,30 @@ function parseClaudeModel(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
   const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_MODEL_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  const { rows, below, last, unread } = listRows(lines, hintIndex, claudeModelRow, CLAUDE_MODEL_MORE_RE);
+  const { rows, below, last, unread } = listRows(lines, hintIndex, CLAUDE_MODEL_ROW_RE, CLAUDE_MODEL_MORE_RE);
   const under = lines.slice(last + 1, hintIndex).filter((line) => line.trim() !== "").length;
   const selectedIndex = rows.findIndex((row) => row.cursor);
   if (unread || under > CLAUDE_MODEL_UNDER_LINES || rows.length < 2 || rows.filter((row) => row.cursor).length !== 1) return null;
-  // Wrapped lines are joined with a space, as most of them broke at one. A word longer than its
-  // column is cut where the column ends (`longest-runni` / `ng tasks`) and stays cut, as the pane
-  // shows it: a line that fills its column says nothing of whether a space was there.
-  const said = (parts: string[]): string | null => parts.length === 0 ? null : parts.join(" ");
+  const names = listNames(rows);
+  if (names === null) return null;
+  const options = names.map(({ name, said }) => ({ label: name.replace(/\s*[✔✓]$/, ""), description: said }));
   // counted, not named: the rows above the window (the list counts from 1) and the ones below it
   const hidden = rows[0]!.number - 1 + below;
-  const current = rows.find((row) => row.current);
+  const current = names.findIndex(({ name }) => /\s[✔✓]$/.test(name));
   // "Default (recommended)" in use reads as Default: the tag is the list's advice, not the model's name
-  const asked = `Select model for this session${current ? ` (currently ${current.label.replace(/\s*\(recommended\)$/i, "")})` : ""}`;
+  const asked = `Select model for this session${current >= 0 ? ` (currently ${options[current]!.label.replace(/\s*\(recommended\)$/i, "")})` : ""}`;
   return finishPrompt("claude", {
     kind: "question",
     title: "",
     question: hidden > 0 ? `${asked}. ${hidden} more ${hidden === 1 ? "model is" : "models are"} listed in the terminal.` : asked,
     body: null,
-    options: rows.map((row) => ({ label: row.label, description: said(row.said) })),
+    options,
     multi_select: false,
     custom_option_index: null,
   }, {
     // a row by its number in the whole list and by what it says too: the window moves, two rows
     // may share a name, and a list by family names the model itself only in what the row says
-    responder: "claude-model", menuLabels: rows.map((row) => `${row.number}. ${row.label}  ${said(row.said) ?? ""}`), selectedIndex,
+    responder: "claude-model", menuLabels: rows.map((row, index) => `${row.number}. ${options[index]!.label}  ${options[index]!.description ?? ""}`), selectedIndex,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     // `s`, never Enter: the pick stays in this session, and the default for new ones is left alone
     optionSteps: rows.map((_, index) => [...keySteps(navigationKeys(index - selectedIndex)), { text: "s" }]),
@@ -2355,8 +2389,8 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   const screen = known.screen ?? await liveScreen(paneId);
   // Codex's collapsed question queue reads blocked while its main prompt takes a message; a
   // model list of Claude Code's or Codex's that no reader could read is left to the terminal
-  // (claudeModelListWaits, codexModelPickWaits)
-  if ((agent === "codex" && codexQuestionsCollapsed(screen)) || claudeModelListWaits(screen) || codexModelPickWaits(screen)) {
+  // (claudeModelListWaits, codexModelListWaits)
+  if ((agent === "codex" && codexQuestionsCollapsed(screen)) || claudeModelListWaits(screen) || codexModelListWaits(screen)) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: asked(paneId, null, turns), pane, panes };
   }
@@ -2580,6 +2614,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       const asking = askings.get(body.pane_id)!;
       const asks = (): boolean => askings.get(body.pane_id) === asking && asking.content !== null;
       let target = prompt;
+      /** what the card said at the answer's last look: a list drawn as another window by then is another text */
+      let lastSeen: string | undefined;
       const opensQueue = parsedByPublicPrompt.get(prompt)?.responder === "codex-queued-question";
       const opensOmo = parsedByPublicPrompt.get(prompt)?.responder === "omo-pending";
       let answered = false;
@@ -2640,6 +2676,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const list = responder === "claude-model" || responder === "codex-model";
         /** the menu as the last look before a key showed it */
         let seen: ParsedPrompt | null = null;
+        const looked = (shown: ParsedPrompt | null): void => { seen = shown; lastSeen = shown?.id; };
         /** Whether the screen is the card's own menu, with the cursor on the row the moves were for. */
         const aimed = (shown: ParsedPrompt | null, screen: string): boolean => {
           // pi's catalogue shows ten rows of a longer list and scrolls under the cursor, so the
@@ -2678,7 +2715,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             const read = await Promise.race([reading, Bun.sleep(left).then(() => null)]);
             if (!read || Date.now() > deadline) return false;
             const shown = read.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
-            if (asks() && aimed(shown, read.screen ?? "")) { seen = shown; return true; }
+            if (asks() && aimed(shown, read.screen ?? "")) { looked(shown); return true; }
             await Bun.sleep(50);
           }
         };
@@ -2755,7 +2792,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       }
       // A model list closes, or opens its next list, a moment after its key: the same wait, so
       // the card's read right after the answer does not get the list just answered once more
-      if (target.steps || responder === "claude-model" || responder === "codex-model") form.answered = contentId(target);
+      if (target.steps) form.answered = contentId(target);
+      else if (responder === "claude-model" || responder === "codex-model") form.answered = lastSeen ?? contentId(target);
       return jsonResponse({ ok: true });
     });
     // the wait for the form's next step only reads the pane: after the pane's turn, so a message

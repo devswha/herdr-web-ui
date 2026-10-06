@@ -2275,6 +2275,45 @@ describe("Codex's model lists", () => {
     expect(prompt.options).toEqual(CODEX_LEVELS.map(([label]) => ({ label, description: null })));
   });
 
+  test("knows a list by the header right above its rows, wrapped or under the conversation's last line", () => {
+    // a pane too narrow for the levels' title: the model's name wraps under it
+    const wrapped = `  Select Reasoning Level for
+  GPT-5.6-Terra
+
+
+  1. Low
+› 2. Medium (default) (current)
+  3. High
+
+  enter default · s session ·
+  esc back
+`;
+    const prompt = parseInteractivePrompt("codex", wrapped)!;
+    expect(prompt.question).toBe("Select reasoning level for GPT-5.6-Terra for this session (currently Medium)");
+    expect(prompt.body).toBeNull();
+    expect(labels(prompt)).toEqual(["Low", "Medium (default)", "High"]);
+    // no blank between the conversation's last line and the title: the lines over the title are not the list's
+    const under = codexLevels(1).replace("Got an idea?\n\n  Select", "Got an idea?\n  Select");
+    expect(under).not.toBe(codexLevels(1));
+    expect(parseInteractivePrompt("codex", under)!.id).toBe(parseInteractivePrompt("codex", codexLevels(1))!.id);
+    // another list's header between a model list's title and the rows: the rows are that list's
+    const other = `  Select Model and Effort\n\n  Select Approval Mode\n\n› 1. Read only\n  2. Full access\n\n${CODEX_OPENS}\n`;
+    expect(parseInteractivePrompt("codex", other)).toBeNull();
+    expect(parseInteractivePrompt("codex", other.replace("\n\n  Select Approval Mode", "\n  Select Approval Mode\n  Choose what Codex may do\n  without asking"))).toBeNull();
+  });
+
+  test("keeps a gap inside one row's name out of what the rows say", () => {
+    // names alone, one of them written with two spaces: no column of descriptions to split it at
+    const names = `  Select Model and Effort\n\n\n› 1. Custom  Model (current)\n  2. GPT-6-Sol\n  3. GPT-6-Luna\n\n${CODEX_OPENS}\n`;
+    const prompt = parseInteractivePrompt("codex", names)!;
+    expect(prompt.options).toEqual([{ label: "Custom Model", description: null }, { label: "GPT-6-Sol", description: null }, { label: "GPT-6-Luna", description: null }]);
+    expect(prompt.question).toBe("Select model for this session (currently Custom Model)");
+    // and beside a column the other rows share
+    const beside = codexModels(1).replace("  3. GPT-6-Sol              Previous generation workhorse model.", "  3. GPT  6 Sol");
+    expect(parseInteractivePrompt("codex", beside)!.options[2]).toEqual({ label: "GPT 6 Sol", description: null });
+    expect(parseInteractivePrompt("codex", beside)!.options[3]).toEqual({ label: "GPT-6-Luna", description: "Fast and affordable model for easier tasks." });
+  });
+
   test("offers no card for another list of Codex's, or for one that is not waiting", () => {
     // the footer is every Codex list's: only the model lists' titles make it this card
     expect(parseInteractivePrompt("codex", codexList("Select Approval Mode", CODEX_LEVELS, 1, () => CODEX_OPENS))).toBeNull();
@@ -3032,6 +3071,19 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
       expect(await card()).toBeNull();
     });
+    // also where the pane was made shorter under the moves, and the list was another window by the s
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      let at = 1;
+      pane.onSent = (sent) => {
+        if (sent === "down") at += 1;
+        pane.screen = claudeModelList(at, 0, 5);
+        if (sent === "text:s") setTimeout(() => { pane.screen = CLAUDE_MODEL_CLOSED; }, 200);
+      };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "text:s"]);
+      expect(await card()).toBeNull();
+    });
   });
 
   // each refusal waits out the answer's own 1.5 s for the list to show the row
@@ -3066,6 +3118,12 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     expect(parseInteractivePrompt("codex", unread)).toBeNull();
     expect(parseFallbackPrompt("codex", unread).options.map((option) => option.label)).toContain("Enter");
     await withPane("codex", "blocked", unread, async () => {
+      expect(await card()).toBeNull();
+    });
+    // its footer cut beyond reading by a pane a few columns wide: the list's title still says what it is
+    const cut = codexLevels(1).replace(CODEX_PICKS, "  enter\n  defa\n  ult ·\n  s\n  sessi\n  on ·\n  esc\n  back");
+    expect(parseInteractivePrompt("codex", cut)).toBeNull();
+    await withPane("codex", "blocked", cut, async () => {
       expect(await card()).toBeNull();
     });
     // a list the reader does take is its own card under any status
