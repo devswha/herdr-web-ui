@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeProcessSession, claudeProjectDir, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
+import { claudeProcessSession, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
 
 const SESSION = "0b8e6f0e-8d3f-4c1a-9a53-6c2b7a1d9e42";
 
@@ -153,5 +153,36 @@ describe("claudeTranscriptFile", () => {
     const { home: dir } = home();
     expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBeNull();
     expect(await claudeTranscriptFile(join(dir, "missing"), SESSION, ["/w/project"])).toBeNull();
+  });
+});
+
+describe("CLAUDE_CONFIG_DIR", () => {
+  it("reads the last assignment of a ps line, through a path with spaces", () => {
+    expect(configDirInPsLine("claude --resume HOME=/h CLAUDE_CONFIG_DIR=/Users/me/.cac/envs/work/.claude PATH=/bin")).toBe("/Users/me/.cac/envs/work/.claude");
+    expect(configDirInPsLine("claude CLAUDE_CONFIG_DIR=/a b/.claude")).toBe("/a b/.claude");
+    expect(configDirInPsLine("claude HOME=/h")).toBeNull();
+  });
+
+  it("finds a transcript in the given store instead of ~/.claude", async () => {
+    forgetClaudeSessions();
+    const home = mkdtempSync(join(tmpdir(), "herdr-claude-dir-"));
+    try {
+      const store = join(home, "env", ".claude");
+      mkdirSync(join(store, "projects", claudeProjectDir("/work/app")), { recursive: true });
+      const path = join(store, "projects", claudeProjectDir("/work/app"), `${SESSION}.jsonl`);
+      writeFileSync(path, "{}\n");
+      expect(await claudeTranscriptFile(home, SESSION, ["/work/app"])).toBeNull();
+      expect(await claudeTranscriptFile(home, SESSION, ["/work/app"], store)).toBe(path);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("reads a running process's own store", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-claude-env-"));
+    const child = Bun.spawn(["sleep", "30"], { env: { ...process.env, CLAUDE_CONFIG_DIR: dir }, stdout: "ignore" });
+    const bare = Bun.spawn(["sleep", "30"], { env: { PATH: process.env["PATH"] ?? "" }, stdout: "ignore" });
+    try {
+      expect(await processClaudeConfigDir(child.pid)).toBe(dir);
+      expect(await processClaudeConfigDir(bare.pid)).toBeNull();
+    } finally { child.kill(); bare.kill(); rmSync(dir, { recursive: true, force: true }); }
   });
 });

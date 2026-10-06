@@ -1,5 +1,6 @@
 /**
- * Where Claude Code keeps a session's transcript: `~/.claude/projects/<project>/<session>.jsonl`.
+ * Where Claude Code keeps a session's transcript: `<config dir>/projects/<project>/<session>.jsonl`,
+ * the config dir being the process's `CLAUDE_CONFIG_DIR`, else `~/.claude`.
  *
  * <project> is Claude's own encoding of the directory it started in (read from Claude Code
  * 2.1.284): every character that is not an ASCII letter or digit becomes `-`, and a name longer
@@ -14,7 +15,7 @@
 
 import { constants } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 const MAX_PROJECT_NAME = 200;
 
@@ -29,6 +30,55 @@ export function claudeProjectDir(cwd: string): string {
   const name = cwd.replace(/[^a-zA-Z0-9]/g, "-");
   if (name.length <= MAX_PROJECT_NAME) return name;
   return `${name.slice(0, MAX_PROJECT_NAME)}-${Math.abs(stringHash(cwd)).toString(36)}`;
+}
+
+/** The default store: `$CLAUDE_CONFIG_DIR` of this server, else `~/.claude`. */
+export function defaultClaudeConfigDir(home: string): string {
+  return process.env["CLAUDE_CONFIG_DIR"] || join(home, ".claude");
+}
+
+/** What readProcessConfigDir found, by pid and argv, and when: a process's environment does not change. */
+const processDirs = new Map<string, { dir: string | null; at: number }>();
+const PROCESS_DIR_TTL_MS = 30_000;
+
+/** The CLAUDE_CONFIG_DIR in one `ps -E -o command=` line: the last assignment, running to the next `NAME=`. */
+export function configDirInPsLine(text: string): string | null {
+  return [...text.matchAll(/(?:^|\s)CLAUDE_CONFIG_DIR=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)/g)].at(-1)?.[1] || null;
+}
+
+async function readProcessConfigDir(pid: number): Promise<string | null> {
+  let dir: string | null = null;
+  try {
+    if (process.platform === "linux") {
+      dir = (await readFile(`/proc/${pid}/environ`, "utf8")).split("\0").find((entry) => entry.startsWith("CLAUDE_CONFIG_DIR="))?.slice(18) || null;
+    } else if (process.platform === "darwin") {
+      const child = Bun.spawn(["/bin/ps", "-E", "-ww", "-p", String(pid), "-o", "command="], { stdout: "pipe", stderr: "ignore" });
+      const timer = setTimeout(() => child.kill(), 3000);
+      try {
+        const text = await new Response(child.stdout).text();
+        await child.exited;
+        dir = configDirInPsLine(text);
+      } finally { clearTimeout(timer); }
+    }
+  } catch { dir = null; }
+  if (dir === null || !isAbsolute(dir)) return null;
+  try { return (await stat(dir)).isDirectory() ? dir : null; } catch { return null; }
+}
+
+/**
+ * The CLAUDE_CONFIG_DIR a Claude process was started with (a launcher such as cac keeps one store
+ * per environment), or null when it has none. /proc on Linux, `ps -E` (same user only) on macOS,
+ * kept for PROCESS_DIR_TTL_MS under the process's pid and argv.
+ */
+export async function processClaudeConfigDir(pid: number, argv: readonly string[] = []): Promise<string | null> {
+  const key = `${pid}\0${argv.join("\0")}`;
+  const known = processDirs.get(key);
+  if (known && Date.now() - known.at < PROCESS_DIR_TTL_MS) return known.dir;
+  const dir = await readProcessConfigDir(pid);
+  processDirs.delete(key);
+  processDirs.set(key, { dir, at: Date.now() });
+  if (processDirs.size > 256) processDirs.delete(processDirs.keys().next().value!);
+  return dir;
 }
 
 /** Only an absent path is a miss: an unreadable store is an error to report, not an empty one. */
@@ -54,11 +104,11 @@ export function forgetClaudeSessions(): void {
  * again on every request: /clear and resume can change sessions in the same process.
  * Other platforms and older records without procStart keep the hook-only path.
  */
-export async function claudeProcessSession(home: string, pid: number): Promise<string | null> {
+export async function claudeProcessSession(home: string, pid: number, configDir = join(home, ".claude")): Promise<string | null> {
   if (process.platform !== "linux" || !Number.isSafeInteger(pid) || pid <= 0) return null;
   try {
     // Non-blocking and no symlinks: a FIFO or a link in the record's place must not hang the read.
-    const file = await open(join(home, ".claude", "sessions", `${pid}.json`), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+    const file = await open(join(configDir, "sessions", `${pid}.json`), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
     let text: string;
     try {
       if (!(await file.stat()).isFile()) return null;
@@ -98,8 +148,8 @@ export async function claudeProcessSession(home: string, pid: number): Promise<s
  * written its first message yet). Such a session is scanned again on every poll, so the scan
  * stays off the event loop.
  */
-export async function claudeTranscriptFile(home: string, session: string, cwds: readonly (string | null | undefined)[]): Promise<string | null> {
-  const projects = join(home, ".claude", "projects");
+export async function claudeTranscriptFile(home: string, session: string, cwds: readonly (string | null | undefined)[], configDir = join(home, ".claude")): Promise<string | null> {
+  const projects = join(configDir, "projects");
   const file = `${session}.jsonl`;
   for (const cwd of cwds) {
     if (!cwd) continue;
