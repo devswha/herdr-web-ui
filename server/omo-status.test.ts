@@ -17,6 +17,12 @@ const message = (role: string, stopReason?: string, at = "2026-10-02T00:00:10.00
 const runtime = (customType: string) => JSON.stringify({ type: "custom_message", customType, display: false, content: "…", timestamp: "2026-10-02T00:00:20.000Z" });
 const bookkeeping = (customType: string) => JSON.stringify({ type: "custom", customType });
 const lines = (...entries: string[]) => entries.join("\n") + "\n";
+// a question for the user, as OmO 5.1.19 records it: the call, the result of one asked without waiting, its settlement
+const asking = (id: string, waitForAnswer: boolean) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:00:30.000Z", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id, name: "ask_user_question", arguments: { questions: [{ header: "Place", question: "Where?", multiSelect: false, options: [{ label: "a" }, { label: "b" }] }], waitForAnswer } }] } });
+const result = (id: string, details: Record<string, unknown> = {}, isError = false) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:00:40.000Z", message: { role: "toolResult", toolCallId: id, toolName: "ask_user_question", content: [], details, isError } });
+const acceptedResult = (id: string) => result(id, { accepted: true, status: "pending" });
+const settled = (id: string) => JSON.stringify({ type: "custom", customType: "ask-user:settlement", data: { requestId: id, status: "answered" } });
+const openAsks = (...entries: string[]) => entries.reduce((turn, entry) => omoTurnAfter(turn, { text: entry }), noTurn()).asks.map((call) => call.id);
 
 describe("an OmO turn, read from its session file", () => {
   it("runs from a prompt through its tool calls, and is over at an answer that stopped for good", () => {
@@ -35,6 +41,23 @@ describe("an OmO turn, read from its session file", () => {
     expect(omoTurnStatus(lines(message("user"), message("assistant", "error"), bookkeeping("senpi.hooks.stop-state"), runtime("goal-continuation")))).toBe("working");
     // OmO's stop record says nothing of the turn: it is held back while a background task runs
     expect(omoTurnStatus(lines(message("user"), message("assistant", "toolUse"), bookkeeping("senpi.hooks.stop-state")))).toBe("working");
+  });
+
+  it("holds a question for the user open until it has its answer", () => {
+    // one that waits: until its result, or a newer answer of the agent's
+    expect(openAsks(message("user"), asking("q1", true))).toEqual(["q1"]);
+    expect(openAsks(message("user"), asking("q1", true), result("q1"))).toEqual([]);
+    // one that does not wait: accepted at once, the turn goes on and ends, and it stays open until settled
+    const asked = [message("user"), asking("q2", false), acceptedResult("q2"), message("assistant", "stop")];
+    expect(openAsks(...asked)).toEqual(["q2"]);
+    expect(openAsks(...asked, settled("q2"))).toEqual([]);
+    expect(openAsks(...asked, JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "[Answer to question q2]\nPlace: a" }] } }))).toEqual([]);
+    // refused (a malformed call): closed by its error
+    expect(openAsks(asking("q3", false), result("q3", {}, true))).toEqual([]);
+    // a record too long to hold, read by its ends
+    const long = asking("q4", false).replace('"content":[', `"content":[{"type":"thinking","thinking":"${"x".repeat(200_000)}"},`);
+    const ends = { head: long.slice(0, 4096), tail: long.slice(-4096), record: long };
+    expect(omoTurnAfter(noTurn(), ends).asks.map((call) => [call.id, call.wait])).toEqual([["q4", false]]);
   });
 
   it("starts with one of the runtime's own messages, nobody typing", () => {
@@ -150,6 +173,32 @@ describe("OmO panes' status in place of herdr's", () => {
     omo.poll();
     expect(completions.observe("omo", told.at(-1)![1], "omo")).toBe("working");
     expect(statuses(await served())["omo"]).toBe("omo/working");
+  });
+
+  it("restores INPUT when an unanswered call predates the last megabyte at startup", async () => {
+    const { omo } = setup(lines(asking("old", false), acceptedResult("old"), message("toolResult", undefined, undefined, "x".repeat(1_200_000)), message("assistant", "stop")));
+    await omo.refresh(herdr().panes);
+    expect(statuses(omo.apply(herdr()))["omo"]).toBe("omo/blocked");
+  });
+
+  it("reads INPUT while a question waits on the user, whether OmO waits for it or goes on", async () => {
+    const { omo, told, append } = setup();
+    await omo.refresh(herdr().panes);
+    append(message("user"), asking("q1", true));
+    omo.poll();
+    expect(told.at(-1)).toEqual(["omo", "blocked", 0, true]);
+    expect(statuses(omo.apply(herdr()))["omo"]).toBe("omo/blocked");
+    // answered: back at work
+    append(result("q1"));
+    omo.poll();
+    expect(told.at(-1)).toEqual(["omo", "working", 0, true]);
+    // asked without waiting: INPUT through the rest of the turn and after it ends, until settled
+    append(asking("q2", false), acceptedResult("q2"), message("assistant", "stop"));
+    omo.poll();
+    expect(told.at(-1)).toEqual(["omo", "blocked", 0, true]);
+    append(settled("q2"));
+    omo.poll();
+    expect(told.at(-1)).toEqual(["omo", "idle", 0, true]);
   });
 
   it("tells a turn that ended while the panes were being looked up again", async () => {

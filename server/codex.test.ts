@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +31,26 @@ describe("a Codex process's own store", () => {
       expect(await processCodexHome(without.pid)).toBeNull();
       expect(await processCodexHome(spaced.pid)).toBe(join(tmpdir(), "harness codex test"));
     } finally { withHome.kill(); without.kill(); spaced.kill(); }
+  });
+
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("keeps a process's store under its pid and argv, and reads it again for other arguments", async () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-codex-home-"));
+    const child = Bun.spawn([process.execPath, "-e", "console.log('up'); await Bun.sleep(5000)"], { env: { ...process.env, CODEX_HOME: home }, stdout: "pipe" });
+    try {
+      await child.stdout.getReader().read();
+      expect(await processCodexHome(child.pid, ["codex", "--first"])).toBe(home);
+      // the store goes away: the same pid and argv are answered from what was read, without reading again
+      rmSync(home, { recursive: true, force: true });
+      expect(await processCodexHome(child.pid, ["codex", "--first"])).toBe(home);
+      // other arguments under that pid are another process as far as the cache knows: read again
+      expect(await processCodexHome(child.pid, ["codex", "--second"])).toBeNull();
+      // Even matching pid/argv must be re-read at the deadline, without a real 30-second sleep.
+      const expiredAt = Date.now() + 30_001;
+      const clock = spyOn(Date, "now").mockReturnValue(expiredAt);
+      try {
+        expect(await processCodexHome(child.pid, ["codex", "--first"])).toBeNull();
+      } finally { clock.mockRestore(); }
+    } finally { child.kill(); rmSync(home, { recursive: true, force: true }); }
   });
 });
 

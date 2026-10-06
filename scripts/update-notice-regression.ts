@@ -40,6 +40,8 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     });
     const pc: Machine = { id: "qa-pc", name: "QA PC", kind: "ssh", target: { destination: "qa@example.invalid" }, enabled: true, state: "error", error: null, action_required: "update_bridge", snapshot: null };
     let remote: Machine | null = null;
+    // The real SSE roster would remove the synthetic PC between these polled snapshots.
+    await context.route("**/api/machines/events", (route) => route.abort());
     await page.route("**/api/machines", async (route) => {
       const body = await (await route.fetch()).json() as { machines: Machine[] };
       await route.fulfill({ json: { ...body, machines: remote ? [...body.machines, remote] : body.machines } });
