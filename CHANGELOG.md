@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The website says what it is for in its title and description (Claude Code and Codex from your
   phone), answers seven common questions in a new FAQ section, and gives search engines a sitemap
   and structured data for the app and the FAQ.
+  ([#497](https://github.com/devswha/herdr-web-ui/pull/497))
 
 ### Fixed
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
