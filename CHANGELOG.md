@@ -61,7 +61,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   models, the reasoning levels of the model you pick, and the advanced levels behind "More
   reasoning…". The level you pick applies to that pane's session only (Codex's `s` key). Saving
   a default stays in the terminal, where Enter does it. Before, the chat showed nothing while
-  the terminal waited on the list.
+  the terminal waited on the list. ([#503](https://github.com/devswha/herdr-web-ui/pull/503))
 
 ## [0.3.51] - 2026-10-06
 
