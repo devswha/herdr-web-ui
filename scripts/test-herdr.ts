@@ -10,10 +10,14 @@
  * HERDR_TEST_MODE=unit points HERDR_SOCKET at a socket that does not exist, so a test that
  * reaches for herdr in a unit run fails instead of working in the user's herdr.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ping, sessionSnapshot, workspaceCreate } from "../server/herdr/client.ts";
+
+// macOS's temp dir is behind a symlink (/var -> /private/var): herdr reports a pane's cwd
+// resolved, so a fixture made under the unresolved path never matches the pane it is for
+process.env["TMPDIR"] = realpathSync(tmpdir());
 
 export const TEST_SESSION = process.env["HERDR_TEST_SESSION"] || "herdr-web-ui-test";
 

@@ -158,6 +158,11 @@
   color: var(--status-working);
 }
 
+/* a banner's own action takes clicks back from the pass-through column */
+.terminal-banner-action {
+  pointer-events: auto;
+}
+
 /* not a fault: a lens herdr does not offer on this PC yet */
 .terminal-banner-soon {
   border-color: var(--accent);

@@ -231,6 +231,18 @@ export class HerdrSocket {
     this.send({ type: "resize", pane_id: paneId, cols, rows });
   }
 
+  /** Whether this connection may take a held pane from another web bridge: a server that knows how, and not observing. */
+  canTakeOver(): boolean {
+    return this.connected && this.mode === "interact" && this.features.has("take-over");
+  }
+
+  /** Explicitly takes the pane's attach slot; never queued or replayed on reconnect. */
+  takeOver(paneId: string): boolean {
+    if (!this.canTakeOver() || !this.attached.has(paneId)) return false;
+    this.rawSend({ type: "take-over", pane_id: paneId });
+    return true;
+  }
+
   /** The chat lens covers the grid again: a reconnect attaches without resizing, until the next resize. */
   keepSize(paneId: string): void {
     const state = this.attached.get(paneId);
