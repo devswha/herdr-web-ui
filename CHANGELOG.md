@@ -77,8 +77,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - `/model` sent from a Codex pane's chat shows Codex's lists as cards, one after the other: the
   models, then the reasoning levels of the model you pick. The level you pick applies to that
   pane's session only (Codex's `s` key). Saving a default stays in the terminal, where Enter
-  does it, and so do the advanced levels behind "More reasoning…" (Max, Ultra). Before, the
-  chat showed nothing while the terminal waited on the list.
+  does it. Open "More reasoning…" in the terminal; once open, its Max and Ultra options can also
+  be picked for this session from the chat. Before, the chat showed nothing while the terminal
+  waited on the list.
   ([#503](https://github.com/devswha/herdr-web-ui/pull/503))
 
 ## [0.3.51] - 2026-10-06

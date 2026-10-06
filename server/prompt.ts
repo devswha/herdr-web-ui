@@ -1395,9 +1395,9 @@ function listRows(lines: string[], hintIndex: number, shape: RegExp, more: RegEx
  * In a list of levels the row that opens a list ("More reasoning…") stands beside rows whose
  * Enter saves a default, and the look before a key and the key are two herdr calls: a key
  * pressed in the terminal between them would put an Enter meant for that row on a level. So
- * that row is not offered, and no row of those lists is answered with Enter: the advanced
- * levels are picked in the terminal (their own list, once open there, is a card like the
- * others, picked with `s`). The same gap is left in the list of models, where it matters only
+ * that row is not offered, and no row of those lists is answered with Enter: open the advanced
+ * list in the terminal, then its levels can be picked from the card with `s`. The same gap
+ * is left in the list of models, where it matters only
  * beside a model with a single level (issue #469 records it for every card).
  *
  * The list is known by its title, since `enter select · esc back` is the footer of every list
