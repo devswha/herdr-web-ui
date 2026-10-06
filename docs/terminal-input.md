@@ -70,6 +70,9 @@ The new readiness frame is also implemented in the website demo transport.
   contract tests separately verify real delivery.
 - `bun run test:ui`: includes those checks plus the existing mobile, clipboard, secret-entry,
   reconnect, prompt, queue and viewport checks. `UI_EVIDENCE_DIR` saves screenshots.
+- `bun run build && bun scripts/terminal-safari-ime-regression.ts`: replays Safari's recorded
+  non-composition Hangul replacement events in Chromium, including commit keys, final-consonant
+  movement, deletion, paste, blur and pane reset. Also included in `bun run test:ui`.
 - `bun run build && bun scripts/terminal-command-arrows-regression.ts`: Cmd+Left/Right line
   movement, exact bytes and real readline cursor positions, IME ordering, repeat, modifier,
   unchanged Ctrl+arrows, Windows and Linux checks.
@@ -113,6 +116,67 @@ trips and pane changes on those keyboards before claiming universal IME compatib
   a separate reconciliation design; it does not repair text lost before transmission.
 
 ### Native Safari check
+
+#### Replacement events without composition events (#432)
+
+Updated: 2026-10-06
+
+Native Safari 26.6.2 reproduced `abc` → Korean `한글` → Space as `abcㅎㄱ ` in xterm's
+`onData`, outgoing WS frames and the owned local PTY. A plain textarea and Chrome's native
+composition path preserved the Korean text. Safari emitted `insertText("ㅎ")`, then
+`insertReplacementText("하")` and `insertReplacementText("한")`, with `isComposing:false`
+and no composition events; its keydown 229 arrived after each DOM edit. Stock xterm handling
+sent the first jamo and ignored subsequent replacements.
+
+The 5.5.0 source patch treats a single Hangul insertion on macOS Safari as local preedit,
+tracks the corrected DOM range through replacements and deletion, and commits it before the
+next syllable, ordinary key, paste or blur. Reset cancels pending text before a pane change.
+Native composition events and screen-reader mode retain their existing paths. The recorded
+event replay failed before the patch and passes after it; this is distinct from native IME QA.
+The patched build still needs a physical Safari IME retest and the remote shell/Codex/omp
+checks from #432 before the issue can be considered fully verified.
+
+[Owned test-pane screenshot](screenshots/safari-ime/safari-hangul-preedit.png): local `한`
+preedit while the replay asserts that only the English prefix has been emitted. Captured in
+Chromium with the recorded Safari event sequence; it is not a native Safari screenshot.
+Set `UI_EVIDENCE_DIR` when running the replay to capture it again.
+
+#### Recording a native English-to-Korean transition (#432)
+
+Updated: 2026-10-06
+
+```sh
+bun scripts/terminal-ime-diagnostic.ts
+```
+
+Open the printed loopback URL in Safari. In **Native IME control**, type `abc`, switch to
+the macOS Korean input source, type `한글`, then Space. Repeat in **Terminal input**.
+Use the actual keyboard/IME: pasted Korean, WebDriver text insertion and synthetic composition
+events do not exercise the input-source transition. Record the input-source switching method
+(Caps Lock, Control+Space or the input menu) with the result. Chrome is a useful control.
+
+The command builds the real client into a temporary directory with diagnostic-only hooks. It
+creates a raw-byte capture process in an isolated `herdr-web-ui-test-ime` workspace; it never
+attaches to a user's pane. `HERDR_TEST_SESSION` may select another isolated session and
+`HERDR_TEST_LIVE=1` is refused. The ordinary app build has no trace hooks or recording endpoint.
+
+The printed artifact directory contains `events.ndjson` (DOM composition/key/input events,
+textarea values and selections, xterm `onData`, and outgoing WS `input` frames), `received.bin`
+(the bytes delivered to the owned local PTY), and `run.json`. Ctrl+C or the 15-minute deadline
+closes the owned workspace and servers and writes `summary.json`, comparing `onData`, WS text
+and received bytes. Artifacts are retained for inspection. The test herdr session can then be
+stopped with `herdr --session herdr-web-ui-test-ime server stop` (use the override if set).
+
+Compare the intended text with every boundary, not just the final equality flags: all three
+boundaries can agree on already-corrupted input. Mouse reports and bracketed-paste delimiters
+may be consumed by the attach layer, so raw equality can also fail for correctly delivered text.
+The summary deliberately does not certify native IME correctness. A local recording also does
+not certify the remote-PC relay; if local
+Safari reproduces the corruption before WS transmission, it isolates a client defect. Otherwise
+the remote reproduction still needs its own trace. Do not adopt an input workaround from an
+unrelated IME issue without matching the event sequence.
+
+#### Earlier synthetic check
 
 On 2026-10-03, Safari 26.2 on an EA MacBook Air (macOS 26.2), reached through an SSH tunnel
 inside Tailscale, passed Unicode text entry, draft reload, direct/line mode switching and the
