@@ -375,6 +375,14 @@ export const JA: Record<string, string> = {
   "Left": "左",
   "Right": "右",
   "Control C": "Control C",
+  "Control D": "Control D",
+  "Control Z": "Control Z",
+  "Shift Tab": "Shift Tab",
+  "Page up": "ページアップ",
+  "Page down": "ページダウン",
+  "Page up and Page down": "ページアップとページダウン",
+  "Key bar": "キーバー",
+  "Extra keys in the bar under the terminal on a touch screen. Esc, Tab, Ctrl, the arrows and ^C are always there.": "タッチ画面でターミナルの下のキーバーに加えるキーです。Esc、Tab、Ctrl、矢印、^C は常にあります。",
 
   // ---- prompt card ----
   "Submit": "送信",
@@ -488,6 +496,8 @@ export const JA: Record<string, string> = {
   "Select a pane to open its terminal": "ターミナルを開くペインを選択してください",
   "Reconnect": "再接続",
   "Another app has this pane open. It connects here as soon as that app lets go.": "別のアプリがこのペインを開いています。そのアプリが離すとすぐにここへ接続します。",
+  "Open here": "ここで開く",
+  "Take this pane from another web app or terminal attach. That connection will close.": "ほかのウェブアプリや terminal attach からこのペインを引き継ぎます。その接続は終了します。",
   "Input held until the terminal is ready:": "端末の準備ができるまで保持した入力:",
   "{count} special key dropped": "特殊キー {count} 個を破棄しました",
   "{count} special keys dropped": "特殊キー {count} 個を破棄しました",

@@ -377,6 +377,14 @@ export const ZH: Record<string, string> = {
   "Left": "左",
   "Right": "右",
   "Control C": "Control C",
+  "Control D": "Control D",
+  "Control Z": "Control Z",
+  "Shift Tab": "Shift Tab",
+  "Page up": "向上翻页",
+  "Page down": "向下翻页",
+  "Page up and Page down": "向上翻页和向下翻页",
+  "Key bar": "按键栏",
+  "Extra keys in the bar under the terminal on a touch screen. Esc, Tab, Ctrl, the arrows and ^C are always there.": "触屏上终端下方按键栏中的额外按键。Esc、Tab、Ctrl、方向键和 ^C 始终都在。",
 
   // ---- prompt card ----
   "Submit": "提交",
@@ -490,6 +498,8 @@ export const ZH: Record<string, string> = {
   "Select a pane to open its terminal": "选择一个窗格以打开其终端",
   "Reconnect": "重新连接",
   "Another app has this pane open. It connects here as soon as that app lets go.": "另一个应用正打开此窗格。它一松开，这里就会立即连接。",
+  "Open here": "在此打开",
+  "Take this pane from another web app or terminal attach. That connection will close.": "从另一个网页应用或 terminal attach 接管此窗格。那边的连接将关闭。",
   "Input held until the terminal is ready:": "终端就绪前保留的输入：",
   "{count} special key dropped": "已丢弃 {count} 个特殊按键",
   "{count} special keys dropped": "已丢弃 {count} 个特殊按键",

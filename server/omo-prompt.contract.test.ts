@@ -8,7 +8,7 @@ import { herdrRpc } from "./herdr/client.ts";
 /**
  * Answers to omo's form of several questions, against the real herdr server. The pane runs a
  * small form drawn as omo 5.1 draws its ask_user_question overlay, reported as `pi` (herdr's name
- * for an omo pane waiting on the user): a number picks an option and moves on, the last answer
+ * for an omo pane waiting on the user): arrows move the cursor, Enter picks an option, the last answer
  * opens the review, and Enter there submits. Every answer it takes is logged.
  */
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-omo-prompt-"));
@@ -26,13 +26,14 @@ const questions = [
 ];
 const picked = [];
 let tab = 0;
+let cursor = 0;
 const draw = () => {
   const tabs = questions.map((q, i) => (i === tab ? "→ " : "  ") + q.header + (picked[i] === undefined ? "" : " ✓")).join("  ")
     + "  " + (tab === questions.length ? "→ Submit" : "  Submit");
   const count = picked.filter((p) => p !== undefined).length;
   const body = tab < questions.length ? [
     " " + questions[tab].question,
-    ...questions[tab].options.map((o, i) => (i === 0 ? " → " : "   ") + (i + 1) + ". " + o + (picked[tab] === i ? " ✓" : "")),
+    ...questions[tab].options.map((o, i) => (i === cursor ? " → " : "   ") + (i + 1) + ". " + o + (picked[tab] === i ? " ✓" : "")),
     "   Type your own answer...",
     " Submit (" + count + "/2 answered) — Enter advances",
     " ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel",
@@ -51,10 +52,15 @@ process.stdin.setRawMode(true);
 process.stdin.resume();
 process.stdin.on("data", (chunk) => {
   const data = chunk.toString("utf8");
-  if (tab < questions.length && /^[1-9]$/.test(data) && questions[tab].options[Number(data) - 1]) {
-    picked[tab] = Number(data) - 1;
+  if (tab < questions.length && (data === "\\u001b[B" || data === "\\u001bOB")) {
+    cursor = Math.min(questions[tab].options.length - 1, cursor + 1);
+  } else if (tab < questions.length && (data === "\\u001b[A" || data === "\\u001bOA")) {
+    cursor = Math.max(0, cursor - 1);
+  } else if (tab < questions.length && (data.includes("\\r") || (/^[1-9]$/.test(data) && questions[tab].options[Number(data) - 1]))) {
+    picked[tab] = data.includes("\\r") ? cursor : Number(data) - 1;
     appendFileSync(out, questions[tab].header + "=" + questions[tab].options[picked[tab]] + "\\n");
     tab += 1;
+    cursor = 0;
   } else if (tab === questions.length && data.includes("\\r")) appendFileSync(out, "submitted\\n");
   draw();
 });

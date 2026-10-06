@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { HerdrPane, InteractivePrompt, PromptAnswer } from "../shared/protocol.ts";
-import { codexTranscriptPath, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
+import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneRead, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
+import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
 
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
@@ -45,7 +46,12 @@ const OMO_FOOTER_LINES = 3;
 /** where each of the form's hints ends, however a narrow pane wraps it */
 const OMO_HINT_END_RE = /\besc (?:cancel|back|discard)$/;
 /** never a line of OmO's footer: an input box (`>`, `❯`) or a shell's prompt */
-const OMO_NOT_FOOTER_RE = /^[>❯›➜$%#]|[$%#>❯›]$/;
+const OMO_NOT_FOOTER_RE = /^[>❯›➜λ$%#]|[$%#>❯›λ]$/;
+// OmO's widget over its input box for a question that does not wait for its answer (omo 5.1.19)
+const OMO_PENDING_STATUS_RE = /^\?\s+(?:Question pending \((\d+) unanswered\)|\d+ questions pending)(?:\s+·.*)?$/;
+const OMO_PENDING_HINT_RE = /^enter(?: or \S+)? to answer · \/answer · or just type your reply\b/;
+/** OmO's apparently empty input box; never sufficient evidence for sending text into it. */
+const OMO_EMPTY_BOX_RE = /^[❯›>]$/;
 
 const KEY = {
   up: "up",
@@ -79,6 +85,7 @@ type Responder =
   | "omo-question"
   | "omo-review"
   | "omo-typing"
+  | "omo-pending"
   | "pi-question"
   | "pi-confirm"
   | "pi-input"
@@ -88,6 +95,8 @@ type Responder =
 
 type ParsedPrompt = InteractivePrompt & {
   responder: Responder;
+  /** Stable question identity across the folded widget and the expanded form. */
+  omoQuestion?: { call: string; index: number };
   menuLabels: string[];
   selectedIndex: number;
   checkedOptionIndices: number[];
@@ -205,7 +214,7 @@ function finishPrompt(
   input: Omit<InteractivePrompt, "id" | "agent">,
   internal: Omit<ParsedPrompt, keyof InteractivePrompt>,
   /** fields as the id reads them, where that is not as the card shows them (a fallback card's ticking working line) */
-  hashed: Partial<Pick<InteractivePrompt, "question" | "body">> = {},
+  hashed: Partial<Pick<InteractivePrompt, "question" | "body">> & { call?: string } = {},
 ): ParsedPrompt {
   const id = createHash("sha256")
     .update(JSON.stringify({ agent, ...input, ...hashed }))
@@ -408,20 +417,64 @@ function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueF
   });
 }
 
+/**
+ * A question whose options carry a preview (AskUserQuestion's `preview`): the selected option's
+ * preview is drawn in a box to the right of the options, "Notes: press n to add notes" under it,
+ * with no "Type something" row and an unnumbered "Chat about this" (Claude Code 2.1.288).
+ * The box and the notes line are cut off each line, leaving the options as in the plain form.
+ * The box stands in one column on every line (its top corner names it), so only what sits in
+ * that column goes: a `│` inside an option's own text stays.
+ */
+const CLAUDE_PREVIEW_HINT_RE = /\bn to add notes\b/i;
+const PREVIEW_EDGE = "┌│└├╭╰┐┘╮╯";
+/** where the terminal column `column` begins in `line`: a wide character takes two columns and a joined
+ * emoji is one grapheme of two, so the index may be smaller; -1 when no grapheme starts there */
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+function indexAtColumn(line: string, column: number): number {
+  let width = 0;
+  for (const { segment, index } of GRAPHEMES.segment(line)) {
+    if (width === column) return index;
+    width += Bun.stringWidth(segment);
+  }
+  return width === column ? line.length : -1;
+}
+function withoutPreview(lines: string[], from: number, to: number): string[] {
+  let column = -1;
+  for (let index = from; index <= to && column < 0; index += 1) {
+    const line = lines[index] ?? "";
+    const corner = /\s{2,}[┌╭]/.exec(line);
+    if (corner !== null) column = Bun.stringWidth(line.slice(0, corner.index + corner[0].length - 1));
+  }
+  return lines.map((line) => {
+    const at = column >= 2 ? indexAtColumn(line, column) : -1;
+    const edge = at >= 0 ? line[at] : undefined;
+    const boxed = edge !== undefined && PREVIEW_EDGE.includes(edge) && line.slice(Math.max(0, at - 2), at) === "  ";
+    // only the preview's own notes line goes: a question may begin with "Notes:" too
+    return (boxed ? line.slice(0, at).trimEnd() : line).replace(/^\s*Notes:\s+press n to add notes\b.*$/i, "");
+  });
+}
+
 function parseClaudeQuestion(screen: string): ParsedPrompt | null {
-  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_ASK_HINT_RE.test(wrapped(lines, index)));
+  const raw = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(raw, (_, index) => CLAUDE_ASK_HINT_RE.test(wrapped(raw, index)));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
+  const preview = CLAUDE_PREVIEW_HINT_RE.test(wrapped(raw, hintIndex));
+  const lines = preview ? withoutPreview(raw, Math.max(0, hintIndex - 64), hintIndex) : raw;
+  // with a preview the options end at the rule above "Chat about this": nothing under it is theirs
+  const end = preview ? findLastIndex(lines.slice(0, hintIndex), (line) => isDivider(line)) : hintIndex;
+  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), end);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const chatIndex = rows.findIndex((row) => row.label === "Chat about this");
   const customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));
-  if (chatIndex !== rows.length - 1 || customIndex !== chatIndex - 1 || customIndex < 1) return null;
+  if (preview) {
+    // its notes are no answer of their own: no typed-answer row, the options are the menu
+    if (customIndex >= 0 || chatIndex >= 0) return null;
+  } else if (chatIndex !== rows.length - 1 || customIndex !== chatIndex - 1 || customIndex < 1) return null;
   const tabs = claudeTabs(lines, rows[0]!.lineIndex);
   const question = claudeQuestionText(lines, tabs?.index ?? -1, rows[0]!.lineIndex) ?? nearestQuestion(lines, rows[0]!.lineIndex);
   const chip = tabs === null ? claudeChip(lines, rows[0]!.lineIndex) : null;
   if (!question) return null;
-  const optionRows = rows.slice(0, customIndex);
+  const optionRows = preview ? rows : rows.slice(0, customIndex);
   const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]!));
   const current = tabs?.tabs.findIndex((tab) => !tab.answered) ?? -1;
   // a bar cut off by a narrow pane does not show how many questions there are
@@ -430,12 +483,12 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   return finishPrompt("claude", {
     kind: "question", title, question, body: null,
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
-    multi_select: multiSelect, custom_option_index: multiSelect ? null : customIndex,
+    multi_select: multiSelect, custom_option_index: multiSelect || preview ? null : customIndex,
   }, {
     responder: "claude-question", menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
-    customMenuIndex: customIndex, rejectWithEscapeIndex: null,
+    customMenuIndex: preview ? null : customIndex, rejectWithEscapeIndex: null,
   });
 }
 
@@ -540,40 +593,52 @@ function omoForm(lines: string[], hintIndex: number): OmoForm | null {
  * text comes from here when the pane's session shows the call, never cut or wrapped by the pane.
  */
 export interface OmoAsk {
+  /** Session-qualified tool-call identity; absent only for screen-only legacy parsing. */
+  id?: string;
   questions: { header: string; question: string; multiSelect: boolean; options: { label: string; description: string | null }[] }[];
+  /** false: the call does not wait for its answer, and OmO folds it into a widget over its input box */
+  wait?: boolean;
 }
 
-/**
- * The ask_user_question call omo's session (its .jsonl, or the tail of it) still waits on: the
- * newest assistant message's call, unless a tool result answers it. null otherwise, or for a call
- * whose arguments are not the shape omo asks with.
- */
-export function pendingOmoAsk(jsonl: string): OmoAsk | null {
-  const answered = new Set<string>();
-  const lines = jsonl.split("\n");
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    let message: { role?: unknown; toolCallId?: unknown; content?: unknown } | undefined;
-    try { message = (JSON.parse(lines[index]!) as { message?: typeof message }).message; } catch { continue; }
-    if (message?.role === "toolResult" && typeof message.toolCallId === "string") answered.add(message.toolCallId);
-    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-    const call = [...(message.content as { type?: unknown; name?: unknown; id?: unknown; arguments?: unknown }[])].reverse()
-      .find((part) => part?.type === "toolCall" && part.name === "ask_user_question");
-    if (!call || typeof call.id !== "string" || answered.has(call.id)) return null;
-    const questions = (call.arguments as { questions?: unknown } | undefined)?.questions;
-    if (!Array.isArray(questions) || questions.length === 0) return null;
-    const ask: OmoAsk = { questions: [] };
-    for (const question of questions as Record<string, unknown>[]) {
-      if (typeof question?.["header"] !== "string" || typeof question["question"] !== "string" || !Array.isArray(question["options"])) return null;
-      const options = (question["options"] as Record<string, unknown>[]).map((option) => ({
-        label: typeof option?.["label"] === "string" ? option["label"] : "",
-        description: typeof option?.["description"] === "string" && option["description"] ? option["description"] : null,
-      }));
-      if (options.length === 0 || options.some((option) => !option.label)) return null;
-      ask.questions.push({ header: question["header"], question: question["question"], multiSelect: question["multiSelect"] === true, options });
-    }
-    return ask;
+/** A call's questions, or null for arguments that are not the shape omo asks with. */
+function omoAskOf(call: OmoAskCall): OmoAsk | null {
+  const questions = (call.args as { questions?: unknown } | null | undefined)?.questions;
+  if (!Array.isArray(questions) || questions.length === 0) return null;
+  const ask: OmoAsk = { id: call.id, questions: [], wait: call.wait };
+  for (const question of questions as Record<string, unknown>[]) {
+    if (typeof question?.["header"] !== "string" || typeof question["question"] !== "string" || (question["options"] !== undefined && !Array.isArray(question["options"]))) return null;
+    const options = ((question["options"] ?? []) as Record<string, unknown>[]).map((option) => ({
+      label: typeof option?.["label"] === "string" ? option["label"] : "",
+      description: typeof option?.["description"] === "string" && option["description"] ? option["description"] : null,
+    }));
+    if (options.some((option) => !option.label)) return null;
+    ask.questions.push({ header: question["header"], question: question["question"], multiSelect: question["multiSelect"] === true, options });
   }
-  return null;
+  return ask;
+}
+
+/** the records that can open or close a question; the rest of a session's tail is not parsed */
+const OMO_ASK_RECORD_RE = /"role":"(?:assistant|toolResult|user)"|ask-user:settlement/;
+
+/**
+ * The questions omo's session (its .jsonl, or the tail of it) still has open (omo-ask.ts), newest
+ * first: a waiting call until its tool result, a non-waiting call until it is settled. Calls whose arguments are not the shape omo asks
+ * with are left out.
+ */
+export function openOmoAsks(jsonl: string): OmoAsk[] {
+  let open: OmoAsks = [];
+  for (const line of jsonl.split("\n")) {
+    if (!OMO_ASK_RECORD_RE.test(line)) continue;
+    let entry: unknown;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (typeof entry === "object" && entry !== null) open = omoAsksAfter(open, entry);
+  }
+  return open.flatMap((call) => omoAskOf(call) ?? []).reverse();
+}
+
+/** The newest question omo's session has open, or null. */
+export function pendingOmoAsk(jsonl: string): OmoAsk | null {
+  return openOmoAsks(jsonl)[0] ?? null;
 }
 
 /** A tab shows its question's header, cut with an ellipsis when the pane is too narrow for it. */
@@ -676,7 +741,7 @@ function omoQuestionView(lines: string[], start: number, end: number, cut: boole
     const selected = line.startsWith("→");
     const text = line.replace(/^→\s+/, "");
     // the row's label, cut by a narrow pane: "Type your own" / "answer..."
-    if (view.rows.length > 0 && (selected || indent >= 2) && /^Type your own\b/.test(text)) {
+    if ((selected || indent >= 2) && /^Type your own\b/.test(text)) {
       view.own = { selected, lineIndex: index };
       continue;
     }
@@ -726,9 +791,9 @@ function cutSteps(ask: OmoAsk, current: number, currentAnswered: boolean, answer
  *    ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel
  *
  * The question and options read from the session's call when it shows; from the screen
- * otherwise, which then needs the whole form in view. A number picks a single option and moves
- * on (the last question goes to the review, a lone one is submitted); in a multiple choice the
- * answer is cleared (Backspace) and its numbers toggle the choice, then Tab moves on.
+ * otherwise, which then needs the whole form in view. Navigate to an option and confirm it;
+ * in a multiple choice, clear the previous answer (Backspace), navigate and toggle each choice
+ * with Space, then move on with Tab.
  */
 function parseOmoQuestion(screen: string, ask: OmoAsk | null, trusted: boolean): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
@@ -739,7 +804,7 @@ function parseOmoQuestion(screen: string, ask: OmoAsk | null, trusted: boolean):
   const known = ask && (!form || askOnScreen(form, ask)) ? ask : null;
   if (!trusted && !known) return null;
   const view = omoQuestionView(lines, form ? form.barEnd + 1 : 0, hintIndex, !form);
-  if (view.own === null || view.rows.length === 0) return null;
+  if (view.own === null || (view.rows.length === 0 && !known)) return null;
   const multiSelect = OMO_OPTIONS_HINT_RE.exec(wrapped(lines, hintIndex, OMO_HINT_LINES))![1] === "toggle";
   const width = screenWidth(lines);
   const shownLabels = view.rows.map((row) => joinWrapped(row.label, width, /^(?:→\s+)?\d+\.\s+/));
@@ -753,7 +818,9 @@ function parseOmoQuestion(screen: string, ask: OmoAsk | null, trusted: boolean):
     if (index < 0) return null;
     const asked = known.questions[index]!;
     // the screen must show this question's rows, numbered to its last option
-    if (asked.multiSelect !== multiSelect || view.rows.at(-1)!.number !== asked.options.length) return null;
+    if (asked.multiSelect !== multiSelect || (view.rows.at(-1)?.number ?? 0) !== asked.options.length) return null;
+    if (view.question.length > 0 && !sameText(joinWrapped(view.question, width), asked.question)) return null;
+    if (!view.rows.every((row, at) => sameText(shownLabels[at]!.replace(/\s+✓$/, ""), asked.options[row.number - 1]!.label))) return null;
     tabs = form ? form.tabs : cutSteps(known, index, currentAnswered, omoAnsweredCount(lines, view.own.lineIndex, hintIndex));
     question = normalizeText(asked.question);
     options = asked.options.map((option) => ({ label: normalizeText(option.label), description: option.description && normalizeText(option.description) }));
@@ -771,15 +838,14 @@ function parseOmoQuestion(screen: string, ask: OmoAsk | null, trusted: boolean):
   // the cursor, when its row is in view: on an option, or on the typed answer's row
   const selectedIndex = view.own.selected ? options.length : highlighted ? highlighted.number - 1 : -1;
   const rows = options.length + 1;
-  const pick = (option: number): AnswerStep[] => option < 9
-    ? [{ text: String(option + 1) }]
-    : keySteps([...omoWalk(option, selectedIndex, rows), KEY.enter]);
+  const pick = (option: number): AnswerStep[] => keySteps([...omoWalk(option, selectedIndex, rows), KEY.enter]);
   return finishPrompt("omo", {
     // several questions: the card's steps name them, the title says where this one stands
     kind: "question", title: omoTitle(tabs, index, known),
     question, body: null, options, multi_select: multiSelect, custom_option_index: multiSelect ? null : options.length,
     steps: omoSteps(tabs, known),
   }, {
+    omoQuestion: known?.id ? { call: known.id, index } : undefined,
     responder: "omo-question", menuLabels: [...options.map((option) => option.label), OMO_OWN_ANSWER], selectedIndex,
     checkedOptionIndices: view.rows.flatMap((row, at) => /\s✓$/.test(shownLabels[at]!) ? [row.number - 1] : []),
     customMenuIndex: options.length, rejectWithEscapeIndex: null,
@@ -790,13 +856,12 @@ function parseOmoQuestion(screen: string, ask: OmoAsk | null, trusted: boolean):
       let at = selectedIndex;
       const steps = keySteps([KEY.backspace]);
       for (const option of [...choices].sort((a, b) => a - b)) {
-        if (option < 9) { steps.push({ text: String(option + 1) }); continue; }
         steps.push(...keySteps([...omoWalk(option, at, rows), KEY.space]));
         at = option;
       }
       return [...steps, ...keySteps([KEY.tab])];
     },
-  });
+  }, { call: known?.id });
 }
 
 /**
@@ -849,7 +914,7 @@ function parseOmoTyping(screen: string, ask: OmoAsk | null, trusted: boolean): P
     responder: "omo-typing", menuLabels: choices.map((choice) => choice.label), selectedIndex: -1,
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     optionSteps: choices.map((choice) => choice.steps),
-  });
+  }, { call: known?.id });
 }
 
 /**
@@ -936,7 +1001,55 @@ function parseOmoReview(screen: string, ask: OmoAsk | null, trusted: boolean): P
     checkedOptionIndices: [], customMenuIndex: count, rejectWithEscapeIndex: null,
     optionSteps: [...choices.map(({ steps }) => steps), []],
     customSteps: (text) => [...keySteps(omoWalk(count, selectedIndex, count + 1)), { text }, ...keySteps([KEY.enter])],
-  });
+  }, { call: known?.id });
+}
+
+/**
+ * OmO's widget over its input box for a question asked without waiting for the answer (omo
+ * 5.1.19): OmO goes on working, or ends its turn, and the question stays open until answered:
+ *
+ *    ? Question pending (2 unanswered) · 30m          (`? 2 questions pending · 30m` for several calls)
+ *      표시 위치 — 음성 사용량과 추정 비용을 어디에 보여줄까요?
+ *    [ 설정 > 음성 입력 (추천) ]  [ 설정 + 사이드바 미터 ]  [ own answer… ]
+ *    +1 more question
+ *    enter to answer · /answer · or just type your reply
+ *
+ * It shows the first unanswered question of one call, by its header; the session's open calls
+ * that do not wait name it, and the card is only for one of them. The answer route opens the
+ * form with Alt+Up, verifies the call and question again, then uses the form's navigation.
+ * No answer text is sent to the composer, even when whitespace makes its draft look empty.
+ */
+function parseOmoPending(screen: string, pending: OmoAsk[]): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(lines, (_, index) => OMO_PENDING_HINT_RE.test(wrapped(lines, index)));
+  if (hintIndex < 0) return null;
+  const statusIndex = findLastIndex(lines.slice(0, hintIndex), (line) => OMO_PENDING_STATUS_RE.test(cleanLine(line)));
+  if (statusIndex < 0 || hintIndex - statusIndex > 12) return null;
+  const unanswered = OMO_PENDING_STATUS_RE.exec(cleanLine(lines[statusIndex]!))![1];
+  const shown = /^(.+?) — (.+)$/.exec(cleanLine(lines[statusIndex + 1] ?? ""));
+  if (!shown) return null;
+  // the line is cut at the pane's edge
+  const start = comparable(shown[2]!.replace(/(?:…|\.\.\.)$/, ""));
+  const matches = pending.filter((ask) => ask.wait === false).flatMap((ask) => ask.questions.flatMap((question, index) =>
+    sameHeader(shown[1]!, question.header) && comparable(question.question).startsWith(start) ? [{ ask, index }] : []));
+  if (matches.length !== 1) return null;
+  const { ask, index } = matches[0]!;
+  const asked = ask.questions[index]!;
+  const tabs = cutSteps(ask, index, false, unanswered === undefined ? null : ask.questions.length - Number(unanswered));
+  const options = asked.options.map((option) => ({ label: normalizeText(option.label), description: option.description && normalizeText(option.description) }));
+  return finishPrompt("omo", {
+    kind: "question", title: omoTitle(tabs, index, ask), question: normalizeText(asked.question), body: null,
+    options, multi_select: asked.multiSelect, custom_option_index: asked.multiSelect ? null : options.length,
+    steps: omoSteps(tabs, ask),
+  }, {
+    omoQuestion: ask.id ? { call: ask.id, index } : undefined,
+    responder: "omo-pending", menuLabels: [...options.map((option) => option.label), "Type your reply"], selectedIndex: -1,
+    checkedOptionIndices: [], customMenuIndex: asked.multiSelect ? null : options.length, rejectWithEscapeIndex: null,
+    // Validation only here: execution requires the opened form and its freshly read cursor.
+    optionSteps: options.map(() => []),
+    customSteps: () => [],
+    multiSteps: () => [],
+  }, { call: ask.id });
 }
 
 function parseCodexApproval(screen: string): ParsedPrompt | null {
@@ -1113,9 +1226,48 @@ function parseClaudeConfirm(screen: string): ParsedPrompt | null {
   });
 }
 
+/**
+ * Claude Code keeps its task list under an open panel (2.1.289): a rule with the session's name
+ * on it, `3 tasks (0 done, 1 in progress, 2 open)`, a row per task (◻ ◼ ✔), an in-progress task's
+ * activity (`…`) and `… +2 pending`. Cut off, the panel is the last thing on screen again.
+ *
+ * Only Claude's own footer goes, and only where it sits directly under the panel's hint: the
+ * list holds task rows, the activity under a task in progress and the pending count, nothing
+ * else. The agent's answer to the question, a shell's prompt or a rule of another program under
+ * the hint keep the panel what it is then: answered, with its keys owed to no one.
+ */
+const CLAUDE_TASKS_HEAD_RE = /^(\d+) tasks \(\d+ done, (?:\d+ in progress, )?\d+ open\)$/;
+const CLAUDE_TASK_ROW_RE = /^[◻◼✔]\s/;
+const CLAUDE_TASKS_MORE_RE = /^…\s\+\d+ pending$/;
+const LABELED_RULE_RE = /^─{3,}\s.*─$/;
+const CLAUDE_HINT_TAIL_RE = /\besc to (?:cancel|exit|go back)\b/i;
+function withoutClaudeTasks(shown: string[]): string[] {
+  let end = shown.length;
+  const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
+  if (head >= 0) {
+    const total = Number(CLAUDE_TASKS_HEAD_RE.exec(shown[head]!)![1]);
+    let rows = 0;
+    let inProgress = false;
+    let list = true;
+    for (let index = head + 1; index < shown.length && list; index += 1) {
+      const line = shown[index]!;
+      if (CLAUDE_TASK_ROW_RE.test(line)) { rows += 1; inProgress = line.startsWith("◼"); }
+      else if (CLAUDE_TASKS_MORE_RE.test(line)) list = index === shown.length - 1;
+      // the activity under the task in progress: one line, ending in an ellipsis, no prompt or bullet of its own
+      else if (inProgress && line.endsWith("…") && !/^[❯>›●⏺]/.test(line)) inProgress = false;
+      else list = false;
+    }
+    if (list && rows > 0 && rows <= total) end = head;
+  }
+  // the session's rule is drawn above the list, and with no task list too
+  if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
+  return end < shown.length && CLAUDE_HINT_TAIL_RE.test(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
+}
+
 function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   const cleanLines = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine);
-  const shown = cleanLines.filter((line) => line && !isDivider(line));
+  const visible = cleanLines.filter((line) => line && !isDivider(line));
+  const shown = prompt.responder.startsWith("claude-") ? withoutClaudeTasks(visible) : visible;
   const last = shown.at(-1) ?? "";
   // The menu is still at the bottom. A narrow pane wraps its hint, so the last line alone can
   // be the hint's tail (`cancel`): the lines before it count only when the match runs into
@@ -1147,6 +1299,23 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
     let rules = 0;
     let footer = 0;
     for (const line of cleanLines.slice(end + 1)) {
+      if (!line) continue;
+      if (SOLID_RULE_RE.test(line)) {
+        if (rules > 0 || footer > 0) return false;
+        rules = 1;
+      } else if (rules === 0 || ++footer > OMO_FOOTER_LINES || OMO_NOT_FOOTER_RE.test(line)) return false;
+    }
+    return rules === 1;
+  }
+  if (prompt.responder === "omo-pending") {
+    // The widget is live over OmO's input box, other widgets maybe between them: the box (a rule,
+    // the box's line, empty, a rule) and then nothing but OmO's footer.
+    const at = findLastIndex(cleanLines, (line, index) => line !== "" && OMO_PENDING_HINT_RE.test(wrapped(cleanLines, index)));
+    const box = cleanLines.findIndex((line, index) => index > at && OMO_EMPTY_BOX_RE.test(line));
+    if (at < 0 || box < 0 || box - at > 60 || !cleanLines[box - 1]!.startsWith("─")) return false;
+    let rules = 0;
+    let footer = 0;
+    for (const line of cleanLines.slice(box + 1)) {
       if (!line) continue;
       if (SOLID_RULE_RE.test(line)) {
         if (rules > 0 || footer > 0) return false;
@@ -1421,8 +1590,12 @@ function parsePiDialog(screen: string, moved = false): ParsedPrompt | null {
   });
 }
 
-function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true): ParsedPrompt | null {
-  const omo = () => [parseOmoQuestion(screen, omoAsk, omoTrusted), parseOmoTyping(screen, omoAsk, omoTrusted), parseOmoReview(screen, omoAsk, omoTrusted)];
+function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true, omoOpen: OmoAsk[] = []): ParsedPrompt | null {
+  const omo = () => {
+    const forms = (ask: OmoAsk | null, trusted: boolean) => [parseOmoQuestion(screen, ask, trusted), parseOmoTyping(screen, ask, trusted), parseOmoReview(screen, ask, trusted)];
+    const matched = omoOpen.flatMap((ask) => forms(ask, false)).filter((form) => form !== null);
+    return [...(omoOpen.length > 0 ? matched.length === 1 ? matched : [] : forms(omoAsk, omoTrusted)), parseOmoPending(screen, omoOpen)];
+  };
   const candidates = agent === "codex"
     ? [parseCodexContinueMenu(screen), parseCodexQuestion(screen), parseCodexAsyncQuestion(screen), parseCodexApproval(screen)]
     : agent === "omp"
@@ -1463,9 +1636,11 @@ export function codexQueuedPrompt(screen: string, unanswered: QueuedQuestion[], 
 /**
  * `omoAsk`: the call an omo pane's session waits on (pendingOmoAsk), for its form's own text.
  * `omoTrusted` false: an omo form on the screen counts only when that call matches it.
+ * `omoOpen`: every question the session has open (openOmoAsks), for omo's widget of the ones
+ * asked without waiting.
  */
-export function parseInteractivePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true): InteractivePrompt | null {
-  const parsed = parsePrompt(agent, screen, omoAsk, omoTrusted);
+export function parseInteractivePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true, omoOpen: OmoAsk[] = []): InteractivePrompt | null {
+  const parsed = parsePrompt(agent, screen, omoAsk, omoTrusted, omoOpen);
   return parsed ? publicPrompt(parsed) : null;
 }
 
@@ -1932,37 +2107,16 @@ async function liveScreen(paneId: string): Promise<string> {
   return (await paneRead({ paneId, source: "detection", format: "text" })).text;
 }
 
-/** omo's form on a screen, by a line of its key hint: worth a look in the pane's session. */
-const OMO_FORM_RE = /\b1-9 select\b|enter save and next|\btab next question\b/;
-/**
- * Each omo pane's session file, resolved while its form shows: a poll every 2s would otherwise
- * redo it. Only a found one is kept: an omo just started has none yet, and its form's text
- * would be read off the screen until a remembered miss ran out.
- */
-const omoSessions = new Map<string, { path: string; at: number }>();
-const OMO_SESSION_MS = 15_000;
-/** The end of a session file read for its pending call: the form's call is in its newest message. */
-const OMO_TAIL_BYTES = 1 << 20;
+/** omo's form or its widget on a screen, by a line of its key hint: worth a look in the pane's session. */
+const OMO_FORM_RE = /\b1-9 select\b|enter save and next|\btab next question\b|\bor just type your reply\b/;
+const omoAskReader = new OmoAskReader();
 
-/** The ask_user_question call an omo pane's session waits on; null when it cannot be read. */
-async function omoAskFor(paneId: string, cwd: string, panes: HerdrPane[]): Promise<OmoAsk | null> {
-  let session = omoSessions.get(paneId);
-  if (!session || Date.now() - session.at > OMO_SESSION_MS) {
-    omoSessions.delete(paneId);
-    const path = await omoTranscriptForPane(paneId, cwd, panes).catch(() => null);
-    if (!path) return null;
-    session = { path, at: Date.now() };
-    omoSessions.set(paneId, session);
-    if (omoSessions.size > 64) omoSessions.delete(omoSessions.keys().next().value!);
-  }
-  try {
-    const file = Bun.file(session.path);
-    const text = await file.slice(Math.max(0, file.size - OMO_TAIL_BYTES)).text();
-    // a tail starts inside a record: from the next one
-    return pendingOmoAsk(file.size > OMO_TAIL_BYTES ? text.slice(text.indexOf("\n") + 1) : text);
-  } catch {
-    return null; // the session went away
-  }
+/** Resolve the live process tree every time: a cached session can outlive its agent. */
+async function omoAsksFor(paneId: string, cwd: string, panes: HerdrPane[]): Promise<OmoAsk[]> {
+  const path = await omoTranscriptForPane(paneId, cwd, panes).catch(() => null);
+  if (!path) return [];
+  try { return omoAskReader.read(path).flatMap((call) => omoAskOf({ ...call, id: `${path}\0${call.id}` }) ?? []).reverse(); }
+  catch { return []; }
 }
 
 async function readKnownPrompt(
@@ -1975,17 +2129,17 @@ async function readKnownPrompt(
   if (!["claude", "omp", "codex", "omo", "pi", ""].includes(agent)) return { prompt: null };
   const screen = await liveScreen(paneId);
   // omo's form reads its text from the session's call, the screen showing where the form stands
-  const omoAsk = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)
-    ? await omoAskFor(paneId, pane.cwd, panes) : null;
+  const omoAsks = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)
+    ? await omoAsksFor(paneId, pane.cwd, panes) : [];
   // a pane herdr names claude, or not at all, is omo's only on evidence: herdr reports it waiting
   // on the user, or the session's pending call is the form on screen
   const omoTrusted = (agent !== "claude" && agent !== "") || pane.agent_status === "blocked";
-  const prompt = parseInteractivePrompt(agent, screen, omoAsk, omoTrusted);
+  const prompt = parseInteractivePrompt(agent, screen, omoAsks[0] ?? null, omoTrusted, omoAsks);
   const count = agent === "codex" && prompt === null ? queuedQuestionCount(screen) : 0;
   if (count === 0 || !pane.cwd) return { prompt, screen };
   let rollout = queueRollouts.get(paneId);
   if (!rollout || Date.now() - rollout.at > QUEUE_ROLLOUT_MS) {
-    rollout = { path: await codexTranscriptPath(paneId, pane.cwd, codexHome), at: Date.now() };
+    rollout = { path: await codexTranscriptPath(paneId, pane.cwd, await paneCodexHome(paneId, codexHome)), at: Date.now() };
     queueRollouts.set(paneId, rollout);
     if (queueRollouts.size > 64) queueRollouts.delete(queueRollouts.keys().next().value!);
   }
@@ -2156,6 +2310,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       const asks = (): boolean => askings.get(body.pane_id) === asking && asking.content !== null;
       let target = prompt;
       const opensQueue = parsedByPublicPrompt.get(prompt)?.responder === "codex-queued-question";
+      const opensOmo = parsedByPublicPrompt.get(prompt)?.responder === "omo-pending";
       let answered = false;
       let committed = false;
       // whether this request's alt+↑ may have left the queue open
@@ -2173,6 +2328,33 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           if (!asks()) return promptChanged();
           target = opened;
         }
+        if (opensOmo) {
+          // Alt+Up opens the form even with whitespace in the composer; no draft is submitted.
+          // A remapped shortcut or a different question fails closed before any answer text.
+          await paneSendKeys(body.pane_id, [KEY.openQueue]);
+          const deadline = Date.now() + SETTLE_MS;
+          let opened: InteractivePrompt | null = null;
+          while (Date.now() < deadline) {
+            if (!asks() || request.signal.aborted) return promptChanged();
+            const left = deadline - Date.now();
+            const read = await Promise.race([readKnownPrompt(body.pane_id, pane, agent, options.codexHome, panes), Bun.sleep(left).then(() => null)]);
+            if (!read || Date.now() > deadline) return promptChanged();
+            const parsed = read.prompt && parsedByPublicPrompt.get(read.prompt);
+            if (parsed?.responder === "omo-question") {
+              // Opening a form changes its drawing, but not the call or question it answers.
+              const pending = parsedByPublicPrompt.get(prompt)!;
+              if (!pending.omoQuestion || parsed.omoQuestion?.call !== pending.omoQuestion.call
+                || parsed.omoQuestion.index !== pending.omoQuestion.index
+                || parsed.question !== pending.question || parsed.multi_select !== pending.multi_select
+                || JSON.stringify(parsed.options) !== JSON.stringify(pending.options)) return promptChanged();
+              opened = read.prompt;
+              break;
+            }
+            await Bun.sleep(Math.min(50, Math.max(0, deadline - Date.now())));
+          }
+          if (!opened || !asks()) return promptChanged();
+          target = opened;
+        }
         // the keys for the question as it shows in the open queue
         if (target !== prompt) steps = answerKeys(target, body);
         const parsed = parsedByPublicPrompt.get(target)!;
@@ -2181,7 +2363,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         let cursor = parsed.selectedIndex;
         // Claude's unnumbered rows and pi's models are read with no number to aim at: looked at
         // again before the Enter even when it needs no move
-        let moved = responder === "claude-confirm" || responder === "pi-model";
+        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question";
         /** Whether the screen is the card's own menu, with the cursor on the row the moves were for. */
         const aimed = (shown: ParsedPrompt | null, screen: string): boolean => {
           // pi's catalogue shows ten rows of a longer list and scrolls under the cursor, so the
@@ -2269,7 +2451,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         await closeQueue(body.pane_id, contentId(target)!);
       }
       const responder = parsedByPublicPrompt.get(target)?.responder;
-      if (responder === "omo-question" || responder === "omo-review" || responder === "omo-typing") {
+      if (responder === "omo-question" || responder === "omo-review" || responder === "omo-typing" || responder === "omo-pending") {
         formsAnswered.set(body.pane_id, Date.now());
         if (formsAnswered.size > 64) formsAnswered.delete(formsAnswered.keys().next().value!);
       }

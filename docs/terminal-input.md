@@ -27,6 +27,14 @@ Control sequences are counted as discarded, never saved for later execution. No 
 on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
 waits for composition to finish. Leaving the input clears its composition guard.
 
+The key bar always has Esc, Tab, Ctrl, the arrows and ^C. Settings → Appearance → Key bar adds
+Alt (on by default), Shift+Tab, Home/End, PgUp/PgDn, ^D, ^Z, `|`, `~` and `/`, each in a fixed
+place in the row. Ctrl and Alt are one-shot: an armed Alt puts ESC before the next character
+(Alt+Backspace, Alt+Enter) and adds the Alt modifier to an arrow, Home, End or Page key
+(`CSI 1;3D`); armed together they send ESC and the control code. A paste or a report the
+terminal answers with passes through and leaves Alt armed. Neither applies to the input line
+or the chat composer, which send their text as typed.
+
 On macOS, Cmd+Left and Cmd+Right in direct typing send Ctrl+A and Ctrl+E, moving to the
 beginning and end of the input line in shells and agents that use those bindings.
 Pending IME text is sent first. Additional modifiers retain xterm's behavior; the input line

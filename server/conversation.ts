@@ -34,7 +34,7 @@ import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
-import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
+import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeProcessSession, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
@@ -764,7 +764,7 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
  * label: omo's own store is read only when omo is really running
  * in that pane, never on a matching cwd alone.
  */
-async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: RecognizedConversation["source"]; path: string }> {
+async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: RecognizedConversation["source"]; path: string; codexHome?: string }> {
   const paneId = pane.pane_id;
   let agent = pane.agent ?? pane.agent_session?.agent ?? "";
   // herdr names no agent for this pane: a session report an earlier agent left behind says
@@ -785,9 +785,11 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
   }
   try {
     if (agent === "codex") {
-      const path = await codexTranscriptPath(paneId, cwd, codexHome, panes);
+      // the pane's own store: the rollout, its history and its images are all read from there
+      const home = await paneCodexHome(paneId, codexHome);
+      const path = await codexTranscriptPath(paneId, cwd, home, panes);
       if (!path) throw new ConversationUnavailable("no_session_path");
-      return { source: "codex-transcript", path };
+      return { source: "codex-transcript", path, codexHome: home };
     }
     // Claude's project is the directory it started in, the process's own cwd more often than the pane's
     if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]) };
@@ -836,7 +838,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
   if (typeof pane.cwd !== "string" || pane.cwd.length === 0) throw new ConversationUnavailable("no_recognized_transcript");
 
-  let resolved: { source: RecognizedConversation["source"]; path: string };
+  let resolved: Awaited<ReturnType<typeof resolveTranscript>>;
   try {
     resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
   } catch (error) {
@@ -848,7 +850,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     const id = `unwritten:${error.sessionId}`;
     return { source: "omo-transcript", turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
   }
-  return transcriptPage(resolved.source, resolved.path, page, codexHome);
+  return transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
 }
 
 /** One page of a resolved transcript (paneConversation's `page`). */
@@ -945,10 +947,10 @@ export async function conversationImage(paneId: string, ref: string, codexHome?:
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
-  let resolved: { source: RecognizedConversation["source"]; path: string };
+  let resolved: Awaited<ReturnType<typeof resolveTranscript>>;
   try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
-  if (resolved.source === "codex-transcript") return codexTranscriptImage(codexHistorySegments(resolved.path, codexHome), ref, pane.cwd);
+  if (resolved.source === "codex-transcript") return codexTranscriptImage(codexHistorySegments(resolved.path, resolved.codexHome ?? codexHome), ref, pane.cwd);
   if (resolved.source === "pi-transcript") return piTranscriptImage(resolved.path, ref);
   return resolved.source === "claude-transcript" ? transcriptImage(resolved.path, ref) : null;
 }
@@ -988,10 +990,10 @@ export async function toolOutput(paneId: string, ref: string, codexHome?: string
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
-  let resolved: { source: RecognizedConversation["source"]; path: string };
+  let resolved: Awaited<ReturnType<typeof resolveTranscript>>;
   try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
-  return transcriptToolOutput(resolved.source, resolved.path, ref, codexHome);
+  return transcriptToolOutput(resolved.source, resolved.path, ref, resolved.codexHome ?? codexHome);
 }
 
 /** The output a transcript file holds for one tool call id, whole (up to TOOL_OUTPUT_MAX). */

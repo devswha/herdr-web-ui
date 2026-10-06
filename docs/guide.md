@@ -222,7 +222,9 @@ whether the test was sent or failed; a missing subscription offers **Turn alerts
 
 On a phone:
 - Agent panes open in the chat.
-- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, arrows, Ctrl+C).
+- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, Alt, arrows, Ctrl+C).
+  **Settings → Appearance → Key bar** adds or removes Alt, Shift+Tab, Home/End, PgUp/PgDn,
+  Ctrl+D, Ctrl+Z, `|`, `~` and `/`.
 - Dragging the terminal scrolls the real herdr pane.
 - **Settings → Phone → Keep screen on** keeps the screen awake while a terminal or chat
   pane is open. It is off by default, releases when the app is hidden, and resumes when
@@ -335,7 +337,10 @@ Nothing is typed without you:
 - Queued messages stay with their PC and pane across reloads. Edit, discard, or explicitly send each item; status changes and reconnects never send them automatically.
 - An answer typed to a prompt waits for **Confirm**.
 
-Attaches never use `--takeover`, so they coexist with your own herdr TUI.
+Attaches and reconnects wait when another client holds the terminal. **Open here** on the waiting
+notice explicitly takes that pane with `--takeover`: the other web bridge waits in turn, while a
+standalone `herdr terminal attach` exits. The herdr TUI stays connected (verified on herdr 0.9.3).
+Observe connections cannot take a pane, and a displaced bridge never takes it back automatically.
 
 ## Configuration
 

@@ -373,6 +373,14 @@ export const KO: Record<string, string> = {
   "Left": "왼쪽",
   "Right": "오른쪽",
   "Control C": "Control C",
+  "Control D": "Control D",
+  "Control Z": "Control Z",
+  "Shift Tab": "Shift Tab",
+  "Page up": "페이지 업",
+  "Page down": "페이지 다운",
+  "Page up and Page down": "페이지 업, 페이지 다운",
+  "Key bar": "키 바",
+  "Extra keys in the bar under the terminal on a touch screen. Esc, Tab, Ctrl, the arrows and ^C are always there.": "터치 화면에서 터미널 아래 키 바에 더할 키입니다. Esc, Tab, Ctrl, 화살표, ^C는 항상 있습니다.",
 
   // ---- prompt card ----
   "Submit": "제출",
@@ -486,6 +494,8 @@ export const KO: Record<string, string> = {
   "Select a pane to open its terminal": "터미널을 열 패널을 선택하세요",
   "Reconnect": "다시 연결",
   "Another app has this pane open. It connects here as soon as that app lets go.": "다른 앱이 이 창을 열고 있습니다. 그 앱이 놓으면 바로 여기에 연결됩니다.",
+  "Open here": "여기서 열기",
+  "Take this pane from another web app or terminal attach. That connection will close.": "다른 웹 앱이나 terminal attach에서 이 패널을 가져옵니다. 그쪽 연결은 종료됩니다.",
   "Input held until the terminal is ready:": "터미널 입력 준비까지 보관한 내용:",
   "{count} special key dropped": "특수 키 {count}개 버려짐",
   "{count} special keys dropped": "특수 키 {count}개 버려짐",

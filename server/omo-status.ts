@@ -19,15 +19,24 @@
  * pane at RUN for good. A retry that gets an answer shows as RUN again from that answer. Nothing
  * of OmO's or Claude's is installed or changed for this: files are read.
  *
+ * A question OmO asks the user (omo-ask.ts) holds the pane at INPUT while it is open, whatever the
+ * turn does: one that waits for its answer stopped the turn for a tool (RUN until now), and one
+ * that does not wait lets the turn go on or end (RUN or DONE until now) with the question still
+ * open over the input box.
+ *
  * The status replaces herdr's for the pane before CompletionTracker sees it, in status events and
  * in snapshots alike, under the one identity `omo`: herdr has named such a pane `pi` and `claude`
  * by turns, and a finish is matched by identity. A pane whose session cannot be told keeps
  * herdr's status, under the same identity.
  */
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { readOmoLines as readLines, type OmoLine } from "./omo-records.ts";
+export { readOmoLines as readLines, type OmoLine } from "./omo-records.ts";
+
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
+import { omoAsksAfter, type OmoAsks } from "./omo-ask.ts";
 
 /** runtime messages that start a turn nobody typed; one not named here shows as RUN from its first answer on */
 const TURN_STARTS = new Set([
@@ -42,27 +51,36 @@ export interface OmoTurn {
   status: "working" | "idle" | null;
   /** when the entry that decided the status was written */
   at: number | null;
+  /** the questions open for the user */
+  asks: OmoAsks;
 }
 
-export const noTurn = (): OmoTurn => ({ status: null, at: null });
+export const noTurn = (): OmoTurn => ({ status: null, at: null, asks: [] });
 
-/** A record too long to hold is read by its ends: its role and time are in the first bytes, its stop reason in the last. */
-export type OmoLine = { text: string } | { head: string; tail: string };
+/** A pane's status: INPUT while a question is open, else its turn's. */
+export type OmoPaneStatus = "working" | "idle" | "blocked";
 
 /** One session record, applied to the turn so far. */
 export function omoTurnAfter(turn: OmoTurn, line: OmoLine): OmoTurn {
+  if (!("text" in line) && line.record !== undefined) return omoTurnAfter(turn, { text: line.record });
   const head = "text" in line ? line.text : line.head;
+  if ("text" in line && head.startsWith('{"type":"custom"') && head.includes('"customType":"ask-user:settlement"')) {
+    try { return { ...turn, asks: omoAsksAfter(turn.asks, JSON.parse(line.text)) }; } catch { return turn; }
+  }
   const custom = head.startsWith('{"type":"custom_message"');
   if (!custom && !head.startsWith('{"type":"message"')) return turn;
   let role: unknown, stopReason: unknown, customType: unknown, timestamp: unknown;
+  let asks = turn.asks;
   if ("text" in line) {
     try {
       const entry = JSON.parse(line.text) as { customType?: unknown; timestamp?: unknown; message?: { role?: unknown; stopReason?: unknown } };
       ({ customType, timestamp } = entry);
       role = entry.message?.role;
       stopReason = entry.message?.stopReason;
+      asks = omoAsksAfter(asks, entry);
     } catch { return turn; }
   } else {
+    // Legacy end-only records cannot establish or close a question safely.
     role = line.head.match(/"role":"(\w+)"/)?.[1];
     stopReason = (line.tail.match(/"stopReason":"(\w+)"/g)?.at(-1) ?? line.head.match(/"stopReason":"(\w+)"/)?.[0])?.match(/:"(\w+)"/)?.[1];
     customType = line.head.match(/"customType":"([^"]+)"/)?.[1];
@@ -70,9 +88,9 @@ export function omoTurnAfter(turn: OmoTurn, line: OmoLine): OmoTurn {
   }
   const parsed = typeof timestamp === "string" ? Date.parse(timestamp) : NaN;
   const at = Number.isFinite(parsed) ? parsed : turn.at;
-  if (custom) return typeof customType === "string" && TURN_STARTS.has(customType) ? { status: "working", at } : turn;
-  if (role === "assistant") return { status: stopReason === "toolUse" ? "working" : "idle", at };
-  return role === "user" || role === "toolResult" ? { status: "working", at } : turn;
+  if (custom) return typeof customType === "string" && TURN_STARTS.has(customType) ? { status: "working", at, asks } : turn;
+  if (role === "assistant") return { status: stopReason === "toolUse" ? "working" : "idle", at, asks };
+  return role === "user" || role === "toolResult" ? { status: "working", at, asks } : { ...turn, asks };
 }
 
 /** The turn at the end of a session text. */
@@ -80,66 +98,6 @@ export function omoTurnStatus(text: string): "working" | "idle" | null {
   let turn = noTurn();
   for (const line of text.split("\n")) turn = omoTurnAfter(turn, { text: line });
   return turn.status;
-}
-
-const CHUNK_BYTES = 256 * 1024;
-/** a line longer than this is kept by its ends only */
-const LONG_LINE_BYTES = 64 * 1024;
-const LINE_END_BYTES = 4096;
-/** how far back the first read of a session file starts, and how far when that held nothing that tells */
-const FIRST_READ_BYTES = 1024 * 1024;
-const DEEP_READ_BYTES = 16 * 1024 * 1024;
-
-/**
- * Reads the whole lines of a file from `from` on and hands each to `each`; the offset of the
- * first byte not read (a last line still being written waits for its newline). A long line is
- * handed over by its ends, so no record is held whole however large.
- */
-export function readLines(fd: number, from: number, size: number, each: (line: OmoLine) => void, read: typeof readSync = readSync): number {
-  let offset = from;
-  let position = from;
-  let parts: Buffer[] = [];
-  let held = 0;
-  let head: Buffer | null = null;
-  let tail = Buffer.alloc(0);
-  const keepEnd = (more: Buffer) => { tail = Buffer.concat([tail, more]).subarray(-LINE_END_BYTES); };
-  while (position < size) {
-    const chunk = Buffer.alloc(Math.min(CHUNK_BYTES, size - position));
-    const got = read(fd, chunk, 0, chunk.length, position);
-    if (got <= 0) break;
-    const bytes = chunk.subarray(0, got);
-    let start = 0;
-    for (let newline = bytes.indexOf(0x0a, start); newline !== -1; newline = bytes.indexOf(0x0a, start)) {
-      const piece = bytes.subarray(start, newline);
-      if (head !== null) {
-        keepEnd(piece);
-        each({ head: head.toString("utf8"), tail: tail.toString("utf8") });
-        head = null;
-        tail = Buffer.alloc(0);
-      } else {
-        each({ text: Buffer.concat([...parts, piece]).toString("utf8") });
-      }
-      parts = [];
-      held = 0;
-      start = newline + 1;
-      offset = position + start;
-    }
-    const rest = bytes.subarray(start);
-    if (head !== null) keepEnd(rest);
-    else {
-      parts.push(rest);
-      held += rest.length;
-      if (held > LONG_LINE_BYTES) {
-        const all = Buffer.concat(parts);
-        head = all.subarray(0, LINE_END_BYTES);
-        tail = all.subarray(-LINE_END_BYTES);
-        parts = [];
-        held = 0;
-      }
-    }
-    position += got;
-  }
-  return offset;
 }
 
 /** `<timestamp>_<session id>.jsonl` */
@@ -199,7 +157,7 @@ export interface OmoStatusDeps {
   now?: () => number;
 }
 
-interface Tracked extends OmoPane { cwd: string; offset: number; size: number; id: string; /** found again after a while herdr's status stood for it: a turn still running is told anew */ retell: boolean; turn: OmoTurn; status: "working" | "idle"; background: number }
+interface Tracked extends OmoPane { cwd: string; offset: number; size: number; id: string; /** found again after a while herdr's status stood for it: a turn still running is told anew */ retell: boolean; turn: OmoTurn; status: OmoPaneStatus; background: number }
 
 const FILES: OmoFile = {
   stat: (path) => { try { const fd = openSync(path, "r"); try { const stat = fstatSync(fd); return { size: stat.size, id: `${stat.dev}:${stat.ino}` }; } finally { closeSync(fd); } } catch { return null; } },
@@ -217,7 +175,7 @@ export class OmoStatus {
   /** every pane that runs OmO; those whose session is known carry a status */
   private readonly panes = new Map<string, Tracked>();
   /** what a pane read when its OmO was last told from it, while the pane itself is still there: found again, it goes on from that */
-  private readonly last = new Map<string, { status: "working" | "idle"; background: number; path: string; startedAt: number | null }>();
+  private readonly last = new Map<string, { status: OmoPaneStatus; background: number; path: string; startedAt: number | null }>();
   private refreshedAt = -Infinity;
   private refreshedFor = "";
   private refreshing: Promise<void> | null = null;
@@ -349,7 +307,7 @@ export class OmoStatus {
       const stat = this.file.stat(tracked.path);
       if (stat === null) continue;
       const { size } = stat;
-      if (tracked.offset === -1 || size < tracked.offset || stat.id !== tracked.id) this.readFrom(tracked, tracked.path, size, Math.max(0, size - FIRST_READ_BYTES));
+      if (tracked.offset === -1 || size < tracked.offset || stat.id !== tracked.id) this.readFrom(tracked, tracked.path, size);
       // also what a read that failed left unread
       else if (size !== tracked.size || tracked.offset < size) tracked.offset = this.file.lines(tracked.path, tracked.offset, size, (line) => { tracked.turn = omoTurnAfter(tracked.turn, line); });
       tracked.size = size;
@@ -357,11 +315,11 @@ export class OmoStatus {
       // nothing could be read of it (a read that failed): what the pane read before stands until one succeeds
       if (tracked.turn.status === null && tracked.offset < size) continue;
       const stale = tracked.turn.status === "working" && tracked.turn.at !== null && tracked.startedAt !== null && tracked.turn.at < tracked.startedAt - STALE_TURN_MS;
-      const status = tracked.turn.status === "working" && !stale ? "working" : "idle";
+      const status: OmoPaneStatus = tracked.turn.asks.length > 0 ? "blocked" : tracked.turn.status === "working" && !stale ? "working" : "idle";
       const sessionId = omoSessionId(tracked.path);
       if (!counts.has(tracked.cwd)) counts.set(tracked.cwd, tracked.cwd ? this.background(tracked.cwd) : new Map());
       const background = sessionId ? counts.get(tracked.cwd)!.get(sessionId) ?? 0 : 0;
-      const turn = status !== tracked.status || (tracked.retell && status === "working");
+      const turn = status !== tracked.status || (tracked.retell && status !== "idle");
       tracked.retell = false;
       const changed = turn || background !== tracked.background;
       tracked.status = status;
@@ -370,19 +328,12 @@ export class OmoStatus {
     }
   }
 
-  /** The first read of a file: its end, and further back when that end holds nothing that tells (one long record). */
-  private readFrom(tracked: Tracked, path: string, size: number, from: number): void {
-    const read = (start: number): void => {
-      tracked.turn = noTurn();
-      let skip = start > 0;
-      tracked.offset = this.file.lines(path, start, size, (line) => {
-        // the first line of a read that starts inside the file is the rest of a record
-        if (skip) { skip = false; return; }
-        tracked.turn = omoTurnAfter(tracked.turn, line);
-      });
-    };
-    read(from);
-    if (tracked.turn.status === null && from > 0) read(Math.max(0, size - DEEP_READ_BYTES));
+  /** Replay from the start once, then consume only appended complete records. */
+  private readFrom(tracked: Tracked, path: string, size: number): void {
+    tracked.turn = noTurn();
+    tracked.offset = this.file.lines(path, 0, size, (line) => {
+      tracked.turn = omoTurnAfter(tracked.turn, line);
+    });
   }
 
   /**
