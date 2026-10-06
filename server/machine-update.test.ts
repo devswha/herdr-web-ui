@@ -13,7 +13,7 @@ import type { PushService } from "./push.ts";
 // Real setup/approval/verification with a loopback identity endpoint and a fake SSH host.
 // No bundle is downloaded and no real process or user's herdr is touched.
 describe("approved bridge replacement", () => {
-  async function scenario(options: { identity?: Record<string, unknown>; unauthorized?: boolean; replacementProtocol?: number; initialBundle?: string; replacementBundle?: string; reconnect?: boolean; updateAgain?: boolean; repeatBundle?: string } = {}) {
+  async function scenario(options: { identity?: Record<string, unknown>; unauthorized?: boolean; replacementProtocol?: number; initialBundle?: string; replacementBundle?: string; reconnect?: boolean; updateAgain?: boolean; repeatBundle?: string; repeatIdentity?: Record<string, unknown> } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "herdr-bridge-replacement-"));
     const socket = "/home/fixture/.config/herdr/herdr.sock";
     const token = "a".repeat(64);
@@ -68,7 +68,7 @@ describe("approved bridge replacement", () => {
             if (path === "/api/bridge") {
               operations.push(`verify:${descriptor.pid}`);
               if (descriptor.pid === 4243) replacementChecks++;
-              return Response.json({ ...descriptor, socket_id: "fixture:1", herdr: { version: "0.9.3", protocol: 22 }, ...(descriptor.pid === 4242 ? options.identity : replacementChecks > 1 && options.repeatBundle ? { bundle_version: options.repeatBundle } : {}) });
+              return Response.json({ ...descriptor, socket_id: "fixture:1", herdr: { version: "0.9.3", protocol: 22 }, ...(descriptor.pid === 4242 ? options.identity : replacementChecks > 1 ? { ...(options.repeatBundle ? { bundle_version: options.repeatBundle } : {}), ...options.repeatIdentity } : {}) });
             }
             if (path === "/api/session") return Response.json({ snapshot: { panes: [], workspaces: [] } });
             if (path === "/ws" && server.upgrade(request)) return;
@@ -164,10 +164,19 @@ describe("approved bridge replacement", () => {
 
   it("checks the live identity even when the descriptor claims the bridge is current", async () => {
     const { result, operations } = await scenario({ updateAgain: true, repeatBundle: "older" });
-    expect(result.phase).toBe("failed");
+    expect(result).toMatchObject({ phase: "failed", action_required: "bridge_conflict" });
+    expect(result.error).toContain("Update or disconnect the other app, then reconnect here");
     expect(operations.filter((step) => step === "install")).toHaveLength(1);
     expect(operations.filter((step) => step.startsWith("stop:"))).toHaveLength(1);
     expect(operations.filter((step) => step === "verify:4243")).toHaveLength(2);
+  });
+
+  it("preserves unrelated live identity errors during an explicit update", async () => {
+    const { result, operations } = await scenario({ updateAgain: true, repeatIdentity: { socket_path: "/other/herdr.sock" } });
+    expect(result.phase).toBe("failed");
+    expect(result.action_required).not.toBe("bridge_conflict");
+    expect(result.error).toContain("Remote bridge/socket is incompatible");
+    expect(operations).toEqual(["install", "verify:4242", "stop:4242", "start", "verify:4243", "verify:4243"]);
   });
 
 });

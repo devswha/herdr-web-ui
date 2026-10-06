@@ -8,7 +8,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
-- Remote PC headers offer reconnect controls, and bridge conflicts explain how to align connected apps and retry without reinstalling. Newer remote bridges cannot be downgraded by an older app.
+- Remote PC headers offer reconnect controls, and bridge conflicts explain how to align connected apps and retry without reinstalling. Newer remote bridges cannot be downgraded by an older app. ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
 
 ### Changed
 - The message box follows **Settings → Chat font size**, as the transcript and prompt cards
@@ -17,9 +17,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#515](https://github.com/devswha/herdr-web-ui/pull/515) by @phirschybar)
 
 ### Fixed
-- Updating an already current remote bridge verifies and reuses it without downloading or restarting it again.
+- Updating an already current remote bridge verifies and reuses it without downloading or restarting it again. ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
 - Development-server PC setup and bridge update approvals preserve the browser's origin,
-  avoiding a 403 when the UI on port 5173 uses the bridge on port 7317.
+  avoiding a 403 when the UI on port 5173 uses the bridge on port 7317. ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
   keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)

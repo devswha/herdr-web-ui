@@ -349,7 +349,13 @@ export class MachineManager {
     let update = job?.update === true;
     let currentBridge: Awaited<ReturnType<MachineManager["verify"]>> | undefined;
     if (descriptor && update && descriptor.bridge_protocol === BRIDGE_PROTOCOL && descriptor.bundle_version === REMOTE_BUNDLE_VERSION) {
-      currentBridge = await this.verify(ssh, descriptor, expectedSocket);
+      try { currentBridge = await this.verify(ssh, descriptor, expectedSocket); }
+      catch (error) {
+        if (error instanceof MachineActionRequired && error.action === "update_bridge") {
+          throw new MachineActionRequired("The running bridge is incompatible with this app. Another app may have reconnected with a different version. Update or disconnect the other app, then reconnect here. The remote bridge was left running.", "bridge_conflict");
+        }
+        throw error;
+      }
       update = false;
     }
     if (descriptor && /^\d+$/.test(descriptor.bundle_version) && Number(descriptor.bundle_version) > Number(REMOTE_BUNDLE_VERSION)) {
