@@ -448,9 +448,15 @@ No, but a phone needs two things Tailscale gives at once: a way to reach the PC 
 <details>
 <summary><b>Does my code or conversation leave my machine?</b></summary>
 
-No. The server reads session files and terminals locally, and serves them only to browsers that can reach it. Its only outbound connections are:
-- GitHub, for release checks, update builds and remote-PC bundles
-- your browser vendor's push service, for alerts, which carries an encrypted notification
+Session files stay on the PC running each agent, and their contents are sent to browsers connected to the app. herdr web ui has no hosted relay or account service of its own. The agents' own connections to model providers depend on their configuration.
+
+Optional features can send data off the PC:
+- [Voice input](#voice-input) sends recordings to the configured transcription provider; polishing also sends the transcribed text. Without a configured API key, browser speech recognition may use the browser vendor's service.
+- [Subscription usage](#subscription-usage), when enabled, sends each provider's credentials to that provider's usage endpoint.
+- Updates and remote-PC setup fetch releases or configured runtime bundles over the network; remote panes are reached over SSH.
+- Enabled push alerts go through the browser vendor's push service as encrypted notifications.
+
+See [Access and safety](#access-and-safety) for who can connect to the app.
 </details>
 
 <details>

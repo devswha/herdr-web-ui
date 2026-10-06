@@ -110,6 +110,10 @@ assembles it into `_site/` with icons, the social preview and scaled screenshots
 The two demo videos come from local `docs/screenshots/*.mp4` when present, otherwise the README's uploads;
 ffmpeg creates their poster frames. Without ffmpeg, the page omits unavailable posters.
 
+For search engines the build also writes `sitemap.xml` (the page only: the demo is `noindex`) and copies
+the page's FAQ rows (`<div class="qa">`) into its head as FAQPage structured data, so edit a question in
+the page and the data follows. The SoftwareApplication data is written in the page's head by hand.
+
 The build also copies the retained `site/assets/` and `site/media/` files, including the film linked
 from the README and its chat loop. These remain available at their existing URLs even though the
 homepage uses the desktop and phone demos.
