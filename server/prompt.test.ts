@@ -3141,6 +3141,10 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     await withPane("codex", "blocked", `${codexModels(1)}\nContinue deployment?\n${CODEX_OPENS}\n`, async () => {
       expect((await card())?.fallback).toBe(true);
     });
+    // Words before the footer are not a long, fictitious key name.
+    await withPane("codex", "blocked", codexModels(1).replace(CODEX_OPENS, `Continue deployment\n${CODEX_OPENS}`), async () => {
+      expect((await card())?.fallback).toBe(true);
+    });
     // Even a Codex-shaped footer belongs to the other agent's unknown prompt here.
     await withPane("pi", "blocked", codexLevels(1), async () => {
       expect((await card())?.fallback).toBe(true);
@@ -3167,6 +3171,9 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     const cut = codexLevels(1).replace(CODEX_PICKS, "  enter\n  defa\n  ult ·\n  s\n  sessi\n  on ·\n  esc\n  back");
     expect(parseInteractivePrompt("codex", cut)).toBeNull();
     await withPane("codex", "blocked", cut, async () => {
+      expect(await card()).toBeNull();
+    });
+    await withPane("codex", "blocked", `Loading\n${CODEX_PICKS}`, async () => {
       expect(await card()).toBeNull();
     });
     // A clipped title does not make a recognizable session/default footer safe to answer with Enter.

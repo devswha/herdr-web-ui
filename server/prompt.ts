@@ -1411,6 +1411,11 @@ const CODEX_MODEL_ROW_RE = /^\s*([❯›>])?\s*(\d+)\.\s+(\S.*)$/;
 const CODEX_MODEL_NOTE_LINES = 2;
 /** how far back a footer is looked for, including words split across very narrow lines */
 const CODEX_MODEL_TAIL_LINES = 30;
+// Key names a list hint can display, including remapped keys. Restrict the key field so
+// ordinary words before a real footer cannot become a fictitious key name after joining lines.
+const CODEX_LIST_KEY_HINT = String.raw`(?:(?:ctrl|alt|shift|cmd|super)\+)*(?:enter|return|tab|space|esc|escape|backspace|delete|insert|home|end|pageup|pagedown|up|down|left|right|f\d{1,2}|[a-z0-9])`;
+const CODEX_MODEL_GUARD_HINT_RE = new RegExp(`^${CODEX_LIST_KEY_HINT}(?:select|default|apply|confirm)·(?:ssession·)?${CODEX_LIST_KEY_HINT}back$`, "i");
+
 
 /**
  * A Codex model list's title and the lines under it, from the block of lines right above the
@@ -1456,12 +1461,12 @@ function codexModelListWaits(screen: string): boolean {
     // prevents the match, so an old title/footer in the transcript cannot hide a new prompt.
     const footer = shown.slice(start).map(({ text }) => text).join("").replace(/\s+/g, "");
     if (/^enter(?:default|apply)·ssession·escback$/i.test(footer)) return true;
-    if (!/^[a-z0-9+^-]+(?:select|default|apply|confirm)·(?:ssession·)?[a-z0-9+^-]+back$/i.test(footer)) continue;
+    if (!CODEX_MODEL_GUARD_HINT_RE.test(footer)) continue;
     // The generic list footer needs a model header in the block immediately above its rows.
     // Quick presets are recognized only by this guard, never offered as a readable card.
     const { rows, first, last } = listRows(lines, shown[start]!.index, CODEX_MODEL_ROW_RE, null);
     const intervening = lines.slice(last + 1, shown[start]!.index).some((line) => cleanLine(line) && !isDivider(cleanLine(line)));
-    return rows.length > 0 && !intervening && codexModelHeader(lines, first, true) !== null;
+    if (rows.length > 0 && !intervening && codexModelHeader(lines, first, true) !== null) return true;
   }
   return false;
 }
