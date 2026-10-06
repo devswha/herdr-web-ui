@@ -747,6 +747,28 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
   });
 
+  test("does not start the menu at a numbered line in the first option's description", () => {
+    const prompt = parseInteractivePrompt("claude", `
+ ☐ Setup
+
+How should we set up?
+
+  1. Script
+     Runs these steps:
+     1. Install deps
+❯ 2. Manual
+     Follow the guide.
+  3. Type something.
+────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`);
+    expect(prompt).toMatchObject({ kind: "question", question: "How should we set up?", custom_option_index: 2 });
+    expect(labels(prompt)).toEqual(["Script", "Manual"]);
+    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
   test("reads Codex's question under its own sent message", () => {
     const prompt = parseInteractivePrompt("codex", `
 › 1. 먼저 이것부터 해줘

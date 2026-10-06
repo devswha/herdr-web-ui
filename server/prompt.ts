@@ -224,13 +224,17 @@ function parseNumberedRows(lines: string[], start: number, end: number): Numbere
 }
 
 /**
- * A menu's rows among numbered lines read from well above it: the last run that counts up from 1.
- * What is above a menu can hold a numbered line of its own, such as a message sent before
- * ("❯ 1. …", "› 1. …") still on screen.
+ * A menu's rows among numbered lines read from well above it: the last run that counts up from 1,
+ * among the lines numbered in the menu's own column. What is above a menu can hold a numbered line
+ * of its own, such as a message sent before ("❯ 1. …", "› 1. …") still on screen; a numbered line
+ * in an option's description is indented further.
  */
 function menuRows(lines: string[], start: number, end: number): NumberedRow[] {
   const rows = parseNumberedRows(lines, start, end);
-  return rows.slice(Math.max(0, rows.map((row) => row.number).lastIndexOf(1)));
+  const column = (row: NumberedRow): number => lines[row.lineIndex]!.replace(ANSI_RE, "").search(/\d/);
+  const last = rows.at(-1);
+  const menu = last === undefined ? rows : rows.filter((row) => column(row) === column(last));
+  return menu.slice(Math.max(0, menu.map((row) => row.number).lastIndexOf(1)));
 }
 
 function sequentialRows(rows: NumberedRow[]): boolean {
