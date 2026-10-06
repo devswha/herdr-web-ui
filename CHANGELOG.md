@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Codex chat hides internal memory citation blocks and pairs the answer with its display record,
+  so a reply that uses memory appears once without raw citation markup. Quoted code examples
+  keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
+
 ## [0.3.52] - 2026-10-06
 
 ### Added
@@ -51,8 +56,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
 
 ### Fixed
-- Codex chat hides internal memory citation blocks and pairs the answer with its display record,
-  so a reply that uses memory appears once without raw citation markup.
 - A Claude Code pane started with its own `CLAUDE_CONFIG_DIR` (a launcher such as cac keeps one
   store per environment) shows its chat. Before, only `~/.claude` was searched, so the chat was
   unavailable and only the terminal worked. The store is read from the pane's Claude process, as
