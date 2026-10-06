@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -960,8 +960,8 @@ describe("OmO's ask_user_question form", () => {
     expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터"]);
     // a word the pane wrapped at its edge is one word again
     expect(prompt?.options[0]?.description).toEndWith("변경 범위가 가장 작습니다.");
-    // a number picks the option and moves on; a typed answer replaces one typed before
-    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ text: "2" }]);
+    // navigation picks the option and moves on; a typed answer replaces one typed before
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
     expect(answerKeys(prompt!, { custom_text: "둘 다" })).toEqual([
       { keys: ["backspace"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }, { text: "둘 다" }, { keys: ["enter"] },
     ]);
@@ -993,7 +993,7 @@ describe("OmO's ask_user_question form", () => {
     expect(answerKeys(prompt!, { custom_text: "없음" })).toEqual([{ keys: ["backspace"] }, { keys: ["enter"] }, { text: "없음" }, { keys: ["enter"] }]);
   });
 
-  test("answers a multiple choice afresh by number, then moves on with Tab", () => {
+  test("answers a multiple choice afresh by navigation, then moves on with Tab", () => {
     const prompt = parseInteractivePrompt("pi", form(` → 검사    보고    Submit
  어떤 검사를 돌릴까요?
  → 1. Lint ✓
@@ -1009,8 +1009,8 @@ describe("OmO's ask_user_question form", () => {
     expect(labels(prompt)).toEqual(["Lint", "Tests", "Build"]);
     expect(prompt?.options[2]?.description).toBeNull();
     // Backspace clears what was chosen before (Lint here, or rows out of view), then each number toggles one
-    expect(answerKeys(prompt!, { option_indices: [2, 0] })).toEqual([{ keys: ["backspace"] }, { text: "1" }, { text: "3" }, { keys: ["tab"] }]);
-    expect(answerKeys(prompt!, { option_indices: [1] })).toEqual([{ keys: ["backspace"] }, { text: "2" }, { keys: ["tab"] }]);
+    expect(answerKeys(prompt!, { option_indices: [2, 0] })).toEqual([{ keys: ["backspace"] }, { keys: ["space"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["space"] }, { keys: ["tab"] }]);
+    expect(answerKeys(prompt!, { option_indices: [1] })).toEqual([{ keys: ["backspace"] }, { keys: ["down"] }, { keys: ["space"] }, { keys: ["tab"] }]);
   });
 
   test("reviews the answers: Submit, a row to change, or a comment", () => {
@@ -1110,7 +1110,7 @@ ${"─".repeat(40)}
     expect(parseInteractivePrompt("", first, null, false)).toBeNull();
     expect(parseInteractivePrompt("claude", first, null, false)).toBeNull();
     const ask = { questions: ["표시 위치", "월 한도"].map((header) => ({
-      header, question: "q", multiSelect: false, options: [{ label: "a", description: null }, { label: "b", description: null }],
+      header, question: "음성 사용량과 추정 비용을 어디에 보여줄까요?", multiSelect: false, options: [{ label: "설정 > 음성 입력 (추천)", description: null }, { label: "설정 + 사이드바 미터", description: null }],
     })) };
     expect(parseInteractivePrompt("", first, ask, false)).toMatchObject({ title: "Question 1 of 2" });
     // another form's call is no evidence
@@ -1145,7 +1145,7 @@ ${"─".repeat(40)}
     expect(ask?.questions[0]!.options[3]).toEqual({ label: "표시하지 않음", description: null });
     // answered, the agent moved on, or not the shape omo asks with
     expect(pendingOmoAsk(`${asking}\n${record({ role: "toolResult", toolCallId: "call-1", content: [] })}`)).toBeNull();
-    expect(pendingOmoAsk(`${asking}\n${record({ role: "assistant", content: [{ type: "text", text: "done" }] })}`)).toBeNull();
+    expect(pendingOmoAsk(`${asking}\n${record({ role: "assistant", content: [{ type: "text", text: "done" }] })}`)?.id).toBe("call-1");
     expect(pendingOmoAsk(asking.replace('"questions"', '"items"'))).toBeNull();
     // a tail read from inside a record
     expect(pendingOmoAsk(`ge":{"role":"user"}}\n${asking}`)?.questions).toHaveLength(2);
@@ -1172,7 +1172,7 @@ ${rule60}
     });
     expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터", "상단 상태 표시줄", "표시하지 않음"]);
     expect(prompt?.options[0]?.description).toBe("오늘, 이번 달, 누적을 보여줍니다.");
-    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ text: "1" }]);
+    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([...Array.from({ length: 5 }, () => ({ keys: ["up"] })), { keys: ["enter"] }]);
     // the cursor's row is out of view: to the typed answer's row from the top, where ↑ stops
     expect(answerKeys(prompt!, { custom_text: "둘 다" })).toEqual([
       { keys: ["backspace"] }, ...Array(5).fill({ keys: ["up"] }), ...Array(4).fill({ keys: ["down"] }), { keys: ["enter"] },
@@ -1236,6 +1236,72 @@ ${rule60}
     expect(prompt?.steps?.every((step) => step.answered && !step.current)).toBeTrue();
     expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
     expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
+  // the same call asked without waiting: omo accepts it at once and folds it into a widget
+  const accepted = (id: string) => record({ role: "toolResult", toolCallId: id, content: [{ type: "text", text: "Question accepted; the answer will arrive as a user message." }], details: { accepted: true, status: "pending" }, isError: false });
+  const asyncAsking = `${asking.replace('"waitForAnswer":true', '"waitForAnswer":false')}\n${accepted("call-1")}\n${record({ role: "assistant", content: [{ type: "text", text: "meanwhile" }], stopReason: "stop" })}`;
+
+  test("keeps a call asked without waiting open until it is settled", () => {
+    expect(openOmoAsks(asyncAsking).map((ask) => [ask.questions[0]!.header, ask.wait])).toEqual([["표시 위치", false]]);
+    expect(pendingOmoAsk(asyncAsking)?.questions).toHaveLength(2);
+    const settlement = JSON.stringify({ type: "custom", customType: "ask-user:settlement", data: { requestId: "call-1", status: "answered" } });
+    expect(openOmoAsks(`${asyncAsking}\n${settlement}`)).toEqual([]);
+    expect(openOmoAsks(`${asyncAsking}\n${record({ role: "user", content: [{ type: "text", text: "[Answer to question call-1]\n표시 위치: 설정" }] })}`)).toEqual([]);
+    // refused: the result is an error, and nothing is left open
+    const refused = asyncAsking.replace(accepted("call-1"), record({ role: "toolResult", toolCallId: "call-1", content: [], details: {}, isError: true }));
+    expect(openOmoAsks(refused)).toEqual([]);
+  });
+
+  // omo 5.1.19's widget for it at 120 columns, over its empty input box and its footer
+  const widget = (box = "❯", after = "") => `● meanwhile
+
+? Question pending (2 unanswered) · 30m
+  표시 위치 — 음성 사용량과 추정 비용을 어디에 보여줄까요?
+[ 설정 > 음성 입력 (추천) ]  [ 설정 + 사이드바 미터 ]  [ 상단 상태 표시줄 ]  [ 표시하지 않음 ]  [ own answer… ]
++1 more question
+enter to answer · /answer · or just type your reply
+
+ Todo
+ [•] 사용량 표시
+── • Running eval (3s • esc to interrupt) ${"─".repeat(80)}
+${box}
+${rule}${after}
+~/work • main • 321K/1M (32.1%) (auto)                                         claude-opus-5-5:high
+(😺 OmO Native) 🤖 2 mem just now
+`;
+
+  test("reads the widget of a question asked without waiting, by the session's open call", () => {
+    const open = openOmoAsks(asyncAsking);
+    // herdr may name the pane claude and report it at work: the session's open call is the evidence
+    const prompt = parseInteractivePrompt("claude", widget(), null, false, open);
+    expect(prompt).toMatchObject({
+      agent: "omo", kind: "question", title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?",
+      multi_select: false, custom_option_index: 4,
+      steps: [{ label: "표시 위치", answered: false, current: true }, { label: "월 한도", answered: false, current: false }],
+    });
+    expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터", "상단 상태 표시줄", "표시하지 않음"]);
+    // a pending card validates answers but emits no steps until its form is opened and checked
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([]);
+    expect(answerKeys(prompt!, { custom_text: "둘 다 보여줘" })).toEqual([]);
+    for (const text of ["1", "2 please", "/answer", "!ls"]) expect(answerKeys(prompt!, { custom_text: text })).toEqual([]);
+    // the second question, shown once the first has its answer
+    const second = widget().replace("(2 unanswered)", "(1 unanswered)").replace(/  표시 위치 — .*\n\[.*\n\+1 more question\n/, "  월 한도 — 월 사용 한도를 둘까요?\n[ 한도 없음 ]  [ 월 $5 한도 ]  [ own answer… ]\n");
+    expect(parseInteractivePrompt("claude", second, null, false, open)).toMatchObject({
+      title: "Question 2 of 2", steps: [{ answered: true, current: false }, { answered: false, current: true }],
+    });
+  });
+
+  test("no card for the widget without an open call, with text in the box, or with output under it", () => {
+    const open = openOmoAsks(asyncAsking);
+    expect(parseInteractivePrompt("claude", widget(), null, false, [])).toBeNull();
+    // a call that waits has its form, never this widget
+    expect(parseInteractivePrompt("claude", widget(), null, false, openOmoAsks(asking))).toBeNull();
+    // a number typed now would join the text
+    expect(parseInteractivePrompt("claude", widget("❯ 둘 다"), null, false, open)).toBeNull();
+    expect(parseInteractivePrompt("claude", widget("❯", "\n$ echo after"), null, false, open)).toBeNull();
+    expect(parseInteractivePrompt("claude", `${widget()}$ \n`, null, false, open)).toBeNull();
+    expect(parseInteractivePrompt("claude", `${widget()}λ \n`, null, false, open)).toBeNull();
   });
 });
 
@@ -1859,6 +1925,7 @@ describe("an answer and the menu it was made for", () => {
     /** the next snapshot alone takes this long */
     nextSnapshotDelay?: number;
     root: string;
+    omo?: { pid: number; path: string; live: boolean };
   }
 
   async function withPane(agent: string, status: string, screen: string, run: (pane: Pane) => Promise<void>): Promise<void> {
@@ -1878,7 +1945,7 @@ describe("an answer and the menu it was made for", () => {
         const answer = (result: unknown) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
         const snapshotDelay = request.method === "session.snapshot" ? pane.nextSnapshotDelay : undefined;
         if (snapshotDelay !== undefined) pane.nextSnapshotDelay = undefined;
-        if (request.method === "session.snapshot") return void setTimeout(() => answer({ snapshot: { panes: Array.from({ length: 1 + (pane.more ?? 0) }, (_, index) => ({ pane_id: `p_${index + 1}`, agent: pane.agent, agent_status: pane.status, cwd: pane.cwd })), layouts: [] } }), snapshotDelay ?? 0);
+        if (request.method === "session.snapshot") return void setTimeout(() => answer({ snapshot: { panes: Array.from({ length: 1 + (pane.more ?? 0) }, (_, index) => ({ pane_id: `p_${index + 1}`, agent: pane.agent, agent_status: pane.status, cwd: pane.cwd, ...(pane.omo ? { agent_session: { agent: "omo", kind: "path", value: pane.omo.path } } : {}) })), layouts: [] } }), snapshotDelay ?? 0);
         if (request.method === "pane.read") {
           pane.onRead?.();
           const once = pane.nextRead;
@@ -1886,6 +1953,7 @@ describe("an answer and the menu it was made for", () => {
           if (once) return void setTimeout(() => answer({ read: { text: once.text } }), once.delay);
           return void setTimeout(() => answer({ read: { text: pane.screen } }), pane.readDelay ?? 0);
         }
+        if (request.method === "pane.process_info") return answer({ process_info: { foreground_processes: pane.omo?.live ? [{ pid: pane.omo.pid, argv: ["omo"] }] : [] } });
         if (request.method === "agent.get" && pane.agentUnanswered) return;
         if (request.method === "agent.get") return answer({ agent: pane.rollout ? { agent_session: { kind: "path", value: pane.rollout } } : {} });
         if (request.method !== "pane.send_keys" && request.method !== "pane.send_text") throw new Error(`unexpected fixture RPC: ${request.method}`);
@@ -1922,6 +1990,140 @@ describe("an answer and the menu it was made for", () => {
     const body = await response.json() as { error?: { code: string } };
     return { status: response.status, code: body.error?.code };
   }
+
+  const omoRule = "─".repeat(100);
+  const omoWidget = (box = "❯") => `? Question pending (1 unanswered) · 30m
+ QA — Which one?
+ [ First ] [ Second ] [ own answer… ]
+ enter to answer · /answer · or just type your reply
+${omoRule}
+${box}
+${omoRule}
+/tmp/work • main
+(😺 OmO Native)
+`;
+  const omoFormScreen = (at = 0, question = "Which one?", options = ["First", "Second"]) => `${omoRule}
+ Ask user · 30m
+ → QA    Submit
+ ${question}
+${options.map((label, i) => ` ${at === i ? "→" : " "} ${i + 1}. ${label}`).join("\n")}
+ ${at === options.length ? "→" : " "} Type your own answer...
+ Submit (0/1 answered) — Enter advances
+ ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel
+${omoRule}
+/tmp/work • main
+(😺 OmO Native)
+`;
+  const omoCall = (id: string, options: { label: string }[] | undefined = [{ label: "First" }, { label: "Second" }]) => JSON.stringify({ type: "message", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id, name: "ask_user_question", arguments: { waitForAnswer: false, questions: [{ header: "QA", question: "Which one?", ...(options ? { options } : {}) }] } }] } }) + "\n";
+
+  // These route fixtures use /proc to read an inert child's isolated agent directory.
+  async function withOmo(run: (pane: Pane) => Promise<void>, options?: { label: string }[]): Promise<void> {
+    await withPane("claude", "working", omoWidget(), async (pane) => {
+      const agentDir = join(pane.root, "agent");
+      const dir = join(agentDir, "sessions");
+      mkdirSync(dir, { recursive: true });
+      pane.cwd = pane.root;
+      const path = join(dir, "2026-10-06T00-00-00_qa-session-488.jsonl");
+      writeFileSync(path, JSON.stringify({ type: "session", id: "qa-session-488", cwd: pane.cwd, timestamp: new Date().toISOString() }) + "\n" + omoCall("q1", options));
+      // An inert child supplies a real process environment; all RPCs and session files are fixtures.
+      const child = Bun.spawn([process.execPath, "-e", "process.stdin.resume()"], { stdin: "pipe", stdout: "ignore", stderr: "ignore", env: { ...process.env, OMO_CODING_AGENT_DIR: agentDir } });
+      pane.omo = { pid: child.pid, path, live: true };
+      promptWaitEnded("p_1");
+      try { await run(pane); }
+      finally { child.kill(); await child.exited; }
+    });
+  }
+
+  test.skipIf(process.platform !== "linux")("opens the pending OmO form, navigates to a non-default row and confirms after redraw", async () => {
+    for (const box of ["❯", "❯ ", "❯\n ", "❯│"]) await withOmo(async (pane) => {
+      pane.screen = omoWidget(box);
+      let at = 0;
+      pane.onSent = (sent) => {
+        if (sent === "alt+up") pane.screen = omoFormScreen(at);
+        if (sent === "down") pane.screen = omoFormScreen(++at);
+        if (sent === "enter") pane.screen = "Working…";
+      };
+      const prompt = (await card())!;
+      expect(prompt).not.toBeNull();
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["alt+up", "down", "enter"]);
+    });
+  });
+
+  test.skipIf(process.platform !== "linux")("matches the call even when the full form reveals another question already answered", async () => {
+    await withOmo(async (pane) => {
+      const entry = JSON.parse(omoCall("q1"));
+      entry.message.content[0].arguments.questions.push({ header: "Later", question: "Another?", options: [{ label: "Yes" }] });
+      appendFileSync(pane.omo!.path, JSON.stringify(entry) + "\n");
+      let at = 0;
+      const draw = () => omoFormScreen(at).replace("→ QA    Submit", "→ QA    Later ✓    Submit").replace("0/1 answered", "1/2 answered");
+      pane.onSent = (sent) => {
+        if (sent === "down") at++;
+        if (sent === "alt+up" || sent === "down") pane.screen = draw();
+        if (sent === "enter") pane.screen = "Working…";
+      };
+      const prompt = (await card())!;
+      expect(prompt.steps).toHaveLength(2);
+      expect((await answer(prompt.id, { option_index: 1 })).status).toBe(200);
+      expect(pane.sent).toEqual(["alt+up", "down", "enter"]);
+    });
+  });
+
+  test.skipIf(process.platform !== "linux")("types a digit-prefixed reply only after opening the question's own answer field", async () => {
+    await withOmo(async (pane) => {
+      let at = 0;
+      pane.onSent = (sent) => {
+        if (sent === "alt+up" || sent === "backspace") pane.screen = omoFormScreen(at);
+        if (sent === "down") pane.screen = omoFormScreen(++at);
+      };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { custom_text: "2 please" })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["alt+up", "backspace", "down", "down", "enter", "text:2 please", "enter"]);
+    });
+  });
+
+  test.skipIf(process.platform !== "linux")("rejects an identical replacement call before sending any key", async () => {
+    await withOmo(async (pane) => {
+      const first = (await card())!;
+      appendFileSync(pane.omo!.path, JSON.stringify({ type: "custom", customType: "ask-user:settlement", data: { requestId: "q1" } }) + "\n" + omoCall("q2"));
+      expect(await answer(first.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+      expect((await card())!.id).not.toBe(first.id);
+    });
+  });
+
+  test.skipIf(process.platform !== "linux")("rechecks the live OmO process before answering a cached-looking widget", async () => {
+    await withOmo(async (pane) => {
+      const first = (await card())!;
+      pane.omo!.live = false;
+      // Even an exact copy of the widget, without an obvious shell marker, is no longer owned.
+      expect(await answer(first.id, { custom_text: "echo wrong target" })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+      expect(await card()).toBeNull();
+    });
+  });
+
+  test.skipIf(process.platform !== "linux")("sends no answer if opening the widget reveals another question", async () => {
+    await withOmo(async (pane) => {
+      const first = (await card())!;
+      pane.onSent = () => { pane.screen = omoFormScreen(0, "Delete the workspace?"); };
+      expect(await answer(first.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["alt+up"]);
+    });
+  });
+
+  test.skipIf(process.platform !== "linux")("offers a reply-only card when the call has no predefined options", async () => {
+    await withOmo(async (pane) => {
+      writeFileSync(pane.omo!.path, JSON.stringify({ type: "session", id: "qa-session-488", cwd: pane.cwd }) + "\n" + omoCall("reply-only", []).replace(',"options":[]', ""));
+      pane.screen = omoWidget().replace("[ First ] [ Second ] ", "");
+      const prompt = (await card())!;
+      expect(prompt.options).toEqual([]);
+      expect(prompt.custom_option_index).toBe(0);
+      pane.onSent = (sent) => { if (sent === "alt+up" || sent === "backspace") pane.screen = omoFormScreen(0, "Which one?", []); };
+      expect((await answer(prompt.id, { custom_text: "my answer" })).status).toBe(200);
+      expect(pane.sent).toEqual(["alt+up", "backspace", "enter", "text:my answer", "enter"]);
+    });
+  });
 
   /** Codex's continue menu with its cursor on `at` */
   const menu = (rows: string[], at = 0, above = "Conversation interrupted") =>
