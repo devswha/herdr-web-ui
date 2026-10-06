@@ -146,6 +146,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   turns its hairline red while its share is still low, and says when in its label. The pace is
   measured when the numbers were read, and shown only where the provider states the window's
   start or length (Claude, Codex, Grok), from 5% of the window on.
+  ([#513](https://github.com/devswha/herdr-web-ui/pull/513))
 - A PC whose connect or reconnect is refused on the bridge version check now offers
   **Update bridge and connect** in its dialog, so a PC that was never registered — no sidebar
   row, no saved key — can be updated and connected in one go, through the same approval list
