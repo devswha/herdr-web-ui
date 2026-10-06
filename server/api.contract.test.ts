@@ -13,7 +13,7 @@ import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
-import { forgetTailscaleIdentity, setTailnetStatusReader } from "./tailscale.ts";
+import { forgetTailscaleIdentity, rememberTailnetStatus, setTailnetStatusReader } from "./tailscale.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -1838,12 +1838,14 @@ describe("pairing and identity", () => {
     }
   });
 
-  it("re-reads a stale tailnet status before it grants the owner's serve request", async () => {
+  it("refuses a serve request inside the cache's TTL once a node is tagged since the cache was read", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-stale-identity-"));
     const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
     delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    const tagged = JSON.stringify({ BackendState: "Running", Self: { UserID: 7, Tags: ["tag:server"] }, User: { "7": { LoginName: OWNER } } });
+    const sole = JSON.stringify({ BackendState: "Running", Self: { UserID: 7 }, User: { "7": { LoginName: OWNER } } });
+    const tagged = JSON.stringify({ BackendState: "Running", Self: { UserID: 7 }, Peer: { node: { UserID: 7, Tags: ["tag:server"] } }, User: { "7": { LoginName: OWNER } } });
     await forgetTailscaleIdentity();
+    rememberTailnetStatus(sole);
     setTailnetStatusReader(async () => tagged);
     const serveOnly = createServer({ port: 0, stateDir: state, tailscaleServeOnly: true });
     try {

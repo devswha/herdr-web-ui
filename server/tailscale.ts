@@ -197,10 +197,10 @@ function refreshIdentity(): Promise<void> {
 
 /**
  * The PC's own Tailscale login, or that its node is tagged and has none, and the one login that
- * owns this whole tailnet (`parseSoleTailnetLogin`), cached five minutes.
- * A stale value is answered at once and refreshed in the background, so a request never waits
- * on the tailscale CLI; the first lookup is what `createServer` starts, so the answer is
- * usually there before any request.
+ * owns this whole tailnet (`parseSoleTailnetLogin`), cached five minutes. A stale value is answered
+ * at once and refreshed in the background, so these readers never wait on the tailscale CLI; the
+ * first lookup is what `createServer` starts. Only the owner's grant path (`freshTailscaleIdentity`)
+ * waits, for one bounded read shared with any read in flight.
  */
 export function tailscaleIdentity(): TailnetIdentity {
   if (ownerCache === null || Date.now() - ownerCache.at >= OWNER_TTL_MS) void refreshIdentity();
@@ -212,11 +212,14 @@ export function tailscaleIdentity(): TailnetIdentity {
 }
 
 /**
- * `tailscaleIdentity` for a request the owner's sole-login proof would admit: it always reads the
- * status now, bounded by the read's own timeout, so a node tagged since the last read is seen before
- * the decision. A failed read leaves no sole-login proof. Every other request uses `tailscaleIdentity`.
+ * `tailscaleIdentity` for a request the owner's sole-login proof would admit. A cache that already
+ * says the tailnet is not one login's, or that a node is tagged, answers at once and grants nothing.
+ * Otherwise this waits for one status read, shared with any read in flight and bounded by the read's
+ * own timeout, so the grant never rests on a warm cache. A failed read leaves no sole-login proof.
  */
 export async function freshTailscaleIdentity(): Promise<TailnetIdentity> {
-  await readIdentity();
+  const cached = tailscaleIdentity();
+  if (ownerCache !== null && ownerCache.soleLogin === null) return cached;
+  await refreshIdentity();
   return tailscaleIdentity();
 }

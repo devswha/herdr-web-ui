@@ -89,6 +89,10 @@ export function cameThroughProxy(headers: Headers): boolean {
   return host === null || !isLoopbackHost(host);
 }
 
+export function isOwnerGrantPath(input: Pick<AccessInput, "serveOnly" | "loopback" | "forwarded" | "funnel" | "tailscaleLogin">): boolean {
+  return input.serveOnly && input.loopback && input.forwarded && !input.funnel && input.tailscaleLogin === null;
+}
+
 export function decideAccess(input: AccessInput): Access {
   if (input.tokenMatched) return { level: "full", via: "token", role: "drive" };
   if (input.device !== null) return { level: "full", via: "device", role: input.device.role, device: input.device };
@@ -103,8 +107,8 @@ export function decideAccess(input: AccessInput): Access {
   // operator declared tailscale serve the only ingress and Tailscale says one login owns every node
   // on this tailnet, none tagged, there is nobody for it to be but the owner. Funnel is the public
   // internet, which that proof says nothing about.
-  const soleOwner = input.soleLogin !== null && input.owner !== null && input.soleLogin.toLowerCase() === input.owner.toLowerCase();
-  if (input.serveOnly && input.loopback && input.forwarded && !input.funnel && input.tailscaleLogin === null && input.owner !== null && soleOwner) {
+  const soleOwner = input.soleLogin !== null && input.soleLogin.toLowerCase() === input.owner?.toLowerCase();
+  if (isOwnerGrantPath(input) && input.owner !== null && soleOwner) {
     return { level: "full", via: "tailscale", role: "drive", login: input.owner };
   }
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
