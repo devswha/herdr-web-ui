@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MachineManager } from "./machines.ts";
 import type { HerdrMachineProfile, Machine } from "../shared/machines.ts";
 import type { CompletionTracker } from "./completion.ts";
 import type { PushService } from "./push.ts";
+import { HerdrProfileState } from "./herdr-profile-state.ts";
 import { SshConnection } from "./ssh.ts";
 
 const profile: HerdrMachineProfile = { id: "source-a", label: "Build machine", enabled: true, target: { destination: "BuildBox", port: 2222, session: "agents" } };
 type Runtime = { machine: Machine; generation: number; terminals: Set<() => void> };
-type Internals = { reconnect(runtime: Runtime): Promise<void>; machines: Map<string, Runtime>; persist(): void; prepare(runtime: unknown): Promise<void> };
+type Internals = { profileState: HerdrProfileState; mayManageBridge(runtime: Runtime): boolean; reconnect(runtime: Runtime): Promise<void>; machines: Map<string, Runtime>; persist(): void; prepare(runtime: unknown): Promise<void> };
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 function fixture() {
@@ -134,6 +135,57 @@ describe("automatic herdr machine inheritance", () => {
       if (!next.length) expect(manager.list().map((m) => m.id)).toEqual(["local"]);
       else expect(manager.list()[1]?.target).toEqual(next[0]!.target!);
     }
+  });
+  it("retains web approval and snapshots across a manager restart, but revokes them and keys on retarget/removal", () => {
+    const { manager, internals, dir } = fixture();
+    manager.syncHerdrProfiles([profile]);
+    const machine = manager.list()[1]!;
+    const runtime = internals.machines.get(machine.id)!;
+    expect(internals.mayManageBridge(runtime)).toBe(false);
+    internals.profileState.approve(profile.id, profile.target!);
+    machine.snapshot = { panes: [{ pane_id: "cached" }] } as any;
+    internals.persist(); manager.stop();
+    const restored = new MachineManager(dir, {} as PushService, {} as CompletionTracker, async () => { throw new Error("offline"); });
+    const restoredInternals = restored as unknown as Internals;
+    const reconnect = spyOn(restoredInternals, "reconnect").mockImplementation(async () => {});
+    cleanups.push(() => { restored.stop(); reconnect.mockRestore(); });
+    restored.syncHerdrProfiles([profile]);
+    expect(restored.list()[1]?.snapshot?.panes[0]?.pane_id).toBe("cached");
+    expect(restoredInternals.mayManageBridge(restoredInternals.machines.get(machine.id)!)).toBe(true);
+    const key = join(dir, "ssh", machine.id);
+    mkdirSync(join(dir, "ssh"), { recursive: true }); writeFileSync(key, "fixture key");
+    restored.syncHerdrProfiles([{ ...profile, target: { destination: "replacement" } }]);
+    expect(restoredInternals.mayManageBridge(restoredInternals.machines.get(machine.id)!)).toBe(false);
+    expect(restored.list()[1]?.snapshot).toBeNull();
+    expect(existsSync(key)).toBe(false);
+    writeFileSync(key, "fixture key"); writeFileSync(key + ".pub", "fixture public key");
+    restored.syncHerdrProfiles([]);
+    expect(existsSync(key)).toBe(false); expect(existsSync(key + ".pub")).toBe(false);
+    expect(JSON.parse(readFileSync(join(dir, "herdr-profile-state.json"), "utf8"))).toEqual([]);
+  });
+  it("rejects key overrides and keeps an unchanged profile's interactive setup alive across polls", async () => {
+    const start = spyOn(SshConnection.prototype, "start").mockImplementation(async function (challenge) { await challenge!("Fixture passphrase", false); });
+    cleanups.push(() => start.mockRestore());
+    const { manager } = fixture(); manager.syncHerdrProfiles([profile]);
+    const machine_id = manager.list()[1]!.id;
+    expect(() => manager.setup({ ...profile.target!, machine_id, identity_file: "/tmp/other-key" })).toThrow("managed by herdr");
+    const job = manager.setup({ machine_id, session: "agents", destination: "BuildBox", port: 2222 });
+    await until(() => job.phase === "authentication");
+    manager.syncHerdrProfiles([profile]); manager.syncHerdrProfiles([{ ...profile, label: "Renamed" }]);
+    expect(job.phase).toBe("authentication");
+    manager.action(job.id, { action: "cancel" });
+  });
+  it("backs off repeated discovery errors and logs again only after recovery", async () => {
+    const { manager } = fixture();
+    const log = spyOn(console, "error").mockImplementation(() => {}); cleanups.push(() => log.mockRestore());
+    const times: number[] = [];
+    manager.watchHerdrProfiles(async () => { times.push(Date.now()); if (times.length !== 4) throw new Error("unavailable"); return [profile]; }, 10);
+    await until(() => times.length >= 5);
+    manager.stop();
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(times[2]! - times[1]!).toBeGreaterThanOrEqual(30);
+    expect(times[3]! - times[2]!).toBeGreaterThanOrEqual(60);
+    expect(manager.list()[1]?.herdr_profile_id).toBe(profile.id);
   });
   it("a discovered PC with a preinstalled runtime still requires approval before starting a missing bridge", async () => {
     const { internals } = fixture();

@@ -19,7 +19,7 @@ describe("saved herdr machine profiles", () => {
   it("splits SSH URI ports without lowercasing aliases or losing IPv6", () => {
     expect(parse("ssh://user@BuildBox:2222").target).toEqual({ destination: "user@BuildBox", port: 2222, session: "work" });
     expect(parse("ssh://user@[2001:db8::1]:2222").target).toEqual({ destination: "user@[2001:db8::1]", port: 2222, session: "work" });
-    expect(parse("ssh://BuildBox", "default").target).toEqual({ destination: "BuildBox", session: "default" });
+    expect(parse("ssh://BuildBox", "default").target).toEqual({ destination: "BuildBox" });
     expect(parse("user@[::1]").target?.destination).toBe("user@[::1]");
   });
   it("keeps unrepresentable profiles visible but unusable", () => {

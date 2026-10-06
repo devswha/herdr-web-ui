@@ -3,17 +3,28 @@
 Use **Add PC** in Settings → Remote PCs (the command palette has it too) to connect a Linux or macOS computer (x64 or arm64) or a Windows PC (x64) running OpenSSH Server. Enter an SSH alias or `user@hostname`; the name defaults to that address. Advanced settings accept a port, a key path on the **web server**, and a named herdr session. Each registration selects one herdr socket. The sidebar groups PC → workspace → pane, and the header and new-session dialog show the destination PC.
 
 **Machines already saved in herdr appear automatically.** The connection server reads its account's
-`herdr machine list --json` at startup and every five seconds after the previous read finishes. It
-preserves SSH aliases, explicit URI ports and named sessions, follows renames and enabled state,
+`herdr machine list --json` at startup and every five seconds after the previous read finishes. Failed reads back off up to five minutes and
+log only a changed failure; a successful read resets the delay. It
+preserves SSH aliases, explicit URI ports and named sessions (normalizing herdr’s `default` to
+the unnamed socket), follows renames and enabled state,
 and removes inherited rows when their profiles disappear. A failed catalog read keeps the previous
 roster. Exact destinations/sessions already added manually keep their existing web UI registration.
 
 Compatible running web bridges reconnect automatically through the account's SSH configuration.
-A first bridge installation, bridge update or authentication prompt still requires **Set up web access** or
-**Update bridge** on the inherited PC; its address and session are supplied automatically. Discovering
-a saved profile never approves installation or starts a remote daemon. Rename, disable and remove
+First-time bridge setup or authentication prompts require **Set up web access** on the inherited
+PC; its address and session are supplied automatically. Bridge updates follow the approval and
+automatic-update rules below. Discovering
+a saved profile never approves installation or starts a remote daemon. After an explicit setup
+succeeds, the web UI remembers approval for that exact destination, explicit port and session.
+It can then restart the installed bridge after a reboot and honor the automatic bridge-update
+setting. A changed destination, port or session clears approval, cached panes and the generated
+local SSH key; the new target needs setup again. Rename, disable and remove
 inherited PCs in herdr. These rows are derived from herdr rather than copied into `machines.json`;
-their stable IDs preserve browser selections and drafts across web UI restarts. Unsupported SSH
+their stable IDs preserve browser selections and drafts across web UI restarts. Only web-owned
+approval and cached snapshots are stored separately in `herdr-profile-state.json`, written
+atomically with mode `0600`. Removing a source profile clears that state and its generated local
+key; the remote authorized public-key entry is left for explicit cleanup. Previously configured
+inherited PCs without this state need one successful explicit setup to record approval. Unsupported SSH
 addresses/sessions appear with an error and do not connect.
 
 The connection server uses its own operating-system account’s OpenSSH configuration and ssh-agent. The browser never opens SSH itself. Existing keys are tried first; unknown host fingerprints and password/key-passphrase prompts appear in the setup dialog. Secret entry requires HTTPS or localhost. Verify a new fingerprint against the target PC. A changed host key fails closed; correcting trust is a deliberate administrator action, not an automatic reset.
@@ -104,3 +115,13 @@ The default manifest is `https://github.com/devswha/herdr-web-ui/releases/downlo
 - `bun run test:ui`: existing composer/session/mobile browser regressions.
 
 macOS Codex discovery uses `lsof` for open rollout files instead of `/proc`; canonical-store validation and the unambiguous transcript matching rules are unchanged. Platform jobs must run on their corresponding runners before all-platform release readiness can be claimed. The Docker password test can run locally without sudo; macOS/arm64 binaries still require their corresponding runners.
+
+### Saved-machine SSH lifecycle fixture
+
+Build `docker build -t herdr-profile-ssh-qa scripts/fixtures/herdr-ssh`, then run
+`HERDR_SSH_QA_BUNDLE=/path/to/verified/linux-bundle.tgz bun scripts/herdr-profiles-ssh-qa.ts`.
+The Docker host and bundle architecture must match. The fixture uses a temporary container,
+a loopback-only SSH port, disposable password/key credentials and temporary manager state.
+It exercises discovery, installation approval, reuse of an existing default Herdr session,
+terminal attach/input/resize, manager and bridge restart, source disable/re-enable, named-session
+retargeting and removal cleanup. It never changes the user's SSH config or Herdr catalog.

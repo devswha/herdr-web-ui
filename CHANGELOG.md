@@ -11,6 +11,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Machines saved in the local herdr client appear in the web UI automatically, preserving named
   sessions and following profile renames, disablement and removal. Existing compatible bridges
   connect automatically; first-time bridge setup is offered directly on the inherited PC.
+  Successful setup approval and cached panes survive restarts; changing the target revokes
+  approval and its generated local SSH key.
 - New workspace's **Browse** filters the loaded folders in the current directory as you type.
   Navigation clears the filter, and a truncated listing says when search covers only the first
   500 folders. ([#430](https://github.com/devswha/herdr-web-ui/pull/430) by @suho-han)

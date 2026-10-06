@@ -7,14 +7,15 @@ const run = promisify(execFile);
 
 function profileTarget(target: string, session: string): SshTarget | null {
   try {
+    const selectedSession = session === "default" || session === "" ? {} : { session };
     // Herdr also accepts SSH URIs. Keep the SSH alias verbatim (URL would lowercase it),
     // and split only the explicit port; credentials, paths and encoded options are refused.
     if (target.startsWith("ssh://")) {
       const match = /^ssh:\/\/((?:[a-zA-Z0-9_.-]+@)?(?:\[[a-fA-F0-9:]+\]|[a-zA-Z0-9_.-]+))(?::([0-9]+))?$/.exec(target);
       if (!match) return null;
-      return validateTarget({ destination: match[1], session, ...(match[2] ? { port: Number(match[2]) } : {}) });
+      return validateTarget({ destination: match[1], ...selectedSession, ...(match[2] ? { port: Number(match[2]) } : {}) });
     }
-    return validateTarget({ destination: target, session });
+    return validateTarget({ destination: target, ...selectedSession });
   } catch { return null; }
 }
 
