@@ -1,19 +1,45 @@
-import { useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
-import katex from "katex";
 
 import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { useT } from "../lib/i18n.ts";
 
+type Katex = typeof import("katex").default;
+/** KaTeX is a fifth of the app's script: the first expression loads it (lib/katex.ts), and every later one has it at once. */
+let katexModule: Katex | null = null;
+let katexLoad: Promise<Katex> | null = null;
+
+/** KaTeX, fetched once; a static render (the unit test) waits on it to draw math as the chat does. */
+export function loadKatex(): Promise<Katex> {
+  // offline before it was ever fetched: every expression stays in its source form until a reload
+  // (no retry: Chrome keeps a failed import's answer for the page's life without fetching again)
+  katexLoad ??= import("../lib/katex.ts").then((module) => (katexModule = module.default));
+  return katexLoad;
+}
+
+function useKatex(): Katex | null {
+  const [katex, setKatex] = useState(katexModule);
+  useEffect(() => {
+    if (katex) return;
+    let live = true;
+    loadKatex().then((loaded) => { if (live) setKatex(loaded); }, () => {});
+    return () => { live = false; };
+  }, [katex]);
+  return katex;
+}
+
 function MathExpression({ value, displayMode = false }: { value: string; displayMode?: boolean }) {
+  const katex = useKatex();
+  const source = displayMode ? `\\[${value}\\]` : `\\(${value}\\)`;
+  if (!katex) return <span>{source}</span>;
   try {
     // KaTeX escapes text and rejects untrusted commands by default.
     const html = katex.renderToString(value, { displayMode, strict: "ignore" });
     return <span className={displayMode ? "markdown-math-display" : "markdown-math"} dangerouslySetInnerHTML={{ __html: html }} />;
   } catch {
-    return <span>{displayMode ? `\\[${value}\\]` : `\\(${value}\\)`}</span>;
+    return <span>{source}</span>;
   }
 }
 

@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 // (.btn, .input, .menu…) that component stylesheets override, and Vite emits CSS in import order
 import "./fonts/fonts.css";
 import "./styles.css";
-import "katex/dist/katex.min.css";
 import { App } from "./App.tsx";
 import { SettingsProvider } from "./lib/settings.ts";
 import "./lib/viewport.ts";

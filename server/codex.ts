@@ -246,11 +246,32 @@ export function parseCodexTranscript(text: string, maxTurns = 100): Conversation
 
 export const defaultCodexHome = (): string => process.env["CODEX_HOME"] || join(homedir(), ".codex");
 
+/** What processCodexHome found, by pid and argv, and when (PROCESS_HOME_TTL_MS). */
+const processHomes = new Map<string, { home: string | null; at: number }>();
 /**
- * The CODEX_HOME in a process's environment: /proc on Linux, `ps -E` (same user only) on macOS.
- * Read on every call: a pid can be reused by another Codex started with another store.
+ * A chat polls every 2 s and macOS reads the environment with a `ps` spawn: a process's
+ * environment does not change, so its answer is kept. A pid reused by another process
+ * carries other arguments or comes after this; ponytail: a reused pid with the same argv
+ * inside it reads the old store until it runs out.
  */
-export async function processCodexHome(pid: number): Promise<string | null> {
+const PROCESS_HOME_TTL_MS = 30_000;
+
+/**
+ * The CODEX_HOME in a process's environment: /proc on Linux, `ps -E` (same user only) on macOS,
+ * kept for PROCESS_HOME_TTL_MS under the process's pid and argv.
+ */
+export async function processCodexHome(pid: number, argv: readonly string[] = []): Promise<string | null> {
+  const key = `${pid}\0${argv.join("\0")}`;
+  const known = processHomes.get(key);
+  if (known && Date.now() - known.at < PROCESS_HOME_TTL_MS) return known.home;
+  const home = await readProcessCodexHome(pid);
+  processHomes.delete(key);
+  processHomes.set(key, { home, at: Date.now() });
+  if (processHomes.size > 256) processHomes.delete(processHomes.keys().next().value!);
+  return home;
+}
+
+async function readProcessCodexHome(pid: number): Promise<string | null> {
   let home: string | null = null;
   try {
     if (process.platform === "linux") {
@@ -300,7 +321,7 @@ export async function paneCodexHome(paneId: string, configured?: string): Promis
     // the first Codex listed decides, with or without a home of its own: a child or wrapper it
     // started with another CODEX_HOME writes to a store that is not this pane's conversation
     const [first] = (await codexProcessesOf(paneId)).list;
-    if (first !== undefined) return (await processCodexHome(first.pid)) ?? defaultCodexHome();
+    if (first !== undefined) return (await processCodexHome(first.pid, first.argv)) ?? defaultCodexHome();
   } catch { /* herdr busy: the default store */ }
   return defaultCodexHome();
 }
@@ -899,23 +920,26 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   const { list: codexProcesses, key: processes } = await codexProcessesOf(paneId);
   const resumed = resumedThread(codexProcesses.map((process) => process.argv ?? []));
   const open = new Set<string>();
+  if (globalThis.process.platform === "darwin" && codexProcesses.length > 0) {
+    // lsof is available on macOS, where /proc does not exist. Keep the same
+    // canonical-store and unambiguous-open-file checks as the Linux path. One run
+    // for every Codex process of the pane (a wrapper and the binary are two), and
+    // -b keeps lsof off the stat calls it does not need for a name: a chat polls this
+    // every 2 s, and each run costs about 20 ms of process start and kernel walk
+    const child = Bun.spawn(["/usr/sbin/lsof", "-nPbw", "-a", "-p", codexProcesses.map((process) => process.pid).join(","), "-Fn"], { stdout: "pipe", stderr: "ignore" });
+    const timer = setTimeout(() => child.kill(), 3000);
+    try {
+      const text = await new Response(child.stdout).text();
+      await child.exited;
+      for (const line of text.split("\n")) {
+        if (!line.startsWith("n") || !line.endsWith(".jsonl")) continue;
+        const path = codexRolloutPath(line.slice(1), home);
+        if (path) open.add(path);
+      }
+    } finally { clearTimeout(timer); }
+  }
   for (const process of codexProcesses) {
-    if (globalThis.process.platform === "darwin") {
-      // lsof is available on macOS, where /proc does not exist. Keep the same
-      // canonical-store and unambiguous-open-file checks as the Linux path.
-      const child = Bun.spawn(["/usr/sbin/lsof", "-nP", "-a", "-p", String(process.pid), "-Fn"], { stdout: "pipe", stderr: "ignore" });
-      const timer = setTimeout(() => child.kill(), 3000);
-      try {
-        const text = await new Response(child.stdout).text();
-        await child.exited;
-        for (const line of text.split("\n")) {
-          if (!line.startsWith("n") || !line.endsWith(".jsonl")) continue;
-          const path = codexRolloutPath(line.slice(1), home);
-          if (path) open.add(path);
-        }
-      } finally { clearTimeout(timer); }
-      continue;
-    }
+    if (globalThis.process.platform === "darwin") continue;
     let descriptors: string[];
     try { descriptors = readdirSync(`/proc/${process.pid}/fd`); } catch { continue; }
     for (const descriptor of descriptors.slice(0, 512)) {

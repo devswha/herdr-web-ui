@@ -34,7 +34,7 @@ export async function checkDefaultView(browser: Browser, origin: string): Promis
     await page.locator(".conn-live").waitFor();
     assert.match((await lens()) ?? "", /^Live terminal/, "a desktop opens an agent pane's terminal by default");
 
-    await page.keyboard.press("Control+Shift+Comma");
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await page.getByRole("group", { name: "Panes open in" }).or(page.locator('[aria-label="Panes open in"]')).getByRole("button", { name: "Chat", exact: true }).click();
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.querySelector(".view-switch button[aria-pressed='true']")?.getAttribute("title")?.startsWith("Chat transcript") === true);
