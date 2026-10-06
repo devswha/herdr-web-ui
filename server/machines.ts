@@ -344,15 +344,26 @@ export class MachineManager {
       if (!Number.isInteger(descriptor.pid) || descriptor.pid < 1) throw new Error("Invalid bridge process identity");
       if (!(await host.alive(ssh, descriptor.pid))) { stalePid = descriptor.pid; descriptor = undefined; }
     }
-    if (descriptor && (job?.update || descriptor.bridge_protocol !== BRIDGE_PROTOCOL || descriptor.bundle_version !== REMOTE_BUNDLE_VERSION)) {
+    // Update is idempotent: another app may have finished it while this dialog was open.
+    // Prove the live endpoint is compatible; a descriptor or installed directory alone is not enough.
+    let update = job?.update === true;
+    let currentBridge: Awaited<ReturnType<MachineManager["verify"]>> | undefined;
+    if (descriptor && update && descriptor.bridge_protocol === BRIDGE_PROTOCOL && descriptor.bundle_version === REMOTE_BUNDLE_VERSION) {
+      currentBridge = await this.verify(ssh, descriptor, expectedSocket);
+      update = false;
+    }
+    if (descriptor && /^\d+$/.test(descriptor.bundle_version) && Number(descriptor.bundle_version) > Number(REMOTE_BUNDLE_VERSION)) {
+      throw new MachineActionRequired(`This PC uses a newer bridge (v${descriptor.bundle_version}); this app requires v${REMOTE_BUNDLE_VERSION}. Update this app, then reconnect. The remote bridge was left running.`, "bridge_conflict");
+    }
+    if (descriptor && (update || descriptor.bridge_protocol !== BRIDGE_PROTOCOL || descriptor.bundle_version !== REMOTE_BUNDLE_VERSION)) {
       if (!descriptor.managed_remote) throw new MachineActionRequired("This socket uses an independently managed web server. Update it through its own Settings, then reconnect; it was left running.", "setup");
-      if (!job?.update) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+      if (!update) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
     }
     const hasBundle = inspection.bundleReady;
     // a runtime from another bundle version and no bridge running (the PC rebooted since): an update
     if (!descriptor && !hasBundle && inspection.bundleOlder && !job) throw new MachineActionRequired("This PC has the bridge runtime of a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
     const installs: string[] = [];
-    if (job?.update) installs.push("Download and verify the bridge runtime, then restart this bridge (herdr sessions keep running)");
+    if (update) installs.push("Download and verify the bridge runtime, then restart this bridge (herdr sessions keep running)");
     if (!descriptor && !hasBundle) installs.push(host.bundleDescription);
     if (!descriptor && !herdrPath) installs.push(host.installHerdr ? `herdr 0.9.3 through its own installer (${HERDR_INSTALL_CMD})` : "Bundled herdr 0.9.3 (existing installations are preserved)");
     if (!descriptor && job) installs.push("Start the loopback bridge and, only if absent, the herdr daemon");
@@ -365,7 +376,7 @@ export class MachineManager {
         this.stage(job, "approval", "Review the changes on this PC");
         await this.wait(job);
       }
-      if (job.update || !descriptor && !hasBundle) { this.stage(job, "installing", `Installing verified ${platform} bundle…`); await host.installBundle(ssh, platform, job.abort.signal, { cacheDir: join(this.stateDir, "bundles"), onProgress: (stage, done, total) => this.progress(job, stage, done, total) }); }
+      if (update || !descriptor && !hasBundle) { this.stage(job, "installing", `Installing verified ${platform} bundle…`); await host.installBundle(ssh, platform, job.abort.signal, { cacheDir: join(this.stateDir, "bundles"), onProgress: (stage, done, total) => this.progress(job, stage, done, total) }); }
       if (!descriptor && !herdrPath && host.installHerdr) { this.stage(job, "installing", "Installing herdr with its own installer…"); herdrPath = await host.installHerdr(ssh); }
       if (ssh.usedSecret) {
         this.stage(job, "installing", "Registering the app SSH key…");
@@ -382,7 +393,7 @@ export class MachineManager {
         try { await proof.start(); await (host.kind === "windows" ? proof.runPowerShell("Write-Output ok") : proof.run("true")); } finally { proof.close(); }
       }
     }
-    if (job?.update && descriptor) {
+    if (update && job && descriptor) {
       if (!descriptor.managed_remote) throw new Error("This socket uses an independently managed web server. Update it through its own Settings; it was left running.");
       const verified = await this.verify(ssh, descriptor, expectedSocket, true);
       if (verified.identity.managed_remote !== true || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
@@ -412,7 +423,14 @@ export class MachineManager {
       }
       if (!descriptor) throw new Error(`Bridge did not start. Check ${host.logHint} on the PC.`);
     }
-    const verified = await this.verify(ssh, descriptor, expectedSocket);
+    let verified: Awaited<ReturnType<MachineManager["verify"]>>;
+    try { verified = currentBridge ?? await this.verify(ssh, descriptor, expectedSocket); }
+    catch (error) {
+      if (job?.update && error instanceof MachineActionRequired && error.action === "update_bridge") {
+        throw new MachineActionRequired(`The bridge is still incompatible after this update (reported v${descriptor.bundle_version}, required v${REMOTE_BUNDLE_VERSION}). Another app may have reconnected with a different version. Update or disconnect the other app, then reconnect here.`, "bridge_conflict");
+      }
+      throw error;
+    }
     if (runtime.generation !== generation || this.stopped || job?.abort.signal.aborted) throw new Error("Setup cancelled");
     runtime.endpoint = verified.endpoint;
     runtime.machine.herdr = verified.identity.herdr;

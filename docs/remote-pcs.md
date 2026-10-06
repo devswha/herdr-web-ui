@@ -46,6 +46,19 @@ herdr 0.9.3). Older bridge bundles keep waiting until updated, and observe conne
 
 ## Disconnects and updates
 
+Use the **Reconnect** arrow in a remote PC's header even while it is connected. The dialog
+reuses its saved SSH target and refreshes the connection without restarting a compatible bridge.
+**Update bridge** also reuses a bridge whose live identity verifies as current; it does not
+download, install or restart the same version again.
+
+**Multiple apps connecting to one PC.** Keep those apps on the same version. An older app
+refuses to downgrade a newer bridge and asks you to update the app itself. If another app
+starts an incompatible bridge during an update, setup reports a **Bridge connection conflict**
+instead of offering an automatic update loop. Update the other app or disconnect its PC
+registration, then choose **Reconnect**. **Reconnect without updating** also lets a failed
+first connection reuse a bridge another app has already updated. These controls never take
+over a terminal or stop herdr sessions.
+
 PC registrations and last snapshots persist in `<stateDir>/machines.json`; `HERDR_WEB_STATE_DIR` chooses the state directory. A disconnected PC retains its last roster with controls disabled. Retries back off from 1 second to 60 seconds. Other PCs keep working. Reconnection never changes a non-empty selection or sends held input. Composer drafts, held messages, terminal drafts, lenses, recent panes and notification identities include both machine and pane. Held messages have an explicit **Send now** action.
 
 **Disconnect** closes that PC’s observer, forwards and terminal attachments, preserving remote processes. **Remove PC** additionally forgets its local registration/key; the public key line on the remote account remains visible for manual removal (`herdr-web-ui:<machine-id>`). No unrelated authorized keys are removed.
@@ -82,6 +95,8 @@ The connection server first honors an explicit `HERDR_WEB_BUNDLE_MANIFEST`, then
 The default manifest is `https://github.com/devswha/herdr-web-ui/releases/download/remote-v<REMOTE_BUNDLE_VERSION>/manifest.json`, with the version from `shared/machines.ts`. Version and SHA-256 checks run on the connection server and SHA-256 is checked again on the remote PC before extraction. Each runtime contains its own version metadata. A malformed/incompatible manifest stops installation before a running bridge is stopped.
 
 ## Verification
+
+- `bun run build && bun scripts/machine-reconnect-regression.ts`: fictional-PC browser checks for connected-PC reconnect and conflict recovery without reinstalling. Screenshots go to `evidence/machine-reconnect/`.
 
 - `bun test`, `bun run typecheck`, `bun run build`: contracts and existing behavior.
 - `bun run build:remote && bun scripts/remote-bundle-smoke.ts`: packaged startup, private daemon/socket, authenticated handshake.

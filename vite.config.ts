@@ -27,7 +27,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:7317",
+      // Keep the browser's host so the bridge's same-origin mutation guards also work in dev.
+      "/api": { target: "http://localhost:7317", changeOrigin: false },
       "/ws": { target: "ws://localhost:7317", ws: true },
     },
   },

@@ -2174,3 +2174,42 @@ it("refuses cross-origin changes while allowing same-origin and CLI requests", a
     }
   } finally { instance.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
 });
+
+it("reports a newer remote bridge as a conflict through the setup HTTP contract without replacing it", async () => {
+  const { spyOn } = await import("bun:test");
+  const { SshConnection } = await import("./ssh.ts");
+  const { posixHost } = await import("./remote-host.ts");
+  const { REMOTE_BUNDLE_VERSION, BRIDGE_PROTOCOL } = await import("../shared/machines.ts");
+  const root = mkdtempSync(join(tmpdir(), "herdr-machine-conflict-"));
+  const socket = "/home/fixture/.config/herdr/herdr.sock";
+  const start = spyOn(SshConnection.prototype, "start").mockResolvedValue(undefined);
+  const close = spyOn(SshConnection.prototype, "close").mockImplementation(() => {});
+  const run = spyOn(SshConnection.prototype, "run").mockImplementation(async (script) => {
+    if (script.includes("uname")) return `Linux\nx86_64\n/home/fixture\n/home/fixture/.config\n/usr/bin/herdr\n${JSON.stringify({ pid: 4242, port: 29431, token: "a".repeat(64), socket_path: socket, managed_remote: true, bridge_protocol: BRIDGE_PROTOCOL, bundle_version: String(Number(REMOTE_BUNDLE_VERSION) + 1) })}\n`;
+    if (script.includes("socket=")) return socket;
+    if (script.includes("--version")) return "herdr 0.9.3";
+    if (script.includes("kill -0")) return "live";
+    throw new Error("Unexpected remote mutation");
+  });
+  const install = spyOn(posixHost, "installBundle").mockRejectedValue(new Error("Must not install"));
+  const instance = createServer({ port: 0, stateDir: root, token: "", tailscaleOwner: null });
+  const origin = `http://127.0.0.1:${instance.port}`;
+  try {
+    for (const update_remote of [false, true]) {
+      const response = await fetch(`${origin}/api/machines/setup`, { method: "POST", headers: { origin, "x-herdr-machine": "1", "content-type": "application/json" }, body: JSON.stringify({ destination: "fixture-only", update_remote }) });
+      expect(response.status).toBe(202);
+      let job = await response.json() as import("../shared/protocol.ts").SetupJob;
+      const deadline = Date.now() + 3000;
+      while (job.phase !== "failed" && Date.now() < deadline) {
+        job = await fetch(`${origin}/api/machines/setup/${job.id}`).then((r) => r.json()) as typeof job;
+        if (job.phase !== "failed") await Bun.sleep(10);
+      }
+      expect(job).toMatchObject({ phase: "failed", action_required: "bridge_conflict" });
+      expect(job.error).toContain("Update this app");
+    }
+    expect(install).not.toHaveBeenCalled();
+  } finally {
+    instance.stop(); start.mockRestore(); close.mockRestore(); run.mockRestore(); install.mockRestore();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

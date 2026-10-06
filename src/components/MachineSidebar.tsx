@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Download, Monitor, Plus, Settings, SlidersHorizontal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Monitor, Plus, RotateCw, Settings, SlidersHorizontal, X } from "lucide-react";
 import type { Machine, MachineState, MachineUpdate } from "../../shared/machines.ts";
 import { MachineContext } from "../lib/machineContext.tsx";
 import { answerMachineSetup, machineRequest } from "../lib/api.ts";
@@ -74,6 +74,7 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
         <span className={`machine-dot is-${machine.state}`} title={t(STATE_WORD[machine.state])} aria-hidden="true" />
       </button>
       <button className="sidebar-row-action" disabled={!online} aria-label={t("New workspace on {name}", { name: machine.name })} title={t("New workspace")} onClick={() => props.onNew(machine.id)}><Plus aria-hidden="true" /></button>
+      {machine.kind === "ssh" && <button className="sidebar-row-action" disabled={!!machine.updating || machine.state === "connecting" || machine.state === "reconnecting"} aria-label={t("Reconnect {name}", { name: machine.name })} title={t("Reconnect")} onClick={() => props.onSetup(machine)}><RotateCw aria-hidden="true" /></button>}
       {machine.kind === "ssh" && <button className="sidebar-row-action" aria-label={t("Manage {name}", { name: machine.name })} title={t("Manage PC")} aria-expanded={editing} onClick={() => { setEditing(!editing); setConfirmDelete(false); }}><SlidersHorizontal aria-hidden="true" /></button>}
     </header>
     {/* connected is the norm and says nothing new; every other state is spelled out */}
@@ -135,6 +136,11 @@ function MachineActionNotice({ machine, onSetup }: { machine: Machine; onSetup(m
       {error && <p className="machine-error" role="alert">{error}</p>}
     </div>;
   }
+  const conflict = machine.action_required === "bridge_conflict";
+  if (conflict) return <div className="machine-action" role="alert">
+    <p className="machine-action-text"><strong>{t("Bridge connection conflict")}</strong><span>{t("Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.")}</span>{machine.error && <span className="machine-action-reason">{machine.error}</span>}</p>
+    <button type="button" className="btn btn-primary" onClick={() => onSetup(machine, false)}>{t("Reconnect")}</button>
+  </div>;
   const update = machine.action_required === "update_bridge";
   return <div className="machine-action" role="alert">
     <p className="machine-action-text">
@@ -172,11 +178,12 @@ export function MachineActionBanner({ machines, onSetup }: { machines: Machine[]
   const waiting = waitingMachines(machines, dismissed);
   const first = waiting[0];
   if (!first) return null;
+  const conflict = first.action_required === "bridge_conflict";
   const update = first.action_required === "update_bridge";
   const others = waiting.length > 1 ? t(" (+{n} more)", { n: waiting.length - 1 }) : "";
   return <div className="update-notice" role="status">
-    <span>{t(update ? "{name} needs a bridge update to reconnect{others}." : "{name} needs setup approval to reconnect{others}.", { name: first.name, others })}</span>
-    <button type="button" className="btn" onClick={() => update ? void machineRequest(`/${encodeURIComponent(first.id)}/update-bridge`, "POST").catch(() => onSetup(first, true)) : onSetup(first, false)}>{t(update ? "Update bridge" : "Set up…")}</button>
+    <span>{t(conflict ? "{name} has a bridge connection conflict{others}." : update ? "{name} needs a bridge update to reconnect{others}." : "{name} needs setup approval to reconnect{others}.", { name: first.name, others })}</span>
+    <button type="button" className="btn" onClick={() => update ? void machineRequest(`/${encodeURIComponent(first.id)}/update-bridge`, "POST").catch(() => onSetup(first, true)) : onSetup(first, false)}>{t(conflict ? "Reconnect" : update ? "Update bridge" : "Set up…")}</button>
     <button type="button" className="icon-button update-notice-dismiss" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={() => { const next = [...dismissed, ...waiting.map(noticeKey)]; setDismissed(next); writeDismissed(next); }}><X /></button>
   </div>;
 }
