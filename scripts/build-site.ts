@@ -30,6 +30,7 @@ const out = join(root, "_site");
 
 const copies: Array<[from: string, to: string]> = [
   ["site/index.html", "index.html"],
+  ["site/googlec8861932279eca6b.html", "googlec8861932279eca6b.html"],
   // the one-line installer: curl -fsSL https://devswha.github.io/herdr-web-ui/install.sh | sh
   ["install.sh", "install.sh"],
   ["install.ps1", "install.ps1"],
