@@ -170,6 +170,29 @@ export async function forgetTailscaleIdentity(): Promise<void> {
   ownerCache = null;
 }
 
+const cliStatus = async (): Promise<string | null> => {
+  const binary = tailscaleBinary();
+  return binary === null ? null : run(binary, ["status", "--json"]);
+};
+let readStatus = cliStatus;
+
+/** Tests: supplies the status text in place of the tailscale CLI; null restores the CLI. */
+export function setTailnetStatusReader(read: (() => Promise<string | null>) | null): void {
+  readStatus = read ?? cliStatus;
+}
+
+function refreshIdentity(): Promise<void> {
+  ownerRefresh ??= (async () => {
+    const status = await readStatus();
+    // a read that failed keeps what it last said about the owner, so the owner is not taken for a
+    // stranger, nor a stranger let in, until it is asked again; it withdraws the sole-login proof,
+    // since a grant never rests on a read that failed
+    if (status === null && ownerCache !== null) ownerCache = { ...ownerCache, soleLogin: null, at: Date.now() };
+    else rememberTailnetStatus(status);
+  })().finally(() => { ownerRefresh = null; });
+  return ownerRefresh;
+}
+
 /**
  * The PC's own Tailscale login, or that its node is tagged and has none, and the one login that
  * owns this whole tailnet (`parseSoleTailnetLogin`), cached five minutes.
@@ -178,20 +201,21 @@ export async function forgetTailscaleIdentity(): Promise<void> {
  * usually there before any request.
  */
 export function tailscaleIdentity(): TailnetIdentity {
-  const now = Date.now();
-  if ((ownerCache === null || now - ownerCache.at >= OWNER_TTL_MS) && ownerRefresh === null) {
-    ownerRefresh = (async () => {
-      const binary = tailscaleBinary();
-      const status = binary === null ? null : await run(binary, ["status", "--json"]);
-      // a CLI that failed this once says nothing new: what it last said stands, so the owner is not
-      // taken for a stranger, nor a stranger let in, for the five minutes until it is asked again
-      if (binary !== null && status === null && ownerCache !== null) ownerCache = { ...ownerCache, at: Date.now() };
-      else rememberTailnetStatus(status);
-    })().finally(() => { ownerRefresh = null; });
-  }
+  if (ownerCache === null || Date.now() - ownerCache.at >= OWNER_TTL_MS) void refreshIdentity();
   return {
     owner: ownerCache?.owner ?? null,
     tagged: ownerCache?.tagged ?? false,
     soleLogin: ownerCache?.soleLogin ?? null,
   };
+}
+
+/**
+ * `tailscaleIdentity` for a request the owner's sole-login proof would admit: when the cached read is
+ * older than the TTL it waits for a fresh read first, bounded by the status read's own timeout, so a
+ * tagged node that joined since the last read is seen before the decision. A failed read leaves no
+ * sole-login proof. Every other request uses `tailscaleIdentity`.
+ */
+export async function freshTailscaleIdentity(): Promise<TailnetIdentity> {
+  if (ownerCache === null || Date.now() - ownerCache.at >= OWNER_TTL_MS) await refreshIdentity();
+  return tailscaleIdentity();
 }

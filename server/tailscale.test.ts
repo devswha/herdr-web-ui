@@ -1,5 +1,6 @@
-import { describe, expect, it } from "bun:test";
-import { parseSoleTailnetLogin, parseTailscale, parseTailscaleIp } from "./tailscale.ts";
+import { describe, expect, it, spyOn } from "bun:test";
+import { decideAccess, type AccessInput } from "./access.ts";
+import { forgetTailscaleIdentity, freshTailscaleIdentity, parseSoleTailnetLogin, parseTailscale, parseTailscaleIp, rememberTailnetStatus, setTailnetStatusReader } from "./tailscale.ts";
 
 const status = (state = "Running", dns = "pc.example.ts.net.") => JSON.stringify({ BackendState: state, Self: { DNSName: dns } });
 /** a `tailscale serve status --json` document: listeners by port, and one "/" proxy per host:port */
@@ -36,6 +37,43 @@ describe("parseSoleTailnetLogin", () => {
     expect(parseSoleTailnetLogin(JSON.stringify({ BackendState: "Running" }))).toBeNull();
     expect(parseSoleTailnetLogin("not json")).toBeNull();
     expect(parseSoleTailnetLogin(null)).toBeNull();
+  });
+});
+
+/** the access decision for a no-login request that `tailscale serve` forwarded, with the operator's serve-only switch on */
+const serveRequest = (identity: { owner: string | null; tagged: boolean; soleLogin: string | null }) => {
+  const input: AccessInput = { loopback: true, forwarded: true, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, ...identity, serveOnly: true, tokenConfigured: false, gated: false };
+  const access = decideAccess(input);
+  return access.level === "full" ? access.via : `refused:${access.reason}`;
+};
+
+/** warms the identity cache with `status`, then moves the clock past its five-minute TTL and answers later reads with `read` */
+async function afterTtl(status: string | null, read: () => Promise<string | null>, body: () => Promise<void>): Promise<void> {
+  await forgetTailscaleIdentity();
+  rememberTailnetStatus(status);
+  const start = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => start + 6 * 60_000);
+  setTailnetStatusReader(read);
+  try { await body(); } finally { clock.mockRestore(); setTailnetStatusReader(null); await forgetTailscaleIdentity(); }
+}
+
+describe("freshTailscaleIdentity", () => {
+  it("does not grant the owner on a sole-login read that a tagged node has since made stale", async () => {
+    await afterTtl(tailnet([42, undefined]), async () => tailnet([42, undefined], [[42, ["tag:server"]]]), async () => {
+      expect(serveRequest(await freshTailscaleIdentity())).toBe("refused:pairing_required");
+    });
+  });
+
+  it("grants the owner's first request after idle when the fresh read proves one login owns the tailnet", async () => {
+    await afterTtl(null, async () => tailnet([42, undefined]), async () => {
+      expect(serveRequest(await freshTailscaleIdentity())).toBe("tailscale");
+    });
+  });
+
+  it("withdraws the sole-login proof when the fresh read fails, and keeps pairing the stranger", async () => {
+    await afterTtl(tailnet([42, undefined]), async () => null, async () => {
+      expect(serveRequest(await freshTailscaleIdentity())).toBe("refused:pairing_required");
+    });
   });
 });
 

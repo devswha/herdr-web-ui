@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+import { describe, expect, it, beforeAll, afterAll, spyOn } from "bun:test";
 import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -13,7 +13,7 @@ import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
-import { forgetTailscaleIdentity, rememberTailnetStatus } from "./tailscale.ts";
+import { forgetTailscaleIdentity, rememberTailnetStatus, setTailnetStatusReader } from "./tailscale.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -1831,6 +1831,31 @@ describe("pairing and identity", () => {
       off.stop();
       named.stop();
       other.stop();
+      await forgetTailscaleIdentity();
+      if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
+      rmSync(state, { recursive: true, force: true });
+    }
+  });
+
+  it("re-reads a stale tailnet status before it grants the owner's serve request", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-stale-identity-"));
+    const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
+    delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
+    const sole = JSON.stringify({ BackendState: "Running", Self: { UserID: 7 }, User: { "7": { LoginName: OWNER } } });
+    const tagged = JSON.stringify({ BackendState: "Running", Self: { UserID: 7, Tags: ["tag:server"] }, User: { "7": { LoginName: OWNER } } });
+    await forgetTailscaleIdentity();
+    rememberTailnetStatus(sole);
+    const start = Date.now();
+    const clock = spyOn(Date, "now").mockImplementation(() => start + 6 * 60_000);
+    setTailnetStatusReader(async () => tagged);
+    const serveOnly = createServer({ port: 0, stateDir: state, tailscaleServeOnly: true });
+    try {
+      const auth = ((await (await fetch(`http://127.0.0.1:${serveOnly.port}/api/health?scope=bridge`, { headers: proxied() })).json()) as { auth: HealthAuth }).auth;
+      expect(auth).toMatchObject({ authenticated: false, reason: "pairing_required" });
+    } finally {
+      serveOnly.stop();
+      clock.mockRestore();
+      setTailnetStatusReader(null);
       await forgetTailscaleIdentity();
       if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
       rmSync(state, { recursive: true, force: true });

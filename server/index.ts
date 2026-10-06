@@ -10,7 +10,7 @@ import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
-import { remoteAccess, tailscaleIdentity } from "./tailscale.ts";
+import { freshTailscaleIdentity, remoteAccess, tailscaleIdentity } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
@@ -379,10 +379,11 @@ export function createServer(
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
-  const identityOf = namedOwner !== undefined
-    ? () => ({ ...tailscaleIdentity(), owner: namedOwner, tagged: false })
-    : tailscaleIdentity;
-  identityOf();
+  const identityOf = async (fresh: boolean) => {
+    const identity = fresh ? await freshTailscaleIdentity() : tailscaleIdentity();
+    return namedOwner !== undefined ? { ...identity, owner: namedOwner, tagged: false } : identity;
+  };
+  identityOf(false);
   const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
 
   /**
@@ -1014,14 +1015,19 @@ export function createServer(
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
       const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
+      const loopback = ip !== null && isLoopbackAddress(ip.address);
+      const forwarded = cameThroughProxy(request.headers);
+      const funnel = request.headers.has("tailscale-funnel-request");
+      const tailscaleLogin = request.headers.get("tailscale-user-login");
+      const ownerGrantPath = serveOnly && loopback && forwarded && !funnel && tailscaleLogin === null;
       const access = decideAccess({
-        loopback: ip !== null && isLoopbackAddress(ip.address),
-        forwarded: cameThroughProxy(request.headers),
-        funnel: request.headers.has("tailscale-funnel-request"),
-        tailscaleLogin: request.headers.get("tailscale-user-login"),
+        loopback,
+        forwarded,
+        funnel,
+        tailscaleLogin,
         tokenMatched: token !== "" && isAuthenticated(request, token),
         device: devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE)),
-        ...identityOf(),
+        ...(await identityOf(ownerGrantPath)),
         serveOnly,
         tokenConfigured: token !== "",
         gated: devices.gated,
