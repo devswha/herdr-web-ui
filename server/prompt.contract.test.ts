@@ -92,7 +92,7 @@ async function confirmed(target: Menu): Promise<string[]> {
   return chosen(target);
 }
 
-async function card(target: Menu): Promise<{ id: string; kind: string; title: string; question: string; body: string | null; fallback?: true; options: { label: string }[] }> {
+async function card(target: Menu): Promise<{ id: string; kind: string; title: string; question: string; body: string | null; fallback?: true; effort_option_index?: number; options: { label: string }[] }> {
   for (let i = 0; i < 100; i++) {
     const { prompt } = await (await fetch(`${base()}/api/pane/prompt?pane_id=${encodeURIComponent(target.pane)}`)).json() as { prompt: any };
     if (prompt) return prompt;
@@ -521,6 +521,13 @@ const draw = () => {
 process.stdin.setRawMode(true);
 process.stdin.resume();
 process.stdin.on("data", (chunk) => {
+  if (taken !== null && chunk.toString("utf8") === "r") { taken = null; model = null; cursor = 1; writeFileSync(out, ""); draw(); return; }
+  if (chunk.toString("utf8") === "\\u001b") {
+    appendFileSync(out, "cancel: " + (model === null ? "models" : "levels") + "\\n");
+    if (model === null) taken = "unchanged";
+    else { model = null; cursor = 1; }
+    draw(); return;
+  }
   // a key that comes after the lists have closed went to Codex's own prompt: logged, so a test sees it
   if (taken !== null) return void appendFileSync(out, "stray: " + JSON.stringify(chunk.toString("utf8")) + "\\n");
   for (const key of chunk.toString("utf8").match(/\\u001b[\\[O][AB]|\\r|s/g) ?? []) {
@@ -565,9 +572,25 @@ describe("picks from Codex's model lists", () => {
     lists = { pane: created.root_pane.pane_id, log };
   }, 30_000);
 
+  it("closes the effort and model menus with Escape without choosing or typing into the agent", async () => {
+    const models = await card(lists);
+    expect((await answer(lists, models.id, 2)).status).toBe(200);
+    const levels = await card(lists);
+    const cancelled = await fetch(`${base()}/api/pane/prompt/answer`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pane_id: lists.pane, prompt_id: levels.id, cancel: true }),
+    });
+    expect(cancelled.status).toBe(200);
+    expect(await shown()).toBeNull();
+    expect(chosen(lists)).toEqual(["opened: GPT-6-Luna", "cancel: levels", "cancel: models"]);
+    await herdrRpc("pane.send_text", { pane_id: lists.pane, text: "r" });
+    await card(lists);
+  });
+
   it("opens a model's levels with Enter, then takes a level with s and never with the Enter that saves a default", async () => {
     const models = await card(lists);
     expect(models.question).toBe("Select model for this session (currently GPT-6-Astra)");
+    expect(models.effort_option_index).toBe(1);
     expect(models.options.map((option) => option.label)).toEqual(["GPT-6.1-Sol (default)", "GPT-6-Astra", "GPT-6-Luna"]);
     expect((await answer(lists, models.id, 2)).status).toBe(200);
     // the levels of the model that was tapped: another list, another card

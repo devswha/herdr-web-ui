@@ -8,10 +8,11 @@ import panes from "../site/demo/fixtures/panes.json";
 
 // The model label in the input card's last row, fitted to what is measured there, on the
 // unmodified app over the demo's fixture transport. The demo's panes name no context window and
-// run no task, so the page's data is patched here, in the test only: the pane is a Codex one with
+// run no task, so the page's data is patched here, in the test only: the pane uses a display-only model label (gjc), with
 // two background tasks, in the state a case asks for, and its conversation names that case's
 // model, the level xhigh and a context window; an upload never answers, so its sentence stays.
 // All files and HTTP traffic stay in this disposable, loopback-only app; no herdr session is opened.
+// Clickable model controls and compact buttons are covered by model-change-demo-regression.ts.
 const repo = join(import.meta.dir, "..");
 const app = mkdtempSync(join(tmpdir(), "herdr-composer-fit-demo-"));
 // an id the composer cannot name is drawn as received, in the mono face: the widest label there is
@@ -149,7 +150,7 @@ try {
       if (!value || typeof value !== "object") return value;
       if (Array.isArray(value)) { value.forEach(fix); return value; }
       if (value.pane_id === TARGET && "agent_status" in value) {
-        if ("agent" in value) Object.assign(value, { agent: "codex", background_tasks: 2 });
+        if ("agent" in value) Object.assign(value, { agent: "gjc", background_tasks: 2 });
         value.agent_status = window.fitCase.status;
       }
       if (Array.isArray(value.turns) && value.metadata) value.metadata = { model: window.fitCase.model, reasoning_effort: window.fitCase.effort, ...(window.fitCase.ring ? { context: { used: 151000, window: 272000 } } : {}) };

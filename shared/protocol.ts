@@ -560,6 +560,10 @@ export interface InteractivePrompt {
   /** the last-resort card for a blocked pane no reader knows: answered with its own buttons only,
    * so a message typed in the chat still goes to the agent as typed */
   fallback?: true;
+  /** Agent model/effort menu: cancellation closes its model-menu stack without choosing. */
+  model_menu?: true;
+  /** Current model row that opens its effort list without changing the model (Codex only). */
+  effort_option_index?: number;
 }
 
 export interface InteractivePromptStep {
@@ -573,8 +577,10 @@ export interface InteractivePromptOption {
   description: string | null;
 }
 
-/** POST /api/pane/prompt/answer body. Exactly one of option_index / option_indices / custom_text. */
+/** POST /api/pane/prompt/answer body. Exactly one of option_index / option_indices / custom_text / cancel. */
 export interface PromptAnswer {
+  /** Only model/effort menus accept cancellation. */
+  cancel?: true;
   pane_id: string;
   prompt_id: string;
   option_index?: number;

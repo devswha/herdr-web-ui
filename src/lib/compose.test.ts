@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerModelDraw, composerQueueShown, composerStatusCompact, composerStatusHint, composerStatusWord, composerStatusWordDrawn, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped } from "./compose.ts";
+import { canChangeModel, supportsModelChange, agentDisplayLabel, composerMessage, terminalOnlyCommand, composerPayload, composerModelDraw, composerQueueShown, composerStatusCompact, composerStatusHint, composerStatusWord, composerStatusWordDrawn, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -233,5 +233,19 @@ describe("commands the chat cannot finish", () => {
     expect(terminalOnlyCommand("claude", "/tree")).toBeNull();
     expect(terminalOnlyCommand("codex", "/tree")).toBeNull();
     expect(terminalOnlyCommand(null, "/tree")).toBeNull();
+  });
+});
+
+describe("chat model change", () => {
+  it("offers only agents with a model menu responder", () => {
+    for (const agent of ["codex", "claude", "pi"]) expect(supportsModelChange(agent)).toBe(true);
+    for (const agent of [null, "omp", "omo", "gjc", "unknown"]) expect(supportsModelChange(agent)).toBe(false);
+  });
+  it("requires a ready connected pane without a prompt", () => {
+    for (const status of ["idle", "done"] as const) expect(canChangeModel("codex", status, true, false)).toBe(true);
+    for (const status of ["working", "blocked", "unknown", undefined] as const) expect(canChangeModel("codex", status, true, false)).toBe(false);
+    expect(canChangeModel("codex", "idle", false, false)).toBe(false);
+    expect(canChangeModel("codex", "idle", true, true)).toBe(false);
+    expect(canChangeModel("omo", "idle", true, false)).toBe(false);
   });
 });

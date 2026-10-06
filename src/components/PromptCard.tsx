@@ -33,6 +33,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [custom, setCustom] = useState("");
   const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLElement | null>(null);
   const confirmRef = useRef<HTMLDivElement | null>(null);
@@ -67,6 +68,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
    * prompt took its place, or after its pane was left, changes nothing there.
    */
   const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">, press?: { nativeEvent: Event; currentTarget: EventTarget }): Promise<boolean> => {
+    if (pendingRef.current) return false;
+    pendingRef.current = true;
     // read now: the pressed button is disabled while the answer is on its way, and loses the focus
     const fromCard = cardRef.current?.contains(document.activeElement) === true;
     const click = press?.nativeEvent as Partial<PointerEvent> | undefined;
@@ -77,13 +80,15 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     const coarse = window.matchMedia?.("(pointer: coarse)").matches === true;
     setPending(true);
     setError(null);
+    let succeeded = false;
     try {
       await answerPanePrompt({ pane_id: paneId, prompt_id: prompt.id, ...choice });
       if (!shown.current) return false;
+      succeeded = true;
       // and read again: the answer took a moment, and the user may have gone on to something else
       const card = cardRef.current;
       const active = document.activeElement;
-      onAnswered(focusFollowsAnswer({ fromCard, origin, coarse, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
+      onAnswered(choice.cancel ? false : focusFollowsAnswer({ fromCard, origin, coarse, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
     } catch (cause) {
       if (!shown.current) return false;
       if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
@@ -94,9 +99,35 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     }
+    pendingRef.current = false;
     setPending(false);
-    return true;
+    return choice.cancel ? succeeded : true;
   };
+
+  // Dismiss model menus through the same checked server route as a choice. Other questions
+  // and approvals remain on screen until answered, and outside clicks keep their native focus.
+  useEffect(() => {
+    if (!prompt.model_menu) return;
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void answer({ cancel: true }).then((active) => {
+        const button = document.querySelector<HTMLButtonElement>('[data-menu-trigger="true"]');
+        if (active && button?.dataset.paneId === paneId) button.focus({ preventScroll: true });
+      });
+    };
+    const outside = (event: PointerEvent): void => {
+      if (event.button !== 0 || cardRef.current?.contains(event.target as Node)) return;
+      void answer({ cancel: true });
+    };
+    document.addEventListener("keydown", escape, true);
+    document.addEventListener("pointerdown", outside, true);
+    return () => {
+      document.removeEventListener("keydown", escape, true);
+      document.removeEventListener("pointerdown", outside, true);
+    };
+  }, [prompt.model_menu, answer]);
 
   const toggle = (index: number): void => {
     setSelected((current) => {

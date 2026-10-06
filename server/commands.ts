@@ -5,7 +5,7 @@ import { join, relative, sep } from "node:path";
 import type { SlashCommand } from "../shared/protocol.ts";
 
 const BUILTINS: Record<string, readonly string[]> = {
-  claude: ["clear", "compact", "config", "cost", "help", "init", "memory", "model", "permissions", "review", "status", "doctor", "login", "logout", "pr-comments", "release-notes", "terminal-setup", "vim"],
+  claude: ["clear", "compact", "config", "cost", "help", "init", "memory", "model", "effort", "permissions", "review", "status", "doctor", "login", "logout", "pr-comments", "release-notes", "terminal-setup", "vim"],
   omp: ["help", "clear", "compact", "model", "new", "sessions", "exit"],
   codex: ["clear", "compact", "diff", "help", "model", "new", "quit", "review", "status"],
   // pi 0.87.1, as its own palette lists them, less /tree — the way omp's list curates its own

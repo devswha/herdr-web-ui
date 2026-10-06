@@ -1754,6 +1754,8 @@ ${MODEL_HINT}
 
   test("reads the catalogue, naming the model answering now", () => {
     const prompt = parseInteractivePrompt("pi", wide)!;
+    expect(prompt.model_menu).toBe(true);
+    expect(answerKeys(prompt, { cancel: true })).toEqual([{ keys: ["esc"] }]);
     expect(prompt.kind).toBe("question");
     expect(prompt.question).toBe("Select model (currently vllm/Qwen/Qwen3.8-27B [lwsa-platform])");
     expect(prompt.options.map((option) => option.label)).toEqual([
@@ -2993,6 +2995,38 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   });
 
+  test("effort menus follow redrawn cursors and commit only the session", async () => {
+    const slider = (at: number) => `Effort
+Faster                   Smarter
+${" ".repeat([2, 10, 18][at]!)}▲
+ Low   Medium    High
+←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
+`;
+    await withPane("claude", "idle", slider(0), async (pane) => {
+      const prompt = (await card())!;
+      expect(prompt.options.map((option) => option.label)).toEqual(["Low", "Medium", "High"]);
+      expect(prompt.model_menu).toBe(true);
+      let at = 0;
+      pane.onSent = (sent) => { if (sent === "right") at++; pane.screen = slider(at); };
+      expect(await answer(prompt.id, {option_index:2})).toEqual({status:200, code:undefined});
+      expect(pane.sent).toEqual(["right", "right", "text:s"]);
+    });
+    const thinking = (at: number) => `Thinking Level
+>
+${["off", "low", "high"].map((level, index) => `${index === at ? "→" : " "} ${level}  Description of ${level}`).join("\n")}
+Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
+`;
+    await withPane("pi", "idle", thinking(0), async (pane) => {
+      const prompt = (await card())!;
+      expect(prompt.options.map((option) => option.label)).toEqual(["off", "low", "high"]);
+      expect(prompt.model_menu).toBe(true);
+      let at = 0;
+      pane.onSent = (sent) => { if (sent === "down") at++; pane.screen = thinking(at); };
+      expect(await answer(prompt.id, {option_index:2})).toEqual({status:200, code:undefined});
+      expect(pane.sent).toEqual(["down", "down", "enter"]);
+    });
+  });
+
   // each refusal waits out the answer's own 1.5 s for the list to show the row
   test("types no s, and no further arrow, once Claude's model list is not the one that was tapped", async () => {
     // closed in the terminal right after the answer read it, with no move to wait on: the look
@@ -3493,5 +3527,20 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(pane.sent).toEqual([]);
       expect((await card())!.id).not.toBe(first.id);
     });
+  });
+});
+
+describe("model menu cancellation", () => {
+  test("exposes cancellable model/effort menus and uses only Escape", () => {
+    for (const prompt of [parseInteractivePrompt("claude", claudeModelList(1))!, parseInteractivePrompt("codex", codexModels(1))!, parseInteractivePrompt("codex", codexLevels(1))!]) {
+      expect(prompt.model_menu).toBe(true);
+      expect(answerKeys(prompt, { cancel: true })).toEqual([{ keys: ["esc"] }]);
+      expect(() => answerKeys(prompt, { cancel: true, option_index: 0 })).toThrow();
+      expect(() => answerKeys(prompt, { cancel: false as never })).toThrow();
+    }
+    const question = parseInteractivePrompt("claude", "Which environment?\n\n❯ Staging\n  Production\n\n Enter to confirm · Esc to cancel")!;
+    expect(question).not.toBeNull();
+    expect(question.model_menu).toBeUndefined();
+    expect(() => answerKeys(question, { cancel: true })).toThrow();
   });
 });

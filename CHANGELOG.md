@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+
+- Change models and reasoning effort from the chat composer for Codex, Claude Code and pi without leaving chat or clearing a draft; Escape or clicking outside dismisses the selection without changing the model or effort.
+
 ### Changed
 - The message box follows **Settings → Chat font size**, as the transcript and prompt cards
   already did: with a mouse it is typed at the transcript's size, and on a touch screen it

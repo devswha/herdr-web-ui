@@ -11,7 +11,7 @@ import { altSequence, controlCode, ctrlEnterSequence, isPrintable, keySequence, 
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
-import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
+import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, canChangeModel, supportsModelChange, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
@@ -126,7 +126,7 @@ export function PaneTerminal({
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
   const machineId = useMachineId();
-  const { answerPanePrompt, uploadPaneImage } = useMachineApi();
+  const { answerPanePrompt, uploadPaneImage, fetchPanePromptState } = useMachineApi();
   const uploadFileRef = useRef(uploadPaneImage);
   uploadFileRef.current = uploadPaneImage;
   const chatView = view === "chat";
@@ -1274,7 +1274,7 @@ export function PaneTerminal({
       rememberGreeting(owner, afterSettled(greetingMemory(owner), result.ok || !submitNotTyped(result.code), history)); redrawGreeting();
       if (!result.ok) return submitNote(result.code, result.message);
       // the chat lens refetches at once so the sent prompt appears without a poll beat
-      setChatRefresh((current) => current + 1);
+      if (paneRef.current === pane) setChatRefresh((current) => current + 1);
       return true;
     }, (error: unknown) => {
       // the send broke with no answer: it may have been typed, and it is no longer on its way
@@ -1454,6 +1454,44 @@ export function PaneTerminal({
     [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, queueStore, machineId],
   );
 
+
+  const modelChangeEnabled = canChangeModel(agent, agentStatus, connected && !held && !observing && !ended && !secretActive,
+    chatPrompt?.pane === paneId || queueSending !== null || queued.some((item) => queueStore.isSending(item.id)));
+  const openModelMenu = useCallback(async (effort = false): Promise<boolean | string> => {
+    if (!modelChangeEnabled || paneId === null || paneRef.current !== paneId) return false;
+    const result = await sendComposerText(effort && agent === "claude" ? "/effort" : effort && agent === "pi" ? "/thinking" : "/model");
+    if (result !== true) return result;
+    // An acknowledgement can precede the menu. Keep the button locked until the menu is
+    // readable, so a second click cannot type /model into the first menu's filter field.
+    const deadline = Date.now() + 5_000;
+    let openedEffortFrom: string | null = null;
+    while (paneRef.current === paneId && socketRef.current?.connected && Date.now() < deadline) {
+      const state = await fetchPanePromptState(paneId);
+      if (paneRef.current !== paneId) return false;
+      if (state.prompt !== null) {
+        if (effort && agent === "codex" && state.prompt.model_menu && state.prompt.question.startsWith("Select model") && state.prompt.effort_option_index === undefined) {
+          await answerPanePrompt({ pane_id: paneId, prompt_id: state.prompt.id, cancel: true });
+          onChatPrompt(paneId, null);
+          setPromptRefresh((key) => key + 1);
+          return t("Reasoning menu did not open. Check the terminal before trying again.");
+        }
+        if (effort && agent === "codex" && state.prompt.effort_option_index !== undefined) {
+          if (openedEffortFrom !== state.prompt.id) {
+            openedEffortFrom = state.prompt.id;
+            await answerPanePrompt({ pane_id: paneId, prompt_id: state.prompt.id, option_index: state.prompt.effort_option_index });
+          }
+        } else {
+          onChatPrompt(paneId, state.prompt);
+          setPromptRefresh((key) => key + 1);
+          return true;
+        }
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+    }
+    return effort ? t("Reasoning menu did not open. Check the terminal before trying again.") : t("Model menu did not open. Check the terminal before trying again.");
+  }, [modelChangeEnabled, paneId, agent, sendComposerText, fetchPanePromptState, answerPanePrompt, onChatPrompt, t]);
+  const changeModel = useCallback(() => openModelMenu(), [openModelMenu]);
+  const changeEffort = useCallback(() => openModelMenu(true), [openModelMenu]);
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
@@ -1682,6 +1720,9 @@ export function PaneTerminal({
               <p className="composer-greeting-where">{machineName && <bdi>{machineName}</bdi>}{machineName && cwd ? " · " : ""}{cwd && <bdi>{cwd}</bdi>}</p>
             </div>
           ) : null}
+          onChangeModel={supportsModelChange(agent) ? changeModel : undefined}
+          modelChangeEnabled={modelChangeEnabled}
+          onChangeEffort={supportsModelChange(agent) ? changeEffort : undefined}
           onSend={composerSend}
           onAbort={abortTurn}
           onUploadImage={uploadImage}

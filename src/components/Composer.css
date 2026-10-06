@@ -216,8 +216,7 @@
 }
 
 /* the mark, the model, the level and the ring in one quiet pill, as tall as a control. It is a
-   surface, not a control: no border, no hover, no cursor, and the ring inside it is the only
-   thing to press. It shrinks before its neighbours do, so a name that does not fit is measured
+   container for the separate model and context controls, without its own border or cursor. It shrinks before its neighbours do, so a name that does not fit is measured
    clipped inside it (Composer.tsx) and the label steps out */
 .composer-pill {
   display: flex;
@@ -244,8 +243,8 @@
 }
 
 /* stepped out: read, not drawn (the properties of .visually-hidden, set from the measured row) */
-.composer-status[data-model="out"] .composer-model-info,
-.composer-status[data-model="no-effort"] .composer-reasoning {
+.composer-status[data-model="out"] .composer-model-info:not(.is-switchable),
+.composer-status[data-model="no-effort"] .composer-reasoning:not(.is-switchable) {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1236,3 +1235,47 @@
   color: var(--text-dim);
   font-size: var(--fs-xs);
 }
+
+/* Keep a real, focusable model control when its name has to give up room. */
+.composer-model-change {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  height: var(--control-h);
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: inherit;
+  cursor: pointer;
+}
+.composer-model-label { overflow: hidden; text-overflow: ellipsis; }
+.composer-model-change svg { width: 14px; height: 14px; flex: none; }
+.composer-model-change:hover:not(:disabled) { color: var(--text-strong); }
+.composer-model-change:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.composer-model-change:disabled { cursor: default; color: var(--text-dim); }
+.composer-status[data-model="out"] .composer-model-info.is-switchable { display: contents; }
+.composer-status[data-model="out"] .is-switchable .composer-model-change { flex: none; min-width: var(--control-h); justify-content: center; }
+.composer-status[data-model="out"] .is-switchable .composer-model-label,
+.composer-status[data-model="out"] .is-switchable .composer-reasoning:not(.is-switchable) { display: none; }
+
+.composer-reasoning.is-switchable { display: inline-flex; align-items: center; gap: var(--space-1); }
+.composer-effort-change {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--control-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.composer-effort-change svg { width: 14px; height: 14px; flex: none; }
+.composer-effort-change:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.composer-effort-change:hover:not(:disabled) { color: var(--text-strong); }
+.composer-effort-change:disabled { cursor: default; color: var(--text-dim); }
+.composer-status[data-model="out"] .composer-effort-change .composer-reasoning-short,
+.composer-status[data-model="no-effort"] .composer-effort-change .composer-reasoning-short { display: none; }

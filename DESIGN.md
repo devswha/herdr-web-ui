@@ -724,9 +724,14 @@ One set for both themes: the card is island black wherever it shows.
   `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own words with
   only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
   that records no level draws no dot and no dash, only the name. On the
-  fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`. It is display only: a `span` with no role, no
-  focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
-  one thing to press. The `title` of the model is the id as received, and the level's is its
+  fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`. For Codex, Claude Code and pi, the model name is a button that opens the agent's
+  model menu in chat. It has a lucide `ChevronDown`, a token-coloured focus outline, and is
+  disabled while disconnected, working, submitting or answering another prompt. The context
+  ring remains a separate button. Model and effort each have a button and stay visible at rest; clicking either opens its selection
+  card. Escape or a click outside a model/effort card cancels the agent's menu stack through
+  the prompt-answer route, preserving the current model, effort and composer draft. When the label steps out, the chevron remains accessible;
+  without model metadata the button says "Change model". Other agents retain a display-only name.
+  The `title` of the model is the id as received, and the level's is its
   sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
   cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
   alone, with a dim `Model —` and the level between them if the pane records only a level.
@@ -749,7 +754,7 @@ One set for both themes: the card is island black wherever it shows.
   again when that text opens or closes. While Queue is showing, a label that does not
   fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
   the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word. The
-  pill goes with its label: the ring then stands alone, with no empty pill around it. On a
+  pill goes with its label: the model and effort chevrons (for supported agents) and ring remain, with no empty pill around them. On a
   `390px` phone, beside the task chip, the ring and Queue, that is the case for every named model
   with a level, so there the pill is out for as long as Queue shows; a label short enough to
   fit (a short id with no level) stays drawn.

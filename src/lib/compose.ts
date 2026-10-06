@@ -216,3 +216,12 @@ export function contextLeftPercent(context: { used: number; window: number | nul
   if (context.window === null || context.window <= 0) return null;
   return Math.max(0, Math.min(100, Math.round((1 - context.used / context.window) * 100)));
 }
+
+/** Only agents whose model menus the prompt bridge can read and answer. */
+export function supportsModelChange(agent: string | null): boolean {
+  return agent === "codex" || agent === "claude" || agent === "pi";
+}
+
+export function canChangeModel(agent: string | null, status: AgentStatus | undefined, connected: boolean, promptOpen: boolean): boolean {
+  return supportsModelChange(agent) && connected && !promptOpen && (status === "idle" || status === "done");
+}

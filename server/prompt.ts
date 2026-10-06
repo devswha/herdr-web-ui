@@ -94,6 +94,7 @@ type Responder =
   | "claude-plan"
   | "claude-confirm"
   | "claude-model"
+  | "claude-effort"
   | "codex-model"
   | "omo-question"
   | "omo-review"
@@ -103,6 +104,7 @@ type Responder =
   | "pi-confirm"
   | "pi-input"
   | "pi-model"
+  | "pi-effort"
   | "fallback-menu"
   | "fallback-keys";
 
@@ -253,7 +255,9 @@ function publicPrompt(parsed: ParsedPrompt): InteractivePrompt {
     multi_select: parsed.multi_select,
     custom_option_index: parsed.custom_option_index,
     ...(parsed.queued ? { queued: parsed.queued } : {}),
+    ...(parsed.effort_option_index !== undefined ? { effort_option_index: parsed.effort_option_index } : {}),
     ...(parsed.steps ? { steps: parsed.steps } : {}),
+    ...(isModelResponder(parsed.responder) ? { model_menu: true as const } : {}),
     ...(parsed.fallback ? { fallback: true as const } : {}),
   };
   parsedByPublicPrompt.set(prompt, parsed);
@@ -1500,6 +1504,7 @@ function parseCodexModel(screen: string): ParsedPrompt | null {
     kind: "question",
     title: "",
     question: `${asked}${now}${offered.length < rows.length ? ". More levels are listed in the terminal." : ""}`,
+    ...(models && current >= 0 ? { effort_option_index: offered.indexOf(current) } : {}),
     body: header.notes.join("\n") || null,
     options: offered.map((row) => drawn[row]!),
     multi_select: false,
@@ -1526,6 +1531,36 @@ function claudeModelListWaits(screen: string): boolean {
   const shown = withoutClaudeTasks(visible);
   // wider than the reader's own window: a hint wrapped further than it reads is still this list's
   return [1, 2, 3, 4, 5, 6].some((span) => CLAUDE_MODEL_HINT_RE.test(shown.slice(-span).join(" ")));
+}
+
+// Claude Code's /effort slider: levels are read from its labels, never from a catalogue.
+// Its triangle is aligned with the centre of the selected label; s applies only this session.
+const CLAUDE_EFFORT_HINT_RE = /(?:←|left).*to adjust.*enter to confirm.*s for this session only.*esc to cancel/i;
+function parseClaudeEffort(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hint = findLastIndex(lines, (_, at) => CLAUDE_EFFORT_HINT_RE.test(wrapped(lines, at)));
+  if (hint < 0) return null;
+  const title = findLastIndex(lines.slice(0, hint), (line) => cleanLine(line) === "Effort");
+  if (title < 0) return null;
+  const labelsAt = findLastIndex(lines.slice(title + 1, hint), (line) => /\bLow\s+Medium\s+High\b/i.test(line)) + title + 1;
+  if (labelsAt <= title || labelsAt >= hint) return null;
+  const labels = [...lines[labelsAt]!.matchAll(/\b(?:Extra high|Xhigh|Low|Medium|High|Max|ultracode)\b/gi)];
+  const track = lines[labelsAt - 1] ?? "";
+  const triangle = track.indexOf("▲");
+  if (triangle < 0 || track.indexOf("▲", triangle + 1) >= 0 || labels.length < 3) return null;
+  const distances = labels.map((label) => Math.abs(triangle - (label.index! + (label[0].length - 1) / 2)));
+  const selectedIndex = distances.indexOf(Math.min(...distances));
+  if (distances[selectedIndex]! > 2) return null;
+  const offered = labels.flatMap((label, at) => label[0].toLowerCase() === "ultracode" ? [] : [at]);
+  return finishPrompt("claude", {
+    kind: "question", title: "", question: "Select reasoning effort for this session", body: null,
+    options: offered.map((at) => ({ label: labels[at]![0], description: null })),
+    multi_select: false, custom_option_index: null,
+  }, {
+    responder: "claude-effort", menuLabels: labels.map((label) => label[0]), selectedIndex,
+    checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+    optionSteps: offered.map((at) => [...keySteps(Array.from({ length: Math.abs(at - selectedIndex) }, () => at > selectedIndex ? "right" : "left")), { text: "s" }]),
+  });
 }
 
 function parseClaudeModel(screen: string): ParsedPrompt | null {
@@ -1622,6 +1657,8 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   if (prompt.responder === "claude-approval") return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain/i);
   if (prompt.responder === "claude-confirm") return ends(CLAUDE_CONFIRM_HINT_RE);
   if (prompt.responder === "claude-model") return ends(CLAUDE_MODEL_HINT_RE);
+  if (prompt.responder === "claude-effort") return hintAtEnd(shown, CLAUDE_EFFORT_HINT_RE, 0, 4);
+  if (prompt.responder === "pi-effort") return hintAtEnd(shown, PI_MODEL_HINT_RE, PI_FOOTER_LINES, 4);
   if (prompt.responder === "codex-model") return ends(/(?:^|\s)enter select\s*·\s*esc back$|(?:^|\s)enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i);
   if (prompt.responder === "omo-question" || prompt.responder === "omo-review" || prompt.responder === "omo-typing") {
     // The form is live only with nothing but OmO's own footer under its hint: blank lines, one
@@ -1846,6 +1883,27 @@ function piModelRows(lines: string[], startIndex: number): { label: string; curs
   return rows.length >= 2 && rows.some((row) => row.cursor) ? rows : null;
 }
 
+function parsePiEffort(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hint = findLastIndex(lines, (_, at) => PI_MODEL_HINT_RE.test(wrapped(lines, at)));
+  const title = hint < 0 ? -1 : findLastIndex(lines.slice(0, hint), (line) => cleanLine(line) === "Thinking Level");
+  if (title < 0) return null;
+  const rows = lines.slice(title + 1, hint).flatMap((raw) => {
+    const match = cleanLine(raw).match(/^([→❯➜])?\s*(?:[✓✔]\s*)?(off|minimal|low|medium|high|xhigh|max)\s{2,}(\S.*)$/);
+    return match ? [{ label: match[2]!, description: match[3]!, cursor: Boolean(match[1]) }] : [];
+  });
+  if (rows.length < 2 || rows.filter((row) => row.cursor).length !== 1) return null;
+  const selectedIndex = rows.findIndex((row) => row.cursor);
+  return finishPrompt("pi", {
+    kind: "question", title: "", question: "Select thinking level for this session", body: null,
+    options: rows.map(({label, description}) => ({label, description})), multi_select: false, custom_option_index: null,
+  }, {
+    responder: "pi-effort", menuLabels: rows.map((row) => row.label), selectedIndex,
+    checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+    optionSteps: rows.map((_, at) => [...keySteps(navigationKeys(at - selectedIndex)), { keys: [KEY.enter] }]),
+  });
+}
+
 function parsePiModel(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => PI_MODEL_HINT_RE.test(wrapped(lines, index)));
@@ -1943,9 +2001,9 @@ function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null
       // `pi` reads pi's own dialogs first: pi's hint is its own, so an omo form never matches
       // it and falls through to omo()'s parsers.
       : agent === "claude"
-        ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), parseClaudeModel(screen), ...omo()]
+        ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), parseClaudeEffort(screen), parseClaudeModel(screen), ...omo()]
         : agent === "pi"
-          ? [parsePiModel(screen), parsePiDialog(screen), ...omo()]
+          ? [parsePiEffort(screen), parsePiModel(screen), parsePiDialog(screen), ...omo()]
         : agent === "omo" || agent === ""
           ? omo()
           : [];
@@ -1992,11 +2050,20 @@ function keySteps(keys: string[]): AnswerStep[] {
   return keys.map((key) => ({ keys: [key] }));
 }
 
-export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text">): AnswerStep[] {
+function isModelResponder(responder: Responder): boolean {
+  return responder === "claude-model" || responder === "codex-model" || responder === "pi-model" || responder === "pi-effort" || responder === "claude-effort";
+}
+
+export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text" | "cancel">): AnswerStep[] {
   const parsed = parsedByPublicPrompt.get(prompt);
   if (!parsed) throw new InvalidAnswer("The prompt was not produced by parseInteractivePrompt.");
-  const supplied = [answer.option_index !== undefined, answer.option_indices !== undefined, answer.custom_text !== undefined].filter(Boolean).length;
+  const supplied = [answer.option_index !== undefined, answer.option_indices !== undefined, answer.custom_text !== undefined, answer.cancel !== undefined].filter(Boolean).length;
   if (supplied !== 1) throw new InvalidAnswer("Exactly one answer is required.");
+  if (answer.cancel !== undefined) {
+    if (answer.cancel !== true || !isModelResponder(parsed.responder)) throw new InvalidAnswer("Only model menus accept cancellation.");
+    return keySteps([KEY.escape]);
+  }
+
 
   if (answer.custom_text !== undefined) {
     if (typeof answer.custom_text !== "string") throw new InvalidAnswer("Custom text must be a string.");
@@ -2662,6 +2729,29 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       answerTurns.set(body.pane_id, (answerTurns.get(body.pane_id) ?? 0) + 1);
       try {
         if (request.signal.aborted) return promptChanged();
+        if (body.cancel === true) {
+          // Codex's effort lists go back to their parent on Esc. Unwind only recognized model
+          // menus, reading each changed screen before another Esc; never escape a new question.
+          let current = prompt;
+          const deadline = Date.now() + 2_000;
+          for (let depth = 0; depth < 4; depth++) {
+            if (!asks() || request.signal.aborted) return promptChanged();
+            await paneSendKeys(body.pane_id, [KEY.escape]);
+            committed = true;
+            let next: InteractivePrompt | null = current;
+            while (Date.now() < deadline) {
+              if (!asks() || request.signal.aborted) return promptChanged();
+              const read = await readKnownPrompt(body.pane_id, pane, agent, options.codexHome, panes);
+              next = read.prompt;
+              if (!next || !next.model_menu) return jsonResponse({ ok: true });
+              if (contentId(next) !== contentId(current)) break;
+              await Bun.sleep(Math.min(50, Math.max(0, deadline - Date.now())));
+            }
+            if (!next || contentId(next) === contentId(current) || Date.now() >= deadline) return promptChanged();
+            current = next;
+          }
+          return promptChanged();
+        }
         if (opensQueue) {
           // the card came from the rollout: answer it in the open queue, once it shows this question
           const opened = await openQueuedQuestion(body.pane_id, parsedByPublicPrompt.get(prompt)!, () => request.signal.aborted, (open) => { queueOpened = open; });
@@ -2707,9 +2797,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         // Claude's unnumbered rows and pi's models are read with no number to aim at: looked at
         // again before the Enter even when it needs no move. So is Claude's model list, picked
         // with a letter: typed after the list has gone, it would stand in the agent's own prompt
-        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question" || responder === "claude-model" || responder === "codex-model";
+        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question" || responder === "claude-model" || responder === "codex-model" || responder === "claude-effort" || responder === "pi-effort";
         // Claude's and Codex's model lists: a window on a list, picked with a letter
-        const list = responder === "claude-model" || responder === "codex-model";
+        const list = responder === "claude-model" || responder === "codex-model" || responder === "claude-effort" || responder === "pi-effort";
         /** the menu as the last look before a key showed it */
         let seen: ParsedPrompt | null = null;
         const looked = (shown: ParsedPrompt | null): void => { seen = shown; lastSeen = shown?.id; };
@@ -2759,7 +2849,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         let walked = false;
         for (let index = 0; index < steps.length; index += 1) {
           const step = steps[index]!;
-          const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
+          const move = step.keys?.every((key) => key === KEY.up || key === KEY.down || (responder === "claude-effort" && (key === "left" || key === "right"))) ?? false;
           // the asking ended under the answer: no further key, whatever the screen shows
           if (!asks()) return promptChanged();
           // A model list can be nine rows from the cursor, and an Esc in the terminal hands its
@@ -2798,7 +2888,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           if (move) {
             moved = true;
             walked = true;
-            for (const key of step.keys!) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
+            for (const key of step.keys!) cursor = key === KEY.down || key === "right" ? cursor + 1 : Math.max(0, cursor - 1);
           }
           if (index < steps.length - 1) await Bun.sleep(30);
         }
@@ -2829,7 +2919,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       // A model list closes, or opens its next list, a moment after its key: the same wait, so
       // the card's read right after the answer does not get the list just answered once more
       if (target.steps) form.answered = contentId(target);
-      else if (responder === "claude-model" || responder === "codex-model") form.answered = lastSeen ?? contentId(target);
+      else if (isModelResponder(responder!)) form.answered = lastSeen ?? contentId(target);
       return jsonResponse({ ok: true });
     });
     // the wait for the form's next step only reads the pane: after the pane's turn, so a message

@@ -12,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ArrowUp, Clock, FileText, Plus, Square, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Clock, FileText, Plus, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -64,6 +64,9 @@ export interface ComposerProps {
   /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
   onSend: (text: string) => boolean | string | Promise<boolean | string>;
   onAbort: () => void;
+  onChangeEffort?: () => boolean | string | Promise<boolean | string>;
+  onChangeModel?: () => boolean | string | Promise<boolean | string>;
+  modelChangeEnabled?: boolean;
   onUploadImage: (file: File) => Promise<string>;
 }
 
@@ -197,6 +200,9 @@ export function Composer({
   greeting = null,
   onSend,
   onAbort,
+  onChangeModel,
+  onChangeEffort,
+  modelChangeEnabled = false,
   onUploadImage,
 }: ComposerProps) {
   const t = useT();
@@ -213,6 +219,7 @@ export function Composer({
   /** the card's own width: a narrow one shows the task chip's count */
   const [cardWidth, setCardWidth] = useState(0);
   const [contextShown, setContextShown] = useState(false);
+  const [selectionOrigin, setSelectionOrigin] = useState<"model" | "effort">("model");
   const composingRef = useRef(false);
   // the chat lens's input surface takes the keyboard when it appears (a pane switch remounts
   // it), as the grid does in the terminal lens: a pane picked from the drawer is typed into
@@ -374,7 +381,7 @@ export function Composer({
     };
     const draw = composerModelDraw({
       queueShown: queueRef.current !== null,
-      modelClipped: clipped(".composer-model"),
+      modelClipped: clipped(".composer-model") || clipped(".composer-model-label"),
       effortClipped: clipped(".composer-reasoning"),
     });
     if (draw !== "full") status.setAttribute("data-model", draw);
@@ -665,8 +672,8 @@ export function Composer({
     }
   }, [attachments, connected, dictation.forget, draftKey, onSend, sending, text, uploading]);
 
-  /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
-  const sendQuick = useCallback((reply: string) => {
+  /** Auxiliary sends preserve the draft. Quick replies use onSend; model selection supplies a guarded action that never queues. */
+  const sendQuick = useCallback((reply: string, action?: () => boolean | string | Promise<boolean | string>) => {
     if (!connected || sending) return;
     setNote(null);
     const settle = (result: boolean | string): void => {
@@ -674,7 +681,7 @@ export function Composer({
     };
     if (!composerDrafts.begin(draftKey)) return;
     try {
-      const result = onSend(reply);
+      const result = action ? action() : onSend(reply);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
     } catch {
@@ -754,7 +761,7 @@ export function Composer({
   const queueShown = composerQueueShown({ queueMode, connected, text, uploading });
   const hint = composerStatusHint({ uploading, connected, text });
   const model = metadata?.model ? modelLabel(metadata.model) : null;
-  const modelShown = Boolean(metadata?.model || metadata?.reasoning_effort);
+  const modelShown = Boolean(metadata?.model || metadata?.reasoning_effort || onChangeModel);
   const hintText = hint === null ? null : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
   const menuId = `composer-menu-${paneId}`;
 
@@ -954,22 +961,34 @@ export function Composer({
             <span className="composer-agent-label visually-hidden">{agentLabel}</span>
             <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
             <strong className={composerStatusWordDrawn(agentStatus) ? undefined : "visually-hidden"}>{t(composerStatusWord(agentStatus))}</strong>
-            {/* the mark, the model, the level and the context ring as one quiet pill. It only shows: no role,
-                no focus, nothing to press but the ring inside it. A pane that names no model draws no pill
-                (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
+            {/* Model selection and context details are independent controls in the same pill. */}
             <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
               {agent && <AgentMark agent={agent} size={14} />}
-              {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
+              {modelShown && <span className={`composer-model-info${onChangeModel ? " is-switchable" : ""}`} aria-label={t("Model and reasoning")}>
                 {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
-                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
+                {onChangeModel ? <button type="button"
+                  className={`composer-model composer-model-change${model && !model.named ? " is-id" : ""}`}
+                  data-pane-id={paneId} data-menu-trigger={selectionOrigin === "model"}
+                  aria-label={t("Change model")} title={metadata?.model ?? t("Change model")}
+                  disabled={!modelChangeEnabled || !connected || sending}
+                  onClick={() => { if (modelChangeEnabled) { setSelectionOrigin("model"); sendQuick("/model", onChangeModel); } }}>
+                  <span className="composer-model-label">{model?.text ?? t("Change model")}</span>
+                  <ChevronDown aria-hidden="true" />
+                </button> : <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>}
                 {/* behind a name the id as received is still read; a touch cannot reach the title */}
                 {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
                 {/* no level recorded: nothing is drawn for it, no dot and no dash; the sentence is still read */}
-                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+                <span className={`composer-reasoning${onChangeEffort ? " is-switchable" : ""}${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
                   <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
                   {metadata?.reasoning_effort && <>
                     <span className="composer-reasoning-dot" aria-hidden="true">·</span>
-                    <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
+                    {onChangeEffort ? <button type="button" className="composer-effort-change" data-pane-id={paneId} data-menu-trigger={selectionOrigin === "effort"}
+                      aria-label={t("Change reasoning effort")} title={t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort })}
+                      disabled={!modelChangeEnabled || !connected || sending}
+                      onClick={() => { if (modelChangeEnabled) { setSelectionOrigin("effort"); sendQuick("", onChangeEffort); } }}>
+                      <span className="composer-reasoning-short">{metadata.reasoning_effort}</span>
+                      <ChevronDown aria-hidden="true" />
+                    </button> : <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>}
                   </>}
                 </span>
               </span>}

@@ -560,6 +560,13 @@ describe("workspace and discovery endpoints", () => {
     const prompt = await fetch(`${base()}/api/pane/prompt?pane_id=${encodeURIComponent(paneId)}`);
     expect(prompt.status).toBe(200);
     expect(await prompt.json()).toEqual({ prompt: null, suggestion: null });
+    const cancelled = await fetch(`${base()}/api/pane/prompt/answer`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pane_id: paneId, prompt_id: "stale-model-menu", cancel: true }),
+    });
+    expect(cancelled.status).toBe(409);
+    expect((await cancelled.json() as { error: { code: string } }).error.code).toBe("prompt_changed");
+
 
     for (const [path, body] of [
       ["/api/workspace/rename", { workspace_id: workspaceId, label: `${label}-renamed` }],

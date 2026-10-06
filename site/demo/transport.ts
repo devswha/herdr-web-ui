@@ -11,7 +11,7 @@
  * type; agent panes show one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentStatus, ConversationTurn, Machine, MachineEvent, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { InteractivePrompt, AgentStatus, ConversationTurn, Machine, MachineEvent, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
 import machinesFixture from "./fixtures/machines.json";
@@ -53,6 +53,24 @@ const chats = new Map<string, { turns: ConversationTurn[]; metadata: { model: st
 let promptOpen = true;
 let promptId = PROMPT.id;
 let nextWorkspace = 100;
+// Fictional catalogues for the interactive demo only; the real app reads the agent's menu.
+const modelMenus = new Map<string, InteractivePrompt>();
+let modelMenuSequence = 0;
+const pendingModels = new Map<string, string>();
+function demoEffortMenu(paneId: string): void {
+  modelMenus.set(paneId, {
+    id: `demo-effort-${++modelMenuSequence}`, agent: agentOf(paneId), kind: "menu", model_menu: true,
+    title: "Select reasoning effort", question: "Choose reasoning effort for this session", body: null,
+    options: ["low", "medium", "high"].map((label) => ({label, description:null})),
+    multi_select: false, custom_option_index: null,
+  });
+}
+const demoModels: Record<string, string[]> = {
+  codex: ["gpt-5.6-sol", "gpt-6"],
+  claude: ["claude-opus-5-5", "claude-sonnet-5"],
+  pi: ["claude-opus-5-5", "gpt-6"],
+};
+
 
 /** The OmO pane's background tasks (the composer's "2 background tasks"), timed from now. */
 const OMO_TASKS_PANE = "docs";
@@ -144,6 +162,20 @@ function submitToChat(paneId: string, text: string): void {
   const key = keyOfPane.get(paneId);
   const chat = key ? chats.get(key) : undefined;
   if (!chat) return;
+  if ((text === "/effort" && agentOf(paneId) === "claude") || (text === "/thinking" && agentOf(paneId) === "pi")) {
+    demoEffortMenu(paneId);
+    return;
+  }
+  if (text === "/model" && demoModels[agentOf(paneId)]) {
+    modelMenus.set(paneId, {
+      id: `demo-model-${++modelMenuSequence}`, agent: agentOf(paneId), kind: "menu",
+      ...(agentOf(paneId) === "codex" && demoModels.codex!.includes(chat.metadata.model) ? { effort_option_index: demoModels.codex!.indexOf(chat.metadata.model) } : {}),
+      model_menu: true, title: "Select model", question: "Choose a model for this session", body: null,
+      options: [...demoModels[agentOf(paneId)]!, "Cancel"].map((label) => ({ label, description: null })),
+      multi_select: false, custom_option_index: null,
+    });
+    return;
+  }
   chat.turns.push({ role: "user", ts: now(), parts: [{ kind: "text", text }] });
   setStatus(paneId, "working");
   const agent = agentOf(paneId);
@@ -248,10 +280,37 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : "omp-transcript";
     return json({ source, turns: chat.turns, metadata: chat.metadata, cursor: null });
   }
-  if (path === "/api/pane/prompt") return json({ prompt: keyOfPane.get(paneId) === "web" && promptOpen ? { ...PROMPT, id: promptId } : null });
+  if (path === "/api/pane/prompt") return json({ prompt: modelMenus.get(paneId) ?? (keyOfPane.get(paneId) === "web" && promptOpen ? { ...PROMPT, id: promptId } : null) });
   if (path === "/api/pane/prompt/answer") {
     const body = await bodyOf(init, input);
     const target = String(body["pane_id"] ?? "");
+    const menu = modelMenus.get(target);
+    if (menu) {
+      if (body["prompt_id"] !== menu.id) return error("prompt_changed", "the screen no longer shows that prompt", 409);
+      if (body["cancel"] === true) {
+        if (body["option_index"] !== undefined || body["option_indices"] !== undefined || body["custom_text"] !== undefined) return error("invalid_answer", "one answer is required", 400);
+        modelMenus.delete(target);
+        pendingModels.delete(target);
+        return json({ ok: true });
+      }
+      const index = body["option_index"];
+      if (typeof index !== "number" || !Number.isInteger(index) || !menu.options[index]) return error("invalid_answer", "choose a model", 400);
+      const choice = menu.options[index]!.label;
+      const chat = chats.get(keyOfPane.get(target) ?? "");
+      if (menu.id.startsWith("demo-effort-")) {
+        if (chat) {
+          chat.metadata.reasoning_effort = choice;
+          if (pendingModels.has(target)) chat.metadata.model = pendingModels.get(target)!;
+        }
+        pendingModels.delete(target);
+      } else if (agentOf(target) === "codex" && choice !== "Cancel") {
+        pendingModels.set(target, choice);
+        demoEffortMenu(target);
+        return json({ok:true});
+      } else if (chat && choice !== "Cancel") chat.metadata.model = choice;
+      modelMenus.delete(target);
+      return json({ ok: true });
+    }
     if (keyOfPane.get(target) !== "web" || !promptOpen || body["prompt_id"] !== promptId) return error("prompt_changed", "the screen no longer shows that prompt", 409);
     answerPrompt(target, typeof body["option_index"] === "number" ? body["option_index"] : undefined);
     return json({ ok: true });
