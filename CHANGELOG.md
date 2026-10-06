@@ -18,6 +18,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#444](https://github.com/devswha/herdr-web-ui/pull/444) by @diogo7dias)
 
 ### Changed
+- The website says what it is for in its title and description (Claude Code and Codex from your
+  phone), answers seven common questions in a new FAQ section, and gives search engines a sitemap
+  and structured data for the app and the FAQ.
+  ([#497](https://github.com/devswha/herdr-web-ui/pull/497))
 - On macOS a Codex pane's chat costs the server about a sixth of what it did on each poll (a
   median of 16 ms instead of 103 ms, measured on two live Codex panes). The store a Codex process
   writes to is remembered for its pid and arguments instead of being read with `ps` every 2 s,
