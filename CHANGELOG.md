@@ -58,10 +58,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   a longer list, fewer in a short pane) and says how many more the terminal lists.
   ([#501](https://github.com/devswha/herdr-web-ui/pull/501))
 - `/model` sent from a Codex pane's chat shows Codex's lists as cards, one after the other: the
-  models, the reasoning levels of the model you pick, and the advanced levels behind "More
-  reasoning…". The level you pick applies to that pane's session only (Codex's `s` key). Saving
-  a default stays in the terminal, where Enter does it. Before, the chat showed nothing while
-  the terminal waited on the list. ([#503](https://github.com/devswha/herdr-web-ui/pull/503))
+  models, then the reasoning levels of the model you pick. The level you pick applies to that
+  pane's session only (Codex's `s` key). Saving a default stays in the terminal, where Enter
+  does it, and so do the advanced levels behind "More reasoning…" (Max, Ultra). Before, the
+  chat showed nothing while the terminal waited on the list.
+  ([#503](https://github.com/devswha/herdr-web-ui/pull/503))
 
 ## [0.3.51] - 2026-10-06
 

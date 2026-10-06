@@ -2198,7 +2198,7 @@ describe("Codex's model lists", () => {
     for (const agent of ["claude", "omp", "pi", "omo", ""]) expect(parseInteractivePrompt(agent, codexModels(1))).toBeNull();
   });
 
-  test("reads a model's reasoning levels, and is one card wherever the cursor stands", () => {
+  test("reads a model's reasoning levels without the row that opens the advanced ones", () => {
     const captured = `  Select Reasoning Level for GPT-6-Astra
 
 
@@ -2212,11 +2212,19 @@ describe("Codex's model lists", () => {
 `;
     expect(codexLevels(1)).toBe(`${CODEX_HEAD}${captured}`);
     const prompt = parseInteractivePrompt("codex", codexLevels(1))!;
-    expect(prompt.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium)");
-    expect(prompt.options).toEqual(CODEX_LEVELS.map(([label, description]) => ({ label, description })));
-    // on its last row the footer is the one of a row that opens a list: the same card
+    // "More reasoning…" takes Enter, beside levels whose Enter saves a default: left to the terminal
+    expect(prompt.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium). More levels are listed in the terminal.");
+    expect(prompt.options).toEqual(CODEX_LEVELS.slice(0, 4).map(([label, description]) => ({ label, description })));
+    expect(() => answerKeys(prompt, { option_index: 4 })).toThrow();
+    // with the cursor on that row in the terminal, its footer is the one of a row that opens a
+    // list: the same card, and the moves to a level count from where the cursor is
     expect(codexLevels(4)).toContain("› 5. More reasoning…             Max and Ultra consume usage limits faster\n\n  enter select · esc back\n");
-    expect(parseInteractivePrompt("codex", codexLevels(4))!.id).toBe(prompt.id);
+    const onMore = parseInteractivePrompt("codex", codexLevels(4))!;
+    expect(onMore.id).toBe(prompt.id);
+    expect(answerKeys(onMore, { option_index: 2 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { pick: true }]);
+    // any other row under the cursor whose footer says it only opens a list is not offered either
+    const opener = codexList("Select Reasoning Level for GPT-6-Astra", CODEX_LEVELS.slice(0, 4), 2, () => CODEX_OPENS);
+    expect(labels(parseInteractivePrompt("codex", opener))).toEqual(["Low", "Medium (default)", "Extra high"]);
     // the levels of another model are another card
     expect(parseInteractivePrompt("codex", codexLevels(1, "GPT-6-Sol"))!.id).not.toBe(prompt.id);
   });
@@ -2271,8 +2279,8 @@ describe("Codex's model lists", () => {
   enter default · s session · esc back
 `;
     const prompt = parseInteractivePrompt("codex", phone)!;
-    expect(prompt.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium)");
-    expect(prompt.options).toEqual(CODEX_LEVELS.map(([label]) => ({ label, description: null })));
+    expect(prompt.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium). More levels are listed in the terminal.");
+    expect(prompt.options).toEqual(CODEX_LEVELS.slice(0, 4).map(([label]) => ({ label, description: null })));
   });
 
   test("knows a list by the header right above its rows, wrapped or under the conversation's last line", () => {
@@ -2317,6 +2325,9 @@ describe("Codex's model lists", () => {
   test("offers no card for another list of Codex's, or for one that is not waiting", () => {
     // the footer is every Codex list's: only the model lists' titles make it this card
     expect(parseInteractivePrompt("codex", codexList("Select Approval Mode", CODEX_LEVELS, 1, () => CODEX_OPENS))).toBeNull();
+    // the list of quick presets, which mixes rows that pick with rows that open a list and was
+    // never looked at live: left to the terminal
+    expect(parseInteractivePrompt("codex", codexList("Select Model", CODEX_MODELS, 1, () => CODEX_PICKS))).toBeNull();
     expect(parseInteractivePrompt("codex", codexList("Select Reasoning Level for GPT-6-Astra", CODEX_LEVELS, 1, () => "  enter confirm · esc back"))).toBeNull();
     // answered, with Codex's own prompt under it
     expect(parseInteractivePrompt("codex", `${codexLevels(1)}• Model changed to gpt-6-astra medium for this session only\n› Ask Codex to do anything\n`)).toBeNull();
@@ -2934,8 +2945,8 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         draw: (at) => codexLevels(at),
       },
       {
-        name: "Codex's reasoning levels, to the row that opens the advanced ones: Enter", agent: "codex", status: "done", rows: 5, start: 1, choice: { option_index: 4 },
-        sent: ["down", "down", "down", "enter"],
+        name: "Codex's reasoning levels, from the row that opens the advanced ones up to a level: s", agent: "codex", status: "done", rows: 5, start: 4, choice: { option_index: 0 },
+        sent: ["up", "up", "up", "up", "text:s"],
         draw: (at) => codexLevels(at),
       },
       {
@@ -3062,7 +3073,7 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       pane.onSent = (sent) => { if (sent === "enter") setTimeout(() => { pane.screen = codexLevels(1); }, 200); };
       const prompt = (await card())!;
       expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
-      expect((await card())!.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium)");
+      expect((await card())!.question).toBe("Select reasoning level for GPT-6-Astra for this session (currently Medium). More levels are listed in the terminal.");
     });
     // and Claude closes its list a moment after the s: no card is left to read
     await withPane("claude", "idle", claudeModelList(1), async (pane) => {
@@ -3109,6 +3120,15 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 409, code: "prompt_changed" });
       expect(pane.sent).toEqual(["down"]);
     });
+    // a level's row whose footer turns out to say Enter opens a list: no Enter goes into a list
+    // of levels, where the rows beside it save a default on that key
+    const opening = (at: number) => codexList("Select Reasoning Level for GPT-6-Astra", CODEX_LEVELS, at, (row) => row === 2 || row === 4 ? CODEX_OPENS : CODEX_PICKS);
+    await withPane("codex", "done", opening(1), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = opening(2); };
+      expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
   }, 20_000);
 
   test("offers no fallback card over a Codex list whose Enter would save a default", async () => {
@@ -3124,6 +3144,10 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     const cut = codexLevels(1).replace(CODEX_PICKS, "  enter\n  defa\n  ult ·\n  s\n  sessi\n  on ·\n  esc\n  back");
     expect(parseInteractivePrompt("codex", cut)).toBeNull();
     await withPane("codex", "blocked", cut, async () => {
+      expect(await card()).toBeNull();
+    });
+    // the list of quick presets has no card of its own, and no fallback one either
+    await withPane("codex", "blocked", codexList("Select Model", CODEX_MODELS, 1, () => CODEX_OPENS), async () => {
       expect(await card()).toBeNull();
     });
     // a list the reader does take is its own card under any status
