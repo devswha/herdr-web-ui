@@ -8,7 +8,7 @@ import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, Her
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
-import { cameThroughProxy, decideAccess, isLoopbackAddress, isOwnerGrantPath } from "./access.ts";
+import { cameThroughProxy, decideAccess, isLoopbackAddress, isServeOwnerRequest } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { freshTailscaleIdentity, remoteAccess, tailscaleIdentity } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
@@ -379,11 +379,11 @@ export function createServer(
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
-  const identityOf = async (grantPath: boolean) => {
-    if (namedOwner !== undefined) return { ...(grantPath ? await freshTailscaleIdentity() : { soleLogin: null }), owner: namedOwner, tagged: false };
-    return grantPath ? freshTailscaleIdentity() : tailscaleIdentity();
+  const identityOf = async (grantPath: boolean, host: string | null) => {
+    if (namedOwner !== undefined) return { ...(grantPath ? await freshTailscaleIdentity(host) : { soleLogin: null, dnsName: null, tailnetIp: null }), owner: namedOwner, tagged: false };
+    return grantPath ? freshTailscaleIdentity(host) : tailscaleIdentity();
   };
-  identityOf(false);
+  identityOf(false, null);
   const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
 
   /**
@@ -1019,13 +1019,17 @@ export function createServer(
       const forwarded = cameThroughProxy(request.headers);
       const funnel = request.headers.has("tailscale-funnel-request");
       const tailscaleLogin = request.headers.get("tailscale-user-login");
+      const requestHost = request.headers.get("host");
+      const tokenMatched = token !== "" && isAuthenticated(request, token);
+      const pairedDevice = devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE));
       const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
+      const identity = await identityOf(!tokenMatched && pairedDevice === null && isServeOwnerRequest(requestShape), requestHost);
       const access = decideAccess({
         ...requestShape,
-        tokenMatched: token !== "" && isAuthenticated(request, token),
-        device: devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE)),
-        ...(await identityOf(isOwnerGrantPath(requestShape))),
-        serveOnly,
+        host: requestHost,
+        tokenMatched,
+        device: pairedDevice,
+        ...identity,
         tokenConfigured: token !== "",
         gated: devices.gated,
       });

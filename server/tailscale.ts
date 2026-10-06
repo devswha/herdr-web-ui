@@ -6,6 +6,7 @@
  */
 import { existsSync } from "node:fs";
 import type { RemoteAccess, TailscaleAccess } from "../shared/protocol.ts";
+import { addressesNode } from "./access.ts";
 
 const TIMEOUT_MS = 2500;
 /** the macOS App Store build puts no `tailscale` on the PATH; its CLI lives in the app bundle */
@@ -54,7 +55,7 @@ export function parseTailscale(output: TailscaleOutput | null, port: number): Ta
   if (output === null) return NONE;
   const status = parseJson<StatusJson>(output.status);
   if (status === null || status.BackendState !== "Running") return { ...NONE, state: "stopped" };
-  const dns = status.Self?.DNSName?.replace(/\.$/, "") || null;
+  const dns = parseNodeName(output.status);
   const serve = parseJson<ServeJson>(output.serve);
   const taken = new Set(Object.keys(serve?.TCP ?? {}).map(Number).filter(Number.isFinite));
   let servingUrl: string | null = null;
@@ -144,14 +145,21 @@ export function parseTailscaleIp(status: string | null): string | null {
   return parseJson<StatusJson>(status)?.Self?.TailscaleIPs?.find((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)) ?? null;
 }
 
+/** This PC's MagicDNS name from `tailscale status --json`, without its trailing dot; null when it has none. */
+export function parseNodeName(status: string | null): string | null {
+  return parseJson<StatusJson>(status)?.Self?.DNSName?.replace(/\.$/, "") || null;
+}
+
 export interface TailnetIdentity {
   owner: string | null;
   tagged: boolean;
   soleLogin: string | null;
+  dnsName: string | null;
+  tailnetIp: string | null;
 }
 
 const OWNER_TTL_MS = 5 * 60_000;
-let ownerCache: (TailnetIdentity & { at: number }) | null = null;
+let ownerCache: (TailnetIdentity & { at: number; unreadable: boolean }) | null = null;
 let ownerRefresh: Promise<void> | null = null;
 
 /** Keeps what `tailscale status --json` says about this PC and its tailnet, as `tailscaleIdentity` reads it. */
@@ -160,6 +168,9 @@ export function rememberTailnetStatus(status: string | null): void {
     owner: parseTailscaleOwner(status),
     tagged: isTaggedNode(status),
     soleLogin: parseSoleTailnetLogin(status),
+    dnsName: parseNodeName(status),
+    tailnetIp: parseTailscaleIp(status),
+    unreadable: false,
     at: Date.now(),
   };
 }
@@ -181,13 +192,24 @@ export function setTailnetStatusReader(read: (() => Promise<string | null>) | nu
   readStatus = read ?? cliStatus;
 }
 
+/**
+ * A read that failed is an unknown, not a finding: the owner it last named stands, the sole-login
+ * proof is withdrawn, and the identity is marked unreadable, so the next grant-path request reads
+ * again at once instead of waiting out the TTL. Readers that do not grant keep the TTL as before.
+ */
 async function readIdentity(): Promise<void> {
   const status = await readStatus();
-  // a read that failed keeps what it last said about the owner, so the owner is not taken for a
-  // stranger, nor a stranger let in, until it is asked again; it withdraws the sole-login proof,
-  // since a grant never rests on a read that failed
-  if (status === null && ownerCache !== null) ownerCache = { ...ownerCache, soleLogin: null, at: Date.now() };
-  else rememberTailnetStatus(status);
+  if (status === null) {
+    ownerCache = {
+      owner: ownerCache?.owner ?? null,
+      tagged: ownerCache?.tagged ?? false,
+      soleLogin: null,
+      dnsName: ownerCache?.dnsName ?? null,
+      tailnetIp: ownerCache?.tailnetIp ?? null,
+      unreadable: true,
+      at: Date.now(),
+    };
+  } else rememberTailnetStatus(status);
 }
 
 function refreshIdentity(): Promise<void> {
@@ -208,18 +230,21 @@ export function tailscaleIdentity(): TailnetIdentity {
     owner: ownerCache?.owner ?? null,
     tagged: ownerCache?.tagged ?? false,
     soleLogin: ownerCache?.soleLogin ?? null,
+    dnsName: ownerCache?.dnsName ?? null,
+    tailnetIp: ownerCache?.tailnetIp ?? null,
   };
 }
 
 /**
  * `tailscaleIdentity` for a request the owner's sole-login proof would admit. A cache that already
- * says the tailnet is not one login's, or that a node is tagged, answers at once and grants nothing.
- * Otherwise this waits for one status read, shared with any read in flight and bounded by the read's
- * own timeout, so the grant never rests on a warm cache. A failed read leaves no sole-login proof.
+ * says a node is tagged, that the tailnet is not one login's, or that this Host is not this PC's name
+ * answers at once and grants nothing. Otherwise this waits for one status read, shared with any read
+ * in flight and bounded by the read's own timeout, so the grant never rests on a warm cache. A failed
+ * read leaves no sole-login proof, and the next request reads again.
  */
-export async function freshTailscaleIdentity(): Promise<TailnetIdentity> {
+export async function freshTailscaleIdentity(host: string | null): Promise<TailnetIdentity> {
   const cached = tailscaleIdentity();
-  if (ownerCache !== null && ownerCache.soleLogin === null) return cached;
+  if (ownerCache !== null && !ownerCache.unreadable && (ownerCache.soleLogin === null || !addressesNode({ host, dnsName: ownerCache.dnsName, tailnetIp: ownerCache.tailnetIp }))) return cached;
   await refreshIdentity();
   return tailscaleIdentity();
 }

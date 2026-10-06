@@ -2,7 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackHost, type AccessInput } from "./access.ts";
 
 const device = { id: "d1", label: "Phone", role: "drive" as const };
-const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, owner: null, tagged: false, soleLogin: null, serveOnly: false, tokenConfigured: false, gated: false };
+const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, host: null, tokenMatched: false, device: null, owner: null, tagged: false, soleLogin: null, dnsName: null, tailnetIp: null, serveOnly: false, tokenConfigured: false, gated: false };
+const NODE = "pc.tail5cc90b.ts.net";
+const IP = "100.64.0.7";
+const node = { host: NODE, dnsName: NODE, tailnetIp: IP } as const;
 const via = (input: Partial<AccessInput>) => { const a = decideAccess({ ...base, ...input }); return a.level === "full" ? a.via : `refused:${a.reason}`; };
 
 describe("decideAccess", () => {
@@ -37,8 +40,8 @@ describe("decideAccess", () => {
   });
 
   it("lets the owner's own device in through serve with no login, when serve is declared the only ingress and one login owns the tailnet", () => {
-    // the phone's shape: tailscale serve proxies from loopback and states no person; nothing is paired
-    const phone = { forwarded: true, owner: "me@example.com", soleLogin: "me@example.com", serveOnly: true } as const;
+    // the phone's shape: tailscale serve proxies from loopback, states no person, and the Host is this PC's name
+    const phone = { forwarded: true, owner: "me@example.com", soleLogin: "me@example.com", serveOnly: true, ...node } as const;
     expect(via(phone)).toBe("tailscale");
     expect(via({ ...phone, gated: true })).toBe("tailscale");
     expect(decideAccess({ ...base, ...phone })).toEqual({ level: "full", via: "tailscale", role: "drive", login: "me@example.com" });
@@ -46,10 +49,21 @@ describe("decideAccess", () => {
     expect(via({ ...phone, serveOnly: false })).toBe("refused:pairing_required");
     // and where Tailscale proves nothing, it is the stranger it always was
     expect(via({ ...phone, soleLogin: null })).toBe("refused:pairing_required");
+    // with the name unknown, a Host that could be this PC's cannot be taken for it
+    expect(via({ ...phone, dnsName: null, tailnetIp: null })).toBe("refused:pairing_required");
+  });
+
+  it("grants only on this PC's tailnet name or address, in any case, with a trailing dot or a port", () => {
+    const phone = { forwarded: true, owner: "me@example.com", soleLogin: "me@example.com", serveOnly: true, dnsName: NODE, tailnetIp: IP } as const;
+    for (const host of [`${NODE}:7317`, NODE.toUpperCase(), `${NODE}.`, `${NODE}.:443`, IP, `${IP}:7317`]) expect(via({ ...phone, host })).toBe("tailscale");
+    // a rebinding page or a public domain forwarded here presents its own name, never this PC's
+    for (const host of [null, "evil.example", "evil.example:7317", `${NODE}.evil.example`, "herdr.example.com:7317", "100.64.0.8", `[${IP}]`, "[fd7a::1]:7317"]) {
+      expect(via({ ...phone, host })).toBe("refused:pairing_required");
+    }
   });
 
   it("holds the floor the sole-login rule sits on: another user, Funnel, a token, a tag, a LAN client, a named owner that is not the sole login", () => {
-    const sole = { forwarded: true, owner: "me@example.com", soleLogin: "me@example.com", serveOnly: true } as const;
+    const sole = { forwarded: true, owner: "me@example.com", soleLogin: "me@example.com", serveOnly: true, ...node } as const;
     // a login Tailscale did stage is still read, and still refused when it is not the owner's
     expect(via({ ...sole, tailscaleLogin: "them@example.com" })).toBe("refused:other_user");
     expect(via({ ...sole, tailscaleLogin: "me@example.com" })).toBe("tailscale");

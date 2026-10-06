@@ -1801,7 +1801,8 @@ describe("pairing and identity", () => {
     const savedServeOnly = process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"];
     delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
     // what `tailscale status --json` says for the reported tailnet: one login, every node untagged
-    const status = JSON.stringify({ BackendState: "Running", Self: { DNSName: "denisss-macbook-pro-m1.tail5cc90b.ts.net.", UserID: 7 }, Peer: { phone: { DNSName: "phone.tail5cc90b.ts.net.", UserID: 7 } }, User: { "7": { LoginName: OWNER } } });
+    const NODE = "denisss-macbook-pro-m1.tail5cc90b.ts.net";
+    const status = JSON.stringify({ BackendState: "Running", Self: { DNSName: `${NODE}.`, UserID: 7, TailscaleIPs: ["100.101.102.103"] }, Peer: { phone: { DNSName: "phone.tail5cc90b.ts.net.", UserID: 7 } }, User: { "7": { LoginName: OWNER } } });
     await forgetTailscaleIdentity();
     setTailnetStatusReader(async () => status);
     process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = "1";
@@ -1812,20 +1813,27 @@ describe("pairing and identity", () => {
     const other = createServer({ port: 0, stateDir: state, tailscaleOwner: "named@example.com", tailscaleServeOnly: true });
     const at = async (port: number, headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
     try {
-      // the captain's phone: tailscale serve proxied it and names no person
-      expect(await at(sole.port, proxied())).toMatchObject({ authenticated: true, via: "tailscale" });
-      expect((await fetch(`http://127.0.0.1:${sole.port}/api/session`, { headers: proxied() })).status).not.toBe(401);
+      // the captain's phone: tailscale serve proxied it, names no person, and the address is this PC's Tailscale name
+      const phone = { ...proxied(), host: NODE };
+      expect(await at(sole.port, phone)).toMatchObject({ authenticated: true, via: "tailscale" });
+      expect((await fetch(`http://127.0.0.1:${sole.port}/api/session`, { headers: phone })).status).not.toBe(401);
+      // the same name in another case, or this PC's tailnet address, is the same PC
+      expect(await at(sole.port, { ...proxied(), host: NODE.toUpperCase() })).toMatchObject({ authenticated: true, via: "tailscale" });
+      expect(await at(sole.port, { ...proxied(), host: "100.101.102.103:7317" })).toMatchObject({ authenticated: true, via: "tailscale" });
+      // a rebinding page or a public domain forwarded here presents its own Host, and pairs
+      expect(await at(sole.port, { ...proxied(), host: "evil.example:7317" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
+      expect((await fetch(`http://127.0.0.1:${sole.port}/api/session`, { headers: { ...proxied(), host: "evil.example:7317" } })).status).toBe(401);
       // and the floor stays where it was: another login, Funnel and a LAN client gain nothing
-      expect(await at(sole.port, proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "other_user" });
-      expect(await at(sole.port, proxied(undefined, { "tailscale-funnel-request": "?1" }))).toMatchObject({ authenticated: false, reason: "pairing_required" });
-      expect(await at(sole.port, proxied(OWNER))).toMatchObject({ authenticated: true, via: "tailscale" });
+      expect(await at(sole.port, { ...phone, "tailscale-user-login": "someone@example.com" })).toMatchObject({ authenticated: false, reason: "other_user" });
+      expect(await at(sole.port, { ...phone, "tailscale-funnel-request": "?1" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
+      expect(await at(sole.port, { ...phone, "tailscale-user-login": OWNER })).toMatchObject({ authenticated: true, via: "tailscale" });
       // where the operator did not declare serve the only ingress, the same request pairs, with or without the tailnet's name as Host
       expect(await at(off.port, proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
-      expect(await at(off.port, { ...proxied(), host: "denisss-macbook-pro-m1.tail5cc90b.ts.net" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
+      expect(await at(off.port, phone)).toMatchObject({ authenticated: false, reason: "pairing_required" });
       expect((await fetch(`http://127.0.0.1:${off.port}/api/session`, { headers: proxied() })).status).toBe(401);
       // a named owner is read the same way: the sole login it matches is let in, another name is not
-      expect(await at(named.port, proxied())).toMatchObject({ authenticated: true, via: "tailscale" });
-      expect(await at(other.port, proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
+      expect(await at(named.port, phone)).toMatchObject({ authenticated: true, via: "tailscale" });
+      expect(await at(other.port, phone)).toMatchObject({ authenticated: false, reason: "pairing_required" });
     } finally {
       sole.stop();
       off.stop();
