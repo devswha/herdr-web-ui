@@ -13,6 +13,7 @@
   <a href="#install">설치</a> ·
   <a href="https://devswha.github.io/herdr-web-ui/demo/">데모 체험</a> ·
   <a href="docs/guide.md#quick-start">빠른 시작</a> ·
+  <a href="#faq">자주 묻는 질문</a> ·
   <a href="#docs">문서</a>
 </p>
 
@@ -106,6 +107,42 @@ herdr plugin install devswha/herdr-web-ui
 herdr가 실행 중인 상태에서 **[localhost:7317](http://localhost:7317)**을 여세요. pane을 고르거나 **New workspace**로 에이전트를 시작합니다. 폰에서 쓰려면 설치 스크립트가 보여 준 QR 코드를 찍고 앱을 홈 화면에 추가하세요. [빠른 시작 →](docs/guide.md#quick-start)
 
 서버는 기본적으로 `127.0.0.1`에서만 받습니다. 다른 기기에서 접속하려면 [폰 설정](docs/guide.md#on-your-phone)과 [접근과 보안](docs/guide.md#access-and-safety)을 보세요.
+
+<a id="faq"></a>
+
+## 자주 묻는 질문
+
+**Claude Code나 Codex를 폰에서 쓸 수 있나요?**
+
+네. 컴퓨터의 [herdr](https://github.com/herdrdev/herdr) pane에서 에이전트를 실행하면, 이 앱이 같은 pane을 폰 브라우저에 보여 줍니다. 에이전트의 기록은 채팅으로, 승인과 질문은 탭해서 답하는 카드로 나오고, 라이브 터미널로도 바로 넘어갈 수 있습니다. PWA로 홈 화면에 설치되며, 에이전트가 사용자를 기다리면 푸시 알림을 보냅니다. [폰 설정 →](docs/guide.md#on-your-phone)
+
+**채팅 화면은 어떤 에이전트를 지원하나요?**
+
+Claude Code, Codex, omp, omo, gjc, pi는 각자의 세션 파일에서 읽습니다. herdr pane에서 도는 그 밖의 프로그램은 라이브 터미널과 상태로 보입니다. [지원 에이전트 →](docs/guide.md#supported-agents)
+
+**herdr의 TUI를 대체하나요?**
+
+아니요. 둘 다 같은 터미널에 동시에 붙으므로, pane은 책상에서도 브라우저에서도 폰에서도 그대로 살아 있습니다. 멈추거나 넘겨줄 것이 없습니다.
+
+**Tailscale이 꼭 필요한가요?**
+
+아니요. 다만 폰에는 PC에 닿는 경로와 HTTPS가 필요한데, Tailscale은 이 둘을 한 번에 줍니다. SSH 터널, 집으로 들어가는 VPN, 인증서를 갖춘 리버스 프록시로도 됩니다. [다른 방법 →](docs/guide.md#faq)
+
+**코드나 대화가 내 컴퓨터 밖으로 나가나요?**
+
+아니요. 서버는 세션 파일과 터미널을 로컬에서 읽고, 기본적으로 `127.0.0.1`에서만 받으며, 클라우드 중계도 계정도 없습니다. 밖으로 나가는 연결은 업데이트를 위한 GitHub과, 암호화된 알림을 보내는 브라우저 제조사의 푸시 서비스뿐입니다. [접근과 보안 →](docs/guide.md#access-and-safety)
+
+**Windows에서도 되나요?**
+
+네. Windows x64에서 WSL 없이 됩니다. herdr가 Windows에서 터미널 attach를 지원하기 전까지 터미널은 입력이 되는 고정 격자의 [화면 미러](docs/remote-pcs.md#windows-pcs)입니다.
+
+**collie, roamgate, herdr-remote와 무엇이 다른가요?**
+
+모두 herdr 플러그인 마켓플레이스에 있는 폰·브라우저 클라이언트입니다. 이 앱은 에이전트의 기록을 직접 읽어서, pane이 터미널 출력이 아니라 작업이 턴마다 접힌 채팅으로 보이고, 다른 PC는 사이드바에서 SSH로 붙습니다. 터널은 제공하지 않고 herdr만 다룹니다. tmux나 zellij, diff, Telegram, 바로 쓰는 터널이 필요하면 다른 쪽이 더 맞습니다. [전체 비교 →](docs/guide.md#faq)
+
+**Happy, Paseo, CloudCLI UI와 무엇이 다른가요?**
+
+그 프로젝트들은 자체 래퍼, 데몬, 서버로 에이전트를 시작하고 관리합니다. 이 앱은 사용자와 에이전트 사이에 아무것도 끼우지 않고, 이미 쓰고 있는 herdr pane을 보여 주는 창입니다. herdr를 쓰지 않는다면 그쪽이 더 맞습니다.
 
 <a id="docs"></a>
 
