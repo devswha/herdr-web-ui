@@ -7,7 +7,7 @@
  * (docs/media/readme/*.webp) and the installer still. A video's poster frame is cut with ffmpeg when it
  * is installed (the workflow installs it); without it the still stays full size and a poster that
  * could not be made is dropped from the page. `{{version}}`, `{{stars}}`, `{{contributors}}`,
- * `{{plugin_rank}}` and `{{plugin_count}}` in the page are filled in here, from package.json, the
+ * `{{plugin_rank}}` and `{{plugin_repo_count}}` in the page are filled in here, from package.json, the
  * GitHub API and herdr's plugin index. The page's FAQ rows are also written into its head as
  * FAQPage structured data, so the two cannot differ, and sitemap.xml lists the page (the demo is
  * noindex and stays out of it).
@@ -141,7 +141,8 @@ for (let pageNumber = 1; contributors !== null && pageNumber <= 10; pageNumber +
   if (pageNumber === 10) contributors = null;
 }
 page = page.replaceAll("{{contributors}}", contributors === null ? "—" : contributors.toLocaleString("en-US"));
-// where the plugin stands in herdr's marketplace index: one more than the repositories with more stars
+// Where this repository stands by stars. A repository can ship several plugins, so the label
+// counts the same repositories as the rank, not the index's separate pluginCount.
 const index = await fetch("https://assets.herdr.dev/plugins/index.json", { signal: AbortSignal.timeout(10_000) }).catch(() => null);
 const indexBody: unknown = index?.ok ? await index.json().catch(() => null) : null;
 const listed = indexBody && typeof indexBody === "object" && "plugins" in indexBody && Array.isArray(indexBody.plugins) ? indexBody.plugins : [];
@@ -153,7 +154,7 @@ const listedStars = starsByRepo.get("devswha/herdr-web-ui");
 const rank = listedStars === undefined ? null : [...starsByRepo.values()].filter((count) => count > listedStars).length + 1;
 if (rank === null) console.warn(`herdr plugin index unavailable (${index ? `HTTP ${index.status}` : "no connection"}) or the plugin is not in it: the page shows a dash`);
 page = page.replaceAll("{{plugin_rank}}", rank === null ? "—" : `#${rank}`);
-page = page.replaceAll("{{plugin_count}}", rank === null ? "all" : starsByRepo.size.toLocaleString("en-US"));
+page = page.replaceAll("{{plugin_repo_count}}", rank === null ? "all" : starsByRepo.size.toLocaleString("en-US"));
 
 // the page's own media: cut a missing poster from its video, then unlink whatever is still missing
 const pageMedia = ["herdr-web-ui-film", "chat-loop"];

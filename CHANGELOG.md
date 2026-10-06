@@ -25,7 +25,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The website's headline is "Run herdr from anywhere.", and the page catches up with the app:
   the Windows install command, pi among the native transcripts, the Alt key and a card for voice
   input. Its figures now show the contributor count and the plugin's place by stars among herdr
-  plugins, and the comparison with other phone clients was read again in October 2026.
+  plugin repositories, and the comparison with other phone clients was read again in October 2026.
   ([#494](https://github.com/devswha/herdr-web-ui/pull/494))
 - On macOS a Codex pane's chat costs the server about a sixth of what it did on each poll (a
   median of 16 ms instead of 103 ms, measured on two live Codex panes). The store a Codex process
