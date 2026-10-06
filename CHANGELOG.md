@@ -30,6 +30,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
 
 ### Fixed
+- An OmO pane's chat keeps a background task's title after the newest page moves past the prompt
+  that started the task, as 0.3.51 meant to. Before, the title was kept only when a transcript
+  deleted earlier had used the same inode (as Linux reuses them) and left its titles behind, and
+  such a transcript's titles could name another session's tasks with the same id.
+  ([#498](https://github.com/devswha/herdr-web-ui/pull/498) by @kilhyeonjun)
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
   waits on read RUN, and one it asks without waiting (it keeps working, or ends its turn, with
   the question folded over its input box) read RUN or DONE.
