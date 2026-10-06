@@ -471,6 +471,17 @@ describe("transcript pages", () => {
     expect(pollPastFirstTurn(path)).toEqual(["Survey the repo"]);
   });
 
+  it("keeps the last observed task title when many prompts arrive between polls", () => {
+    const path = join(temp(), "omo.jsonl");
+    writeFileSync(path, spawning("st_1"));
+    transcriptPage("omo-transcript", path);
+    for (let n = 0; n < MAX_TURNS / 2 + 2; n++) {
+      appendFileSync(path, `${omoUser(`2026-10-05T00:10:${String(n % 60).padStart(2, "0")}.000Z`, `prompt ${n}`)}\n`);
+    }
+    appendFileSync(path, `${omoWake("2026-10-05T00:20:00.000Z", [completion({ task_id: "st_1", name: "st_1", status: "completed", agent_type: "explore", final_response: "done" })])}\n`);
+    expect(endedTitles(transcriptPage("omo-transcript", path))).toEqual(["Survey the repo"]);
+  });
+
   it("never titles a task from another file that had the same inode", () => {
     const root = temp();
     const gone = join(root, "gone.jsonl");

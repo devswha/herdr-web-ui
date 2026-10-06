@@ -520,6 +520,8 @@ interface SettledTurns {
   taskTitles: Map<string, string>;
   /** the titles it began with, from the pages before it */
   inherited: Map<string, string>;
+  /** End of the live turn the last poll actually read; replay never scans unseen skipped history. */
+  observedEnd: number;
 }
 const settledTurns = new Map<string, SettledTurns>();
 
@@ -639,14 +641,20 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
       if (other.startsWith(`${path}\0`) && page.id === stream.id && page.start < start && page.start > (kept?.start ?? -1)) kept = page;
     }
     const inherited = new Map(kept === undefined ? [] : kept.end <= start ? kept.taskTitles : kept.inherited);
-    // the nearest earlier page usually runs past this start: its turns before it are read again
-    if (kept !== undefined && kept.end > start) parseTurns(source, readStream(stream, kept.start, start).toString("utf8"), inherited);
-    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles: new Map(inherited), inherited };
+    // Replay the overlap, or the previously seen live turn when many prompts arrived between
+    // polls. Only bytes already observed are needed, even if the file grew by gigabytes since.
+    if (kept !== undefined) {
+      const from = kept.end <= start ? kept.end : kept.start;
+      const to = Math.min(start, kept.observedEnd);
+      if (to > from) parseTurns(source, readStream(stream, from, to).toString("utf8"), inherited);
+    }
+    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles: new Map(inherited), inherited, observedEnd: stream.length };
   }
   if (settled.end < last) {
     const text = readStream(stream, settled.end, last).toString("utf8");
     settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text, settled.taskTitles)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
   }
+  settled.observedEnd = stream.length;
   remember(settledTurns, key, settled, 8);
   if (source === "codex-transcript") {
     const live = codexLiveTurn(path, stream, last, settled.metadata);
