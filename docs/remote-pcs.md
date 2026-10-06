@@ -9,7 +9,7 @@ and removes inherited rows when their profiles disappear. A failed catalog read 
 roster. Exact destinations/sessions already added manually keep their existing web UI registration.
 
 Compatible running web bridges reconnect automatically through the account's SSH configuration.
-A first bridge installation, bridge update or authentication prompt still requires **Set up…** or
+A first bridge installation, bridge update or authentication prompt still requires **Set up web access** or
 **Update bridge** on the inherited PC; its address and session are supplied automatically. Discovering
 a saved profile never approves installation or starts a remote daemon. Rename, disable and remove
 inherited PCs in herdr. These rows are derived from herdr rather than copied into `machines.json`;
