@@ -1,0 +1,73 @@
+/** Math in the chat, end to end in Chrome: KaTeX comes with the first expression, not with the page. */
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright-core";
+import { transcriptPage } from "../server/conversation.ts";
+import type { ConversationResponse } from "../shared/protocol.ts";
+
+const root = mkdtempSync(join(tmpdir(), "herdr-math-browser-"));
+let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+let server: ReturnType<typeof Bun.serve> | undefined;
+let conversation: ConversationResponse;
+// pi's record shapes, as pi-image-browser-qa.ts writes them: one question and its answer
+const write = (answer: string) => {
+  const path = join(root, "session.jsonl");
+  writeFileSync(path, [
+    { type: "session", version: 3, id: "s", timestamp: "2026-09-30T00:00:00Z", cwd: root },
+    { type: "model_change", id: "m1", parentId: null, timestamp: "2026-09-30T00:00:00Z", provider: "test", modelId: "qwen-test" },
+    { type: "message", id: "u1", parentId: "m1", timestamp: "2026-09-30T00:00:01Z", message: { role: "user", content: "show me some math" } },
+    { type: "message", id: "a1", parentId: "u1", timestamp: "2026-09-30T00:00:02Z", message: {
+      role: "assistant", model: "qwen-test", provider: "test", stopReason: "stop", usage: { input: 10, output: 4 },
+      content: [{ type: "text", text: answer }],
+    } },
+  ].map((row) => JSON.stringify(row)).join("\n") + "\n");
+  const { source, turns, metadata } = transcriptPage("pi-transcript", path);
+  conversation = { source, history_id: "fixture", cursor: null, turns, metadata, version: 1 };
+};
+try {
+  // split as the app's build is: the KaTeX module is a chunk of its own
+  const build = await Bun.build({ entrypoints: ["scripts/chat-history-fixture.tsx"], outdir: root, target: "browser", splitting: true, define: { "process.env.NODE_ENV": '"development"' } });
+  assert.ok(build.success, String(build.logs));
+  server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
+    const path = new URL(request.url).pathname;
+    return path === "/" ? new Response('<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/chat-history-fixture.css"></head><body><div id="root"></div><script type="module" src="/chat-history-fixture.js"></script></body></html>', { headers: { "Content-Type": "text/html" } }) : new Response(Bun.file(join(root, path.slice(1))));
+  } });
+
+  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  const errors: string[] = [];
+  const scripts: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("request", (request) => { if (request.resourceType() === "script") scripts.push(new URL(request.url()).pathname); });
+  await page.route("**/api/pane/conversation?*", (route) => route.fulfill({ json: conversation }));
+
+  write("Prose only, nothing to typeset.");
+  await page.goto(`http://127.0.0.1:${server.port}/`);
+  await page.getByText("Prose only, nothing to typeset.").waitFor();
+  const atStart = scripts.length;
+  assert.equal(await page.locator(".katex").count(), 0);
+
+  write("Euler: \\(e^{i\\pi}+1=0\\)\n\n\\[\\int_0^1 x\\,dx = \\tfrac{1}{2}\\]");
+  await page.evaluate(() => window.qa.refresh());
+  await page.locator(".markdown-math .katex").waitFor();
+  await page.locator(".markdown-math-display .katex-display").waitFor();
+  assert.ok(scripts.length > atStart, "the first expression fetches the KaTeX chunk");
+  assert.match(await page.locator(".markdown-math .katex-mathml annotation").textContent() ?? "", /e\^\{i\\pi\}\+1=0/);
+
+  // later expressions have it at once: nothing more is fetched, and no source form shows
+  const loaded = scripts.length;
+  write("Again: \\(a^2+b^2=c^2\\)");
+  await page.evaluate(() => window.qa.refresh());
+  await page.getByText("Again:").waitFor();
+  await page.locator(".markdown-math .katex").waitFor();
+  assert.equal(scripts.length, loaded, "KaTeX is fetched once");
+  assert.equal(await page.getByText("\\(a^2+b^2=c^2\\)").count(), 0, "a later expression is typeset at once");
+  assert.deepEqual(errors, []);
+  console.log("math: browser OK (KaTeX fetched with the first expression, once; inline and display typeset)");
+} finally {
+  await browser?.close();
+  server?.stop();
+  rmSync(root, { recursive: true, force: true });
+}
