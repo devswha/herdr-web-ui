@@ -254,6 +254,10 @@ export class MachineManager {
           // a failed bridge update keeps its button: the bridge is still out of date, and the
           // error says why this attempt failed (no network, a password needed, …)
           if (ownsRuntime) { runtime.machine.state = "error"; runtime.machine.error = job.public.error; runtime.machine.action_required = e instanceof MachineActionRequired ? e.action : job.update && existing ? "update_bridge" : null; }
+          // the dialog reads the job, not the PC: a first connect that failed on the version
+          // check has no machine to carry action_required, and an interrupted update keeps
+          // offering itself even when the PC was never registered
+          job.public.action_required = e instanceof MachineActionRequired ? e.action : job.update ? "update_bridge" : null;
           this.emit();
         }
       } finally {

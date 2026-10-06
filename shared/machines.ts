@@ -62,6 +62,12 @@ export interface SetupJob {
   installations: string[];
   error: string | null;
   /**
+   * set on a failed job when retrying as-is cannot connect: the user has to update the
+   * bridge or approve setup. The dialog turns "update_bridge" into its update-and-connect
+   * button, which a PC that was never registered cannot get from the sidebar.
+   */
+  action_required?: MachineAction | null;
+  /**
    * ssh's latest stderr lines while the connection is being made, null otherwise. Some of them
    * ask the user to act while ssh keeps waiting (Tailscale SSH's browser check URL).
    */

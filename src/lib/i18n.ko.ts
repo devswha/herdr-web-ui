@@ -229,6 +229,7 @@ export const KO: Record<string, string> = {
   "This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.": "이 PC의 브리지가 다른 버전의 herdr web ui입니다. 업데이트하면 다시 연결됩니다. herdr 세션은 계속 돕니다.",
   "Reconnecting needs your approval on this PC.": "다시 연결하려면 이 PC에서 승인이 필요합니다.",
   "Update bridge": "브리지 업데이트",
+  "Update bridge and connect": "브리지를 업데이트하고 연결",
   "Sign in and update…": "로그인해서 업데이트…",
   "Set up…": "설정하기…",
   "Updating the bridge on {name}": "{name}의 브리지 업데이트 중",

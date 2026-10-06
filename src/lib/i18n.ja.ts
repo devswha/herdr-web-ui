@@ -231,6 +231,7 @@ export const JA: Record<string, string> = {
   "This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.": "この PC では別バージョンの herdr web ui のブリッジが動作しています。更新すると再接続されます。herdr のセッションは実行されたままです。",
   "Reconnecting needs your approval on this PC.": "再接続するには、この PC での承認が必要です。",
   "Update bridge": "ブリッジを更新",
+  "Update bridge and connect": "ブリッジを更新して接続",
   "Sign in and update…": "サインインして更新…",
   "Set up…": "セットアップ…",
   "Updating the bridge on {name}": "{name} のブリッジを更新しています",

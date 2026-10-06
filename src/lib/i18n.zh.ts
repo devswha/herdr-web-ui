@@ -233,6 +233,7 @@ export const ZH: Record<string, string> = {
   "This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.": "此 PC 运行的 bridge 来自其他版本的 herdr web ui。更新后即可重新连接，herdr 会话会继续运行。",
   "Reconnecting needs your approval on this PC.": "重新连接需要你在此 PC 上批准。",
   "Update bridge": "更新 bridge",
+  "Update bridge and connect": "更新 bridge 并连接",
   "Sign in and update…": "登录并更新…",
   "Set up…": "设置…",
   "Updating the bridge on {name}": "正在更新 {name} 上的 bridge",
