@@ -15,6 +15,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and the binary are two) that skips the stat calls a name does not need.
   ([#491](https://github.com/devswha/herdr-web-ui/pull/491) by @kilhyeonjun)
 
+### Fixed
+- An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
+  waits on read RUN, and one it asks without waiting (it keeps working, or ends its turn, with
+  the question folded over its input box) read RUN or DONE.
+  ([#488](https://github.com/devswha/herdr-web-ui/pull/488))
+- A question OmO asks without waiting gets its card in the chat: tap an option, or type a reply
+  to answer it. Before, the chat showed no card for it, so an option could only be picked in the
+  terminal. ([#488](https://github.com/devswha/herdr-web-ui/pull/488))
+
 ## [0.3.51] - 2026-10-06
 
 ### Added
