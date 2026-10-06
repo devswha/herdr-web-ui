@@ -385,14 +385,23 @@ export class MachineManager {
     if (job?.update && descriptor) {
       if (!descriptor.managed_remote) throw new Error("This socket uses an independently managed web server. Update it through its own Settings; it was left running.");
       const verified = await this.verify(ssh, descriptor, expectedSocket, true);
-      if (!verified.identity.managed_remote || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
+      if (verified.identity.managed_remote !== true || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
+      if (job.abort.signal.aborted || runtime.generation !== generation || this.stopped) throw new Error("Setup cancelled");
       this.stage(job, "starting", "Restarting the verified remote bridge…");
       this.progress(job, "restart", 0, null);
       await host.stop(ssh, descriptor.pid);
-      await Bun.sleep(2500);
+      // Wait for this verified process to leave; its descriptor may remain after a crash.
+      const deadline = Date.now() + 10_000;
+      while (await host.alive(ssh, descriptor.pid)) {
+        if (job.abort.signal.aborted || this.stopped) throw new Error("Setup cancelled");
+        if (Date.now() >= deadline) throw new Error("The old bridge did not stop; retry the update after checking it on the PC");
+        await Bun.sleep(100);
+      }
+      stalePid = descriptor.pid;
       descriptor = undefined;
     }
     if (!descriptor) {
+      if (job?.abort.signal.aborted || runtime.generation !== generation || this.stopped) throw new Error("Setup cancelled");
       if (job) this.stage(job, "starting", "Starting the remote bridge…");
       await host.start(ssh, { session, herdrPath, inspection });
       for (let i = 0; i < 40; i++) {
@@ -408,7 +417,7 @@ export class MachineManager {
     runtime.endpoint = verified.endpoint;
     runtime.machine.herdr = verified.identity.herdr;
   }
-  private async verify(ssh: SshConnection, descriptor: BridgeDescriptor, expectedSocket: string, allowOldBundle = false): Promise<{ endpoint: { url: string; token: string }; identity: BridgeIdentity }> {
+  private async verify(ssh: SshConnection, descriptor: BridgeDescriptor, expectedSocket: string, forReplacement = false): Promise<{ endpoint: { url: string; token: string }; identity: BridgeIdentity }> {
     if (!Number.isInteger(descriptor.port) || descriptor.port < 1 || descriptor.port > 65535 || typeof descriptor.token !== "string" || !/^[a-f0-9]{64}$/.test(descriptor.token)) throw new Error("Invalid bridge credentials");
     const port = await freePort();
     await ssh.forward(port, descriptor.port);
@@ -416,8 +425,10 @@ export class MachineManager {
     const response = await fetch(`${endpoint.url}/api/bridge`, { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(verificationFailure(response.status, await response.json().catch(() => null)));
     const identity: BridgeIdentity = await response.json();
-    if (identity.bridge_protocol !== BRIDGE_PROTOCOL || !allowOldBundle && identity.bundle_version !== REMOTE_BUNDLE_VERSION) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
-    if (identity.socket_path !== expectedSocket || !identity.socket_id || identity.herdr.protocol < 22) throw new Error("Remote bridge/socket is incompatible; update it explicitly");
+    // An approved replacement only reads this stable identity endpoint. It never uses the
+    // old bridge's pane protocol; the new bridge must pass the strict version check below.
+    if (!forReplacement && (identity.bridge_protocol !== BRIDGE_PROTOCOL || identity.bundle_version !== REMOTE_BUNDLE_VERSION)) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    if (identity.socket_path !== expectedSocket || typeof identity.socket_id !== "string" || !identity.socket_id || !Number.isInteger(identity.herdr?.protocol) || identity.herdr.protocol < 22) throw new Error("Remote bridge/socket is incompatible; update it explicitly");
     return { endpoint, identity };
   }
   endpoint(id: string): { url: string; token: string } | undefined {
