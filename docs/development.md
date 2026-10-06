@@ -22,6 +22,7 @@ bun test                        # needs herdr installed; creates and removes its
 bun run test:ui                 # browser regression against isolated test servers
 bun scripts/chat-browser-qa.ts  # chat lens end to end
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
+bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
 bun run test:ssh                # remote-PC integration over SSH
 bun scripts/fresh-install-docker.ts [owner/repo] [ref]  # a new user's install in a bare Ubuntu (Docker)
 ```
