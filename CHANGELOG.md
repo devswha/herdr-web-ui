@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The app's startup script is a fifth smaller (408 kB to 331 kB gzipped, and 48 kB to 39 kB of
+  CSS): KaTeX, which draws math in the chat, loads with the first reply that has an expression.
+  Until it arrives, that expression shows in its source form, as it did when KaTeX could not read it.
+  ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
+
 ## [0.3.51] - 2026-10-06
 
 ### Added
@@ -20,12 +26,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Alt+arrow. **Settings → Appearance → Key bar** turns Alt off or adds Shift+Tab, Home/End,
   PgUp/PgDn, Ctrl+D, Ctrl+Z, `|`, `~` and `/`, each in a fixed place in the row. Esc, Tab, Ctrl,
   the arrows and Ctrl+C stay as they were. ([#487](https://github.com/devswha/herdr-web-ui/pull/487))
-
-### Changed
-- The app's startup script is a fifth smaller (408 kB to 331 kB gzipped, and 48 kB to 39 kB of
-  CSS): KaTeX, which draws math in the chat, loads with the first reply that has an expression.
-  Until it arrives, that expression shows in its source form, as it did when KaTeX could not read it.
-  ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
 
 ### Fixed
 - A tab strip you scrolled yourself to look at other tabs stays where you left it when a
