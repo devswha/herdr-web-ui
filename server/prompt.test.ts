@@ -786,6 +786,25 @@ Press enter to continue
     expect(labels(prompt)).toEqual(["Update now", "Skip", "Skip until next version"]);
   });
 
+  test("reads Codex's open question without the queue header under a sent message", () => {
+    const prompt = parseInteractivePrompt("codex", `
+› 1. 먼저 이것부터 해줘
+
+• 알겠습니다.
+
+Which accelerator?
+
+› 1. CUDA
+  2. CPU
+  3. Other
+
+enter submit   ctrl + ] skip
+option 1/3   shift + → main prompt
+`);
+    expect(prompt).toMatchObject({ kind: "question", question: "Which accelerator?", custom_option_index: 2 });
+    expect(labels(prompt)).toEqual(["CUDA", "CPU"]);
+  });
+
   test("reads Codex's question under its own sent message", () => {
     const prompt = parseInteractivePrompt("codex", `
 › 1. 먼저 이것부터 해줘
@@ -856,6 +875,58 @@ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questi
 
   test("does not take an answered form above later output for an open one", () => {
     expect(parseInteractivePrompt("claude", withPreview + "\n● Done.\n\n> ")).toBeNull();
+  });
+
+  // live-captured from Claude Code 2.1.290 in a 120-column herdr pane, asked with a long description
+  // for every option: the form draws none, so nothing under an option is joined into one
+  const described = (cursorOn: 0 | 1) => cursorOn === 0 ? `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Layout
+
+Which layout should the report use?
+
+❯ 1. Single Column                ┌──────────────────────────────────────────┐
+  2. Two Column                   │ ┌──────────────────┐                     │
+  3. Dashboard Grid               │ │     HEADER       │                     │
+                                  │ ├──────────────────┤                     │
+                                  │ │   Content here   │                     │
+                                  │ │   More content   │                     │
+                                  │ └──────────────────┘                     │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel
+` : `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Layout
+
+Which layout should the report use?
+
+  1. Single Column                ┌──────────────────────────────────────────┐
+❯ 2. Two Column                   │ ┌─────┬──────────┐                       │
+  3. Dashboard Grid               │ │ KEY │ CONTENT  │                       │
+                                  │ │ INF │ CONTENT  │                       │
+                                  │ │ O   │ CONTENT  │                       │
+                                  │ │     │ CONTENT  │                       │
+                                  │ └─────┴──────────┘                       │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel
+`;
+
+  test("draws no option descriptions though the question gave them, and keeps its id as the cursor moves", () => {
+    const first = parseInteractivePrompt("claude", described(0));
+    const second = parseInteractivePrompt("claude", described(1));
+    expect(labels(first)).toEqual(["Single Column", "Two Column", "Dashboard Grid"]);
+    expect(first?.options.map((option) => option.description)).toEqual([null, null, null]);
+    expect(second?.id).toBe(first!.id);
   });
 });
 
