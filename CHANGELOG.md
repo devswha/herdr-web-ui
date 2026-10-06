@@ -9,7 +9,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Added
 
-- Change models and reasoning effort from the chat composer for Codex, Claude Code and pi without leaving chat or clearing a draft; Escape or clicking outside dismisses the selection without changing the model or effort.
+- Change models and reasoning effort from the chat composer for Codex, Claude Code and pi without leaving chat or clearing a draft; Escape or clicking outside dismisses the selection without changing the model or effort. ([#523](https://github.com/devswha/herdr-web-ui/pull/523) by @suho-han)
 
 ### Changed
 - The message box follows **Settings → Chat font size**, as the transcript and prompt cards

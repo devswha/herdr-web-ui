@@ -1549,7 +1549,9 @@ function parseClaudeEffort(screen: string): ParsedPrompt | null {
   const triangle = track.indexOf("▲");
   if (triangle < 0 || track.indexOf("▲", triangle + 1) >= 0 || labels.length < 3) return null;
   const distances = labels.map((label) => Math.abs(triangle - (label.index! + (label[0].length - 1) / 2)));
-  const selectedIndex = distances.indexOf(Math.min(...distances));
+  const nearest = Math.min(...distances);
+  if (distances.filter((distance) => distance === nearest).length !== 1) return null;
+  const selectedIndex = distances.indexOf(nearest);
   if (distances[selectedIndex]! > 2) return null;
   const offered = labels.flatMap((label, at) => label[0].toLowerCase() === "ultracode" ? [] : [at]);
   return finishPrompt("claude", {

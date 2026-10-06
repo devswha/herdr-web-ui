@@ -2995,6 +2995,26 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   });
 
+  test("rejects tied effort labels before committing a Claude session setting", async () => {
+    const slider = (column: number) => `Effort
+Faster                   Smarter
+${" ".repeat(column)}▲
+Low Medium High Max Low
+←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
+`;
+    // Max and the trailing Low have centres at 17 and 21; column 19 is equally near both.
+    expect(parseInteractivePrompt("claude", slider(19))).toBeNull();
+    const unique = parseInteractivePrompt("claude", slider(21))!;
+    expect(unique.options.map((option) => option.label)).toEqual(["Low", "Medium", "High", "Max", "Low"]);
+    expect(answerKeys(unique, {option_index:3})).toEqual([{keys:["left"]}, {text:"s"}]);
+    await withPane("claude", "idle", slider(17), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = slider(19); };
+      expect(await answer(prompt.id, {option_index:4})).toEqual({status:409, code:"prompt_changed"});
+      expect(pane.sent).toEqual(["right"]);
+    });
+  });
+
   test("effort menus follow redrawn cursors and commit only the session", async () => {
     const slider = (at: number) => `Effort
 Faster                   Smarter
