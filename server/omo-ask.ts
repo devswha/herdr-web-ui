@@ -1,10 +1,13 @@
+import { closeSync, fstatSync, openSync } from "node:fs";
+import { readOmoLines } from "./omo-records.ts";
+
 /**
  * The questions an OmO session has open, as its session file records them: ask_user_question
  * (request_user_input under a Codex model), read the way OmO itself finds the questions it
  * restores after a restart (its ask-user extension, resume.js in omo 5.1.19).
  *
- * A call that waits for its answer (`waitForAnswer: true`) is open until its tool result, and only
- * while its message is the newest assistant message. A call that does not wait gets a result at
+ * A call that waits for its answer (`waitForAnswer: true`) is open until its tool result, including
+ * when newer assistant messages have been recorded. A call that does not wait gets a result at
  * once that accepts it (`details: { accepted: true, status: "pending" }`); OmO folds it into a
  * widget over its input box and goes on, and it stays open until it is settled: an
  * `ask-user:settlement` record, or the answer delivered as a user message (`[Answer to question
@@ -53,8 +56,9 @@ export function omoAsksAfter(open: OmoAsks, entry: Entry): OmoAsks {
     const calls = (Array.isArray(message.content) ? message.content as Record<string, unknown>[] : [])
       .filter((part) => part?.["type"] === "toolCall" && typeof part["id"] === "string" && OMO_ASK_TOOLS.has(part["name"] as string) && part["incomplete"] !== true)
       .map((part) => ({ id: part["id"] as string, wait: waits(part["arguments"]), args: part["arguments"] }));
-    // a newer assistant message: a call that waited has had its answer
-    return open.some((call) => call.wait) || calls.length > 0 ? [...open.filter((call) => !call.wait), ...calls] : open;
+    // Assistant narration is not evidence of an answer (including across resume).
+    const ids = new Set(calls.map((call) => call.id));
+    return calls.length > 0 ? [...open.filter((call) => !ids.has(call.id)), ...calls] : open;
   }
   if (message?.role === "toolResult" && typeof message.toolCallId === "string") {
     const details = (message.details ?? {}) as { accepted?: unknown; status?: unknown };
@@ -72,32 +76,31 @@ export function omoAsksAfter(open: OmoAsks, entry: Entry): OmoAsks {
   return open;
 }
 
-/**
- * A record too long to hold, by its ends (its role in the first bytes, a message's last content in
- * the last): the same rules, as far as the ends tell them. A question's own records are short.
- */
-export function omoAsksAfterEnds(open: OmoAsks, head: string, tail: string): OmoAsks {
-  if (!head.startsWith('{"type":"message"')) return open;
-  const role = head.match(/"role":"(\w+)"/)?.[1];
-  if (role === "assistant") {
-    const calls: OmoAskCall[] = [];
-    const found = [...tail.matchAll(/"type":"toolCall","id":"([^"]+)","name":"([^"]+)"/g)];
-    found.forEach((match, index) => {
-      if (!OMO_ASK_TOOLS.has(match[2]!)) return;
-      const rest = tail.slice(match.index, found[index + 1]?.index ?? tail.length);
-      calls.push({ id: match[1]!, wait: !/"(?:waitForAnswer|wait_for_answer)":false/.test(rest), args: null });
-    });
-    return open.some((call) => call.wait) || calls.length > 0 ? [...open.filter((call) => !call.wait), ...calls] : open;
+
+/** Incremental question replay shared with the status reader's JSONL projection. */
+export class OmoAskReader {
+  private files = new Map<string, { id: string; size: number; mtime: number; offset: number; asks: OmoAsks }>();
+
+  read(path: string): OmoAsks {
+    const fd = openSync(path, "r");
+    try {
+      const stat = fstatSync(fd);
+      const id = `${stat.dev}:${stat.ino}`;
+      let state = this.files.get(path);
+      if (!state || state.id !== id || stat.size < state.size || (stat.size === state.size && stat.mtimeMs !== state.mtime)) {
+        state = { id, size: 0, mtime: 0, offset: 0, asks: [] };
+      }
+      state.offset = readOmoLines(fd, state.offset, stat.size, (line) => {
+        const text = "text" in line ? line.text : line.record;
+        if (text === undefined) return;
+        try { state!.asks = omoAsksAfter(state!.asks, JSON.parse(text)); } catch { /* partial or invalid record */ }
+      });
+      state.size = stat.size;
+      state.mtime = stat.mtimeMs;
+      this.files.delete(path);
+      this.files.set(path, state);
+      if (this.files.size > 64) this.files.delete(this.files.keys().next().value!);
+      return state.asks;
+    } finally { closeSync(fd); }
   }
-  if (role === "toolResult") {
-    const id = head.match(/"toolCallId":"([^"]+)"/)?.[1];
-    if (id === undefined) return open;
-    const accepted = !tail.includes('"isError":true') && tail.includes('"accepted":true') && tail.includes('"status":"pending"');
-    return accepted ? open : without(open, id);
-  }
-  if (role === "user") {
-    const id = head.match(/"text":"\[Answer to question ([^\]"\\]+)\]\\n/)?.[1];
-    return id === undefined ? open : without(open, id);
-  }
-  return open;
 }

@@ -29,11 +29,14 @@
  * by turns, and a finish is matched by identity. A pane whose session cannot be told keeps
  * herdr's status, under the same identity.
  */
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { readOmoLines as readLines, type OmoLine } from "./omo-records.ts";
+export { readOmoLines as readLines, type OmoLine } from "./omo-records.ts";
+
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
-import { omoAsksAfter, omoAsksAfterEnds, type OmoAsks } from "./omo-ask.ts";
+import { omoAsksAfter, type OmoAsks } from "./omo-ask.ts";
 
 /** runtime messages that start a turn nobody typed; one not named here shows as RUN from its first answer on */
 const TURN_STARTS = new Set([
@@ -57,11 +60,9 @@ export const noTurn = (): OmoTurn => ({ status: null, at: null, asks: [] });
 /** A pane's status: INPUT while a question is open, else its turn's. */
 export type OmoPaneStatus = "working" | "idle" | "blocked";
 
-/** A record too long to hold is read by its ends: its role and time are in the first bytes, its stop reason in the last. */
-export type OmoLine = { text: string } | { head: string; tail: string };
-
 /** One session record, applied to the turn so far. */
 export function omoTurnAfter(turn: OmoTurn, line: OmoLine): OmoTurn {
+  if (!("text" in line) && line.record !== undefined) return omoTurnAfter(turn, { text: line.record });
   const head = "text" in line ? line.text : line.head;
   if ("text" in line && head.startsWith('{"type":"custom"') && head.includes('"customType":"ask-user:settlement"')) {
     try { return { ...turn, asks: omoAsksAfter(turn.asks, JSON.parse(line.text)) }; } catch { return turn; }
@@ -79,7 +80,7 @@ export function omoTurnAfter(turn: OmoTurn, line: OmoLine): OmoTurn {
       asks = omoAsksAfter(asks, entry);
     } catch { return turn; }
   } else {
-    asks = omoAsksAfterEnds(asks, line.head, line.tail);
+    // Legacy end-only records cannot establish or close a question safely.
     role = line.head.match(/"role":"(\w+)"/)?.[1];
     stopReason = (line.tail.match(/"stopReason":"(\w+)"/g)?.at(-1) ?? line.head.match(/"stopReason":"(\w+)"/)?.[0])?.match(/:"(\w+)"/)?.[1];
     customType = line.head.match(/"customType":"([^"]+)"/)?.[1];
@@ -97,66 +98,6 @@ export function omoTurnStatus(text: string): "working" | "idle" | null {
   let turn = noTurn();
   for (const line of text.split("\n")) turn = omoTurnAfter(turn, { text: line });
   return turn.status;
-}
-
-const CHUNK_BYTES = 256 * 1024;
-/** a line longer than this is kept by its ends only */
-const LONG_LINE_BYTES = 64 * 1024;
-const LINE_END_BYTES = 4096;
-/** how far back the first read of a session file starts, and how far when that held nothing that tells */
-const FIRST_READ_BYTES = 1024 * 1024;
-const DEEP_READ_BYTES = 16 * 1024 * 1024;
-
-/**
- * Reads the whole lines of a file from `from` on and hands each to `each`; the offset of the
- * first byte not read (a last line still being written waits for its newline). A long line is
- * handed over by its ends, so no record is held whole however large.
- */
-export function readLines(fd: number, from: number, size: number, each: (line: OmoLine) => void, read: typeof readSync = readSync): number {
-  let offset = from;
-  let position = from;
-  let parts: Buffer[] = [];
-  let held = 0;
-  let head: Buffer | null = null;
-  let tail = Buffer.alloc(0);
-  const keepEnd = (more: Buffer) => { tail = Buffer.concat([tail, more]).subarray(-LINE_END_BYTES); };
-  while (position < size) {
-    const chunk = Buffer.alloc(Math.min(CHUNK_BYTES, size - position));
-    const got = read(fd, chunk, 0, chunk.length, position);
-    if (got <= 0) break;
-    const bytes = chunk.subarray(0, got);
-    let start = 0;
-    for (let newline = bytes.indexOf(0x0a, start); newline !== -1; newline = bytes.indexOf(0x0a, start)) {
-      const piece = bytes.subarray(start, newline);
-      if (head !== null) {
-        keepEnd(piece);
-        each({ head: head.toString("utf8"), tail: tail.toString("utf8") });
-        head = null;
-        tail = Buffer.alloc(0);
-      } else {
-        each({ text: Buffer.concat([...parts, piece]).toString("utf8") });
-      }
-      parts = [];
-      held = 0;
-      start = newline + 1;
-      offset = position + start;
-    }
-    const rest = bytes.subarray(start);
-    if (head !== null) keepEnd(rest);
-    else {
-      parts.push(rest);
-      held += rest.length;
-      if (held > LONG_LINE_BYTES) {
-        const all = Buffer.concat(parts);
-        head = all.subarray(0, LINE_END_BYTES);
-        tail = all.subarray(-LINE_END_BYTES);
-        parts = [];
-        held = 0;
-      }
-    }
-    position += got;
-  }
-  return offset;
 }
 
 /** `<timestamp>_<session id>.jsonl` */
@@ -366,7 +307,7 @@ export class OmoStatus {
       const stat = this.file.stat(tracked.path);
       if (stat === null) continue;
       const { size } = stat;
-      if (tracked.offset === -1 || size < tracked.offset || stat.id !== tracked.id) this.readFrom(tracked, tracked.path, size, Math.max(0, size - FIRST_READ_BYTES));
+      if (tracked.offset === -1 || size < tracked.offset || stat.id !== tracked.id) this.readFrom(tracked, tracked.path, size);
       // also what a read that failed left unread
       else if (size !== tracked.size || tracked.offset < size) tracked.offset = this.file.lines(tracked.path, tracked.offset, size, (line) => { tracked.turn = omoTurnAfter(tracked.turn, line); });
       tracked.size = size;
@@ -387,19 +328,12 @@ export class OmoStatus {
     }
   }
 
-  /** The first read of a file: its end, and further back when that end holds nothing that tells (one long record). */
-  private readFrom(tracked: Tracked, path: string, size: number, from: number): void {
-    const read = (start: number): void => {
-      tracked.turn = noTurn();
-      let skip = start > 0;
-      tracked.offset = this.file.lines(path, start, size, (line) => {
-        // the first line of a read that starts inside the file is the rest of a record
-        if (skip) { skip = false; return; }
-        tracked.turn = omoTurnAfter(tracked.turn, line);
-      });
-    };
-    read(from);
-    if (tracked.turn.status === null && from > 0) read(Math.max(0, size - DEEP_READ_BYTES));
+  /** Replay from the start once, then consume only appended complete records. */
+  private readFrom(tracked: Tracked, path: string, size: number): void {
+    tracked.turn = noTurn();
+    tracked.offset = this.file.lines(path, 0, size, (line) => {
+      tracked.turn = omoTurnAfter(tracked.turn, line);
+    });
   }
 
   /**

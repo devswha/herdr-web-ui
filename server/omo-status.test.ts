@@ -56,7 +56,7 @@ describe("an OmO turn, read from its session file", () => {
     expect(openAsks(asking("q3", false), result("q3", {}, true))).toEqual([]);
     // a record too long to hold, read by its ends
     const long = asking("q4", false).replace('"content":[', `"content":[{"type":"thinking","thinking":"${"x".repeat(200_000)}"},`);
-    const ends = { head: long.slice(0, 4096), tail: long.slice(-4096) };
+    const ends = { head: long.slice(0, 4096), tail: long.slice(-4096), record: long };
     expect(omoTurnAfter(noTurn(), ends).asks.map((call) => [call.id, call.wait])).toEqual([["q4", false]]);
   });
 
@@ -173,6 +173,12 @@ describe("OmO panes' status in place of herdr's", () => {
     omo.poll();
     expect(completions.observe("omo", told.at(-1)![1], "omo")).toBe("working");
     expect(statuses(await served())["omo"]).toBe("omo/working");
+  });
+
+  it("restores INPUT when an unanswered call predates the last megabyte at startup", async () => {
+    const { omo } = setup(lines(asking("old", false), acceptedResult("old"), message("toolResult", undefined, undefined, "x".repeat(1_200_000)), message("assistant", "stop")));
+    await omo.refresh(herdr().panes);
+    expect(statuses(omo.apply(herdr()))["omo"]).toBe("omo/blocked");
   });
 
   it("reads INPUT while a question waits on the user, whether OmO waits for it or goes on", async () => {
