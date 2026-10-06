@@ -65,7 +65,28 @@ try {
   assert.equal(scripts.length, loaded, "KaTeX is fetched once");
   assert.equal(await page.getByText("\\(a^2+b^2=c^2\\)").count(), 0, "a later expression is typeset at once");
   assert.deepEqual(errors, []);
-  console.log("math: browser OK (KaTeX fetched with the first expression, once; inline and display typeset)");
+
+  // offline when the first expression comes: it and every later one keep their source form, quietly
+  const offline = await browser.newPage();
+  offline.on("pageerror", (error) => errors.push(error.message));
+  await offline.route("**/api/pane/conversation?*", (route) => route.fulfill({ json: conversation }));
+  write("Prose only, nothing to typeset.");
+  await offline.goto(`http://127.0.0.1:${server.port}/`);
+  await offline.getByText("Prose only, nothing to typeset.").waitFor();
+  let aborted = 0;
+  await offline.route("**/*.js", (route) => { aborted++; return route.abort(); });
+  write("First: \\(x^2\\)\n\nSecond: \\(y^2\\)");
+  await offline.evaluate(() => window.qa.refresh());
+  await offline.getByText("\\(y^2\\)").waitFor();
+  for (const deadline = Date.now() + 5_000; aborted === 0;) {
+    assert.ok(Date.now() < deadline, "the first expression asks for KaTeX");
+    await offline.waitForTimeout(50);
+  }
+  await offline.waitForTimeout(300);
+  assert.equal(await offline.locator(".katex").count(), 0);
+  assert.equal(await offline.getByText("\\(x^2\\)").count(), 1, "an expression KaTeX could not reach shows its source");
+  assert.deepEqual(errors, []);
+  console.log("math: browser OK (KaTeX fetched with the first expression, once; inline and display typeset; offline keeps the source)");
 } finally {
   await browser?.close();
   server?.stop();

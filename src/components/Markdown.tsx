@@ -13,8 +13,9 @@ let katexLoad: Promise<Katex> | null = null;
 
 /** KaTeX, fetched once; a static render (the unit test) waits on it to draw math as the chat does. */
 export function loadKatex(): Promise<Katex> {
-  // offline before it was ever fetched: the expression stays in its source form, and the next one tries again
-  katexLoad ??= import("../lib/katex.ts").then((module) => (katexModule = module.default), (error: unknown) => { katexLoad = null; throw error; });
+  // offline before it was ever fetched: every expression stays in its source form until a reload
+  // (no retry: Chrome keeps a failed import's answer for the page's life without fetching again)
+  katexLoad ??= import("../lib/katex.ts").then((module) => (katexModule = module.default));
   return katexLoad;
 }
 
