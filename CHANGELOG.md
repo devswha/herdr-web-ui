@@ -36,6 +36,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
   and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
+  how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
+  when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
+  turns its hairline red while its share is still low, and says when in its label. The pace is
+  measured when the numbers were read, and shown only where the provider states the window's
+  start or length (Claude, Codex, Grok), from 5% of the window on.
+  ([#513](https://github.com/devswha/herdr-web-ui/pull/513))
 
 ### Changed
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
@@ -140,13 +147,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [0.3.52] - 2026-10-06
 
 ### Added
-- The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
-  how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
-  when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
-  turns its hairline red while its share is still low, and says when in its label. The pace is
-  measured when the numbers were read, and shown only where the provider states the window's
-  start or length (Claude, Codex, Grok), from 5% of the window on.
-  ([#513](https://github.com/devswha/herdr-web-ui/pull/513))
 - A PC whose connect or reconnect is refused on the bridge version check now offers
   **Update bridge and connect** in its dialog, so a PC that was never registered — no sidebar
   row, no saved key — can be updated and connected in one go, through the same approval list
