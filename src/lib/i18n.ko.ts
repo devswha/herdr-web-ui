@@ -71,7 +71,7 @@ export const KO: Record<string, string> = {
   "Wide": "넓게",
   "Full": "전체",
   "Chat font size": "채팅 글자 크기",
-  "Messages, code and prompt cards in the chat view": "채팅 화면의 메시지, 코드, 프롬프트 카드",
+  "Messages, code, prompt cards and the message box in the chat view": "채팅 화면의 메시지, 코드, 프롬프트 카드, 입력창",
   "Decrease chat font size": "채팅 글자 작게",
   "Increase chat font size": "채팅 글자 크게",
   "Chat font": "채팅 글꼴",

@@ -75,7 +75,7 @@ export const ZH: Record<string, string> = {
   "Wide": "宽",
   "Full": "全宽",
   "Chat font size": "聊天字号",
-  "Messages, code and prompt cards in the chat view": "聊天视图中的消息、代码和提问卡片",
+  "Messages, code, prompt cards and the message box in the chat view": "聊天视图中的消息、代码、提问卡片和输入框",
   "Decrease chat font size": "减小聊天字号",
   "Increase chat font size": "增大聊天字号",
   "Chat font": "聊天字体",

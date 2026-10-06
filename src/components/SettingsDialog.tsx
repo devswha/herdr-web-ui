@@ -426,7 +426,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code and prompt cards in the chat view")}</span></div>
+              <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code, prompt cards and the message box in the chat view")}</span></div>
               <div className="settings-stepper" aria-label={t("Chat font size")}>
                 <button type="button" className="icon-button" aria-label={t("Decrease chat font size")} disabled={chatFontSize(settings) <= CHAT_FONT_MIN} onClick={() => update({ chatFontSize: chatFontSize(settings) - 1 })}><Minus /></button>
                 <output aria-live="polite">{chatFontSize(settings)}px</output>
