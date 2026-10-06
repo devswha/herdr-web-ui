@@ -408,6 +408,80 @@
   --term-selection: #d2d4dc;
 }
 
+/* Lilac: one quiet lavender. Light is the look it was drawn for: a lavender canvas (`--bg`)
+   under paler lavender chrome (`--bg-panel`: sidebar, header, tabs), indigo ink, and an indigo
+   accent for the user's own action. Dark is the same hue at night: an indigo-black canvas, violet
+   chrome and a pale lilac accent. No gradient and no translucency: every surface is flat. */
+[data-theme="dark"][data-palette="lilac"] {
+  --bg: #16152b;
+  --bg-panel: #1c1b34;
+  --bg-elevated: #23223f;
+  --bg-hover: #2c2a4f;
+  --bg-input: #13122a;
+  --border: #2f2d52;
+  --border-strong: #423f6e;
+  --text: #dcdaf4;
+  --text-dim: #a5a2cc;
+  --text-strong: #f2f1ff;
+  --accent: #b3abff;
+  --accent-tint: rgba(179, 171, 255, 0.13);
+  --primary: #b3abff;
+  --primary-hover: #c5bfff;
+  --primary-text: #17163a;
+  --primary-tint: rgba(179, 171, 255, 0.16);
+  --status-idle: #a5a2cc;
+  --status-working: #85b8ff;
+  --status-blocked: #ff94ad;
+  --status-done: #92d9ab;
+  --status-working-tint: rgba(133, 184, 255, 0.14);
+  --status-blocked-tint: rgba(255, 148, 173, 0.14);
+  --status-done-tint: rgba(146, 217, 171, 0.14);
+  --danger-tint: rgba(255, 148, 173, 0.12);
+  --danger-text: #ffd6df;
+  --scrim: rgba(9, 8, 22, 0.6);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --term-bg: #18172f;
+  --term-fg: #dcdaf4;
+  --term-cursor: #b3abff;
+  --term-selection: #3a3768;
+}
+
+[data-theme="light"][data-palette="lilac"] {
+  --bg: #f0eefc;
+  --bg-panel: #f6f5fe;
+  --bg-elevated: #fbfaff;
+  --bg-hover: #e8e5f8;
+  --bg-input: #fdfcff;
+  --border: #e0dcf4;
+  --border-strong: #c8c2ea;
+  --text: #2b2d4d;
+  --text-dim: #545779;
+  --text-strong: #17193a;
+  --accent: #4a42c2;
+  --accent-tint: rgba(74, 66, 194, 0.12);
+  --primary: #4a42c2;
+  --primary-hover: #5951d0;
+  --primary-text: #ffffff;
+  --primary-tint: rgba(74, 66, 194, 0.14);
+  --status-idle: #545779;
+  --status-working: #1f4aa6;
+  --status-blocked: #9c2044;
+  --status-done: #1f5c39;
+  --status-working-tint: rgba(31, 74, 166, 0.12);
+  --status-blocked-tint: rgba(156, 32, 68, 0.12);
+  --status-done-tint: rgba(31, 92, 57, 0.12);
+  --danger-tint: rgba(156, 32, 68, 0.1);
+  --danger-text: #8c1f3a;
+  --scrim: rgba(43, 35, 100, 0.32);
+  --shadow-drawer: 0 0 40px rgba(60, 50, 130, 0.22);
+  --shadow-pop: 0 16px 48px rgba(60, 50, 130, 0.16), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(60, 50, 130, 0.08);
+  --term-bg: #f8f7fe;
+  --term-fg: #2b2d4d;
+  --term-cursor: #4a42c2;
+  --term-selection: #dcd7f8;
+}
+
 [data-chat-width="narrow"] {
   --chat-w: var(--content-w);
 }

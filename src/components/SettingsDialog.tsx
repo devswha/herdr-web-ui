@@ -235,11 +235,11 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Colors")}</span><span className="settings-description">{t("herdr's amber, a dark report, neutral charcoal, or Catppuccin")}</span></div>
+              <div><span className="settings-label">{t("Colors")}</span><span className="settings-description">{t("herdr's amber, a dark report, neutral charcoal, Catppuccin, or lilac")}</span></div>
               <div className="segmented" aria-label={t("Colors")}>
-                {(["amber", "report", "charcoal", "catppuccin"] as const).map((palette) => (
+                {(["amber", "report", "charcoal", "catppuccin", "lilac"] as const).map((palette) => (
                   <button key={palette} type="button" aria-pressed={settings.palette === palette} onClick={() => update({ palette })}>
-                    {t(palette === "report" ? "Dark report" : palette === "amber" ? "Amber" : palette === "catppuccin" ? "Catppuccin" : "Charcoal")}
+                    {t(palette === "report" ? "Dark report" : palette === "amber" ? "Amber" : palette === "catppuccin" ? "Catppuccin" : palette === "lilac" ? "Lilac" : "Charcoal")}
                   </button>
                 ))}
               </div>

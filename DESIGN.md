@@ -12,7 +12,7 @@ chrome color, amber: selection, focus, the terminal cursor and the user's own ac
 buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture. A dark report look, a neutral charcoal one and Catppuccin are
+changing information architecture. A dark report look, a neutral charcoal one, Catppuccin and lilac are
 opt-in palettes (Settings → Appearance → Colors); amber stays the default and the look before settings load.
 
 The signature is the amber status rail: a 3px bar on the selected pane row (whose mark box also
@@ -60,14 +60,14 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 
 ### Opt-in palettes
 
-`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`) is written as `data-palette`. The
-tables above are amber, the base blocks; the three opt-in palettes override them in
+`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`, `lilac`) is written as `data-palette`. The
+tables above are amber, the base blocks; the four opt-in palettes override them in
 `[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
-alone parts the bubble from `--bg`: dark amber, dark report and dark charcoal. It is `var(--border)`
+alone parts the bubble from `--bg`: dark amber, dark report, dark charcoal and dark lilac. It is `var(--border)`
 where the two surfaces sit close: every light theme (the `[data-theme="light"]` block sets it for
-all four palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
+all palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
 
 - **Dark report** is a near-black blue-grey canvas with hairlines: `--bg` `#0a0d12`, panel and
   terminal `#0f1319`, text `#b4bdc9` / `#8792a3` / `#e8ecf2`. Primary (the user's action) is white
@@ -95,6 +95,16 @@ all four palettes) and dark Catppuccin, whose elevated surface is darker than it
   `#d2d4dc`. Latte's accents are under 4.5:1 on these surfaces, so each keeps its hue and is darkened
   until it passes AA: Mauve `#712fc6` (primary hover is plain Latte Mauve `#8839ef`), Blue `#1750bf`,
   Red `#ac0c2f`, Green `#28651b`. It keeps amber's rounded corners.
+- **Lilac** is one quiet lavender, flat on every surface (no gradient, no translucency). Light is
+  the look it was drawn for: a pale lavender canvas `--bg` `#f0eefc` under paler chrome `--bg-panel`
+  `#f6f5fe` (elevated `#fbfaff`, hover `#e8e5f8`, input `#fdfcff`), indigo ink (text `#2b2d4d` /
+  `#545779` / `#17193a`), and an indigo accent and primary `#4a42c2` with white text. States are
+  darkened until their badges pass AA on a hovered row: working `#1f4aa6`, input `#9c2044`, done
+  `#1f5c39`, idle `#545779`. Terminal `#f8f7fe`, cursor `#4a42c2`, selection `#dcd7f8`. Dark is the
+  same hue at night: canvas `#16152b`, chrome `#1c1b34` (elevated `#23223f`, hover `#2c2a4f`), text
+  `#dcdaf4` / `#a5a2cc` / `#f2f1ff`, a pale lilac accent and primary `#b3abff` with `#17163a` text,
+  states working `#85b8ff`, input `#ff94ad`, done `#92d9ab`, terminal `#18172f`, selection
+  `#3a3768`. It keeps amber's rounded corners and card shadow, tinted indigo in light.
 
 ### Terminal theme
 
@@ -179,7 +189,7 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
-- `palette`: `amber`, `report`, `charcoal` or `catppuccin`; default `amber`.
+- `palette`: `amber`, `report`, `charcoal`, `catppuccin` or `lilac`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
 - Terminal and chat font families are comma-separated lists, default empty. They go in front of the
