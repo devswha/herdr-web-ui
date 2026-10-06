@@ -16,6 +16,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - macOS Safari direct terminal input preserves Korean syllables when the input method
   replaces text without emitting composition events, including after switching from English.
+  ([#524](https://github.com/devswha/herdr-web-ui/pull/524) by @suho-han)
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
   keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
