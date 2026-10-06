@@ -1456,11 +1456,12 @@ function codexModelListWaits(screen: string): boolean {
     // prevents the match, so an old title/footer in the transcript cannot hide a new prompt.
     const footer = shown.slice(start).map(({ text }) => text).join("").replace(/\s+/g, "");
     if (/^enter(?:default|apply)·ssession·escback$/i.test(footer)) return true;
-    if (!/^enter(?:select|default|apply)·escback$/i.test(footer)) continue;
+    if (!/^[a-z0-9+^-]+(?:select|default|apply|confirm)·(?:ssession·)?[a-z0-9+^-]+back$/i.test(footer)) continue;
     // The generic list footer needs a model header in the block immediately above its rows.
     // Quick presets are recognized only by this guard, never offered as a readable card.
-    const { rows, first } = listRows(lines, shown[start]!.index, CODEX_MODEL_ROW_RE, null);
-    return rows.length > 0 && codexModelHeader(lines, first, true) !== null;
+    const { rows, first, last } = listRows(lines, shown[start]!.index, CODEX_MODEL_ROW_RE, null);
+    const intervening = lines.slice(last + 1, shown[start]!.index).some((line) => cleanLine(line) && !isDivider(cleanLine(line)));
+    return rows.length > 0 && !intervening && codexModelHeader(lines, first, true) !== null;
   }
   return false;
 }

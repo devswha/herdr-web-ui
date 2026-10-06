@@ -3138,6 +3138,9 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         expect((await card())?.fallback).toBe(true);
       });
     }
+    await withPane("codex", "blocked", `${codexModels(1)}\nContinue deployment?\n${CODEX_OPENS}\n`, async () => {
+      expect((await card())?.fallback).toBe(true);
+    });
     // Even a Codex-shaped footer belongs to the other agent's unknown prompt here.
     await withPane("pi", "blocked", codexLevels(1), async () => {
       expect((await card())?.fallback).toBe(true);
@@ -3170,6 +3173,14 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     await withPane("codex", "blocked", cut.replace("Select Reasoning Level for GPT-6-Astra", "Older transcript"), async () => {
       expect(await card()).toBeNull();
     });
+    // An unreadable or remapped accept hint is still a model menu, not permission to offer Enter.
+    for (const footer of ["  enter confirm · esc back", "  tab default · s session · esc back"]) {
+      const unknown = codexLevels(1).replace(CODEX_PICKS, footer);
+      expect(parseInteractivePrompt("codex", unknown)).toBeNull();
+      await withPane("codex", "blocked", unknown, async () => {
+        expect(await card()).toBeNull();
+      });
+    }
     // the list of quick presets has no card of its own, and no fallback one either
     await withPane("codex", "blocked", codexList("Select Model", CODEX_MODELS, 1, () => CODEX_OPENS), async () => {
       expect(await card()).toBeNull();
