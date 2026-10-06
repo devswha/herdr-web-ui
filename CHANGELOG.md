@@ -63,10 +63,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Fixed
 - Your own phone lands in the app as soon as it opens the `tailscale serve` address, with no
-  pairing code, on a tailnet that one Tailscale login owns and that has no tagged node on it.
-  Before, `tailscale serve` states no login for some of those requests, and every request
-  without one was taken for a tagged node's and asked to pair. Another Tailscale login is still
-  refused, a tagged node still pairs, Funnel stays closed, a LAN client that claims the same
+  pairing code, on a tailnet that one Tailscale login owns and that has no tagged node on it,
+  when the address is this PC's own Tailscale name. Before, `tailscale serve` states no login for
+  some of those requests, and every request without one was taken for a tagged node's and asked
+  to pair. Another Tailscale login is still refused, a tagged node still pairs, a public domain
+  forwarded to this PC still pairs, Funnel stays closed, a LAN client that claims the same
   headers still gains nothing, and a configured token is still required of everything but a
   paired device.
 - A Claude Code pane started with its own `CLAUDE_CONFIG_DIR` (a launcher such as cac keeps one

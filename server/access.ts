@@ -12,8 +12,9 @@
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
  * node (tailscale serve states no person for it), and a tailnet can hold many of those. The
  * exception is a tailnet Tailscale says holds no tagged node and no second login: no stranger
- * exists there to be mistaken for, so a serve-proxied request with no login is the owner, and
- * the owner's own phone opens the address without a code.
+ * exists there to be mistaken for, so a serve-proxied request with no login that is addressed to
+ * this PC's own Tailscale name is the owner, and the owner's own phone opens the address without
+ * a code. A public domain forwarded here is still a stranger: its Host is not that name.
  * A PC whose own node is tagged has no login to compare with: its proxied requests pair, the
  * owner's included, unless HERDR_WEB_TAILSCALE_OWNER names the login to let in.
  *
@@ -42,8 +43,12 @@ export interface AccessInput {
   owner: string | null;
   /** this PC's Tailscale node is tagged: Tailscale runs here, and names no person as its owner */
   tagged: boolean;
-  /** `tailscale status` proves one login owns every node of this tailnet and none is tagged (`parseSoleTailnetUser`) */
-  soleUser: boolean;
+  /** the one login `tailscale status` proves owns every node of this tailnet, none tagged (`parseSoleTailnetLogin`), or null */
+  soleLogin: string | null;
+  /** this PC's MagicDNS name, the one `tailscale serve` answers to, without its trailing dot */
+  dnsName: string | null;
+  /** the request's Host header, as sent */
+  host: string | null;
   tokenConfigured: boolean;
   /** a device has been paired at some point: the gate is closed to strangers (server/devices.ts) */
   gated: boolean;
@@ -61,15 +66,20 @@ export function isLoopbackAddress(address: string): boolean {
 const PROXY_HEADERS = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "via", "tailscale-user-login"];
 
 /**
- * Is this Host header a name for this machine itself? It is read as a bare authority, a name
- * or a bracketed address with an optional port, and nothing else: handed to a URL parser,
- * `public.example@localhost` and `localhost/x@public.example` both came out as localhost.
+ * The name a Host header addresses, lower-cased, without its port or its DNS root dot. It is read
+ * as a bare authority, a name or a bracketed address with an optional port, and nothing else:
+ * handed to a URL parser, `public.example@localhost` and `localhost/x@public.example` both came
+ * out as localhost.
  */
-export function isLoopbackHost(host: string): boolean {
+export function hostName(host: string): string | null {
   const authority = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/i.exec(host);
-  if (!authority) return false;
-  // one trailing dot is the DNS root, the same name
-  const name = authority[1]!.toLowerCase().replace(/\.$/, "");
+  return authority ? authority[1]!.toLowerCase().replace(/\.$/, "") : null;
+}
+
+/** Is this Host header a name for this machine itself? */
+export function isLoopbackHost(host: string): boolean {
+  const name = hostName(host);
+  if (name === null) return false;
   return name === "localhost" || name.endsWith(".localhost") || name === "[::1]"
     || /^127(?:\.\d{1,3}){3}$/.test(name) || /^\[::ffff:127(?:\.\d{1,3}){3}\]$/.test(name);
 }
@@ -96,10 +106,13 @@ export function decideAccess(input: AccessInput): Access {
     return { level: "none", reason: "other_user" };
   }
   // A proxied request with no login is a tagged node, which a tailnet can hold many of; where
-  // Tailscale says this one holds none and that a single login owns every node on it, there is
-  // nobody for that request to be but the owner, so the owner's own phone gets in by opening
-  // the address. Funnel is the public internet, which that proof says nothing about.
-  if (input.loopback && input.forwarded && !input.funnel && input.tailscaleLogin === null && input.owner !== null && input.soleUser) {
+  // Tailscale says one login owns every node on this tailnet and none is tagged, and the request
+  // is addressed to this PC's own name, there is nobody for it to be but the owner, so the owner's
+  // own phone gets in by opening the address. Funnel is the public internet, which that proof says
+  // nothing about, and a proxy forwarding a public domain does not address this PC's name.
+  const soleOwner = input.soleLogin !== null && input.owner !== null && input.soleLogin.toLowerCase() === input.owner.toLowerCase();
+  const addressedHere = input.host !== null && input.dnsName !== null && hostName(input.host) === input.dnsName.toLowerCase();
+  if (input.loopback && input.forwarded && !input.funnel && input.tailscaleLogin === null && input.owner !== null && soleOwner && addressedHere) {
     return { level: "full", via: "tailscale", role: "drive", login: input.owner };
   }
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };

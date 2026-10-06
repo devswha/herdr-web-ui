@@ -1,40 +1,41 @@
 import { describe, expect, it } from "bun:test";
-import { parseSoleTailnetUser, parseTailscale, parseTailscaleIp } from "./tailscale.ts";
+import { parseSoleTailnetLogin, parseTailscale, parseTailscaleIp } from "./tailscale.ts";
 
 const status = (state = "Running", dns = "pc.example.ts.net.") => JSON.stringify({ BackendState: state, Self: { DNSName: dns } });
 /** a `tailscale serve status --json` document: listeners by port, and one "/" proxy per host:port */
 const serve = (tcp: Record<string, { HTTPS?: boolean; HTTP?: boolean }>, web: Record<string, string>) =>
   JSON.stringify({ TCP: tcp, Web: Object.fromEntries(Object.entries(web).map(([key, proxy]) => [key, { Handlers: { "/": { Proxy: proxy } } }])) });
 
-/** a `tailscale status --json` document: this PC, then one peer per `[userId, tags]`, as the real one is shaped */
+/** a `tailscale status --json` document: this PC, then one peer per `[userId, tags]`, as the real one is shaped; `User` names each login by id */
 const tailnet = (self: [number, string[] | undefined], peers: [number, string[] | undefined][] = [], state = "Running") => JSON.stringify({
   BackendState: state,
   Self: { DNSName: "pc.example.ts.net.", UserID: self[0], ...(self[1] ? { Tags: self[1] } : {}) },
   Peer: Object.fromEntries(peers.map(([userId, tags], index) => [`key${index}`, { DNSName: `peer${index}.example.ts.net.`, UserID: userId, ...(tags ? { Tags: tags } : {}) }])),
+  User: Object.fromEntries([self[0], ...peers.map(([userId]) => userId)].map((userId) => [String(userId), { LoginName: `user${userId}@example.com` }])),
 });
 
-describe("parseSoleTailnetUser", () => {
-  it("proves a tailnet one login owns, phones and offline peers included", () => {
+describe("parseSoleTailnetLogin", () => {
+  it("names the login a tailnet one login owns, phones and offline peers included", () => {
     // the shape of the reported tailnet: this Mac plus six of the owner's own untagged devices
-    expect(parseSoleTailnetUser(tailnet([7511875822626835, undefined], Array.from({ length: 6 }, () => [7511875822626835, undefined] as [number, undefined])))).toBe(true);
-    expect(parseSoleTailnetUser(tailnet([42, undefined]))).toBe(true);
-    expect(parseSoleTailnetUser(JSON.stringify({ BackendState: "Running", Self: { UserID: 42 } }))).toBe(true);
+    expect(parseSoleTailnetLogin(tailnet([7511875822626835, undefined], Array.from({ length: 6 }, () => [7511875822626835, undefined] as [number, undefined])))).toBe("user7511875822626835@example.com");
+    expect(parseSoleTailnetLogin(tailnet([42, undefined]))).toBe("user42@example.com");
   });
 
-  it("refuses to prove it where a second login or any tag exists", () => {
-    expect(parseSoleTailnetUser(tailnet([42, undefined], [[42, undefined], [43, undefined]]))).toBe(false);
-    expect(parseSoleTailnetUser(tailnet([42, undefined], [[42, undefined], [42, ["tag:ci"]]]))).toBe(false);
-    expect(parseSoleTailnetUser(tailnet([42, ["tag:server"]], [[42, undefined]]))).toBe(false);
+  it("names no login where a second login or any tag exists", () => {
+    expect(parseSoleTailnetLogin(tailnet([42, undefined], [[42, undefined], [43, undefined]]))).toBeNull();
+    expect(parseSoleTailnetLogin(tailnet([42, undefined], [[42, undefined], [42, ["tag:ci"]]]))).toBeNull();
+    expect(parseSoleTailnetLogin(tailnet([42, ["tag:server"]], [[42, undefined]]))).toBeNull();
     // a peer the status names no owner for is not proof of anything
-    expect(parseSoleTailnetUser(JSON.stringify({ BackendState: "Running", Self: { UserID: 42 }, Peer: { k: { DNSName: "p.example.ts.net." } } }))).toBe(false);
+    expect(parseSoleTailnetLogin(JSON.stringify({ BackendState: "Running", Self: { UserID: 42 }, Peer: { k: { DNSName: "p.example.ts.net." } } }))).toBeNull();
   });
 
-  it("proves nothing from a status it could not read, or a daemon that is not running", () => {
-    expect(parseSoleTailnetUser(tailnet([42, undefined], [], "Stopped"))).toBe(false);
-    expect(parseSoleTailnetUser(tailnet([42, undefined], [], "NeedsLogin"))).toBe(false);
-    expect(parseSoleTailnetUser(JSON.stringify({ BackendState: "Running" }))).toBe(false);
-    expect(parseSoleTailnetUser("not json")).toBe(false);
-    expect(parseSoleTailnetUser(null)).toBe(false);
+  it("names no login the status does not state, nor from a status it could not read, or a daemon that is not running", () => {
+    expect(parseSoleTailnetLogin(JSON.stringify({ BackendState: "Running", Self: { UserID: 42 } }))).toBeNull();
+    expect(parseSoleTailnetLogin(tailnet([42, undefined], [], "Stopped"))).toBeNull();
+    expect(parseSoleTailnetLogin(tailnet([42, undefined], [], "NeedsLogin"))).toBeNull();
+    expect(parseSoleTailnetLogin(JSON.stringify({ BackendState: "Running" }))).toBeNull();
+    expect(parseSoleTailnetLogin("not json")).toBeNull();
+    expect(parseSoleTailnetLogin(null)).toBeNull();
   });
 });
 

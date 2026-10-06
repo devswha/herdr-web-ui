@@ -54,7 +54,7 @@ export function parseTailscale(output: TailscaleOutput | null, port: number): Ta
   if (output === null) return NONE;
   const status = parseJson<StatusJson>(output.status);
   if (status === null || status.BackendState !== "Running") return { ...NONE, state: "stopped" };
-  const dns = status.Self?.DNSName?.replace(/\.$/, "") || null;
+  const dns = parseNodeName(output.status);
   const serve = parseJson<ServeJson>(output.serve);
   const taken = new Set(Object.keys(serve?.TCP ?? {}).map(Number).filter(Number.isFinite));
   let servingUrl: string | null = null;
@@ -116,26 +116,32 @@ export function parseTailscaleOwner(status: string | null): string | null {
   return parsed?.User?.[String(id)]?.LoginName || null;
 }
 
+/** This PC's MagicDNS name from `tailscale status --json`, without its trailing dot; null when it has none. */
+export function parseNodeName(status: string | null): string | null {
+  return parseJson<StatusJson>(status)?.Self?.DNSName?.replace(/\.$/, "") || null;
+}
+
 /**
- * Does `tailscale status --json` prove that one login owns every node of this tailnet, and that
- * none of them is tagged? A tagged node is the one case `tailscale serve` deliberately states no
- * person for, and a tailnet can hold many of those, which is why a proxied request with no login
- * is otherwise a stranger. Where Tailscale says there is no tagged node and no second login, the
+ * The one login `tailscale status --json` proves owns every node of this tailnet, with none of them
+ * tagged, or null. A tagged node is the one case `tailscale serve` deliberately states no person
+ * for, and a tailnet can hold many of those, which is why a proxied request with no login is
+ * otherwise a stranger. Where Tailscale says there is no tagged node and no second login, the
  * owner's own devices are all a tailnet request can come from. A second login, a single tag
  * anywhere, a node whose owner the status does not name, or a status it could not read answer
- * false: the proof has to be positive, never the benefit of the doubt.
+ * null: the proof has to be positive, never the benefit of the doubt.
  */
-export function parseSoleTailnetUser(status: string | null): boolean {
+export function parseSoleTailnetLogin(status: string | null): string | null {
   const parsed = parseJson<StatusJson>(status);
-  if (parsed === null || parsed.BackendState !== "Running") return false;
+  if (parsed === null || parsed.BackendState !== "Running") return null;
   const self = parsed.Self;
-  if (self === undefined) return false;
+  if (self === undefined) return null;
   const owner = self.UserID;
-  if (owner === undefined || owner === null) return false;
+  if (owner === undefined || owner === null) return null;
   // offline peers count: they are nodes of this tailnet and can come back at any moment
   const nodes: NodeJson[] = [self, ...Object.values(parsed.Peer ?? {})];
-  return nodes.every((node) => (node.Tags?.length ?? 0) === 0
+  const sole = nodes.every((node) => (node.Tags?.length ?? 0) === 0
     && node.UserID !== undefined && node.UserID !== null && String(node.UserID) === String(owner));
+  return sole ? parsed.User?.[String(owner)]?.LoginName || null : null;
 }
 
 /** This PC's IPv4 address on the tailnet (100.x.y.z), from `tailscale status --json`; null when it has none. */
@@ -143,18 +149,42 @@ export function parseTailscaleIp(status: string | null): string | null {
   return parseJson<StatusJson>(status)?.Self?.TailscaleIPs?.find((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)) ?? null;
 }
 
+export interface TailnetIdentity {
+  owner: string | null;
+  tagged: boolean;
+  soleLogin: string | null;
+  dnsName: string | null;
+}
+
 const OWNER_TTL_MS = 5 * 60_000;
-let ownerCache: { owner: string | null; tagged: boolean; soleUser: boolean; at: number } | null = null;
+let ownerCache: (TailnetIdentity & { at: number }) | null = null;
 let ownerRefresh: Promise<void> | null = null;
 
+/** Keeps what `tailscale status --json` says about this PC and its tailnet, as `tailscaleIdentity` reads it. */
+export function rememberTailnetStatus(status: string | null): void {
+  ownerCache = {
+    owner: parseTailscaleOwner(status),
+    tagged: isTaggedNode(status),
+    soleLogin: parseSoleTailnetLogin(status),
+    dnsName: parseNodeName(status),
+    at: Date.now(),
+  };
+}
+
+/** Tests: drops what was remembered, once any lookup in flight has landed. */
+export async function forgetTailscaleIdentity(): Promise<void> {
+  await ownerRefresh;
+  ownerCache = null;
+}
+
 /**
- * The PC's own Tailscale login, or that its node is tagged and has none, plus whether one login
- * owns this whole tailnet (`parseSoleTailnetUser`), cached five minutes.
+ * The PC's own Tailscale login, or that its node is tagged and has none, the one login that owns
+ * this whole tailnet (`parseSoleTailnetLogin`), and this PC's MagicDNS name, cached five minutes.
  * A stale value is answered at once and refreshed in the background, so a request never waits
  * on the tailscale CLI; the first lookup is what `createServer` starts, so the answer is
  * usually there before any request.
  */
-export function tailscaleIdentity(): { owner: string | null; tagged: boolean; soleUser: boolean } {
+export function tailscaleIdentity(): TailnetIdentity {
   const now = Date.now();
   if ((ownerCache === null || now - ownerCache.at >= OWNER_TTL_MS) && ownerRefresh === null) {
     ownerRefresh = (async () => {
@@ -162,9 +192,14 @@ export function tailscaleIdentity(): { owner: string | null; tagged: boolean; so
       const status = binary === null ? null : await run(binary, ["status", "--json"]);
       // a CLI that failed this once says nothing new: what it last said stands, so the owner is not
       // taken for a stranger, nor a stranger let in, for the five minutes until it is asked again
-      ownerCache = binary !== null && status === null && ownerCache !== null ? { ...ownerCache, at: Date.now() }
-        : { owner: parseTailscaleOwner(status), tagged: isTaggedNode(status), soleUser: parseSoleTailnetUser(status), at: Date.now() };
+      if (binary !== null && status === null && ownerCache !== null) ownerCache = { ...ownerCache, at: Date.now() };
+      else rememberTailnetStatus(status);
     })().finally(() => { ownerRefresh = null; });
   }
-  return { owner: ownerCache?.owner ?? null, tagged: ownerCache?.tagged ?? false, soleUser: ownerCache?.soleUser ?? false };
+  return {
+    owner: ownerCache?.owner ?? null,
+    tagged: ownerCache?.tagged ?? false,
+    soleLogin: ownerCache?.soleLogin ?? null,
+    dnsName: ownerCache?.dnsName ?? null,
+  };
 }
