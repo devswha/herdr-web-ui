@@ -54,7 +54,7 @@ export function parseTailscale(output: TailscaleOutput | null, port: number): Ta
   if (output === null) return NONE;
   const status = parseJson<StatusJson>(output.status);
   if (status === null || status.BackendState !== "Running") return { ...NONE, state: "stopped" };
-  const dns = parseNodeName(output.status);
+  const dns = status.Self?.DNSName?.replace(/\.$/, "") || null;
   const serve = parseJson<ServeJson>(output.serve);
   const taken = new Set(Object.keys(serve?.TCP ?? {}).map(Number).filter(Number.isFinite));
   let servingUrl: string | null = null;
@@ -116,11 +116,6 @@ export function parseTailscaleOwner(status: string | null): string | null {
   return parsed?.User?.[String(id)]?.LoginName || null;
 }
 
-/** This PC's MagicDNS name from `tailscale status --json`, without its trailing dot; null when it has none. */
-export function parseNodeName(status: string | null): string | null {
-  return parseJson<StatusJson>(status)?.Self?.DNSName?.replace(/\.$/, "") || null;
-}
-
 /**
  * The one login `tailscale status --json` proves owns every node of this tailnet, with none of them
  * tagged, or null. A tagged node is the one case `tailscale serve` deliberately states no person
@@ -153,7 +148,6 @@ export interface TailnetIdentity {
   owner: string | null;
   tagged: boolean;
   soleLogin: string | null;
-  dnsName: string | null;
 }
 
 const OWNER_TTL_MS = 5 * 60_000;
@@ -166,7 +160,6 @@ export function rememberTailnetStatus(status: string | null): void {
     owner: parseTailscaleOwner(status),
     tagged: isTaggedNode(status),
     soleLogin: parseSoleTailnetLogin(status),
-    dnsName: parseNodeName(status),
     at: Date.now(),
   };
 }
@@ -178,8 +171,8 @@ export async function forgetTailscaleIdentity(): Promise<void> {
 }
 
 /**
- * The PC's own Tailscale login, or that its node is tagged and has none, the one login that owns
- * this whole tailnet (`parseSoleTailnetLogin`), and this PC's MagicDNS name, cached five minutes.
+ * The PC's own Tailscale login, or that its node is tagged and has none, and the one login that
+ * owns this whole tailnet (`parseSoleTailnetLogin`), cached five minutes.
  * A stale value is answered at once and refreshed in the background, so a request never waits
  * on the tailscale CLI; the first lookup is what `createServer` starts, so the answer is
  * usually there before any request.
@@ -200,6 +193,5 @@ export function tailscaleIdentity(): TailnetIdentity {
     owner: ownerCache?.owner ?? null,
     tagged: ownerCache?.tagged ?? false,
     soleLogin: ownerCache?.soleLogin ?? null,
-    dnsName: ownerCache?.dnsName ?? null,
   };
 }

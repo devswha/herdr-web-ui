@@ -313,6 +313,8 @@ export function createServer(
     stateDir?: string;
     /** the PC's own Tailscale login, for the identity check; tests set it, otherwise `tailscale status` says */
     tailscaleOwner?: string | null;
+    /** the operator declares `tailscale serve` as this install's only ingress; HERDR_WEB_TAILSCALE_SERVE_ONLY=1 says the same */
+    tailscaleServeOnly?: boolean;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
     updates?: UpdateService;
@@ -381,6 +383,7 @@ export function createServer(
     ? () => ({ ...tailscaleIdentity(), owner: namedOwner, tagged: false })
     : tailscaleIdentity;
   identityOf();
+  const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
 
   /**
    * Runs `task` after everything queued for the pane. While a composer message is in
@@ -1016,10 +1019,10 @@ export function createServer(
         forwarded: cameThroughProxy(request.headers),
         funnel: request.headers.has("tailscale-funnel-request"),
         tailscaleLogin: request.headers.get("tailscale-user-login"),
-        host: request.headers.get("host"),
         tokenMatched: token !== "" && isAuthenticated(request, token),
         device: devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE)),
         ...identityOf(),
+        serveOnly,
         tokenConfigured: token !== "",
         gated: devices.gated,
       });
