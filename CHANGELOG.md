@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The website's headline is "Run herdr from anywhere.", and the page catches up with the app:
+  the Windows install command, pi among the native transcripts, the Alt key and a card for voice
+  input. Its figures now show the contributor count and the plugin's place by stars among herdr
+  plugins, and the comparison with other phone clients was read again in October 2026.
+  ([#494](https://github.com/devswha/herdr-web-ui/pull/494))
+
 ### Fixed
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
   waits on read RUN, and one it asks without waiting (it keeps working, or ends its turn, with
