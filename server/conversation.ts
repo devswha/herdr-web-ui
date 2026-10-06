@@ -189,6 +189,8 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
       const prompt = content.flatMap((block: unknown) => {
         if (block === null || typeof block !== "object") return [];
         const part = block as { type?: string; text?: unknown };
+        // a notice can share an entry with a tool's result
+        if (part.type === "text" && typeof part.text === "string" && notified(part.text, entry.timestamp ?? null)) return [];
         return part.type === "text" && typeof part.text === "string" && !isCommandEntry(part.text.trim()) ? [part.text] : [];
       }).join("\n");
       for (const block of content) {

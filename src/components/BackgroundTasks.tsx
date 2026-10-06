@@ -37,9 +37,17 @@ export function BackgroundTasks({ paneId, count, omo, claude = false }: { paneId
   useEffect(() => {
     if (!claude || count > 0) return;
     let alive = true;
-    fetchPaneOmoActivity(paneId).then((found) => { if (alive && found.tasks.length > 0) setSeen(true); }, () => undefined);
-    return () => { alive = false; };
-    // asked when the pane is shown and again when its count changes: the server may not have found the pane's session yet
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The server answers within a second with what it knows, so a pane whose session it is still
+    // looking for reads as having none: an empty answer is asked again a few times. Agents that
+    // ended before that are told by nothing else, as the count changes only for running ones.
+    const ask = (left: number): void => {
+      const again = (): void => { if (alive && left > 0) timer = setTimeout(() => ask(left - 1), POLL_MS); };
+      fetchPaneOmoActivity(paneId).then((found) => { if (!alive) return; if (found.tasks.length > 0) setSeen(true); else again(); }, again);
+    };
+    ask(3);
+    return () => { alive = false; clearTimeout(timer); };
+    // asked when the pane is shown and again when its count changes
   }, [claude, paneId, count]);
   const [tasks, setTasks] = useState<OmoTask[] | null>(null);
   const [runs, setRuns] = useState<OmoRun[]>([]);

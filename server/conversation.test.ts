@@ -154,6 +154,20 @@ describe("parseClaudeTranscript", () => {
       }] }] });
     });
 
+    it("draws a notice that shares an entry with a tool's result, once", () => {
+      const notice = block('Agent "Review the parser" finished');
+      const entries = [
+        start,
+        { type: "assistant", timestamp: "2026-10-05T00:00:01.000Z", message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_9", name: "Bash", input: { command: "ls" } }] } },
+        { type: "user", timestamp: "2026-10-05T00:01:00.000Z", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_9", content: "a.ts" }, { type: "text", text: notice }] } },
+      ];
+      for (const turns of [read(entries), read([...entries, ...carriers(notice, "2026-10-05T00:01:00.000Z")])]) {
+        expect(turns.map((turn) => turn.parts.map((part) => part.kind).join())).toEqual(["text", "tool", "task_result"]);
+        const tool = turns[1]?.parts[0];
+        expect(tool?.kind === "tool" ? tool.output : tool).toBe("a.ts");
+      }
+    });
+
     it("takes a page's card from the subagent's meta file alone, so it reads the same however the subagent's transcript has grown", () => {
       const root = mkdtempSync(join(tmpdir(), "herdr-subagent-page-")); roots.push(root);
       const path = join(root, "s1.jsonl");
