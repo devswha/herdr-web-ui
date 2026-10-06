@@ -15,6 +15,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A question OmO asks without waiting gets its card in the chat: tap an option, or type a reply
   to answer it. Before, the chat showed no card for it, so an option could only be picked in the
   terminal. ([#488](https://github.com/devswha/herdr-web-ui/pull/488))
+- A Claude, omp or pi pane that has just started opens its chat on the greeting ("What should
+  Claude do in …?"), as an OmO pane already did. Before, until the first message the chat
+  showed the terminal's text or an empty line instead, so a new workspace or worktree never
+  greeted you.
 
 ## [0.3.51] - 2026-10-06
 

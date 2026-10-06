@@ -203,6 +203,35 @@ it("counts the turns a /tree left behind, over HTTP", async () => {
   expect((await read()).abandoned).toEqual({ count: 0, branches: 0, summary: null });
 });
 
+it("answers a session pi has not written yet as an empty conversation, then follows the file it writes", async () => {
+  const fresh = join(slug, "fresh.jsonl");
+  await reportSession(fresh);
+  expect(await read()).toMatchObject({ source: "pi-transcript", turns: [], cursor: null, history_id: "unwritten:fresh" });
+  // a cursor from another conversation is refused, whichever way it points
+  for (const cursor of ["before", "since", "from"]) {
+    const stale = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}&${cursor}=${encodeURIComponent("other:0")}`);
+    expect(stale.status).toBe(409);
+  }
+  // at work on its first turn, pi has written nothing yet: the terminal shows the turn (a status
+  // report carries the session too: one without it would drop the session herdr holds)
+  await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr:pi", agent: "pi", state: "working", seq: nextSeq(), agent_session_path: fresh });
+  try {
+    expect(await read()).toEqual({ source: "scrollback", turns: [] });
+    const stale = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}&from=${encodeURIComponent("other:0")}`);
+    expect(stale.status).toBe(409);
+  } finally {
+    await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr:pi", agent: "pi", state: "idle", seq: nextSeq(), agent_session_path: fresh });
+  }
+  writeFileSync(fresh, turns("First prompt", "First answer"));
+  const written = await read();
+  expect(written.source).toBe("pi-transcript");
+  expect(written.history_id).not.toBe("unwritten:fresh");
+  expect(written.turns[0]!.parts).toEqual([{ kind: "text", text: "First prompt" }]);
+  // a transcript read and then removed is missing, not a conversation not begun
+  rmSync(fresh);
+  expect(await read()).toEqual({ source: "scrollback", turns: [] });
+});
+
 it("falls back to the scrollback when the reported path leaves the store", async () => {
   const outside = join(root, "outside.jsonl");
   writeFileSync(outside, turns("Must not be read", "no"));
