@@ -1904,6 +1904,237 @@ ${MODEL_HINT}
   });
 });
 
+// Claude Code 2.1.290 running /model in a pane of its own, captured at 120 columns, at 46 by 40
+// and at 46 by 24. The list held twelve models; the twelfth was never drawn in a capture, so
+// the fixtures that draw a window stop at the eleventh and count it.
+const CLAUDE_MODELS: [name: string, said: string][] = [
+  ["Default (recommended)", "Fable 5.1"], ["Opus 5.5", "For complex work and everyday tasks"], ["Fable 5.1", "For your toughest challenges"],
+  ["Sonnet 5.5", "Most efficient for simpler tasks"], ["Haiku 4.5", "Fastest for quick answers"], ["Sonnet 5", "Efficient for routine tasks"],
+  ["Opus 5", "Best for everyday, complex tasks"], ["Fable 5", "Most capable for your hardest and longest-running tasks"],
+  ["Opus 4.8", "Best for everyday, complex tasks"], ["Opus 4.7", "Best for everyday, complex tasks"], ["Opus 4.6", "Best for everyday, complex tasks"],
+];
+const CLAUDE_MODEL_HINT = "  Enter to set as default · s to use this session only · Esc to cancel";
+/** after Esc in the terminal: Claude says what it kept and has its input box back */
+const CLAUDE_MODEL_CLOSED = `❯ /model\n  ⎿  Kept model as Opus 5.5\n\n${"─".repeat(60)}\n❯ \n${"─".repeat(60)}\n  [Opus 5.5] │ app git:(main)\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n`;
+/**
+ * The list as a wide pane shows it: `shown` rows from row `from`, the cursor on row `at`, `✔` on
+ * the second. The cursor's column holds `↑` or `↓` on the window's first and last row when the
+ * list goes on beyond it, and the effort line under the rows follows the cursor.
+ */
+function claudeModelList(at: number, from = 0, shown = 10, hint = CLAUDE_MODEL_HINT): string {
+  const window = CLAUDE_MODELS.slice(from, from + shown);
+  const below = 12 - from - window.length;
+  const rows = window.map(([name, said], index) => {
+    const row = from + index;
+    const mark = row === at ? "❯" : index === 0 && from > 0 ? "↑" : index === window.length - 1 && below > 0 ? "↓" : " ";
+    return `  ${mark} ${`${row + 1}.`.padEnd(3)} ${`${name}${row === 1 ? " ✔" : ""}`.padEnd(21)}  ${said}`;
+  });
+  return [
+    "❯ /model", "", "─".repeat(120), "  Select model",
+    "  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names,",
+    "  specify with --model.", "", ...rows, ...(below > 0 ? [`     … +${below} model${below === 1 ? "" : "s"}`] : []), "",
+    at === 4 ? "  ○ Effort not supported for Haiku 4.5" : at === 2 ? "  ● High effort (default) ←/→ to adjust" : "  ◐ Medium effort (default) ←/→ to adjust",
+    "", hint, "",
+  ].join("\n");
+}
+
+describe("Claude Code's model list", () => {
+  test("reads the rows it draws, naming the model in use and counting the ones it holds back", () => {
+    // the capture itself, so that the drawing above is checked against what Claude drew
+    const captured = `❯ /model
+
+${"─".repeat(120)}
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names,
+  specify with --model.
+
+    1.  Default (recommended)  Fable 5.1
+  ❯ 2.  Opus 5.5 ✔             For complex work and everyday tasks
+    3.  Fable 5.1              For your toughest challenges
+    4.  Sonnet 5.5             Most efficient for simpler tasks
+    5.  Haiku 4.5              Fastest for quick answers
+    6.  Sonnet 5               Efficient for routine tasks
+    7.  Opus 5                 Best for everyday, complex tasks
+    8.  Fable 5                Most capable for your hardest and longest-running tasks
+    9.  Opus 4.8               Best for everyday, complex tasks
+  ↓ 10. Opus 4.7               Best for everyday, complex tasks
+     … +2 models
+
+  ◐ Medium effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this session only · Esc to cancel
+`;
+    expect(claudeModelList(1)).toBe(captured);
+    const prompt = parseInteractivePrompt("claude", captured)!;
+    expect(prompt).toMatchObject({ agent: "claude", kind: "question", title: "", body: null, multi_select: false, custom_option_index: null });
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 2 more models are listed in the terminal.");
+    expect(prompt.options).toEqual(CLAUDE_MODELS.slice(0, 10).map(([label, description]) => ({ label, description })));
+    // herdr reports the pane idle while the list waits: no other agent's reader takes it for its own
+    for (const agent of ["codex", "omp", "pi", "omo", ""]) expect(parseInteractivePrompt(agent, captured)).toBeNull();
+  });
+
+  test("is one card wherever the cursor stands, whatever effort the row under it would run at", () => {
+    const first = parseInteractivePrompt("claude", claudeModelList(1))!;
+    for (const at of [0, 2, 4, 9]) expect(parseInteractivePrompt("claude", claudeModelList(at))!.id).toBe(first.id);
+  });
+
+  test("reads a window further down the list, and the last row with the cursor on it", () => {
+    // nine ↓ from the second row: the window has moved one row down, `↑` on its first
+    const scrolled = claudeModelList(10, 1);
+    expect(scrolled).toContain("  ↑ 2.  Opus 5.5 ✔             For complex work and everyday tasks\n");
+    expect(scrolled).toContain("  ❯ 11. Opus 4.6               Best for everyday, complex tasks\n     … +1 model\n");
+    const prompt = parseInteractivePrompt("claude", scrolled)!;
+    expect(labels(prompt)).toEqual(CLAUDE_MODELS.slice(1, 11).map(([name]) => name));
+    // one above the window, one below it
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 2 more models are listed in the terminal.");
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 1))!.id).toBe(prompt.id);
+    expect(prompt.id).not.toBe(parseInteractivePrompt("claude", claudeModelList(1))!.id);
+    // the model in use above the window: the card does not name one
+    expect(parseInteractivePrompt("claude", claudeModelList(4, 2))!.question).toBe("Select model for this session. 3 more models are listed in the terminal.");
+  });
+
+  test("reads the list by family that another session drew, with nothing held back", () => {
+    // captured from the same Claude Code a few minutes apart: five rows, the name in what a row says
+    const families = `   Select model
+   Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names,
+   specify with --model.
+
+   ❯ 1. Default (recommended) ✔  Opus 5.5 · Best for everyday, complex tasks
+     2. Opus                     Opus 5.5 · Best for everyday, complex tasks
+     3. Fable                    Fable 5.1 · Most capable for your hardest and longest-running tasks
+     4. Sonnet                   Sonnet 5.5 · Efficient for routine tasks
+     5. Haiku                    Haiku 4.5 · Fastest for quick answers
+
+   ◐ Medium effort (default) ←/→ to adjust
+
+   Enter to set as default · s to use this session only · Esc to cancel
+`;
+    const prompt = parseInteractivePrompt("claude", families)!;
+    expect(prompt.question).toBe("Select model for this session (currently Default)");
+    expect(prompt.options).toEqual([
+      { label: "Default (recommended)", description: "Opus 5.5 · Best for everyday, complex tasks" },
+      { label: "Opus", description: "Opus 5.5 · Best for everyday, complex tasks" },
+      { label: "Fable", description: "Fable 5.1 · Most capable for your hardest and longest-running tasks" },
+      { label: "Sonnet", description: "Sonnet 5.5 · Efficient for routine tasks" },
+      { label: "Haiku", description: "Haiku 4.5 · Fastest for quick answers" },
+    ]);
+  });
+
+  // 46 columns by 24 lines, the pane a phone leaves: the title has scrolled off the top, Claude
+  // draws five rows of the twelve, and what a row says wraps under itself
+  const PHONE = `  becomes the default for new sessions. For
+  other/previous model names, specify with
+  --model.
+
+    1.  Default (recommended)  Fable 5.1
+  ❯ 2.  Opus 5.5 ✔             For complex
+                               work and
+                               everyday
+                               tasks
+    3.  Fable 5.1              For your
+                               toughest
+                               challenges
+    4.  Sonnet 5.5             Most
+                               efficient for
+                               simpler
+                               tasks
+  ↓ 5.  Haiku 4.5              Fastest for
+                               quick answers
+     … +7 models
+
+  ◐ Medium effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this
+  session only · Esc to cancel
+`;
+
+  test("reads the list off a phone's pane, with its title scrolled off and its rows wrapped", () => {
+    const prompt = parseInteractivePrompt("claude", PHONE)!;
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 7 more models are listed in the terminal.");
+    expect(prompt.options).toEqual(CLAUDE_MODELS.slice(0, 5).map(([label, description]) => ({ label, description })));
+    // the same pane 40 lines tall draws ten rows, and cuts the one word longer than its column
+    const cut = `    7.  Opus 5                 Best for
+                               everyday,
+                               complex tasks
+  ❯ 8.  Fable 5                Most capable
+                               for your
+                               hardest and
+                               longest-runni
+                               ng tasks
+    9.  Opus 4.8               Best for
+                               everyday,
+                               complex tasks
+  ↓ 10. Opus 4.7               Best for
+                               everyday,
+                               complex tasks
+     … +2 models
+
+  ● High effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this
+  session only · Esc to cancel
+`;
+    expect(parseInteractivePrompt("claude", cut)!.options).toEqual(CLAUDE_MODELS.slice(6, 10).map(([label, description]) => ({ label, description })));
+  });
+
+  test("picks with s, the key for this session only, and never with Enter", () => {
+    const prompt = parseInteractivePrompt("claude", claudeModelList(1))!;
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ text: "s" }]);
+    expect(answerKeys(prompt, { option_index: 4 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["down"] }, { text: "s" }]);
+    expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["up"] }, { text: "s" }]);
+    // a window further down: the moves count from the cursor's place in it
+    expect(answerKeys(parseInteractivePrompt("claude", claudeModelList(10, 1))!, { option_index: 7 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { text: "s" }]);
+    expect(() => answerKeys(prompt, { custom_text: "opus" })).toThrow();
+    expect(() => answerKeys(prompt, { option_index: 10 })).toThrow();
+  });
+
+  test("offers no card for a list that is not waiting, or that names no key for this session", () => {
+    expect(parseInteractivePrompt("claude", CLAUDE_MODEL_CLOSED)).toBeNull();
+    // the list's text left above later output takes no key any more
+    expect(parseInteractivePrompt("claude", `${claudeModelList(1)}Some later output\nand more\n`)).toBeNull();
+    // a list that takes Enter alone would save the pick as the default: not this card's to press
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 0, 10, "  Enter to set as default · Esc to cancel"))).toBeNull();
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 0, 10, "  Enter to confirm · Esc to cancel"))).toBeNull();
+  });
+
+  test("offers no card for rows it cannot read as the list drew them", () => {
+    const list = claudeModelList(1);
+    // no cursor on any row drawn, or on two of them
+    expect(parseInteractivePrompt("claude", list.replace("  ❯ 2. ", "    2. "))).toBeNull();
+    expect(parseInteractivePrompt("claude", list.replace("    4. ", "  ❯ 4. "))).toBeNull();
+    // a name the pane cut in two stands under its row at the name's own column. Half a name is no
+    // model: that row is left to the terminal, and the rows under it are offered as they read
+    const split = PHONE.replace("    1.  Default (recommended)  Fable 5.1", "    1.  Default\n        (recommended)          Fable 5.1");
+    expect(parseInteractivePrompt("claude", split)).not.toBeNull();
+    expect(labels(parseInteractivePrompt("claude", split))).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 4.5"]);
+    expect(parseInteractivePrompt("claude", split)!.question).toBe("Select model for this session (currently Opus 5.5). 8 more models are listed in the terminal.");
+    // the last row cut so: nothing under it says where the list ends
+    expect(parseInteractivePrompt("claude", PHONE.replace("  ↓ 5.  Haiku 4.5              Fastest for\n                               quick answers", "  ↓ 5.  Haiku\n        4.5                    Fastest"))).toBeNull();
+    // one row is no choice
+    expect(parseInteractivePrompt("claude", claudeModelList(1, 1, 1))).toBeNull();
+    // more under the rows than the effort line: another program's text over the same hint
+    expect(parseInteractivePrompt("claude", list.replace("\n\n  ◐ Medium", "\n\n  one\n  two\n  three\n  ◐ Medium"))).toBeNull();
+  });
+
+  test("reads a wrapped line by its column, whatever it begins with", () => {
+    // what a row says can wrap onto a line that begins like a row of its own
+    const numbered = PHONE.replace("                               work and\n                               everyday", "                               work and\n                               3. everyday");
+    expect(numbered).not.toBe(PHONE);
+    const prompt = parseInteractivePrompt("claude", numbered)!;
+    expect(labels(prompt)).toEqual(CLAUDE_MODELS.slice(0, 5).map(([name]) => name));
+    expect(prompt.options[1]!.description).toBe("For complex work and 3. everyday tasks");
+  });
+
+  test("takes no numbered line above the list for one of its rows", () => {
+    // an answer's own list in the transcript, right above the panel
+    const answered = `● Here are the steps:\n  1. Read the file\n  2. Run the tests\n\n${claudeModelList(1)}`;
+    expect(labels(parseInteractivePrompt("claude", answered))).toEqual(CLAUDE_MODELS.slice(0, 10).map(([name]) => name));
+    // even where its count runs on into the window's first row
+    const ranOn = `● Options:\n  1. Keep it\n${claudeModelList(10, 1)}`;
+    expect(labels(parseInteractivePrompt("claude", ranOn))).toEqual(CLAUDE_MODELS.slice(1, 11).map(([name]) => name));
+  });
+});
+
 // The answer route against a herdr that only holds a screen: what the pane shows is the test's to
 // change, between two reads or under an answer's own keys, and every key the route sends is kept.
 describe("an answer and the menu it was made for", () => {
@@ -2494,6 +2725,12 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         draw: (at) => `────────────────────────────────────────\n\nOnly showing models from configured providers. Use /login to add providers.\n>\n\n${at === 0 ? "→" : " "} ✓ vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default\n${at === 1 ? "→" : " "}   vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]\n Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel\n────────────────────────────────────────${FOOTER}`,
       },
       {
+        // the last row drawn carries the cursor where it carried `↓`, under another effort line
+        name: "Claude's model list, to the last row it draws", agent: "claude", status: "idle", rows: 10, start: 1, choice: { option_index: 9 },
+        sent: [...Array.from({ length: 8 }, () => "down"), "text:s"],
+        draw: (at) => claudeModelList(at),
+      },
+      {
         name: "omo's review, from its comment up to an answer", agent: "pi", rows: 3, start: 2, choice: { option_index: 2 }, sent: ["up", "enter"],
         draw: (at) => `\n [표시 위치] [월 한도] wait for answer\n\n${rule}\n\n Ask user · 30m\n   표시 위치 ✓    월 한도 ✓  → Submit\n Review your answers\n ${at === 0 ? "→" : " "} 표시 위치: 설정 > 음성 입력 (추천)\n ${at === 1 ? "→" : " "} 월 한도: 월 $5 한도\n\n Comment (optional; unanswered questions are reported)\n>\n Submit (2/2 answered)\n ${at === 2 ? "enter submit  ↑ review answers  shift+tab back  tab next question  esc back" : "enter edit answer  ↑↓ move  tab next question  esc back"}\n${omoFooter}`,
       },
@@ -2516,6 +2753,49 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         });
       });
     }
+  });
+
+  test("picks Claude's model with s only where the list still shows that model under the cursor", async () => {
+    // the cursor's own row: the list is looked at again, then the letter alone, and never an Enter
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["text:s"]);
+    });
+    // closed in the terminal right after the answer read it, with no move to wait on: the look
+    // before the letter is what keeps it out of Claude's own prompt
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let reads = 1;
+      pane.onRead = () => { if ((reads += 1) === 3) pane.screen = CLAUDE_MODEL_CLOSED; };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual([]);
+    });
+    // a pane made shorter under the moves: Claude draws five rows of the list, another card, and
+    // the model under the cursor is still the one that was tapped
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let at = 1;
+      pane.onSent = (sent) => { if (sent === "down") at += 1; pane.screen = claudeModelList(at, 0, 5); };
+      expect(parseInteractivePrompt("claude", claudeModelList(3, 0, 5))!.id).not.toBe(parseInteractivePrompt("claude", claudeModelList(3))!.id);
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "text:s"]);
+    });
+    // closed in the terminal under the moves: the letter would be typed into Claude's own prompt
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = () => { pane.screen = CLAUDE_MODEL_CLOSED; };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down", "down"]);
+    });
+    // a key typed in the terminal at the same moment, one more row down: another model's row
+    await withPane("claude", "idle", claudeModelList(1), async (pane) => {
+      const prompt = (await card())!;
+      let at = 1;
+      pane.onSent = (sent) => { if (sent === "down") at += at === 1 ? 2 : 1; pane.screen = claudeModelList(at); };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down", "down"]);
+    });
   });
 
   test("a screen read that comes back after the wait authorises no key", async () => {

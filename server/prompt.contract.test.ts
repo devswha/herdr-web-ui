@@ -261,6 +261,95 @@ describe("answers to pi's dialogs", () => {
 });
 
 /**
+ * Claude Code's `/model` list against the real server. A pane runs a list drawn the way Claude
+ * Code 2.1.290 draws it, reported as `claude` and, as measured on Claude Code itself, **idle**
+ * while it waits. ↑/↓ move its `❯` inside a window of the list, `s` takes the row for the
+ * session and Enter saves it as the default: the log says which key took which model.
+ */
+const MODEL_LIST = `
+const { appendFileSync, writeFileSync } = require("node:fs");
+const [out, spec] = process.argv.slice(2);
+const { models, current, shown } = JSON.parse(spec);
+let cursor = current;
+let from = 0;
+let taken = null;
+const draw = () => {
+  if (taken !== null) return void process.stdout.write("\\u001b[2J\\u001b[H" + ["❯ /model", "  ⎿  Set model to " + taken + " for this session only", "", "─".repeat(60), "❯ ", "─".repeat(60), "  [" + taken + "] │ app git:(main)"].join("\\r\\n"));
+  // the window moves only when the cursor leaves it
+  if (cursor < from) from = cursor;
+  if (cursor >= from + shown) from = cursor - shown + 1;
+  const below = models.length - from - shown;
+  const rows = models.slice(from, from + shown).map(([name, said], index) => {
+    const row = from + index;
+    const mark = row === cursor ? "❯" : index === 0 && from > 0 ? "↑" : index === shown - 1 && below > 0 ? "↓" : " ";
+    return "  " + mark + " " + (row + 1 + ".").padEnd(3) + " " + (name + (row === current ? " ✔" : "")).padEnd(21) + "  " + said;
+  });
+  process.stdout.write("\\u001b[2J\\u001b[H" + [
+    "❯ /model", "", "─".repeat(100), "  Select model", "  Switch between Claude models. Your pick becomes the default for new sessions.", "",
+    ...rows, ...(below > 0 ? ["     … +" + below + " model" + (below === 1 ? "" : "s")] : []), "",
+    "  ◐ Medium effort (default) ←/→ to adjust", "", "  Enter to set as default · s to use this session only · Esc to cancel",
+  ].join("\\r\\n"));
+};
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => {
+  for (const key of chunk.toString("utf8").match(/\\u001b[\\[O][AB]|\\r|s/g) ?? []) {
+    if (taken !== null) break;
+    if (key.endsWith("B")) cursor = Math.min(models.length - 1, cursor + 1);
+    else if (key.endsWith("A")) cursor = Math.max(0, cursor - 1);
+    else {
+      appendFileSync(out, (key === "s" ? "session: " : "default: ") + models[cursor][0] + "\\n");
+      taken = models[cursor][0];
+    }
+  }
+  draw();
+});
+draw();
+writeFileSync(out, "");
+`;
+
+describe("picks from Claude Code's model list", () => {
+  const MODELS: [name: string, said: string][] = [
+    ["Default (recommended)", "Fable 5.1"], ["Opus 5.5", "For complex work and everyday tasks"], ["Fable 5.1", "For your toughest challenges"],
+    ["Sonnet 5.5", "Most efficient for simpler tasks"], ["Haiku 4.5", "Fastest for quick answers"], ["Sonnet 5", "Efficient for routine tasks"],
+    ["Opus 5", "Best for everyday, complex tasks"],
+  ];
+  let models: Menu;
+
+  beforeAll(async () => {
+    writeFileSync(join(root, "model.js"), MODEL_LIST);
+    const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+      "workspace.create", { label: "herdr-web-ui-test-prompt-claude-model", cwd: root, focus: false },
+    );
+    workspaces.push(created.workspace.workspace_id);
+    const log = join(root, "claude-model.log");
+    // five rows of seven, the second in use: a window, as a pane shorter than the list gets
+    await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "claude")}' '${join(root, "model.js")}' '${log}' '${JSON.stringify({ models: MODELS, current: 1, shown: 5 })}'\n` });
+    for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
+    expect(existsSync(log)).toBe(true);
+    await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "claude", state: "idle" });
+    models = { pane: created.root_pane.pane_id, log };
+  }, 30_000);
+
+  it("offers the rows drawn while herdr reports the pane idle, and takes the tapped one for this session", async () => {
+    const prompt = await card(models);
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 2 more models are listed in the terminal.");
+    expect(prompt.options.map((option) => option.label)).toEqual(MODELS.slice(0, 5).map(([name]) => name));
+    // the window's last row, three below the cursor: ↓ ↓ ↓ and then s, never the Enter that saves a default
+    expect((await answer(models, prompt.id, 4)).status).toBe(200);
+    expect(await confirmed(models)).toEqual(["session: Haiku 4.5"]);
+    // Claude has closed its list: the card goes with it
+    let after: unknown = prompt;
+    for (let i = 0; i < 100 && after !== null; i++) {
+      await Bun.sleep(50);
+      after = (await (await fetch(`${base()}/api/pane/prompt?pane_id=${encodeURIComponent(models.pane)}`)).json() as { prompt: unknown }).prompt;
+    }
+    expect(after).toBeNull();
+    expect(chosen(models)).toEqual(["session: Haiku 4.5"]);
+  });
+});
+
+/**
  * The answers that had no second look before their Enter (a Codex menu, omp's permission), against
  * the real server. A pane draws screens the way those agents draw them and logs
  * every key it is sent: `{n}` in a line is row n's cursor. `swap`: on that key the next screen

@@ -37,6 +37,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A question OmO asks without waiting gets its card in the chat: tap an option, or type a reply
   to answer it. Before, the chat showed no card for it, so an option could only be picked in the
   terminal. ([#488](https://github.com/devswha/herdr-web-ui/pull/488))
+- `/model` sent from a Claude Code pane's chat shows Claude's model list as a card: tap a model,
+  or type its number, and that pane's session switches to it. Before, the chat showed nothing
+  while the terminal waited on the list, so a model could only be picked there. The card picks
+  for this session only (Claude's `s` key). Saving a model as the default for new sessions stays
+  in the terminal, where Enter on the list does it. The card offers the rows Claude draws (ten of
+  a longer list, fewer in a short pane) and says how many more the terminal lists.
 
 ## [0.3.51] - 2026-10-06
 

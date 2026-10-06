@@ -28,6 +28,9 @@ const CLAUDE_TABS_RE = /^←\s+[☐☒☑✔]/;
 // Claude Code's unnumbered menus (the folder-trust check on a new folder, among others):
 // plain rows, `❯` on the selected one, under this hint
 const CLAUDE_CONFIRM_HINT_RE = /enter to confirm.*esc to (?:cancel|exit|go back)/i;
+// Claude Code's `/model` list, by the two keys it takes a pick with: Enter saves it as the default
+// for new sessions, `s` keeps it to this session
+const CLAUDE_MODEL_HINT_RE = /enter to set as default.*\bs to use this session only.*esc to cancel/i;
 const SOLID_RULE_RE = /^[─━]{8,}$/;
 const CODEX_APPROVAL_HEADER_RE =
   /(?:Would you like to (?:run|make|apply|continue|grant)|Allow Codex to|Approve (?:this )?(?:app )?tool call|Do you trust the contents|Trust this folder\?|Enable full access)/i;
@@ -82,6 +85,7 @@ type Responder =
   | "claude-approval"
   | "claude-plan"
   | "claude-confirm"
+  | "claude-model"
   | "omo-question"
   | "omo-review"
   | "omo-typing"
@@ -1227,6 +1231,129 @@ function parseClaudeConfirm(screen: string): ParsedPrompt | null {
 }
 
 /**
+ * Claude Code's `/model` list, live in 2.1.290:
+ *
+ *   Select model
+ *   Switch between Claude models. Your pick becomes the default for new sessions. …
+ *
+ *     1.  Default (recommended)  Fable 5.1
+ *   ❯ 2.  Opus 5.5 ✔             For complex work and everyday tasks
+ *     …
+ *   ↓ 10. Opus 4.7               Best for everyday, complex tasks
+ *      … +2 models
+ *
+ *   ◐ Medium effort (default) ←/→ to adjust
+ *
+ *   Enter to set as default · s to use this session only · Esc to cancel
+ *
+ * herdr never reports the pane blocked while it waits (idle, on herdr 0.9.3), so the card can
+ * only come from the screen. The list is read off its hint, the one line that is always there:
+ * a pane shorter than the list scrolls the title off its top, and Claude then draws fewer rows
+ * (five of twelve at 24 lines) so that the one under the cursor stays on screen.
+ *
+ * What the list holds is Claude's to decide and differs from one session to the next (twelve
+ * models by name, or five by family with the name in the description), so a row is read by its
+ * shape alone: its number, what it names, `✔` on the model in use, and after two spaces or more
+ * what it says of it, which a narrow pane wraps under itself at the same column. The rows drawn
+ * are a window on the list: `↑` and `↓` stand in the cursor's column on the first and last of
+ * them when more lie beyond, and `… +2 models` counts the ones below. Only the rows drawn become
+ * options, the rest are counted for the card to say so.
+ *
+ * The line under the rows is the effort the pick would run at. It follows the cursor (a model's
+ * own default, or the session's when one was set), so it is no part of what the card asks.
+ */
+const CLAUDE_MODEL_ROW_RE = /^\s*([❯›>↑↓])?\s*(\d+)\.\s+(\S.*)$/;
+const CLAUDE_MODEL_MORE_RE = /^…\s*\+(\d+) models?$/;
+/** lines between the rows and the hint, at most: the effort line, wrapped by a narrow pane */
+const CLAUDE_MODEL_UNDER_LINES = 3;
+
+interface ClaudeModelRow {
+  number: number; label: string; cursor: boolean; current: boolean;
+  /** what the row says of its model, a line of it per entry, and the column it is drawn at */
+  said: string[]; column: number;
+}
+
+function claudeModelRow(line: string): ClaudeModelRow | null {
+  const match = CLAUDE_MODEL_ROW_RE.exec(line);
+  if (!match) return null;
+  const text = match[3]!;
+  const gap = /\s{2,}/.exec(text);
+  const name = gap ? text.slice(0, gap.index) : text;
+  const said = gap ? text.slice(gap.index + gap[0].length) : null;
+  return {
+    number: Number.parseInt(match[2]!, 10), label: name.replace(/\s*[✔✓]$/, ""), cursor: SELECTED_RE.test(match[1] ?? ""),
+    current: /\s[✔✓]$/.test(name), said: said === null ? [] : [said],
+    // in the terminal's columns, as the lines wrapped under it are indented: a wide glyph in the name takes two
+    column: said === null ? -1 : Bun.stringWidth(line.slice(0, line.length - said.length)),
+  };
+}
+
+function parseClaudeModel(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
+  const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_MODEL_HINT_RE.test(wrapped(lines, index)));
+  if (hintIndex < 0) return null;
+  // The rows right above the hint, read downward. A row that does not count on from the one
+  // above it, or that follows anything but its own wrapped text, starts the list again: numbered
+  // lines further up (an answer's own list) are nothing of this menu's.
+  let rows: ClaudeModelRow[] = [];
+  let below = 0;
+  let ended = false;
+  let unread = false;
+  let last = -1;
+  for (let index = Math.max(0, hintIndex - 80); index < hintIndex; index += 1) {
+    const line = lines[index]!;
+    const text = line.trim();
+    const above = ended ? undefined : rows.at(-1);
+    // what a row says, wrapped under itself: told by its column, before anything it happens to begin with
+    if (above !== undefined && text !== "" && above.column >= 0 && line.length - line.trimStart().length === above.column) {
+      above.said.push(text);
+      last = index;
+      continue;
+    }
+    const row = claudeModelRow(line);
+    if (row) {
+      if (above === undefined || row.number !== above.number + 1) rows = [];
+      rows.push(row);
+      [below, ended, unread, last] = [0, false, false, index];
+      continue;
+    }
+    if (above === undefined || text === "") { ended = true; continue; }
+    const more = CLAUDE_MODEL_MORE_RE.exec(text);
+    if (more) [below, ended, last] = [Number(more[1]), true, index];
+    // a line under a row that is not its wrapped text (a name the pane cut in two): not a row to offer
+    else [ended, unread] = [true, true];
+  }
+  const under = lines.slice(last + 1, hintIndex).filter((line) => line.trim() !== "").length;
+  const selectedIndex = rows.findIndex((row) => row.cursor);
+  if (unread || under > CLAUDE_MODEL_UNDER_LINES || rows.length < 2 || rows.filter((row) => row.cursor).length !== 1) return null;
+  // A word longer than its column is cut where the column ends and goes on with no space
+  // (`longest-runni` / `ng tasks`); any other line ends where a space was.
+  const width = Math.max(0, ...rows.flatMap((row) => row.said.length > 1 ? row.said.map((part) => part.length) : []));
+  const said = (parts: string[]): string | null => parts.length === 0 ? null
+    : parts.reduce((text, part, index) => `${text}${parts[index - 1]!.length === width && !/\s/.test(parts[index - 1]!) ? "" : " "}${part}`);
+  // counted, not named: the rows above the window (the list counts from 1) and the ones below it
+  const hidden = rows[0]!.number - 1 + below;
+  const current = rows.find((row) => row.current);
+  // "Default (recommended)" in use reads as Default: the tag is the list's advice, not the model's name
+  const asked = `Select model for this session${current ? ` (currently ${current.label.replace(/\s*\(recommended\)$/i, "")})` : ""}`;
+  return finishPrompt("claude", {
+    kind: "question",
+    title: "",
+    question: hidden > 0 ? `${asked}. ${hidden} more ${hidden === 1 ? "model is" : "models are"} listed in the terminal.` : asked,
+    body: null,
+    options: rows.map((row) => ({ label: row.label, description: said(row.said) })),
+    multi_select: false,
+    custom_option_index: null,
+  }, {
+    // a row by its number in the whole list too: the window moves, and two rows may share a name
+    responder: "claude-model", menuLabels: rows.map((row) => `${row.number}. ${row.label}`), selectedIndex,
+    checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+    // `s`, never Enter: the pick stays in this session, and the default for new ones is left alone
+    optionSteps: rows.map((_, index) => [...keySteps(navigationKeys(index - selectedIndex)), { text: "s" }]),
+  });
+}
+
+/**
  * Claude Code keeps its task list under an open panel (2.1.289): a rule with the session's name
  * on it, `3 tasks (0 done, 1 in progress, 2 open)`, a row per task (◻ ◼ ✔), an in-progress task's
  * activity (`…`) and `… +2 pending`. Cut off, the panel is the last thing on screen again.
@@ -1285,6 +1412,7 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   if (prompt.responder === "omp-approval") return ends(/^(?:[›>❯•]\s*)?(?:Approve|Deny)$|esc.*cancel/i);
   if (prompt.responder === "claude-approval") return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain/i);
   if (prompt.responder === "claude-confirm") return ends(CLAUDE_CONFIRM_HINT_RE);
+  if (prompt.responder === "claude-model") return ends(CLAUDE_MODEL_HINT_RE);
   if (prompt.responder === "omo-question" || prompt.responder === "omo-review" || prompt.responder === "omo-typing") {
     // The form is live only with nothing but OmO's own footer under its hint: blank lines, one
     // rule, then the footer's few lines (cwd, context, model). Anything else is the form's text
@@ -1605,7 +1733,7 @@ function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null
       // `pi` reads pi's own dialogs first: pi's hint is its own, so an omo form never matches
       // it and falls through to omo()'s parsers.
       : agent === "claude"
-        ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), ...omo()]
+        ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), parseClaudeModel(screen), ...omo()]
         : agent === "pi"
           ? [parsePiModel(screen), parsePiDialog(screen), ...omo()]
         : agent === "omo" || agent === ""
@@ -2362,8 +2490,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         // where the moves sent so far leave the cursor (↑ stops at the first row: omoWalk)
         let cursor = parsed.selectedIndex;
         // Claude's unnumbered rows and pi's models are read with no number to aim at: looked at
-        // again before the Enter even when it needs no move
-        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question";
+        // again before the Enter even when it needs no move. So is Claude's model list, picked
+        // with a letter: typed after the list has gone, it would stand in the agent's own prompt
+        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question" || responder === "claude-model";
         /** Whether the screen is the card's own menu, with the cursor on the row the moves were for. */
         const aimed = (shown: ParsedPrompt | null, screen: string): boolean => {
           // pi's catalogue shows ten rows of a longer list and scrolls under the cursor, so the
@@ -2371,6 +2500,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           // hold is the model under the cursor, by name. A wrong model, unlike a wrong menu
           // entry, answers every later turn silently
           if (responder === "pi-model") return shown?.responder === "pi-model" && shown.options[shown.selectedIndex]?.label === parsed.options[cursor]?.label;
+          // Claude's list is a window too, drawn with fewer rows in a pane made shorter meanwhile:
+          // the model under the cursor, by its number in the list and its name
+          if (responder === "claude-model") return shown?.responder === "claude-model" && shown.menuLabels[shown.selectedIndex] === parsed.menuLabels[cursor];
           // a dialog of pi's has a card only with its cursor on the first row (parsePiDialog),
           // which the answer's own moves have just left: read off the screen itself
           if ((responder === "pi-question" || responder === "pi-confirm") && cursor !== 0) {
