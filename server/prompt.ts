@@ -1409,7 +1409,7 @@ function listRows(lines: string[], hintIndex: number, shape: RegExp, more: RegEx
 const CODEX_MODEL_ROW_RE = /^\s*([❯›>])?\s*(\d+)\.\s+(\S.*)$/;
 /** lines Codex puts under a list's title, at most: what the list is for, a warning */
 const CODEX_MODEL_NOTE_LINES = 2;
-/** how far back from the end of the screen a list's title is looked for, in lines that are not blank */
+/** how far back a footer is looked for, including words split across very narrow lines */
 const CODEX_MODEL_TAIL_LINES = 30;
 
 /**
@@ -1419,19 +1419,19 @@ const CODEX_MODEL_TAIL_LINES = 30;
  * wraps the model's name under it, and the two are read as one. Lines over the title are the
  * conversation's.
  */
-function codexModelHeader(lines: string[], first: number): { title: string; model: string | undefined; notes: string[] } | null {
+function codexModelHeader(lines: string[], first: number, allowPresets = false): { title: string; model: string | undefined; notes: string[] } | null {
   let end = first - 1;
   while (end >= 0 && !cleanLine(lines[end]!)) end -= 1;
   let start = end;
   while (start > 0 && cleanLine(lines[start - 1]!)) start -= 1;
   const block = end < 0 ? [] : lines.slice(start, end + 1).map(cleanLine);
-  const at = findLastIndex(block, (line) => /^(?:Select (?:Model|Reasoning)\b|Advanced Reasoning$)/.test(line));
+  const at = findLastIndex(block, (line) => /^(?:Select\b|Advanced Reasoning$)/.test(line));
   if (at < 0) return null;
   // the levels' title runs on to the end of the block when it wrapped; the others are one line
   const whole = /^Select Reasoning Level for(?: \S.*)?$/.test(block[at]!) ? block.slice(at).join(" ") : block[at]!;
   const match = CODEX_MODEL_TITLE_RE.exec(whole);
   const notes = whole === block[at] ? block.slice(at + 1) : [];
-  return match && notes.length <= CODEX_MODEL_NOTE_LINES ? { title: whole, model: match[1], notes } : null;
+  return (match || (allowPresets && whole === "Select Model")) && notes.length <= CODEX_MODEL_NOTE_LINES ? { title: whole, model: match?.[1], notes } : null;
 }
 
 /** The key a Codex list's footer names for picking the row under the cursor; null for any other footer. */
@@ -1442,15 +1442,27 @@ function codexModelRowKey(footer: string): AnswerStep | null {
 
 /**
  * Whether a Codex model list holds the end of the screen, read or not: by the footer of a row
- * that picks, or by a list's title near the end where the footer is cut beyond reading. Such a
+ * that picks, or by a model title over rows and a footer cut beyond the reader's limit. Such a
  * list gets no fallback card while herdr happens to report the pane blocked: that card offers
  * Enter, and Enter under a footer that offers `s` saves the row as the default for every new
  * session.
  */
 function codexModelListWaits(screen: string): boolean {
-  const shown = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
-  return [1, 2, 3, 4, 5, 6].some((span) => /enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i.test(shown.slice(-span).join(" ")))
-    || shown.slice(-CODEX_MODEL_TAIL_LINES).some((line) => /^(?:Select Model(?: and Effort)?|Select Reasoning Level for\b.*|Advanced Reasoning)$/.test(line));
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
+  const shown = lines.map((line, index) => ({ text: cleanLine(line), index }))
+    .filter(({ text }) => text && !isDivider(text)).slice(-CODEX_MODEL_TAIL_LINES);
+  for (let start = 0; start < shown.length; start += 1) {
+    // Join a footer split inside words by a very narrow pane. Anything printed after it
+    // prevents the match, so an old title/footer in the transcript cannot hide a new prompt.
+    const footer = shown.slice(start).map(({ text }) => text).join("").replace(/\s+/g, "");
+    if (/^enter(?:default|apply)·ssession·escback$/i.test(footer)) return true;
+    if (!/^enter(?:select|default|apply)·escback$/i.test(footer)) continue;
+    // The generic list footer needs a model header in the block immediately above its rows.
+    // Quick presets are recognized only by this guard, never offered as a readable card.
+    const { rows, first } = listRows(lines, shown[start]!.index, CODEX_MODEL_ROW_RE, null);
+    return rows.length > 0 && codexModelHeader(lines, first, true) !== null;
+  }
+  return false;
 }
 
 function parseCodexModel(screen: string): ParsedPrompt | null {
@@ -2408,7 +2420,7 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   // Codex's collapsed question queue reads blocked while its main prompt takes a message; a
   // model list of Claude Code's or Codex's that no reader could read is left to the terminal
   // (claudeModelListWaits, codexModelListWaits)
-  if ((agent === "codex" && codexQuestionsCollapsed(screen)) || claudeModelListWaits(screen) || codexModelListWaits(screen)) {
+  if ((agent === "codex" && (codexQuestionsCollapsed(screen) || codexModelListWaits(screen))) || claudeModelListWaits(screen)) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: asked(paneId, null, turns), pane, panes };
   }

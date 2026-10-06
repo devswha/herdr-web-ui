@@ -3131,6 +3131,26 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   }, 20_000);
 
+  test("keeps fallback cards when a model title is only transcript text or belongs to another agent", async () => {
+    const unknown = "Advanced Reasoning\nThis section explains the tradeoff.\n\nChoose a deployment target:\n  1. Staging\n  2. Production\n\nEnter a number, or Esc to cancel\n";
+    for (const agent of ["claude", "pi", "omp", "codex"]) {
+      await withPane(agent, "blocked", unknown, async () => {
+        expect((await card())?.fallback).toBe(true);
+      });
+    }
+    // Even a Codex-shaped footer belongs to the other agent's unknown prompt here.
+    await withPane("pi", "blocked", codexLevels(1), async () => {
+      expect((await card())?.fallback).toBe(true);
+    });
+    // A newer picker title supersedes the older model heading in the visible transcript.
+    const other = `Advanced Reasoning\n\nSelect Deployment Target\n\n› 1. Staging\n  2. Production\n\n${CODEX_OPENS}\n`;
+    for (const screen of [other, other.replace("Select Deployment Target", "Choose a deployment target:"), other.replace("\n\nSelect Deployment Target", "\nSelect Deployment Target")]) {
+      await withPane("codex", "blocked", screen, async () => {
+        expect((await card())?.fallback).toBe(true);
+      });
+    }
+  });
+
   test("offers no fallback card over a Codex list whose Enter would save a default", async () => {
     // rows this reader cannot take (something between them and their footer), under a status of
     // blocked left over from an approval: the fallback card's Enter is not offered here
@@ -3144,6 +3164,10 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     const cut = codexLevels(1).replace(CODEX_PICKS, "  enter\n  defa\n  ult ·\n  s\n  sessi\n  on ·\n  esc\n  back");
     expect(parseInteractivePrompt("codex", cut)).toBeNull();
     await withPane("codex", "blocked", cut, async () => {
+      expect(await card()).toBeNull();
+    });
+    // A clipped title does not make a recognizable session/default footer safe to answer with Enter.
+    await withPane("codex", "blocked", cut.replace("Select Reasoning Level for GPT-6-Astra", "Older transcript"), async () => {
       expect(await card()).toBeNull();
     });
     // the list of quick presets has no card of its own, and no fallback one either
