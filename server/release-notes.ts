@@ -1,5 +1,5 @@
 /** What an update brings, read from the CHANGELOG.md and release-summaries.json of the release it installs. */
-import { SUMMARY_LANGUAGES, type ReleaseNote, type ReleaseSummary, type UpdateNotes } from "../shared/update.ts";
+import { readSummary, type ReleaseNote, type ReleaseSummary, type UpdateNotes } from "../shared/update.ts";
 
 /** `## [0.3.52] - 2026-10-06`; `## [Unreleased]` is no release. */
 const SECTION = /^## \[(\d+\.\d+\.\d+)\](?:\s+-\s+(\S+))?\s*$/;
@@ -12,10 +12,8 @@ const LINK_DEFINITION = /^\[[^\]]+\]:\s/;
  * the rest by count. Characters, since it bounds what is read, not what is sent.
  */
 export const NOTES_BUDGET = 48_000;
-/** Where a release tells itself in a few sentences per language, beside CHANGELOG.md. */
+/** Where a release tells itself as patch notes, a few short lines per language, beside CHANGELOG.md. */
 export const SUMMARIES_FILE = "release-summaries.json";
-/** A summary is a few sentences: one that is longer is cut here. */
-export const SUMMARY_LIMIT = 1200;
 
 function triple(version: string): [number, number, number] | null {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
@@ -34,8 +32,9 @@ export function compareVersions(a: string, b: string): number | null {
 }
 
 /**
- * release-summaries.json as a release wrote it: `{ "0.3.53": { "en": "…", "ko": "…", … } }`.
- * It is text from a Git remote, like the changelog: what is not a version with text in a
+ * release-summaries.json as a release wrote it:
+ * `{ "0.3.53": { "en": { "new": ["…"], "improved": ["…"], "fixed": ["…"] }, "ko": { … }, … } }`.
+ * It is text from a Git remote, like the changelog: what is not a version with lines in a
  * language the app has is left out, and a file that is not JSON holds no summary.
  */
 export function releaseSummaries(text: string): Map<string, ReleaseSummary> {
@@ -44,15 +43,8 @@ export function releaseSummaries(text: string): Map<string, ReleaseSummary> {
   try { written = JSON.parse(text); } catch { return found; }
   if (typeof written !== "object" || written === null || Array.isArray(written)) return found;
   for (const [version, entry] of Object.entries(written)) {
-    if (!triple(version) || typeof entry !== "object" || entry === null) continue;
-    const summary: ReleaseSummary = {};
-    for (const language of SUMMARY_LANGUAGES) {
-      const told: unknown = (entry as Record<string, unknown>)[language];
-      if (typeof told !== "string" || told.trim() === "") continue;
-      const trimmed = told.trim();
-      summary[language] = trimmed.length > SUMMARY_LIMIT ? `${trimmed.slice(0, SUMMARY_LIMIT).trimEnd()}…` : trimmed;
-    }
-    if (Object.keys(summary).length > 0) found.set(version, summary);
+    const summary = triple(version) ? readSummary(entry) : undefined;
+    if (summary) found.set(version, summary);
   }
   return found;
 }

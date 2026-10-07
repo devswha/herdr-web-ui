@@ -70,15 +70,15 @@ try {
 
   writeFileSync(join(upstream, "qa-revision.txt"), "second build\n");
   // as a release does: what was unreleased becomes the release's section of the changelog, the
-  // version moves, and the release is told in a few sentences (here in one language)
+  // version moves, and the release is told as patch notes (here one line, in one language)
   const cut = (version: string, body = "", summary?: string) => {
     writeFileSync(join(upstream, "CHANGELOG.md"),
       readFileSync(join(upstream, "CHANGELOG.md"), "utf8").replace("## [Unreleased]\n", `## [Unreleased]\n\n## [${version}] - 2099-01-01\n${body}`));
     const manifest = JSON.parse(readFileSync(join(upstream, "package.json"), "utf8")) as Record<string, unknown>;
     writeFileSync(join(upstream, "package.json"), `${JSON.stringify({ ...manifest, version }, null, 2)}\n`);
-    if (summary) writeFileSync(join(upstream, "release-summaries.json"), JSON.stringify({ [version]: { en: summary } }));
+    if (summary) writeFileSync(join(upstream, "release-summaries.json"), JSON.stringify({ [version]: { en: { new: [summary] } } }));
   };
-  const told = "The QA release, told in a sentence.";
+  const told = "The QA release, in a line.";
   cut("99.0.0", "", told);
   await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA update"); await git(upstream, "tag", "v99.0.0");
   const next = await git(upstream, "rev-parse", "HEAD");
@@ -88,12 +88,14 @@ try {
   // the release's notes, read from its own changelog, in a box that scrolls on its own
   const notes = page.locator(".update-notes");
   await notes.getByRole("heading", { name: "v99.0.0" }).waitFor();
-  // told by its summary; the changelog section is under it, folded until asked for
-  await notes.getByText(told, { exact: true }).waitFor();
-  assert.ok(await notes.locator("li").count() > 0);
-  assert.equal(await notes.locator("li").first().isVisible(), false);
+  // told by its highlights, under their list; the changelog section is below, folded until asked for
+  await notes.locator(".update-summary").getByRole("heading", { name: "New features", exact: true }).waitFor();
+  await notes.locator(".update-summary li").getByText(told, { exact: true }).waitFor();
+  const entries = notes.locator("details li");
+  assert.ok(await entries.count() > 0);
+  assert.equal(await entries.first().isVisible(), false);
   await notes.locator("details > summary").click();
-  assert.equal(await notes.locator("li").first().isVisible(), true);
+  assert.equal(await entries.first().isVisible(), true);
   assert.equal(await notes.getByText("Unreleased").count(), 0);
   assert.ok(await installButton.isVisible());
   await page.screenshot({ path: join(evidence, "available-desktop.png"), fullPage: true });
@@ -125,8 +127,8 @@ try {
   await page.locator(".update-notice").getByRole("button", { name: "What's new", exact: true }).click();
   await page.getByRole("region", { name: "What the last update brought", exact: true }).waitFor();
   await notes.getByRole("heading", { name: "v99.0.0" }).waitFor();
-  await notes.getByText(told, { exact: true }).waitFor();
-  assert.equal(await notes.locator("li").first().isVisible(), false);
+  await notes.locator(".update-summary li").getByText(told, { exact: true }).waitFor();
+  assert.equal(await notes.locator("details li").first().isVisible(), false);
   await page.getByText(new RegExp(`^Running (v[0-9.]+ \\()?${next.slice(0, 12)}\\)?$`)).waitFor();
   await page.screenshot({ path: join(evidence, "updated-notes-desktop.png") });
   // opening its notes closed the line, on this device and for this version: a reload keeps it closed

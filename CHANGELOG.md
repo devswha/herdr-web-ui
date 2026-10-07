@@ -20,9 +20,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   **What the last update brought**. These come from the new version itself, so they appear
   with the first update to a version that has them.
   ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
-- A release is told in a few sentences, in the app's language (English, Korean, Japanese or
-  Chinese), before and after its install. The changelog entries are folded under
-  **Show every change**. A release that wrote no summary shows its entries as before.
+- A release is told the way a game's patch notes are, before and after its install: a short
+  list under **New features**, **Improvements** and **Bug fixes**, in the app's language
+  (English, Korean, Japanese or Chinese). The changelog entries are folded under
+  **Show every change**. A release that wrote no such list shows its entries as before.
   ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
 - The one-line installers can give the GitHub star they mention. On a first install, when the gh
   CLI is signed in and that account has not starred the repository, `install.sh` and `install.ps1`

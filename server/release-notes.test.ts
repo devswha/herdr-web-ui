@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { SUMMARY_LANGUAGES } from "../shared/update.ts";
-import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE, SUMMARY_LIMIT } from "./release-notes.ts";
+import { HIGHLIGHT_LIMIT, HIGHLIGHTS_PER_GROUP, SUMMARY_GROUPS, SUMMARY_LANGUAGES } from "../shared/update.ts";
+import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
 
 const CHANGELOG = `# Changelog
 
@@ -106,37 +106,46 @@ describe("release notes of an update", () => {
   });
 });
 
-describe("a release told in a few sentences", () => {
+describe("a release told as patch notes", () => {
   const written = JSON.stringify({
-    "0.4.0": { en: "  Four, in short.  ", ko: "넷을 짧게.", ja: "", fr: "Quatre." },
-    "0.3.10": { en: "Ten, in short." },
+    "0.4.0": {
+      en: { new: ["  A new thing.  ", "", 7, "Another."], fixed: ["A fix."], removed: ["Not a list the app has."] },
+      ko: { new: ["새 기능."], improved: [], fixed: "수정." },
+      ja: {},
+      fr: { new: ["Une chose."] },
+    },
+    "0.3.10": { en: { improved: ["Ten is better."] } },
     "0.3.9": "nine",
-    "next": { en: "No version." },
-    "0.3.8": { en: 8 },
+    "next": { en: { new: ["No version."] } },
+    "0.3.8": { en: ["Not grouped."] },
+    "0.3.7": { en: { new: "One line, not a list." } },
   });
 
-  it("reads the summaries of each release, in the languages the app has", () => {
+  it("reads each release's lines, under the lists and in the languages the app has", () => {
     expect([...releaseSummaries(written)]).toEqual([
-      ["0.4.0", { en: "Four, in short.", ko: "넷을 짧게." }],
-      ["0.3.10", { en: "Ten, in short." }],
+      ["0.4.0", { en: { new: ["A new thing.", "Another."], fixed: ["A fix."] }, ko: { new: ["새 기능."] } }],
+      ["0.3.10", { en: { improved: ["Ten is better."] } }],
     ]);
   });
 
   it("has none in a file that is not an object of releases", () => {
-    for (const text of ["", "not json", "[]", "null", "7", '"0.4.0"']) expect(releaseSummaries(text).size).toBe(0);
+    for (const text of ["", "not json", "[]", "null", "7", '"0.4.0"', '{"__proto__":{"en":{"new":["x"]}}}']) expect(releaseSummaries(text).size).toBe(0);
   });
 
-  it("cuts a summary that is no summary", () => {
-    const told = releaseSummaries(JSON.stringify({ "0.4.0": { en: "a".repeat(SUMMARY_LIMIT + 500) } })).get("0.4.0")!.en!;
-    expect(told).toHaveLength(SUMMARY_LIMIT + 1);
-    expect(told.endsWith("…")).toBe(true);
+  it("cuts a line that is no line, and a list that is no handful", () => {
+    const told = releaseSummaries(JSON.stringify({ "0.4.0": { en: {
+      new: ["a".repeat(HIGHLIGHT_LIMIT + 500)], fixed: Array.from({ length: HIGHLIGHTS_PER_GROUP + 5 }, (_, index) => `Fix ${index}.`),
+    } } })).get("0.4.0")!.en!;
+    expect(told.new![0]).toHaveLength(HIGHLIGHT_LIMIT + 1);
+    expect(told.new![0]!.endsWith("…")).toBe(true);
+    expect(told.fixed).toHaveLength(HIGHLIGHTS_PER_GROUP);
   });
 
   it("puts a release's summary beside its notes, and leaves a release without one as it was", () => {
     const notes = releaseNotes(CHANGELOG, "0.3.8", "0.4.0", undefined, releaseSummaries(written));
     expect(notes.releases.map((release) => [release.version, release.summary])).toEqual([
-      ["0.4.0", { en: "Four, in short.", ko: "넷을 짧게." }],
-      ["0.3.10", { en: "Ten, in short." }],
+      ["0.4.0", { en: { new: ["A new thing.", "Another."], fixed: ["A fix."] }, ko: { new: ["새 기능."] } }],
+      ["0.3.10", { en: { improved: ["Ten is better."] } }],
       ["0.3.9", undefined],
     ]);
     expect("summary" in notes.releases[2]!).toBe(false);
@@ -152,10 +161,13 @@ describe("a release told in a few sentences", () => {
 
 describe("this repository's own summaries", () => {
   const root = join(import.meta.dir, "..");
-  const summaries = releaseSummaries(readFileSync(join(root, SUMMARIES_FILE), "utf8"));
+  const text = readFileSync(join(root, SUMMARIES_FILE), "utf8");
+  const summaries = releaseSummaries(text);
   const released = [...readFileSync(join(root, "CHANGELOG.md"), "utf8").matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map((match) => match[1]!);
   /** the last release cut before summaries were written */
   const BEFORE = "0.3.52";
+  /** patch notes are read at a glance: a line longer than this is a sentence from the changelog */
+  const LINE = 90;
 
   it("tells every release since in all four languages", () => {
     const missing = released.filter((version) => compareVersions(version, BEFORE)! > 0)
@@ -163,15 +175,17 @@ describe("this repository's own summaries", () => {
     expect(missing).toEqual([]);
   });
 
-  it("holds nothing but whole summaries of releases the changelog names", () => {
-    const raw = JSON.parse(readFileSync(join(root, SUMMARIES_FILE), "utf8")) as Record<string, Record<string, string>>;
+  it("holds nothing but short lines for releases the changelog names, the same lists in every language", () => {
+    const raw = JSON.parse(text) as Record<string, Record<string, Record<string, string[]>>>;
     for (const [version, entry] of Object.entries(raw)) {
       expect(released).toContain(version);
       expect(Object.keys(entry).sort()).toEqual([...SUMMARY_LANGUAGES].sort());
-      for (const told of Object.values(entry)) {
-        expect(told.trim()).toBe(told);
-        expect(told.length).toBeGreaterThan(0);
-        expect(told.length).toBeLessThanOrEqual(SUMMARY_LIMIT);
+      // what was read is what was written: nothing dropped, cut or trimmed
+      expect(summaries.get(version) as unknown).toEqual(entry);
+      const shape = (language: string) => SUMMARY_GROUPS.map((group) => entry[language]![group]?.length ?? 0);
+      for (const language of SUMMARY_LANGUAGES) {
+        expect([version, language, shape(language)]).toEqual([version, language, shape("en")]);
+        for (const line of Object.values(entry[language]!).flat()) expect(line.length).toBeLessThanOrEqual(LINE);
       }
     }
   });

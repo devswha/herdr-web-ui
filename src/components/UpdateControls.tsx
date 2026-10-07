@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { UpdateNotes, UpdateStatus } from "../../shared/update.ts";
+import { SUMMARY_GROUPS, type SummaryGroup, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
 import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
 import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "../lib/runningVersion.ts";
 import { useSettings } from "../lib/settings.ts";
@@ -18,15 +18,17 @@ const CHANGELOG = "https://github.com/devswha/herdr-web-ui/blob/main/CHANGELOG.m
 
 /**
  * What an update brings, or brought: each release it installs, newest first. A release is told
- * by its summary, a few sentences in the app's language, with its changelog section folded
- * under it; a release that wrote no summary shows the section as the release wrote it
- * (English). The box scrolls on its own, so the buttons under it stay in reach. The text comes
+ * as patch notes, short lines in the app's language under what is new, improved and fixed, with
+ * its changelog section folded under them; a release that wrote none shows the section as the
+ * release wrote it (English). The box scrolls on its own, so the buttons under it stay in reach. The text comes
  * from the Git remote: a section that cannot be drawn says so and takes nothing else down
  * with it.
  */
 function ReleaseNotes({ notes, label }: { notes: Pick<UpdateNotes, "releases" | "omitted">; label: string }) {
   const t = useT();
   const { resolvedLanguage } = useSettings();
+  // the lists of a release's highlights, as patch notes name them
+  const groups: Record<SummaryGroup, string> = { new: t("New features"), improved: t("Improvements"), fixed: t("Bug fixes") };
   return <>
     <span className="settings-label">{label}</span>
     <div className="update-notes" role="region" aria-label={label} tabIndex={0}>
@@ -38,7 +40,12 @@ function ReleaseNotes({ notes, label }: { notes: Pick<UpdateNotes, "releases" | 
         return <section key={release.version}>
           <h4>v{release.version}{release.date && <time>{release.date}</time>}</h4>
           {summary === null ? section : <>
-            <p className="update-summary">{summary}</p>
+            <div className="update-summary">
+              {SUMMARY_GROUPS.map((group) => summary[group] && <div key={group}>
+                <h5>{groups[group]}</h5>
+                <ul>{summary[group].map((line, index) => <li key={index}>{line}</li>)}</ul>
+              </div>)}
+            </div>
             <details className="update-details">
               <summary>{t("Show every change")}</summary>
               {section}
@@ -82,9 +89,9 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
       {error ?? status?.error ?? status?.blocked_reason ?? (busy ? t("Checking for updates…") :
         status?.available ? t("Version {version} is available.", { version: versionLabel(status.latest_version, status.latest_revision) ?? "" }) : status?.checked_at ? t("Up to date.") : t("Waiting for an update check…"))}
     </p>}
-    {/* the release on offer comes first; with none, what the last update brought stays to be read */}
-    {notes ? <ReleaseNotes notes={notes} label={t("What's new")} />
-      : installed && installed.releases.length > 0 && <ReleaseNotes notes={installed} label={t("What the last update brought")} />}
+    {notes && <ReleaseNotes notes={notes} label={t("What's new")} />}
+    {/* under the release on offer, when there is one: what runs now stays to be read */}
+    {installed && installed.releases.length > 0 && <ReleaseNotes notes={installed} label={t("What the last update brought")} />}
     {status?.managed && <>
       <p className="settings-hint">{t("Checks for new releases every 5 minutes.")} {t(status.auto_update ? "Automatic installation is enabled." : "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.")}{bridgesFollow ? ` ${t("Remote PCs' bridges are updated afterwards when the new version needs it.")}` : ""}</p>
       <div className="update-actions">
@@ -151,7 +158,7 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
   // Try again after such a failure looks for the release again, and the line waits with it
   const looking = attempted && busy;
   if (!needsReload && !status?.available && !installing && !started && !looking && !(attempted && failed)) {
-    if (!installed?.version || !announcesUpdate(installed, announced, Date.now())) return null;
+    if (!installed?.version || !announcesUpdate(status, installed, announced, Date.now())) return null;
     const version = installed.version;
     const close = () => { writeAnnounced(version); setAnnounced(version); };
     return <div className="update-notice" role="status">

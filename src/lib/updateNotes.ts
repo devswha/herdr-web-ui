@@ -1,4 +1,4 @@
-import type { InstalledNotes, ReleaseNote, SummaryLanguage, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
+import type { InstalledNotes, ReleaseHighlights, ReleaseNote, SummaryLanguage, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
 import { ApiError } from "./api.ts";
 
 /**
@@ -56,10 +56,10 @@ export function notesRetryDelay(error: unknown, attempt: number): number | null 
 }
 
 /**
- * A release told in a few sentences, in the app's language, else in English; null for a
- * release that wrote no summary, whose changelog section is then what there is to read.
+ * A release's highlights in the app's language, else in English; null for a release that wrote
+ * none, whose changelog section is then what there is to read.
  */
-export function summaryFor(release: Pick<ReleaseNote, "summary">, language: SummaryLanguage): string | null {
+export function summaryFor(release: Pick<ReleaseNote, "summary">, language: SummaryLanguage): ReleaseHighlights | null {
   return release.summary?.[language] ?? release.summary?.en ?? null;
 }
 
@@ -81,10 +81,18 @@ export const ANNOUNCED_FOR_MS = 7 * 24 * 60 * 60_000;
 /**
  * Whether the app-wide line still tells of the installed update: until this device has closed
  * it for that version, and for a week. A device that opens the app months later is told
- * nothing, and an update whose time is not known is left to Settings.
+ * nothing, and an update whose time is not known is left to Settings. While a newer release is
+ * known the line is that release's, also during a check, which reports nothing available
+ * while it runs.
  */
-export function announcesUpdate(installed: InstalledNotes | null, dismissed: string | null, now: number): boolean {
+export function announcesUpdate(
+  status: Pick<UpdateStatus, "current_revision" | "latest_revision"> | null,
+  installed: InstalledNotes | null,
+  dismissed: string | null,
+  now: number,
+): boolean {
   if (!installed?.version || installed.version === dismissed || installed.installed_at === null) return false;
+  if (status?.latest_revision && status.latest_revision !== status.current_revision) return false;
   const at = Date.parse(installed.installed_at);
   return Number.isFinite(at) && now - at < ANNOUNCED_FOR_MS;
 }

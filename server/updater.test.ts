@@ -194,7 +194,7 @@ describe("managed source updates with real Git repositories and builds", () => {
 
   it("tells a release by its summary, and what the update brought once it runs", async () => {
     const manifest = JSON.parse(readFileSync(join(upstream, "package.json"), "utf8")) as Record<string, unknown>;
-    const cut = (version: string, sections: string[], summaries: Record<string, Record<string, string>> | null) => {
+    const cut = (version: string, sections: string[], summaries: Record<string, Record<string, Record<string, string[]>>> | null) => {
       writeFileSync(join(upstream, "package.json"), JSON.stringify({ ...manifest, version }));
       writeFileSync(join(upstream, "CHANGELOG.md"), `# Changelog\n\n${sections.map((entry) => `## [${entry}] - 2026-10-07\n\n### Added\n- Release ${entry}.\n`).join("\n")}`);
       if (summaries) writeFileSync(join(upstream, "release-summaries.json"), JSON.stringify(summaries));
@@ -207,12 +207,12 @@ describe("managed source updates with real Git repositories and builds", () => {
     let told: unknown = null;
     const versioned = new Updater({ ...updater.options, publish(status) { if (status.current_version === "0.2.0" && told === null) told = versioned.installed; } });
     await versioned.initialize();
-    const none = { revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 };
-    // the source checkout: no update installed it
+    // the source checkout: for its commit, the answer is that no update installed it
+    const none = { revision: await git(root, "rev-parse", "HEAD"), version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 };
     expect(versioned.installed).toEqual(none);
 
-    const summary = { en: "The second release, in short.", ko: "두 번째 릴리스를 짧게." };
-    cut("0.2.0", ["0.2.0", "0.1.0"], { "0.2.0": summary, "0.1.0": { en: "The first." } });
+    const summary = { en: { new: ["A second release."], fixed: ["The first one."] }, ko: { new: ["두 번째 릴리스."], fixed: ["첫 번째 릴리스."] } };
+    cut("0.2.0", ["0.2.0", "0.1.0"], { "0.2.0": summary, "0.1.0": { en: { new: ["The first."] } } });
     const second = await release("second", "v0.2.0");
     await versioned.request("check");
     const brought = [{ version: "0.2.0", date: "2026-10-07", notes: "### Added\n- Release 0.2.0.", summary }];
@@ -223,15 +223,19 @@ describe("managed source updates with real Git repositories and builds", () => {
     await versioned.request("install");
     expect(versioned.status.error).toBeNull();
     expect(versioned.installed).toMatchObject({ revision: second, version: "0.2.0", previous_version: "0.1.0", releases: brought, omitted: 0 });
-    // a file's time is kept to the millisecond at best
-    expect(Date.parse(versioned.installed.installed_at!)).toBeGreaterThanOrEqual(before - 1000);
+    expect(Date.parse(versioned.installed.installed_at!)).toBeGreaterThanOrEqual(before);
     expect(told).toEqual(versioned.installed);
-    // the supervisor the release starts was not there for the install: it reads the same
+    // the supervisor the release starts was not there for the install: it reads what that one wrote down
     const resumed = new Updater({ ...versioned.options, publish() {} });
     await resumed.initialize();
     expect(resumed.installed).toEqual(versioned.installed);
 
-    // the next update replaces that release, not the source checkout, and one that wrote no summary is told by its section
+    // a build left behind by an install that was cut short is a later version, and no release that ran
+    const stray = join(stateDir, "release-stray");
+    mkdirSync(stray);
+    writeFileSync(join(stray, "package.json"), JSON.stringify({ version: "0.2.5" }));
+    // the next update replaces the release that runs, not that build and not the source checkout,
+    // and one that wrote no summary is told by its section
     cut("0.3.0", ["0.3.0", "0.2.0", "0.1.0"], null);
     const third = await release("third", "v0.3.0");
     await resumed.request("install");
@@ -241,7 +245,27 @@ describe("managed source updates with real Git repositories and builds", () => {
     const later = new Updater({ ...versioned.options, publish() {} });
     await later.initialize();
     expect(later.installed).toEqual(resumed.installed);
-    versioned.stop(); resumed.stop(); later.stop();
+
+    // a release installed by a supervisor older than that record: the version it replaced is the
+    // newest older build still here, and the time is the record's own
+    const record = join(stateDir, "current.json");
+    const { previous_version: _previous, installed_at: _at, ...legacy } = JSON.parse(readFileSync(record, "utf8")) as Record<string, unknown>;
+    writeFileSync(record, JSON.stringify(legacy));
+    const inferred = new Updater({ ...versioned.options, publish() {} });
+    await inferred.initialize();
+    expect(inferred.installed).toMatchObject({ revision: third, version: "0.3.0", previous_version: "0.2.0" });
+    expect(Number.isFinite(Date.parse(inferred.installed.installed_at!))).toBe(true);
+
+    // a file too large to be notes is not read: summaries of that size leave the changelog, a changelog of that size leaves the update
+    writeFileSync(join(inferred.release!.directory, "release-summaries.json"), JSON.stringify({ "0.3.0": { en: { new: ["x".repeat(2_100_000)] } } }));
+    const unsummarized = new Updater({ ...versioned.options, publish() {} });
+    await unsummarized.initialize();
+    expect(unsummarized.installed.releases).toEqual([{ version: "0.3.0", date: "2026-10-07", notes: "### Added\n- Release 0.3.0." }]);
+    writeFileSync(join(inferred.release!.directory, "CHANGELOG.md"), `## [0.3.0]\n${"- x\n".repeat(600_000)}`);
+    const untold = new Updater({ ...versioned.options, publish() {} });
+    await untold.initialize();
+    expect(untold.installed).toMatchObject({ version: "0.3.0", previous_version: "0.2.0", releases: [], omitted: 0 });
+    for (const each of [versioned, resumed, later, inferred, unsummarized, untold]) each.stop();
   });
 
   it("refuses local changes, detached branches, and an ahead/diverged history", async () => {

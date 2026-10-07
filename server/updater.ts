@@ -5,7 +5,16 @@ import { join } from "node:path";
 import { noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
 import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
 
-export interface Release { directory: string; revision: string; source_revision: string }
+export interface Release {
+  directory: string; revision: string; source_revision: string;
+  /**
+   * The version this release replaced and when, written by the supervisor that installed it.
+   * Absent from a release installed by a supervisor older than these fields.
+   */
+  previous_version?: string | null; installed_at?: string;
+}
+/** A release's files are read whole: one larger than this is not notes (the bound `runCommand` puts on what Git prints). */
+const NOTES_FILE_LIMIT = 2_000_000;
 const SHA = /^[0-9a-f]{40,64}$/;
 /** A release is a plain `vX.Y.Z` tag: `remote-v*` bundle tags and pre-releases never qualify. */
 const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
@@ -108,31 +117,41 @@ export class Updater {
 
   /**
    * What the update that installed `release` brought: its own changelog and summaries, from the
-   * version it replaced. Nothing for the source checkout, which no update installed. The
-   * replaced version is not on record (the supervisor that installed this release may be older
-   * than this question): it is the newest older build still here, since an install keeps the
-   * release it replaces and the source checkout stays.
+   * version it replaced. For the source checkout, which no update installed, the answer is that
+   * there is none. The replaced version is the one the installing supervisor wrote down; a
+   * supervisor older than that record left none, and then it is the newest older build still
+   * here, since an install keeps the release it replaces and the source checkout stays.
    */
   private brought(release: Release): InstalledNotes {
-    if (release.directory === this.options.root) return noInstalledNotes();
+    const none = { ...noInstalledNotes(), revision: release.revision };
+    if (release.directory === this.options.root) return none;
     const version = packageVersion(release.directory);
-    if (!version) return noInstalledNotes();
+    if (!version) return none;
     let previous: string | null = null;
-    const builds = [this.options.root];
-    try {
-      for (const entry of readdirSync(this.options.stateDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name.startsWith("release-")) builds.push(join(this.options.stateDir, entry.name));
+    if (release.installed_at !== undefined) previous = typeof release.previous_version === "string" ? release.previous_version : null;
+    else {
+      const builds = [this.options.root];
+      try {
+        for (const entry of readdirSync(this.options.stateDir, { withFileTypes: true })) {
+          if (entry.isDirectory() && entry.name.startsWith("release-")) builds.push(join(this.options.stateDir, entry.name));
+        }
+      } catch { /* the source checkout alone */ }
+      for (const directory of builds) {
+        const other = directory === release.directory ? null : packageVersion(directory);
+        if (!other || !((compareVersions(version, other) ?? 0) > 0)) continue;
+        if (previous === null || (compareVersions(other, previous) ?? 0) > 0) previous = other;
       }
-    } catch { /* the source checkout alone */ }
-    for (const directory of builds) {
-      const other = directory === release.directory ? null : packageVersion(directory);
-      if (!other || !((compareVersions(version, other) ?? 0) > 0)) continue;
-      if (previous === null || (compareVersions(other, previous) ?? 0) > 0) previous = other;
     }
-    if (previous === null) return noInstalledNotes();
-    let installed_at: string | null = null;
-    try { installed_at = statSync(join(this.options.stateDir, "current.json")).mtime.toISOString(); } catch { /* not told */ }
-    const read = (file: string) => readFileSync(join(release.directory, file), "utf8");
+    if (previous === null || previous === version) return none;
+    let installed_at: string | null = typeof release.installed_at === "string" ? release.installed_at : null;
+    if (installed_at === null) {
+      try { installed_at = statSync(join(this.options.stateDir, "current.json")).mtime.toISOString(); } catch { /* not told */ }
+    }
+    const read = (file: string) => {
+      const path = join(release.directory, file);
+      if (statSync(path).size > NOTES_FILE_LIMIT) throw new Error(`${file} is too large to be notes`);
+      return readFileSync(path, "utf8");
+    };
     let notes: Omit<UpdateNotes, "revision"> = { releases: [], omitted: 0 };
     try {
       const changelog = read("CHANGELOG.md");
@@ -248,9 +267,11 @@ export class Updater {
         const reason = await this.sourceBlock();
         if (reason) throw new Error(reason);
         this.controller.signal.throwIfAborted();
-        const next = { directory: stage, revision, source_revision: this.sourceRevision };
-        this.patch({ phase: "restarting", step: "restart" });
         const previous = this.release;
+        // what it replaces, on record for the supervisor the release starts: that one was not here for the install
+        const next: Release = { directory: stage, revision, source_revision: this.sourceRevision,
+          previous_version: previous ? packageVersion(previous.directory) : null, installed_at: new Date().toISOString() };
+        this.patch({ phase: "restarting", step: "restart" });
         await this.options.activate(next, () => {
           const file = join(this.options.stateDir, "current.json");
           writeFileSync(`${file}.tmp`, JSON.stringify(next), { mode: 0o600 });

@@ -29,8 +29,16 @@ export type UpdateCommand = "check" | "install";
 /** The languages a release's summary is written in: the app's own (src/lib/i18n.ts). */
 export const SUMMARY_LANGUAGES = ["en", "ko", "ja", "zh"] as const;
 export type SummaryLanguage = typeof SUMMARY_LANGUAGES[number];
-/** A release told in a few sentences, per language; a language the release did not write is absent. */
-export type ReleaseSummary = Partial<Record<SummaryLanguage, string>>;
+/** The lists a summary is told in, in the order they are read. */
+export const SUMMARY_GROUPS = ["new", "improved", "fixed"] as const;
+export type SummaryGroup = typeof SUMMARY_GROUPS[number];
+/** A release as patch notes: short lines of plain text under what is new, improved and fixed. A list with no line is absent. */
+export type ReleaseHighlights = Partial<Record<SummaryGroup, string[]>>;
+/** A release's highlights per language; a language the release did not write is absent. */
+export type ReleaseSummary = Partial<Record<SummaryLanguage, ReleaseHighlights>>;
+/** A highlight is one line, and a list a handful of them: what is longer is cut where it is read. */
+export const HIGHLIGHT_LIMIT = 160;
+export const HIGHLIGHTS_PER_GROUP = 8;
 
 /** One release's section of CHANGELOG.md, and its summary from release-summaries.json. */
 export interface ReleaseNote {
@@ -40,7 +48,7 @@ export interface ReleaseNote {
   date: string | null;
   /** the section's body, Markdown */
   notes: string;
-  /** plain text; absent from a release older than the summaries, and from one that wrote none */
+  /** absent from a release older than the summaries, and from one that wrote none */
   summary?: ReleaseSummary;
 }
 
@@ -66,9 +74,9 @@ export function noUpdateNotes(): UpdateNotes {
  * files. Asked for once per running release, like the notes of an offer.
  */
 export interface InstalledNotes {
-  /** the commit that runs, the status's `current_revision`; null when no update was installed (a source checkout, an unmanaged server) */
+  /** the commit this answer is for, the status's `current_revision`; null when no supervisor has told (an unmanaged server, a supervisor older than the question) */
   revision: string | null;
-  /** the running version and the one the update replaced, without the v */
+  /** the running version and the one the update replaced, without the v; both null when no update installed what runs (a source checkout) */
   version: string | null;
   previous_version: string | null;
   /** when the update was installed, ISO */
@@ -83,13 +91,28 @@ export function noInstalledNotes(): InstalledNotes {
   return { revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 };
 }
 
-/** A summary as it arrived: the languages that are text, and nothing when none is. */
-function readSummary(value: unknown): ReleaseSummary | undefined {
+/**
+ * A summary as it was written or sent (release-summaries.json from a Git remote, the supervisor
+ * over IPC, the server over HTTP): the lines that are text, under the lists and languages the
+ * app has, each cut to a line and each list to a handful. Nothing when no line is left.
+ */
+export function readSummary(value: unknown): ReleaseSummary | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const summary: ReleaseSummary = {};
   for (const language of SUMMARY_LANGUAGES) {
-    const text = (value as Record<string, unknown>)[language];
-    if (typeof text === "string" && text.trim() !== "") summary[language] = text;
+    const written: unknown = (value as Record<string, unknown>)[language];
+    if (typeof written !== "object" || written === null) continue;
+    const highlights: ReleaseHighlights = {};
+    for (const group of SUMMARY_GROUPS) {
+      const lines: unknown = (written as Record<string, unknown>)[group];
+      if (!Array.isArray(lines)) continue;
+      const kept = lines.filter((line): line is string => typeof line === "string" && line.trim() !== "")
+        .slice(0, HIGHLIGHTS_PER_GROUP)
+        .map((line) => line.trim())
+        .map((line) => line.length > HIGHLIGHT_LIMIT ? `${line.slice(0, HIGHLIGHT_LIMIT).trimEnd()}…` : line);
+      if (kept.length > 0) highlights[group] = kept;
+    }
+    if (Object.keys(highlights).length > 0) summary[language] = highlights;
   }
   return Object.keys(summary).length > 0 ? summary : undefined;
 }
@@ -120,12 +143,15 @@ export function readUpdateNotes(value: unknown): UpdateNotes {
   return { revision: typeof notes.revision === "string" ? notes.revision : null, releases, omitted: readOmitted(notes.omitted) };
 }
 
-/** The last update's notes, read as `readUpdateNotes` reads an offer's. An update is told only with both of its versions. */
+/**
+ * The last update's notes, read as `readUpdateNotes` reads an offer's. An update is told only
+ * with both of its versions: an answer without them says, for its commit, that there is none.
+ */
 export function readInstalledNotes(value: unknown): InstalledNotes {
   const notes = value as Partial<Record<keyof InstalledNotes, unknown>> | null | undefined;
   const releases = typeof notes === "object" && notes !== null ? readReleases(notes.releases) : null;
-  if (!notes || !releases) return noInstalledNotes();
-  if (typeof notes.revision !== "string" || typeof notes.version !== "string" || typeof notes.previous_version !== "string") return noInstalledNotes();
+  if (!notes || !releases || typeof notes.revision !== "string") return noInstalledNotes();
+  if (typeof notes.version !== "string" || typeof notes.previous_version !== "string") return { ...noInstalledNotes(), revision: notes.revision };
   return {
     revision: notes.revision, version: notes.version, previous_version: notes.previous_version,
     installed_at: typeof notes.installed_at === "string" ? notes.installed_at : null,

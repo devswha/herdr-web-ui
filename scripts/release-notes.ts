@@ -4,7 +4,7 @@ import { SUMMARY_LANGUAGES } from "../shared/update.ts";
 
 /**
  * Fail before publishing a tag: all three version sources and nonempty notes must agree, and the
- * release must be told in a few sentences in every language of the app (release-summaries.json),
+ * release must be told as patch notes in every language of the app (release-summaries.json),
  * which is what an install shows of it.
  */
 export function releaseNotes(version: string, packageVersion: string, manifest: string, changelog: string, summaries: string): string {

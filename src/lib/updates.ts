@@ -91,9 +91,11 @@ export function useUpdates(enabled: boolean) {
       };
       fetchInstalledNotes().then((next) => {
         if (!live) return;
-        // an answer for another commit is a bridge that restarted between the two requests;
-        // one for no commit is a server no update installed, and is the answer
-        if (next.revision !== null && next.revision !== running) { again(notesUnboundDelay(attempt)); return; }
+        // an answer for another commit, or for none, is not this release's: a bridge that
+        // restarted between the two requests, or one still run by the supervisor that installed
+        // it, which hands over to the release's own within seconds. A supervisor older than the
+        // question never names a commit, so the asking ends, after about a minute.
+        if (next.revision !== running) { again(notesUnboundDelay(attempt)); return; }
         answered.current = running;
         setBrought(next);
       }, (error: unknown) => {
