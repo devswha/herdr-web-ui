@@ -78,11 +78,22 @@ function isCommandEntry(text: string): boolean {
  * What a slash command printed, from the `local_command` entry Claude Code records it in. The
  * command's echo (`<command-name>…`) is a separate entry with no output tag, and reads as nothing.
  */
+/** A command's answer is a notice, not a log: the rest of a long one stays in the terminal. */
+const LOCAL_COMMAND_MAX_CHARS = 4000;
+
 function localCommandOutput(content: unknown): string {
   if (typeof content !== "string") return "";
-  return [...content.matchAll(/<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>/g)]
-    // the terminal's colours are escape codes here
-    .map((match) => match[2]!.replace(/\u001b\[[0-9;]*m/g, "").trim()).filter((text) => text.length > 0).join("\n");
+  // the whole entry is the output: a tag quoted inside an echo's arguments is not an answer
+  const match = /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>\s*$/.exec(content);
+  if (match === null) return "";
+  // the terminal's escape codes (colours, links, cursor moves) and other controls are not text
+  const text = match[2]!
+    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b./g, "")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
+    .trim();
+  return text.length > LOCAL_COMMAND_MAX_CHARS ? `${text.slice(0, LOCAL_COMMAND_MAX_CHARS)}\u2026` : text;
 }
 
 /**
