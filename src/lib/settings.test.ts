@@ -19,6 +19,14 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
+it("keeps sidebar rows on one line unless two lines were chosen", () => {
+  expect(sanitizeSettings({}).sidebarRows).toBe("one");
+  expect(sanitizeSettings({ sidebarRows: "two" }).sidebarRows).toBe("two");
+  for (const sidebarRows of [null, true, "three", 2]) {
+    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("one");
+  }
+});
+
 it("defaults legacy records to workspace grouping and accepts only supported modes", () => {
   expect(sanitizeSettings({}).sidebarGrouping).toBe("workspace");
   expect(sanitizeSettings({ sidebarGrouping: "workspace" }).sidebarGrouping).toBe("workspace");

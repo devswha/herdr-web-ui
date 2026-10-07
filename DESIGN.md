@@ -197,6 +197,7 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 - `theme`: `dark`, `light`, or `system`; default `dark`.
 - `palette`: `amber`, `report`, `charcoal`, `catppuccin` or `lilac`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
+- `sidebarRows`: `one` or `two`; default `one`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
 - Terminal and chat font families are comma-separated lists, default empty. They go in front of the
   terminal's built-in fonts (after the bundled Symbols Nerd Font Mono, which only draws icons) and of
@@ -466,6 +467,14 @@ One set for both themes: the card is island black wherever it shows.
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
+- Appearance's **Sidebar rows** is **One line** by default: a workspace row is its name. **Two
+  lines** draws the row as the roster did before it was one line, on an agent row's height and
+  type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
+  "workspace · folder" with no name said twice (`taskRowLines`, lib/paneName.ts). A shell titled
+  by its folder leads with the workspace instead; a linked worktree is placed by its branch,
+  then its own workspace name. The folder, the mark, the status cell, the menu and the fold
+  count stay where they are, and the menu and rename still act on the workspace. In folder
+  mode the second line is the workspace's name. The choice is per device and applies at once.
 - Appearance's **Sidebar grouping** is **By workspace** by default for new settings and saved records
   without a valid grouping preference. Explicit **By workspace** and **By folder** choices stay as
   saved. The choice applies immediately and persists in the existing Settings record; folder

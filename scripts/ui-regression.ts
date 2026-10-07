@@ -385,6 +385,21 @@ try {
   assert.deepEqual(await sidebarWidths(), defaultWidths, "a double-click goes back to the default width and forgets the stored one");
   console.log("PASS the sidebar's edge drags, steps from the keyboard, remembers its width and resets on a double-click");
 
+  // Settings → Sidebar rows → Two lines: a workspace row says what its pane is doing over its
+  // place, on a taller row; One line gives the workspace its name back
+  const oneLineHeight = await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height);
+  assert.equal(await page.locator(".workspace-copy.is-two-line").count(), 0, "rows are one line until two are chosen");
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  const rowsSetting = page.locator('.settings-dialog .segmented[aria-label="Sidebar rows"]');
+  await rowsSetting.getByRole("button", { name: "Two lines", exact: true }).click();
+  await page.locator(".workspace-copy.is-two-line").first().waitFor();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "two");
+  assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) > oneLineHeight, "a two-line row is taller");
+  await rowsSetting.getByRole("button", { name: "One line", exact: true }).click();
+  await page.locator(".workspace-copy.is-two-line").first().waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  console.log("PASS sidebar rows switch between one line and two");
+
   // An update request answered while the page is hidden (a phone app sent to the background) must
   // still release the buttons: the status poll stops with the page, the request does not.
   let releaseCheck!: () => void;

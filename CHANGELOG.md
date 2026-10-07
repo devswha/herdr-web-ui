@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
+  agent is doing, with the workspace and folder under it, as the sidebar did before its rows
+  became one line. **One line**, the workspace's name alone, stays the default.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - A right-click on a workspace or pane row in the sidebar opens the row's menu, the one its `⋯`
   button opens. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - The sidebar can be resized: drag its right edge, or focus the edge and use the arrow keys.

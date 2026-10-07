@@ -13,7 +13,7 @@ import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
-import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
+import { folderName, placeLine, shortPathTitle, taskRowLines } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { groupDirectories } from "../lib/directoryGroups.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
@@ -143,6 +143,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const t = useT();
   const { settings } = useSettings();
   const byFolder = settings.sidebarGrouping === "directory";
+  const twoLine = settings.sidebarRows === "two";
   const machineId = useMachineId();
   const { branches, rememberOpened } = useWorktreeBranches(snapshot, online && !byFolder);
   const { closePane, closeWorkspace, moveWorkspace, removeWorktree, renamePane, renameWorkspace } = useMachineApi();
@@ -586,7 +587,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
                   <span className="pane-title sidebar-pane-title">{displayTitle}</span>
                 )}
               </span>
-              {place && <span className="pane-subtitle visually-hidden">{place}</span>}
+              {place && <span className={`pane-subtitle${twoLine ? "" : " visually-hidden"}`}>{place}</span>}
             </span>
             <span className="sidebar-pane-meta">
               {linked && <span className="visually-hidden">{t("Worktree: {path}", { path: workspace.worktree!.checkout_path })}</span>}
@@ -620,6 +621,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     // a folded group's parent stands for its worktrees too, as herdr's collapsed parent does:
     // a checkout that waits or has finished must not hide behind the fold
     const statusPanes = collapsed ? [...panes, ...children.flatMap((child) => roster.filter((candidate) => candidate.workspace_id === child.workspace_id))] : panes;
+    // on two lines the row says what its pane is doing, and the workspace it has named until now sits under that
+    const lines = twoLine ? taskRowLines({ paneTitle: displayPaneTitle(pane), labelled: Boolean(pane.label?.trim()), folder: cwdBasename(pane.cwd), workspace: rowTitle, alias: secondaryWorkspaceLabel }) : null;
     // a folded group still shows the checkout that is open; the count is of the ones put away
     const foldedCount = collapsed ? children.filter((child) => !roster.some((candidate) => candidate.workspace_id === child.workspace_id && candidate.pane_id === selectedPaneId)).length : 0;
     const editingWorkspace = editingWorkspaceId === `\u0000${workspace.workspace_id}`;
@@ -697,7 +700,13 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
               if (event.key === "Enter") savePaneRename(pane);
               if (event.key === "Escape") setEditingPaneId(null);
             }}
-          /> : <span className="workspace-copy">
+          /> : lines ? <span className="workspace-copy is-two-line">
+            <span className="workspace-line">
+              <span className="workspace-name">{lines.title}</span>
+              {foldedCount > 0 && <span className="workspace-fold-count" aria-hidden="true">+{foldedCount}</span>}
+            </span>
+            {lines.place && <span className="workspace-place">{lines.place}</span>}
+          </span> : <span className="workspace-copy">
             <span className="workspace-name">{rowTitle}</span>
             {secondaryWorkspaceLabel && <span className="worktree-workspace-label">{secondaryWorkspaceLabel}</span>}
             {foldedCount > 0 && <span className="workspace-fold-count" aria-hidden="true">+{foldedCount}</span>}
@@ -718,7 +727,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   };
 
   return (
-    <div className="machine-workspaces" ref={workspaceRoot}>
+    <div className={`machine-workspaces${twoLine ? " is-two-line" : ""}`} ref={workspaceRoot}>
       <nav className="sidebar-list" aria-label={t("Herdr workspaces")}>
         <>
           {!snapshot && <p className="tree-state" role="status">{t("Loading workspaces…")}</p>}
