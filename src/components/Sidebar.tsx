@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, MessageCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -69,10 +69,10 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
   const value = knownStatus(status);
   const label = t(STATUS_WORD[value]);
   const description = t("Agent {status}", { status: label });
-  // a compact cell draws only the states that ask for a look, each as heavy as it is urgent: a filled
-  // bubble waits for an answer, a dot has finished and was not looked at, a dim arc runs. Ready and
-  // unknown keep the cell, its label and its tooltip
-  const Icon = { idle: null, working: LoaderCircle, blocked: MessageCircle, done: null, unknown: null }[value];
+  // a compact cell draws only the states that ask for a look: a red question mark while the agent
+  // waits for an answer, a green dot once it has finished and was not looked at, a dim arc while
+  // it runs. Ready and unknown keep the cell, its label and its tooltip
+  const Icon = { idle: null, working: LoaderCircle, blocked: null, done: null, unknown: null }[value];
   return (
     <span
       className={`badge badge-${value}${compact ? " sidebar-status" : ""}`}
@@ -82,6 +82,7 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
       title={description}
     >
       {compact && Icon && <Icon aria-hidden="true" />}
+      {compact && value === "blocked" && <span className="sidebar-status-mark" aria-hidden="true">?</span>}
       {compact && value === "done" && <span className="sidebar-status-dot" aria-hidden="true" />}
       <span className={compact ? "visually-hidden" : undefined}>{label}</span>
     </span>
@@ -451,22 +452,26 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const repoKey = workspace.worktree?.repo_key;
     const branch = workspace.worktree?.is_linked_worktree ? branches.get(workspace.workspace_id) : undefined;
     const branchTitle = branch?.branch ?? (branch?.isDetached ? t("Detached HEAD") : null);
-    const rowTitle = branchTitle ?? workspace.label;
-    const secondaryWorkspaceLabel = branchTitle && workspace.label !== branchTitle && workspace.label !== worktreeLabel(branchTitle) ? workspace.label : null;
+    // the row says the workspace's name, the one its owner gave it or herdr made from the branch; the
+    // branch itself is the tooltip's and the menu's, where the name does not already say it
+    const rowTitle = workspace.label;
+    const secondaryBranch = branchTitle && workspace.label !== branchTitle && workspace.label !== worktreeLabel(branchTitle) ? branchTitle : null;
+    // the tooltip and the menu keep the exact branch (its slashes) even where the row does not repeat it
+    const branchNote = branchTitle && branchTitle !== workspace.label ? branchTitle : null;
     const paths = [...new Set([workspace.worktree?.checkout_path, pane.cwd].filter((path): path is string => Boolean(path)))];
     const collapsed = children.length > 0 && repoKey !== undefined && collapsedWorktrees.has(repoKey);
     // a folded group's parent stands for its worktrees too, as herdr's collapsed parent does:
     // a checkout that waits or has finished must not hide behind the fold
     const statusPanes = collapsed ? [...panes, ...children.flatMap((child) => roster.filter((candidate) => candidate.workspace_id === child.workspace_id))] : panes;
     // on two lines the row says what its pane is doing, and the workspace it has named until now sits under that
-    const lines = twoLine ? taskRowLines({ paneTitle: displayPaneTitle(pane), labelled: Boolean(pane.label?.trim()), folder: cwdBasename(pane.cwd), workspace: rowTitle, alias: secondaryWorkspaceLabel }) : null;
+    const lines = twoLine ? taskRowLines({ paneTitle: displayPaneTitle(pane), labelled: Boolean(pane.label?.trim()), folder: cwdBasename(pane.cwd), workspace: rowTitle, alias: secondaryBranch }) : null;
     // a folded group still shows the checkout that is open; the count is of the ones put away
     const foldedCount = collapsed ? children.filter((child) => !roster.some((candidate) => candidate.workspace_id === child.workspace_id && candidate.pane_id === selectedPaneId)).length : 0;
     const editingWorkspace = editingWorkspaceId === workspace.workspace_id;
     const editingPane = editingPaneId === pane.pane_id;
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id;
     const contentsId = `${rosterId}-worktrees-${encodeURIComponent(repoKey ?? workspace.workspace_id)}`;
-    const toggleMenu = (anchor: HTMLElement): void => setMenu(menuOpen ? null : { anchor, workspace, pane, title: rowTitle, place: [secondaryWorkspaceLabel, ...paths].filter(Boolean).join(" · ") || workspace.label });
+    const toggleMenu = (anchor: HTMLElement): void => setMenu(menuOpen ? null : { anchor, workspace, pane, title: rowTitle, place: [branchNote, ...paths].filter(Boolean).join(" · ") || workspace.label });
     return <li
       className={`workspace workspace-group pane-item${selected ? " is-selected" : ""}${collapsed ? " is-collapsed" : ""}${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}`}
       key={workspace.workspace_id}
@@ -497,7 +502,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           aria-description={`${t("Reorder workspace {name}", { name: workspace.label })} · ${t("Drag to reorder · Alt+↑/↓")}`}
           data-pane={pane.pane_id}
           aria-current={selected ? "true" : undefined}
-          title={[`${pane.pane_id} — ${rowTitle}`, rowTitle !== workspace.label ? workspace.label : null, ...paths, paneTitle(pane), agentsTitle(workspace)].filter(Boolean).join(" — ")}
+          title={[`${pane.pane_id} — ${rowTitle}`, branchNote, ...paths, paneTitle(pane), agentsTitle(workspace)].filter(Boolean).join(" — ")}
           onClick={() => actions.selectPane(pane.pane_id)}
           onKeyDown={(event) => {
             onRowKeyDown(event, workspace.workspace_id);
@@ -545,7 +550,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
             {lines.place && <span className="workspace-place">{lines.place}</span>}
           </span> : <span className="workspace-copy">
             <span className="workspace-name">{rowTitle}</span>
-            {secondaryWorkspaceLabel && <span className="worktree-workspace-label">{secondaryWorkspaceLabel}</span>}
+            {secondaryBranch && <span className="worktree-workspace-label">{secondaryBranch}</span>}
             {foldedCount > 0 && <span className="workspace-fold-count" aria-hidden="true">+{foldedCount}</span>}
           </span>}
           <span className="sidebar-pane-meta">

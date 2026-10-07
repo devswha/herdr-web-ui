@@ -83,6 +83,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   a worktree expands its group. The browser demo supports these worktree actions with fictional
   checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 
+- A linked worktree's row in the sidebar is titled by its workspace name, the one its owner gave it
+  or the one herdr made from the branch, instead of the branch; the branch follows in dim text
+  where the name does not already say it, and in the row's tooltip and menu. The sidebar's mark
+  for an agent waiting for an answer is a red question mark instead of a filled speech bubble;
+  a finished one keeps its green dot.
+  ([#557](https://github.com/devswha/herdr-web-ui/pull/557))
+
 ### Fixed
 - A pane whose agent has just started is listed as an agent's pane within a moment, where the
   list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
