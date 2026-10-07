@@ -315,3 +315,18 @@ describe("numbered lists as agents write them", () => {
     expect(html).not.toContain("<b>");
   });
 });
+
+describe("quotes nested beyond reason", () => {
+  it("parses a line of thousands of quote marks without overflowing the stack", () => {
+    const blocks = parseMarkdown(`${">".repeat(30_000)} deep\n\nafter`);
+    expect(blocks.map((block) => block.type)).toEqual(["blockquote", "paragraph"]);
+    let depth = 0;
+    for (let block = blocks[0]; block?.type === "blockquote"; block = block.blocks[0]) depth += 1;
+    expect(depth).toBe(33);
+  });
+
+  it("still nests the quotes people write", () => {
+    const [outer] = parseMarkdown("> one\n> > two");
+    expect(outer?.type === "blockquote" && outer.blocks.map((block) => block.type)).toEqual(["paragraph", "blockquote"]);
+  });
+});

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UpdateCommand, UpdateStatus } from "../../shared/update.ts";
-import { fetchUpdateStatus, requestUpdate } from "./api.ts";
+import type { UpdateCommand, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
+import { fetchUpdateNotes, fetchUpdateStatus, requestUpdate } from "./api.ts";
+import { notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes } from "./updateNotes.ts";
 import { usePageVisible } from "./visibility.ts";
 
 declare const __APP_REVISION__: string | null;
@@ -38,6 +39,42 @@ export function useUpdates(enabled: boolean) {
     return () => { stopped = true; clearTimeout(timer); };
   }, [enabled, refresh, visible]);
 
+  // what the release brings, asked for once per offer: the status is polled, the notes are long.
+  // `available` is not asked here: every check reports nothing available while it runs, and
+  // offeredNotes drops what does not belong to the release on offer
+  const [fetched, setFetched] = useState<UpdateNotes | null>(null);
+  const offer = enabled ? notesOffer(status) : null;
+  const revision = offer === null ? null : status?.latest_revision ?? null;
+  // the offer whose notes were answered, or refused for good: not asked for again
+  const settled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled) { setFetched(null); settled.current = null; return; }
+    if (!offer || !visible || settled.current === offer) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      // null: nothing more to ask for this offer
+      const again = (delay: number | null) => {
+        if (delay === null) settled.current = offer;
+        else timer = setTimeout(() => load(attempt + 1), delay);
+      };
+      fetchUpdateNotes().then((next) => {
+        if (!live) return;
+        // an answer for another commit, or for none (a bridge that restarted and has not heard
+        // from its supervisor yet), is not this offer's: what is shown stays, and it is asked again
+        if (next.revision !== revision) { again(notesUnboundDelay(attempt)); return; }
+        settled.current = offer;
+        setFetched(next);
+      }, (error: unknown) => {
+        // a server older than the notes has no answer: the update is offered without them
+        if (live) again(notesRetryDelay(error, attempt));
+      });
+    };
+    load(0);
+    return () => { live = false; clearTimeout(timer); };
+  }, [enabled, offer, revision, visible]);
+  const notes = offeredNotes(status, fetched);
+
   const request = useCallback(async (command: UpdateCommand) => {
     setPending(true); setError(null);
     try {
@@ -53,7 +90,7 @@ export function useUpdates(enabled: boolean) {
   const busy = pending || status?.phase === "checking" || status?.phase === "building" || status?.phase === "restarting";
   const needsReload = typeof __APP_REVISION__ === "string" && !!status?.current_revision &&
     __APP_REVISION__ !== status.current_revision && !busy;
-  return { status, error, busy, needsReload, request };
+  return { status, error, busy, needsReload, notes, request };
 }
 
 export type UpdatesModel = ReturnType<typeof useUpdates>;
