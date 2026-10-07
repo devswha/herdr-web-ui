@@ -59,6 +59,9 @@ const ACTIONLINT = { version: "1.7.12", sha256: "8aca8db96f1b94770f1b0d72b6dddcb
 /** A unix socket's path holds about 104 bytes on macOS and 108 on Linux. */
 const SOCKET_PATH_MAX = 100;
 
+/** What a shell inside a herdr pane carries of that herdr: nothing in a run may reach it by these. */
+const LIVE_HERDR = ["HERDR_SOCKET", "HERDR_SOCKET_PATH", "HERDR_ENV", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID"];
+
 export interface Isolation {
   env: Record<string, string>;
   /** where the run's herdr keeps its sessions */
@@ -86,7 +89,8 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
     throw new Error(`${socket} is too long for a unix socket (${socket.length} > ${SOCKET_PATH_MAX}); set CHECK_DIR to a shorter path`);
   }
   const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(base)) if (value !== undefined) env[name] = value;
+  // not what names the herdr this was started from (a pane of the user's): its socket, its pane
+  for (const [name, value] of Object.entries(base)) if (value !== undefined && !LIVE_HERDR.includes(name)) env[name] = value;
   Object.assign(env, {
     XDG_CONFIG_HOME: config,
     XDG_STATE_HOME: join(dir, "state"),
@@ -245,7 +249,9 @@ const END_GRACE_MS = 5_000;
 
 /** Signals a process group and waits until no process is left in it, killing what outlasts the grace. */
 async function endGroup(group: number, signal: NodeJS.Signals): Promise<void> {
-  const left = (): boolean => { try { process.kill(-group, 0); return true; } catch { return false; } };
+  // only "no such process" says the group is empty: a process that may not be signalled is still there
+  const none = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === "ESRCH";
+  const left = (): boolean => { try { process.kill(-group, 0); return true; } catch (error) { return !none(error); } };
   const gone = async (ms: number): Promise<boolean> => {
     for (const deadline = Date.now() + ms; left();) {
       if (Date.now() > deadline) return false;
@@ -253,10 +259,10 @@ async function endGroup(group: number, signal: NodeJS.Signals): Promise<void> {
     }
     return true;
   };
-  try { process.kill(-group, signal); } catch { return; }
+  try { process.kill(-group, signal); } catch (error) { if (none(error)) return; }
   if (await gone(END_GRACE_MS)) return;
-  try { process.kill(-group, "SIGKILL"); } catch { return; }
-  await gone(2_000);
+  try { process.kill(-group, "SIGKILL"); } catch (error) { if (none(error)) return; }
+  if (!(await gone(2_000))) console.error(`check: processes of the interrupted step are still running (process group ${group})`);
 }
 
 /**
