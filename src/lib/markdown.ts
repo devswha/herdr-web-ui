@@ -72,21 +72,29 @@ export function markdownFileTarget(href: string): string | null {
 /** A bare URL without the punctuation that closes the sentence around it (GFM's autolink rule). */
 export function trimUrl(url: string): string {
   let end = url.length;
+  // counted once: an opening one is never cut, a closing one only from the end
+  let opened = 0;
+  let closed = 0;
+  for (let index = 0; index < end; index += 1) {
+    if (url[index] === "(") opened += 1;
+    else if (url[index] === ")") closed += 1;
+  }
   for (;;) {
     const last = url[end - 1];
     if (last !== undefined && ".,:;!?'\"*_~".includes(last)) { end -= 1; continue; }
     // a closing parenthesis stays only while it closes one opened inside the URL
-    if (last === ")") {
-      const text = url.slice(0, end);
-      if (text.split(")").length > text.split("(").length) { end -= 1; continue; }
-    }
+    if (last === ")" && closed > opened) { end -= 1; closed -= 1; continue; }
     break;
   }
   return url.slice(0, end);
 }
 
+/** Emphasis nests by one call each: past this many levels, what is inside is read as plain text. */
+const MAX_INLINE_DEPTH = 16;
+
 /** Dependency-free inline markdown scanner. Unknown or malformed markup remains text. */
-export function parseInline(source: string, links = true): InlineNode[] {
+export function parseInline(source: string, links = true, depth = 0): InlineNode[] {
+  if (depth > MAX_INLINE_DEPTH) return source === "" ? [] : [{ type: "text", value: source }];
   const nodes: InlineNode[] = [];
   // Underscores inside identifiers are literal: MAC_QA_CHAT_OK must survive
   // rendering exactly as it appears in the terminal and native transcript.
@@ -120,17 +128,18 @@ export function parseInline(source: string, links = true): InlineNode[] {
       const split = token.lastIndexOf("](");
       const label = token.slice(1, split);
       const target = token.slice(split + 2, -1);
+      // a label holds no `]`, so no link nests in one: only emphasis counts toward the depth
       const href = safeMarkdownHref(target) ?? webLikeHref(target);
       const file = href === null ? markdownFileTarget(target) : null;
-      nodes.push(href !== null ? { type: "link", href, children: parseInline(label, false) }
-        : file !== null ? { type: "file", path: file, children: parseInline(label, false) }
+      nodes.push(href !== null ? { type: "link", href, children: parseInline(label, false, depth) }
+        : file !== null ? { type: "file", path: file, children: parseInline(label, false, depth) }
         : { type: "text", value: label });
     } else if (token.startsWith("**") || token.startsWith("__")) {
-      nodes.push({ type: "strong", children: parseInline(token.slice(2, -2), links) });
+      nodes.push({ type: "strong", children: parseInline(token.slice(2, -2), links, depth + 1) });
     } else if (token.startsWith("~~")) {
-      nodes.push({ type: "del", children: parseInline(token.slice(2, -2), links) });
+      nodes.push({ type: "del", children: parseInline(token.slice(2, -2), links, depth + 1) });
     } else {
-      nodes.push({ type: "em", children: parseInline(token.slice(1, -1), links) });
+      nodes.push({ type: "em", children: parseInline(token.slice(1, -1), links, depth + 1) });
     }
     offset = index + token.length;
   }
@@ -138,8 +147,21 @@ export function parseInline(source: string, links = true): InlineNode[] {
   return nodes;
 }
 
-const listLine = /^(\s*)([-*]|\d+\.)\s+(.+)$/;
-const tableSeparator = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+// `s`: the text may hold a line separator (U+2028) that `.` would stop at, and the pattern then
+// tries every split of the spaces before it; with it the line is an item, as it reads
+const listLine = /^(\s*)([-*]|\d+\.)\s+(.+)$/s;
+/**
+ * The line under a table's header: two or more cells of dashes (`---`, `:---:`), with or without
+ * the outer pipes. Read cell by cell: one pattern for the whole line tries every way to share
+ * a run of spaces between its parts, and a long blank line takes seconds.
+ */
+export function isTableSeparator(line: string): boolean {
+  let row = line.trim();
+  if (row.startsWith("|")) row = row.slice(1);
+  if (row.endsWith("|")) row = row.slice(0, -1);
+  const columns = row.split("|");
+  return columns.length >= 2 && columns.every((column) => /^:?-{3,}:?$/.test(column.trim()));
+}
 
 function cells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
@@ -149,7 +171,7 @@ function lineAt(lines: string[], index: number): string {
   return lines[index] ?? "";
 }
 function startsTable(lines: string[], index: number): boolean {
-  return lineAt(lines, index).includes("|") && tableSeparator.test(lineAt(lines, index + 1));
+  return lineAt(lines, index).includes("|") && isTableSeparator(lineAt(lines, index + 1));
 }
 /** A table in a list item (`within` > 0) ends at a line outside the item or at the next item. */
 function parseTable(lines: string[], start: number, within = 0): { block: MarkdownBlock; next: number } {
@@ -203,7 +225,9 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
         const item = block.items.at(-1)!;
         const last = item.blocks?.at(-1);
         if (last === undefined) {
-          item.content = [...item.content, { type: "text", value: " " }, ...parseInline(line.trim())];
+          // added to, not copied: an item of thousands of lines copies itself at every one
+          item.content.push({ type: "text", value: " " });
+          for (const node of parseInline(line.trim())) item.content.push(node);
         } else {
           // after a table or nested list the item's text goes on below it; a quote or rule
           // there ends the list and shows as its own block, as it did before tables nested
@@ -233,6 +257,24 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
   return { block, next: index };
 }
 
+/** KaTeX reads a formula one call per group: nested deeper than this, it is shown as its source. */
+const MAX_MATH_DEPTH = 100;
+
+/**
+ * Whether a formula's braces nest deeper than anyone writes them. KaTeX takes over a second on
+ * thousands of nested fractions before it gives up, with the page waiting on it.
+ */
+export function mathNestsTooDeep(value: string): boolean {
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "\\") index += 1;
+    else if (char === "{") { depth += 1; if (depth > MAX_MATH_DEPTH) return true; }
+    else if (char === "}" && depth > 0) depth -= 1;
+  }
+  return false;
+}
+
 /** Code blocks longer than this open folded to their first FOLDED_CODE_LINES lines. */
 export const FOLD_CODE_AFTER_LINES = 30;
 export const FOLDED_CODE_LINES = 20;
@@ -251,6 +293,8 @@ export function parseMarkdown(source: string, depth = 0): MarkdownBlock[] {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const blocks: MarkdownBlock[] = [];
   let index = 0;
+  // no formula opened before this line closes: the search that found so is not made again
+  let unclosedMath = 0;
   while (index < lines.length) {
     const line = lineAt(lines, index);
     if (line.trim() === "") { index += 1; continue; }
@@ -270,7 +314,7 @@ export function parseMarkdown(source: string, depth = 0): MarkdownBlock[] {
       continue;
     }
 
-    const display = /^\s*\\\[(.*)$/.exec(line);
+    const display = index < unclosedMath ? null : /^\s*\\\[(.*)$/.exec(line);
     if (display !== null) {
       const body: string[] = [];
       let next = index;
@@ -292,9 +336,11 @@ export function parseMarkdown(source: string, depth = 0): MarkdownBlock[] {
       }
       // An incomplete formula stays prose; later headings and fences still parse normally.
       if (complete) continue;
+      // every `\[` up to where the search ended (the end, or a fence) would search the same lines
+      unclosedMath = next;
     }
 
-    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    const heading = /^(#{1,6})\s+(.+)$/s.exec(line);
     if (heading !== null) {
       blocks.push({ type: "heading", level: (heading[1] ?? "#").length as 1 | 2 | 3 | 4 | 5 | 6, content: parseInline(heading[2] ?? "") });
       index += 1;

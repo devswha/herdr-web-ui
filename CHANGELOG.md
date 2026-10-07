@@ -85,6 +85,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 
 ### Fixed
+- A pane whose agent has just started is listed as an agent's pane within a moment, where the
+  list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
+  time took it for a shell: it opened the terminal instead of the chat, and resized the
+  terminal shared with the other devices.
+  ([#537](https://github.com/devswha/herdr-web-ui/pull/537))
+- A message can no longer freeze or crash the chat by its shape alone. A long run of underscores
+  nested emphasis until the page ran out of stack; a URL followed by thousands of closing
+  parentheses, a formula opened on many lines and never closed, a long blank line under a table
+  header, a list item of thousands of lines, and a heading or list item holding a line-separator
+  character after a long run of spaces each took seconds to read; a line of plus signs took half
+  a second, and a formula of thousands of nested fractions a second more. Each is read in a few
+  milliseconds now. Emphasis stops nesting after sixteen levels, and a formula nested deeper than
+  a hundred braces shows as its source.
+  ([#547](https://github.com/devswha/herdr-web-ui/pull/547))
 - A workspace row's state rolls up as herdr's does: a workspace with one finished agent and one
   still running shows DONE, where it showed RUN.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
