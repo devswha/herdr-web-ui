@@ -3,8 +3,8 @@
 set -euo pipefail
 # CI's runner image has none of Chromium's system libraries; a PC is not asked for sudo
 if [ -n "${CI:-}" ]; then
-  bash scripts/ci-apt-fail-fast.sh
-  bun node_modules/playwright-core/cli.js install --with-deps chromium
+  bash scripts/ci-bounded-retry.sh 300 bun node_modules/playwright-core/cli.js install-deps chromium
+  bun node_modules/playwright-core/cli.js install chromium
 else
   bun node_modules/playwright-core/cli.js install chromium
 fi
