@@ -59,6 +59,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
 ### Changed
+- On a desktop, **Settings** is a gear beside search in the sidebar's top row, and the sidebar's
+  footer is shown only while it holds the usage meters, so the Agents list reaches the bottom of
+  the sidebar. **Install app** is in Settings → Phone & devices → Install, no longer in the
+  sidebar. A phone's drawer keeps its Settings row. ([#905](https://github.com/devswha/herdr-web-ui/issues/905))
 - Install and update counts include app setting values such as theme, text size and notification
   choices, rather than only the names of changed appearance settings. Custom text and account
   identifiers stay out; custom choices use flags or counts. The expanded notice is shown again
