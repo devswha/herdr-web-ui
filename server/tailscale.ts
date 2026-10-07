@@ -137,6 +137,7 @@ export function parseSoleTailnetLogin(status: string | null): string | null {
  * PC, or one that names no login for a tailnet it would prove, leaves the question open instead.
  */
 function readSoleLogin(status: string | null): { login: string | null; settled: boolean } {
+  // "every node" is every node this PC's Tailscale lists: a node an ACL hides is not in its network map
   const parsed = parseJson<StatusJson>(status);
   if (parsed === null || parsed.BackendState !== "Running") return { login: null, settled: false };
   const self = parsed.Self;
