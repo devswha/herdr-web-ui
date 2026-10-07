@@ -197,7 +197,7 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 - `theme`: `dark`, `light`, or `system`; default `dark`.
 - `palette`: `amber`, `report`, `charcoal`, `catppuccin` or `lilac`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
-- `sidebarRows`: `one` or `two`; default `one`.
+- `sidebarRows`: `one` or `two`; default `two`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
 - Terminal and chat font families are comma-separated lists, default empty. They go in front of the
   terminal's built-in fonts (after the bundled Symbols Nerd Font Mono, which only draws icons) and of
@@ -422,7 +422,8 @@ One set for both themes: the card is island black wherever it shows.
   Agents takes the height of its rows, at most half the sidebar, docked above the footer; the
   workspace list has the rest. The Agents heading stays outside its scroll area and shows its
   count only while folded. A list that is cut fades out at its lower edge. An empty or folded
-  Agents list gives its space back; PC and workspace folds do not hide agent rows.
+  Agents list gives its space back; PC and workspace folds do not hide agent rows. In the drawer
+  (`max-width: 768px`) the list starts folded.
 - A PC's header is the head of its workspaces, and the caret beside its `+` is the one fold over
   them. The roster has no label or fold of its own.
 - A repository's parent row keeps `workspace.label`; its opened linked
@@ -910,6 +911,10 @@ One set for both themes: the card is island black wherever it shows.
 ### Voice input
 - A mic button sits beside the add button in the composer and beside Send in the terminal input line; it
   fills with `--accent` while recording. Dictated text is inserted at the caret, never sent.
+- `voiceInput`: `auto`, `on` or `off`; default `auto`. Auto puts the mic in the composer only, not on
+  a phone (the composer's `(max-width: 640px), (pointer: coarse)`), and leaves it out where dictation
+  cannot work (no HTTPS, or no key and no browser recognition). On shows it in both inputs and on a
+  phone, disabled with its reason where it cannot work.
 - The recording pill shows Cancel, a **Recording** label, the level bars, a mono timer and Done.
   Amber only; `--danger` stays for errors.
 

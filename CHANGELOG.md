@@ -14,9 +14,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   button that opens Settings there. The notes come from the version that is running, so they
   appear from the update after this one.
   ([#535](https://github.com/devswha/herdr-web-ui/pull/535))
-- **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
-  agent is doing, with the workspace and folder under it, as the sidebar did before its rows
-  became one line. **One line**, the workspace's name alone, stays the default.
+- **Settings → Appearance → Sidebar rows** chooses between **Two lines** and **One line**. On two
+  lines, the default, a workspace row shows what its agent is doing, with the workspace and
+  folder under it, as the sidebar did before its rows became one line. **One line** keeps the
+  workspace's name alone.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - A right-click on a workspace or pane row in the sidebar opens the row's menu, the one its `⋯`
   button opens. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
@@ -38,6 +39,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
+- The mic button shows in a desktop's chat without being turned on. **Settings → Voice input →
+  Microphone button** is now **Auto**, **On** or **Off**. Auto, the default, puts the mic in the
+  chat's message box on a desktop, and only where dictation can work: over HTTPS, with an OpenAI
+  key or a browser that recognizes speech. A phone and the terminal input line have it when the
+  setting is **On**, as before. Nothing is recorded until the mic is pressed. A device that had
+  the button on keeps it; one that had it off follows Auto.
+- On a phone, the sidebar's **Agents** list starts folded, leaving the drawer to the workspaces.
+  A tap on its heading opens it.
+- On a touch screen, the chip above the message box that takes Claude Code's suggested next
+  prompt is on again unless **Settings → Composer → Suggestion chip** turns it off.
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
   work schedules a next-turn message; its explicit ↑ Send now action delivers it immediately,
   or X discards it. The bridge claims each message once and pauses automatic delivery when
