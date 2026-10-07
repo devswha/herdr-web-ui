@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Secret input and the Codex follow-up fallback validate the live screen, so a password
+  prompt or collapsed question queue in scrollback cannot send input into the current program.
+
 ## [0.4.0] - 2026-10-08
 
 ### Added
