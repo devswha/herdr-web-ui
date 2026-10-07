@@ -218,6 +218,10 @@
   color: var(--text);
 }
 
+.terminal-banner-draft .draft-truncated {
+  color: var(--text-dim);
+}
+
 .terminal-banner-draft .draft-actions {
   display: inline-flex;
   gap: var(--space-1);
