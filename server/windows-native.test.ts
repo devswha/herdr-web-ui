@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { claudeProcessSession, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
 import { gjcSessionFile, storeRelative } from "./gjc-runtime.ts";
 import { descendantArgv, windowsProcessTable } from "./windows-processes.ts";
 import { windowsHost } from "./remote-host.ts";
@@ -99,4 +100,32 @@ it.skipIf(!onWindows)("keeps a session file inside its store on a real Windows f
       expect(gjcSessionFile(root, outside)).toBeNull();
     }
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+it.skipIf(!onWindows)("finds a Claude's own store from the start it records, which the process table repeats", async () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-claude-native-")));
+  const serverConfigDir = process.env["CLAUDE_CONFIG_DIR"];
+  delete process.env["CLAUDE_CONFIG_DIR"];
+  try {
+    const session = "0b8e6f0e-8d3f-4c1a-9a53-6c2b7a1d9e42";
+    // Claude records its start as FILETIME ticks, as PowerShell gives them
+    const probe = Bun.spawnSync(["powershell", "-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${process.pid}).StartTime.ToFileTimeUtc()`], { stdin: "ignore", stderr: "ignore" });
+    const procStart = probe.stdout.toString().trim();
+    expect(procStart).toMatch(/^\d+$/);
+    const user = join(home, "User With Spaces");
+    const store = join(user, ".claude-second");
+    mkdirSync(join(store, "sessions"), { recursive: true });
+    mkdirSync(join(user, ".claude", "sessions"), { recursive: true });
+    const record = (start: string) => writeFileSync(join(store, "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: session, procStart: start, kind: "interactive" }));
+    // a millisecond off is another process that had this PID
+    record(String(BigInt(procStart) + 10_000n));
+    expect(await claudeProcessSession(user, process.pid, store)).toBeNull();
+    record(procStart);
+    expect(await claudeProcessSession(user, process.pid, store)).toBe(session);
+    expect(await processClaudeConfigDir(process.pid, [process.execPath], user)).toBe(store);
+  } finally {
+    forgetClaudeSessions();
+    if (serverConfigDir !== undefined) process.env["CLAUDE_CONFIG_DIR"] = serverConfigDir;
+    rmSync(home, { recursive: true, force: true });
+  }
 });
