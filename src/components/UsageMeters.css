@@ -20,9 +20,12 @@
   cursor: pointer;
 }
 
-.usage-strip:hover,
-.usage-strip[aria-expanded="true"] {
-  background: var(--bg-hover);
+.usage-strip[aria-expanded="true"] { background: var(--bg-hover); }
+
+/* beside Settings in the sidebar's footer: the same half fill under a pointer */
+@media (hover: hover) {
+  .usage-strip:hover { background: var(--side-hover); }
+  .usage-strip[aria-expanded="true"]:hover { background: var(--bg-hover); }
 }
 
 .usage-chip {

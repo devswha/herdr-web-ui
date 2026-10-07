@@ -10,11 +10,14 @@ import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, ty
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
 import { sanitizeKeyBarExtras, type KeyBarExtra } from "./keys.ts";
+import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems, sanitizeKeyBarItems, type KeyBarItem } from "./keyBar.ts";
 
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
 export type SidebarGrouping = "workspace" | "directory";
+/** One line names the workspace; two lines say what its pane is doing, with the workspace under it. */
+export type SidebarRows = "one" | "two";
 /** what the plan meters count: the share of a limit used, or what is left of it */
 export type UsageCount = "used" | "left";
 /** the limit a plan meter shows: the plan's week, or its short session (5 hours on Claude and Codex) */
@@ -33,13 +36,17 @@ import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcutBin
 
 export interface Settings {
   terminalInputMode: "auto" | "line" | "direct";
-  /** the touch key bar's optional keys (lib/keys.ts); they take their fixed places in the row */
+  /** Kept for migration of the old fixed-order bar. New layouts use keyBarItems. */
   keyBarExtras: KeyBarExtra[];
+  /** This device's terminal keys, sticky modifiers and exact chords, in display order. */
+  keyBarItems: KeyBarItem[];
   shortcutOverrides: ShortcutOverrides;
   theme: ThemeSetting;
   density: Density;
   /** The sidebar's display grouping; workspaces themselves remain independent. */
   sidebarGrouping: SidebarGrouping;
+  /** How much a workspace row says: its name, or its pane's title over its place. */
+  sidebarRows: SidebarRows;
   /** the chrome color family, keyed as data-palette in src/styles.css */
   palette: Palette;
   /** xterm font size in px */
@@ -99,10 +106,12 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   terminalInputMode: "auto",
   keyBarExtras: ["alt"],
+  keyBarItems: DEFAULT_KEY_BAR_ITEMS,
   shortcutOverrides: {},
   theme: "dark",
   density: "comfortable",
   sidebarGrouping: "workspace",
+  sidebarRows: "one",
   palette: "amber",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
@@ -222,13 +231,16 @@ export function sanitizeSettings(raw: unknown): Settings {
   const density = record["density"];
   const font = record["terminalFontSize"];
   const chatFont = record["chatFontSize"];
+  const keyBarExtras = sanitizeKeyBarExtras(record["keyBarExtras"], DEFAULT_SETTINGS.keyBarExtras);
   return {
     terminalInputMode: record["terminalInputMode"] === "line" || record["terminalInputMode"] === "direct" ? record["terminalInputMode"] : "auto",
-    keyBarExtras: sanitizeKeyBarExtras(record["keyBarExtras"], DEFAULT_SETTINGS.keyBarExtras),
+    keyBarExtras,
+    keyBarItems: sanitizeKeyBarItems(record["keyBarItems"], migrateKeyBarItems(keyBarExtras)),
     shortcutOverrides: sanitizeShortcutOverrides(record["shortcutOverrides"]),
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarGrouping: record["sidebarGrouping"] === "workspace" || record["sidebarGrouping"] === "directory" ? record["sidebarGrouping"] : DEFAULT_SETTINGS.sidebarGrouping,
+    sidebarRows: record["sidebarRows"] === "one" || record["sidebarRows"] === "two" ? record["sidebarRows"] : DEFAULT_SETTINGS.sidebarRows,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])

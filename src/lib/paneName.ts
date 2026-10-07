@@ -19,6 +19,29 @@ export function folderName(path: string): string {
   return /^[A-Za-z]:$/.test(last) ? `${last}${path[2] ?? "\\"}` : last;
 }
 
+/**
+ * A roster row drawn on two lines: what its pane is doing, and where under it. A shell's title
+ * is often just its folder, which says nothing a workspace's name does not say better, so that
+ * row leads with the workspace and keeps the second line for what is left to say.
+ */
+export function taskRowLines({ paneTitle, labelled, folder, workspace, alias }: {
+  /** the pane's title as the roster shows it */
+  paneTitle: string;
+  /** the user named the pane: the name is kept as it is */
+  labelled: boolean;
+  /** the last folder of the pane's working directory */
+  folder: string;
+  /** the workspace's row name: a linked worktree's branch, else its label */
+  workspace: string;
+  /** a linked worktree's own workspace name, when it differs from its branch */
+  alias?: string | null;
+}): { title: string; place: string } {
+  const title = !labelled && paneTitle === folder ? workspace : paneTitle;
+  const where = [workspace === title ? "" : workspace, alias && alias !== title && alias !== workspace ? alias : ""].filter(Boolean).join(" · ");
+  const said = folder === title || folder === workspace || folder === alias;
+  return { title, place: placeLine(where, said ? "" : folder) };
+}
+
 /** "workspace · folder", without saying the same name twice. */
 export function placeLine(workspace: string, folder: string): string {
   return !folder || folder === workspace ? workspace : !workspace ? folder : `${workspace} · ${folder}`;
