@@ -185,6 +185,16 @@ async function main(): Promise<void> {
 
   let code = 0;
   try {
+    // before the fast steps too: `full` is refused at once, not after a minute of them
+    if (todo.lanes.length > 0) {
+      const held = await lock();
+      if ("heldBy" in held) {
+        throw new Error(Number.isNaN(held.heldBy)
+          ? `port ${LOCK_PORT} on 127.0.0.1, which a run with a lane holds while it runs, is in use by something else`
+          : `another \`bun run check\` with a lane is running on this PC (pid ${held.heldBy}); the tests are bound by timing, so wait for it to end`);
+      }
+      cleanups.push(held.release);
+    }
     if (todo.fast) {
       code = await actionlint(run, plain);
       for (const [label, command] of [
@@ -200,15 +210,6 @@ async function main(): Promise<void> {
     if (code === 0 && needsHerdr) {
       const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
       if (!Bun.which(herdr)) throw new Error("this needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
-      if (todo.lanes.length > 0) {
-        const held = await lock();
-        if ("heldBy" in held) {
-          throw new Error(Number.isNaN(held.heldBy)
-            ? `port ${LOCK_PORT} on 127.0.0.1, which a run with a lane holds while it runs, is in use by something else`
-            : `another \`bun run check\` with a lane is running on this PC (pid ${held.heldBy}); the tests are bound by timing, so wait for it to end`);
-        }
-        cleanups.push(held.release);
-      }
       const isolation = isolate(process.env);
       cleanups.push(isolation.remove);
       const env = { ...isolation.env, ...identity };
