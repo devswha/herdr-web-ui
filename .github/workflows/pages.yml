@@ -21,6 +21,7 @@ jobs:
         with:
           bun-version: 1.4.2
       # poster frames and scaled stills (scripts/build-site.ts); the runner image has no ffmpeg
+      - run: bash scripts/ci-apt-fail-fast.sh
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       # the demo is a Vite build of the client
       - run: bun install --frozen-lockfile
