@@ -8,6 +8,76 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
+  agent is doing, with the workspace and folder under it, as the sidebar did before its rows
+  became one line. **One line**, the workspace's name alone, stays the default.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- A right-click on a workspace or pane row in the sidebar opens the row's menu, the one its `⋯`
+  button opens. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The sidebar can be resized: drag its right edge, or focus the edge and use the arrow keys.
+  A double-click returns to the default width. The width is remembered on each device, and the
+  sidebar never takes more than half the window.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+
+### Changed
+- Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
+  work schedules a next-turn message; its explicit ↑ Send now action delivers it immediately,
+  or X discards it. The bridge claims each message once and pauses automatic delivery when
+  the connection changes, including during delivery and when a request races the end of a turn.
+  While a draft shows Send in Stop's place, Escape in the message box stops the agent.
+  A remote PC whose bridge is older than this keeps the draft during work and asks for an
+  update; its messages held by earlier versions keep their own Send now.
+  Chat status words stay hidden, and desktop plan usage shows the five-hour limit first with
+  weekly fallback; phones omit the compact quota.
+  ([#520](https://github.com/devswha/herdr-web-ui/pull/520))
+- The message box follows **Settings → Chat font size**, as the transcript and prompt cards
+  already did: with a mouse it is typed at the transcript's size, and on a touch screen it
+  grows with a size above 16px (it stays at 16px or more, so iOS still does not zoom).
+  ([#515](https://github.com/devswha/herdr-web-ui/pull/515) by @phirschybar)
+
+- Workspace rows no longer reserve a left column for a reorder grip. Rows can still be dragged
+  directly or moved with Alt+Up/Down while focused.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The sidebar follows herdr's separate workspace and agent lists, drawn on one quiet grid. Every
+  row leads with the coding agent that runs in it (its mark, or a terminal for a shell and a
+  branch for a worktree without an agent) and ends in one status column, drawn by urgency (a filled red bubble waits for an answer, a
+  green dot has finished and was not looked at yet, a dim arc runs), which stays empty while
+  an agent is ready. Agent rows name the agent, then the PC when there are several, the workspace
+  and the tab. Sections are parted by space instead of rules, a row's menu button takes no room
+  until the row is hovered or selected, and a workspace row starts with a folder: where linked
+  worktrees sit under the workspace, the folder folds them, and folded it shows how many it
+  holds and the most urgent state among its checkouts. A PC's fold sits beside its `+`. A pane herdr could
+  not restore shows a warning glyph,
+  and the background-task count sits on agent rows.
+  Workspace rows keep their names, and agents open their panes directly. Tab and pane navigation
+  stays in the tab strip and palette; saved folder grouping choices stay in effect.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The sidebar no longer opens with a **Needs you** list of waiting panes. A pane that waits
+  shows its state on its workspace row and its row in **Agents**, and the alerts are unchanged.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- Opened worktree branches appear beneath their repository workspace, using actual branch names
+  from herdr's worktree API and keeping custom workspace names beside them. Creating or opening
+  a worktree expands its group. The browser demo supports these worktree actions with fictional
+  checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+
+### Fixed
+- A workspace row's state rolls up as herdr's does: a workspace with one finished agent and one
+  still running shows DONE, where it showed RUN.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- Codex chat hides internal memory citation blocks and pairs the answer with its display record,
+  so a reply that uses memory appears once without raw citation markup. Quoted code examples
+  keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
+
+## [0.3.52] - 2026-10-06
+
+### Added
+- A PC whose connect or reconnect is refused on the bridge version check now offers
+  **Update bridge and connect** in its dialog, so a PC that was never registered — no sidebar
+  row, no saved key — can be updated and connected in one go, through the same approval list
+  a first install shows. ([#506](https://github.com/devswha/herdr-web-ui/pull/506) by @suho-han)
+- A lilac palette in Settings → Appearance → Colors: one quiet lavender with indigo ink and accent
+  in light, and the same hue at night in dark.
+  ([#443](https://github.com/devswha/herdr-web-ui/pull/443) by @WOULDU-pres)
 - New workspace's **Browse** filters the loaded folders in the current directory as you type.
   Navigation clears the filter, and a truncated listing says when search covers only the first
   500 folders. ([#430](https://github.com/devswha/herdr-web-ui/pull/430) by @suho-han)
@@ -24,7 +94,48 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   its terminal is replaced.
   ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot)
 
+### Changed
+- The README answers common questions about installation, Windows support, phone access,
+  privacy and deployment, in English, Korean, Japanese and Chinese.
+  ([#495](https://github.com/devswha/herdr-web-ui/pull/495))
+- The website says what it is for in its title and description (Claude Code and Codex from your
+  phone), answers seven common questions in a new FAQ section, and gives search engines a sitemap
+  and structured data for the app and the FAQ.
+  ([#497](https://github.com/devswha/herdr-web-ui/pull/497))
+- The website's headline is "Run herdr from anywhere.", and the page catches up with the app:
+  the Windows install command, pi among the native transcripts, the Alt key and a card for voice
+  input. Its figures now show the contributor count and the plugin's place by stars among herdr
+  plugin repositories, and the comparison with other phone clients was read again in October 2026.
+  ([#494](https://github.com/devswha/herdr-web-ui/pull/494))
+- On macOS a Codex pane's chat costs the server about a sixth of what it did on each poll (a
+  median of 16 ms instead of 103 ms, measured on two live Codex panes). The store a Codex process
+  writes to is remembered for its pid and arguments instead of being read with `ps` every 2 s,
+  and the rollout it has open is found with one `lsof` run for the pane's processes (a wrapper
+  and the binary are two) that skips the stat calls a name does not need.
+  ([#491](https://github.com/devswha/herdr-web-ui/pull/491) by @kilhyeonjun)
+- The app's startup script is a fifth smaller (408 kB to 331 kB gzipped, and 48 kB to 39 kB of
+  CSS): KaTeX, which draws math in the chat, loads with the first reply that has an expression.
+  Until it arrives, that expression shows in its source form, as it did when KaTeX could not read it.
+  ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
+
 ### Fixed
+- A Claude Code pane started with its own `CLAUDE_CONFIG_DIR` (a launcher such as cac keeps one
+  store per environment) shows its chat. Before, only `~/.claude` was searched, so the chat was
+  unavailable and only the terminal worked. The store is read from the pane's Claude process, as
+  for Codex's `CODEX_HOME`, else from the server's own `CLAUDE_CONFIG_DIR`, else `~/.claude`.
+  On macOS the pane's session is also found from Claude's own process record when herdr's hook
+  has not reported one, as it already was on Linux. Node-based Claude processes reported by
+  their `argv0` title are recognized too.
+  ([#504](https://github.com/devswha/herdr-web-ui/pull/504) by @leo1oel)
+- With Language set to **System**, English stays selected when it is the browser's first
+  supported language, even if Japanese, Korean or Chinese appears later in its preferences.
+  Before, English was skipped in favor of a later supported language.
+  ([#496](https://github.com/devswha/herdr-web-ui/pull/496) by @snowykr)
+- An OmO pane's chat keeps a background task's title after the newest page moves past the prompt
+  that started the task, as 0.3.51 meant to. Before, the title was kept only when a transcript
+  deleted earlier had used the same inode (as Linux reuses them) and left its titles behind, and
+  such a transcript's titles could name another session's tasks with the same id.
+  ([#498](https://github.com/devswha/herdr-web-ui/pull/498) by @kilhyeonjun)
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
   waits on read RUN, and one it asks without waiting (it keeps working, or ends its turn, with
   the question folded over its input box) read RUN or DONE.
@@ -32,6 +143,32 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A question OmO asks without waiting gets its card in the chat: tap an option, or type a reply
   to answer it. Before, the chat showed no card for it, so an option could only be picked in the
   terminal. ([#488](https://github.com/devswha/herdr-web-ui/pull/488))
+- A Claude, omp or pi pane that has just started opens its chat on the greeting ("What should
+  Claude do in …?"), as an OmO pane already did. Before, until the first message the chat
+  showed the terminal's text or an empty line instead, so a new workspace or worktree never
+  greeted you. ([#500](https://github.com/devswha/herdr-web-ui/pull/500))
+- `/model` sent from a Claude Code pane's chat shows Claude's model list as a card: tap a model,
+  or type its number, and that pane's session switches to it. Before, the chat showed nothing
+  while the terminal waited on the list, so a model could only be picked there. The card picks
+  for this session only (Claude's `s` key). Saving a model as the default for new sessions stays
+  in the terminal, where Enter on the list does it. The card offers the rows Claude draws (ten of
+  a longer list, fewer in a short pane) and says how many more the terminal lists.
+  ([#501](https://github.com/devswha/herdr-web-ui/pull/501))
+- `/model` sent from a Codex pane's chat shows Codex's lists as cards, one after the other: the
+  models, then the reasoning levels of the model you pick. The level you pick applies to that
+  pane's session only (Codex's `s` key). Saving a default stays in the terminal, where Enter
+  does it. Open "More reasoning…" in the terminal; once open, its Max and Ultra options can also
+  be picked for this session from the chat. Before, the chat showed nothing while the terminal
+  waited on the list.
+  ([#503](https://github.com/devswha/herdr-web-ui/pull/503))
+
+### Maintenance
+- Browser regressions run on macOS as well as Linux, with portable fixtures and bounded
+  readiness checks. ([#499](https://github.com/devswha/herdr-web-ui/pull/499) by @kilhyeonjun)
+- Isolated test panes start at a shell prompt even where zsh includes its new-user wizard.
+  ([#502](https://github.com/devswha/herdr-web-ui/pull/502))
+- The website serves the Google Search Console ownership verification file.
+  ([#505](https://github.com/devswha/herdr-web-ui/pull/505))
 
 ## [0.3.51] - 2026-10-06
 
@@ -2022,7 +2159,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.51...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...HEAD
+[0.3.52]: https://github.com/devswha/herdr-web-ui/compare/v0.3.51...v0.3.52
 [0.3.51]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...v0.3.51
 [0.3.50]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...v0.3.50
 [0.3.49]: https://github.com/devswha/herdr-web-ui/compare/v0.3.48...v0.3.49

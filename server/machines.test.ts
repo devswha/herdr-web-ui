@@ -12,7 +12,7 @@ import type { BridgeDescriptor } from "./bridge.ts";
 import { createServer } from "./index.ts";
 import { MachineManager } from "./machines.ts";
 import { detectHost, psQuote, UNSUPPORTED_HOST, windowsBridgeFiles } from "./remote-host.ts";
-import { decodeClixml, type SshConnection } from "./ssh.ts";
+import { decodeClixml, SshConnection } from "./ssh.ts";
 import { terminalAttachSupported } from "./herdr/client.ts";
 import { attachableIdentity, isRealNode, sidecarAvailable } from "./pty/sidecar.ts";
 import { CompletionTracker } from "./completion.ts";
@@ -186,6 +186,44 @@ describe("SSH output during setup", () => {
     expect(recentSshOutput("\x1b[31mred\x1b[0m\r\n\n  \nspinner\rdone\x07\n")).toBe("red\nspinner\ndone");
     expect(recentSshOutput("x".repeat(5000)).length).toBe(2048);
     expect(recentSshOutput("")).toBe("");
+  });
+});
+
+// A first connect that finds another version's bridge fails before the PC is ever registered,
+// so the sidebar has no row to put the update button on: the job has to carry the action itself.
+// ssh's run() is answered in place of a PC (a PATH-swapped fake cannot serve it: spawned runs
+// never see the swapped PATH), so setup() fails inside its own catch — where the action is set.
+describe("a first connect that finds a bridge of another version", () => {
+  const socket = "/home/u/.config/herdr/herdr.sock";
+  const descriptor = { pid: 4242, port: 29431, token: "a".repeat(64), socket_path: socket, bridge_protocol: 1, bundle_version: "999", managed_remote: true };
+  const real = { start: SshConnection.prototype.start, run: SshConnection.prototype.run, close: SshConnection.prototype.close };
+  afterEach(() => { Object.assign(SshConnection.prototype, real); });
+
+  it("fails the job with action_required, which the dialog's poll reads", async () => {
+    SshConnection.prototype.start = async () => {};
+    SshConnection.prototype.run = (async (script: string) => {
+      if (script.includes("uname")) return `Linux\nx86_64\n/home/u\n/home/u/.config\n\n${JSON.stringify(descriptor)}\n`;
+      if (script.includes("socket=")) return socket;
+      if (script.includes("kill -0")) return "live";
+      throw new Error("Unexpected remote mutation");
+    }) as typeof real.run;
+    SshConnection.prototype.close = () => {};
+    const dir = mkdtempSync(join(tmpdir(), "herdr-stale-bridge-"));
+    const manager = new MachineManager(dir, {} as PushService, new CompletionTracker(null));
+    try {
+      const started = manager.setup({ destination: "stale-pc" });
+      for (let i = 0; i < 100 && !["failed", "connected"].includes(manager.job(started.id)?.phase ?? ""); i += 1) await Bun.sleep(25);
+      const job = manager.job(started.id)!;
+      expect(job.phase).toBe("failed");
+      expect(job.error).toContain("different version");
+      expect(job.action_required).toBe("update_bridge");
+      // the dialog polls this route: the action has to be in its answer, not only on the manager
+      const response = await handleMachineRequest(new Request(`http://localhost:7317/api/machines/setup/${started.id}`, { headers: { origin: "http://localhost:7317" } }), manager);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ phase: "failed", action_required: "update_bridge" });
+      // and the PC was never registered, so the job is the dialog's only signal
+      expect(manager.list().map((machine) => machine.kind)).toEqual(["local"]);
+    } finally { manager.stop(); rmSync(dir, { recursive: true, force: true }); }
   });
 });
 

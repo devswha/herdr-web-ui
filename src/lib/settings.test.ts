@@ -19,6 +19,14 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
+it("keeps sidebar rows on one line unless two lines were chosen", () => {
+  expect(sanitizeSettings({}).sidebarRows).toBe("one");
+  expect(sanitizeSettings({ sidebarRows: "two" }).sidebarRows).toBe("two");
+  for (const sidebarRows of [null, true, "three", 2]) {
+    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("one");
+  }
+});
+
 it("defaults legacy records to workspace grouping and accepts only supported modes", () => {
   expect(sanitizeSettings({}).sidebarGrouping).toBe("workspace");
   expect(sanitizeSettings({ sidebarGrouping: "workspace" }).sidebarGrouping).toBe("workspace");
@@ -38,6 +46,15 @@ describe("chat font size", () => {
     expect(sanitizeSettings({ chatFontSize: 15.6 }).chatFontSize).toBe(16);
     expect(sanitizeSettings({ chatFontSize: "18" }).chatFontSize).toBeNull();
     expect(sanitizeSettings({ terminalFontSize: 15 }).chatFontSize).toBeNull();
+  });
+
+  it("sizes the message box too: with a mouse at the transcript's size, on touch never under --fs-input", () => {
+    const css = readFileSync(join(import.meta.dir, "..", "components", "Composer.css"), "utf8");
+    const sizes = [...css.matchAll(/\.composer-text \{[^}]*?font-size: ([^;]+);/g)].map((match) => match[1]);
+    expect(sizes).toEqual([
+      "max(var(--fs-input), calc(var(--fs-chat) * var(--chat-scale, 1)))",
+      "calc(var(--fs-chat) * var(--chat-scale, 1))",
+    ]);
   });
 });
 
@@ -305,6 +322,7 @@ describe("palette", () => {
     expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
     expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
     expect(sanitizeSettings({ palette: "catppuccin" }).palette).toBe("catppuccin");
+    expect(sanitizeSettings({ palette: "lilac" }).palette).toBe("lilac");
     expect(sanitizeSettings({ palette: "pink" }).palette).toBe("amber");
   });
 
@@ -325,6 +343,8 @@ describe("palette", () => {
     { theme: "light", palette: "charcoal", layers: ['[data-theme="light"][data-palette="charcoal"]', paper, '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "catppuccin", layers: ['[data-theme="dark"][data-palette="catppuccin"]', ":root"] },
     { theme: "light", palette: "catppuccin", layers: ['[data-theme="light"][data-palette="catppuccin"]', '[data-theme="light"]', ":root"] },
+    { theme: "dark", palette: "lilac", layers: ['[data-theme="dark"][data-palette="lilac"]', ":root"] },
+    { theme: "light", palette: "lilac", layers: ['[data-theme="light"][data-palette="lilac"]', '[data-theme="light"]', ":root"] },
   ] as const;
   const tokens = (layers: readonly string[]) => (name: string): string =>
     layers.map((selector) => block(selector).match(new RegExp(`--${name}: ([^;]+);`))?.[1]).find((value) => value !== undefined)!;

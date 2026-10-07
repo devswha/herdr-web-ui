@@ -261,6 +261,97 @@ describe("answers to pi's dialogs", () => {
 });
 
 /**
+ * Claude Code's `/model` list against the real server. A pane runs a list drawn the way Claude
+ * Code 2.1.290 draws it, reported as `claude` and, as measured on Claude Code itself, **idle**
+ * while it waits. ↑/↓ move its `❯` inside a window of the list, `s` takes the row for the
+ * session and Enter saves it as the default: the log says which key took which model.
+ */
+const MODEL_LIST = `
+const { appendFileSync, writeFileSync } = require("node:fs");
+const [out, spec] = process.argv.slice(2);
+const { models, current, shown } = JSON.parse(spec);
+let cursor = current;
+let from = 0;
+let taken = null;
+const draw = () => {
+  if (taken !== null) return void process.stdout.write("\\u001b[2J\\u001b[H" + ["❯ /model", "  ⎿  Set model to " + taken + " for this session only", "", "─".repeat(60), "❯ ", "─".repeat(60), "  [" + taken + "] │ app git:(main)"].join("\\r\\n"));
+  // the window moves only when the cursor leaves it
+  if (cursor < from) from = cursor;
+  if (cursor >= from + shown) from = cursor - shown + 1;
+  const below = models.length - from - shown;
+  const rows = models.slice(from, from + shown).map(([name, said], index) => {
+    const row = from + index;
+    const mark = row === cursor ? "❯" : index === 0 && from > 0 ? "↑" : index === shown - 1 && below > 0 ? "↓" : " ";
+    return "  " + mark + " " + (row + 1 + ".").padEnd(3) + " " + (name + (row === current ? " ✔" : "")).padEnd(21) + "  " + said;
+  });
+  process.stdout.write("\\u001b[2J\\u001b[H" + [
+    "❯ /model", "", "─".repeat(100), "  Select model", "  Switch between Claude models. Your pick becomes the default for new sessions.", "",
+    ...rows, ...(below > 0 ? ["     … +" + below + " model" + (below === 1 ? "" : "s")] : []), "",
+    "  ◐ Medium effort (default) ←/→ to adjust", "", "  Enter to set as default · s to use this session only · Esc to cancel",
+  ].join("\\r\\n"));
+};
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => {
+  // a key that comes after the list has closed went to Claude's own prompt: logged, so a test sees it
+  if (taken !== null) return void appendFileSync(out, "stray: " + JSON.stringify(chunk.toString("utf8")) + "\\n");
+  for (const key of chunk.toString("utf8").match(/\\u001b[\\[O][AB]|\\r|s/g) ?? []) {
+    if (taken !== null) break;
+    if (key.endsWith("B")) cursor = Math.min(models.length - 1, cursor + 1);
+    else if (key.endsWith("A")) cursor = Math.max(0, cursor - 1);
+    else {
+      appendFileSync(out, (key === "s" ? "session: " : "default: ") + models[cursor][0] + "\\n");
+      taken = models[cursor][0];
+    }
+  }
+  draw();
+});
+draw();
+writeFileSync(out, "");
+`;
+
+describe("picks from Claude Code's model list", () => {
+  const MODELS: [name: string, said: string][] = [
+    ["Default (recommended)", "Fable 5.1"], ["Opus 5.5", "For complex work and everyday tasks"], ["Fable 5.1", "For your toughest challenges"],
+    ["Sonnet 5.5", "Most efficient for simpler tasks"], ["Haiku 4.5", "Fastest for quick answers"], ["Sonnet 5", "Efficient for routine tasks"],
+    ["Opus 5", "Best for everyday, complex tasks"],
+  ];
+  let models: Menu;
+
+  beforeAll(async () => {
+    writeFileSync(join(root, "model.js"), MODEL_LIST);
+    const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+      "workspace.create", { label: "herdr-web-ui-test-prompt-claude-model", cwd: root, focus: false },
+    );
+    workspaces.push(created.workspace.workspace_id);
+    const log = join(root, "claude-model.log");
+    // five rows of seven, the second in use: a window, as a pane shorter than the list gets
+    await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "claude")}' '${join(root, "model.js")}' '${log}' '${JSON.stringify({ models: MODELS, current: 1, shown: 5 })}'\n` });
+    for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
+    expect(existsSync(log)).toBe(true);
+    await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "claude", state: "idle" });
+    models = { pane: created.root_pane.pane_id, log };
+  }, 30_000);
+
+  it("offers the rows drawn while herdr reports the pane idle, and takes the tapped one for this session", async () => {
+    const prompt = await card(models);
+    expect(prompt.question).toBe("Select model for this session (currently Opus 5.5). 2 more models are listed in the terminal.");
+    expect(prompt.options.map((option) => option.label)).toEqual(MODELS.slice(0, 5).map(([name]) => name));
+    // the window's last row, three below the cursor: ↓ ↓ ↓ and then s, never the Enter that saves a default
+    expect((await answer(models, prompt.id, 4)).status).toBe(200);
+    expect(await confirmed(models)).toEqual(["session: Haiku 4.5"]);
+    // Claude has closed its list: the card goes with it
+    let after: unknown = prompt;
+    for (let i = 0; i < 100 && after !== null; i++) {
+      await Bun.sleep(50);
+      after = (await (await fetch(`${base()}/api/pane/prompt?pane_id=${encodeURIComponent(models.pane)}`)).json() as { prompt: unknown }).prompt;
+    }
+    expect(after).toBeNull();
+    expect(chosen(models)).toEqual(["session: Haiku 4.5"]);
+  });
+});
+
+/**
  * The answers that had no second look before their Enter (a Codex menu, omp's permission), against
  * the real server. A pane draws screens the way those agents draw them and logs
  * every key it is sent: `{n}` in a line is row n's cursor. `swap`: on that key the next screen
@@ -400,5 +491,96 @@ describe("an answer whose menu changes under it", () => {
       expect((await response).status).toBe(409);
       expect(await keys(ended)).toEqual(["down"]);
     } finally { socket.close(); }
+  });
+});
+
+/**
+ * Codex's `/model` lists against the real server. A pane runs the two lists drawn the way Codex
+ * 0.160.1 draws them, reported as `codex` and idle: the models, whose rows only open a model's
+ * levels on Enter, then the levels, where `s` takes one for the session and Enter saves it as the
+ * default. The footer is the row's own, and the log says which key did what.
+ */
+const CODEX_LISTS = `
+const { appendFileSync, writeFileSync } = require("node:fs");
+const [out] = process.argv.slice(2);
+const MODELS = [["GPT-6.1-Sol (default)", "Latest workhorse model."], ["GPT-6-Astra", "Frontier intelligence."], ["GPT-6-Luna", "Fast and affordable."]];
+const LEVELS = [["Low", "Lighter reasoning"], ["Medium (default)", "Everyday tasks"], ["High", "Complex problems"]];
+let model = null;
+let cursor = 1;
+let taken = null;
+const draw = () => {
+  if (taken !== null) return void process.stdout.write("\\u001b[2J\\u001b[H" + ["• Model changed to " + taken + " for this session only", "", "› Ask Codex to do anything"].join("\\r\\n"));
+  const rows = model === null ? MODELS : LEVELS;
+  const width = Math.max(...rows.map(([name], row) => name.length + (row === 1 ? 10 : 0)));
+  process.stdout.write("\\u001b[2J\\u001b[H" + [
+    "  >_ OpenAI Codex (v0.160.1)", "", "  " + (model === null ? "Select Model and Effort" : "Select Reasoning Level for " + model), "", "",
+    ...rows.map(([name, said], row) => (row === cursor ? "›" : " ") + " " + (row + 1) + ". " + (name + (row === 1 ? " (current)" : "")).padEnd(width) + "  " + said), "",
+    model === null ? "  enter select · esc back" : "  enter default · s session · esc back",
+  ].join("\\r\\n"));
+};
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => {
+  // a key that comes after the lists have closed went to Codex's own prompt: logged, so a test sees it
+  if (taken !== null) return void appendFileSync(out, "stray: " + JSON.stringify(chunk.toString("utf8")) + "\\n");
+  for (const key of chunk.toString("utf8").match(/\\u001b[\\[O][AB]|\\r|s/g) ?? []) {
+    const rows = model === null ? MODELS : LEVELS;
+    if (key.endsWith("B")) cursor = Math.min(rows.length - 1, cursor + 1);
+    else if (key.endsWith("A")) cursor = Math.max(0, cursor - 1);
+    else if (model === null) {
+      // a model's row takes Enter alone, and it only opens that model's levels
+      if (key === "s") { appendFileSync(out, "ignored: s\\n"); continue; }
+      model = MODELS[cursor][0].replace(" (default)", "");
+      appendFileSync(out, "opened: " + model + "\\n");
+      cursor = 1;
+    } else {
+      taken = model + " " + LEVELS[cursor][0];
+      appendFileSync(out, (key === "s" ? "session: " : "default: ") + taken + "\\n");
+      break;
+    }
+  }
+  draw();
+});
+draw();
+writeFileSync(out, "");
+`;
+
+describe("picks from Codex's model lists", () => {
+  let lists: Menu;
+  type Card = Awaited<ReturnType<typeof card>>;
+  const shown = async (): Promise<Card | null> => (await (await fetch(`${base()}/api/pane/prompt?pane_id=${encodeURIComponent(lists.pane)}`)).json() as { prompt: Card | null }).prompt;
+
+  beforeAll(async () => {
+    writeFileSync(join(root, "codex-lists.js"), CODEX_LISTS);
+    if (!existsSync(join(root, "codex"))) { copyFileSync(process.execPath, join(root, "codex")); chmodSync(join(root, "codex"), 0o755); }
+    const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+      "workspace.create", { label: "herdr-web-ui-test-prompt-codex-model", cwd: root, focus: false },
+    );
+    workspaces.push(created.workspace.workspace_id);
+    const log = join(root, "codex-model.log");
+    await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "codex")}' '${join(root, "codex-lists.js")}' '${log}'\n` });
+    for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
+    expect(existsSync(log)).toBe(true);
+    await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "codex", state: "idle" });
+    lists = { pane: created.root_pane.pane_id, log };
+  }, 30_000);
+
+  it("opens a model's levels with Enter, then takes a level with s and never with the Enter that saves a default", async () => {
+    const models = await card(lists);
+    expect(models.question).toBe("Select model for this session (currently GPT-6-Astra)");
+    expect(models.options.map((option) => option.label)).toEqual(["GPT-6.1-Sol (default)", "GPT-6-Astra", "GPT-6-Luna"]);
+    expect((await answer(lists, models.id, 2)).status).toBe(200);
+    // the levels of the model that was tapped: another list, another card
+    let levels = await shown();
+    for (let i = 0; i < 100 && (levels === null || levels.id === models.id); i++) { await Bun.sleep(50); levels = await shown(); }
+    expect(levels!.question).toBe("Select reasoning level for GPT-6-Luna for this session (currently Medium)");
+    expect(levels!.options.map((option) => option.label)).toEqual(["Low", "Medium (default)", "High"]);
+    expect((await answer(lists, levels!.id, 2)).status).toBe(200);
+    expect(await confirmed(lists)).toContain("session: GPT-6-Luna High");
+    // Codex has closed its lists: the card goes with them
+    let after = await shown();
+    for (let i = 0; i < 100 && after !== null; i++) { await Bun.sleep(50); after = await shown(); }
+    expect(after).toBeNull();
+    expect(chosen(lists)).toEqual(["opened: GPT-6-Luna", "session: GPT-6-Luna High"]);
   });
 });

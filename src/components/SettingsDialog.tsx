@@ -235,11 +235,11 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Colors")}</span><span className="settings-description">{t("herdr's amber, a dark report, neutral charcoal, or Catppuccin")}</span></div>
+              <div><span className="settings-label">{t("Colors")}</span><span className="settings-description">{t("herdr's amber, a dark report, neutral charcoal, Catppuccin, or lilac")}</span></div>
               <div className="segmented" aria-label={t("Colors")}>
-                {(["amber", "report", "charcoal", "catppuccin"] as const).map((palette) => (
+                {(["amber", "report", "charcoal", "catppuccin", "lilac"] as const).map((palette) => (
                   <button key={palette} type="button" aria-pressed={settings.palette === palette} onClick={() => update({ palette })}>
-                    {t(palette === "report" ? "Dark report" : palette === "amber" ? "Amber" : palette === "catppuccin" ? "Catppuccin" : "Charcoal")}
+                    {t(palette === "report" ? "Dark report" : palette === "amber" ? "Amber" : palette === "catppuccin" ? "Catppuccin" : palette === "lilac" ? "Lilac" : "Charcoal")}
                   </button>
                 ))}
               </div>
@@ -270,6 +270,16 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
                 {(["workspace", "directory"] as const).map((grouping) => (
                   <button key={grouping} type="button" aria-pressed={settings.sidebarGrouping === grouping} onClick={() => update({ sidebarGrouping: grouping })}>
                     {t(grouping === "workspace" ? "By workspace" : "By folder")}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="settings-row">
+              <div><span className="settings-label">{t("Sidebar rows")}</span><span className="settings-description">{t("Name each workspace on one line, or show what its agent is doing with the workspace under it")}</span></div>
+              <div className="segmented" aria-label={t("Sidebar rows")}>
+                {(["one", "two"] as const).map((rows) => (
+                  <button key={rows} type="button" aria-pressed={settings.sidebarRows === rows} onClick={() => update({ sidebarRows: rows })}>
+                    {t(rows === "one" ? "One line" : "Two lines")}
                   </button>
                 ))}
               </div>
@@ -426,7 +436,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code and prompt cards in the chat view")}</span></div>
+              <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code, prompt cards and the message box in the chat view")}</span></div>
               <div className="settings-stepper" aria-label={t("Chat font size")}>
                 <button type="button" className="icon-button" aria-label={t("Decrease chat font size")} disabled={chatFontSize(settings) <= CHAT_FONT_MIN} onClick={() => update({ chatFontSize: chatFontSize(settings) - 1 })}><Minus /></button>
                 <output aria-live="polite">{chatFontSize(settings)}px</output>

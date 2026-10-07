@@ -29,17 +29,17 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { claudeProcessSession, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
+import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
-import { piTranscriptPath } from "./pi.ts";
+import { piTranscriptPath, unwrittenSession } from "./pi.ts";
 import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
@@ -224,6 +224,9 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
   return turns.filter((turn) => turn.parts.length > 0).slice(-maxTurns);
 }
 
+/** Read sessions by source and canonical path (Claude uses its unique session id): a removed file is not unwritten. */
+const writtenSessions = new Set<string>();
+
 /** Re-parse on file changes, including replacement and same-size rewrites. */
 const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; abandoned?: { count: number; branches: number; summary: string | null } }>();
 
@@ -236,7 +239,7 @@ export class ConversationUnavailable extends Error {
 
 /** The pane's agent holds a session it has not written yet: a conversation with no turns, not a missing one. */
 export class ConversationNotStarted extends ConversationUnavailable {
-  constructor(readonly sessionId: string) {
+  constructor(readonly sessionId: string, readonly source: RecognizedConversation["source"] = "omo-transcript", readonly identity: string = sessionId) {
     super("session_not_written");
     this.name = "ConversationNotStarted";
   }
@@ -518,6 +521,10 @@ interface SettledTurns {
   tail: string;
   /** what OmO's `task` calls on the page called their tasks: a task can end in a later turn than the one that started it */
   taskTitles: Map<string, string>;
+  /** the titles it began with, from the pages before it */
+  inherited: Map<string, string>;
+  /** End of the live turn the last poll actually read; replay never scans unseen skipped history. */
+  observedEnd: number;
 }
 const settledTurns = new Map<string, SettledTurns>();
 
@@ -630,15 +637,27 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
   if (!settled || settled.id !== stream.id || settled.end > last || bytesBefore(stream, settled.end) !== settled.tail) {
     const head = start > stream.floor ? metadataHead(path, stream, source, start) : "";
     // a page that starts past the turn that started a task keeps the title that turn gave it,
-    // as long as this stream was watched while the title was on a page (a cold read cannot)
-    const earlier = [...settledTurns.values()].filter((kept) => kept.id === stream.id && kept.start < start && kept.end <= start && kept.taskTitles.size > 0);
-    const taskTitles = new Map(earlier.flatMap((kept) => [...kept.taskTitles]));
-    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles };
+    // as long as this stream was watched while the title was on a page (a cold read cannot).
+    // Only this file's pages count: another file can come to have its inode once it is gone.
+    let kept: SettledTurns | undefined;
+    for (const [other, page] of settledTurns) {
+      if (other.startsWith(`${path}\0`) && page.id === stream.id && page.start < start && page.start > (kept?.start ?? -1)) kept = page;
+    }
+    const inherited = new Map(kept === undefined ? [] : kept.end <= start ? kept.taskTitles : kept.inherited);
+    // Replay the overlap, or the previously seen live turn when many prompts arrived between
+    // polls. Only bytes already observed are needed, even if the file grew by gigabytes since.
+    if (kept !== undefined) {
+      const from = kept.end <= start ? kept.end : kept.start;
+      const to = Math.min(start, kept.observedEnd);
+      if (to > from) parseTurns(source, readStream(stream, from, to).toString("utf8"), inherited);
+    }
+    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), taskTitles: new Map(inherited), inherited, observedEnd: stream.length };
   }
   if (settled.end < last) {
     const text = readStream(stream, settled.end, last).toString("utf8");
     settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text, settled.taskTitles)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
   }
+  settled.observedEnd = stream.length;
   remember(settledTurns, key, settled, 8);
   if (source === "codex-transcript") {
     const live = codexLiveTurn(path, stream, last, settled.metadata);
@@ -653,6 +672,7 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
 /** Forget every scan and parse kept between polls (tests compare against a cold read). */
 export function forgetTranscriptState(): void {
   cache.clear();
+  writtenSessions.clear();
   forgetClaudeSessions();
   forgetGjcState();
   liveScans.clear();
@@ -717,23 +737,31 @@ export async function labelOmoPanes(snapshot: SessionSnapshot): Promise<SessionS
   };
 }
 
-/** Claude's transcript: Herdr's hook, or a unique live Claude's native PID record. */
+/**
+ * Claude's transcript: Herdr's hook, or a unique live Claude's native PID record, in the config dir
+ * of the pane's Claude process (a launcher can give each environment its own CLAUDE_CONFIG_DIR).
+ */
 async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[]): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
   let session = info.agent.agent_session?.value;
   const home = process.env["HOME"] ?? "";
-  if ((typeof session !== "string" || !SESSION_ID.test(session)) && process.platform === "linux") {
-    const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; name?: string; argv?: string[] }[] } }>(
+  let processes: { pid: number; name?: string; argv0?: string; argv?: string[] }[] = [];
+  try {
+    const processInfo = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; name?: string; argv0?: string; argv?: string[] }[] } }>(
       "pane.process_info", { pane_id: paneId },
     );
-    const processes = info.process_info?.foreground_processes?.filter((entry) =>
-      entry.name === "claude" || /(?:^|\/)claude$/.test(entry.argv?.[0] ?? ""),
+    processes = processInfo.process_info?.foreground_processes?.filter((entry) =>
+      // macOS keeps the executable name "node" for npm installs; the process title is argv0.
+      entry.name === "claude" || /(?:^|\/)claude$/.test(entry.argv0 ?? "") || /(?:^|\/)claude$/.test(entry.argv?.[0] ?? ""),
     ) ?? [];
-    if (processes.length === 1 && processes[0]) session = await claudeProcessSession(home, processes[0].pid);
-  }
+  } catch { /* herdr busy: the default store */ }
+  const only = processes.length === 1 ? processes[0] : undefined;
+  const configDir = (only && await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""])) || defaultClaudeConfigDir(home);
+  if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) session = await claudeProcessSession(home, only.pid, configDir);
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
-  const path = await claudeTranscriptFile(home, session, cwds);
-  if (!path) throw new ConversationUnavailable("transcript_missing");
+  const path = await claudeTranscriptFile(home, session, cwds, configDir);
+  // Claude writes the file with its first message: until then the session it reports holds nothing
+  if (!path) throw new ConversationNotStarted(session, "claude-transcript");
   return path;
 }
 
@@ -753,6 +781,9 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
   // a Windows bridge starts with HOME set to the profile directory (remote-entry.ts)
   const path = ompSessionPath(session?.kind === "path" ? session.value : undefined, process.env["HOME"] ?? "");
   if (!path) throw new ConversationUnavailable("no_session_path");
+  // omp names its session file at start and writes it with the first answer
+  const unwritten = unwrittenSession(path, nodePath.join(process.env["HOME"] ?? "", ".omp", "agent", "sessions"));
+  if (unwritten !== null) throw new ConversationNotStarted(unwritten.id, "omp-transcript", unwritten.path);
   return path;
 }
 
@@ -801,9 +832,10 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     }
     // pi's own label only routes pi: an omo pane was taken above, by its process tree.
     if (agent === "pi") {
-      const path = await piTranscriptPath(paneId);
-      if (!path) throw new ConversationUnavailable("no_session_path");
-      return { source: "pi-transcript", path };
+      const found = await piTranscriptPath(paneId);
+      if (found === null) throw new ConversationUnavailable("no_session_path");
+      if ("unwritten" in found) throw new ConversationNotStarted(found.unwritten.id, "pi-transcript", found.unwritten.path);
+      return { source: "pi-transcript", path: found.path };
     }
     throw new ConversationUnavailable("no_recognized_transcript");
   } catch (error) {
@@ -843,14 +875,22 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
   } catch (error) {
     if (!(error instanceof ConversationNotStarted)) throw error;
-    // nothing comes before a conversation not begun: a cursor for older pages is another one's
-    if (page.before !== undefined || page.since !== undefined) throw new HistoryChanged();
+    // a file read before and gone since is no conversation not begun: the terminal stands in for it
+    if (writtenSessions.has(`${error.source}\0${error.identity}`)) throw new ConversationUnavailable("transcript_missing");
+    // nothing comes before a conversation not begun: a cursor into it is another one's
+    if (page.before !== undefined || page.since !== undefined || page.from !== undefined) throw new HistoryChanged();
+    // an agent at work on its first turn has written nothing yet, but its terminal shows the turn
+    if (pane.agent_status === "working" || pane.agent_status === "blocked") throw error;
     // the chat says there is nothing yet; the session's first prompt writes the file and
     // the next poll's history_id differs, so the chat takes it whole
     const id = `unwritten:${error.sessionId}`;
-    return { source: "omo-transcript", turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
+    return { source: error.source, turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
   }
-  return transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
+  const identity = resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
+    : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
+  const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
+  if (identity !== null) writtenSessions.add(`${resolved.source}\0${identity}`);
+  return answer;
 }
 
 /** One page of a resolved transcript (paneConversation's `page`). */
