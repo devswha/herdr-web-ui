@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Download, X } from "lucide-react";
 import type { Machine, SetupJob } from "../../shared/machines.ts";
-import { fetchMachineSetup } from "../lib/api.ts";
+import { ApiError, fetchMachineSetup } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { BridgeUpdateProgress } from "./MachineSidebar.tsx";
 import "./MachineSetupStatus.css";
@@ -25,14 +25,19 @@ function SetupStatus({ entry, onOpen, onDismiss }: { entry: BackgroundSetup; onO
   const t = useT();
   const [job, setJob] = useState(entry.job);
   const [error, setError] = useState<string | null>(null);
-  const finished = ["connected", "failed", "cancelled"].includes(job.phase);
+  const [gone, setGone] = useState(false);
+  const finished = gone || ["connected", "failed", "cancelled"].includes(job.phase);
   useEffect(() => {
     if (finished) return;
     let disposed = false;
     let timer = 0;
     const poll = async () => {
       try { const next = await fetchMachineSetup(entry.job.id); if (!disposed) { setJob(next); setError(null); } }
-      catch (e) { if (!disposed) setError(e instanceof Error ? e.message : String(e)); }
+      catch (e) {
+        if (disposed) return;
+        setError(e instanceof Error ? e.message : String(e));
+        if (e instanceof ApiError && e.code === "job_not_found") { setGone(true); return; }
+      }
       if (!disposed) timer = window.setTimeout(poll, 750);
     };
     void poll();
@@ -41,6 +46,6 @@ function SetupStatus({ entry, onOpen, onDismiss }: { entry: BackgroundSetup; onO
   return <section className="machine-setup-item">
     <strong>{entry.name || entry.machine?.name || job.target.destination}</strong>
     <div role="status">{finished || !job.progress ? <p>{job.step}</p> : <BridgeUpdateProgress update={{ job_id: job.id, step: job.step, progress: job.progress }} />}{(job.error || error) && <p className="machine-error">{job.error || error}</p>}</div>
-    <div className="machine-setup-actions"><button className="btn" onClick={() => onOpen({ ...entry, job })}>{t("Open PC setup")}</button>{finished && <button className="icon-button" aria-label={t("Dismiss")} onClick={() => onDismiss(job.id)}><X /></button>}</div>
+    <div className="machine-setup-actions"><button className="btn" onClick={() => onOpen({ ...entry, job })}>{t("Open PC setup")}</button>{(finished || error) && <button className="icon-button" aria-label={t("Dismiss")} onClick={() => onDismiss(job.id)}><X /></button>}</div>
   </section>;
 }

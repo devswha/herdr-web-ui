@@ -11,6 +11,7 @@ const pc: Machine = { ...local, id: "qa-remote", name: "QA remote", kind: "ssh",
 const requests: SetupRequest[] = [];
 let conflict = false;
 let installing = false;
+let jobMissing = false;
 let job: SetupJob | null = null;
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
@@ -24,6 +25,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     return Response.json(job, { status: 202 });
   }
   if (path === "/api/machines/setup/qa-job") {
+    if (jobMissing) return Response.json({ error: { code: "job_not_found", message: "Setup job not found" } }, { status: 404 });
     if (request.method === "POST") {
       const action = await request.json() as { action: string };
       if (action.action === "approve") job = { ...job!, phase: "installing", step: "Downloading the bridge", progress: { stage: "download", done: 25, total: 100, rate: 10, elapsed_ms: 1000 } };
@@ -121,6 +123,19 @@ try {
   await progress.getByText("Connected", { exact: true }).waitFor();
   await progress.getByRole("button", { name: "Dismiss", exact: true }).click();
   await status.waitFor({ state: "detached" });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Add PC", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Add PC", exact: true });
+  await dialog.getByLabel("SSH alias or user@address").fill("missing-job.invalid");
+  await dialog.getByRole("button", { name: "Connect", exact: true }).click();
+  await dialog.getByRole("button", { name: "Install and connect", exact: true }).click();
+  await dialog.getByRole("button", { name: "Continue in background", exact: true }).click();
+  jobMissing = true;
+  if (await status.getAttribute("aria-expanded") === "false") await status.click();
+  await progress.getByText(/Setup job not found/).waitFor();
+  await progress.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await status.waitFor({ state: "detached" });
   assert.deepEqual(errors, []);
-  console.log("PASS: reconnect, conflicts, background progress, resume, failure, retry, completion and mobile layout; screenshots:", shots);
+  console.log("PASS: reconnect, conflicts, background progress, resume, failure, retry, completion, missing job and mobile layout; screenshots:", shots);
 } finally { await browser.close(); server.stop(true); }
