@@ -315,16 +315,15 @@ describe("a page of an OpenCode session", () => {
     }
   });
 
-  it("hides what an /undo took back, and starts another history once it is committed", () => {
+  it("hides what an /undo took back, and refuses a cursor into the turns it deleted", () => {
     const s = store();
-    s.prompt("keep"); s.answer("kept"); s.idle();
+    for (let n = 0; n < 60; n++) { s.prompt(`p${n}`); s.answer(`a${n}`); s.idle(); }
     const undone = s.prompt("undo me");
     s.answer("undone"); s.idle();
     const before = page(opencodeConversation(s.path, s.session));
-    expect(before.turns.length).toBe(4);
     s.db.query("UPDATE session_v2 SET revert = ? WHERE id = ?").run(JSON.stringify({ messageID: undone }), s.session);
     const staged = page(opencodeConversation(s.path, s.session));
-    expect(staged.turns.map((turn) => turn.parts)).toEqual([[{ kind: "text", text: "keep" }], [{ kind: "text", text: "kept" }]]);
+    expect(staged.turns.at(-1)!.parts).toEqual([{ kind: "text", text: "a59" }]);
     expect(staged.history_id).not.toBe(before.history_id);
     // the next prompt commits it: the rows are deleted and the session holds no revert
     const { seq } = s.db.query<{ seq: number }, [string]>("SELECT seq FROM session_message WHERE id = ?").get(undone)!;
@@ -332,8 +331,22 @@ describe("a page of an OpenCode session", () => {
     s.db.query("UPDATE session_v2 SET revert = NULL WHERE id = ?").run(s.session);
     s.prompt("instead");
     const committed = page(opencodeConversation(s.path, s.session));
-    expect(committed.turns.map((turn) => turn.parts[0])).toEqual([{ kind: "text", text: "keep" }, { kind: "text", text: "kept" }, { kind: "text", text: "instead" }]);
-    expect([before.history_id, staged.history_id]).not.toContain(committed.history_id);
+    expect(committed.turns.at(-1)!.parts).toEqual([{ kind: "text", text: "instead" }]);
+    // a chat holding pages from before keeps them while its cursors still name rows: the deletion
+    // only took turns after them
+    expect(committed.history_id).toBe(before.history_id);
+    expect(page(opencodeConversation(s.path, s.session, { from: before.cursor! })).cursor).toBe(before.cursor);
+
+    // an /undo reaching past the chat's held start deleted the row its cursor names: refused, also
+    // on a cold read after a restart, so the chat drops the pages holding the deleted turns
+    const held = page(opencodeConversation(s.path, s.session, { from: before.cursor! })).cursor!;
+    const deeper = Number(held.split(":").at(-1)) - 1;
+    s.db.query("DELETE FROM session_message WHERE session_id = ? AND seq >= ?").run(s.session, deeper);
+    s.prompt("again");
+    forgetOpencodeState();
+    expect(opencodeConversation(s.path, s.session, { from: held })).toEqual({ kind: "history_changed" });
+    expect(opencodeConversation(s.path, s.session, { before: held })).toEqual({ kind: "history_changed" });
+    expect(page(opencodeConversation(s.path, s.session)).turns.at(-1)!.parts).toEqual([{ kind: "text", text: "again" }]);
   });
 
   it("answers an unchanged session from memory, and a step streaming in place anew", () => {

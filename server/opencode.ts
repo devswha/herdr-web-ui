@@ -15,13 +15,13 @@
  * so a pane is bound by that id, never by a guess from its cwd.
  *
  * A page is a range of `seq`, so a cursor names a row and stays valid while rows are appended.
- * A row is rewritten in place while its step streams (`time_updated` moves), and `/undo` hides
- * the rows from a message on (`session_v2.revert`) until the next prompt deletes them: either
- * one changes the history id, so a chat holding older pages reloads.
+ * A row is rewritten in place while its step streams (`time_updated` moves). `/undo` hides the
+ * rows from a message on (`session_v2.revert`), which changes the history id, until the next
+ * prompt deletes them; `seq` is never handed out again, so a cursor naming a deleted row is
+ * refused, and a chat holding pages from before the deletion reloads.
  */
 
 import { Database } from "bun:sqlite";
-import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -253,8 +253,6 @@ export type OpencodeAnswer =
   | { kind: "history_changed" }
   | { kind: "page"; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; history_id: string; signature: string };
 
-/** Per session: what was there last time, to notice rows that went away. */
-const histories = new Map<string, { last: number; count: number; generation: string }>();
 /** Per session: the newest page's rows as records, kept by row id while their `time_updated` holds. */
 const newestRecords = new Map<string, Map<string, { updated: number; record: OpencodeRecord | null }>>();
 /** Per page asked for: the answer, while the session's signature holds. */
@@ -268,7 +266,6 @@ function remember<T>(map: Map<string, T>, key: string, value: T, limit: number):
 
 /** Forget every answer and record kept between polls (tests compare against a cold read). */
 export function forgetOpencodeState(): void {
-  histories.clear();
   newestRecords.clear();
   answers.clear();
   settings.clear();
@@ -303,7 +300,7 @@ interface SessionView {
 }
 
 /** The session's visible extent, its history id and what any change to it changes. */
-function sessionView(db: Database, key: string, sessionId: string): SessionView | null {
+function sessionView(db: Database, sessionId: string): SessionView | null {
   const session = db.query<{ revert: string | null }, [string]>("SELECT revert FROM session_v2 WHERE id = ?").get(sessionId);
   if (session === null) return null;
   const stats = db.query<{ count: number; last: number | null; updated: number | null }, [string]>(
@@ -318,16 +315,7 @@ function sessionView(db: Database, key: string, sessionId: string): SessionView 
     const row = db.query<{ seq: number }, [string, string]>("SELECT seq FROM session_message WHERE session_id = ? AND id = ?").get(sessionId, boundary);
     if (row !== null) end = row.seq;
   }
-  // an /undo that was committed deleted rows: pages read before it may hold turns that are gone
-  const previous = histories.get(key);
-  let generation = previous?.generation ?? "";
-  if (previous !== undefined && stats.last !== null) {
-    const kept = db.query<{ count: number }, [string, number]>("SELECT count(*) AS count FROM session_message WHERE session_id = ? AND seq <= ?").get(sessionId, previous.last)!.count;
-    if (kept < previous.count) generation = `-${randomUUID().slice(0, 8)}`;
-  }
-  if (stats.last === null) histories.delete(key);
-  else remember(histories, key, { last: stats.last, count: stats.count, generation }, 64);
-  const historyId = `opencode-${sessionId}${end > (stats.last ?? -1) ? "" : `-r${end.toString(36)}`}${generation}`;
+  const historyId = `opencode-${sessionId}${end > (stats.last ?? -1) ? "" : `-r${end.toString(36)}`}`;
   return { end, historyId, signature: `${historyId}:${stats.count}:${stats.last}:${stats.updated}` };
 }
 
@@ -388,11 +376,18 @@ function parseData(data: string): Row {
   try { return record(JSON.parse(data)); } catch { return {}; }
 }
 
-function cursorOf(historyId: string, cursor: string, end: number): number | null {
+/**
+ * The row a cursor names, or null for one from another history. Every cursor is the `seq` of a
+ * page's first row, and a committed `/undo` deletes every row from its message on: a chat whose
+ * pages reach a deleted turn holds a cursor to a deleted row. Reading the store answers that the
+ * same way after a restart, which nothing kept in memory could.
+ */
+function cursorOf(db: Database, sessionId: string, historyId: string, cursor: string, end: number): number | null {
   const separator = cursor.lastIndexOf(":");
   const offset = Number(cursor.slice(separator + 1));
   if (separator <= 0 || cursor.slice(0, separator) !== historyId || !Number.isSafeInteger(offset) || offset < 0 || offset > end) return null;
-  return offset;
+  if (offset === 0) return offset;
+  return db.query<{ seq: number }, [string, number]>("SELECT seq FROM session_message WHERE session_id = ? AND seq = ?").get(sessionId, offset) === null ? null : offset;
 }
 
 /**
@@ -420,7 +415,7 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
   const key = `${path}\0${sessionId}`;
   try {
     const answer = withStore(path, (db): OpencodeAnswer => {
-      const view = sessionView(db, key, sessionId);
+      const view = sessionView(db, sessionId);
       if (view === null) return { kind: "unavailable", reason: "session_not_found" };
       const cacheKey = `${key}\0${page.before ?? ""}\0${page.since ?? ""}\0${page.from ?? ""}`;
       const cached = answers.get(cacheKey);
@@ -431,13 +426,13 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
       let start: number;
       let to = end;
       if (page.before !== undefined) {
-        const before = cursorOf(view.historyId, page.before, end);
-        const floor = page.since === undefined ? 0 : cursorOf(view.historyId, page.since, end);
+        const before = cursorOf(db, sessionId, view.historyId, page.before, end);
+        const floor = page.since === undefined ? 0 : cursorOf(db, sessionId, view.historyId, page.since, end);
         if (before === null || floor === null || floor > before) return { kind: "history_changed" };
         start = before === floor ? floor : pageStart(descending(floor, before), floor, true);
         to = before;
       } else {
-        const held = page.from === undefined ? null : cursorOf(view.historyId, page.from, end);
+        const held = page.from === undefined ? null : cursorOf(db, sessionId, view.historyId, page.from, end);
         if (page.from !== undefined && held === null) return { kind: "history_changed" };
         const newest = pageStart(descending(0, end), 0, false);
         // a chat that shows older pages keeps every turn after its held start while they are
