@@ -18,7 +18,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#535](https://github.com/devswha/herdr-web-ui/pull/535))
 - An update also tells what it brought once it is installed. After the reload, the line under
   the header says which version now runs, with **What's new** and **Dismiss**, for a week or
-  until it is closed on that device, and **Settings → Updates** keeps the notes under
+  until it is closed on that device, and **Settings → About** keeps the notes under
   **What the last update brought**. These come from the new version itself, so they appear
   with the first update to a version that has them.
   ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
