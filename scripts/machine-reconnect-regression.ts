@@ -53,6 +53,7 @@ try {
   await dialog.getByRole("button", { name: "Close PC setup" }).click();
   // A conflict after entering through Update bridge must not reinstall on retry.
   conflict = true;
+  await page.locator(".machine-header").filter({ hasText: "QA remote" }).hover();
   await page.getByRole("button", { name: "Manage QA remote", exact: true }).click();
   await page.getByRole("button", { name: "Update bridge…", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "Update remote bridge", exact: true });

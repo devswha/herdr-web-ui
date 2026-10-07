@@ -20,7 +20,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 - NEVER pool herdr RPC connections: herdr closes the socket after each response. Use one connection per call (10 s timeout). Only `events.subscribe` stays open, and a second subscribe on an open connection is silently ignored, so reopen it with the full set.
 - `pane.process_info` takes `pane_id`, not `target`. Given `target`, it silently answers for the focused pane.
 - `server/collector.ts` is the only status subscription source. Do not subscribe to status anywhere else.
-- Nothing the user typed is ever queued or sent automatically while offline. Keystrokes go to a draft the user sends or discards; messages sent while the agent works wait for an explicit "Send now".
+- Nothing the user typed is ever queued or sent automatically while offline. Keystrokes go to a draft the user sends or discards. An explicit chat Send while an agent works can enter the bridge's pending list on `pending-input` bridges: the next turn and its explicit Send now action claim the same server ID. Automatic delivery requires the original live connection and pane lease; disconnect/reload never resumes it. Existing browser-held messages still require "Send now".
 - Prompt answers are `send_keys` navigation, never digits, and go through `POST /api/pane/prompt/answer`: the key semantics per agent live on the server.
 - Web push: build requests with `generateRequestDetails` and send them with `fetch`; never call `sendNotification`.
 - The omo transcript is found through the process tree, never through `pane.agent` or file mtime.
@@ -54,6 +54,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 
 - `bun:test` only, with no DOM. `src/` tests cover pure logic in `lib/*.test.ts`; component behavior is covered by the Playwright scripts. A `.test.tsx` file is not discovered.
 - A test that needs a live herdr is named `*.contract.test.ts`. Unit tests run with `HERDR_TEST_MODE=unit` and never touch herdr.
+- `bun run check fast` is CI's Fast checks and `bun run check full` adds its two lanes, on a herdr of the run's own that reads nothing from the user's config. Only one run with a lane at a time on a PC: a second one exits and names the first. `bun run check run <command…>` gives one test file or browser script the same herdr.
 - Single file: `HERDR_TEST_MODE=unit bun test ./server/prompt.test.ts`. The `./` is required.
 - The unit suite is `bun run test:unit`. A bare `bun test` also loads every `*.contract.test.ts`; under `HERDR_TEST_MODE=unit` those fail, since unit mode points `HERDR_SOCKET` at a socket that does not exist.
 - `bun run test:ui` does not run `scripts/file-viewer-regression.ts`; CI does.

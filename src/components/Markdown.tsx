@@ -1,7 +1,7 @@
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 
-import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
+import { foldCode, mathNestsTooDeep, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { useT } from "../lib/i18n.ts";
@@ -33,7 +33,7 @@ function useKatex(): Katex | null {
 function MathExpression({ value, displayMode = false }: { value: string; displayMode?: boolean }) {
   const katex = useKatex();
   const source = displayMode ? `\\[${value}\\]` : `\\(${value}\\)`;
-  if (!katex) return <span>{source}</span>;
+  if (!katex || mathNestsTooDeep(value)) return <span>{source}</span>;
   try {
     // KaTeX escapes text and rejects untrusted commands by default.
     const html = katex.renderToString(value, { displayMode, strict: "ignore" });
