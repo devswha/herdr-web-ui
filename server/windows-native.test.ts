@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { claudeProcessSession, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
+import { codexRolloutPath } from "./codex.ts";
 import { gjcSessionFile, storeRelative } from "./gjc-runtime.ts";
 import { descendantArgv, windowsProcessTable } from "./windows-processes.ts";
 import { windowsHost } from "./remote-host.ts";
@@ -100,6 +101,25 @@ it.skipIf(!onWindows)("keeps a session file inside its store on a real Windows f
       expect(gjcSessionFile(root, outside)).toBeNull();
     }
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+it.skipIf(!onWindows)("reads a Codex rollout path stored with the \\\\?\\ prefix, and still keeps it inside the store", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-codex-native-")));
+  try {
+    const home = join(root, "With Spaces", ".codex");
+    const day = join(home, "sessions", "2026", "10", "05");
+    mkdirSync(day, { recursive: true });
+    const path = join(day, "rollout.jsonl");
+    writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { source: "cli", thread_source: "user" } }));
+    const outside = join(root, "other.jsonl");
+    writeFileSync(outside, JSON.stringify({ type: "session_meta", payload: { source: "cli", thread_source: "user" } }));
+    // as Codex on Windows writes `threads.rollout_path`
+    expect(codexRolloutPath(`\\\\?\\${path}`, home)).toBe(path);
+    expect(codexRolloutPath(path, home)).toBe(path);
+    expect(codexRolloutPath(`\\\\?\\${outside}`, home)).toBeNull();
+    // raw `..` segments (join would fold them) that climb from the store to `outside`, which exists
+    expect(codexRolloutPath(`\\\\?\\${home}\\sessions\\..\\..\\..\\other.jsonl`, home)).toBeNull();
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 it.skipIf(!onWindows)("finds a Claude's own store from the start it records, which the process table repeats", async () => {

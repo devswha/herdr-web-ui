@@ -36,6 +36,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   program; now it says that the app runs there without herdr and exits, and the app answers
   again on its port once herdr is back.
   ([#577](https://github.com/devswha/herdr-web-ui/pull/577))
+- On Windows, a Codex pane shows its chat when Codex stored its paths with the `\\?\` prefix, as
+  it does for a canonical Windows path (`\\?\D:\work` for `D:\work`). Before, the chat said
+  **Conversation unavailable**: the session's file seemed to lie outside Codex's store, and none of
+  the threads matched the pane's directory as herdr reports it.
+  ([#582](https://github.com/devswha/herdr-web-ui/pull/582) by @David-Sousa-Web)
 - In a Claude Code pane, the chat shows what a slash command answered, so a `/goal` that Claude
   Code refuses says why in the chat instead of only in the terminal. `/goal` is also among the
   commands the message box suggests.
