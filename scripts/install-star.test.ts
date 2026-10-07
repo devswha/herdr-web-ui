@@ -116,7 +116,8 @@ class Pc {
 const pcs: string[] = [];
 afterAll(() => { for (const scratch of pcs) rmSync(scratch, { recursive: true, force: true }); });
 
-describe("install.sh without a terminal", () => {
+// install.sh is the Linux and macOS installer: Windows has install.ps1 and scripts/windows-install.test.ps1
+describe.skipIf(platform() === "win32")("install.sh without a terminal", () => {
   it.concurrent("mentions the star with a link when the PC has no gh", async () => {
     const { out, exitCode } = await new Pc().unattended();
     expect(exitCode).toBe(0);
