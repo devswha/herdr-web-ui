@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import type { PaneInfo } from "../../shared/protocol.ts";
-import { activityOrder, anySeen, carrySeen, forgetSeen, isSeenDone, liveSeqs, loadSeen, markSeen, newSeqMemory, pruneSeen, saveSeen, seedSeen, shownStatus, stateSeqs } from "./sidebarOrder.ts";
+import { activityOrder, anySeen, carrySeen, forgetSeen, isSeenDone, liveSeqs, loadSeen, markSeen, newSeqMemory, persistableSeen, pruneSeen, saveSeen, seedSeen, shownStatus, stateSeqs } from "./sidebarOrder.ts";
 import { DEFAULT_SETTINGS, sanitizeSettings } from "./settings.ts";
 
 const pane = (id: string, agent_status: string, workspace_id = `w-${id}`) => ({ pane_id: id, workspace_id, agent_status }) as PaneInfo;
@@ -53,6 +53,28 @@ describe("live counters", () => {
     const next = liveSeqs(snap({ a: "done", b: "done" }, { a: 12, b: 9 }), memory);
     expect(shownStatus(pane("a", "done"), next, carrySeen(carried, memory.promoted))).toBe("done");
     expect(carrySeen(carried, new Map())).toBe(carried);
+  });
+
+  it("writes only herdr's counters to storage: a stand-in keeps the last stored counter until it is carried", () => {
+    const record = { a: 9.001, b: 12, c: 4.002 };
+    expect(persistableSeen(record, { a: 5, c: 3.5 })).toEqual({ a: 5, b: 12 });
+    expect(persistableSeen(record, null)).toEqual({ b: 12 });
+    const integers = { a: 10, b: 12 };
+    expect(persistableSeen(integers, { a: 5 })).toBe(integers);
+  });
+
+  it("errs toward the dot after a reload inside the poll window (#529 review)", () => {
+    // a finish watched (recorded at the stand-in), another pane opened, the page reloaded before
+    // the roster read: storage holds the last real counter, a new page has no promoted map
+    const memory = newSeqMemory();
+    liveSeqs(snap({ a: "working", b: "done" }, { a: 5, b: 9 }), memory);
+    const pushed = liveSeqs(snap({ a: "done", b: "done" }, { a: 5, b: 9 }), memory);
+    const onDisk = persistableSeen(markSeen({ a: 5 }, "a", pushed.get("a")!), { a: 5 });
+    expect(onDisk).toEqual({ a: 5 });
+    const fresh = newSeqMemory();
+    const read = liveSeqs(snap({ a: "done", b: "done" }, { a: 10, b: 9 }), fresh);
+    // never a value herdr did not give; the finish shows its dot until it is opened again
+    expect(shownStatus(pane("a", "done"), read, carrySeen(onDisk, fresh.promoted))).toBe("done");
   });
 
   it("does not date a pane's first sighting, or a pane with no counter", () => {

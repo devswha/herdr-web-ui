@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { Machine } from "../../shared/machines.ts";
 import type { AgentStatus, PaneInfo } from "../../shared/protocol.ts";
 import { useSettings } from "./settings.ts";
-import { anySeen, carrySeen, forgetSeen, liveSeqs, loadSeen, markSeen, newSeqMemory, pruneSeen, saveSeen, seedSeen, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
+import { anySeen, carrySeen, forgetSeen, liveSeqs, loadSeen, markSeen, newSeqMemory, persistableSeen, pruneSeen, saveSeen, seedSeen, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
 
 export interface SidebarActivity {
   /** herdr's state_change_seq per pane on a PC, a pushed status change dated at once */
@@ -64,7 +64,8 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
     });
   }, [settings.quietOpenedDone, machines, seqsByMachine, selectedMachineId, selectedPaneId, pageVisible]);
   useEffect(() => {
-    for (const [machineId, record] of seen) saveSeen(machineId, record);
+    // storage gets herdr's counters only: a stand-in waits in memory until it is carried (persistableSeen)
+    for (const [machineId, record] of seen) saveSeen(machineId, persistableSeen(record, loadSeen(machineId)));
   }, [seen]);
   // a removed PC takes its record with it; an empty roster is one still loading
   useEffect(() => {

@@ -487,6 +487,8 @@ One set for both themes: the card is island black wherever it shows.
   (`herdr-web-ui:seen:<pc>`) and dropped with the PC. The first time it is turned on in a
   browser, everything open on the connected PCs counts as opened, so the lists start quiet; a PC
   first seen later starts with nothing opened, so its finishes keep their dots until opened.
+  Storage holds herdr's own counters only, so a page reloaded within the poll window after
+  leaving a finish it watched shows that finish's dot again rather than guess.
 - Each workspace row holds its folder (top-level rows), a leading glyph, the name (on two lines,
   the title over the place) and the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
   shell shows the terminal glyph, and a linked worktree without an agent the branch glyph. The

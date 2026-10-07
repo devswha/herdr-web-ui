@@ -105,6 +105,23 @@ export function carrySeen(record: SeenRecord, promoted: ReadonlyMap<string, { fr
   return next ?? record;
 }
 
+/**
+ * What may be written to storage: herdr's own counters only. A look recorded at a stand-in
+ * counter keeps the pane's last counter from `stored` (or nothing) until `carrySeen` has moved it
+ * onto herdr's. A new page starts with no `SeqMemory.promoted`, so a stand-in read back from
+ * storage could never be carried, and would leave the finish marked anyway; this way the
+ * record on disk never holds a value herdr did not give.
+ */
+export function persistableSeen(record: SeenRecord, stored: SeenRecord | null): SeenRecord {
+  if (Object.values(record).every(Number.isInteger)) return record;
+  const next: Record<string, number> = {};
+  for (const [id, at] of Object.entries(record)) {
+    if (Number.isInteger(at)) next[id] = at;
+    else if (stored && Number.isInteger(stored[id])) next[id] = stored[id]!;
+  }
+  return next;
+}
+
 /** The record without panes that closed; the same object when none did. An empty roster keeps it (herdr restarting). */
 export function pruneSeen(record: SeenRecord, panes: readonly Pick<PaneInfo, "pane_id">[]): SeenRecord {
   if (panes.length === 0) return record;
