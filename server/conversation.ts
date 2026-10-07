@@ -75,6 +75,17 @@ function isCommandEntry(text: string): boolean {
 }
 
 /**
+ * What a slash command printed, from the `local_command` entry Claude Code records it in. The
+ * command's echo (`<command-name>…`) is a separate entry with no output tag, and reads as nothing.
+ */
+function localCommandOutput(content: unknown): string {
+  if (typeof content !== "string") return "";
+  return [...content.matchAll(/<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>/g)]
+    // the terminal's colours are escape codes here
+    .map((match) => match[2]!.replace(/\u001b\[[0-9;]*m/g, "").trim()).filter((text) => text.length > 0).join("\n");
+}
+
+/**
  * Claude Code wraps a long paste in `<pasted_content id="…">` tags so the model can
  * tell it from typed text; its own TUI shows only the text, and so does the chat.
  */
@@ -92,6 +103,9 @@ export function unwrapPastes(text: string): string {
 /** A parsed JSONL line's message shape (only the fields we read). */
 interface TranscriptEntry {
   type?: string;
+  subtype?: string;
+  /** a `system` entry's own text; a message's is under `message` */
+  content?: unknown;
   timestamp?: string;
   uuid?: string;
   isMeta?: boolean;
@@ -155,6 +169,14 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
       if (typeof queued.prompt === "string" && queued.prompt.trim() && !isCommandEntry(queued.prompt.trim())) {
         turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(queued.prompt) }] });
       }
+      continue;
+    }
+
+    // A slash command answers in the terminal, not through the model: a refused /goal says why
+    // only here. It is the runtime speaking in the user's seat, so it reads as a notice.
+    if (entry.type === "system" && entry.subtype === "local_command") {
+      const output = localCommandOutput(entry.content);
+      if (output.length > 0) turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "notice", text: output, source: "local-command" }] });
       continue;
     }
 
