@@ -15,7 +15,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 
 - NEVER load node-pty inside Bun; it panics the runtime (oven-sh/bun#18546). All PTY work goes through the Node sidecar `server/pty/pty-host.mjs`, and the only process it runs is `herdr terminal attach <terminal_id>`.
 - NEVER pass `--takeover` to `herdr terminal attach` on the server's own initiative: an attach, a retry or a reconnect waits for the holder instead. Only a user's explicit request for that pane, from an interact connection, may take it. Always set `HERDR_SOCKET_PATH` to the socket the RPCs use.
-- NEVER give xterm scrollback (keep `scrollback: 0`), and never rebuild the terminal from `pane.read`. The attach byte stream is the source of truth.
+- NEVER give xterm scrollback (keep `scrollback: 0`), and never rebuild an attached terminal from `pane.read`. The attach byte stream is the source of truth; only a mirrored pane (below) is drawn from `pane.read`.
 - NEVER edit `shared/herdr-api.generated.ts`. Run `bun run generate:types`.
 - NEVER pool herdr RPC connections: herdr closes the socket after each response. Use one connection per call (10 s timeout). Only `events.subscribe` stays open, and a second subscribe on an open connection is silently ignored, so reopen it with the full set.
 - `pane.process_info` takes `pane_id`, not `target`. Given `target`, it silently answers for the focused pane.
@@ -50,7 +50,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 - Shortcuts are Mod+Shift+key so the pty keeps Ctrl+key. To add one, update `SHORTCUTS`, `KEY_TO_ID` and the switch in `src/lib/shortcuts.ts`.
 - Icons come from lucide-react only; brand marks live in `AgentMark.tsx`. When icon files change, bump the `?v=` query in `index.html` and `CACHE_NAME` in `public/sw.js` together.
 - UI wording: "New workspace", not "New session". "Session" means the herdr server session or an agent's history.
-- There is no linter or formatter. `scripts/` and `site/` are not typechecked, so run what you change there.
+- There is no linter or formatter. `scripts/` and `site/` are not typechecked (only `scripts/build-xterm.ts`, through `vite.config.ts`), so run what you change there.
 - `vite.config.ts` reads `THIRD_PARTY_NOTICES.md` at build time and ships it in `dist/`.
 
 ## Testing
@@ -67,7 +67,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 - Transcript caches are module-global; tests call `forgetTranscriptState()`.
 - NEVER run the real `herdr update` in a test: it replaces the herdr on PATH.
 - `scripts/generate-protocol-types.test.ts` rewrites the generated file while it runs; do not edit that file during a test run.
-- Two servers cannot attach the same pane: the second gets `attach_conflict`. For QA, use a pane the live server does not hold.
+- Two servers cannot attach the same pane: the second gets `attach_held` and waits for the holder. For QA, use a pane the live server does not hold.
 - Screenshots and recordings come from the `herdr-web-ui-demo` or a test session, never the user's live session. Playwright scripts serve `dist/`, so build first.
 
 ## Maintainer workflow

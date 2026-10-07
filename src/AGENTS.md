@@ -8,7 +8,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - Never hardcode a color in component CSS: the light theme is only token overrides.
 - `term.reset()` fires only in the paneId effect, never mid-stream.
 - Output ACKs run in xterm's write callback and capture the connection and pane subscription; never queue them across reconnects or pane switches. A 4008 overload close stops automatic reconnect and shows a notice; selecting another pane explicitly reconnects. Normal reconnect replays stored role/attach/geometry once, without a second control-frame queue.
-- A WS receipt matches the request type, the captured pane and (for a pending action) the pending ID on its own connection, never an ID alone. A submit unanswered for 90 s gives up, keeps the text in the box and is never sent later.
+- A WS receipt matches the request type, the captured pane and (for a pending action) the pending ID on its own connection, never an ID alone. A submit unanswered for 90 s gives up and keeps the text in the box; the client never sends it again.
 - SecretInput keeps the secret in the DOM input only: never React state, a draft, a queue or a retry copy. It clears on submit, cancel, unmount, `pagehide` and a hidden document.
 - Dictation (lib/voice.ts) only hands text to the caller to insert at the caret; it never sends.
 - An alert chime before the first tap or key (`unlockAlertSound`) is skipped, never queued to sound late.
