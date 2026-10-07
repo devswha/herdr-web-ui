@@ -15,6 +15,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   reach herdr. It used to move the app to another port beside the running one and blame another
   program; now it says that the app runs there without herdr and exits, and the app answers
   again on its port once herdr is back.
+  ([#577](https://github.com/devswha/herdr-web-ui/pull/577))
 
 ## [0.4.0] - 2026-10-08
 
