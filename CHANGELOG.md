@@ -77,6 +77,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   parentheses, a formula opened on many lines and never closed, a long blank line under a table
   header, and a list item of thousands of lines each took seconds to read. Each is read in a few
   milliseconds now, and emphasis stops nesting after sixteen levels.
+  ([#547](https://github.com/devswha/herdr-web-ui/pull/547))
 
 ## [0.3.52] - 2026-10-06
 
