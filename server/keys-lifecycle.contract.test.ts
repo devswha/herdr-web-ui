@@ -164,3 +164,65 @@ it("cancels a pending attach continuation when detach and reattach installs a ne
     rmSync(root, { recursive: true, force: true });
   }
 }, 20_000);
+
+it("refuses a chord sent while its attach is still being looked up, instead of sending it around the claim", async () => {
+  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-attach-pending-keys-"));
+  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
+  let workspace: string | undefined;
+  let socket: WebSocket | undefined;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let lookupPending = false;
+  const originalSnapshot = herdr.sessionSnapshot;
+  const snapshotSpy = spyOn(herdr, "sessionSnapshot").mockImplementation(async (...args) => {
+    if (new Error().stack?.includes("terminalInfoFor")) {
+      lookupPending = true;
+      await gate;
+    }
+    return originalSnapshot(...args);
+  });
+  const calls: string[][] = [];
+  const originalKeys = herdr.paneSendKeys;
+  const keysSpy = spyOn(herdr, "paneSendKeys").mockImplementation(async (pane, keys) => {
+    calls.push(keys);
+    return originalKeys(pane, keys);
+  });
+  const until = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 5000;
+    while (!predicate()) {
+      if (Date.now() > deadline) throw new Error("Pending attach keys contract deadline");
+      await Bun.sleep(20);
+    }
+  };
+  try {
+    const made = await herdr.workspaceCreate({ cwd: root, label: "herdr-web-ui-test-attach-pending-keys" });
+    workspace = made.workspace.workspace_id;
+    const pane = made.root_pane.pane_id;
+    const seen: any[] = [];
+    socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    socket.addEventListener("message", (event) => seen.push(JSON.parse(String(event.data))));
+    await until(() => seen.some((frame) => frame.type === "snapshot"));
+    const send = (message: unknown) => socket!.send(JSON.stringify(message));
+    send({ type: "attach", pane_id: pane, cols: 80, rows: 24 });
+    await until(() => lookupPending);
+    // the chord arrives with a claim but no attachment to belong to yet
+    send({ type: "keys", pane_id: pane, keys: ["ctrl+w"] });
+    await until(() => seen.some((frame) => frame.type === "error" && frame.pane_id === pane));
+    expect(seen.filter((frame) => frame.type === "error").map((frame) => frame.code)).toEqual(["input_not_ready"]);
+    expect(calls).toEqual([]);
+    release();
+    await until(() => seen.some((frame) => frame.type === "input-ready"));
+    // once attached, the same chord goes through its attachment
+    send({ type: "keys", pane_id: pane, keys: ["ctrl+right"] });
+    await until(() => calls.length === 1);
+    expect(calls).toEqual([["ctrl+right"]]);
+  } finally {
+    release();
+    socket?.close();
+    server.stop();
+    snapshotSpy.mockRestore();
+    keysSpy.mockRestore();
+    if (workspace) await herdr.workspaceClose(workspace).catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 20_000);

@@ -2050,6 +2050,12 @@ export function createServer(
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
               }
+              // an attach still being looked up: its chord has no attachment to belong to yet, and must
+              // not take the unattached RPC path around the claim it will be checked against
+              if (origin === undefined && claim !== undefined) {
+                send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
+                break;
+              }
               await serialize(message.pane_id, async () => {
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
