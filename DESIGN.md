@@ -52,6 +52,8 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Status/working | `--status-working` | `#6cb8d6` | `#155a72` |
 | Status/blocked | `--status-blocked` | `#ff7b70` | `#a82323` |
 | Status/done | `--status-done` | `#93c36b` | `#2f6317` |
+| Status/attention | `--status-attention` | `#f6c343` | `#b06800` |
+| Status/unseen | `--status-unseen` | `#6cb8d6` | `#1a6fa8` |
 | Working/tint | `--status-working-tint` | `rgba(108, 184, 214, 0.14)` | `rgba(21, 90, 114, 0.12)` |
 | Blocked/tint | `--status-blocked-tint` | `rgba(255, 123, 112, 0.14)` | `rgba(168, 35, 35, 0.12)` |
 | Done/tint | `--status-done-tint` | `rgba(147, 195, 107, 0.14)` | `rgba(47, 99, 23, 0.12)` |
@@ -76,12 +78,14 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
 - **Dark report** is a near-black blue-grey canvas with hairlines: `--bg` `#0a0d12`, panel and
   terminal `#0f1319`, text `#b4bdc9` / `#8792a3` / `#e8ecf2`. Primary (the user's action) is white
   `#e8ecf2` with `#0a0d12` text; accent is electric blue `#4c9aff`, kept for small marks. Agent
-  states use meaning colors (working `#f5b544`, input `#ff6b7a`, done `#3ddc97`, idle `#8792a3`).
+  states use meaning colors (working `#f5b544`, input `#ff6b7a`, done `#3ddc97`, idle `#8792a3`;
+  attention `#ff9248`, an orange clear of the amber that works here, unseen `#38c6f4`).
   Terminal cursor `#4c9aff`, selection `#1f3a66`. It has near-square corners (`--radius-sm/md/lg/xl/2xl`
   = `2/3/3/4/6px`) and no resting card shadow (`--shadow-card: none`).
 - **Charcoal** is a neutral Ghostty-style dark: `--bg` `#0f0f0f`, panel and terminal `#171717`, text
   `#cbc7c0` / `#918c85` / `#f5f2ec`, accent and primary near-white `#e8e4dc` with `#171717` text,
-  muted states (working `#c2a2af`, input `#e0877f`, done `#a7b789`, idle `#9a958e`), terminal cursor
+  muted states (working `#c2a2af`, input `#e0877f`, done `#a7b789`, idle `#9a958e`; attention
+  `#d4b06a`, unseen `#8fb3d1`), terminal cursor
   `#cbc7c0`, selection `#49443d`. It keeps amber's rounded corners and card shadow.
 - In light both use plain paper (`--bg` `#f2f2f0`, panel `#fafaf9`, text `#242424`, primary ink
   `#242424` with `#fafaf9` text): report with a blue `#1f5fcc` accent and cursor, charcoal with an
@@ -92,7 +96,8 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
   dimmed text Subtext1, cursor Rosewater, selection Overlay2 at 25% over Base. Dark uses palette
   colors (only the primary hover `#d3b3f8`, Mauve lightened, and the tints are derived): Base
   `#1e1e2e`, Mantle `#181825`, input Crust, hover Surface0, text Text `#cdd6f4` / Subtext1 `#bac2de`,
-  accent and primary Mauve `#cba6f7` with Crust text, states Blue / Maroon / Green, idle Subtext0
+  accent and primary Mauve `#cba6f7` with Crust text, states Blue / Maroon / Green, attention
+  Yellow `#f9e2af`, unseen Sapphire `#74c7ec`, idle Subtext0
   (Maroon, not Red, keeps input AA on a hovered row), cursor `#f5e0dc`, selection `#3b3d4f`. Light
   keeps Latte's surfaces and text: Base `#eff1f5` (also input), Mantle `#e6e9ef`, hover Crust
   `#dce0e8` (the darkest surface Subtext1 stays AA on), idle Subtext1, cursor `#dc8a78`, selection
@@ -107,7 +112,8 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
   `#1f5c39`, idle `#545779`. Terminal `#f8f7fe`, cursor `#4a42c2`, selection `#dcd7f8`. Dark is the
   same hue at night: canvas `#16152b`, chrome `#1c1b34` (elevated `#23223f`, hover `#2c2a4f`), text
   `#dcdaf4` / `#a5a2cc` / `#f2f1ff`, a pale lilac accent and primary `#b3abff` with `#17163a` text,
-  states working `#85b8ff`, input `#ff94ad`, done `#92d9ab`, terminal `#18172f`, selection
+  states working `#85b8ff`, input `#ff94ad`, done `#92d9ab`, attention `#ffd166`, unseen
+  `#6fd3e8`, terminal `#18172f`, selection
   `#3a3768`. It keeps amber's rounded corners and card shadow, tinted indigo in light.
 
 ### Terminal theme
@@ -395,8 +401,16 @@ One set for both themes: the card is island black wherever it shows.
 - Idle is elevated/dim; working, blocked and done use their own tint and text. RUN carries a small
   breathing dot before the word; the word itself never fades.
 - The written label and unknown dashed edge keep color from being the only signal.
-- The sidebar's compact variant draws a stepped spinning circle for working, a message circle for
-  input and a check for done, and nothing for ready and unknown; a pane herdr could not restore
+- The sidebar's compact variant weights each state by how much it asks of the user. Waiting for
+  an answer is the one filled glyph, a filled message circle in `--status-attention`; finished
+  and not yet looked at is an 8px dot in `--status-unseen`, as an unread mark is; working is a
+  stepped spinning arc in `--text-dim`, since its motion already says it; ready and unknown draw
+  nothing. `--status-attention` and `--status-unseen` are glyph colors: red (`--status-blocked`)
+  is left to errors and green (`--status-done`) to success, and on light surfaces the attention
+  amber is held at 3:1 or more against a selected row (a darker amber reads as brown), so it is
+  not a text color there. Light Catppuccin and light lilac darken their own hues the same way
+  (`#a35f00` / `#136d82`, `#b06a00` / `#1b6f8f`). The pills, the tab strip's dots and the chat
+  keep the older colors for these states. A pane herdr could not restore
   draws a warning triangle in `--status-blocked`. The element, its label and its tooltip are there
   for every state, and each drawn state has its own glyph as well as its color. Background tasks
   are a quiet count beside it (`.background-count`), not a badge.

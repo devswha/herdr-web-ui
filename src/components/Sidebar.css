@@ -423,6 +423,21 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   animation: sidebar-working var(--dur-pulse) steps(8, end) infinite;
 }
 
+/* Weight follows urgency. Waiting for an answer is the one filled glyph, in the attention color
+   and not the errors' red; finished and not yet looked at is a dot, as an unread mark is; running
+   moves, so it needs no color. */
+.sidebar-status[data-status="working"] { color: var(--text-dim); }
+.sidebar-status[data-status="blocked"] { color: var(--status-attention); }
+.sidebar-status[data-status="blocked"] svg { fill: currentColor; }
+.sidebar-status[data-status="done"] { color: var(--status-unseen); }
+
+.sidebar-status-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
 .sidebar-status.badge-restore-error { color: var(--status-blocked); }
 
 @keyframes sidebar-working {

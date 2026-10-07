@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { Check, Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, MessageCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, MessageCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -80,8 +80,10 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
   const value = knownStatus(status);
   const label = t(STATUS_WORD[value]);
   const description = t("Agent {status}", { status: label });
-  // a compact cell draws only the states that ask for a look; ready and unknown keep the cell, its label and its tooltip
-  const Icon = { idle: null, working: LoaderCircle, blocked: MessageCircle, done: Check, unknown: null }[value];
+  // a compact cell draws only the states that ask for a look, each as heavy as it is urgent: a filled
+  // bubble waits for an answer, a dot has finished and was not looked at, a dim arc runs. Ready and
+  // unknown keep the cell, its label and its tooltip
+  const Icon = { idle: null, working: LoaderCircle, blocked: MessageCircle, done: null, unknown: null }[value];
   return (
     <span
       className={`badge badge-${value}${compact ? " sidebar-status" : ""}`}
@@ -91,6 +93,7 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
       title={description}
     >
       {compact && Icon && <Icon aria-hidden="true" />}
+      {compact && value === "done" && <span className="sidebar-status-dot" aria-hidden="true" />}
       <span className={compact ? "visually-hidden" : undefined}>{label}</span>
     </span>
   );
