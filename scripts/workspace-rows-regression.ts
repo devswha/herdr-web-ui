@@ -18,14 +18,14 @@ type State = {
 
 declare global {
   interface Window {
-    directoryRegressionState?: Promise<boolean>;
+    workspaceRowsState?: Promise<boolean>;
   }
 }
 
 /** Register before the action; only DOM mutations, never intervals, drive the wait. */
 async function armState(page: Page, states: readonly State[]): Promise<void> {
   await page.evaluate((conditions) => {
-    window.directoryRegressionState = new Promise<boolean>((resolve) => {
+    window.workspaceRowsState = new Promise<boolean>((resolve) => {
       const matches = (): boolean => conditions.every(({ selector, count, attribute, text }) => {
         const nodes = document.querySelectorAll(selector);
         if (count !== undefined && nodes.length !== count) return false;
@@ -50,7 +50,7 @@ async function armState(page: Page, states: readonly State[]): Promise<void> {
 }
 
 async function stateReceived(page: Page, label: string): Promise<void> {
-  assert.equal(await page.evaluate(() => window.directoryRegressionState), true, `Timed out: ${label}`);
+  assert.equal(await page.evaluate(() => window.workspaceRowsState), true, `Timed out: ${label}`);
 }
 
 async function changeState(page: Page, states: readonly State[], action: () => Promise<unknown>, label: string): Promise<void> {
@@ -62,7 +62,7 @@ async function changeState(page: Page, states: readonly State[], action: () => P
 const paneSelector = (paneId: string): string => `.pane-select[title^=${JSON.stringify(`${paneId} —`)}]`;
 const itemSelector = (paneId: string): string => `.pane-item:has(${paneSelector(paneId)})`;
 const workspaceSelector = (workspaceId: string): string => `.workspace-group[data-workspace=${JSON.stringify(workspaceId)}]`;
-const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-directory-regression-")));
+const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-workspace-rows-regression-")));
 // These accumulators contain only IDs created by this invocation.
 const ownedWorkspaces: string[] = [];
 const errors: string[] = [];
@@ -78,18 +78,18 @@ try {
   const { testSocketPath } = await import("./test-herdr.ts");
   assert.equal(process.env.HERDR_SOCKET, testSocketPath(), "test-herdr must select its isolated socket");
 
-  // Given two independent workspaces at one full cwd, a basename collision,
-  // and a separate single-pane folder. No agent or shell input is started.
+  // Given two independent workspaces at one full cwd, a third whose folder has the same
+  // basename, and a fourth alone in its folder. No agent or shell input is started.
   const sharedCwd = join(root, "left", "project");
   const otherCwd = join(root, "right", "project");
   const loneCwd = join(root, "lone");
   for (const cwd of [sharedCwd, otherCwd, loneCwd]) mkdirSync(cwd, { recursive: true });
   const fixtures = [];
   for (const [cwd, label] of [
-    [sharedCwd, "directory-regression-alpha"],
-    [sharedCwd, "directory-regression-beta"],
-    [otherCwd, "directory-regression-other-parent"],
-    [loneCwd, "directory-regression-lone"],
+    [sharedCwd, "workspace-rows-alpha"],
+    [sharedCwd, "workspace-rows-beta"],
+    [otherCwd, "workspace-rows-other-parent"],
+    [loneCwd, "workspace-rows-lone"],
   ] as const) {
     const created = await workspaceCreate({ cwd, label });
     ownedWorkspaces.push(created.workspace.workspace_id);
@@ -209,7 +209,7 @@ try {
     "a workspace row exposes both explicit rename scopes and workspace operations");
   await changeState(page, [{ selector: ".pane-rename-input:focus" }],
     () => page.getByRole("menuitem", { name: "Rename pane", exact: true }).click(), "rename targets the representative pane");
-  const renamedSplit = "directory-regression-split-task";
+  const renamedSplit = "workspace-rows-split-task";
   await page.locator(".pane-rename-input").fill(renamedSplit);
   const splitRenameResponse = page.waitForResponse((response) => response.request().method() === "POST"
     && new URL(response.url()).pathname.endsWith("/pane/rename")
