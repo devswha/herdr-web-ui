@@ -83,7 +83,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   where the name does not already say it, and in the row's tooltip and menu. The sidebar's mark
   for an agent waiting for an answer is a red question mark instead of a filled speech bubble;
   a finished one keeps its green dot.
-  ([#551](https://github.com/devswha/herdr-web-ui/pull/551))
+  ([#557](https://github.com/devswha/herdr-web-ui/pull/557))
 
 ### Fixed
 - A pane whose agent has just started is listed as an agent's pane within a moment, where the
