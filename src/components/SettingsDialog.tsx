@@ -27,6 +27,8 @@ import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
   open: boolean;
+  /** the section to open on, for a button that points at it; the top otherwise */
+  section?: "updates" | null;
   onClose: () => void;
   actions: AppActions;
   updates: UpdatesModel;
@@ -137,7 +139,7 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   );
 }
 
-export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, section = null, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   // the accounts to order and hide: the same report the meters show, from the server's cache
   const usage = useUsage(open && settings.showUsage);
@@ -164,9 +166,15 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
     else if (wasKeyBarOpen.current) {
       if (settingsBodyRef.current) settingsBodyRef.current.scrollTop = settingsScrollRef.current;
       keyBarButtonRef.current?.focus({ preventScroll: true });
-    } else firstControlRef.current?.focus();
+    } else {
+      // Updates is the last of a long list: a button that points at it opens on it, and the
+      // focus goes there too, or the next Tab would scroll back to the top
+      const pointed = section === "updates" ? settingsBodyRef.current?.querySelector<HTMLElement>(".settings-updates") : null;
+      if (pointed) { pointed.focus({ preventScroll: true }); pointed.scrollIntoView(); }
+      else firstControlRef.current?.focus();
+    }
     wasKeyBarOpen.current = keyBarOpen;
-  }, [open, keyBarOpen]);
+  }, [open, keyBarOpen, section]);
   // the Sound switch as last set: the preview waits for the audio, and must not play once it is off
   const alertSoundWanted = useRef(settings.alertSound);
   // server-side: the web server updates PC bridges, so it keeps this choice

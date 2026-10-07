@@ -1,14 +1,40 @@
 import { useEffect, useState } from "react";
-import type { UpdateStatus } from "../../shared/update.ts";
+import type { UpdateNotes, UpdateStatus } from "../../shared/update.ts";
 import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
 import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "../lib/runningVersion.ts";
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
+import { Markdown } from "./Markdown.tsx";
+import { RenderBoundary } from "./RenderBoundary.tsx";
 import "./Machines.css";
 import "./UpdateControls.css";
 import { useT } from "../lib/i18n.ts";
 
 declare const __APP_VERSION__: string;
+
+const CHANGELOG = "https://github.com/devswha/herdr-web-ui/blob/main/CHANGELOG.md";
+
+/**
+ * What the offered update brings: the changelog section of each release it installs, newest
+ * first, as the release wrote it (English). It scrolls in its own box, so the buttons under
+ * it stay in reach. The text comes from the Git remote: a section that cannot be drawn says so
+ * and takes nothing else down with it.
+ */
+function ReleaseNotes({ notes }: { notes: UpdateNotes }) {
+  const t = useT();
+  return <>
+    <span className="settings-label">{t("What's new")}</span>
+    <div className="update-notes" role="region" aria-label={t("What's new")} tabIndex={0}>
+      {notes.releases.map((release) => <section key={release.version}>
+        <h4>v{release.version}{release.date && <time>{release.date}</time>}</h4>
+        <RenderBoundary resetKey={release.notes} fallback={() => <p className="settings-hint">{t("These notes could not be shown.")} <a href={CHANGELOG} target="_blank" rel="noopener noreferrer">{t("Full changelog")}</a></p>}>
+          <Markdown>{release.notes}</Markdown>
+        </RenderBoundary>
+      </section>)}
+      {notes.omitted > 0 && <p className="settings-hint">{t("Earlier releases not shown here: {count}.", { count: notes.omitted })} <a href={CHANGELOG} target="_blank" rel="noopener noreferrer">{t("Full changelog")}</a></p>}
+    </div>
+  </>;
+}
 
 /**
  * An install as a step and a bar. A server that names no step (the one being replaced may be
@@ -28,11 +54,12 @@ function UpdateProgress({ status, fallback }: { status: UpdateStatus | null; fal
 
 export function UpdateControls({ updates, bridgesFollow = false }: { updates: UpdatesModel; bridgesFollow?: boolean }) {
   const t = useT();
-  const { status, error, busy, needsReload, request } = updates;
+  const { status, error, busy, needsReload, notes, request } = updates;
   const installing = busy && (status?.phase === "building" || status?.phase === "restarting");
   const tabVersion = staleClientVersion(status, __APP_VERSION__);
-  return <section className="settings-section settings-updates">
-    <h3>{t("Updates")}</h3>
+  // focusable from code only: a button that points here (the header line's) lands on it
+  return <section className="settings-section settings-updates" tabIndex={-1} aria-labelledby="settings-updates-title">
+    <h3 id="settings-updates-title">{t("Updates")}</h3>
     {/* always a version: the sidebar no longer carries one */}
     <p className="settings-hint">{t("Running {version}", { version: runningAppVersion(status, __APP_VERSION__) })}</p>
     {tabVersion && <p className="settings-hint">{t("This tab still runs {version} until it is reloaded.", { version: tabVersion })}</p>}
@@ -40,6 +67,7 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
       {error ?? status?.error ?? status?.blocked_reason ?? (busy ? t("Checking for updates…") :
         status?.available ? t("Version {version} is available.", { version: versionLabel(status.latest_version, status.latest_revision) ?? "" }) : status?.checked_at ? t("Up to date.") : t("Waiting for an update check…"))}
     </p>}
+    {notes && <ReleaseNotes notes={notes} />}
     {status?.managed && <>
       <p className="settings-hint">{t("Checks for new releases every 5 minutes.")} {t(status.auto_update ? "Automatic installation is enabled." : "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.")}{bridgesFollow ? ` ${t("Remote PCs' bridges are updated afterwards when the new version needs it.")}` : ""}</p>
       <div className="update-actions">
@@ -85,11 +113,11 @@ export function HerdrUpdateControls({ enabled, herdrVersion }: { enabled: boolea
 
 /**
  * The app-wide line for a release: one button installs it from here, and the line follows the
- * install to the reload. Settings is only where a failure is read in full.
+ * install to the reload. Settings is where its notes and a failure are read in full.
  */
 export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpen: () => void }) {
   const t = useT();
-  const { status, error, busy, needsReload, request } = updates;
+  const { status, error, busy, needsReload, notes, request } = updates;
   // the check an install starts with reports nothing available until it is done: the line this
   // button sits on must not leave between the tap and the first step
   const [started, setStarted] = useState(false);
@@ -118,7 +146,8 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
   const retry = status?.available ? "install" : "check";
   return <div className="update-notice" role="status">
     <span>{failed ? t("The update could not be installed.") : status?.latest_version ? t("herdr web ui v{version} is available.", { version: status.latest_version }) : t("A herdr web ui update is available.")}</span>
-    {failed && <button type="button" className="btn btn-ghost" onClick={onOpen}>{t("Details")}</button>}
+    {failed ? <button type="button" className="btn btn-ghost" onClick={onOpen}>{t("Details")}</button>
+      : notes && <button type="button" className="btn btn-ghost" onClick={onOpen}>{t("What's new")}</button>}
     <button type="button" className="btn btn-primary" disabled={busy} onClick={() => { setAttempted(true); setStarted(retry === "install"); void request(retry); }}>{t(failed ? "Try again" : "Update")}</button>
   </div>;
 }

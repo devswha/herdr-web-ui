@@ -8,6 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- An update tells what it brings before it is installed. **Settings → Updates** shows
+  **What's new** under the version on offer: the changelog of every release the update installs,
+  newest first, read from the release itself. The line under the header has a **What's new**
+  button that opens Settings there. The notes come from the version that is running, so they
+  appear from the update after this one.
+  ([#535](https://github.com/devswha/herdr-web-ui/pull/535))
 - The one-line installers can give the GitHub star they mention. On a first install, when the gh
   CLI is signed in and that account has not starred the repository, `install.sh` and `install.ps1`
   ask once at the terminal and star only on `y`. An account that already starred hears nothing,
