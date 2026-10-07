@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Updater, runCommand, type Release } from "./updater.ts";
+import { NOTES_FILE_LIMIT, readNotesFile, Updater, runCommand, type Release } from "./updater.ts";
+import { spawnSync } from "node:child_process";
+import { symlinkSync } from "node:fs";
 import { HERDR_SOCKET_PATH } from "../shared/protocol.ts";
 
 let directory: string, upstream: string, root: string, stateDir: string;
@@ -524,4 +526,22 @@ describe("managed source updates with real Git repositories and builds", () => {
       await handle.exited;
     }
   }, 30_000);
+});
+
+describe("a release's notes file", () => {
+  it("is read whole within its limit, from one descriptor, and only as a regular file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-notes-file-"));
+    try {
+      writeFileSync(join(dir, "small.md"), "## [0.1.0]\n- one\n");
+      expect(readNotesFile(join(dir, "small.md"))).toBe("## [0.1.0]\n- one\n");
+      writeFileSync(join(dir, "large.md"), Buffer.alloc(NOTES_FILE_LIMIT + 1, 0x78));
+      expect(() => readNotesFile(join(dir, "large.md"))).toThrow(/not notes|too large/);
+      // a symlink is not followed: the release's own file is what is read, not where a link points
+      symlinkSync(join(dir, "small.md"), join(dir, "link.md"));
+      expect(() => readNotesFile(join(dir, "link.md"))).toThrow();
+      // a FIFO would hold the supervisor's synchronous read for a writer that never comes
+      if (spawnSync("mkfifo", [join(dir, "fifo.md")]).status === 0) expect(() => readNotesFile(join(dir, "fifo.md"))).toThrow(/not notes/);
+      expect(() => readNotesFile(join(dir, "missing.md"))).toThrow();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 });

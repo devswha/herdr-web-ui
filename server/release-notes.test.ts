@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { HIGHLIGHT_LIMIT, HIGHLIGHTS_PER_GROUP, SUMMARY_GROUPS, SUMMARY_LANGUAGES } from "../shared/update.ts";
+import { HIGHLIGHT_LIMIT, HIGHLIGHTS_PER_GROUP, RELEASES_LIMIT, SUMMARY_GROUPS, SUMMARY_LANGUAGES } from "../shared/update.ts";
 import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
 
 const CHANGELOG = `# Changelog
@@ -103,6 +103,27 @@ describe("release notes of an update", () => {
     const notes = releaseNotes(CHANGELOG, "0.3.7", "0.4.0", 40);
     expect(notes.releases).toEqual([{ version: "0.4.0", date: "2026-10-07", notes: "### Added\n- A wrapped entry that goes on\n\n…" }]);
     expect(notes.omitted).toBe(2);
+  });
+});
+
+describe("the bounds of an answer", () => {
+  it("tells a version the changelog names twice once, by its first section", () => {
+    const twice = "## [Unreleased]\n\n## [0.2.0] - 2026-01-02\n- first\n\n## [0.2.0] - 2026-01-02\n- again\n\n## [0.1.0]\n- old\n";
+    expect(releaseNotes(twice, "0.1.0", "0.2.0").releases.map((release) => release.notes)).toEqual(["- first"]);
+  });
+
+  it("counts a release's summary toward the budget, not its section alone", () => {
+    const log = "## [0.2.0]\n- two\n\n## [0.1.5]\n- one and a half\n\n## [0.1.0]\n- one\n";
+    const summaries = new Map([["0.1.5", { en: { new: ["x".repeat(100)] } }]]);
+    expect(releaseNotes(log, "0.1.0", "0.2.0", 60).omitted).toBe(0);
+    expect(releaseNotes(log, "0.1.0", "0.2.0", 60, summaries)).toMatchObject({ omitted: 1 });
+  });
+
+  it("names at most RELEASES_LIMIT releases and counts the rest, however large the budget", () => {
+    const log = Array.from({ length: 60 }, (_, i) => `## [0.${60 - i}.0]\n- r\n`).join("\n");
+    const told = releaseNotes(log, "0.0.0", "0.60.0", 1_000_000);
+    expect(told.releases.length).toBe(RELEASES_LIMIT);
+    expect(told.omitted).toBe(10);
   });
 });
 

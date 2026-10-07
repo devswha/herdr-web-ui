@@ -1,8 +1,26 @@
 import { describe, expect, it } from "bun:test";
-import { readInstalledNotes, readUpdateNotes, SUMMARY_LANGUAGES, type InstalledNotes, type UpdateNotes } from "../../shared/update.ts";
+import { readInstalledNotes, readUpdateNotes, RELEASES_LIMIT, SUMMARY_LANGUAGES, type InstalledNotes, type UpdateNotes } from "../../shared/update.ts";
 import { ApiError } from "./api.ts";
 import { LANGUAGE_SETTINGS } from "./i18n.ts";
-import { ANNOUNCED_FOR_MS, announcesUpdate, installedUpdate, notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes, summaryFor } from "./updateNotes.ts";
+import { ANNOUNCED_FOR_MS, announcesUpdate, installedUpdate, notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes, SKEW_ALLOWANCE_MS, summaryFor } from "./updateNotes.ts";
+
+describe("the bounds of a read answer", () => {
+  it("reads at most RELEASES_LIMIT releases of an answer, whatever sent it", () => {
+    const releases = Array.from({ length: RELEASES_LIMIT + 10 }, (_, i) => ({ version: `0.${i}.0`, date: null, notes: "- r" }));
+    expect(readUpdateNotes({ revision: "abc", releases, omitted: 0 }).releases.length).toBe(RELEASES_LIMIT);
+    expect(readInstalledNotes({ revision: "abc", version: "1.0.0", previous_version: "0.9.0", installed_at: null, releases, omitted: 0 }).releases.length).toBe(RELEASES_LIMIT);
+  });
+
+  it("does not announce an update installed in the future: a clock set back since would stretch the week", () => {
+    const now = Date.parse("2026-10-07T12:00:00Z");
+    const status = { current_revision: "abc", latest_revision: "abc" };
+    const installed = (ahead: number): InstalledNotes => ({ revision: "abc", version: "1.0.0", previous_version: "0.9.0", installed_at: new Date(now + ahead).toISOString(), releases: [], omitted: 0 });
+    expect(announcesUpdate(status, installed(-60_000), null, now)).toBe(true);
+    expect(announcesUpdate(status, installed(SKEW_ALLOWANCE_MS / 2), null, now)).toBe(true);
+    expect(announcesUpdate(status, installed(SKEW_ALLOWANCE_MS * 2), null, now)).toBe(false);
+    expect(announcesUpdate(status, installed(-ANNOUNCED_FOR_MS - 1), null, now)).toBe(false);
+  });
+});
 
 const offered = { current_revision: "a".repeat(40), latest_revision: "b".repeat(40), current_version: "0.3.9", latest_version: "0.4.0" };
 const notes: UpdateNotes = { revision: offered.latest_revision, releases: [{ version: "0.4.0", date: "2026-10-07", notes: "### Added\n- A thing." }], omitted: 0 };

@@ -1,6 +1,6 @@
 /** Build in a private checkout. The source tree and the serving build stay intact. */
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
 import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
@@ -14,7 +14,29 @@ export interface Release {
   previous_version?: string | null; installed_at?: string;
 }
 /** A release's files are read whole: one larger than this is not notes (the bound `runCommand` puts on what Git prints). */
-const NOTES_FILE_LIMIT = 2_000_000;
+export const NOTES_FILE_LIMIT = 2_000_000;
+
+/**
+ * A release's own CHANGELOG.md or release-summaries.json, read from one descriptor: a regular
+ * file within NOTES_FILE_LIMIT, or nothing. A file that grows between a look and the read, a
+ * symlink, a FIFO or a device would otherwise make the supervisor's synchronous read unbounded.
+ */
+export function readNotesFile(path: string): string {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > NOTES_FILE_LIMIT) throw new Error(`${path} is not notes`);
+    const buffer = Buffer.alloc(NOTES_FILE_LIMIT + 1);
+    let read = 0;
+    for (;;) {
+      const bytes = readSync(fd, buffer, read, buffer.length - read, read);
+      if (bytes === 0) break;
+      read += bytes;
+      if (read > NOTES_FILE_LIMIT) throw new Error(`${path} is too large to be notes`);
+    }
+    return buffer.toString("utf8", 0, read);
+  } finally { closeSync(fd); }
+}
 const SHA = /^[0-9a-f]{40,64}$/;
 /** A release is a plain `vX.Y.Z` tag: `remote-v*` bundle tags and pre-releases never qualify. */
 const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
@@ -147,11 +169,7 @@ export class Updater {
     if (installed_at === null) {
       try { installed_at = statSync(join(this.options.stateDir, "current.json")).mtime.toISOString(); } catch { /* not told */ }
     }
-    const read = (file: string) => {
-      const path = join(release.directory, file);
-      if (statSync(path).size > NOTES_FILE_LIMIT) throw new Error(`${file} is too large to be notes`);
-      return readFileSync(path, "utf8");
-    };
+    const read = (file: string) => readNotesFile(join(release.directory, file));
     let notes: Omit<UpdateNotes, "revision"> = { releases: [], omitted: 0 };
     try {
       const changelog = read("CHANGELOG.md");

@@ -1,5 +1,5 @@
 /** What an update brings, read from the CHANGELOG.md and release-summaries.json of the release it installs. */
-import { readSummary, type ReleaseNote, type ReleaseSummary, type UpdateNotes } from "../shared/update.ts";
+import { readSummary, RELEASES_LIMIT, type ReleaseNote, type ReleaseSummary, type UpdateNotes } from "../shared/update.ts";
 
 /** `## [0.3.52] - 2026-10-06`; `## [Unreleased]` is no release. */
 const SECTION = /^## \[(\d+\.\d+\.\d+)\](?:\s+-\s+(\S+))?\s*$/;
@@ -69,11 +69,17 @@ function sections(changelog: string): ReleaseNote[] {
   return found;
 }
 
+/** What a release's summary adds to an answer, as it travels. */
+function summarySize(summary: ReleaseSummary | undefined): number {
+  return summary ? JSON.stringify(summary).length : 0;
+}
+
 /**
  * The sections of every release after `current`, up to `latest`, newest first. With no known
  * running version, the latest release alone. A release without a section, or with an empty one,
- * is left out. A release named in `summaries` carries its summary; the budget counts the
- * sections, which are what grows.
+ * is left out, and a version the changelog names twice is told once, by its first section. A
+ * release named in `summaries` carries its summary; the budget counts the sections and the
+ * summaries both, and an answer names at most RELEASES_LIMIT releases: the rest are counted.
  */
 export function releaseNotes(
   changelog: string, current: string | null, latest: string, budget = NOTES_BUDGET,
@@ -82,10 +88,12 @@ export function releaseNotes(
   const to = triple(latest);
   if (!to) return { releases: [], omitted: 0 };
   const from = current === null ? null : triple(current);
+  const seen = new Set<string>();
   const wanted = sections(changelog)
     .filter((section) => {
       const version = triple(section.version)!;
-      if (section.notes === "" || compare(version, to) > 0) return false;
+      if (section.notes === "" || compare(version, to) > 0 || seen.has(section.version)) return false;
+      seen.add(section.version);
       return from ? compare(version, from) > 0 : compare(version, to) === 0;
     })
     .sort((a, b) => compare(triple(b.version)!, triple(a.version)!))
@@ -96,15 +104,16 @@ export function releaseNotes(
   const releases: ReleaseNote[] = [];
   let used = 0;
   for (const section of wanted) {
+    const size = section.notes.length + summarySize(section.summary);
     // the newest release is always told, cut at a line when it alone is over the budget
-    if (releases.length === 0 && section.notes.length > budget) {
+    if (releases.length === 0 && size > budget) {
       const cut = section.notes.lastIndexOf("\n", budget);
       releases.push({ ...section, notes: `${section.notes.slice(0, cut > 0 ? cut : budget).trimEnd()}\n\n…` });
       break;
     }
-    if (used + section.notes.length > budget) break;
+    if (releases.length === RELEASES_LIMIT || used + size > budget) break;
     releases.push(section);
-    used += section.notes.length;
+    used += size;
   }
   return { releases, omitted: wanted.length - releases.length };
 }

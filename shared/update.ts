@@ -39,6 +39,8 @@ export type ReleaseSummary = Partial<Record<SummaryLanguage, ReleaseHighlights>>
 /** A highlight is one line, and a list a handful of them: what is longer is cut where it is read. */
 export const HIGHLIGHT_LIMIT = 160;
 export const HIGHLIGHTS_PER_GROUP = 8;
+/** An answer names this many releases at most: a jump over more is counted, not listed, wherever an answer is read. */
+export const RELEASES_LIMIT = 50;
 
 /** One release's section of CHANGELOG.md, and its summary from release-summaries.json. */
 export interface ReleaseNote {
@@ -121,7 +123,8 @@ export function readSummary(value: unknown): ReleaseSummary | undefined {
 function readReleases(value: unknown): ReleaseNote[] | null {
   if (!Array.isArray(value)) return null;
   const releases: ReleaseNote[] = [];
-  for (const entry of value as Array<Partial<Record<keyof ReleaseNote, unknown>> | null>) {
+  // what is past the cap is not read: an answer is bounded here, whatever sent it
+  for (const entry of (value as Array<Partial<Record<keyof ReleaseNote, unknown>> | null>).slice(0, RELEASES_LIMIT)) {
     if (typeof entry?.version !== "string" || typeof entry.notes !== "string") return null;
     if (entry.date !== null && typeof entry.date !== "string") return null;
     const summary = readSummary(entry.summary);
