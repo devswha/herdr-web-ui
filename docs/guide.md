@@ -136,6 +136,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **omo** | Native session file, found through the pane's process tree | — use Terminal |
 | **gjc** | Native session file, from the session directory gjc keeps open | — use Terminal |
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
+| **OpenCode** | Native session in OpenCode 2's own database (`~/.local/share/opencode/opencode.db`, or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it), resolved through herdr | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
 When the last visible line is a familiar password, SSH passphrase or PIN request, both
@@ -472,7 +473,7 @@ Samsung Internet has a forced dark mode that repaints every page, including one 
 
 All three are in the herdr plugin marketplace too, and each does something this app does not. [collie](https://github.com/AltanS/collie) is a mobile terminal for herdr, tmux and zellij, with a status dashboard, a key pad, quick replies and voice input, served over Tailscale by its own bridge. [roamgate](https://github.com/powerfooI/roamgate) is a browser client for herdr with a file explorer and diff annotations, installed by its own script. [herdr-remote](https://github.com/dcolinmorgan/herdr-remote) is a macOS menu-bar app with a phone dashboard and a Telegram bot behind a relay and a free tunnel.
 
-herdr web ui reads the agent's own transcript, so Claude Code, Codex, omp, omo, gjc and pi panes are a chat with the work folded per turn, and a prompt card is checked against the live menu before its answer is typed. The terminal is the same live pane as your TUI, other PCs join over SSH from the sidebar, and it installs and updates as a herdr plugin, with no server or account of its own. It brings no tunnel: you reach it over Tailscale, SSH or your own HTTPS proxy. If you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit.
+herdr web ui reads the agent's own transcript, so Claude Code, Codex, omp, omo, gjc, pi and OpenCode panes are a chat with the work folded per turn, and a prompt card is checked against the live menu before its answer is typed. The terminal is the same live pane as your TUI, other PCs join over SSH from the sidebar, and it installs and updates as a herdr plugin, with no server or account of its own. It brings no tunnel: you reach it over Tailscale, SSH or your own HTTPS proxy. If you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit.
 </details>
 
 <details>

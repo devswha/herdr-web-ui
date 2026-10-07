@@ -8,6 +8,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- An OpenCode pane reads as a conversation. The chat shows the session herdr's OpenCode
+  integration reports, read from OpenCode 2's own database: prompts with their pasted images and
+  the skills they mention, each answer's steps folded into one block with their thinking, tool
+  calls, outputs and pictures, commands run with `!`, background and subagent results, and
+  compactions. Turns an `/undo` took back leave the chat with it. The ring by the message box
+  shows the context the last step filled, as OpenCode's own footer counts it. A pane on OpenCode's
+  home screen, or on a 1.x store, keeps the terminal's text.
 - **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
   agent is doing, with the workspace and folder under it, as the sidebar did before its rows
   became one line. **One line**, the workspace's name alone, stays the default.

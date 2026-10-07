@@ -76,7 +76,7 @@ https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
 <p align="center"><sub>每段片段都是同时录制电脑和手机的真实操作，实时、无剪辑。点击可播放完整视频。</sub></p>
 
-- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc 和 pi 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
+- **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc、pi 和 OpenCode 的原生会话记录，一键切换到实时终端。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。
 - **需要你时及时提醒** — 实时显示每个窗格的状态；应用打开时提醒会从顶部滑下；智能体需要输入或完成任务时发送推送通知，即使应用已关闭也能收到。
 - **安装到手机** — PWA 在键盘上方提供 Esc、Tab、Ctrl 和方向键，Tailscale 地址以二维码显示。[手机设置 →](docs/guide.md#on-your-phone)
@@ -119,7 +119,7 @@ herdr plugin install devswha/herdr-web-ui
 
 **聊天视图支持哪些智能体？**
 
-Claude Code、Codex、omp、omo、gjc 和 pi 直接从各自的会话文件读取。herdr 窗格里的其他程序则显示实时终端和状态。[支持的智能体 →](docs/guide.md#supported-agents)
+Claude Code、Codex、omp、omo、gjc、pi 和 OpenCode 直接从各自的会话文件读取。herdr 窗格里的其他程序则显示实时终端和状态。[支持的智能体 →](docs/guide.md#supported-agents)
 
 **它会取代 herdr 自带的 TUI 吗？**
 

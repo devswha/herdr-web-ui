@@ -76,7 +76,7 @@ https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
 <p align="center"><sub>모든 클립은 데스크톱과 폰을 동시에 녹화한 실제 동작이며, 실제 속도로 컷 없이 담았습니다. 누르면 전체 영상을 볼 수 있습니다.</sub></p>
 
-- **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc와 pi의 대화 기록을 그대로 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. [지원 에이전트 →](docs/guide.md#supported-agents)
+- **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc, pi와 OpenCode의 대화 기록을 그대로 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. [지원 에이전트 →](docs/guide.md#supported-agents)
 - **탭 한 번으로 승인** — 승인 요청, 질문, 계획 메뉴가 카드로 뜹니다. 답을 보내기 전에 그 질문이 아직 유효한지 확인합니다.
 - **내가 필요할 때 알림** — 모든 pane의 상태를 실시간으로 보여 주고, 앱을 보고 있을 때는 알림이 위에서 내려오며, 에이전트가 입력을 기다리거나 일을 끝내면 앱이 닫혀 있어도 푸시 알림을 보냅니다.
 - **폰에 설치해서 쓰기** — 키보드 위에 Esc, Tab, Ctrl, 방향키가 붙은 PWA입니다. Tailscale 주소는 QR 코드로 받아 갑니다. [폰 설정 →](docs/guide.md#on-your-phone)
@@ -118,7 +118,7 @@ herdr가 실행 중인 상태에서 **[localhost:7317](http://localhost:7317)**�
 
 **채팅 화면은 어떤 에이전트를 지원하나요?**
 
-Claude Code, Codex, omp, omo, gjc, pi는 각자의 세션 파일에서 읽습니다. herdr pane에서 도는 그 밖의 프로그램은 라이브 터미널과 상태로 보입니다. [지원 에이전트 →](docs/guide.md#supported-agents)
+Claude Code, Codex, omp, omo, gjc, pi, OpenCode는 각자의 세션 파일에서 읽습니다. herdr pane에서 도는 그 밖의 프로그램은 라이브 터미널과 상태로 보입니다. [지원 에이전트 →](docs/guide.md#supported-agents)
 
 **herdr의 TUI를 대체하나요?**
 

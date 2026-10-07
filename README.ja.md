@@ -76,7 +76,7 @@ https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 
 <p align="center"><sub>どのクリップも、パソコンとスマートフォンを同時に収録した実際の動作です。等速・カットなし。クリックすると動画全体を再生できます。</sub></p>
 
-- **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc、pi のネイティブな会話履歴を表示し、ワンクリックでライブターミナルに切り替えられます。[対応エージェント →](docs/guide.md#supported-agents)
+- **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc、pi、OpenCode のネイティブな会話履歴を表示し、ワンクリックでライブターミナルに切り替えられます。[対応エージェント →](docs/guide.md#supported-agents)
 - **タップで承認** — 承認リクエスト、質問、計画メニューがカードになり、問いかけがまだ有効か確認してから回答を送信します。
 - **対応が必要なときに通知** — すべてのペインの状態をリアルタイムに表示し、アプリを開いているときは通知が上から降りてきます。入力が必要なときや完了したときには、アプリを閉じていてもプッシュ通知が届きます。
 - **スマートフォンにインストール** — キーボードの上に Esc、Tab、Ctrl、矢印キーが並ぶ PWA。Tailscale のアドレスは QR コードで表示されます。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
@@ -119,7 +119,7 @@ herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を�
 
 **チャット表示はどのエージェントに対応していますか？**
 
-Claude Code、Codex、omp、omo、gjc、pi は、それぞれのセッションファイルから読み取ります。herdr のペインで動くそれ以外のプログラムは、ライブターミナルと状態が表示されます。[対応エージェント →](docs/guide.md#supported-agents)
+Claude Code、Codex、omp、omo、gjc、pi、OpenCode は、それぞれのセッションファイルから読み取ります。herdr のペインで動くそれ以外のプログラムは、ライブターミナルと状態が表示されます。[対応エージェント →](docs/guide.md#supported-agents)
 
 **herdr の TUI の代わりになるものですか？**
 
