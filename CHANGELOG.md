@@ -14,6 +14,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A long line of brackets, `\(` or underscores that never close, as an agent prints in a log or a
   minified file, no longer freezes the chat: a megabyte of them took a minute or more to read, and
   now takes milliseconds. What every message shows is unchanged.
+  ([#574](https://github.com/devswha/herdr-web-ui/pull/574))
 
 ## [0.4.0] - 2026-10-08
 
