@@ -72,6 +72,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   took the change for old news and said nothing. A finished turn is also measured from its own
   start in that case, so a short turn is not told as a long one.
   ([#536](https://github.com/devswha/herdr-web-ui/pull/536))
+- A message can no longer freeze or crash the chat by its shape alone. A long run of underscores
+  nested emphasis until the page ran out of stack; a URL followed by thousands of closing
+  parentheses, a formula opened on many lines and never closed, a long blank line under a table
+  header, and a list item of thousands of lines each took seconds to read. Each is read in a few
+  milliseconds now, and emphasis stops nesting after sixteen levels.
 
 ## [0.3.52] - 2026-10-06
 
