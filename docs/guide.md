@@ -59,6 +59,8 @@ It does, in order, only what is not done yet:
 
 Run it again at any time, for example after setting up Tailscale: it keeps what is there and prints the address and QR code again.
 
+On a first install it mentions a GitHub star, once. When the [gh CLI](https://cli.github.com) is signed in and that account has not starred the repository, it also asks at the terminal whether to star it, and does so only if you answer `y`. It never stars by itself, and it does not ask when an agent or a script runs it.
+
 <p align="center">
   <img src="screenshots/install.png" alt="The installer's output on a PC that had herdr but no Bun or Node: Bun and Node installed, the herdr plugin installed, the app served to the tailnet with the command that undoes it, the phone address, the PC's Tailscale IP, and a QR code that opens the app on the phone" width="760">
 </p>

@@ -5,6 +5,8 @@ $originalPath = $env:PATH
 $originalLocalAppData = $env:LOCALAPPDATA
 $originalUserProfile = $env:USERPROFILE
 $state = @{ installed = $false; installs = 0; uninstalls = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false; windowsRelease = $true }
+# The gh sign-in's star: 'yes', 'no', or 'unknown' as when gh has no sign-in. No real star is given or read.
+$star = @{ starred = 'unknown'; given = 0; asked = 0; answer = ''; failGive = $false; failAsk = $false }
 # A real directory: the installer reads the installed copy to tell whether it can run on Windows.
 $pluginRoot = Join-Path ([IO.Path]::GetTempPath()) "herdr plugin with spaces $PID"
 $launcher = Join-Path $pluginRoot 'scripts\plugin.ps1'
@@ -47,6 +49,19 @@ function herdr {
             } else { throw "Unexpected herdr command: $args" }
         }
     }
+}
+function gh {
+    if (($args -join ' ') -notmatch '^api --hostname github\.com (--method PUT )?user/starred/devswha/herdr-web-ui$') { throw "Unexpected gh command: $args" }
+    $global:LASTEXITCODE = 0
+    if ($args -contains 'PUT') {
+        if ($star.failGive) { $global:LASTEXITCODE = 1; 'gh: Not Found (HTTP 404)' } else { $star.given++ }
+    } elseif ($star.starred -eq 'no') { $global:LASTEXITCODE = 1; '{"message":"Not Found"}'; 'gh: Not Found (HTTP 404)' }
+    elseif ($star.starred -ne 'yes') { $global:LASTEXITCODE = 4; 'To get started with GitHub CLI, please run:  gh auth login' }
+}
+function Read-Host {
+    $star.asked++
+    if ($star.failAsk) { throw 'Read-Host has no terminal to read from' }
+    $star.answer
 }
 function Invoke-WebRequest {
     # herdr's installer, as the stand-in the test wrote: -OutFile is the last argument
@@ -97,6 +112,46 @@ try {
     & $installer -Ref ''
     Assert ($state.uninstalls -eq 1 -and $state.installs -eq $installs + 1 -and $state.started) 'A copy without Windows support must be replaced and started'
     Write-Host 'PASS native installer release selection, rerun, Bun bootstrap, explicit ref, stopped herdr, install failure and a copy without Windows support'
+
+    # The star: mentioned once on a first install, asked only at a terminal, given only on "y".
+    $mention = 'a GitHub star helps other herdr users find it'
+    $firstInstall = { $state.installed = $false; $star.given = 0; $star.asked = 0; $star.failGive = $false; $star.failAsk = $false }
+    & $firstInstall; $star.starred = 'yes'
+    $said = & $installer -Ref '' 6>&1 | Out-String
+    Assert ($said -notmatch $mention -and $star.asked -eq 0 -and $star.given -eq 0) "Someone who already starred must hear nothing of it: $said"
+    & $firstInstall; $star.starred = 'unknown'
+    $said = & $installer -Ref '' 6>&1 | Out-String
+    Assert ($said -match $mention -and $star.asked -eq 0 -and $star.given -eq 0) "Without a gh sign-in the link is all there is: $said"
+    $star.starred = 'no'
+    $said = & $installer -Ref '' 6>&1 | Out-String
+    Assert ($said -notmatch $mention -and $star.asked -eq 0) "A rerun must not mention the star again: $said"
+
+    # Whether a terminal is there is the one answer a test host cannot give both ways: the installer's own text, with that line replaced.
+    $source = Get-Content -Raw $installer
+    $terminalCheck = 'function Test-Terminal \{[^\r\n]*\}'
+    Assert ($source -match $terminalCheck) 'The installer must decide in Test-Terminal whether it may ask'
+    $unattended = $source -replace $terminalCheck, 'function Test-Terminal { $false }'
+    $atTerminal = $source -replace $terminalCheck, 'function Test-Terminal { $true }'
+    & $firstInstall
+    $said = Invoke-Expression $unattended 6>&1 | Out-String
+    Assert ($said -match $mention -and $star.asked -eq 0 -and $star.given -eq 0) "An agent or a script must get the link and no question: $said"
+    & $firstInstall; $star.answer = ''
+    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
+    Assert ($said -match $mention -and $star.asked -eq 1 -and $star.given -eq 0) "Enter alone must not star: $said"
+    & $firstInstall; $star.answer = 'n'
+    Invoke-Expression $atTerminal 6>&1 | Out-Null
+    Assert ($star.asked -eq 1 -and $star.given -eq 0) 'A refusal must not star'
+    & $firstInstall; $star.answer = 'y'
+    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
+    Assert ($star.asked -eq 1 -and $star.given -eq 1 -and $said -match 'starred\. Thank you') "A yes must star once: $said"
+    & $firstInstall; $star.failGive = $true
+    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
+    Assert ($star.given -eq 0 -and $said -match 'could not star it') "A star gh refuses must be said, not thrown: $said"
+    & $firstInstall; $star.failAsk = $true
+    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
+    Assert ($state.installed -and $star.asked -eq 1 -and $star.given -eq 0) "A question that cannot be asked must not fail the install: $said"
+    $star.starred = 'unknown'; $star.failAsk = $false
+    Write-Host 'PASS star: silent when starred or on a rerun, a link without gh or a terminal, asked once at a terminal and given only on yes'
 
     # A PC without herdr: its installer is a stand-in .cmd, and nothing of this PC's own herdr is in reach.
     $scratch = Join-Path ([IO.Path]::GetTempPath()) "herdr-installer-test-$PID"

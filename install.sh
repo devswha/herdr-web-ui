@@ -10,6 +10,8 @@
 #    current, and starts it now when herdr is running.
 # 3. When Tailscale runs on this PC, serves the app to your tailnet (`tailscale serve`, on the first
 #    free HTTPS port) and prints the address a phone opens as a QR code (scripts/plugin.ts phone).
+# 4. On a first install, mentions a GitHub star once. When the gh CLI is signed in and has not
+#    starred the repository, it asks at the terminal and stars only on "y"; it never stars by itself.
 #
 # Run it again at any time: what is already there is kept, and step 3 is repeated.
 #   HERDR_WEB_UI_REF=<branch or tag>   install that ref instead of the latest release
@@ -41,6 +43,35 @@ at_least() {
     for (i = 1; i <= 3; i++) { if (h[i] + 0 > w[i] + 0) exit 0; if (h[i] + 0 < w[i] + 0) exit 1 } exit 0 }'
 }
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{ print $1 }'; }
+
+# Whether the account the gh CLI is signed in to has starred the repository: yes, no, or unknown
+# (no gh, no sign-in, or an answer other than GitHub's "not starred").
+starred() {
+  command -v gh >/dev/null 2>&1 || { echo unknown; return 0; }
+  if why=$(gh api --hostname github.com "user/starred/$REPO" 2>&1 >/dev/null </dev/null); then
+    echo yes
+  else
+    case "$why" in *"HTTP 404"*) echo no ;; *) echo unknown ;; esac
+  fi
+}
+# Asks once, and stars only on "y". Only at a terminal: an agent or a script that runs this has
+# nobody to answer, and must not wait for one. Under `curl | sh` stdin is the script, so the answer
+# is read from the terminal itself.
+offer_star() {
+  [ "$terminal" = 1 ] || return 0
+  (exec </dev/tty) 2>/dev/null || return 0
+  printf '%s' "herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] "
+  read -r answer </dev/tty || answer=""
+  case "$answer" in
+    y | Y | yes | Yes | YES) ;;
+    *) return 0 ;;
+  esac
+  if gh api --hostname github.com --method PUT "user/starred/$REPO" >/dev/null 2>&1 </dev/null; then
+    say "starred. Thank you!"
+  else
+    say "gh could not star it; the page above can"
+  fi
+}
 
 install_node() {
   case "$platform" in
@@ -208,12 +239,6 @@ main() {
     fi
   fi
 
-  # once, on the first install; a rerun for the phone address stays quiet
-  if [ "$new_install" = 1 ]; then
-    echo
-    say "if it helps you, a GitHub star helps other herdr users find it: $(link "https://github.com/$REPO")"
-  fi
-
   case ":$original_path:" in
     *":$BIN_DIR:"*) ;;
     *)
@@ -231,6 +256,17 @@ main() {
       fi
       ;;
   esac
+
+  # once, on the first install, and not to someone who already starred it; a rerun for the phone
+  # address stays quiet. Last, so that leaving the question unanswered loses nothing above it.
+  if [ "$new_install" = 1 ]; then
+    star=$(starred)
+    if [ "$star" != yes ]; then
+      echo
+      say "if it helps you, a GitHub star helps other herdr users find it: $(link "https://github.com/$REPO")"
+      [ "$star" != no ] || offer_star
+    fi
+  fi
 }
 
 # the whole script is read before anything runs: under `curl | sh`, a command that reads stdin

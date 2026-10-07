@@ -49,7 +49,9 @@ Use A unless the user says otherwise. C is A plus the prerequisites and step 5 i
 Node 22 for the user only (no sudo) when they are missing, installs the plugin, starts it when herdr
 runs, and, when Tailscale runs on the PC, serves the app to the tailnet (`tailscale serve`) and
 prints the address as a QR code. It changes the user's Tailscale configuration, so it needs the
-same **Ask** as step 5. Running it again keeps what is there.
+same **Ask** as step 5. Running it again keeps what is there. On a first install it prints a link
+for a GitHub star; it asks whether to give one only at a terminal, so run by an agent it asks
+nothing and stars nothing. Do not star the repository for the user.
 
 On Windows x64, use `irm https://devswha.github.io/herdr-web-ui/install.ps1 | iex` in PowerShell.
 It requires Git for Windows and installs missing herdr and Bun for the user, without Node or WSL.

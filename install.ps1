@@ -84,6 +84,7 @@ if (-not $plugin) {
     if (-not $Ref) { throw 'Could not find the latest app release on GitHub. Check your connection and run this again.' }
     Write-Host "herdr web ui: installing the plugin at $Ref"
     Run-Tool herdr @('plugin', 'install', 'devswha/herdr-web-ui', '--ref', $Ref, '--yes')
+    $newInstall = $true
     $plugin = Find-Plugin
     if (-not $plugin.plugin_root) { throw 'herdr does not list the plugin after installing it. See: herdr plugin list' }
     # herdr installs a release without Windows build steps as a success that cannot start.
@@ -113,4 +114,39 @@ if ($server.running) {
     Write-Host ($status | Where-Object { $_ -match '^running ' })
 } else { Write-Host 'herdr web ui: starts with herdr. Open a new terminal and run: herdr' }
 Write-Host 'herdr web ui: open Phone setup in herdr for phone access.'
+
+# Whether the account the gh CLI is signed in to has starred the repository: yes, no, or unknown
+# (no gh, no sign-in, or an answer other than GitHub's "not starred").
+function Get-Starred {
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return 'unknown' }
+    # gh says why on stderr; under Stop, Windows PowerShell would end this script at that line.
+    $ErrorActionPreference = 'Continue'
+    $why = (& gh api --hostname github.com user/starred/devswha/herdr-web-ui 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0) { 'yes' } elseif ($why -match 'HTTP 404') { 'no' } else { 'unknown' }
+}
+function Add-Star {
+    $ErrorActionPreference = 'Continue'
+    & gh api --hostname github.com --method PUT user/starred/devswha/herdr-web-ui 2>&1 | Out-Null
+    $LASTEXITCODE -eq 0
+}
+# An agent or a script that runs this has nobody to answer, and must not wait for one.
+function Test-Terminal { -not ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) }
+# Once, on the first install, and not to someone who already starred it. It asks only at a terminal
+# and stars only on "y".
+if ($newInstall) {
+    try {
+        $starred = Get-Starred
+        if ($starred -ne 'yes') {
+            Write-Host ''
+            Write-Host 'herdr web ui: if it helps you, a GitHub star helps other herdr users find it: https://github.com/devswha/herdr-web-ui'
+            if ($starred -eq 'no' -and (Test-Terminal)) {
+                $answer = Read-Host 'herdr web ui: star it now with the GitHub account gh is signed in to? [y/N]'
+                if ("$answer".Trim() -match '^(y|yes)$') {
+                    if (Add-Star) { Write-Host 'herdr web ui: starred. Thank you!' }
+                    else { Write-Host 'herdr web ui: gh could not star it; the page above can' }
+                }
+            }
+        }
+    } catch { } # the install is done by now: a question that cannot be asked must not fail it
+}
 }
