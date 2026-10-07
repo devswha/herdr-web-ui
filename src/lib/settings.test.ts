@@ -28,13 +28,8 @@ it("keeps sidebar rows on one line unless two lines were chosen", () => {
   }
 });
 
-it("defaults legacy records to workspace grouping and accepts only supported modes", () => {
-  expect(sanitizeSettings({}).sidebarGrouping).toBe("workspace");
-  expect(sanitizeSettings({ sidebarGrouping: "workspace" }).sidebarGrouping).toBe("workspace");
-  expect(sanitizeSettings({ sidebarGrouping: "directory" }).sidebarGrouping).toBe("directory");
-  for (const sidebarGrouping of [null, true, "folder", 1]) {
-    expect(sanitizeSettings({ sidebarGrouping }).sidebarGrouping).toBe("workspace");
-  }
+it("drops the folder grouping an older version stored", () => {
+  expect(sanitizeSettings({ sidebarGrouping: "directory" })).not.toHaveProperty("sidebarGrouping");
 });
 
 describe("chat font size", () => {

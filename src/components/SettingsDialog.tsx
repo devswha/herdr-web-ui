@@ -297,16 +297,6 @@ export function SettingsDialog({ open, section = null, onClose, actions, updates
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Sidebar grouping")}</span><span className="settings-description">{t("Group sessions by workspace or by full folder path on each PC")}</span></div>
-              <div className="segmented" aria-label={t("Sidebar grouping")}>
-                {(["workspace", "directory"] as const).map((grouping) => (
-                  <button key={grouping} type="button" aria-pressed={settings.sidebarGrouping === grouping} onClick={() => update({ sidebarGrouping: grouping })}>
-                    {t(grouping === "workspace" ? "By workspace" : "By folder")}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="settings-row">
               <div><span className="settings-label">{t("Sidebar rows")}</span><span className="settings-description">{t("Name each workspace on one line, or show what its agent is doing with the workspace under it")}</span></div>
               <div className="segmented" aria-label={t("Sidebar rows")}>
                 {(["one", "two"] as const).map((rows) => (
