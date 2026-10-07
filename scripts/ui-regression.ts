@@ -241,9 +241,23 @@ try {
   // A pane's plan: the header's count opens it in the chat and the terminal alike, as a flow of
   // boxes (a step below the steps it waits on) or as a list, and the sidebar row carries the same
   // count. Reading it is the server's (server/session-plan.ts): its summary and steps are given here.
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  // what the running step's time held, and what was done while none ran
+  const parserWork = {
+    tools: [{ name: "Bash", count: 5 }, { name: "Edit", count: 3 }, { name: "Agent", count: 1 }],
+    recent: [
+      { at: minutesAgo(6), tool: "Edit", detail: "server/session-plan.ts" },
+      { at: minutesAgo(4), tool: "Agent", detail: "Review the parser" },
+      { at: minutesAgo(1), tool: "Bash", detail: "bun test server/session-plan.test.ts" },
+    ],
+    last_at: minutesAgo(1),
+    agents: [{ id: "a1", label: "Review the parser", type: "reviewer" }],
+    background: [{ id: "b1", command: "bun run build", status: "running" }],
+  };
+  const outsideWork = { tools: [{ name: "Bash", count: 2 }], recent: [{ at: minutesAgo(30), tool: "Bash", detail: "git status" }], last_at: minutesAgo(30), agents: [], background: [] };
   const planSteps = [
     { id: "1", label: "Read the code", active: null, status: "completed", blocked_by: [], owner: null, started_at: "2026-10-07T00:00:00.000Z", ended_at: "2026-10-07T00:04:00.000Z" },
-    { id: "2", label: "Write the parser", active: "Writing the parser", status: "in_progress", blocked_by: ["1"], owner: null, started_at: "2026-10-07T00:04:00.000Z", ended_at: null },
+    { id: "2", label: "Write the parser", active: "Writing the parser", status: "in_progress", blocked_by: ["1"], owner: null, started_at: "2026-10-07T00:04:00.000Z", ended_at: null, activity: parserWork },
     { id: "3", label: "Write the panel", active: null, status: "pending", blocked_by: ["1"], owner: null, started_at: null, ended_at: null },
     { id: "4", label: "Ship it", active: null, status: "pending", blocked_by: ["2", "3"], owner: null, started_at: null, ended_at: null },
   ];
@@ -254,7 +268,12 @@ try {
       for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
       await route.fulfill({ response, json: body });
     });
-    await target.route(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: { plan: { steps: planSteps }, server_time: new Date().toISOString() } }));
+    await target.route(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: { plan: { steps: planSteps, outside: outsideWork }, server_time: new Date().toISOString() } }));
+    // the subagent the step started, as the pane's subagent list tells it
+    await target.route(`**/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: {
+      tasks: [{ id: "a1", title: "Review the parser", category: "reviewer", model: null, status: "running", started_at: minutesAgo(4), ended_at: null, turns: 3, tool_calls: 7, tokens: 18_200 }],
+      runs: [], server_time: new Date().toISOString(),
+    } }));
   };
   await planned(page);
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -274,6 +293,23 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Close plan", "the focus comes into the dialog");
   assert.match(await planDialog.locator(".plan-summary").textContent() ?? "", /1 of 4 done\s*Writing the parser/);
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-flow.png") });
+  // a box opens what its step's time held: calls by tool, the last few, what it started
+  const parserBox = planDialog.locator(".plan-node.is-in_progress .plan-node-open");
+  await parserBox.click();
+  const detail = planDialog.getByRole("region", { name: "Step details" });
+  await detail.waitFor();
+  assert.equal(await parserBox.getAttribute("aria-expanded"), "true");
+  assert.match(await detail.locator(".plan-detail-tools").textContent() ?? "", /^9 tool calls · last action 1m \d+s agoBash 5 · Edit 3 · Agent 1$/);
+  assert.deepEqual(await detail.locator(".plan-detail-list").first().locator(".plan-detail-tool").allTextContents(), ["Bash", "Agent", "Edit"], "the last call first");
+  await until(async () => (await detail.locator("li", { hasText: "reviewer" }).textContent())?.includes("Review the parserreviewer · running") ?? false, "the subagent's state from the pane's subagent list");
+  assert.match(await detail.locator("li", { hasText: "bun run build" }).textContent() ?? "", /running$/);
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-detail.png") });
+  // what was done while no step ran has a detail of its own
+  await planDialog.getByRole("button", { name: "Work outside the steps · 2 calls", exact: true }).click();
+  assert.equal(await detail.locator(".plan-detail-title").textContent(), "Outside the steps");
+  await detail.getByRole("button", { name: "Close step", exact: true }).click();
+  await detail.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-outside")), true, "the focus goes back to what opened the detail");
   await planDialog.getByRole("button", { name: "Steps", exact: true }).click();
   assert.deepEqual(await planDialog.locator(".plan-step-label").allTextContents(), ["Read the code", "Write the parser", "Write the panel", "Ship it"]);
   await page.keyboard.press("Escape");
@@ -288,7 +324,8 @@ try {
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await page.unroute("**/api/machines");
   await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
-  console.log("PASS a pane's plan opens from the header in the chat and the terminal, as a flow and a list");
+  await page.unroute(`**/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneA)}`);
+  console.log("PASS a pane's plan opens from the header in the chat and the terminal, as a flow and a list, and a step opens what its time held");
 
   // Use a real browser paste: keydown must not send Ctrl+V (0x16) to the agent,
   // where it can trigger image paste against the server's unrelated clipboard.
@@ -1414,6 +1451,13 @@ try {
   await until(async () => await phoneDialog.locator(".plan-node").count() === 4, "the plan on a phone");
   assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   if (process.env.UI_EVIDENCE_DIR) await phone.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-phone.png") });
+  // a step's detail opens below the flow and is brought into view, still within the sheet's width
+  await phoneDialog.locator(".plan-node.is-in_progress .plan-node-open").tap();
+  const phoneDetail = phoneDialog.getByRole("region", { name: "Step details" });
+  await phoneDetail.waitFor();
+  await until(async () => { const shown = await phoneDetail.boundingBox(); return shown !== null && shown.y < 844 && shown.y + 40 > 0; }, "the step's detail in view");
+  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (process.env.UI_EVIDENCE_DIR) await phone.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-detail-phone.png") });
   await phoneDialog.getByRole("button", { name: "Close plan", exact: true }).tap();
   await phoneDialog.waitFor({ state: "detached" });
   await planPhone.close();

@@ -384,11 +384,31 @@ export interface PlanStep {
   owner: string | null;
   started_at: string | null;
   ended_at: string | null;
+  /** what the agent did while this step ran (given by GET /api/pane/plan) */
+  activity?: PlanActivity;
+}
+
+/**
+ * What an agent did while a step ran, read from the same transcript: its tool calls and what they
+ * started. A call is the running step's (each one's, when more than one runs); one made while none
+ * runs is the plan's `outside`.
+ */
+export interface PlanActivity {
+  /** calls by tool, the most used first */
+  tools: { name: string; count: number }[];
+  /** the last few calls, oldest first; `detail`: the command, file or pattern it was given */
+  recent: { at: string | null; tool: string; detail: string | null }[];
+  last_at: string | null;
+  /** the subagents it started (Claude's `Agent` tool); `id` is the agent's once its launch was answered */
+  agents: { id: string | null; label: string; type: string | null }[];
+  /** the commands it left running in the background, and how each ended once that was told */
+  background: { id: string; command: string; status: "running" | "completed" | "failed" | "cancelled" }[];
 }
 
 /** GET /api/pane/plan: the plan the pane's agent keeps now, null when it keeps none. */
 export interface PanePlan {
-  plan: { steps: PlanStep[] } | null;
+  /** `outside`: what the agent did since the plan began while no step ran */
+  plan: { steps: PlanStep[]; outside?: PlanActivity | null } | null;
   /** the PC's clock, which the times are on */
   server_time: string;
 }

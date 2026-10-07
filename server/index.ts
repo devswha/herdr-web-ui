@@ -1703,8 +1703,7 @@ export function createServer(
             if (pane) await plans.ensure(pane, true);
           })());
         }
-        const steps = plans.planOf(paneId);
-        const answer: PanePlan = { plan: steps === null ? null : { steps }, server_time: new Date().toISOString() };
+        const answer: PanePlan = { plan: plans.planOf(paneId), server_time: new Date().toISOString() };
         return jsonResponse(answer);
       }
 

@@ -704,6 +704,15 @@ One set for both themes: the card is island black wherever it shows.
   dashed line. A wave wider than the sheet scrolls sideways inside it, never the page.
 - Steps: the same steps in wave order, a status glyph, the name, what a running step does now and
   the meta line.
+- A box or a row is a button: it opens the step's detail below the flow or the list (and is
+  outlined in `--accent` while open); a second press closes it. The detail is a `--bg-panel`
+  hairline card: the step's name and glyph with a close button, the meta line, what a running
+  step does now, then `N tool calls · last action … ago` over a tally by tool, the last five
+  calls newest first (mono tool name, what it was given, a dim time), the subagents it started
+  (their type, state and tokens from the pane's subagent list) and its background commands (state
+  in `--status-working`, `--status-done` or `--status-blocked`). No percentage: nothing in the
+  transcript measures one. Work done while no step ran opens from a dashed `Work outside the
+  steps · N calls` chip under the flow. On a phone the detail is brought into view as it opens.
 
 ### Background tasks ended (`.chat-task-results`)
 - Where OmO reports background tasks that ended, or a Claude Code subagent ends (its

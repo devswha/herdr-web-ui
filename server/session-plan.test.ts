@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import type { HerdrPane, PlanSummary } from "../shared/protocol.ts";
 import { paneAfterStatus } from "./machines.ts";
-import { forgetPlans, jsLiteral, lastPlanCall, planSummary, readPlan, SessionPlans } from "./session-plan.ts";
+import { forgetPlans, jsLiteral, lastPlanCall, planSummary, readPlan, readPlanDetail, SessionPlans } from "./session-plan.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -46,6 +46,11 @@ function claude() {
     update(input: Record<string, unknown>, minute = 1, answer: Record<string, unknown> = { success: true }, error = false): void {
       const toolId = use("TaskUpdate", input, minute);
       f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: error ? "<tool_use_error>Task not found</tool_use_error>" : `Updated task #${String(input["taskId"])}`, ...(error ? { is_error: true } : {}) }] }, toolUseResult: answer });
+    },
+    /** any other tool call, answered with `answer` as its structured result */
+    call(name: string, input: Record<string, unknown>, minute: number, answer: Record<string, unknown> = {}): void {
+      const toolId = use(name, input, minute);
+      f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: "ok" }] }, toolUseResult: answer });
     },
   };
 }
@@ -113,6 +118,63 @@ describe("readPlan (Claude Code task list)", () => {
     expect(steps(s.path)).toEqual(["7:in_progress:"]);
   });
 
+  it("puts each call in the step that ran then, keeps what it started, and what ran outside every step apart", () => {
+    const s = claude();
+    const a = s.create("Build", 1);
+    const b = s.create("Check", 1);
+    s.call("Bash", { command: "git status" }, 2);
+    s.update({ taskId: a, status: "in_progress" }, 3);
+    s.call("Bash", { command: "bun test", description: "Run tests" }, 4);
+    s.call("Edit", { file_path: "/w/src/lib/app.ts" }, 5);
+    s.call("TaskList", {}, 5);
+    s.call("Agent", { description: "Review the diff", subagent_type: "reviewer" }, 6, { agentId: "a1", status: "async_launched" });
+    s.call("Bash", { command: "bun run build", run_in_background: true }, 7, { backgroundTaskId: "b1" });
+    s.add({ type: "user", timestamp: at(8), message: { role: "user", content: '<task-notification>\n<task-id>b1</task-id>\n<status>failed</status>\n<summary>Background command "bun run build" failed with exit code 1</summary>\n</task-notification>' } });
+    // a subagent's own call, written here by an older Claude Code, is not this step's
+    s.add({ type: "assistant", isSidechain: true, timestamp: at(8), message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_side", name: "Bash", input: { command: "ls" } }] } });
+    s.update({ taskId: a, status: "completed" }, 9);
+    s.update({ taskId: b, status: "in_progress" }, 9);
+    s.call("Read", { file_path: "/w/README.md" }, 10);
+    const plan = readPlanDetail("claude-transcript", s.path)!;
+    expect(plan.steps[0]!.activity).toEqual({
+      tools: [{ name: "Bash", count: 2 }, { name: "Edit", count: 1 }, { name: "Agent", count: 1 }],
+      recent: [
+        { at: at(4), tool: "Bash", detail: "Run tests" },
+        { at: at(5), tool: "Edit", detail: "lib/app.ts" },
+        { at: at(6), tool: "Agent", detail: "Review the diff" },
+        { at: at(7), tool: "Bash", detail: "bun run build" },
+      ],
+      last_at: at(7),
+      agents: [{ id: "a1", label: "Review the diff", type: "reviewer" }],
+      background: [{ id: "b1", command: "bun run build", status: "failed" }],
+    });
+    expect(plan.steps[1]!.activity?.recent).toEqual([{ at: at(10), tool: "Read", detail: "w/README.md" }]);
+    expect(plan.outside?.recent).toEqual([{ at: at(2), tool: "Bash", detail: "git status" }]);
+    // the next plan starts with nothing done
+    s.update({ taskId: b, status: "completed" }, 11);
+    s.create("Next", 12);
+    expect(readPlanDetail("claude-transcript", s.path)).toEqual({ steps: [expect.not.objectContaining({ activity: expect.anything() })], outside: null });
+  });
+
+  it("keeps a command the person sent to the background, which its answer names", () => {
+    const s = claude();
+    const a = s.create("Serve", 1);
+    s.update({ taskId: a, status: "in_progress" }, 1);
+    s.call("Bash", { command: "bun run dev" }, 2, { backgroundTaskId: "b2" });
+    s.call("Bash", { command: "ls" }, 3, { stdout: "x" });
+    expect(readPlan("claude-transcript", s.path)![0]!.activity!.background).toEqual([{ id: "b2", command: "bun run dev", status: "running" }]);
+  });
+
+  it("keeps the last few calls of a step and counts the rest", () => {
+    const s = claude();
+    const a = s.create("Busy", 1);
+    s.update({ taskId: a, status: "in_progress" }, 1);
+    for (let minute = 2; minute < 10; minute++) s.call("Grep", { pattern: `p${minute}` }, minute);
+    const activity = readPlan("claude-transcript", s.path)![0]!.activity!;
+    expect(activity.tools).toEqual([{ name: "Grep", count: 8 }]);
+    expect(activity.recent.map((call) => call.detail)).toEqual(["p5", "p6", "p7", "p8", "p9"]);
+  });
+
   it("has no plan for a session that never used the task tools, and starts over on another file at the same path", () => {
     const s = claude();
     expect(readPlan("claude-transcript", s.path)).toBeNull();
@@ -132,11 +194,39 @@ describe("readPlan (Codex checklist)", () => {
     expect((readPlan("codex-transcript", f.path) ?? []).map((step) => `${step.id}:${step.status}:${step.blocked_by.join(",")}:${step.label}`)).toEqual(["1:in_progress::Read", "2:pending:1:Fix"]);
     f.add(exec('text(await tools.exec_command({cmd:"ls"}));\ntext(await tools.update_plan({plan:[{step:"Read",status:"completed"},{step:"Fix",status:"in_progress"},{step:"Ship",status:"pending"}]}));', 4));
     expect(readPlan("codex-transcript", f.path)).toEqual([
-      // a step keeps when it started across checklists, found by its words
-      { id: "1", label: "Read", active: null, status: "completed", blocked_by: [], owner: null, started_at: at(1), ended_at: at(4) },
+      // a step keeps when it started across checklists, found by its words, and what the code called before the plan moved on
+      {
+        id: "1", label: "Read", active: null, status: "completed", blocked_by: [], owner: null, started_at: at(1), ended_at: at(4),
+        activity: { tools: [{ name: "exec", count: 1 }], recent: [{ at: at(4), tool: "exec", detail: "exec_command" }], last_at: at(4), agents: [], background: [] },
+      },
       { id: "2", label: "Fix", active: null, status: "in_progress", blocked_by: ["1"], owner: null, started_at: at(4), ended_at: null },
       { id: "3", label: "Ship", active: null, status: "pending", blocked_by: ["2"], owner: null, started_at: null, ended_at: null },
     ]);
+  });
+
+  it("puts a command or a patch in the step in progress, and starts over outside the steps with a checklist that shares none", () => {
+    const f = file("rollout.jsonl");
+    const call = (name: string, minute: number, args: unknown) => f.add({ timestamp: at(minute), type: "response_item", payload: { type: "function_call", name, call_id: `f${minute}`, arguments: JSON.stringify(args) } });
+    call("exec_command", 1, { cmd: "git status" });
+    call("update_plan", 2, { plan: [{ step: "Fix", status: "in_progress" }] });
+    call("shell", 3, { command: ["bash", "-lc", "bun test"] });
+    f.add({ timestamp: at(4), type: "response_item", payload: { type: "custom_tool_call", call_id: "p4", name: "apply_patch", input: "*** Begin Patch\n*** Update File: src/lib/app.ts\n@@\n-a\n+b\n*** Add File: docs/x.md\n+x\n*** End Patch" } });
+    call("spawn_agent", 4, { task_name: "fix_review", agent_type: "reviewer", message: "gAAAA-sealed" });
+    expect(readPlanDetail("codex-transcript", f.path)!.steps[0]!.activity?.agents).toEqual([{ id: null, label: "fix_review", type: "reviewer" }]);
+    call("update_plan", 5, { plan: [{ step: "Fix", status: "completed" }] });
+    call("exec_command", 6, { cmd: "git push" });
+    let plan = readPlanDetail("codex-transcript", f.path)!;
+    expect(plan.steps[0]!.activity?.recent).toEqual([
+      { at: at(3), tool: "shell", detail: "bash -lc bun test" },
+      { at: at(4), tool: "apply_patch", detail: "lib/app.ts, docs/x.md" },
+      { at: at(4), tool: "spawn_agent", detail: "fix_review" },
+    ]);
+    // what was done before the plan began is no part of it
+    expect(plan.outside?.recent).toEqual([{ at: at(6), tool: "exec_command", detail: "git push" }]);
+    call("update_plan", 7, { plan: [{ step: "Other", status: "pending" }] });
+    plan = readPlanDetail("codex-transcript", f.path)!;
+    expect(plan.outside).toBeNull();
+    expect(plan.steps[0]!.activity).toBeUndefined();
   });
 
   it("leaves the plan as it was for a call whose argument is not a plain literal", () => {
@@ -194,7 +284,7 @@ describe("SessionPlans", () => {
     plans.poll();
     expect(changes.at(-1)).toEqual(["p1", { done: 0, total: 2, current: "Doing one" }]);
     expect(changes).toHaveLength(2);
-    expect(plans.planOf("p1")?.map((step) => step.status)).toEqual(["in_progress", "pending"]);
+    expect(plans.planOf("p1")?.steps.map((step) => step.status)).toEqual(["in_progress", "pending"]);
     // a Codex pane whose rollout was not found is not asked again at once
     await plans.refresh([pane("p1", "claude"), pane("p2", "codex")]);
     expect(codexLookups).toBe(1);

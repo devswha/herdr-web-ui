@@ -46,6 +46,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   terminal alike, as a flow of boxes (a step below the steps it waits on) or as a list, with
   what the running step does and how long each step took, and the sidebar row carries the same
   count. It is read back from the session's transcript; nothing new is asked of the agent.
+- A plan's step opens what was done while it ran: its tool calls by tool, the last few with what
+  each was given, the subagents it started and their state, and the background commands it left
+  running and how they ended. Work done while no step ran has a detail of its own.
 
 ### Changed
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during

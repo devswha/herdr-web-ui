@@ -1,5 +1,5 @@
-import type { HerdrPane, PlanStep, PlanSummary } from "../shared/protocol.ts";
-import { plain, readLines, remember } from "./claude-subagents.ts";
+import type { HerdrPane, PlanActivity, PlanStep, PlanSummary } from "../shared/protocol.ts";
+import { lineNotifications, plain, readLines, remember } from "./claude-subagents.ts";
 
 /**
  * The plan an agent keeps for its session, read back from the session's transcript, for the
@@ -16,6 +16,11 @@ import { plain, readLines, remember } from "./claude-subagents.ts";
  * the call is JavaScript inside an `exec` call (`tools.update_plan({plan:[…]})`); its argument
  * is read by `jsLiteral`, which takes plain literals only and runs nothing.
  *
+ * What a step's time held (its activity) is every other tool call made while it ran: each call
+ * goes to the steps in progress then, or to the plan's `outside` while none is. Claude's `Agent`
+ * calls and background commands are kept with the agent id and task id their answers give, and a
+ * background command's notification says how it ended.
+ *
  * A transcript is read from its start, PLAN_BUDGET bytes per call, then only what was appended;
  * until the first read has reached the end, no plan is told.
  */
@@ -23,6 +28,13 @@ const PLAN_BUDGET = 32 * 1024 * 1024;
 const LINE_BUDGET = 8 * 1024 * 1024;
 const MAX_STEPS = 200;
 const MAX_FILES = 256;
+/** what one step keeps of its calls: the last few, how many of each tool, and what they started */
+const MAX_RECENT = 5;
+const MAX_TOOLS = 24;
+const MAX_STARTED = 20;
+const DETAIL = 160;
+/** progress calls are the plan itself, not work done in a step */
+const PROGRESS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite", "update_plan"]);
 
 export type PlanSource = "claude-transcript" | "codex-transcript";
 
@@ -44,24 +56,64 @@ interface Read {
   steps: Map<string, PlanStep>;
   /** Claude's task calls still waiting for their answer, by tool_use id */
   calls: Map<string, { name: string; input: Row }>;
+  /** what each step's time held, by step id, and what was done since the plan began while none ran */
+  work: Map<string, Work>;
+  outside: Work;
+  /** an `Agent` or background call waiting for the answer that gives its id, by tool_use id */
+  started: Map<string, { agent: PlanActivity["agents"][number] } | { command: string; into: Work[] }>;
+  /** background commands by task id, for the notification that ends them */
+  commands: Map<string, PlanActivity["background"][number]>;
 }
 const reads = new Map<string, Read>();
 
+interface Work {
+  tools: Map<string, number>;
+  recent: PlanActivity["recent"];
+  last_at: string | null;
+  agents: PlanActivity["agents"];
+  background: PlanActivity["background"];
+}
+const work = (): Work => ({ tools: new Map(), recent: [], last_at: null, agents: [], background: [] });
+
 /**
- * The plan in `path` now: its steps in the order they were made, null when there is none (or it
- * is still being read). `budget`: the bytes this read may take, shared by every read of one poll.
+ * The plan in `path` now: its steps in the order they were made, each with what its time held,
+ * null when there is none (or it is still being read). `budget`: the bytes this read may take,
+ * shared by every read of one poll.
  */
 export function readPlan(source: PlanSource, path: string, budget = { left: PLAN_BUDGET }): PlanStep[] | null {
-  return planState(source, path, budget).steps;
+  return readPlanDetail(source, path, budget)?.steps ?? null;
 }
 
-function planState(source: PlanSource, path: string, budget: { left: number }): { steps: PlanStep[] | null; behind: boolean } {
+/** The plan in `path` now with what was done outside its steps. */
+export function readPlanDetail(source: PlanSource, path: string, budget = { left: PLAN_BUDGET }): { steps: PlanStep[]; outside: PlanActivity | null } | null {
+  const read = planState(source, path, budget).read;
+  if (read === null || read.catching || read.steps.size === 0) return null;
+  const steps = [...read.steps.values()].map((step) => {
+    const done = shown(read.work.get(step.id));
+    return { ...step, blocked_by: [...step.blocked_by], ...(done ? { activity: done } : {}) };
+  });
+  return { steps, outside: shown(read.outside) };
+}
+
+/** A step's activity as the API gives it; null when nothing was done. */
+function shown(held: Work | undefined): PlanActivity | null {
+  if (held === undefined || (held.tools.size === 0 && held.agents.length === 0 && held.background.length === 0)) return null;
+  return {
+    tools: [...held.tools].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+    recent: held.recent.map((call) => ({ ...call })),
+    last_at: held.last_at,
+    agents: held.agents.map((agent) => ({ ...agent })),
+    background: held.background.map((command) => ({ ...command })),
+  };
+}
+
+function planState(source: PlanSource, path: string, budget: { left: number }): { read: Read | null; behind: boolean } {
   const stat = plain(path);
-  if (stat === null) return { steps: null, behind: false };
+  if (stat === null) return { read: null, behind: false };
   const key = `${source}\0${path}`;
   let state = reads.get(key);
   if (!state || state.id !== stat.id || state.offset > stat.size) {
-    state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map() };
+    state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map(), work: new Map(), outside: work(), started: new Map(), commands: new Map() };
   }
   remember(reads, key, state, MAX_FILES);
   const read = state;
@@ -80,7 +132,50 @@ function planState(source: PlanSource, path: string, budget: { left: number }): 
     if (consumed === 0 || !done.more) break;
   }
   if (!read.behind) read.catching = false;
-  return { steps: read.catching || read.steps.size === 0 ? null : [...read.steps.values()].map((step) => ({ ...step, blocked_by: [...step.blocked_by] })), behind: read.behind };
+  return { read, behind: read.behind };
+}
+
+/** The steps a call made now belongs to: those in progress, else what is outside them. */
+function running(read: Read): Work[] {
+  const now = [...read.steps.values()].filter((step) => step.status === "in_progress");
+  if (now.length === 0) return [read.outside];
+  return now.map((step) => {
+    let held = read.work.get(step.id);
+    if (held === undefined) read.work.set(step.id, held = work());
+    return held;
+  });
+}
+
+/** One call, counted in each step it belongs to. */
+function record(into: Work[], at: string | null, tool: string, detail: string | null): void {
+  for (const held of into) {
+    const name = held.tools.has(tool) || held.tools.size < MAX_TOOLS ? tool : "other";
+    held.tools.set(name, (held.tools.get(name) ?? 0) + 1);
+    held.recent.push({ at, tool, detail });
+    if (held.recent.length > MAX_RECENT) held.recent.shift();
+    held.last_at = at ?? held.last_at;
+  }
+}
+
+const clip = (value: unknown): string | null => {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return text.length === 0 ? null : text.length > DETAIL ? `${text.slice(0, DETAIL - 1)}…` : text;
+};
+/** a path's last two parts: enough to tell the file, short enough for a row */
+const tail = (value: unknown): string | null => typeof value === "string" ? clip(value.split("/").filter(Boolean).slice(-2).join("/")) : null;
+
+/** What a Claude Code tool call was given, as one short line. */
+function claudeDetail(name: string, input: Row): string | null {
+  switch (name) {
+    case "Bash": return clip(input["description"]) ?? clip(input["command"]);
+    case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return tail(input["file_path"] ?? input["notebook_path"]);
+    case "Grep": case "Glob": return clip(input["pattern"]);
+    case "Agent": case "Task": return clip(input["description"]);
+    case "WebFetch": return clip(input["url"]);
+    case "WebSearch": return clip(input["query"]);
+    case "Skill": return clip(input["skill"]);
+    default: return null;
+  }
 }
 
 /** Forgets every read (tests). */
@@ -89,31 +184,69 @@ export function forgetPlans(): void {
 }
 
 function claudeLine(read: Read, line: string): void {
-  const calling = line.includes('"name":"TaskCreate"') || line.includes('"name":"TaskUpdate"');
-  const answering = read.calls.size > 0 && line.includes('"tool_result"');
+  // a background command's notification: how it ended
+  if (read.commands.size > 0 && line.includes("<task-notification>")) {
+    for (const notice of lineNotifications(line)) {
+      const command = read.commands.get(notice.taskId);
+      if (command !== undefined && !notice.agent) command.status = notice.status;
+    }
+  }
+  const calling = line.includes('"tool_use"');
+  const answering = (read.calls.size > 0 || read.started.size > 0) && line.includes('"tool_result"');
   if (!calling && !answering) return;
   let entry: Row | null;
   try { entry = row(JSON.parse(line)); } catch { return; }
   const content = row(entry?.["message"])?.["content"];
   if (entry === null || !Array.isArray(content)) return;
+  const at = stamp(entry["timestamp"]);
+  // a subagent's own calls, where an older Claude Code wrote them into this transcript, are its own
+  const own = entry["isSidechain"] !== true;
   for (const value of content) {
     const block = row(value);
     if (block === null) continue;
-    if (block["type"] === "tool_use" && (block["name"] === "TaskCreate" || block["name"] === "TaskUpdate") && typeof block["id"] === "string") {
-      read.calls.set(block["id"], { name: block["name"], input: row(block["input"]) ?? {} });
+    if (block["type"] === "tool_use" && typeof block["id"] === "string" && typeof block["name"] === "string") {
+      const name = block["name"];
+      const input = row(block["input"]) ?? {};
+      if (name === "TaskCreate" || name === "TaskUpdate") { read.calls.set(block["id"], { name, input }); continue; }
+      if (PROGRESS.has(name) || !own) continue;
+      // ponytail: the steps in progress as of the task calls answered so far; a call in the same
+      // message as a status change (answered after it) still counts for the step before
+      const into = running(read);
+      record(into, at, name, claudeDetail(name, input));
+      if (name === "Agent" || name === "Task") {
+        const agent = { id: null, label: clip(input["description"]) ?? name, type: words(input["subagent_type"]) };
+        for (const held of into) if (held.agents.length < MAX_STARTED) held.agents.push(agent);
+        read.started.set(block["id"], { agent });
+      } else if (name === "Bash") {
+        // `run_in_background`, or one the person sent to the background: its answer gives a task id
+        read.started.set(block["id"], { command: clip(input["command"]) ?? "", into });
+      }
       continue;
     }
     if (block["type"] !== "tool_result" || typeof block["tool_use_id"] !== "string") continue;
+    const answer = row(entry["toolUseResult"]);
+    const start = read.started.get(block["tool_use_id"]);
+    if (start !== undefined) {
+      read.started.delete(block["tool_use_id"]);
+      if ("agent" in start) start.agent.id = words(answer?.["agentId"]) ?? start.agent.id;
+      else {
+        const task = words(answer?.["backgroundTaskId"]);
+        if (task === null || block["is_error"] === true) continue;
+        const command: PlanActivity["background"][number] = { id: task, command: start.command, status: "running" };
+        for (const held of start.into) if (held.background.length < MAX_STARTED) held.background.push(command);
+        remember(read.commands, task, command, MAX_STEPS);
+      }
+      continue;
+    }
     const call = read.calls.get(block["tool_use_id"]);
     if (call === undefined) continue;
     read.calls.delete(block["tool_use_id"]);
     if (block["is_error"] === true) continue;
-    const answer = row(entry["toolUseResult"]);
-    const at = stamp(entry["timestamp"]);
     if (call.name === "TaskCreate") created(read, call.input, answer, block["content"], at);
     else updated(read, call.input, answer, at);
   }
   if (read.calls.size > MAX_STEPS) read.calls.clear();
+  if (read.started.size > MAX_STEPS) read.started.clear();
 }
 
 function created(read: Read, input: Row, answer: Row | null, content: unknown, at: string | null): void {
@@ -121,7 +254,11 @@ function created(read: Read, input: Row, answer: Row | null, content: unknown, a
   const id = idOf(row(answer?.["task"])?.["id"]) ?? text.match(/^Task #(\S+) created/)?.[1] ?? null;
   if (id === null) return;
   // Claude empties a list whose tasks are all done: the next task begins another plan
-  if ([...read.steps.values()].every((step) => step.status === "completed")) read.steps.clear();
+  if ([...read.steps.values()].every((step) => step.status === "completed")) {
+    read.steps.clear();
+    read.work.clear();
+    read.outside = work();
+  }
   if (read.steps.size >= MAX_STEPS) return;
   read.steps.set(id, { id, label: words(input["subject"]) ?? `#${id}`, active: words(input["activeForm"]), status: "pending", blocked_by: [], owner: null, started_at: null, ended_at: null });
 }
@@ -134,6 +271,7 @@ function updated(read: Read, input: Row, answer: Row | null, at: string | null):
   const status = input["status"];
   if (status === "deleted") {
     read.steps.delete(id);
+    read.work.delete(id);
     for (const other of read.steps.values()) other.blocked_by = other.blocked_by.filter((before) => before !== id);
     return;
   }
@@ -155,24 +293,45 @@ function updated(read: Read, input: Row, answer: Row | null, at: string | null):
 }
 
 function codexLine(read: Read, line: string): void {
-  if (!line.includes("update_plan")) return;
+  if (!line.includes('"function_call"') && !line.includes('"custom_tool_call"')) return;
   let entry: Row | null;
   try { entry = row(JSON.parse(line)); } catch { return; }
   const payload = row(entry?.["payload"]);
-  if (entry === null || payload === null) return;
+  if (entry === null || payload === null || typeof payload["name"] !== "string") return;
+  const name = payload["name"];
+  const at = stamp(entry["timestamp"]);
   let args: unknown;
-  if (payload["type"] === "function_call" && payload["name"] === "update_plan" && typeof payload["arguments"] === "string") {
-    try { args = JSON.parse(payload["arguments"]); } catch { return; }
-  } else if (payload["type"] === "custom_tool_call" && payload["name"] === "exec" && typeof payload["input"] === "string") {
-    // code mode's JavaScript: a patch (`apply_patch`) that only writes the words is no call
-    args = lastPlanCall(payload["input"]);
+  if (payload["type"] === "function_call" && typeof payload["arguments"] === "string") {
+    let parsed: Row | null = null;
+    try { parsed = row(JSON.parse(payload["arguments"])); } catch { /* a call whose arguments are not JSON still counts */ }
+    if (name !== "update_plan") {
+      const into = running(read);
+      record(into, at, name, codexDetail(name, parsed ?? {}, null));
+      // a subagent Codex starts is named by its task; its message is not kept in the clear
+      if (name === "spawn_agent") {
+        const agent = { id: null, label: clip(parsed?.["task_name"]) ?? name, type: words(parsed?.["agent_type"]) };
+        for (const held of into) if (held.agents.length < MAX_STARTED) held.agents.push(agent);
+      }
+      return;
+    }
+    args = parsed;
+  } else if (payload["type"] === "custom_tool_call" && typeof payload["input"] === "string") {
+    const code = payload["input"];
+    // code mode's JavaScript: what else it called is the step's work; a patch that only writes the words is no plan
+    const detail = codexDetail(name, {}, code);
+    if (name !== "exec" || detail !== null) record(running(read), at, name, detail);
+    if (name !== "exec" || !code.includes(PLAN_CALL)) return;
+    args = lastPlanCall(code);
   } else return;
   const items = row(args)?.["plan"];
   if (!Array.isArray(items)) return;
-  const at = stamp(entry["timestamp"]);
-  // a step keeps the times it had in the checklists before, found by its words
+  // a step keeps the times and the work it had in the checklists before, found by its words
   const before = new Map([...read.steps.values()].map((step) => [step.label, step]));
+  const held = new Map([...read.steps.values()].flatMap((step) => { const done = read.work.get(step.id); return done ? [[step.label, done] as const] : []; }));
   read.steps.clear();
+  read.work.clear();
+  // a checklist that shares no step with the one before is another plan: what was done outside the old one is not this one's
+  if (!items.some((item) => before.has(words(row(item)?.["step"]) ?? ""))) read.outside = work();
   for (const item of items.slice(0, MAX_STEPS)) {
     const label = words(row(item)?.["step"]);
     const raw = row(item)?.["status"];
@@ -187,7 +346,27 @@ function codexLine(read: Read, line: string): void {
       started_at: started,
       ended_at: status === "completed" ? known?.ended_at ?? at : null,
     });
+    const done = held.get(label);
+    if (done !== undefined) read.work.set(id, done);
   }
+}
+
+/**
+ * What a Codex tool call was given, as one short line: a command, a patch's files, or in code
+ * mode the tools its JavaScript calls (null for code that only keeps the plan).
+ */
+function codexDetail(name: string, args: Row, code: string | null): string | null {
+  if (code !== null) {
+    if (name === "apply_patch") {
+      const files = [...code.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((match) => tail(match[1]) ?? "");
+      return clip([...new Set(files)].join(", "));
+    }
+    if (name !== "exec") return clip(code.split("\n")[0]);
+    const tools = [...new Set([...code.matchAll(/\btools\.(\w+)\s*\(/g)].map((match) => match[1]!))].filter((tool) => tool !== "update_plan");
+    return tools.length === 0 ? null : clip(tools.join(", "));
+  }
+  const command = args["cmd"] ?? args["command"] ?? args["task_name"];
+  return clip(Array.isArray(command) ? command.filter((part) => typeof part === "string").join(" ") : command);
 }
 
 const PLAN_CALL = "tools.update_plan(";
@@ -360,10 +539,10 @@ export class SessionPlans {
     return this.panes.get(paneId)?.summary ?? null;
   }
 
-  /** The pane's plan now, read on the spot; null when it has none or its transcript is not known. */
-  planOf(paneId: string): PlanStep[] | null {
+  /** The pane's plan now, read on the spot, with what was done outside its steps; null when it has none or its transcript is not known. */
+  planOf(paneId: string): { steps: PlanStep[]; outside: PlanActivity | null } | null {
     const where = this.panes.get(paneId)?.where;
-    return where ? readPlan(where.source, where.path) : null;
+    return where ? readPlanDetail(where.source, where.path) : null;
   }
 
   known(paneId: string): boolean {
@@ -431,12 +610,13 @@ export class SessionPlans {
         const stat = plain(tracked.where.path);
         const sig = stat === null ? null : `${stat.id}:${stat.size}`;
         if (sig !== null && sig === tracked.sig) continue;
-        const read = planState(tracked.where.source, tracked.where.path, budget);
+        const { read, behind } = planState(tracked.where.source, tracked.where.path, budget);
         // a file read only in part is read on at the next poll: its size is not taken as seen
-        if (!read.behind) tracked.sig = sig;
+        if (!behind) tracked.sig = sig;
+        const steps = read === null || read.catching || read.steps.size === 0 ? null : [...read.steps.values()];
         // still on its first read: what it shows is not known yet
-        if (read.steps === null && read.behind) continue;
-        summary = planSummary(read.steps);
+        if (steps === null && behind) continue;
+        summary = planSummary(steps);
       }
       if (JSON.stringify(summary) === JSON.stringify(tracked.summary)) continue;
       tracked.summary = summary;
