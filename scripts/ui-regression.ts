@@ -75,7 +75,7 @@ try {
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
-    // only the first load: a reload must keep what Settings stored, such as the sidebar grouping
+    // only the first load: a reload must keep what Settings stored, such as the language
     if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
     for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
   }, panes);
@@ -816,44 +816,6 @@ try {
   await composer.fill("draft for A");
   console.log("PASS successful sends settle after switching panes and preserve edits made after returning");
 
-  // Every directory has a fold caret, even with one pane; opening a pane reveals its folder.
-  const split = await herdrRpc<{ pane: { pane_id: string } }>("pane.split", { target_pane_id: paneB, direction: "down", focus: false });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  const sectionB = page.locator(`.directory-group[data-directory="${join(root, "b")}"]`);
-  const toggleB = sectionB.locator(".directory-header");
-  await toggleB.waitFor();
-  assert.equal(await page.locator(".directory-group", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".directory-header").count(), 1, "a lone pane keeps its folder header");
-  await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
-  assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
-  await page.reload();
-  await page.locator(".conn-live").waitFor();
-  const foldedB = page.locator(".directory-group.is-collapsed", { has: page.locator(".directory-header[aria-expanded='false']") });
-  await foldedB.waitFor();
-  assert.equal(await foldedB.locator(`.pane-select[title^="${paneB} —"]`).count(), 0, "the fold survives a reload");
-  await page.goto(`${origin}/?pane=${encodeURIComponent(split.pane.pane_id)}`);
-  await page.locator(".conn-live").waitFor();
-  await page.locator(`.pane-item.is-selected .pane-select[title^="${split.pane.pane_id} —"]`).waitFor();
-  assert.equal(await page.locator(".directory-group.is-collapsed").count(), 0);
-  // Status snapshots do not undo a deliberate fold of the selected folder.
-  await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
-  await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "blocked" });
-  await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge[data-status="blocked"]`).waitFor();
-  await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
-  await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge:not([data-status="blocked"])`).waitFor();
-  assert.equal(await sectionB.locator(".workspace-list").count(), 0, "a snapshot update keeps the selected pane's workspace folded");
-  assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
-  await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor();
-  await herdrRpc("pane.close", { pane_id: split.pane.pane_id });
-  await page.locator(`.pane-select[title^="${split.pane.pane_id} —"]`).waitFor({ state: "detached" });
-  await selectPane(paneA);
-  await composer.fill("draft for A");
-  console.log("PASS a folder folds from its caret, stays folded across reloads, and unfolds for a pane opened inside it");
-
   let releaseImage!: () => void;
   const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
   releases.push(releaseImage);
@@ -917,9 +879,6 @@ try {
   assert.equal(git("commit", "-q", "-m", "fixture").exitCode, 0, "git commit");
   const repoWorkspace = await workspaceCreate({ cwd: repo, label: "herdr-web-ui-test-repo" });
   workspaces.push(repoWorkspace.workspace.workspace_id);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By workspace", exact: true }).click();
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
   const repoRow = workspaceHeader(repoWorkspace.workspace.workspace_id);
   await repoRow.waitFor();
   const initialResponse = await fetch(`${origin}/api/worktree/create`, {
@@ -1031,7 +990,7 @@ try {
   await initialRow.waitFor({ state: "detached" });
   worktreeWorkspaces.splice(worktreeWorkspaces.indexOf(initialWorktree.workspace_id), 1);
 
-  // In the By workspace view the worktree's row sits under its repository's, as herdr packs them.
+  // The worktree's row sits under its repository's, as herdr packs them.
   // Its menu deletes the checkout: a dirty one is refused in git's words first, then deleted anyway.
   const repoHeader = repoRow;
   await childRow.waitFor();
@@ -1221,9 +1180,6 @@ try {
   assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current"), "true", "the open pane stays");
   await until(async () => await page.evaluate(() => document.activeElement?.matches(".app-header .drawer-toggle, .app-header .sidebar-toggle") === true), "the focus is not left on the page");
   console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its x and Delete, asking first while its agent works");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.
@@ -1501,7 +1457,7 @@ try {
   // is automatic, so it must not offer a sign-out action that cannot lock the app.
   assert.equal(await page.getByRole("button", { name: "Sign out", exact: true }).count(), 0);
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
-  // closed from the row's ⋯ menu; its last pane takes the workspace with it, so a confirm asks first
+  // closed from the row's ⋯ menu; the workspace's pane goes with it, so a confirm asks first
   await page.locator(".pane-item.is-selected .row-menu-toggle").click();
   const rowMenu = page.getByRole("menu");
   await rowMenu.waitFor();
@@ -1519,7 +1475,7 @@ try {
   await rowMenu.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "Escape after a right-click returns focus to the row's ⋯");
   await page.keyboard.press("Enter");
-  await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await rowMenu.getByRole("menuitem", { name: "Close workspace", exact: true }).click();
   const confirmClose = page.getByRole("alertdialog");
   await confirmClose.waitFor();
   await until(async () => await page.evaluate(() => document.activeElement?.textContent === "Cancel"), "the confirm starts on Cancel");
@@ -1530,7 +1486,7 @@ try {
   await confirmClose.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "cancelling the confirm returns focus to the row's ⋯");
   await page.keyboard.press("Enter");
-  await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await rowMenu.getByRole("menuitem", { name: "Close workspace", exact: true }).click();
   await confirmClose.waitFor();
   await confirmClose.getByRole("button", { name: "Close", exact: true }).click();
   workspaces.splice(workspaces.indexOf(created.workspace_id), 1);
