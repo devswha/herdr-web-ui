@@ -95,6 +95,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Tailscale login is still refused, a tagged node still pairs, Funnel stays closed, a LAN client
   that claims the same headers still gains nothing, and a configured token is still required of
   everything but a paired device.
+  ([#525](https://github.com/devswha/herdr-web-ui/pull/525) by @jetmobsol)
 
 ## [0.3.52] - 2026-10-06
 
