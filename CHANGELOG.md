@@ -39,6 +39,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - In a Claude Code pane, the chat shows what a slash command answered, so a `/goal` that Claude
   Code refuses says why in the chat instead of only in the terminal. `/goal` is also among the
   commands the message box suggests.
+  ([#583](https://github.com/devswha/herdr-web-ui/pull/583))
 
 ## [0.4.0] - 2026-10-08
 
