@@ -70,15 +70,27 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   not restore shows a warning glyph,
   and the background-task count sits on agent rows.
   Workspace rows keep their names, and agents open their panes directly. Tab and pane navigation
-  stays in the tab strip and palette; saved folder grouping choices stay in effect.
+  stays in the tab strip and palette.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - The sidebar no longer opens with a **Needs you** list of waiting panes. A pane that waits
   shows its state on its workspace row and its row in **Agents**, and the alerts are unchanged.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- **Settings → Appearance → Sidebar grouping** is gone, and with it the **By folder** view that
+  listed panes under their working directory. The sidebar always lists workspaces, a repository's
+  worktrees under it. A device that had chosen **By folder** shows workspaces again; its workspaces
+  and panes are untouched.
+  ([#556](https://github.com/devswha/herdr-web-ui/pull/556))
 - Opened worktree branches appear beneath their repository workspace, using actual branch names
   from herdr's worktree API and keeping custom workspace names beside them. Creating or opening
   a worktree expands its group. The browser demo supports these worktree actions with fictional
   checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+
+- A linked worktree's row in the sidebar is titled by its workspace name, the one its owner gave it
+  or the one herdr made from the branch, instead of the branch; the branch follows in dim text
+  where the name does not already say it, and in the row's tooltip and menu. The sidebar's mark
+  for an agent waiting for an answer is a red question mark instead of a filled speech bubble;
+  a finished one keeps its green dot.
+  ([#557](https://github.com/devswha/herdr-web-ui/pull/557))
 
 ### Fixed
 - Updating an already current remote bridge verifies and reuses it without downloading or restarting it again. ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
