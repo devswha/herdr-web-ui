@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { altSequence, clipboardKey, controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, sanitizeKeyBarExtras, navigationSequence, terminalChord, keyFromData } from "./keys.ts";
+import { altSequence, clipboardKey, physicalKey, controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, sanitizeKeyBarExtras, navigationSequence, terminalChord, keyFromData } from "./keys.ts";
 
 describe("clipboardKey", () => {
   it("recognizes native Ctrl+C/V on Korean and Russian layouts without replacing Latin layout letters", () => {
@@ -11,6 +11,19 @@ describe("clipboardKey", () => {
     expect(clipboardKey("j", "KeyC")).toBe("j");
     expect(clipboardKey("V", "KeyV")).toBe("v");
     expect(clipboardKey("ArrowLeft", "ArrowLeft")).toBe("arrowleft");
+  });
+});
+
+describe("physicalKey", () => {
+  it("names a non-Latin layout's letter by its position and keeps a Latin layout's own", () => {
+    expect(physicalKey("ㅊ", "KeyC")).toBe("c");
+    expect(physicalKey("с", "KeyC")).toBe("c");
+    expect(physicalKey("ㅉ", "KeyC")).toBe("c");
+    expect(physicalKey("j", "KeyC")).toBe("j");
+    expect(physicalKey("C", "KeyC")).toBe("C");
+    expect(physicalKey("!", "Digit1")).toBe("!");
+    expect(physicalKey("ArrowLeft", "ArrowLeft")).toBe("ArrowLeft");
+    expect(physicalKey("한", "KeyG")).toBe("g");
   });
 });
 

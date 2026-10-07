@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
-import { clipboardKey, hasModifiers, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
+import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
@@ -420,7 +420,8 @@ export function PaneTerminal({
           alt: modifiersRef.current.alt || event.altKey,
           shift: modifiersRef.current.shift || event.shiftKey,
         };
-        const chord = terminalChord(event.key, combined);
+        // the chord names the key by its position on a non-Latin layout (ㅊ on KeyC is Ctrl+C)
+        const chord = terminalChord(physicalKey(event.key, event.code), combined);
         const navigation = navigationSequence(event.key, combined);
         if (navigation !== null) {
           if (event.type === "keydown") { event.preventDefault(); term.input(navigation); }

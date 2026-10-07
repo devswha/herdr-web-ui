@@ -176,6 +176,18 @@ try {
     await until(() => read().length > hardwareBefore.length, "hardware/touch combination received");
     assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+shift+d"]);
     if (mode === "kitty") assert.equal(Buffer.from(read().slice(hardwareBefore.length), "hex").toString(), "\x1b[100;8u");
+    // A physical key on a non-Latin layout names the chord by its position: Korean ㅊ on KeyC
+    // with a held Ctrl is Ctrl+C (an interrupt herdr encodes), not ctrl+ㅊ (a letter it types).
+    const layoutBefore = read();
+    const layoutFrames = frames.length;
+    // keydown and keyup both: xterm waits for the keypress of a key still down and ignores typed text
+    await input.evaluate((element) => {
+      for (const type of ["keydown", "keyup"]) element.dispatchEvent(new KeyboardEvent(type, { key: "ㅊ", code: "KeyC", keyCode: 67, ctrlKey: true, bubbles: true, cancelable: true }));
+    });
+    await until(() => frames.length > layoutFrames, "non-Latin layout chord frame");
+    assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+c"], "a Korean-layout Ctrl+C with a held Alt");
+    await until(() => read().length > layoutBefore.length, "non-Latin layout chord received by PTY");
+    if (mode === "kitty") assert.equal(Buffer.from(read().slice(layoutBefore.length), "hex").toString(), "\x1b[99;7u");
     // A chord the terminal cannot take now is told, not dropped in silence: the page loses
     // input readiness, the key bar greys out, and a held-modifier key typed meanwhile is
     // answered with the not-sent banner. Nothing is queued for later.

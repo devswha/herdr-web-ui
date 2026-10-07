@@ -34,6 +34,17 @@ export function clipboardKey(key: string, code: string): string {
   return /^[a-z]$/.test(typed) ? typed : /^Key([A-Z])$/.exec(code)?.[1]?.toLowerCase() ?? typed;
 }
 
+/** The key a physical chord names. A non-Latin layout's letter goes by its position, as the plain
+ * Ctrl path reads it: Korean ㅊ or Russian с on KeyC with a held Ctrl is Ctrl+C, which herdr's
+ * encoder knows, not ctrl+ㅊ, which it types. A Latin layout keeps its own letter (Dvorak's C is
+ * not KeyC), and anything that is not a letter position stays as typed.
+ */
+export function physicalKey(key: string, code: string): string {
+  if ([...key].length !== 1 || /^[a-zA-Z]$/.test(key)) return key;
+  const letter = /^Key([A-Z])$/.exec(code)?.[1];
+  return letter === undefined ? key : letter.toLowerCase();
+}
+
 /** Send logical chords to Herdr, which owns the target pane's keyboard protocol.
  * A plus or space needs a name because Herdr's chord parser splits on '+' and trims.
  * Keep the typed symbol: the phone's layout already chose it; don't assume US Shift.
