@@ -360,7 +360,7 @@ If `devices.json` under `HERDR_WEB_STATE_DIR` (default `~/.config/herdr-web-ui`)
 
 Nothing is typed without you:
 - Input typed while disconnected waits as a draft for you to send or discard.
-- On a current bridge, a message sent while the agent works goes to its next turn on its own, but only while the connection that sent it stays open. A reload or reconnect never resumes that: messages held in the browser stay with their PC and pane until you send or discard each one.
+- On a current bridge, a message sent while the agent works goes to its next turn on its own, but only while the connection that sent it stays open. A reload or reconnect never resumes that: saved messages held in the browser stay with their PC and pane until you choose **Send now** or **Discard**. If the browser cannot save them, the queue says so: keep the tab open or copy them before reloading.
 - A typed answer that picks an option of an approval, plan or menu waits for **Confirm**.
 
 Attaches and reconnects wait when another client holds the terminal. **Open here** on the waiting
