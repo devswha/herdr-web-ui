@@ -45,15 +45,23 @@ at_least() {
 }
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{ print $1 }'; }
 
-# gh api, given 10 seconds: a gh that does not answer must not hold up an install that is done
+# gh api, given 10 seconds: a gh that does not answer must not hold up an install that is done.
+# The watcher looks once a second, so it is gone soon after gh is; a gh that ignores TERM is killed.
 gh_api() {
   gh api --hostname github.com "$@" </dev/null &
   gh_pid=$!
-  (sleep 10; kill "$gh_pid" 2>/dev/null) >/dev/null 2>&1 &
+  (
+    waited=0
+    while [ "$waited" -lt 10 ]; do sleep 1; kill -0 "$gh_pid" 2>/dev/null || exit 0; waited=$((waited + 1)); done
+    kill -TERM "$gh_pid" 2>/dev/null || exit 0
+    sleep 2
+    kill -KILL "$gh_pid" 2>/dev/null || true
+  ) >/dev/null 2>&1 &
   watch_pid=$!
   gh_status=0
   wait "$gh_pid" || gh_status=$?
   kill "$watch_pid" 2>/dev/null || true
+  wait "$watch_pid" 2>/dev/null || true
   return "$gh_status"
 }
 # Whether the account the gh CLI is signed in to has starred the repository, by the status GitHub
@@ -73,10 +81,16 @@ starred() {
 offer_star() {
   [ "$terminal" = 1 ] && [ -z "${CI:-}" ] || return 0
   command -v bash >/dev/null 2>&1 || return 0
+  # perl is what checks the terminal is this install's to ask at, and empties what was typed before
+  command -v perl >/dev/null 2>&1 || return 0
   (exec </dev/tty) 2>/dev/null || return 0
-  # what was typed before the question is not an answer to it
-  ! command -v perl >/dev/null 2>&1 || perl -MPOSIX -e 'tcflush(0, TCIFLUSH)' </dev/tty 2>/dev/null || true
-  printf '%s' "herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] "
+  # Only in the foreground: a background job that reached for the terminal would be stopped, with no
+  # 20 seconds to end that. Then what was typed before the question is not an answer to it: it is
+  # discarded, and when it cannot be, there is no question (tcflush is "0 but true", undef on failure).
+  perl -MPOSIX -e 'exit 1 unless POSIX::tcgetpgrp(0) == POSIX::getpgrp(); POSIX::tcflush(0, POSIX::TCIFLUSH) or exit 1' </dev/tty >/dev/null 2>&1 || return 0
+  # the question and its answer go through the terminal itself, not stdout: under `curl | sh` stdin
+  # is the script, and a stdout sent elsewhere must not leave the question unseen where it is read
+  printf '%s' "herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] " >/dev/tty 2>/dev/null || return 0
   # the install is done: leaving the question with Ctrl-C is an answer, not a failure
   trap 'echo; exit 0' INT
   # shellcheck disable=SC2016 # bash's variable, not this shell's

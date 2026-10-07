@@ -14,7 +14,7 @@ const MENTION = "a GitHub star helps other herdr users find it";
 const QUESTION = "star it now with the GitHub account gh is signed in to? [y/N]";
 const CTRL_C = "\x03";
 /** what the stand-in gh answers: the status line `gh api --include` prints, what it says on stderr, and its exit code */
-type Gh = "starred" | "not" | "refuses" | "denied" | "upstream" | "signed-out" | "hangs";
+type Gh = "starred" | "not" | "refuses" | "denied" | "upstream" | "signed-out" | "hangs" | "stubborn";
 const STAND_INS: Record<string, string> = {
   herdr: `case "$*" in
   --version) echo "herdr 0.9.3" ;;
@@ -28,6 +28,7 @@ esac`,
   gh: `echo "$*" >> "$SCRATCH/gh.calls"
 mode=$(cat "$SCRATCH/gh.mode")
 [ "$mode" != hangs ] || exec sleep 60
+[ "$mode" != stubborn ] || { trap '' TERM; exec sleep 60; }
 case "$*" in
   *"--method PUT"*) [ "$mode" != refuses ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }; exit 0 ;;
 esac
@@ -47,13 +48,15 @@ esac`,
 class Pc {
   readonly scratch = mkdtempSync(join(tmpdir(), "herdr-install-star-"));
 
-  constructor(gh?: Gh) {
+  /** `perl: false`: a PC without perl, which the question needs to empty the typed-ahead input */
+  constructor(gh?: Gh, options: { perl?: boolean } = {}) {
     pcs.push(this.scratch);
     const bin = join(this.scratch, "bin");
     mkdirSync(bin);
     mkdirSync(join(this.scratch, "plugin", "scripts"), { recursive: true });
     writeFileSync(join(this.scratch, "plugin", "scripts", "plugin.ts"), `if (process.argv[2] === "phone") console.log("the phone step");\n`);
     for (const tool of ["sh", "bash", "cat", "uname", "ldd", "grep", "curl", "git", "tar", "awk", "sed", "mktemp", "rm", "sleep", "perl"]) {
+      if (tool === "perl" && options.perl === false) continue;
       const real = Bun.which(tool);
       if (real) symlinkSync(real, join(bin, tool));
     }
@@ -89,17 +92,21 @@ class Pc {
    * typed as the install starts, long before the question. The wrapping shell survives Ctrl-C as
    * the user's own shell does, and reports the installer's exit code.
    */
-  async atTerminal(typed: string | null, extra?: Record<string, string>, typedAhead?: string): Promise<{ out: string; exitCode: number; asked: boolean }> {
-    const command = `trap : INT; cat "${join(ROOT, "install.sh")}" | sh; echo "exit=$?"`;
+  async atTerminal(typed: string | null, extra?: Record<string, string>, typedAhead?: string, background = false): Promise<{ out: string; exitCode: number; asked: boolean; askedAt: number | null }> {
+    // a background job of a shell with job control: its own process group, not the terminal's foreground
+    const install = background ? `bash -c 'set -m; (cat "${join(ROOT, "install.sh")}" | sh) & wait %1'` : `cat "${join(ROOT, "install.sh")}" | sh`;
+    const command = `trap : INT; ${install}; echo "exit=$?"`;
     const child = Bun.spawn([Bun.which("script")!, "-qec", command, "/dev/null"], { cwd: this.scratch, env: this.environment(extra), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     let out = "";
     let answered = false;
+    let askedAt: number | null = null;
     let again: ReturnType<typeof setInterval> | undefined;
     const type = (text: string) => { child.stdin.write(text); child.stdin.flush(); };
     if (typedAhead) type(typedAhead);
     const decoder = new TextDecoder();
     for await (const chunk of child.stdout) {
       out += decoder.decode(chunk, { stream: true });
+      if (askedAt === null && out.includes(QUESTION)) askedAt = Date.now();
       if (answered || typed === null || !out.includes(QUESTION)) continue;
       answered = true;
       type(typed);
@@ -110,7 +117,7 @@ class Pc {
     clearInterval(again);
     await child.exited;
     child.stdin.end();
-    return { out, exitCode: Number(/exit=(\d+)/.exec(out)?.[1] ?? -1), asked: out.includes(QUESTION) };
+    return { out, exitCode: Number(/exit=(\d+)/.exec(out)?.[1] ?? -1), asked: out.includes(QUESTION), askedAt };
   }
 }
 const pcs: string[] = [];
@@ -162,6 +169,16 @@ describe.skipIf(platform() === "win32")("install.sh without a terminal", () => {
     expect(out).toContain(MENTION);
     expect(Date.now() - started).toBeLessThan(20_000);
   }, 30_000);
+
+  it.concurrent("kills a gh that ignores TERM, and goes on with the link", async () => {
+    const pc = new Pc("stubborn");
+    const started = Date.now();
+    const { out, exitCode } = await pc.unattended();
+    expect(exitCode).toBe(0);
+    expect(out).toContain(MENTION);
+    // 10 seconds for gh, 2 more before it is killed
+    expect(Date.now() - started).toBeLessThan(20_000);
+  }, 30_000);
 });
 
 // script(1) as util-linux has it; macOS's takes other arguments
@@ -191,6 +208,26 @@ describe.skipIf(platform() !== "linux" || !Bun.which("script"))("install.sh at a
     expect(asked).toBe(true);
     expect(exitCode).toBe(0);
     expect(pc.stars()).toBe(0);
+  });
+
+  it.concurrent("asks nothing where what was typed before cannot be discarded: a PC without perl, y typed ahead", async () => {
+    const pc = new Pc("not", { perl: false });
+    const { out, asked, exitCode } = await pc.atTerminal(null, {}, "y\n");
+    expect(exitCode).toBe(0);
+    expect(out).toContain(MENTION);
+    expect(asked).toBe(false);
+    expect(pc.stars()).toBe(0);
+  });
+
+  it.concurrent("asks nothing from a background job, which the terminal would stop for reaching it", async () => {
+    const pc = new Pc("not");
+    const started = Date.now();
+    const { out, asked, exitCode } = await pc.atTerminal(null, {}, undefined, true);
+    expect(exitCode).toBe(0);
+    expect(out).toContain(MENTION);
+    expect(asked).toBe(false);
+    expect(pc.stars()).toBe(0);
+    expect(Date.now() - started).toBeLessThan(15_000);
   });
 
   it.concurrent("ends well, with no star, when the question is left with Ctrl-C", async () => {
@@ -230,10 +267,15 @@ describe.skipIf(platform() !== "linux" || !Bun.which("script"))("install.sh at a
   it.concurrent("goes on by itself when nobody is at the terminal", async () => {
     const pc = new Pc("not");
     const started = Date.now();
-    const { asked, exitCode } = await pc.atTerminal(null);
+    const { asked, askedAt, exitCode } = await pc.atTerminal(null);
+    const ended = Date.now();
     expect(asked).toBe(true);
     expect(exitCode).toBe(0);
     expect(pc.stars()).toBe(0);
-    expect(Date.now() - started).toBeLessThan(40_000);
+    // the 20 seconds are the question's, from the moment it is on the terminal
+    expect(askedAt).not.toBeNull();
+    expect(ended - askedAt!).toBeGreaterThanOrEqual(19_000);
+    expect(ended - askedAt!).toBeLessThan(27_000);
+    expect(ended - started).toBeLessThan(40_000);
   }, 60_000);
 });
