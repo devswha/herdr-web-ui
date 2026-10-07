@@ -255,6 +255,7 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--rail-w` | `3px` | — | Device and quoted-content rails |
 | `--hairline` | `1px` | — | Borders |
 | `--content-w` | `820px` | — | Settings and dialog content |
+| `--pending-max-h` | `min(20dvh, 12rem)` | — | Pending-message stack ceiling |
 | `--chat-w` | `--content-w`, then the pane's lane as one length | — | Chat lane: transcript, composer column, held list. Settings → Chat width: Narrow `--content-w`; Default follows the pane (min 820px, max `60rem` = 960px, 71% of the pane between; the px floor wins where 60rem is under it); Wide `72rem` (1152px); Full `100%` |
 | `--palette-w` | `640px` | — | Command palette |
 | `--palette-top` | `12vh` | — | Palette top offset |
@@ -793,8 +794,7 @@ One set for both themes: the card is island black wherever it shows.
   background-task list; inside, the image strip is its own row at the top, then the auto-growing
   message box as a row of its own at the card's full width, then ONE row of controls under it:
   on the left the add button (lucide `Plus`, named "Attach files"), the mic when voice input is
-  on, and the background-task chip; on the right the status content, Queue when it applies, and
-  ONE round button.
+  on, and the background-task chip; on the right the status content and ONE round Send/Stop button.
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
   `What should <agent> do in <folder>?` in `--text-strong`, `--fs-display`, `--fw-semibold`, `--tracking-display`, centred,
   and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
@@ -811,20 +811,19 @@ One set for both themes: the card is island black wherever it shows.
   own empty line. While the composer is lifted, the completion menu's height is capped to the
   room over the input card, where it scrolls. On a coarse pointer the greeting takes no touch:
   a tap or drag on it reaches the chat under it, which puts the keyboard away.
-- The round button (`.composer-action`, a `--touch-target` circle, `44px` on a coarse pointer) is
+- The round button (`.composer-action`, a `--space-8` / `32px` circle with a `--space-4` glyph) is
   Send or Stop in the same place at the same size, so only the glyph changes: Send is `--primary`
   with lucide `ArrowUp`; Stop is `--text-strong` with a `--bg` square, and turns
   `--status-blocked` on hover and focus. Not connected, Stop is disabled and loses its fill
-  (`--border-strong` outline, `--text-dim` glyph).
+  (`--border-strong` outline, `--text-dim` glyph). A coarse pointer keeps that compact visible
+  circle inside a transparent `--touch-target` / `40px` button, so tapping remains easy.
 - The status content (`.composer-status`, `role="status"`) sits between the two control groups,
-  pushed to the button's side. It draws, at `--fs-xs`: the model pill, `DONE`, and the uploading
+  pushed to the button's side. It draws, at `--fs-xs`: the model pill and the uploading
   or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;
   its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
-  `READY` / `RUN` / `INPUT` and the sentence `Reasoning high` stay in it for assistive tech only
+  `READY` / `RUN` / `INPUT` / `DONE` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
-  and the prompt card. `DONE` alone is drawn, before the pill, in `--status-done` caps: nothing
-  else in the chat says a turn ended and was not seen yet, and on a phone the sidebar's state is
-  in a closed drawer.
+  and the prompt card. No state word is drawn in the chat composer.
 - The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
   context ring in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
   `--space-3` inline padding, `--space-2` between its parts. The model is in `--text` at
@@ -833,7 +832,7 @@ One set for both themes: the card is island black wherever it shows.
   that records no level draws no dot and no dash, only the name. On the
   fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`. It is display only: a `span` with no role, no
   focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
-  one thing to press. The `title` of the model is the id as received, and the level's is its
+  one thing to press on desktop; mobile keeps the ring inert. The `title` of the model is the id as received, and the level's is its
   sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
   cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
   alone, with a dim `Model —` and the level between them if the pane records only a level.
@@ -850,33 +849,33 @@ One set for both themes: the card is island black wherever it shows.
   `--font-mono` at regular weight (`.composer-model.is-id`), so it reads as an identifier and no
   suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
-  a `640px` card — the card's own width, `composerStatusCompact`, not the window's); then the
-  model label, decided from the measured row and not from a width (`composerModelDraw`), so the
-  mic, a long model id, the language and the opened context text all count: the row is measured
-  again when that text opens or closes. While Queue is showing, a label that does not
-  fit steps out whole — the mark, the model and the level are read, not drawn, and are back once
-  the draft is sent, held or cleared — so Queue keeps its word and no name is cut mid-word. The
-  pill goes with its label: the ring then stands alone, with no empty pill around it. On a
-  `390px` phone, beside the task chip, the ring and Queue, that is the case for every named model
-  with a level, so there the pill is out for as long as Queue shows; a label short enough to
-  fit (a short id with no level) stays drawn.
-  Without Queue the level steps out whole first, never drawn in part; a name still too long is
-  ellipsized inside the pill as the last resort, then the opened context text. The context ring
-  is never cut. Over a sentence that took a line of its own the pill is `--chip-h` tall, so the
-  card does not grow.
-- Queue is drawn only while the agent works, the bridge is live and the box holds a draft or a
-  file still uploading (`composerQueueShown`): with an empty box Stop is the one resting control,
-  also when an attachment tile is left in it without its mention, since only the text is sent. The rule
-  reads the draft, not `:disabled`, so the pill stays in place, disabled, while a file uploads
-  or the message is on its way. It is a `--primary-tint` pill; its `--primary` outline is drawn
-  in light themes only, where the tint alone does not separate it from the card. Pressing it is
-  the only thing that holds a message. When a pressed Queue leaves with its draft, its focus goes
-  to the message box (a touch press moves no focus, so no keyboard is raised). The placeholder is
-  just `Message <agent>…`. The message is typed at `--fs-chat` scaled by `--chat-scale` on
-  `--lh-code` with a mouse (`(hover: hover) and (pointer: fine)`), matching the transcript's
-  reading size. Otherwise it uses that scaled size or `--fs-input`, whichever is larger, on
-  `--lh-base`, keeping the 16px floor that avoids iOS zoom. Changing Chat font size or density
-  resizes an automatic box around its existing draft; a height chosen with the grip stays chosen.
+  a `640px` card), then the reasoning level and model name according to the measured row. A long
+  identifier can shorten inside the pill; the context ring remains visible. The row is measured
+  again after fonts arrive and the context label opens or closes. The input card keeps one row
+  of controls on desktop and phones.
+- Every agent has one primary control: Stop while working with an empty draft, Send with text,
+  and Send at rest. Uploads and in-flight sends disable Send without clearing its text. There
+  is no separate Queue button or send menu. The placeholder is `Message <agent>…`; message text
+  uses `--fs-chat` scaled by `--chat-scale` on `--lh-code` with a fine pointer. Otherwise it
+  uses that scaled size or `--fs-input`, whichever is larger, keeping the 16px floor that avoids
+  iOS zoom. Changing Chat font size or density resizes an automatic box around its existing
+  draft; a height chosen with the grip stays chosen.
+- A local desktop composer shows the first visible account in Settings order for its agent's
+  provider as a read-only usage reference inside the model pill. Plan-wide five-hour session is
+  preferred, with weekly fallback; scoped, failed and unavailable limits do not substitute.
+  The title names the account and reset times. This is not active-account detection. Mobile and
+  remote panes omit it. The context ring is inert on mobile; details stay on desktop.
+- Working Send on a supporting bridge adds a pending message above the input card, before the
+  prompt dock. `PendingMessages` uses the chat's column and neutral user-bubble surface: plain
+  text aligned right, with no outer card. Its scrolling stack is capped by `--pending-max-h`
+  (`min(20dvh, 12rem)`). The text stays selectable. Its separate ↑ Send now action sends it, and the small sibling X
+  discards it. Actions keep a 40px touch target on phones.
+  Sending disables that item's actions; errors stay inline. Uncertain messages offer Copy and
+  Discard saved copy, with no retry action. Desktop and phones share this flow.
+- Accepted pending messages clear only the draft prefix acknowledged by the bridge. Actual
+  Enter delivery removes the pending row and refreshes the transcript. Next-turn delivery and
+  an explicit Send now action claim the same server ID; connection loss never resumes automatic input.
+  Previously held browser messages retain their explicit Send now/Discard recovery.
 - Not connected, the sentence `Reconnecting… message held here, never queued` is said once and
   whole: it is the placeholder while the box is empty and moves into the status content once
   there is a draft (`composerStatusHint`), on a phone too. A sentence there (this one, or
@@ -884,8 +883,7 @@ One set for both themes: the card is island black wherever it shows.
   of its own under it, without its leading dot, and wraps there; its `title` repeats it. Only
   the sentence takes a line: the mark, the model, the level and the ring stay one row over it
   (`.composer-status-meta`), where the label gives way exactly as it does with no sentence. The
-  status content is then left-aligned, beside the add button. Add and Stop are disabled and
-  Queue is not drawn. With a draft, the reconnecting sentence is said instead of
+  status content is then left-aligned, beside the add button. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
   `Uploading file…`, never both: the attachment's own tile says it is uploading.
 - The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
   (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,
@@ -929,7 +927,9 @@ One set for both themes: the card is island black wherever it shows.
   raises the keyboard: the user reads first, and a tap on the message box or the grid raises it.
   A desktop's picked pane takes typing at once.
 - Enter sends and Shift+Enter breaks by default; with **Enter sends** off, Mod+Enter sends. IME Enter
-  is ignored. While working, Stop sends Escape and Queue stores the next message.
+  is ignored. Stop sends Escape. While the agent works and a draft shows Send in Stop's place,
+  Escape in the box is Stop; an open completion menu takes the first Escape. Working Send
+  schedules a pending message; its Send now action submits that same message now.
 
 ### Voice input
 - A mic button sits beside the add button in the composer and beside Send in the terminal input line; it

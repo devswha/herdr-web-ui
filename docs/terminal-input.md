@@ -21,6 +21,24 @@ acknowledgement removes only an unchanged sent prefix; replacement text stays ev
 to equal the text sent before it. Editing remains available while disconnected; sending does not.
 Passwords continue to use the separate non-persistent secret-input path.
 
+Chat Send during work asks a `pending-input` bridge to retain an identified message until the
+current response ends. The same server ID is claimed by automatic delivery or a pending row's
+explicit send-now action. The bridge checks its original connection, attachment, agent and
+visible prompt before input and Enter; each automatic next message also waits for evidence that
+the preceding turn started and finished, and an explicit send refused in between does not end that wait. It never sends native Tab and then resends that text.
+Pending acceptance is distinct from a committing-key receipt. Connection loss, pane separation
+and observe mode pause the pending list; reconnect or reload cannot rearm it. Losing a pane
+lease permanently cancels its in-flight send, even if that connection rejoins the same attachment
+or returns to interact before Enter. A queue request that arrives after the agent finishes uses
+the same guarded paste-and-Enter path; one that finds no agent in front of the pane is refused,
+and nothing is typed into the program there; one that finds an earlier message still waiting takes
+its place behind it. The checks read the pane's live screen, not a viewport scrolled into its
+history, and leave a model list alone even when no reader could read it, since Enter there saves
+a default. An uncertain delivery never retries automatically. Secret
+input remains outside this path, and legacy held messages retain their explicit Send now/Discard
+recovery. Older bridges cannot silently turn a working queue request into immediate input. Send now delivers through the existing paste-and-Enter
+path; each agent controls when it consumes that input. It is not a native app-server steering API.
+
 Direct input arriving before readiness or during a disconnect is held for explicit Send/Discard.
 An IME may commit several code points at once, so printable chunks (including emoji) are retained.
 Control sequences are counted as discarded, never saved for later execution. No draft is replayed
