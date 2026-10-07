@@ -11,6 +11,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
+- On a mirrored pane (Windows, where herdr cannot attach a terminal), text typed while a message
+  was still being sent no longer reaches the pane once you have left it, or left it and opened it
+  again, before the text's turn came.
 
 ## [0.4.0] - 2026-10-08
 
