@@ -14,6 +14,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a mirrored pane (Windows, where herdr cannot attach a terminal), text typed while a message
   was still being sent no longer reaches the pane once you have left it, or left it and opened it
   again, before the text's turn came.
+  ([#576](https://github.com/devswha/herdr-web-ui/pull/576))
 
 ## [0.4.0] - 2026-10-08
 
