@@ -26,11 +26,20 @@ export function SidebarResizer({ width, onResize }: SidebarResizerProps) {
   const [limit, setLimit] = useState(() => sidebarMaxWidth(window.innerWidth));
   const measure = (): number => {
     const measured = Math.round(ref.current?.parentElement?.getBoundingClientRect().width ?? shown);
-    setShown(measured);
+    // a closed sidebar measures nothing; the last width it showed stays the value
+    if (measured > 0) setShown(measured);
     setLimit(sidebarMaxWidth(window.innerWidth));
     return measured;
   };
   useLayoutEffect(() => { measure(); }, [width]);
+  // the default width follows the density setting, with no width prop and no window resize to say so
+  useEffect(() => {
+    const sidebar = ref.current?.parentElement;
+    if (!sidebar || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => { measure(); });
+    observer.observe(sidebar);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     const onWindowResize = (): void => { measure(); };
     window.addEventListener("resize", onWindowResize);

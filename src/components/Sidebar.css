@@ -557,6 +557,16 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
     --side-action: var(--touch-target);
   }
 
+  /* The folder that folds a worktree group takes a finger's width, centered on its column so the
+     marks beside it do not move; it lies over the row it would otherwise hand the tap to. */
+  .sidebar-row-action.workspace-toggle {
+    position: relative;
+    z-index: 1;
+    flex-basis: var(--touch-target);
+    width: var(--touch-target);
+    margin-inline: calc((var(--side-box) - var(--touch-target)) / 2);
+  }
+
   /* Row menus stay visible on touch. */
   .workspace-actions,
   .pane-actions {

@@ -37,7 +37,7 @@ export function taskRowLines({ paneTitle, labelled, folder, workspace, alias }: 
   alias?: string | null;
 }): { title: string; place: string } {
   const title = !labelled && paneTitle === folder ? workspace : paneTitle;
-  const where = [workspace === title ? "" : workspace, alias ?? ""].filter(Boolean).join(" · ");
+  const where = [workspace === title ? "" : workspace, alias && alias !== title && alias !== workspace ? alias : ""].filter(Boolean).join(" · ");
   const said = folder === title || folder === workspace || folder === alias;
   return { title, place: placeLine(where, said ? "" : folder) };
 }
