@@ -248,16 +248,18 @@ try {
     recent: [
       { at: minutesAgo(6), tool: "Edit", detail: "server/session-plan.ts" },
       { at: minutesAgo(4), tool: "Agent", detail: "Review the parser" },
-      { at: minutesAgo(1), tool: "Bash", detail: "bun test server/session-plan.test.ts" },
+      { at: minutesAgo(1), tool: "Bash", detail: "bun test server/session-plan.test.ts", failed: true },
     ],
     last_at: minutesAgo(1),
     agents: [{ id: "a1", label: "Review the parser", type: "reviewer" }],
     background: [{ id: "b1", command: "bun run build", status: "running" }],
+    files: [{ path: "server/session-plan.ts", count: 3 }],
+    failed: 1,
   };
   const outsideWork = { tools: [{ name: "Bash", count: 2 }], recent: [{ at: minutesAgo(30), tool: "Bash", detail: "git status" }], last_at: minutesAgo(30), agents: [], background: [] };
   const planSteps = [
     { id: "1", label: "Read the code", active: null, status: "completed", blocked_by: [], owner: null, started_at: "2026-10-07T00:00:00.000Z", ended_at: "2026-10-07T00:04:00.000Z" },
-    { id: "2", label: "Write the parser", active: "Writing the parser", status: "in_progress", blocked_by: ["1"], owner: null, started_at: "2026-10-07T00:04:00.000Z", ended_at: null, activity: parserWork },
+    { id: "2", label: "Write the parser", active: "Writing the parser", description: "Read the transcript's task calls\ninto steps", status: "in_progress", blocked_by: ["1"], owner: null, started_at: "2026-10-07T00:04:00.000Z", ended_at: null, activity: parserWork },
     { id: "3", label: "Write the panel", active: null, status: "pending", blocked_by: ["1"], owner: null, started_at: null, ended_at: null },
     { id: "4", label: "Ship it", active: null, status: "pending", blocked_by: ["2", "3"], owner: null, started_at: null, ended_at: null },
   ];
@@ -283,8 +285,8 @@ try {
   await planButton.click();
   const planDialog = page.getByRole("dialog", { name: /^Plan/ });
   await until(async () => await planDialog.locator(".plan-node").count() === 4, "the plan's boxes");
-  assert.equal(await planDialog.locator(".plan-edge").count(), 4, "one curve per wait");
-  assert.equal(await planDialog.locator(".plan-edge.is-done").count(), 2, "the ways out of a done step are open");
+  assert.equal(await planDialog.locator(".plan-flow-edges .plan-edge").count(), 4, "one curve per wait");
+  assert.equal(await planDialog.locator(".plan-flow-edges .plan-edge.is-done").count(), 2, "the ways out of a done step are open");
   const box = async (label: string) => (await planDialog.locator(".plan-node-label", { hasText: label }).boundingBox())!;
   const [read, parser, panel, ship] = [await box("Read the code"), await box("Write the parser"), await box("Write the panel"), await box("Ship it")];
   assert.ok(read.y < parser.y && Math.abs(parser.y - panel.y) < 1 && panel.y < ship.y && parser.x < panel.x, "waves top to bottom, a wave side by side");
@@ -292,6 +294,11 @@ try {
   assert.equal(await planDialog.locator(".plan-node.is-pending .sr-only").last().textContent(), "after Write the parser, Write the panel", "the waits are told in words");
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Close plan", "the focus comes into the dialog");
   assert.match(await planDialog.locator(".plan-summary").textContent() ?? "", /1 of 4 done\s*Writing the parser/);
+  // told the way a person would: what runs now, what can start, what waits; each box says what it waits for, and a key says how to read the flow
+  assert.equal(await planDialog.getByRole("progressbar", { name: "Plan progress" }).getAttribute("aria-valuenow"), "1");
+  assert.deepEqual(await planDialog.locator(".plan-overview .plan-outlook > div").allTextContents(), ["NowWrite the parser", "Can start nowWrite the panel", "Later1 step waits for others to finish first"]);
+  assert.deepEqual(await planDialog.locator(".plan-node-meta").allTextContents().then((metas) => metas.map((meta) => meta.split(" · ")[0])), ["done", "running", "ready to start", "waits for 2 steps"]);
+  assert.match(await planDialog.locator(".plan-key").textContent() ?? "", /not startedrunningdonewaits for the step abovethe step above is doneRead it from the top down/);
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-flow.png") });
   // a box opens what its step's time held: calls by tool, the last few, what it started
   const parserBox = planDialog.locator(".plan-node.is-in_progress .plan-node-open");
@@ -299,11 +306,22 @@ try {
   const detail = planDialog.getByRole("region", { name: "Step details" });
   await detail.waitFor();
   assert.equal(await parserBox.getAttribute("aria-expanded"), "true");
-  assert.match(await detail.locator(".plan-detail-tools").textContent() ?? "", /^9 tool calls · last action 1m \d+s agoBash 5 · Edit 3 · Agent 1$/);
-  assert.deepEqual(await detail.locator(".plan-detail-list").first().locator(".plan-detail-tool").allTextContents(), ["Bash", "Agent", "Edit"], "the last call first");
+  assert.match(await detail.locator(".plan-detail-tools").textContent() ?? "", /^9 tool calls · 1 failed · last action 1m \d+s agoCommands 5 · Edits 3 · Subagents 1$/);
+  assert.equal(await detail.locator(".plan-detail-description").textContent(), "Read the transcript's task calls\ninto steps");
+  assert.deepEqual(await detail.locator(".plan-detail-links > div").allTextContents(), ["Waits forRead the code", "ThenShip it"]);
+  assert.deepEqual(await detail.locator(".plan-detail-file").allTextContents(), ["server/session-plan.ts"]);
+  const recentCalls = detail.locator("ol.plan-detail-list");
+  assert.deepEqual(await recentCalls.locator(".plan-detail-tool").allTextContents(), ["Ran", "Delegated", "Edited"], "the last call first, said as what it did");
+  assert.match(await recentCalls.locator("li.is-failed").textContent() ?? "", /bun test server\/session-plan\.test\.tsfailed · 1m \d+s ago$/);
   await until(async () => (await detail.locator("li", { hasText: "reviewer" }).textContent())?.includes("Review the parserreviewer · running") ?? false, "the subagent's state from the pane's subagent list");
   assert.match(await detail.locator("li", { hasText: "bun run build" }).textContent() ?? "", /running$/);
-  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-detail.png") });
+  if (process.env.UI_EVIDENCE_DIR) await detail.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-detail.png") });
+  // a step it names opens that step's detail
+  await detail.getByRole("button", { name: "Ship it", exact: true }).click();
+  await until(async () => await detail.locator(".plan-detail-title").textContent() === "Ship it", "the step the detail named");
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-detail")), true, "the focus stays in the dialog when the chip that opened the step is gone");
+  assert.match(await detail.locator(".plan-detail-meta").textContent() ?? "", /^waits for 2 steps/);
+  assert.equal(await detail.locator(".plan-note").textContent(), "Not started yet.");
   // what was done while no step ran has a detail of its own
   await planDialog.getByRole("button", { name: "Work outside the steps · 2 calls", exact: true }).click();
   assert.equal(await detail.locator(".plan-detail-title").textContent(), "Outside the steps");

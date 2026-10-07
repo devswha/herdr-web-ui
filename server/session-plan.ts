@@ -1,4 +1,5 @@
 import type { HerdrPane, PlanActivity, PlanStep, PlanSummary } from "../shared/protocol.ts";
+import { patchFiles, patchText } from "../shared/patch.ts";
 import { lineNotifications, plain, readLines, remember } from "./claude-subagents.ts";
 
 /**
@@ -19,7 +20,8 @@ import { lineNotifications, plain, readLines, remember } from "./claude-subagent
  * What a step's time held (its activity) is every other tool call made while it ran: each call
  * goes to the steps in progress then, or to the plan's `outside` while none is. Claude's `Agent`
  * calls and background commands are kept with the agent id and task id their answers give, and a
- * background command's notification says how it ended.
+ * background command's notification says how it ended. A Claude call answered with an error counts
+ * as failed in its steps, and the files a call wrote or edited are kept by name.
  *
  * A transcript is read from its start, PLAN_BUDGET bytes per call, then only what was appended;
  * until the first read has reached the end, no plan is told.
@@ -32,7 +34,12 @@ const MAX_FILES = 256;
 const MAX_RECENT = 5;
 const MAX_TOOLS = 24;
 const MAX_STARTED = 20;
+const MAX_TOUCHED = 40;
 const DETAIL = 160;
+/** what a step says it is for */
+const DESCRIPTION = 1000;
+/** Claude calls whose answer could still be an error: older ones are counted as answered */
+const MAX_ASKED = 256;
 /** progress calls are the plan itself, not work done in a step */
 const PROGRESS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite", "update_plan"]);
 
@@ -63,6 +70,8 @@ interface Read {
   started: Map<string, { agent: PlanActivity["agents"][number] } | { command: string; into: Work[] }>;
   /** background commands by task id, for the notification that ends them */
   commands: Map<string, PlanActivity["background"][number]>;
+  /** Claude's calls not answered with an error yet, by tool_use id: where each was counted, and the file it would change */
+  asked: Map<string, { into: Work[]; call: PlanActivity["recent"][number]; file: string | null }>;
 }
 const reads = new Map<string, Read>();
 
@@ -72,8 +81,10 @@ interface Work {
   last_at: string | null;
   agents: PlanActivity["agents"];
   background: PlanActivity["background"];
+  files: Map<string, number>;
+  failed: number;
 }
-const work = (): Work => ({ tools: new Map(), recent: [], last_at: null, agents: [], background: [] });
+const work = (): Work => ({ tools: new Map(), recent: [], last_at: null, agents: [], background: [], files: new Map(), failed: 0 });
 
 /**
  * The plan in `path` now: its steps in the order they were made, each with what its time held,
@@ -104,6 +115,8 @@ function shown(held: Work | undefined): PlanActivity | null {
     last_at: held.last_at,
     agents: held.agents.map((agent) => ({ ...agent })),
     background: held.background.map((command) => ({ ...command })),
+    ...(held.files.size > 0 ? { files: [...held.files].map(([path, count]) => ({ path, count })) } : {}),
+    ...(held.failed > 0 ? { failed: held.failed } : {}),
   };
 }
 
@@ -113,7 +126,7 @@ function planState(source: PlanSource, path: string, budget: { left: number }): 
   const key = `${source}\0${path}`;
   let state = reads.get(key);
   if (!state || state.id !== stat.id || state.offset > stat.size) {
-    state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map(), work: new Map(), outside: work(), started: new Map(), commands: new Map() };
+    state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map(), work: new Map(), outside: work(), started: new Map(), commands: new Map(), asked: new Map() };
   }
   remember(reads, key, state, MAX_FILES);
   const read = state;
@@ -146,16 +159,23 @@ function running(read: Read): Work[] {
   });
 }
 
-/** One call, counted in each step it belongs to. */
-function record(into: Work[], at: string | null, tool: string, detail: string | null): void {
+/** One call, counted in each step it belongs to, with the files it wrote or edited; the row it is in their recent calls. */
+function record(into: Work[], at: string | null, tool: string, detail: string | null, files: string[] = []): PlanActivity["recent"][number] {
+  const call: PlanActivity["recent"][number] = { at, tool, detail };
   for (const held of into) {
     const name = held.tools.has(tool) || held.tools.size < MAX_TOOLS ? tool : "other";
     held.tools.set(name, (held.tools.get(name) ?? 0) + 1);
-    held.recent.push({ at, tool, detail });
+    held.recent.push(call);
     if (held.recent.length > MAX_RECENT) held.recent.shift();
     held.last_at = at ?? held.last_at;
+    for (const file of files) if (held.files.has(file) || held.files.size < MAX_TOUCHED) held.files.set(file, (held.files.get(file) ?? 0) + 1);
   }
+  return call;
 }
+
+const EDITS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+/** the files a Codex patch (an `apply_patch` call, or one inside code mode's JavaScript) names */
+const patched = (code: string): string[] => { const patch = patchText(code); return patch === null ? [] : patchFiles(patch).flatMap((file) => tail(file) ?? []); };
 
 const clip = (value: unknown): string | null => {
   const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -193,7 +213,9 @@ function claudeLine(read: Read, line: string): void {
   }
   const calling = line.includes('"tool_use"');
   const answering = (read.calls.size > 0 || read.started.size > 0) && line.includes('"tool_result"');
-  if (!calling && !answering) return;
+  // ponytail: an answer is looked at only when it may be an error; one that comes after MAX_ASKED newer calls is not counted
+  const failing = read.asked.size > 0 && line.includes('"is_error":true');
+  if (!calling && !answering && !failing) return;
   let entry: Row | null;
   try { entry = row(JSON.parse(line)); } catch { return; }
   const content = row(entry?.["message"])?.["content"];
@@ -212,7 +234,8 @@ function claudeLine(read: Read, line: string): void {
       // ponytail: the steps in progress as of the task calls answered so far; a call in the same
       // message as a status change (answered after it) still counts for the step before
       const into = running(read);
-      record(into, at, name, claudeDetail(name, input));
+      const file = EDITS.has(name) ? tail(input["file_path"] ?? input["notebook_path"]) : null;
+      remember(read.asked, block["id"], { into, call: record(into, at, name, claudeDetail(name, input), file === null ? [] : [file]), file }, MAX_ASKED);
       if (name === "Agent" || name === "Task") {
         const agent = { id: null, label: clip(input["description"]) ?? name, type: words(input["subagent_type"]) };
         for (const held of into) if (held.agents.length < MAX_STARTED) held.agents.push(agent);
@@ -224,6 +247,18 @@ function claudeLine(read: Read, line: string): void {
       continue;
     }
     if (block["type"] !== "tool_result" || typeof block["tool_use_id"] !== "string") continue;
+    const asked = read.asked.get(block["tool_use_id"]);
+    if (asked !== undefined && block["is_error"] === true) {
+      read.asked.delete(block["tool_use_id"]);
+      asked.call.failed = true;
+      for (const held of asked.into) {
+        held.failed++;
+        // an edit that failed, or was refused, changed nothing
+        const count = asked.file === null ? undefined : held.files.get(asked.file);
+        if (count === 1) held.files.delete(asked.file!);
+        else if (count !== undefined) held.files.set(asked.file!, count - 1);
+      }
+    }
     const answer = row(entry["toolUseResult"]);
     const start = read.started.get(block["tool_use_id"]);
     if (start !== undefined) {
@@ -260,8 +295,12 @@ function created(read: Read, input: Row, answer: Row | null, content: unknown, a
     read.outside = work();
   }
   if (read.steps.size >= MAX_STEPS) return;
-  read.steps.set(id, { id, label: words(input["subject"]) ?? `#${id}`, active: words(input["activeForm"]), status: "pending", blocked_by: [], owner: null, started_at: null, ended_at: null });
+  const description = said(input["description"]);
+  read.steps.set(id, { id, label: words(input["subject"]) ?? `#${id}`, active: words(input["activeForm"]), ...(description === null ? {} : { description }), status: "pending", blocked_by: [], owner: null, started_at: null, ended_at: null });
 }
+
+/** a step's description, its lines kept */
+const said = (value: unknown): string | null => typeof value === "string" && value.trim().length > 0 ? value.trim().slice(0, DESCRIPTION) : null;
 
 function updated(read: Read, input: Row, answer: Row | null, at: string | null): void {
   if (answer?.["success"] === false) return;
@@ -283,6 +322,8 @@ function updated(read: Read, input: Row, answer: Row | null, at: string | null):
   }
   step.label = words(input["subject"]) ?? step.label;
   step.active = words(input["activeForm"]) ?? step.active;
+  const description = said(input["description"]);
+  if (description !== null) step.description = description;
   if (typeof input["owner"] === "string") step.owner = words(input["owner"]);
   const ids = (value: unknown): string[] => Array.isArray(value) ? value.flatMap((item) => { const other = idOf(item); return other !== null && other !== id && read.steps.has(other) ? [other] : []; }) : [];
   for (const before of ids(input["addBlockedBy"])) if (!step.blocked_by.includes(before)) step.blocked_by.push(before);
@@ -319,7 +360,10 @@ function codexLine(read: Read, line: string): void {
     const code = payload["input"];
     // code mode's JavaScript: what else it called is the step's work; a patch that only writes the words is no plan
     const detail = codexDetail(name, {}, code);
-    if (name !== "exec" || detail !== null) record(running(read), at, name, detail);
+    const files = patched(code);
+    // code that only applies a patch is a patch, named by its files
+    if (name === "exec" && detail === "apply_patch" && files.length > 0) record(running(read), at, "apply_patch", clip(files.join(", ")), files);
+    else if (name !== "exec" || detail !== null) record(running(read), at, name, detail, files);
     if (name !== "exec" || !code.includes(PLAN_CALL)) return;
     args = lastPlanCall(code);
   } else return;

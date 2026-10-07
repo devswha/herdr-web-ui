@@ -1,4 +1,5 @@
 import type { PlanStep } from "../../shared/protocol.ts";
+import { toolVerbKind, type ToolVerbKind } from "./toolVerbs.ts";
 
 /**
  * A plan's steps by wave: a step comes one wave after the last of the steps it waits on, so a
@@ -26,6 +27,68 @@ export function planWaves(steps: readonly PlanStep[]): PlanStep[][] {
   const waves: PlanStep[][] = [];
   for (const step of steps) (waves[depth(step)] ??= []).push(step);
   return waves.filter((wave) => wave !== undefined);
+}
+
+/**
+ * Where the plan stands, in the words a person would use: the steps running now, the ones that
+ * can start now (nothing they wait on is unfinished), and the ones still waiting on others.
+ */
+export function planOutlook(steps: readonly PlanStep[]): { running: PlanStep[]; ready: PlanStep[]; waiting: PlanStep[] } {
+  const running = steps.filter((step) => step.status === "in_progress");
+  const pending = steps.filter((step) => step.status === "pending");
+  return { running, ready: pending.filter((step) => unfinishedBefore(step, steps).length === 0), waiting: pending.filter((step) => unfinishedBefore(step, steps).length > 0) };
+}
+
+/** The steps `step` waits on that are not done yet (a wait on a step that is gone is no wait). */
+export function unfinishedBefore(step: PlanStep, steps: readonly PlanStep[]): PlanStep[] {
+  return step.blocked_by.flatMap((id) => steps.find((other) => other.id === id && other.status !== "completed") ?? []);
+}
+
+/** The steps that wait on `step`: what it lets go once it is done. */
+export function stepsAfter(step: PlanStep, steps: readonly PlanStep[]): PlanStep[] {
+  return steps.filter((other) => other.blocked_by.includes(step.id));
+}
+
+/**
+ * The other steps whose run overlapped this one's (from its start to its end, or `now` while it
+ * runs): a call made while several ran is counted in each of them.
+ */
+export function ranAlongside(step: PlanStep, steps: readonly PlanStep[], now: number): PlanStep[] {
+  const span = (of: PlanStep): [number, number] | null => {
+    const start = of.started_at === null ? NaN : Date.parse(of.started_at);
+    const end = of.ended_at === null ? (of.status === "in_progress" ? now : NaN) : Date.parse(of.ended_at);
+    return Number.isFinite(start) && Number.isFinite(end) ? [start, end] : null;
+  };
+  const mine = span(step);
+  if (mine === null) return [];
+  return steps.filter((other) => {
+    if (other === step) return false;
+    const theirs = span(other);
+    return theirs !== null && theirs[0] < mine[1] && mine[0] < theirs[1];
+  });
+}
+
+export type ActivityKind = ToolVerbKind | "search" | "agent";
+const SEARCH = new Set(["grep", "glob", "websearch", "webfetch", "toolsearch"]);
+const AGENT = new Set(["agent", "task", "spawn_agent"]);
+
+/** What kind of work a tool call is, for words a person reads; null for a tool known only by its name. */
+export function activityKind(tool: string): ActivityKind | null {
+  const key = tool.toLowerCase();
+  return toolVerbKind(tool) ?? (SEARCH.has(key) ? "search" : AGENT.has(key) ? "agent" : null);
+}
+
+/** A step's calls by kind, the most first, each tool no kind takes kept by its own name. */
+export function activityTally(tools: readonly { name: string; count: number }[]): { kind: ActivityKind | null; name: string; count: number }[] {
+  const tally = new Map<string, { kind: ActivityKind | null; name: string; count: number }>();
+  for (const tool of tools) {
+    const kind = activityKind(tool.name);
+    const key = kind ?? `tool:${tool.name}`;
+    const known = tally.get(key) ?? { kind, name: tool.name, count: 0 };
+    known.count += tool.count;
+    tally.set(key, known);
+  }
+  return [...tally.values()].sort((a, b) => b.count - a.count);
 }
 
 export const FLOW = { nodeWidth: 156, nodeHeight: 58, columnGap: 16, rowGap: 34, pad: 6 } as const;

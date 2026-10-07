@@ -6,15 +6,19 @@ import "./PlanDialog.css";
 import { formatTokens } from "../lib/compose.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { clockOffsetMs, formatElapsed, spanMs } from "../lib/omoTasks.ts";
-import { FLOW, flowLayout, planWaves } from "../lib/plan.ts";
-import { useT } from "../lib/i18n.ts";
+import { activityKind, activityTally, FLOW, flowLayout, planOutlook, planWaves, ranAlongside, stepsAfter, unfinishedBefore, type ActivityKind } from "../lib/plan.ts";
+import { currentLocale, useT } from "../lib/i18n.ts";
 import type { OmoTask, PlanActivity, PlanStep, PlanSummary } from "../../shared/protocol.ts";
 
 const POLL_MS = 3000;
 /** the detail of what was done while no step ran; no step has this id */
 const OUTSIDE = "\0outside";
+/** the steps a line of the overview names before it says how many more */
+const NAMED = 3;
 
 const ICONS: Record<PlanStep["status"], ComponentType<LucideProps>> = { pending: Circle, in_progress: CircleDot, completed: CircleCheck };
+
+type Open = (id: string, label: string, opener: HTMLElement) => void;
 
 /** The header's way to the selected pane's plan, in the chat and the terminal alike: how far it has got. */
 export function PlanButton({ plan, onOpen }: { plan: PlanSummary; onOpen: () => void }) {
@@ -29,9 +33,11 @@ export function PlanButton({ plan, onOpen }: { plan: PlanSummary; onOpen: () => 
 }
 
 /**
- * The plan the pane's agent keeps (Claude Code's task list, Codex's checklist), as a flow of
- * boxes (a step below the steps it waits on) or as a list; a step picked shows what was done while
- * it ran. Read again every few seconds while open; times are the PC's.
+ * The plan the pane's agent keeps (Claude Code's task list, Codex's checklist), told the way a
+ * person would: how far it has got, what runs now, what can start next; then as a flow of boxes
+ * (a step below the steps it waits on, with a key to read it by) or as a list. A step picked
+ * shows what it is for, what it waits on and lets go, and what was done while it ran. Read again
+ * every few seconds while open; times are the PC's.
  */
 export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: string; onClose: () => void }) {
   const t = useT();
@@ -44,9 +50,11 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
   const [failed, setFailed] = useState(false);
   const [offset, setOffset] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  /** null: not picked, so a plan whose steps wait on none (nothing to draw) opens as the list */
+  /** whether the agent said which steps wait for which: a plan that did not opens as the list, with nothing to draw */
+  const waits = steps?.some((step) => step.blocked_by.length > 0) ?? false;
+  /** null: not picked */
   const [picked, setView] = useState<"flow" | "steps" | null>(null);
-  const view = picked ?? (steps?.some((step) => step.blocked_by.length > 0) ? "flow" : "steps");
+  const view = picked ?? (waits ? "flow" : "steps");
   /**
    * The step whose detail is open (or OUTSIDE), by id and name: a Codex step's id is its place in
    * the checklist, so another step there is not the one that was opened.
@@ -117,21 +125,33 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
   useEffect(() => {
     if (chosen !== null && steps !== undefined && !shown) closeDetail();
   });
-  // a detail opened below a long flow is brought into view (a phone shows little at once)
+  // a detail opened below a long flow is brought into view (a phone shows little at once); when
+  // what opened it went with the step before (a chip in that step's detail), the focus goes to it
   useEffect(() => {
-    if (chosenId !== null) detailRef.current?.scrollIntoView?.({ block: "nearest" });
+    if (chosenId === null) return;
+    detailRef.current?.scrollIntoView?.({ block: "nearest" });
+    if (openerRef.current?.isConnected === false) detailRef.current?.focus();
   }, [chosenId]);
 
-  const words: Record<PlanStep["status"], string> = { pending: t("waiting"), in_progress: t("running"), completed: t("done") };
-  /** what one step says under its name: its state, how long it took or has run, who has it */
+  const outlook = useMemo(() => planOutlook(steps ?? []), [steps]);
+  /** where a step stands, in words: running or done, else what it waits for (when the agent said) */
+  const standing = (step: PlanStep): string => {
+    if (step.status === "in_progress") return t("running");
+    if (step.status === "completed") return t("done");
+    if (!waits) return t("not started");
+    const before = unfinishedBefore(step, steps ?? []);
+    if (before.length === 0) return t("ready to start");
+    return before.length === 1 ? t("waits for {step}", { step: before[0]!.label }) : t("waits for {n} steps", { n: before.length });
+  };
+  /** what one step says under its name: where it stands, how long it took or has run, who has it */
   const meta = (step: PlanStep): string => {
     const elapsed = spanMs(step.started_at, step.ended_at, step.status === "in_progress", now + offset);
-    return [words[step.status], elapsed === null ? null : formatElapsed(elapsed), step.owner].filter((part) => part !== null).join(" · ");
+    return [standing(step), elapsed === null ? null : formatElapsed(elapsed), step.owner].filter((part) => part !== null).join(" · ");
   };
   const done = steps?.filter((step) => step.status === "completed").length ?? 0;
   const current = steps?.find((step) => step.status === "in_progress");
   /** a press opens the step's detail, and a second press on the same one closes it */
-  const open = (id: string, label: string, opener: HTMLElement): void => {
+  const open: Open = (id, label, opener) => {
     openerRef.current = opener;
     if (chosen?.id === id && chosen.label === label) closeDetail();
     else setChosen({ id, label });
@@ -156,11 +176,40 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
           {failed && <p className="plan-note plan-error" role="status">{t("Couldn't read the plan. Trying again…")}</p>}
           {steps && steps.length > 0 && (
             <>
-              <p className="plan-summary">
-                {t("{done} of {total} done", { done, total: steps.length })}
-                {current && <span className="plan-summary-now">{current.active ?? current.label}</span>}
-              </p>
-              {view === "flow" ? <PlanFlow steps={steps} meta={meta} label={t("Plan flow")} after={(labels) => t("after {steps}", { steps: labels.join(", ") })} isOpen={isOpen} detailId={detailId} onOpen={open} /> : (
+              <div className="plan-overview">
+                <div className="plan-progress" role="progressbar" aria-label={t("Plan progress")} aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={done} aria-valuetext={t("{done} of {total} done", { done, total: steps.length })}>
+                  <span className="plan-progress-done" style={{ width: `${(done / steps.length) * 100}%` }} />
+                  <span className="plan-progress-running" style={{ width: `${(outlook.running.length / steps.length) * 100}%` }} />
+                </div>
+                <p className="plan-summary">
+                  {t("{done} of {total} done", { done, total: steps.length })}
+                  {current && <span className="plan-summary-now">{current.active ?? current.label}</span>}
+                </p>
+                {done === steps.length ? <p className="plan-note">{t("Every step is done.")}</p> : (
+                  <dl className="plan-outlook">
+                    {outlook.running.length > 0 && <div><dt>{t("Now")}</dt><dd><StepChips steps={outlook.running} max={NAMED} isOpen={isOpen} onOpen={open} /></dd></div>}
+                    {waits && outlook.ready.length > 0 && <div><dt>{t("Can start now")}</dt><dd><StepChips steps={outlook.ready} max={NAMED} isOpen={isOpen} onOpen={open} /></dd></div>}
+                    {waits && outlook.waiting.length > 0 && <div><dt>{t("Later")}</dt><dd>{t(outlook.waiting.length === 1 ? "{n} step waits for others to finish first" : "{n} steps wait for others to finish first", { n: outlook.waiting.length })}</dd></div>}
+                    {!waits && outlook.ready.length > 0 && <div><dt>{t("Not started")}</dt><dd>{t(outlook.ready.length === 1 ? "{n} step" : "{n} steps", { n: outlook.ready.length })}</dd></div>}
+                  </dl>
+                )}
+              </div>
+              {view === "flow" ? (
+                <>
+                  {!waits && <p className="plan-note">{t("The agent didn't say which steps wait for which, so the flow has no arrows: the steps are in the order it made them.")}</p>}
+                  <PlanFlow steps={steps} meta={meta} label={t("Plan flow")} after={(labels) => t("after {steps}", { steps: labels.join(", ") })} isOpen={isOpen} detailId={detailId} onOpen={open} />
+                  <div className="plan-key">
+                    <p className="plan-key-items">
+                      <span><Circle aria-hidden="true" />{t("not started")}</span>
+                      <span className="is-in_progress"><CircleDot aria-hidden="true" />{t("running")}</span>
+                      <span className="is-completed"><CircleCheck aria-hidden="true" />{t("done")}</span>
+                      {waits && <span><KeyLine done={false} />{t("waits for the step above")}</span>}
+                      {waits && <span><KeyLine done />{t("the step above is done")}</span>}
+                    </p>
+                    {waits && <p className="plan-key-how">{t("Read it from the top down: a step starts once every step with an arrow into it is done, and steps side by side can run at the same time. Pick a step to see what it is for and what was done in it.")}</p>}
+                  </div>
+                </>
+              ) : (
                 <ol className="plan-steps">
                   {planWaves(steps).flat().map((step) => {
                     const Icon = ICONS[step.status];
@@ -189,12 +238,14 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
                   boxRef={detailRef}
                   id={detailId}
                   paneId={paneId}
-                  label={step?.label ?? t("Outside the steps")}
-                  status={step?.status ?? null}
+                  step={step ?? null}
+                  steps={steps}
                   meta={step ? meta(step) : null}
-                  active={step?.status === "in_progress" && step.active && step.active !== step.label ? step.active : null}
                   activity={step ? step.activity ?? null : outside}
                   now={now + offset}
+                  offset={offset}
+                  isOpen={isOpen}
+                  onOpen={open}
                   onClose={closeDetail}
                 />
               )}
@@ -206,10 +257,37 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
   );
 }
 
+/** A line of the key: what a curve between two boxes looks like, drawn as the flow draws it. */
+function KeyLine({ done }: { done: boolean }) {
+  return (
+    <svg className="plan-key-line" width="24" height="8" aria-hidden="true">
+      <line className={`plan-edge${done ? " is-done" : ""}`} x1="1" y1="4" x2="23" y2="4" />
+    </svg>
+  );
+}
+
+/** Steps named in a line, each a way into its detail; past `max` only how many more. */
+function StepChips({ steps, max = Infinity, isOpen, onOpen }: { steps: PlanStep[]; max?: number; isOpen: (step: PlanStep) => boolean; onOpen: Open }) {
+  const t = useT();
+  return (
+    <span className="plan-chips">
+      {steps.slice(0, max).map((step) => {
+        const Icon = ICONS[step.status];
+        return (
+          <button key={step.id} type="button" className={`plan-chip is-${step.status}${isOpen(step) ? " is-chosen" : ""}`} title={step.active && step.status === "in_progress" ? step.active : undefined} onClick={(event) => onOpen(step.id, step.label, event.currentTarget)}>
+            <Icon aria-hidden="true" />{step.label}
+          </button>
+        );
+      })}
+      {steps.length > max && <span className="plan-chips-more">{t("+{n} more", { n: steps.length - max })}</span>}
+    </span>
+  );
+}
+
 /** The plan as boxes: waves top to bottom, a curve from each step to the steps that wait on it. */
 function PlanFlow({ steps, meta, label, after, isOpen, detailId, onOpen }: {
   steps: PlanStep[]; meta: (step: PlanStep) => string; label: string; after: (labels: string[]) => string;
-  isOpen: (step: PlanStep) => boolean; detailId: string; onOpen: (id: string, label: string, opener: HTMLElement) => void;
+  isOpen: (step: PlanStep) => boolean; detailId: string; onOpen: Open;
 }) {
   // two boxes side by side at most on a phone
   const columns = window.matchMedia?.("(max-width: 480px)").matches ? 2 : 4;
@@ -236,11 +314,12 @@ function PlanFlow({ steps, meta, label, after, isOpen, detailId, onOpen }: {
             const Icon = ICONS[step.status];
             // the curves are drawn, not read: what a step waits on is said in words
             const before = step.blocked_by.flatMap((id) => labelOf.get(id) ?? []);
+            const said = meta(step);
             return (
               <li key={step.id} className={`plan-node is-${step.status}${isOpen(step) ? " is-chosen" : ""}`} style={{ left: x, top: y, width: FLOW.nodeWidth, height: FLOW.nodeHeight }}>
-                <button type="button" className="plan-node-open" aria-expanded={isOpen(step)} aria-controls={isOpen(step) ? detailId : undefined} title={step.active && step.status === "in_progress" ? `${step.label}\n${step.active}` : step.label} onClick={(event) => onOpen(step.id, step.label, event.currentTarget)}>
+                <button type="button" className="plan-node-open" aria-expanded={isOpen(step)} aria-controls={isOpen(step) ? detailId : undefined} title={[step.label, step.status === "in_progress" ? step.active : null, said].filter((line) => line).join("\n")} onClick={(event) => onOpen(step.id, step.label, event.currentTarget)}>
                   <span className="plan-node-label"><Icon aria-hidden="true" />{step.label}</span>
-                  <span className="plan-node-meta">{meta(step)}</span>
+                  <span className="plan-node-meta">{said}</span>
                   {before.length > 0 && <span className="sr-only">{after(before)}</span>}
                 </button>
               </li>
@@ -253,13 +332,15 @@ function PlanFlow({ steps, meta, label, after, isOpen, detailId, onOpen }: {
 }
 
 /**
- * What was done while one step ran (or while none did): its calls by tool, the last few, the
- * subagents and background commands it started. A subagent's state is the pane's subagent list's,
- * asked again while the detail is open.
+ * One step, told for someone who was not watching: what it is for, what it waits on and what
+ * waits on it, whether other steps ran beside it, then what was done while it ran (or while none
+ * did): calls by what they did, the files changed, the last few calls, the subagents and
+ * background commands it started. A subagent's state is the pane's subagent list's, asked again
+ * while the detail is open.
  */
-function StepDetail({ boxRef, id, paneId, label, status, meta, active, activity, now, onClose }: {
-  boxRef: RefObject<HTMLElement>; id: string; paneId: string; label: string; status: PlanStep["status"] | null; meta: string | null;
-  active: string | null; activity: PlanActivity | null; now: number; onClose: () => void;
+function StepDetail({ boxRef, id, paneId, step, steps, meta, activity, now, offset, isOpen, onOpen, onClose }: {
+  boxRef: RefObject<HTMLElement>; id: string; paneId: string; step: PlanStep | null; steps: PlanStep[]; meta: string | null;
+  activity: PlanActivity | null; now: number; offset: number; isOpen: (step: PlanStep) => boolean; onOpen: Open; onClose: () => void;
 }) {
   const t = useT();
   const { fetchPaneOmoActivity } = useMachineApi();
@@ -287,38 +368,86 @@ function StepDetail({ boxRef, id, paneId, label, status, meta, active, activity,
     return Number.isFinite(then) ? formatElapsed(Math.max(0, now - then)) : null;
   };
   const ago = (at: string | null): string | null => { const time = since(at); return time === null ? null : t("{time} ago", { time }); };
+  /** the PC's time `at` on this device's clock, as hours and minutes */
+  const clock = (at: string | null): string | null => {
+    const then = at === null ? NaN : Date.parse(at);
+    return Number.isFinite(then) ? new Date(then - offset).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" }) : null;
+  };
   const agentWords: Record<OmoTask["status"], string> = { running: t("running"), completed: t("done"), failed: t("failed"), cancelled: t("cancelled"), lost: t("lost") };
   const commandWords: Record<PlanActivity["background"][number]["status"], string> = { running: t("running"), completed: t("done"), failed: t("failed"), cancelled: t("cancelled") };
-  const Icon = status === null ? null : ICONS[status];
+  const nouns: Record<ActivityKind, string> = { run: t("Commands"), read: t("Reads"), edit: t("Edits"), write: t("Writes"), search: t("Searches"), agent: t("Subagents") };
+  const verbs: Record<ActivityKind, string> = { run: t("Ran"), read: t("Read"), edit: t("Edited"), write: t("Wrote"), search: t("Searched"), agent: t("Delegated") };
+  const Icon = step === null ? null : ICONS[step.status];
   const total = activity?.tools.reduce((sum, tool) => sum + tool.count, 0) ?? 0;
+  const before = step === null ? [] : step.blocked_by.flatMap((id) => steps.find((other) => other.id === id) ?? []);
+  const after = step === null ? [] : stepsAfter(step, steps);
+  const alongside = step === null ? [] : ranAlongside(step, steps, now);
+  const started = clock(step?.started_at ?? null);
+  const active = step?.status === "in_progress" && step.active && step.active !== step.label ? step.active : null;
 
   return (
-    <section ref={boxRef} id={id} className="plan-detail" aria-label={t("Step details")}>
+    <section ref={boxRef} id={id} className="plan-detail" aria-label={t("Step details")} tabIndex={-1}>
       <header className="plan-detail-head">
-        <h3 className="plan-detail-title">{Icon && <Icon aria-hidden="true" />}{label}</h3>
+        <h3 className="plan-detail-title">{Icon && <Icon aria-hidden="true" />}{step?.label ?? t("Outside the steps")}</h3>
         <button type="button" className="icon-button" aria-label={t("Close step")} onClick={onClose}><X aria-hidden="true" /></button>
       </header>
-      {meta && <p className="plan-detail-meta">{meta}</p>}
+      <p className="plan-detail-meta">{step === null ? t("What the agent did while no step was running.") : [meta, started === null ? null : t("started at {time}", { time: started })].filter((part) => part !== null).join(" · ")}</p>
       {active && <p className="plan-detail-active">{active}</p>}
+      {step?.description && (
+        <>
+          <h4 className="plan-detail-heading">{t("What this step is for")}</h4>
+          <p className="plan-detail-description">{step.description}</p>
+        </>
+      )}
+      {(before.length > 0 || after.length > 0) && (
+        <dl className="plan-outlook plan-detail-links">
+          {before.length > 0 && <div><dt>{t("Waits for")}</dt><dd><StepChips steps={before} isOpen={isOpen} onOpen={onOpen} /></dd></div>}
+          {after.length > 0 && <div><dt>{t("Then")}</dt><dd><StepChips steps={after} isOpen={isOpen} onOpen={onOpen} /></dd></div>}
+        </dl>
+      )}
+      {alongside.length > 0 && (
+        <p className="plan-note">{t(alongside.length === 1 ? "{n} other step ran at the same time: what was done then counts for both." : "{n} other steps ran at the same time: what was done then counts for each of them.", { n: alongside.length })}</p>
+      )}
       {activity === null ? (
-        <p className="plan-note">{status === "pending" ? t("Not started yet.") : t("Nothing was done in this step yet.")}</p>
+        <p className="plan-note">{step?.status === "pending" ? t("Not started yet.") : t("Nothing was done in this step yet.")}</p>
       ) : (
         <>
+          <h4 className="plan-detail-heading">{t("What was done")}</h4>
           <p className="plan-detail-tools">
-            {[t(total === 1 ? "{n} tool call" : "{n} tool calls", { n: total }), since(activity.last_at) === null ? null : t("last action {time} ago", { time: since(activity.last_at)! })].filter((part) => part !== null).join(" · ")}
-            <span className="plan-detail-tally">{activity.tools.map((tool) => `${tool.name} ${tool.count}`).join(" · ")}</span>
+            {[
+              t(total === 1 ? "{n} tool call" : "{n} tool calls", { n: total }),
+              activity.failed ? t("{n} failed", { n: activity.failed }) : null,
+              since(activity.last_at) === null ? null : t("last action {time} ago", { time: since(activity.last_at)! }),
+            ].filter((part) => part !== null).join(" · ")}
+            <span className="plan-detail-tally">{activityTally(activity.tools).map((tool) => `${tool.kind === null ? tool.name : nouns[tool.kind]} ${tool.count}`).join(" · ")}</span>
           </p>
+          {activity.files && activity.files.length > 0 && (
+            <>
+              <h4 className="plan-detail-heading">{t("Files changed")}</h4>
+              <ul className="plan-detail-list">
+                {activity.files.map((file) => (
+                  <li key={file.path}>
+                    <span className="plan-detail-what plan-detail-file">{file.path}</span>
+                    {file.count > 1 && <span className="plan-detail-when">{t("{n} times", { n: file.count })}</span>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           {activity.recent.length > 0 && (
             <>
               <h4 className="plan-detail-heading">{t("Recent actions")}</h4>
               <ol className="plan-detail-list">
-                {[...activity.recent].reverse().map((call, index) => (
-                  <li key={`${call.at ?? ""}-${index}`}>
-                    <span className="plan-detail-tool">{call.tool}</span>
-                    {call.detail && <span className="plan-detail-what">{call.detail}</span>}
-                    {ago(call.at) && <span className="plan-detail-when">{ago(call.at)}</span>}
-                  </li>
-                ))}
+                {[...activity.recent].reverse().map((call, index) => {
+                  const kind = activityKind(call.tool);
+                  return (
+                    <li key={`${call.at ?? ""}-${index}`} className={call.failed ? "is-failed" : undefined}>
+                      <span className="plan-detail-tool" title={call.tool}>{kind === null ? call.tool : verbs[kind]}</span>
+                      {call.detail && <span className="plan-detail-what">{call.detail}</span>}
+                      {(call.failed || ago(call.at)) && <span className="plan-detail-when">{[call.failed ? t("failed") : null, ago(call.at)].filter((part) => part !== null).join(" · ")}</span>}
+                    </li>
+                  );
+                })}
               </ol>
             </>
           )}

@@ -47,11 +47,12 @@ function claude() {
       const toolId = use("TaskUpdate", input, minute);
       f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: error ? "<tool_use_error>Task not found</tool_use_error>" : `Updated task #${String(input["taskId"])}`, ...(error ? { is_error: true } : {}) }] }, toolUseResult: answer });
     },
-    /** any other tool call, answered with `answer` as its structured result */
-    call(name: string, input: Record<string, unknown>, minute: number, answer: Record<string, unknown> = {}): void {
+    /** any other tool call, answered with `answer` as its structured result (or with an error) */
+    call(name: string, input: Record<string, unknown>, minute: number, answer: Record<string, unknown> = {}, error = false): void {
       const toolId = use(name, input, minute);
-      f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: "ok" }] }, toolUseResult: answer });
+      f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: error ? "Exit code 1" : "ok", ...(error ? { is_error: true } : {}) }] }, toolUseResult: answer });
     },
+    use,
   };
 }
 
@@ -70,9 +71,9 @@ describe("readPlan (Claude Code task list)", () => {
     s.update({ taskId: a, status: "completed" }, 5);
     s.update({ taskId: b, status: "in_progress", activeForm: "Building it" }, 6);
     expect(readPlan("claude-transcript", s.path)).toEqual([
-      { id: "1", label: "Study", active: "Studying", status: "completed", blocked_by: [], owner: null, started_at: at(2), ended_at: at(5) },
-      { id: "2", label: "Build", active: "Building it", status: "in_progress", blocked_by: ["1"], owner: null, started_at: at(6), ended_at: null },
-      { id: "3", label: "Ship", active: null, status: "pending", blocked_by: ["2"], owner: null, started_at: null, ended_at: null },
+      { id: "1", label: "Study", active: "Studying", description: "do Study", status: "completed", blocked_by: [], owner: null, started_at: at(2), ended_at: at(5) },
+      { id: "2", label: "Build", active: "Building it", description: "do Build", status: "in_progress", blocked_by: ["1"], owner: null, started_at: at(6), ended_at: null },
+      { id: "3", label: "Ship", active: null, description: "do Ship", status: "pending", blocked_by: ["2"], owner: null, started_at: null, ended_at: null },
     ]);
     expect(planSummary(readPlan("claude-transcript", s.path))).toEqual({ done: 1, total: 3, current: "Building it" });
   });
@@ -85,7 +86,7 @@ describe("readPlan (Claude Code task list)", () => {
     expect(steps(s.path)).toEqual(["1:pending:", "2:pending:1"]);
     s.update({ taskId: a, subject: "First", owner: "researcher" });
     s.update({ taskId: a, status: "deleted" });
-    expect(readPlan("claude-transcript", s.path)).toEqual([{ id: "2", label: "Two", active: null, status: "pending", blocked_by: [], owner: null, started_at: null, ended_at: null }]);
+    expect(readPlan("claude-transcript", s.path)).toEqual([{ id: "2", label: "Two", active: null, description: "do Two", status: "pending", blocked_by: [], owner: null, started_at: null, ended_at: null }]);
   });
 
   it("takes nothing from a failed call, an unknown task or a call never answered", () => {
@@ -147,6 +148,7 @@ describe("readPlan (Claude Code task list)", () => {
       last_at: at(7),
       agents: [{ id: "a1", label: "Review the diff", type: "reviewer" }],
       background: [{ id: "b1", command: "bun run build", status: "failed" }],
+      files: [{ path: "lib/app.ts", count: 1 }],
     });
     expect(plan.steps[1]!.activity?.recent).toEqual([{ at: at(10), tool: "Read", detail: "w/README.md" }]);
     expect(plan.outside?.recent).toEqual([{ at: at(2), tool: "Bash", detail: "git status" }]);
@@ -163,6 +165,44 @@ describe("readPlan (Claude Code task list)", () => {
     s.call("Bash", { command: "bun run dev" }, 2, { backgroundTaskId: "b2" });
     s.call("Bash", { command: "ls" }, 3, { stdout: "x" });
     expect(readPlan("claude-transcript", s.path)![0]!.activity!.background).toEqual([{ id: "b2", command: "bun run dev", status: "running" }]);
+  });
+
+  it("keeps what a step is for, the files its calls changed, and the calls answered with an error", () => {
+    const s = claude();
+    const a = s.create("Fix", 1);
+    s.update({ taskId: a, status: "in_progress", description: "Fix the parser\nand its tests" }, 2);
+    s.call("Edit", { file_path: "/w/src/parser.ts" }, 3);
+    s.call("Write", { file_path: "/w/src/parser.ts" }, 4);
+    s.call("NotebookEdit", { notebook_path: "/w/notes/a.ipynb" }, 4);
+    // an edit that failed changed nothing: it fails, but no file is counted
+    s.call("Edit", { file_path: "/w/src/parser.ts" }, 4, {}, true);
+    s.call("Edit", { file_path: "/w/src/other.ts" }, 4, {}, true);
+    s.call("Bash", { command: "bun test" }, 5, {}, true);
+    s.call("Read", { file_path: "/w/src/parser.ts" }, 6);
+    // an answer read at a later poll than its call
+    const late = s.use("Bash", { command: "bun run lint" }, 7);
+    expect(readPlan("claude-transcript", s.path)![0]!.activity!.failed).toBe(3);
+    s.add({ type: "user", timestamp: at(8), message: { role: "user", content: [{ type: "tool_result", tool_use_id: late, content: "Exit code 2", is_error: true }] } });
+    const step = readPlan("claude-transcript", s.path)![0]!;
+    expect(step.description).toBe("Fix the parser\nand its tests");
+    expect(step.activity!.files).toEqual([{ path: "src/parser.ts", count: 2 }, { path: "notes/a.ipynb", count: 1 }]);
+    expect(step.activity!.failed).toBe(4);
+    expect(step.activity!.recent.filter((call) => call.failed).map((call) => call.detail)).toEqual(["src/parser.ts", "src/other.ts", "bun test", "bun run lint"]);
+  });
+
+  it("counts a failed call in every step that ran then, and forgets a call too old to be answered", () => {
+    const s = claude();
+    const a = s.create("One", 1);
+    const b = s.create("Two", 1);
+    s.update({ taskId: a, status: "in_progress" }, 1);
+    s.update({ taskId: b, status: "in_progress" }, 1);
+    s.call("Bash", { command: "make" }, 2, {}, true);
+    const old = s.use("Bash", { command: "sleep 9" }, 3);
+    for (let call = 0; call < 256; call++) s.call("Read", { file_path: `/w/f${call}.ts` }, 4);
+    s.add({ type: "user", timestamp: at(5), message: { role: "user", content: [{ type: "tool_result", tool_use_id: old, content: "Exit code 1", is_error: true }] } });
+    const plan = readPlan("claude-transcript", s.path)!;
+    expect(plan.map((step) => step.activity!.failed)).toEqual([1, 1]);
+    expect(plan.map((step) => step.activity!.recent.length)).toEqual([5, 5]);
   });
 
   it("keeps the last few calls of a step and counts the rest", () => {
@@ -222,6 +262,15 @@ describe("readPlan (Codex checklist)", () => {
       { at: at(4), tool: "spawn_agent", detail: "fix_review" },
     ]);
     // what was done before the plan began is no part of it
+    expect(plan.steps[0]!.activity?.files).toEqual([{ path: "lib/app.ts", count: 1 }, { path: "docs/x.md", count: 1 }]);
+    // code that only applies a patch reads as the patch; code that does more stays code
+    f.add(exec('await tools.apply_patch("*** Begin Patch\\n*** Update File: src/a.ts\\n@@\\n-a\\n+b\\n*** End Patch");', 6));
+    f.add(exec('text(await tools.exec_command({cmd:"ls"}));\nawait tools.apply_patch("*** Begin Patch\\n*** Add File: b.md\\n+x\\n*** End Patch");', 6));
+    expect(readPlanDetail("codex-transcript", f.path)!.outside?.recent.slice(-2)).toEqual([
+      { at: at(6), tool: "apply_patch", detail: "src/a.ts" },
+      { at: at(6), tool: "exec", detail: "exec_command, apply_patch" },
+    ]);
+    expect(readPlanDetail("codex-transcript", f.path)!.outside?.files).toEqual([{ path: "src/a.ts", count: 1 }, { path: "b.md", count: 1 }]);
     expect(plan.outside?.recent).toEqual([{ at: at(6), tool: "exec_command", detail: "git push" }]);
     call("update_plan", 7, { plan: [{ step: "Other", status: "pending" }] });
     plan = readPlanDetail("codex-transcript", f.path)!;

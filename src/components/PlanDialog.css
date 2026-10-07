@@ -67,12 +67,36 @@
   color: var(--status-blocked);
 }
 
+/* where the plan stands, before the flow: a bar, a count, and what runs, can start and waits */
+.plan-overview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+
+.plan-progress {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border-radius: 999px;
+}
+
+.plan-progress-done {
+  background: var(--status-done);
+}
+
+.plan-progress-running {
+  background: var(--status-working);
+}
+
 .plan-summary {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-1) var(--space-2);
-  margin: 0 0 var(--space-3);
+  margin: 0;
   color: var(--text-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
@@ -84,6 +108,123 @@
   color: var(--status-working);
   font-weight: var(--fw-regular);
   overflow-wrap: anywhere;
+}
+
+.plan-outlook {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+
+.plan-outlook > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.plan-outlook dt {
+  flex: 0 0 auto;
+  min-width: 7em;
+  color: var(--text-dim);
+  font-weight: var(--fw-semibold);
+}
+
+.plan-outlook dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+}
+
+/* a step named in a line: a way into its detail */
+.plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px var(--space-2);
+  background: var(--bg-elevated);
+  border: var(--hairline) solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.plan-chip svg {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+}
+
+.plan-chip.is-in_progress svg,
+.plan-key-items .is-in_progress svg {
+  color: var(--status-working);
+}
+
+.plan-chip.is-completed svg,
+.plan-key-items .is-completed svg {
+  color: var(--status-done);
+}
+
+.plan-chip:hover,
+.plan-chip.is-chosen {
+  border-color: var(--accent);
+  color: var(--text-strong);
+}
+
+.plan-chip:focus-visible {
+  outline: var(--ring);
+  outline-offset: var(--ring-offset);
+}
+
+.plan-chips-more {
+  color: var(--text-dim);
+}
+
+/* the key under the flow: what the marks and lines mean, and how to read it */
+.plan-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.plan-key-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.plan-key-items span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plan-key-items svg {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+}
+
+.plan-key-how {
+  margin: 0;
 }
 
 /* the flow: boxes laid out by lib/plan.ts, scrolled sideways when a wave is wider than the sheet */
@@ -327,6 +468,16 @@
   border-color: var(--accent);
 }
 
+/* one step's detail: below the flow or the list, what its time held; focused only when what opened it is gone */
+.plan-detail:focus {
+  outline: none;
+}
+
+.plan-detail:focus-visible {
+  outline: var(--ring);
+  outline-offset: var(--ring-offset);
+}
+
 /* one step's detail: below the flow or the list, what its time held */
 .plan-detail {
   display: flex;
@@ -373,6 +524,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.plan-detail-description {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-xs);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.plan-detail-file {
+  font-family: var(--font-mono, monospace);
+}
+
 .plan-detail-active {
   margin: 0;
   color: var(--status-working);
@@ -416,7 +579,7 @@
 .plan-detail-tool {
   flex: 0 0 auto;
   color: var(--text-strong);
-  font-family: var(--font-mono, monospace);
+  font-weight: var(--fw-medium);
 }
 
 .plan-detail-what {

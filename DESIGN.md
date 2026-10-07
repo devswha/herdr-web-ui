@@ -698,21 +698,36 @@ One set for both themes: the card is island black wherever it shows.
   figures, on the `--bg-elevated` hairline chip the switch uses. The sidebar's agent row repeats the
   count beside the background count, in its quiet mono figures and with no box (`.plan-count`).
 - The plan opens as a modal (a bottom sheet under 641px): title, the pane's name (hidden on a
-  phone), a Flow / Steps switch and a close button. Under them `N of M done` and, in
-  `--status-working`, what the running step does now.
+  phone), a Flow / Steps switch and a close button. Under them a 6px pill bar on `--bg-elevated`
+  (done in `--status-done`, running in `--status-working`), `N of M done` and, in
+  `--status-working`, what the running step does now; then an outlook, a dim label column beside
+  its line: **Now** and **Can start now** name their steps as chips (`--bg-elevated` hairline
+  pills with the status glyph, `--accent` border on hover or while open, three at most then
+  `+N more`), **Later** says how many steps still wait on others. A plan whose steps record no
+  waits says **Not started** and a count instead, and the flow says why it has no arrows (its key
+  then shows only the glyphs).
 - Flow (`lib/plan.ts`): waves top to bottom, a wave's boxes side by side and centred, a curve
   with an arrowhead from each step waited on. A box is a step's name (two lines at most, a status
-  glyph before it) over a dim meta line (state · time · teammate). Done: solid `--status-done`
+  glyph before it) over a dim meta line (state · time · teammate, where a step not started says
+  `ready to start` or `waits for <step>` / `waits for N steps`). Done: solid `--status-done`
   edge on its tint; running: a 2px `--status-working` edge on its tint; waiting: a dashed hairline
   and dim text. A curve out of a done step is solid `--status-done`; one still waiting is a dim
-  dashed line. A wave wider than the sheet scrolls sideways inside it, never the page.
+  dashed line. A wave wider than the sheet scrolls sideways inside it, never the page. Under the
+  flow a dim key: the three glyphs, a dashed and a solid line drawn as the curves are, and one
+  sentence on reading it top down.
 - Steps: the same steps in wave order, a status glyph, the name, what a running step does now and
   the meta line.
 - A box or a row is a button: it opens the step's detail below the flow or the list (and is
   outlined in `--accent` while open); a second press closes it. The detail is a `--bg-panel`
-  hairline card: the step's name and glyph with a close button, the meta line, what a running
-  step does now, then `N tool calls · last action … ago` over a tally by tool, the last five
-  calls newest first (mono tool name, what it was given, a dim time), the subagents it started
+  hairline card: the step's name and glyph with a close button, the meta line with the clock
+  time it started, what a running step does now, **What this step is for** (the description, its
+  line breaks kept), **Waits for** / **Then** chips that open those steps, a dim note when other
+  steps ran at the same time, then **What was done**: `N tool calls · N failed · last action …
+  ago` over a tally by kind (Commands, Edits, Reads, Writes, Searches, Subagents; a tool of no
+  kind by its name), **Files changed** (mono path, `N times` when more than once), the last five
+  calls newest first (the verb it did in `--fw-medium`, its tool id in the title, what it was
+  given, a dim time, `failed` in `--status-blocked` for an error, a refusal or an interrupt), the
+  subagents it started
   (their type, state and tokens from the pane's subagent list) and its background commands (state
   in `--status-working`, `--status-done` or `--status-blocked`). No percentage: nothing in the
   transcript measures one. Work done while no step ran opens from a dashed `Work outside the

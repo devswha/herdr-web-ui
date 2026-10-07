@@ -49,6 +49,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A plan's step opens what was done while it ran: its tool calls by tool, the last few with what
   each was given, the subagents it started and their state, and the background commands it left
   running and how they ended. Work done while no step ran has a detail of its own.
+- A plan reads as an explanation, for someone who was not watching: a progress bar, what runs
+  now, what can start now and how many steps still wait on others; each box says what it waits
+  for (or that it is ready to start), and a key under the flow says what the marks and lines
+  mean. A step's detail adds what the step is for (Claude Code's task description), when it
+  started, the steps it waits for and the ones that follow (each opens its own detail), a note
+  when other steps ran at the same time, its calls said as what they did (commands, edits,
+  reads, searches), the files it changed, and the calls that failed.
 - A Claude Code pane's background commands (`run_in_background`, Ctrl+B, or a command moved
   there by its timeout, by the session or by a subagent) are listed and counted with its
   subagents, and end with their notice or a `TaskStop`.

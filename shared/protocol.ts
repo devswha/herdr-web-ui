@@ -378,6 +378,8 @@ export interface PlanStep {
   label: string;
   /** what it does now, in the agent's own words (Claude's `activeForm`), when it gave some */
   active: string | null;
+  /** what the step is for, in the agent's own words (Claude's `description`), when it gave some */
+  description?: string;
   status: "pending" | "in_progress" | "completed";
   /** the steps it waits on: Claude's `blockedBy`, or for Codex the step before it */
   blocked_by: string[];
@@ -397,13 +399,17 @@ export interface PlanStep {
 export interface PlanActivity {
   /** calls by tool, the most used first */
   tools: { name: string; count: number }[];
-  /** the last few calls, oldest first; `detail`: the command, file or pattern it was given */
-  recent: { at: string | null; tool: string; detail: string | null }[];
+  /** the last few calls, oldest first; `detail`: the command, file or pattern it was given; `failed`: its answer was an error (it failed, or was refused or interrupted) */
+  recent: { at: string | null; tool: string; detail: string | null; failed?: true }[];
   last_at: string | null;
   /** the subagents it started (Claude's `Agent` tool); `id` is the agent's once its launch was answered */
   agents: { id: string | null; label: string; type: string | null }[];
   /** the commands it left running in the background, and how each ended once that was told */
   background: { id: string; command: string; status: "running" | "completed" | "failed" | "cancelled" }[];
+  /** the files its calls wrote or edited (each by its last two parts; a call answered with an error is not counted), and how many calls each; absent when none */
+  files?: { path: string; count: number }[];
+  /** how many of its calls were answered with an error, a refused or interrupted one included (Claude only); absent when none */
+  failed?: number;
 }
 
 /** GET /api/pane/plan: the plan the pane's agent keeps now, null when it keeps none. */
