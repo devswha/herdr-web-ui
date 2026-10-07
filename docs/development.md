@@ -20,6 +20,8 @@ bun run build
 bun run test:unit               # no herdr needed; CI's Fast checks run it
 bun test                        # needs herdr installed; creates and removes its own workspaces
 bun run test:ui                 # browser regression against isolated test servers
+bun scripts/sticky-modifiers-regression.ts # mobile held keys through real legacy/Kitty PTYs
+bun scripts/key-bar-customization-demo-regression.ts # mobile key layout, saved combinations and migration on demo fixtures
 bun scripts/chat-browser-qa.ts  # chat lens end to end
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression

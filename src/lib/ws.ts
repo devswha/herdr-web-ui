@@ -389,9 +389,9 @@ export class HerdrSocket {
     this.requests.clear();
   }
 
-  sendKeys(paneId: string, keys: string[]): void {
-    if (!this.connected) return;
-    this.rawSend({ type: "keys", pane_id: paneId, keys });
+  sendKeys(paneId: string, keys: string[]): boolean {
+    if (!this.canInput(paneId)) return false;
+    try { this.rawSend({ type: "keys", pane_id: paneId, keys }); return true; } catch { return false; }
   }
 
   close(): void {

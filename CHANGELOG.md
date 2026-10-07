@@ -18,6 +18,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A double-click returns to the default width. The width is remembered on each device, and the
   sidebar never takes more than half the window.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The mobile terminal key bar has sticky Ctrl, Alt and Shift toggles and an Enter key.
+  Herdr encodes held combinations with arrows, special keys and direct typing for
+  the pane's keyboard protocol. Modifiers clear when leaving
+  the pane or disconnecting. Pasted text and submitted drafts keep their contents.
+  Queued terminal chords and text are cancelled when the sender leaves their attachment or
+  its terminal is replaced.
+  ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot,
+  [#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- Settings can add, remove and reorder every mobile terminal key and register custom key
+  combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
+  and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
+  and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
@@ -72,6 +84,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   took the change for old news and said nothing. A finished turn is also measured from its own
   start in that case, so a short turn is not told as a long one.
   ([#536](https://github.com/devswha/herdr-web-ui/pull/536))
+- **Dismiss** on the terminal's notice that input was not sent works: a tap or click on it went
+  through to the terminal under it and the notice stayed.
+  ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 - A pane whose agent has just started is listed as an agent's pane within a moment, where the
   list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
   time took it for a shell: it opened the terminal instead of the chat, and resized the
