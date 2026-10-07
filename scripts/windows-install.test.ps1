@@ -52,11 +52,6 @@ function herdr {
         }
     }
 }
-function Read-Host {
-    $star.asked++
-    if ($star.failAsk) { throw 'Read-Host has no terminal to read from' }
-    $star.answer
-}
 function Invoke-WebRequest {
     # herdr's installer, as the stand-in the test wrote: -OutFile is the last argument
     if ($args[0] -eq 'https://herdr.dev/install.cmd') { Set-Content -LiteralPath $args[-1] -Value $state.herdrInstaller -Encoding Ascii; return }
@@ -114,6 +109,8 @@ exit /b 1
         if ($Source) { Invoke-Expression $Source 6>&1 | Out-String } else { & $installer -Ref '' 6>&1 | Out-String }
     }
     $given = { @(Get-Content -LiteralPath $ghCalls -ErrorAction SilentlyContinue | Where-Object { $_ -match '--method PUT' }).Count }
+    # the status read: the installer's own launcher must reach the stand-in, or a wrong launcher would pass as "already starred"
+    $read = { @(Get-Content -LiteralPath $ghCalls -ErrorAction SilentlyContinue | Where-Object { $_ -match 'user/starred' -and $_ -notmatch '--method PUT' }).Count }
     Set-Content -LiteralPath (Join-Path $ghStandIn 'mode.txt') -Encoding Ascii -Value 'signed-out'
 
     & $installer -Ref ''
@@ -160,7 +157,7 @@ exit /b 1
     $mention = 'a GitHub star helps other herdr users find it'
     $question = 'star it now with the GitHub account'
     $said = & $firstInstall 'starred'
-    Assert ($said -notmatch $mention -and $star.asked -eq 0 -and (& $given) -eq 0) "An account that already starred must hear nothing of it: $said"
+    Assert ($said -notmatch $mention -and $star.asked -eq 0 -and (& $read) -eq 1 -and (& $given) -eq 0) "An account that already starred must hear nothing of it, after one status read: $said"
     $said = & $firstInstall 'signed-out'
     Assert ($said -match $mention -and $said -notmatch $question -and (& $given) -eq 0) "Without a gh sign-in the link is all there is: $said"
     $newInstall = $true
@@ -180,8 +177,11 @@ exit /b 1
     $source = Get-Content -Raw $installer
     $decision = 'if ($newInstall) {'
     Assert (($source -split [regex]::Escape($decision)).Count -eq 2) 'The installer must decide once, after its helpers, whether this was a first install'
-    $atTerminal = $source.Replace($decision, "function Test-Terminal { `$true }; function Wait-Key { `$true }; $decision")
-    $nobodyThere = $source.Replace($decision, "function Test-Terminal { `$true }; function Wait-Key { `$false }; $decision")
+    # The installer defines its own Read-Answer above the decision, so the test's stands in after it: the answer
+    # given here, or null where nobody is at the terminal and the installer's own wait is what ended.
+    $answering = 'function Read-Answer { $star.asked++; if ($star.failAsk) { throw "Read-Answer has no console to read from" }; $star.answer }'
+    $atTerminal = $source.Replace($decision, "function Test-Terminal { `$true }; $answering; $decision")
+    $nobodyThere = $source.Replace($decision, "function Test-Terminal { `$true }; function Read-Answer { `$null }; $decision")
     $star.answer = 'y'
     $said = & $firstInstall 'not' $nobodyThere
     Assert ($said -match $question -and $star.asked -eq 0 -and (& $given) -eq 0) "A question nobody answers must be left without a star: $said"

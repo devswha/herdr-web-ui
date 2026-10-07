@@ -117,41 +117,63 @@ if ($server.running) {
 Write-Host 'herdr web ui: open Phone setup in herdr for phone access.'
 
 # One gh api call: gh's exit code and the HTTP status GitHub answered with, or nothing when gh is
-# not there or does not answer in 10 seconds. A gh that hangs must not hold up an install that is done.
+# not there or does not answer in 10 seconds. A gh that hangs must not hold up an install that is done:
+# the deadline covers its exit and its output both (a child it handed the output to could live on),
+# and what outlasts it is killed with its children.
 function Invoke-GhApi([string]$Arguments) {
     $gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $gh) { return }
     $start = New-Object Diagnostics.ProcessStartInfo
-    $start.FileName = $gh.Path
-    $start.Arguments = "api --hostname github.com --include $Arguments"
+    $ghArguments = "api --hostname github.com --include $Arguments"
+    if ($gh.Path -match '\.(cmd|bat)$') {
+        # a shim: the command interpreter runs it, with the path and the arguments as one quoted command
+        $start.FileName = $env:ComSpec
+        $start.Arguments = "/d /c """"$($gh.Path)"" $ghArguments"""
+    } else {
+        $start.FileName = $gh.Path
+        $start.Arguments = $ghArguments
+    }
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
     $start.RedirectStandardInput = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    $process = [Diagnostics.Process]::Start($start)
-    $process.StandardInput.Close()
-    $said = $process.StandardOutput.ReadToEndAsync()
-    $null = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(10000)) {
-        try { $process.Kill() } catch { }
-        return
-    }
-    $status = ''
-    if ($said.Result -match '^HTTP\S* (\d{3})') { $status = $Matches[1] }
-    @{ code = $process.ExitCode; status = $status }
+    $process = $null
+    try {
+        $process = [Diagnostics.Process]::Start($start)
+        $process.StandardInput.Close()
+        $said = $process.StandardOutput.ReadToEndAsync()
+        $null = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(10000) -or -not $said.Wait(2000)) {
+            try { & $env:ComSpec /d /c "taskkill /T /F /PID $($process.Id) >nul 2>&1" } catch { }
+            return
+        }
+        $status = ''
+        if ($said.Result -match '^HTTP\S* (\d{3})') { $status = $Matches[1] }
+        @{ code = $process.ExitCode; status = $status }
+    } finally { if ($process) { $process.Dispose() } }
 }
 # A script that runs this has nobody to answer. A terminal can have nobody at it either (an agent's),
-# so the question waits 20 seconds for a first key, typed after it was asked, and then goes on.
+# so the answer is read key by key within 20 seconds in all: what was typed before the question is
+# discarded, and a line left unfinished when the time is up is no answer.
 function Test-Terminal { -not ($env:CI -or [Console]::IsInputRedirected -or [Console]::IsOutputRedirected) }
-function Wait-Key {
+function Read-Answer {
     $Host.UI.RawUI.FlushInputBuffer()
     $until = (Get-Date).AddSeconds(20)
-    while (-not [Console]::KeyAvailable) {
-        if ((Get-Date) -gt $until) { return $false }
-        Start-Sleep -Milliseconds 200
+    $answer = ''
+    while ((Get-Date) -lt $until) {
+        if (-not [Console]::KeyAvailable) { Start-Sleep -Milliseconds 100; continue }
+        $key = [Console]::ReadKey($true)
+        if ($key.Key -eq [ConsoleKey]::Enter) { Write-Host ''; return $answer }
+        if ($key.Key -eq [ConsoleKey]::Backspace) {
+            if ($answer.Length -gt 0) { $answer = $answer.Substring(0, $answer.Length - 1); Write-Host -NoNewline "`b `b" }
+        } elseif (-not [char]::IsControl($key.KeyChar)) {
+            $answer += $key.KeyChar
+            Write-Host -NoNewline $key.KeyChar
+        }
     }
-    $true
+    Write-Host ''
+    return $null
 }
 # Once, on the first install, and not to an account that already starred (204). It asks only when
 # GitHub says the account has not (404), only at a terminal, and stars only on "y".
@@ -163,8 +185,7 @@ if ($newInstall) {
             Write-Host 'herdr web ui: if it helps you, a GitHub star helps other herdr users find it: https://github.com/devswha/herdr-web-ui'
             if ($starred -and $starred.status -eq '404' -and (Test-Terminal)) {
                 Write-Host -NoNewline 'herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] '
-                $answer = ''
-                if (Wait-Key) { $answer = Read-Host } else { Write-Host '' }
+                $answer = Read-Answer
                 if ("$answer".Trim() -match '^(y|yes)$') {
                     $given = Invoke-GhApi '--method PUT user/starred/devswha/herdr-web-ui'
                     if ($given -and $given.code -eq 0) { Write-Host 'herdr web ui: starred. Thank you!' }
