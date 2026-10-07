@@ -92,17 +92,80 @@ export function trimUrl(url: string): string {
 /** Emphasis nests by one call each: past this many levels, what is inside is read as plain text. */
 const MAX_INLINE_DEPTH = 16;
 
-/** Dependency-free inline markdown scanner. Unknown or malformed markup remains text. */
-export function parseInline(source: string, links = true, depth = 0): InlineNode[] {
-  if (depth > MAX_INLINE_DEPTH) return source === "" ? [] : [{ type: "text", value: source }];
-  const nodes: InlineNode[] = [];
+/**
+ * The marks in a line, left to right, as one search of the line for the pattern found them. That
+ * search looks from every `[`, `\(` and `_` to the end of the line for what closes it, so a long
+ * line of them that never close took a minute. Here the pattern is tried only where a mark can
+ * start, and where a closer may be far away, only if one is there: each closer is looked for
+ * once, for every opener before it.
+ */
+export function* inlineMarks(source: string): Generator<RegExpExecArray> {
   // Underscores inside identifiers are literal: MAC_QA_CHAT_OK must survive
   // rendering exactly as it appears in the terminal and native transcript.
   // a bare or <angle> http(s) URL is a link too; it stops at the first non-ASCII character,
   // so `…/pull/36에서` links the address and leaves the Korean after it as text
-  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
+  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/yu;
+  // its last part alone, for a `__` that nothing closes as bold: one `_` may still close it
+  const emphasis = /(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_])/yu;
+  // what any part of `marker` starts with
+  const opener = /[`[<*_~]|\\\(|file:\/\/\/|https?:\/\/|www\./g;
+  /** Where `pattern` is next found from `from` on. Asked with a `from` that only rises, so a place found serves every `from` before it. */
+  const next = (pattern: RegExp): ((from: number) => number) => {
+    let found = -1;
+    return (from) => {
+      if (found < from) {
+        pattern.lastIndex = from;
+        found = pattern.exec(source)?.index ?? Infinity;
+      }
+      return found;
+    };
+  };
+  const lineEnd = next(/\n/g);
+  // `.` stops at these, and a formula is `.+?`
+  const mathBreak = next(/[\n\r\u2028\u2029]/g);
+  const mathClose = next(/\\\)/g);
+  const labelEnd = next(/[\]\n]/g);
+  const targetEnd = next(/[\s)]/g);
+  const emphasisClose = next(/(?<=\S)_(?![\p{L}\p{N}\p{M}_])/gu);
+  const strongClose = next(/(?<=\S)__(?![\p{L}\p{N}\p{M}_])/gu);
+  let from = 0;
+  for (;;) {
+    opener.lastIndex = from;
+    const start = opener.exec(source)?.index;
+    if (start === undefined) return;
+    from = start + 1;
+    let pattern: RegExp | null = marker;
+    const char = source[start];
+    if (char === "\\") {
+      if (!(mathClose(start + 3) < mathBreak(start + 2))) pattern = null;
+    } else if (char === "[") {
+      const label = labelEnd(start + 1);
+      const target = label + 2;
+      if (!(label > start + 1 && source[label] === "]" && source[label + 1] === "(")) pattern = null;
+      else {
+        const end = targetEnd(target);
+        if (!(end > target && source[end] === ")")) pattern = null;
+      }
+    } else if (char === "_") {
+      const end = lineEnd(start + 1);
+      // a `__` that closes also closes as a `_`, so `marker` has no long search left to fail
+      if (!(source[start + 1] === "_" && strongClose(start + 3) < end)) pattern = emphasisClose(start + 2) < end ? emphasis : null;
+    }
+    if (pattern === null) continue;
+    pattern.lastIndex = start;
+    const match = pattern.exec(source);
+    if (match === null) continue;
+    from = start + match[0].length;
+    yield match;
+  }
+}
+
+/** Dependency-free inline markdown scanner. Unknown or malformed markup remains text. */
+export function parseInline(source: string, links = true, depth = 0): InlineNode[] {
+  if (depth > MAX_INLINE_DEPTH) return source === "" ? [] : [{ type: "text", value: source }];
+  const nodes: InlineNode[] = [];
   let offset = 0;
-  for (const match of source.matchAll(marker)) {
+  for (const match of inlineMarks(source)) {
     const index = match.index ?? 0;
     if (index > offset) nodes.push({ type: "text", value: source.slice(offset, index) });
     let token = match[0];
