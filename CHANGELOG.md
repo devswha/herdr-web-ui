@@ -73,6 +73,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 
 ### Fixed
+- A message can no longer freeze or crash the chat by its shape alone. A long run of underscores
+  nested emphasis until the page ran out of stack; a URL followed by thousands of closing
+  parentheses, a formula opened on many lines and never closed, a long blank line under a table
+  header, a list item of thousands of lines, and a heading or list item holding a line-separator
+  character after a long run of spaces each took seconds to read; a line of plus signs took half
+  a second, and a formula of thousands of nested fractions a second more. Each is read in a few
+  milliseconds now. Emphasis stops nesting after sixteen levels, and a formula nested deeper than
+  a hundred braces shows as its source.
+  ([#547](https://github.com/devswha/herdr-web-ui/pull/547))
 - A workspace row's state rolls up as herdr's does: a workspace with one finished agent and one
   still running shows DONE, where it showed RUN.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
@@ -87,15 +96,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - **Dismiss** on the terminal's notice that input was not sent works: a tap or click on it went
   through to the terminal under it and the notice stayed.
   ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
-- A message can no longer freeze or crash the chat by its shape alone. A long run of underscores
-  nested emphasis until the page ran out of stack; a URL followed by thousands of closing
-  parentheses, a formula opened on many lines and never closed, a long blank line under a table
-  header, a list item of thousands of lines, and a heading or list item holding a line-separator
-  character after a long run of spaces each took seconds to read; a line of plus signs took half
-  a second, and a formula of thousands of nested fractions a second more. Each is read in a few
-  milliseconds now. Emphasis stops nesting after sixteen levels, and a formula nested deeper than
-  a hundred braces shows as its source.
-  ([#547](https://github.com/devswha/herdr-web-ui/pull/547))
+- The Claude usage meter shows a model's own weekly limit, such as Fable's, which Anthropic
+  reports only in its list of limits; the Opus and Sonnet weeks are still read as before.
+  ([#532](https://github.com/devswha/herdr-web-ui/pull/532) by @bertkiefer)
 
 ## [0.3.52] - 2026-10-06
 
