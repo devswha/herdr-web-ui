@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-08
+
 ### Added
 - An update tells what it brings before it is installed. **Settings → Updates** shows
   **What's new** under the version on offer: the changelog of every release the update installs,
@@ -89,13 +91,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   already did: with a mouse it is typed at the transcript's size, and on a touch screen it
   grows with a size above 16px (it stays at 16px or more, so iOS still does not zoom).
   ([#515](https://github.com/devswha/herdr-web-ui/pull/515) by @phirschybar)
-
 - Workspace rows no longer reserve a left column for a reorder grip. Rows can still be dragged
   directly or moved with Alt+Up/Down while focused.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - The sidebar follows herdr's separate workspace and agent lists, drawn on one quiet grid. Every
   row leads with the coding agent that runs in it (its mark, or a terminal for a shell and a
-  branch for a worktree without an agent) and ends in one status column, drawn by urgency (a filled red bubble waits for an answer, a
+  branch for a worktree without an agent) and ends in one status column, drawn by urgency (a red question mark waits for an answer, a
   green dot has finished and was not looked at yet, a dim arc runs), which stays empty while
   an agent is ready. Agent rows name the agent, then the PC when there are several, the workspace
   and the tab. Sections are parted by space instead of rules, a row's menu button takes no room
@@ -119,7 +120,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   from herdr's worktree API and keeping custom workspace names beside them. Creating or opening
   a worktree expands its group. The browser demo supports these worktree actions with fictional
   checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
-
 - A linked worktree's row in the sidebar is titled by its workspace name, the one its owner gave it
   or the one herdr made from the branch, instead of the branch; the branch follows in dim text
   where the name does not already say it, and in the row's tooltip and menu. The sidebar's mark
@@ -2258,7 +2258,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...v0.4.0
 [0.3.52]: https://github.com/devswha/herdr-web-ui/compare/v0.3.51...v0.3.52
 [0.3.51]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...v0.3.51
 [0.3.50]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...v0.3.50
