@@ -76,4 +76,18 @@ describe("recordSettings", () => {
     await settled();
     expect(fake.held()).toEqual([null]);
   });
+
+  it("does not take a step it cannot see on trust: entries of an earlier opening a Forward landed on are rebuilt", async () => {
+    // entries an earlier opening left (a wider dialog's Terminal and its editor), landed on by Forward
+    const key = "herdr-web-ui:settings";
+    fake.window.history.pushState({ [key]: { page: "terminal", keyBar: false, depth: 1 } });
+    fake.window.history.pushState({ [key]: { page: "terminal", keyBar: true, depth: 2 } });
+    // the dialog opens on a phone showing the editor: the list, the page, the editor
+    recordSettings([{ page: null, keyBar: false }, { page: "terminal", keyBar: false }, { page: "terminal", keyBar: true }]);
+    await settled();
+    expect(fake.held()).toEqual([null, { page: null, keyBar: false, depth: 1 }, { page: "terminal", keyBar: false, depth: 2 }, { page: "terminal", keyBar: true, depth: 3 }]);
+    recordSettings([]);
+    await settled();
+    expect(fake.held()).toEqual([null]);
+  });
 });

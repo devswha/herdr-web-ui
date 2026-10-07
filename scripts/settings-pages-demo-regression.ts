@@ -21,11 +21,17 @@ const openSettings = async (page: Page): Promise<void> => {
 /** The Settings entry of the current history state, as the app wrote it. */
 const entryOf = (page: Page): Promise<{ page: string | null; keyBar: boolean; depth: number } | null> =>
   page.evaluate(() => (history.state as Record<string, unknown> | null)?.["herdr-web-ui:settings"] as never ?? null);
-/** Controls and text that reach past the page's box: a row wider than its card is cut there. */
+/** Controls and text that reach past their card, and cards past the page's box: a row wider than its card is cut there. */
 const cutOff = (page: Page): Promise<string[]> => page.locator(".settings-body").evaluate((body) => {
   const edge = body.getBoundingClientRect();
   const out = [...body.querySelectorAll<HTMLElement>("button, input, select, a, .settings-card, .settings-row")]
-    .filter((node) => { const box = node.getBoundingClientRect(); return box.width > 0 && (box.right > edge.right + 0.5 || box.left < edge.left - 0.5); })
+    .filter((node) => {
+      const box = node.getBoundingClientRect();
+      // a control is held by its card, where it has one; a card by the page
+      const card = node.classList.contains("settings-card") ? null : node.closest<HTMLElement>(".settings-card");
+      const within = card ? card.getBoundingClientRect() : edge;
+      return box.width > 0 && (box.right > within.right + 0.5 || box.left < within.left - 0.5);
+    })
     .map((node) => `${node.tagName.toLowerCase()}.${node.className} ${node.getAttribute("aria-label") ?? node.textContent?.trim().slice(0, 30) ?? ""}`);
   return body.scrollWidth > body.clientWidth ? [`the page scrolls sideways (${body.scrollWidth} > ${body.clientWidth})`, ...out] : out;
 });
@@ -185,7 +191,8 @@ try {
         await dialogOf(page).getByRole("button", { name: "Edit key bar", exact: true }).click();
         await page.getByRole("dialog", { name: "Key bar", exact: true }).waitFor();
         await page.setViewportSize({ width: 1280, height: 800 });
-        await page.waitForFunction(() => (history.state as Record<string, { depth: number }> | null)?.["herdr-web-ui:settings"]?.depth === 2);
+        // the rebuilt stack, not the step the widening passes through
+        await page.waitForFunction(() => { const entry = (history.state as Record<string, { page: string; keyBar: boolean; depth: number }> | null)?.["herdr-web-ui:settings"]; return entry?.depth === 2 && entry.page === "terminal" && entry.keyBar === true; });
         await page.goBack();
         await dialogOf(page).getByRole("tabpanel", { name: "Terminal", exact: true }).waitFor();
         assert.equal(await page.locator(".key-bar-settings").count(), 0, "widened, Back from the editor shows the Terminal page");

@@ -50,9 +50,9 @@ export function settingsEntry(state: unknown): SettingsEntry | null {
 type Listener = (entry: SettingsEntry | null, own: boolean) => void;
 const listeners = new Set<Listener>();
 let wanted: readonly SettingsLevel[] = [];
-/** the steps this module believes the history holds for Settings, by depth */
-let held: SettingsLevel[] = [];
-const same = (a: SettingsLevel, b: SettingsLevel): boolean => a.page === b.page && a.keyBar === b.keyBar;
+/** the steps this module knows the history holds for Settings, by depth; null for one it did not push and cannot see */
+let held: Array<SettingsLevel | null> = [];
+const same = (a: SettingsLevel | null, b: SettingsLevel): boolean => a !== null && a.page === b.page && a.keyBar === b.keyBar;
 /** traversals asked for here that have not landed yet: nothing is pushed while one is under way */
 let rewinding = 0;
 let landing: ReturnType<typeof setTimeout> | undefined;
@@ -70,10 +70,12 @@ function reconcile(): void {
   const state: unknown = window.history.state;
   const current = settingsEntry(state);
   const have = current?.depth ?? 0;
-  // what the history holds up to here: a Back landed under what was recorded, and entries this
-  // module did not push (a reload left them) are known by the one the state shows
+  // what the history holds up to here: a Back landed under what was recorded; the step shown is
+  // read from the state; one this module did not push (a reload or a Forward landed on entries
+  // of an earlier opening) is unknown, never taken on trust, and rebuilt like a differing one
   held = held.slice(0, have);
-  while (held.length < have) held.push(held.length === have - 1 && current ? { page: current.page, keyBar: current.keyBar } : { page: null, keyBar: false });
+  while (held.length < have) held.push(null);
+  if (have > 0 && current) held[have - 1] = { page: current.page, keyBar: current.keyBar };
   if (have > wanted.length) { rewind(have - wanted.length); return; }
   // the first step that differs from what is wanted. An earlier one (the window changed width:
   // a phone's list belongs under a page a wider dialog had opened directly, or no longer does)
