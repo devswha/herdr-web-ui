@@ -7,6 +7,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **Settings → Appearance → Agents order → Activity** keeps a waiting agent on top of the Agents
+  list and orders the rest by their latest state change, as herdr's agents panel keeps the latest
+  work in view: the agent you just sent a message to stays on top while it runs and after it
+  finishes, and a new one starts there. herdr's own order and the workspace rows are unchanged.
+  **Workspaces** (herdr's order) remains the default.
+  ([#529](https://github.com/devswha/herdr-web-ui/pull/529) by @phirschybar)
+- **Settings → Appearance → Quiet opened finishes** (off by default): a finished agent you have
+  opened in the web UI loses its dot and reads as ready, as viewing it in herdr would make it.
+  herdr's DONE otherwise stands until herdr itself shows the pane. It is remembered per PC in
+  this browser. ([#529](https://github.com/devswha/herdr-web-ui/pull/529) by @phirschybar)
+
 ### Fixed
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.

@@ -1,0 +1,133 @@
+/**
+ * The sidebar's Activity order for the Agents list, and "seen" finishes.
+ *
+ * Activity keeps a waiting agent on top and then the latest change, so the latest work is where
+ * you look. Recency is herdr's `state_change_seq`, one counter per herdr session bumped on every
+ * agent state change. `session.snapshot` leaves it off `panes` and carries it on `agents`.
+ *
+ * herdr reports DONE until one of its own clients shows the pane, and the sidebar draws DONE as
+ * "finished, not looked at yet". Opening the pane here does not tell herdr, so a finish read in
+ * the web UI would keep its dot. "Seen" is kept per browser and per PC instead: the
+ * `state_change_seq` each pane had when it was last on screen. A DONE whose counter has not moved
+ * past that was looked at, and is drawn as ready.
+ */
+import type { AgentStatus, PaneInfo, SessionSnapshot } from "../../shared/protocol.ts";
+import { knownStatus } from "./status.ts";
+
+/** pane id → the `state_change_seq` it had when last viewed */
+export type SeenRecord = Readonly<Record<string, number>>;
+
+/** Each agent pane's `state_change_seq`. Panes without an agent have none. */
+export function stateSeqs(snapshot: Pick<SessionSnapshot, "agents"> | null | undefined): Map<string, number> {
+  const seqs = new Map<string, number>();
+  for (const agent of snapshot?.agents ?? []) {
+    const seq = (agent as { state_change_seq?: unknown }).state_change_seq;
+    if (typeof seq === "number" && Number.isFinite(seq)) seqs.set(agent.pane_id, seq);
+  }
+  return seqs;
+}
+
+/** What `liveSeqs` remembers between snapshots: each pane's last status, and the changes it dated itself. */
+export interface SeqMemory { status: Map<string, unknown>; bumped: Map<string, number> }
+export const newSeqMemory = (): SeqMemory => ({ status: new Map(), bumped: new Map() });
+
+/**
+ * `stateSeqs`, kept in step with pushed statuses. A pane-status push lands in the snapshot at once
+ * (applyPaneStatus), but the counter only comes with the next roster read, up to POLL_MS later: a
+ * pane sent a message would sit in its old place, and a finish seen through that gap would count as
+ * viewed at the old counter. So a status that changed since the last call is dated now, just above
+ * every counter known; herdr's own counter for that change is higher and takes over when it comes.
+ * Mutates `memory`.
+ */
+export function liveSeqs(snapshot: Pick<SessionSnapshot, "agents" | "panes"> | null | undefined, memory: SeqMemory): Map<string, number> {
+  const seqs = stateSeqs(snapshot);
+  const panes = snapshot?.panes ?? [];
+  let top = Math.max(0, ...seqs.values(), ...memory.bumped.values());
+  for (const pane of panes) {
+    const changed = memory.status.has(pane.pane_id) && memory.status.get(pane.pane_id) !== pane.agent_status;
+    if (changed && seqs.has(pane.pane_id)) memory.bumped.set(pane.pane_id, top += 0.001);
+    memory.status.set(pane.pane_id, pane.agent_status);
+  }
+  const open = new Set(panes.map((pane) => pane.pane_id));
+  for (const id of memory.status.keys()) if (!open.has(id) && panes.length > 0) memory.status.delete(id);
+  for (const [id, bump] of memory.bumped) {
+    const real = seqs.get(id);
+    if (real === undefined || real > bump) memory.bumped.delete(id);
+    else seqs.set(id, bump);
+  }
+  return seqs;
+}
+
+/** A DONE pane looked at since it finished. A pane with no counter, or never recorded, was not. */
+export function isSeenDone(pane: Pick<PaneInfo, "pane_id" | "agent_status">, seqs: ReadonlyMap<string, number>, seen: SeenRecord): boolean {
+  if (knownStatus(pane.agent_status) !== "done") return false;
+  const seq = seqs.get(pane.pane_id);
+  const at = seen[pane.pane_id];
+  return seq !== undefined && at !== undefined && seq <= at;
+}
+
+/** The status to draw: a DONE already looked at here reads as ready, as herdr's own idle after a view. */
+export function shownStatus(pane: Pick<PaneInfo, "pane_id" | "agent_status">, seqs: ReadonlyMap<string, number>, seen: SeenRecord | null): AgentStatus | undefined {
+  return seen && isSeenDone(pane, seqs, seen) ? "idle" : pane.agent_status;
+}
+
+/** The first record on a browser: everything open now counts as seen, so turning the setting on quiets what is already there. */
+export function seedSeen(panes: readonly Pick<PaneInfo, "pane_id">[], seqs: ReadonlyMap<string, number>): SeenRecord {
+  const record: Record<string, number> = {};
+  for (const pane of panes) {
+    const seq = seqs.get(pane.pane_id);
+    if (seq !== undefined) record[pane.pane_id] = seq;
+  }
+  return record;
+}
+
+/** The record with `paneId` seen at `seq`; the same object when nothing changes, so state does not churn. */
+export function markSeen(record: SeenRecord, paneId: string, seq: number): SeenRecord {
+  return record[paneId] === seq ? record : { ...record, [paneId]: seq };
+}
+
+/** The record without panes that closed; the same object when none did. An empty roster keeps it (herdr restarting). */
+export function pruneSeen(record: SeenRecord, panes: readonly Pick<PaneInfo, "pane_id">[]): SeenRecord {
+  if (panes.length === 0) return record;
+  const open = new Set(panes.map((pane) => pane.pane_id));
+  const gone = Object.keys(record).filter((id) => !open.has(id));
+  if (gone.length === 0) return record;
+  const next: Record<string, number> = { ...record };
+  for (const id of gone) delete next[id];
+  return next;
+}
+
+/**
+ * Rows in Activity order: a blocked one first, then the most recent state change, then the
+ * order given. State is not ranked otherwise: ranking moved a row the moment its state changed (a
+ * pane sent a message fell below every DONE while it ran and jumped back when it finished), where
+ * recency keeps the row just worked in on top while it runs and after it finishes.
+ */
+export function activityOrder<T>(rows: readonly T[], paneOf: (row: T) => Pick<PaneInfo, "pane_id" | "agent_status">, seqs: ReadonlyMap<string, number>): T[] {
+  return rows
+    .map((row, index) => {
+      const pane = paneOf(row);
+      return { row, index, rank: knownStatus(pane.agent_status) === "blocked" ? 0 : 1, recent: seqs.get(pane.pane_id) ?? -1 };
+    })
+    .sort((a, b) => a.rank - b.rank || b.recent - a.recent || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
+const seenKey = (machineId: string) => `herdr-web-ui:seen:${machineId}`;
+
+/** This browser's record for a PC, or null when it has none yet. */
+export function loadSeen(machineId: string): SeenRecord | null {
+  try {
+    const raw = localStorage.getItem(seenKey(machineId));
+    if (raw === null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])));
+  } catch {
+    return null;
+  }
+}
+
+export function saveSeen(machineId: string, record: SeenRecord): void {
+  try { localStorage.setItem(seenKey(machineId), JSON.stringify(record)); } catch { /* storage blocked: marks last for this page only */ }
+}
