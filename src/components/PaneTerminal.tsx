@@ -207,6 +207,9 @@ export function PaneTerminal({
   }, [availableModifiers]);
   const shortcutSettings = useRef(settings.shortcutOverrides);
   shortcutSettings.current = settings.shortcutOverrides;
+  // what the terminal effect says in a banner, in the language chosen since it was set up
+  const tRef = useRef(t);
+  tRef.current = t;
   // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
   // the transcript, the composer column, the held list and the menus all inherit: a percentage
   // would resolve against each one's own box and leave them a gutter apart. The other steps are
@@ -976,8 +979,12 @@ export function PaneTerminal({
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.
       if (chord !== null) {
-        socket.sendKeys(current, [chord]);
-        // Shortcuts are never retained as offline text or replayed later.
+        // Shortcuts are never retained as offline text or replayed later: a chord the
+        // terminal cannot take now (not ready, disconnected) is told, not dropped in silence
+        if (!socket.sendKeys(current, [chord])) {
+          const t = tRef.current; // the language of now, not of the attach
+          setInputError(t("Not sent: the terminal is not ready for keys."));
+        }
         return;
       }
       if (socket.sendInput(current, input)) return;

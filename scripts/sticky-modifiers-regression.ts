@@ -176,6 +176,21 @@ try {
     await until(() => read().length > hardwareBefore.length, "hardware/touch combination received");
     assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+shift+d"]);
     if (mode === "kitty") assert.equal(Buffer.from(read().slice(hardwareBefore.length), "hex").toString(), "\x1b[100;8u");
+    // A chord the terminal cannot take now is told, not dropped in silence: the page loses
+    // input readiness, the key bar greys out, and a held-modifier key typed meanwhile is
+    // answered with the not-sent banner. Nothing is queued for later.
+    ws!.send(JSON.stringify({ type: "input-ready", pane_id: pane, ready: false }));
+    await until(() => ctrl.isDisabled(), "key bar disabled while input is not ready");
+    const notReadyFrames = frames.length;
+    await page.keyboard.insertText("q");
+    const notSent = page.locator(".terminal-banner", { hasText: "Not sent: the terminal is not ready for keys." });
+    await notSent.waitFor({ state: "visible" });
+    assert.equal(frames.slice(notReadyFrames).some((frame) => frame.type === "keys" || frame.type === "input"), false, "nothing sent while input is not ready");
+    await notSent.locator(".terminal-banner-action").tap();
+    await until(async () => (await notSent.count()) === 0, "not-sent banner dismissed");
+    ws!.send(JSON.stringify({ type: "input-ready", pane_id: pane, ready: true }));
+    await until(async () => !(await ctrl.isDisabled()), "key bar enabled again");
+    console.log(`${mode} chord while not ready: told, not sent`);
     // Removing the optional Alt button must not leave an invisible held modifier.
     await page.keyboard.press(settingsShortcut);
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
