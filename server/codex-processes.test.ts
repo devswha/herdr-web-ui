@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexTranscriptPath } from "./codex.ts";
+import { codexOpenRollout, codexTranscriptPath } from "./codex.ts";
 
 // Native stores and the real RPC client; only herdr's foreground metadata is synthetic.
 // In particular, a real process supplies /proc/cmdline when that metadata omits argv.
@@ -116,6 +116,23 @@ it.skipIf(process.platform !== "linux")("drops the recovered binding when its pr
   await child.exited;
   screen = "";
   expect(await resolve()).toBeNull();
+});
+
+it("gives a background reader the chat's binding only while no newer thread may have replaced it, and binds nothing itself", async () => {
+  foreground = [{ pid: 2147483647, argv: ["/usr/bin/codex"] }];
+  expect(await codexOpenRollout(root, root, home)).toBeNull();
+  screen = answer;
+  expect(await codexOpenRollout(root, root, home)).toBeNull();
+  expect(await resolve()).toBe(path);
+  screen = "";
+  expect(await codexOpenRollout(root, root, home)).toBe(path);
+  const db = new Database(join(home, "state_5.sqlite"));
+  const now = Math.floor(Date.now() / 1000);
+  db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, ?, ?, 'cli')").run(
+    "01a0c7a1-56d9-7e20-9f08-f7a2d973bc02", join(home, "sessions", "missing.jsonl"), root, now, now,
+  );
+  db.close();
+  expect(await codexOpenRollout(root, root, home)).toBeNull();
 });
 
 it("does not guess a session when argv and proc data are unavailable", async () => {

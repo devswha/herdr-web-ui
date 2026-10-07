@@ -42,6 +42,7 @@ import { onNotificationTarget } from "./lib/notificationTarget.ts";
 import { useUpdates } from "./lib/updates.ts";
 import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
+import { PlanButton, PlanDialog } from "./components/PlanDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useFileViewer } from "./lib/useFileViewer.ts";
@@ -213,6 +214,7 @@ export function App() {
   }, [moreOpen]);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const { viewing, openFile, closeFile } = useFileViewer();
   const viewFile = useCallback((path: string) => {
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
@@ -381,7 +383,7 @@ export function App() {
           let changed = false;
           const next = list.map((m) => {
             if (m.id !== machine.id || !m.snapshot) return m;
-            const snapshot = applyPaneStatus(m.snapshot, message.pane_id, message.agent_status, message.background_tasks);
+            const snapshot = applyPaneStatus(m.snapshot, message.pane_id, message.agent_status, message.background_tasks, message.plan);
             if (snapshot === m.snapshot) return m;
             changed = true;
             return { ...m, snapshot };
@@ -783,6 +785,8 @@ export function App() {
             </button>
           </div>
         )}
+        {/* the selected pane's plan, in the chat and the terminal alike */}
+        {selectedPane && (selectedPane as HerdrPane).plan && <PlanButton plan={(selectedPane as HerdrPane).plan!} onOpen={() => setPlanOpen(true)} />}
         <div className="header-meta">
           {/* speaks only while the bridge is not live; live, it stays in the document for a screen
               reader (and the browser scripts that wait on it), drawn by nothing (styles.css) */}
@@ -902,6 +906,7 @@ export function App() {
         selectTargetRef.current(machineId, paneId);
       }} />
       <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} />
+      {planOpen && selectedPane && <PlanDialog paneId={selectedPane.pane_id} title={selectedTitle ?? ""} onClose={() => setPlanOpen(false)} />}
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}

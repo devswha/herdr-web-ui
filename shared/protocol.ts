@@ -27,8 +27,11 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } f
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
 export type HerdrTab = TabInfo;
-/** `background_tasks`: an OmO pane's `task` children still running, counted by the server; absent when none */
-export type HerdrPane = PaneInfo & { background_tasks?: number };
+/**
+ * `background_tasks`: an OmO pane's `task` children or a Claude Code pane's subagents still running, counted by the server; absent when none.
+ * `plan`: how far the plan the pane's agent keeps (Claude Code's task list, Codex's checklist) has got; absent when it keeps none.
+ */
+export type HerdrPane = PaneInfo & { background_tasks?: number; plan?: PlanSummary };
 
 export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
 
@@ -80,9 +83,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
  *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
- *         pane's OmO session started: running ones, then those that ended in the last day; empty
- *         for a pane that is not OmO or whose session is not known yet. server_time: that PC's
- *         clock, which the times are on)
+ *         pane's OmO session started, or a Claude Code pane's subagents (no workflows): running ones, then
+ *         those that ended in the last day; empty for any other pane or one whose session is not
+ *         known yet. server_time: that PC's clock, which the times are on)
+ *  GET    /api/pane/plan?pane_id=       -> PanePlan (the plan the pane's Claude Code or Codex session
+ *         keeps: its task list or checklist, read from the transcript; null when it keeps none)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
@@ -285,7 +290,7 @@ export type ConversationPart =
   /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it.
    * `source`: the runtime's name for it (pi's customType, e.g. "async-result", "irc:incoming", "omo-model-profile:unavailable") */
   | { kind: "notice"; text: string; source?: string }
-  /** OmO's background tasks that ended, as OmO reported them back to the agent: it starts a turn, nobody typed it */
+  /** OmO's background tasks that ended, as OmO reported them back to the agent, or a Claude Code subagent that ended (its task notification): it starts a turn, nobody typed it */
   | { kind: "task_result"; tasks: OmoTaskResult[] };
 
 /** One OmO background task that ended (the `senpi-task.completion` OmO wakes its agent with). */
@@ -319,7 +324,7 @@ export interface ConversationMetadata {
   context?: { used: number; window: number | null };
 }
 
-/** One background task of an OmO session (GET /api/pane/omo-tasks), from OmO's task record. */
+/** One background task of an OmO session, or one subagent of a Claude Code session (GET /api/pane/omo-tasks), from OmO's task record or the subagent's files. */
 export interface OmoTask {
   id: string;
   /** the task's summary, else its description or name */
@@ -327,7 +332,7 @@ export interface OmoTask {
   /** the category or agent type it ran as */
   category: string | null;
   model: string | null;
-  /** `lost`: OmO's process that ran it is gone */
+  /** `lost`: OmO's process that ran it is gone, or the pane no longer runs the Claude Code session that started it */
   status: "running" | "completed" | "failed" | "cancelled" | "lost";
   started_at: string | null;
   ended_at: string | null;
@@ -361,6 +366,38 @@ export interface OmoActivity {
   runs: OmoRun[];
   /** the PC's clock, which the times are on */
   server_time: string;
+}
+
+/**
+ * One step of the plan an agent keeps for its session (GET /api/pane/plan): a task of Claude
+ * Code's task list (`TaskCreate`/`TaskUpdate`), or an item of Codex's `update_plan` checklist.
+ */
+export interface PlanStep {
+  id: string;
+  label: string;
+  /** what it does now, in the agent's own words (Claude's `activeForm`), when it gave some */
+  active: string | null;
+  status: "pending" | "in_progress" | "completed";
+  /** the steps it waits on: Claude's `blockedBy`, or for Codex the step before it */
+  blocked_by: string[];
+  /** the teammate it was given to, in a Claude Code agent team */
+  owner: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+/** GET /api/pane/plan: the plan the pane's agent keeps now, null when it keeps none. */
+export interface PanePlan {
+  plan: { steps: PlanStep[] } | null;
+  /** the PC's clock, which the times are on */
+  server_time: string;
+}
+
+/** How far a pane's plan has got, for the sidebar: `current` names the step in progress. */
+export interface PlanSummary {
+  done: number;
+  total: number;
+  current: string | null;
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */
@@ -683,7 +720,7 @@ export type ServerMessage =
   | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" }> }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
-  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** an OmO pane's running background tasks, when the frame is about one */ background_tasks?: number }
+  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents), when the frame is about them: it changes no status */ background_tasks?: number; /** a pane's plan, when the frame is about it (null: it keeps none now); it changes no status */ plan?: PlanSummary | null }
   /** a pane's process exited (pushed even when nobody is attached to it) */
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */

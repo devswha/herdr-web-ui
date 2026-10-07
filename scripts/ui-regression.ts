@@ -238,6 +238,58 @@ try {
   } finally { await offlineContext.close(); }
   console.log("PASS Agents excludes shells, survives PC folds, selects its machine target and disables offline rows");
 
+  // A pane's plan: the header's count opens it in the chat and the terminal alike, as a flow of
+  // boxes (a step below the steps it waits on) or as a list, and the sidebar row carries the same
+  // count. Reading it is the server's (server/session-plan.ts): its summary and steps are given here.
+  const planSteps = [
+    { id: "1", label: "Read the code", active: null, status: "completed", blocked_by: [], owner: null, started_at: "2026-10-07T00:00:00.000Z", ended_at: "2026-10-07T00:04:00.000Z" },
+    { id: "2", label: "Write the parser", active: "Writing the parser", status: "in_progress", blocked_by: ["1"], owner: null, started_at: "2026-10-07T00:04:00.000Z", ended_at: null },
+    { id: "3", label: "Write the panel", active: null, status: "pending", blocked_by: ["1"], owner: null, started_at: null, ended_at: null },
+    { id: "4", label: "Ship it", active: null, status: "pending", blocked_by: ["2", "3"], owner: null, started_at: null, ended_at: null },
+  ];
+  const planned = async (target: typeof page): Promise<void> => {
+    await target.route("**/api/machines", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json() as { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
+      for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
+      await route.fulfill({ response, json: body });
+    });
+    await target.route(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: { plan: { steps: planSteps }, server_time: new Date().toISOString() } }));
+  };
+  await planned(page);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  const planButton = page.getByRole("button", { name: "Plan: 1 of 4 done", exact: true });
+  await planButton.waitFor();
+  assert.equal((await agentRow(paneA).locator("[data-testid=plan-progress]").textContent())?.trim(), "1/4");
+  await planButton.click();
+  const planDialog = page.getByRole("dialog", { name: /^Plan/ });
+  await until(async () => await planDialog.locator(".plan-node").count() === 4, "the plan's boxes");
+  assert.equal(await planDialog.locator(".plan-edge").count(), 4, "one curve per wait");
+  assert.equal(await planDialog.locator(".plan-edge.is-done").count(), 2, "the ways out of a done step are open");
+  const box = async (label: string) => (await planDialog.locator(".plan-node-label", { hasText: label }).boundingBox())!;
+  const [read, parser, panel, ship] = [await box("Read the code"), await box("Write the parser"), await box("Write the panel"), await box("Ship it")];
+  assert.ok(read.y < parser.y && Math.abs(parser.y - panel.y) < 1 && panel.y < ship.y && parser.x < panel.x, "waves top to bottom, a wave side by side");
+  assert.equal(await planDialog.locator(".plan-node.is-in_progress").textContent().then((text) => text?.includes("Write the parser")), true);
+  assert.equal(await planDialog.locator(".plan-node.is-pending .sr-only").last().textContent(), "after Write the parser, Write the panel", "the waits are told in words");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Close plan", "the focus comes into the dialog");
+  assert.match(await planDialog.locator(".plan-summary").textContent() ?? "", /1 of 4 done\s*Writing the parser/);
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-flow.png") });
+  await planDialog.getByRole("button", { name: "Steps", exact: true }).click();
+  assert.deepEqual(await planDialog.locator(".plan-step-label").allTextContents(), ["Read the code", "Write the parser", "Write the panel", "Ship it"]);
+  await page.keyboard.press("Escape");
+  await planDialog.waitFor({ state: "detached" });
+  await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+  await planButton.click();
+  await until(async () => await planDialog.locator(".plan-node").count() === 4, "the plan over the terminal");
+  // Escape is the dialog's even over the terminal, and the focus goes back to the button that opened it
+  await page.keyboard.press("Escape");
+  await planDialog.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-button")), true, "the focus goes back on close");
+  await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  await page.unroute("**/api/machines");
+  await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
+  console.log("PASS a pane's plan opens from the header in the chat and the terminal, as a flow and a list");
+
   // Use a real browser paste: keydown must not send Ctrl+V (0x16) to the agent,
   // where it can trigger image paste against the server's unrelated clipboard.
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
@@ -1344,6 +1396,29 @@ try {
   await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
+
+  // a phone: the plan's count fits the header, and the plan opens as a sheet the page does not scroll past
+  const planPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const phone = await planPhone.newPage();
+  phone.on("pageerror", (error) => errors.push(error.message));
+  await planned(phone);
+  await phone.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
+  await phone.locator(".conn-live").waitFor();
+  const phonePlan = phone.getByRole("button", { name: "Plan: 1 of 4 done", exact: true });
+  await phonePlan.waitFor();
+  const header = (await phone.locator(".app-header").boundingBox())!;
+  const counted = (await phonePlan.boundingBox())!;
+  assert.ok(counted.x >= 0 && counted.x + counted.width <= header.width, "the plan's count fits a phone's header");
+  await phonePlan.tap();
+  const phoneDialog = phone.getByRole("dialog", { name: /^Plan/ });
+  await until(async () => await phoneDialog.locator(".plan-node").count() === 4, "the plan on a phone");
+  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (process.env.UI_EVIDENCE_DIR) await phone.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-phone.png") });
+  await phoneDialog.getByRole("button", { name: "Close plan", exact: true }).tap();
+  await phoneDialog.waitFor({ state: "detached" });
+  await planPhone.close();
+  assert.deepEqual(errors, []);
+  console.log("PASS a phone opens the plan from a header it fits in");
 
   // a phone reads a pane before it answers: a pane picked from the drawer raises no keyboard,
   // and a tap on the message box does
