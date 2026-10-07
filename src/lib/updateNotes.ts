@@ -94,8 +94,13 @@ export function announcesUpdate(
   if (!installed?.version || installed.version === dismissed || installed.installed_at === null) return false;
   if (status?.latest_revision && status.latest_revision !== status.current_revision) return false;
   const at = Date.parse(installed.installed_at);
-  return Number.isFinite(at) && now - at < ANNOUNCED_FOR_MS;
+  // an install time in the future is a clock that was set back since: with a day's allowance for
+  // skew, such a line is not shown, or it would stay as long as the clock had been ahead
+  return Number.isFinite(at) && now - at >= -SKEW_ALLOWANCE_MS && now - at < ANNOUNCED_FOR_MS;
 }
+
+/** How far ahead of now an install time may be before it is read as a clock that was set back. */
+export const SKEW_ALLOWANCE_MS = 24 * 60 * 60 * 1000;
 
 const ANNOUNCED_KEY = "herdr-web-ui:update-announced";
 
@@ -106,4 +111,11 @@ export function readAnnounced(): string | null {
 
 export function writeAnnounced(version: string): void {
   try { window.localStorage.setItem(ANNOUNCED_KEY, version); } catch { /* storage blocked: closed until the page reloads */ }
+}
+
+/** Tells `listener` the version another tab of this device closed the line for; returns the unsubscribe. */
+export function watchAnnounced(listener: (version: string | null) => void): () => void {
+  const onStorage = (event: StorageEvent) => { if (event.key === ANNOUNCED_KEY || event.key === null) listener(event.newValue); };
+  window.addEventListener("storage", onStorage);
+  return () => window.removeEventListener("storage", onStorage);
 }

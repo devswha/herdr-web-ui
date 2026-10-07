@@ -3,7 +3,7 @@ import { SUMMARY_GROUPS, type SummaryGroup, type UpdateNotes, type UpdateStatus 
 import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
 import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "../lib/runningVersion.ts";
 import { useSettings } from "../lib/settings.ts";
-import { announcesUpdate, readAnnounced, summaryFor, writeAnnounced } from "../lib/updateNotes.ts";
+import { announcesUpdate, readAnnounced, summaryFor, watchAnnounced, writeAnnounced } from "../lib/updateNotes.ts";
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import { Markdown } from "./Markdown.tsx";
@@ -143,8 +143,9 @@ export function HerdrUpdateControls({ enabled, herdrVersion }: { enabled: boolea
 export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpen: () => void }) {
   const t = useT();
   const { status, error, busy, needsReload, notes, installed, request } = updates;
-  // the version whose line this device closed: opening its notes closes it too
+  // the version whose line this device closed: opening its notes closes it too, in every tab
   const [announced, setAnnounced] = useState(readAnnounced);
+  useEffect(() => watchAnnounced(setAnnounced), []);
   // the check an install starts with reports nothing available until it is done: the line this
   // button sits on must not leave between the tap and the first step
   const [started, setStarted] = useState(false);
