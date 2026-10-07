@@ -18,6 +18,7 @@ bun scripts/demo-build.ts "$HERDR_DEMO_BUILD"
 bun scripts/ui-regression.ts
 bun scripts/sticky-modifiers-regression.ts
 bun scripts/key-bar-customization-demo-regression.ts
+bun scripts/settings-pages-demo-regression.ts
 bun scripts/chat-history-browser-qa.ts
 bun scripts/math-browser-qa.ts
 bun scripts/file-viewer-regression.ts

@@ -5,7 +5,7 @@ input boundary; the terminal screen is still rendered from the attach stream.
 
 ## Input modes and drafts
 
-Settings → Appearance → Terminal input mode offers Automatic, Input line and Direct typing.
+Settings → Terminal → Terminal input mode offers Automatic, Input line and Direct typing.
 Automatic keeps the existing device preference: a touch screen uses the input line unless the
 user previously chose direct typing; a fine pointer uses direct typing. The key bar's keyboard
 button switches modes too, on a touch screen only: a desktop changes the mode in Settings.
@@ -49,7 +49,7 @@ draft is replayed on reconnect. The input-line and chat Send buttons preserve an
 waits for composition to finish. Leaving the input clears its composition guard.
 
 The key bar defaults to Esc, Tab, Ctrl, Alt, Shift, Enter, the arrows and ^C.
-Settings → Appearance → Key bar → Edit key bar opens the complete list: add or remove keys, move each key up or
+Settings → Terminal → Key bar → Edit key bar opens the complete list: add or remove keys, move each key up or
 down, and register a custom combination such as Ctrl+W. The catalog includes editing keys and
 F1–F12; a custom combination can use any single printable character, including space and `+`.
 Existing extra-key preferences migrate to the same visible order. Restore defaults returns the

@@ -82,6 +82,7 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
   // focusable from code only: a button that points here (the header line's) lands on it
   return <section className="settings-section settings-updates" tabIndex={-1} aria-labelledby="settings-updates-title">
     <h3 id="settings-updates-title">{t("Updates")}</h3>
+    <div className="settings-card"><div className="settings-item">
     {/* always a version: the sidebar no longer carries one */}
     <p className="settings-hint">{t("Running {version}", { version: runningAppVersion(status, __APP_VERSION__) })}</p>
     {tabVersion && <p className="settings-hint">{t("This tab still runs {version} until it is reloaded.", { version: tabVersion })}</p>}
@@ -101,6 +102,7 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
     </>}
     {status?.checked_at && <p className="settings-hint">Last checked {new Date(status.checked_at).toLocaleString()}</p>}
     {needsReload && <p className="settings-hint">{t("The server was updated. Save any unsent drafts, then")} <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button></p>}
+    </div></div>
   </section>;
 }
 
@@ -117,12 +119,13 @@ export function HerdrUpdateControls({ enabled, herdrVersion }: { enabled: boolea
   if (!status?.supported) {
     return version ? <section className="settings-section settings-herdr-update">
       <h3>herdr</h3>
-      <p className="settings-hint">{t("Running herdr {version}", { version })}</p>
+      <div className="settings-card"><p className="settings-item settings-hint">{t("Running herdr {version}", { version })}</p></div>
     </section> : null;
   }
   const stale = status.stale && !!status.binary_version && !!status.server_version;
   return <section className="settings-section settings-herdr-update">
     <h3>herdr</h3>
+    <div className="settings-card"><div className="settings-item">
     {version && <p className="settings-hint">{t("Running herdr {version}", { version })}</p>}
     {stale && <p className="settings-hint">{t("herdr {installed} is installed, but the running server is {running}. Updating moves your panes onto the installed version.", { installed: status.binary_version ?? "", running: status.server_version ?? "" })}</p>}
     <p className="settings-hint">{t("Installs the newest herdr on the PC this app runs on and moves its running panes onto it. Panes and agents keep running, and open terminals reconnect.")}</p>
@@ -132,6 +135,7 @@ export function HerdrUpdateControls({ enabled, herdrVersion }: { enabled: boolea
     {(error || busy) && <p className="settings-hint" role="status">{error ?? t("Updating herdr…")}</p>}
     {/* herdr's own words: what it installed, or why it did not */}
     {!busy && status.output && <pre className="update-output" data-failed={status.phase === "error" || undefined}>{status.output}</pre>}
+    </div></div>
   </section>;
 }
 

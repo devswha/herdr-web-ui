@@ -925,16 +925,40 @@ One set for both themes: the card is island black wherever it shows.
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
-- Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`, terminal font
-  family.
-- Composer: Enter sends. Chat: Show thinking, chat width (Narrow 820px / Default, following the
-  pane / Wide 1152px / Full, the pane less its gutters), chat font
-  size and family. Shortcuts: the complete
-  platform-resolved table.
-- Appearance keeps Key bar as a compact description and Edit key bar button. That button opens
+- One page at a time. From 641px the dialog is two columns at a fixed size (`--content-w` wide,
+  `40rem` tall, so turning a page never moves its edge): a `13rem` list of pages on `--bg`
+  (icon + name, the open one on `--bg-hover` with its glyph in `--accent`) and the open page
+  beside it under its own title and the close button. A phone shows one of the two: the sheet
+  (`92%` tall) opens on the list, drawn as one card of rows with a chevron each, and a page
+  replaces it under a Back to settings control. The dialog's accessible name stays **Settings**
+  on every page; the list is a vertical `tablist` with one Tab stop, and the arrows walk it
+  (beside an open page they turn the page too). Escape closes the dialog from any page.
+- Each step into Settings is an entry of the browser's history (`lib/settingsHistory.ts`): the
+  dialog, the page a phone opens from its list, the key bar editor. The system Back button (and
+  an edge swipe) takes one step out and never leaves the app from inside Settings; the Back
+  control, the X, Escape and the scrim take the same entries off. Beside the list, turning pages
+  replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
+- Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
+  (panes open in, show thinking, chat width, chat font size and family; then **Composer**: Enter
+  sends, suggestion chip; then **Quick replies**), **Terminal** (font size and family, wheel
+  speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
+  **Shortcuts** (the complete platform-resolved list), **Phone & devices** (the phone address,
+  Keep screen on, Install; then paired devices), **Remote PCs**, **About** (Updates, herdr,
+  the repository links). A button that points at Updates opens the dialog on About.
+- Every page is built from the same parts (`components/SettingsControls.tsx`). A group is an
+  optional caption (`--fs-sm`, `--fw-semibold`, `--text-dim`, sentence case) over one card:
+  `--bg-elevated`, hairline `--border`, `--radius-lg`, its rows parted by hairlines and never
+  boxed on their own. A row is a label (`--fs-sm`, `--fw-medium`, `--text-strong`) with at most
+  one dim sentence under it (`--fs-xs`, no wider than `54ch`) and one control at the end of the
+  line. The controls are a switch, a segmented control for two to four short choices, a select
+  for five or more, a stepper (minus, value in `--font-mono`, plus, in one bordered well) and a
+  text field; inside a card they sit on `--bg-input`. On a phone a control that needs the line
+  (three or more segments, a text field, or a long sentence above it) goes under its label at
+  the card's width, its segments sharing it equally; the rest stay on the label's line.
+- Terminal keeps Key bar as a compact description and Edit key bar button. That button opens
   a detail screen in the same dialog with its own scroll body and a Back to settings control.
-  Back or Escape returns to the previous Settings scroll position and focuses Edit key bar;
-  closing the dialog resets it to Settings for the next open. The detail lists the terminal keys
+  Back or Escape returns to the Terminal page's scroll position and focuses Edit key bar;
+  closing the dialog resets it for the next open. The detail lists the terminal keys
   in their display order. Every key can be
   removed or moved with up/down buttons; those controls keep `--touch-target` hit areas on phones.
   Add key offers the supported key catalog, and Ctrl/Alt/Shift toggles add or remove held-modifier
@@ -943,10 +967,11 @@ One set for both themes: the card is island black wherever it shows.
   held modifiers. Restore defaults returns the original row. The keyboard mode control stays first.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not
   per keystroke.
-- Remote PCs follows Devices: an **Add PC** row (label, one-line description, button) opens the PC
+- Remote PCs: an **Add PC** row (label, one-line description, button) opens the PC
   setup dialog and closes Settings behind it; when that dialog closes, focus lands on the header's
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
-- Install reflects installed, promptable or browser-instructions state; About links the repository.
+- Install (a row of the Phone group) reflects installed, promptable or browser-instructions state;
+  About links the repository.
 - The running versions are always written, since the sidebar carries none. Updates opens with
   **Running vX.Y.Z (commit)**: the server's version and commit, or the client's own build version
   before the server answers and where it names neither. While the server runs another version than
@@ -955,8 +980,8 @@ One set for both themes: the card is island black wherever it shows.
   **Running herdr X.Y.Z**; where herdr cannot be updated from here (Windows, an older server) the
   section is that line alone, from the health check.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining,
-  Weekly / Session and one hairline card of accounts (`.usage-accounts`, `--radius-md`): an
-  uppercase `--bg-elevated` header, then one 38px row per account
+  Weekly / Session and, under an **Accounts** caption, one card of accounts (`.usage-accounts`):
+  one `--touch-target` row per account
   (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
   a move that cannot happen keeps its column but is not shown). A hidden account's row fades and
   its eye closes; it stays listed so it can be shown again.
@@ -968,7 +993,7 @@ One set for both themes: the card is island black wherever it shows.
 - The mobile key bar is Esc, Tab, sticky Ctrl/Alt/Shift, Enter, arrows and `^C`;
   it never steals typing focus. Modifiers remain highlighted until toggled off,
   leaving the pane/lens or disconnecting; each exposes `aria-pressed`.
-- That is the default row. Settings → Appearance → Key bar can add, remove and reorder every
+- That is the default row. Settings → Terminal → Key bar can add, remove and reorder every
   terminal key and register exact combinations. Removing a held modifier clears it immediately.
   A deliberately empty row retains only the keyboard mode control on a touch screen.
 - The mobile drawer slides over a scrim. Closed visibility removes its controls from the tab order.

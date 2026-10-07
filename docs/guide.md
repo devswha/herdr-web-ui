@@ -232,7 +232,7 @@ The one-line installer runs this for you when Tailscale runs on the PC and does 
 
 Only devices in your tailnet can open that address. Your own devices get in without a code as it is: `tailscale serve` states your login. If your own phone is asked to pair anyway, `HERDR_WEB_TAILSCALE_SERVE_ONLY=1` lets it in without a code on a tailnet one login owns, and only when nothing else, such as a public reverse proxy or tunnel, reaches this port (see [Access and safety](#access-and-safety)). Devices that belong to someone else pair with a six-digit code.
 
-**Settings → Phone** in the app does this step for you as far as it can: it shows the address Tailscale already serves for this PC as a QR code, or the exact command still to run, and the address it will give.
+**Settings → Phone & devices** in the app does this step for you as far as it can: it shows the address Tailscale already serves for this PC as a QR code, or the exact command still to run, and the address it will give.
 
 1. Open the address.
 2. Install the app: in Safari, choose **Share → Add to Home Screen**; in Chrome, choose **Install app**.
@@ -250,13 +250,13 @@ On a phone:
   protocols cannot distinguish every chord (for example Ctrl+I and Tab).
   Draft text in the input line is sent unchanged. Modifiers clear
   when leaving the pane or terminal view, or when the connection drops.
-  **Settings → Appearance → Key bar → Edit key bar** opens a separate screen to add, remove and
+  **Settings → Terminal → Key bar → Edit key bar** opens a separate screen to add, remove and
   reorder every key, including modifier
   buttons. Register a custom combination such as Ctrl+W, choose editing keys or F1–F12, or restore
   the default row. Saved combinations use exactly their selected modifiers; ordinary keys use
   the currently held modifiers. Removing a held modifier button clears it.
 - Dragging the terminal scrolls the real herdr pane.
-- **Settings → Phone → Keep screen on** keeps the screen awake while a terminal or chat
+- **Settings → Phone & devices → Keep screen on** keeps the screen awake while a terminal or chat
   pane is open. It is off by default, releases when the app is hidden, and resumes when
   you return. It needs HTTPS or localhost and browser support; power-saving mode may refuse it.
 
@@ -282,7 +282,7 @@ More in [remote PCs](remote-pcs.md).
 Anyone who can reach the server can type into your terminals, so what matters is who gets in. It listens on `127.0.0.1` by default, which means only this computer. From anywhere else, a request gets in in one of three ways:
 
 - **It is you, says Tailscale.** `tailscale serve` states the requesting device's Tailscale login in a header it strips from anything incoming. A login that matches this PC's own gets in; another login is refused, and a tagged device (one with no person's login) needs pairing. If you set `HERDR_WEB_TAILSCALE_SERVE_ONLY=1` to say `tailscale serve` is the only way in, and `tailscale status` on this PC lists one login on every node it sees and no tagged node, a serve request that states no login is the owner as well: no one else is among those nodes to be mistaken for (a node an ACL hides from this PC is not seen, and cannot reach serve either), so your own phone opens the address and lands in the app with no code. Nothing to set up, unless this PC's own Tailscale node is tagged: it then has no login of its own, so every device pairs, yours included, or you name your login in `HERDR_WEB_TAILSCALE_OWNER`.
-- **It is a paired device.** **Settings → Devices**, on the PC (or on a device already paired), shows a six-digit code that lives ten minutes and a QR code that carries it. On a headless PC, the `pair` command prints the same in its terminal (see [In a terminal](#in-a-terminal)); Devices also shows the pairing link as text, to send to the other device. The other device enters it once and keeps its own credential in an HttpOnly cookie; the list shows it, and **Revoke** immediately closes its terminal connections and roster stream and refuses subsequent requests.
+- **It is a paired device.** **Settings → Phone & devices**, on the PC (or on a device already paired), shows a six-digit code that lives ten minutes and a QR code that carries it. On a headless PC, the `pair` command prints the same in its terminal (see [In a terminal](#in-a-terminal)); Devices also shows the pairing link as text, to send to the other device. The other device enters it once and keeps its own credential in an HttpOnly cookie; the list shows it, and **Revoke** immediately closes its terminal connections and roster stream and refuses subsequent requests.
 - **It holds the token.** `HERDR_WEB_TOKEN`, for scripts and proxies, as a cookie after sign-in or as `Authorization: Bearer <token>`. When a token is set, everything else needs it, this computer and your own Tailscale login included: enter it once on each device, and that browser stays signed in for a year. A paired device still gets in without it.
 
 | How you reach it | What gets you in |
@@ -398,7 +398,7 @@ Updates need a clean checkout: `main` for a source install, or herdr's plugin ch
 
 ### Updating herdr
 
-herdr itself is updated from **Settings → herdr → Update herdr**. herdr refuses `herdr update` typed into one of its panes ("run `herdr update` outside herdr"), and every terminal in the app is a pane, so the server runs it instead, for the herdr on the PC the app runs on:
+herdr itself is updated from **Settings → About → Update herdr**. herdr refuses `herdr update` typed into one of its panes ("run `herdr update` outside herdr"), and every terminal in the app is a pane, so the server runs it instead, for the herdr on the PC the app runs on:
 
 - It installs the newest herdr and moves the running panes onto it with a live handoff. Panes and agents keep running, and open terminals reconnect.
 - If a newer herdr was already installed from a shell, the running server is still the old one: Settings says so, and the button only moves the panes.

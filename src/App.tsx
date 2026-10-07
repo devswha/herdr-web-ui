@@ -11,6 +11,7 @@ import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
+import { onSettingsHistory, recordSettings } from "./lib/settingsHistory.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
@@ -221,6 +222,14 @@ export function App() {
   // set by a button that points at one section of Settings, for that opening alone
   const [settingsSection, setSettingsSection] = useState<"updates" | null>(null);
   const closeSettings = useCallback(() => { setSettingsOpen(false); setSettingsSection(null); }, []);
+  // Settings is in the history (lib/settingsHistory.ts): Back out of its last entry closes it,
+  // Forward onto one opens it again, and closing it any other way takes its entries off
+  useEffect(() => onSettingsHistory((entry, own) => {
+    if (own) return;
+    if (entry === null) closeSettings();
+    else setSettingsOpen(true);
+  }), [closeSettings]);
+  useEffect(() => { if (!settingsOpen) recordSettings([]); }, [settingsOpen]);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   // the dialog makes a tab in this workspace instead of a workspace, while set
   const [newTab, setNewTab] = useState<NewTabTarget | null>(null);

@@ -32,6 +32,7 @@ import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkFolderFilter } from "./folder-filter-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
@@ -364,6 +365,7 @@ try {
   // Add PC lives in Settings → Remote PCs, not in the sidebar; opening it closes Settings behind it
   assert.equal(await page.locator(".sidebar").getByRole("button", { name: "Add PC", exact: true }).count(), 0, "the sidebar has no Add PC button");
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Remote PCs");
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add PC", exact: true }).click();
   await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
@@ -452,6 +454,7 @@ try {
     assert.ok(Date.now() < deadline, "a hide and a show restart the update status poll");
   }
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "About");
   const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
   await checkUpdates.waitFor();
   await checkUpdates.click();
@@ -644,6 +647,7 @@ try {
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Chat");
     await page.getByRole("group", { name: "Chat width", exact: true }).getByRole("button", { name, exact: true }).click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
   };
@@ -722,6 +726,7 @@ try {
   // chosen in Settings, and the box has no button for it
   const quickRow = async (show: boolean): Promise<void> => {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Chat");
     const toggle = page.getByRole("switch", { name: "Show above the message box", exact: true });
     if ((await toggle.getAttribute("aria-checked")) !== String(show)) await toggle.click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
