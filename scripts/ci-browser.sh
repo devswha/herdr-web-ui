@@ -3,7 +3,8 @@
 set -euo pipefail
 # CI's runner image has none of Chromium's system libraries; a PC is not asked for sudo
 if [ -n "${CI:-}" ]; then
-  bash scripts/ci-bounded-retry.sh 300 bun node_modules/playwright-core/cli.js install-deps chromium
+  # as root, so a timed-out attempt's apt can be killed (an unprivileged timeout cannot SIGKILL root's apt)
+  sudo bash scripts/ci-bounded-retry.sh 300 "$(command -v bun)" node_modules/playwright-core/cli.js install-deps chromium
   bun node_modules/playwright-core/cli.js install chromium
 else
   bun node_modules/playwright-core/cli.js install chromium
