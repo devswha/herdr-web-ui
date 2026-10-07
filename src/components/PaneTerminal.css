@@ -218,7 +218,7 @@
   color: var(--text);
 }
 
-.terminal-banner-draft .draft-dropped {
+.terminal-banner-draft .draft-truncated {
   color: var(--text-dim);
 }
 

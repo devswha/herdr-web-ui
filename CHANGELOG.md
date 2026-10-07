@@ -14,6 +14,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   button that opens Settings there. The notes come from the version that is running, so they
   appear from the update after this one.
   ([#535](https://github.com/devswha/herdr-web-ui/pull/535))
+- An update also tells what it brought once it is installed. After the reload, the line under
+  the header says which version now runs, with **What's new** and **Dismiss**, for a week or
+  until it is closed on that device, and **Settings → Updates** keeps the notes under
+  **What the last update brought**. These come from the new version itself, so they appear
+  with the first update to a version that has them.
+  ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
+- A release is told the way a game's patch notes are, before and after its install: a short
+  list under **New features**, **Improvements** and **Bug fixes**, in the app's language
+  (English, Korean, Japanese or Chinese). The changelog entries are folded under
+  **Show every change**. A release that wrote no such list shows its entries as before.
+  ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
 - The one-line installers can give the GitHub star they mention. On a first install, when the gh
   CLI is signed in and that account has not starred the repository, `install.sh` and `install.ps1`
   ask once at the terminal and star only on `y`. An account that already starred hears nothing.
@@ -46,6 +57,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
+- The terminal's **Input held until the terminal is ready** notice appears only when there is
+  text to send or discard, or when text was too long to hold. It no longer counts "special
+  keys dropped": the count rose without a key being pressed, with every answer the terminal
+  gives a program by itself, and with nothing held the notice had only a dash to show. Text
+  past the 1,024 characters it holds is now told as left out, where it only raised that count.
+  ([#561](https://github.com/devswha/herdr-web-ui/pull/561))
 - Settings shows one page at a time. A list of pages (Appearance, Chat, Terminal, Alerts, Voice
   input, Subscription usage, Shortcuts, Phone & devices, Remote PCs, About) stays beside the open
   page; on a phone the list comes first and a page opens from it. Each page groups its settings

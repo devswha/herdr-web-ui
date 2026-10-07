@@ -41,8 +41,11 @@ path; each agent controls when it consumes that input. It is not a native app-se
 
 Direct input arriving before readiness or during a disconnect is held for explicit Send/Discard.
 An IME may commit several code points at once, so printable chunks (including emoji) are retained.
-Control sequences are counted as discarded, never saved for later execution. No draft is replayed
-on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
+Control sequences are left out, never saved for later execution, and not counted: xterm's own
+answers to a program (cursor position, focus, mouse) arrive the same way. Send transmits the held
+text alone, without an Enter typed meanwhile. The draft holds 1,024 characters; text past that is
+left out whole and the notice says some input was left out, also when nothing else is held. No
+draft is replayed on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
 waits for composition to finish. Leaving the input clears its composition guard.
 
 The key bar defaults to Esc, Tab, Ctrl, Alt, Shift, Enter, the arrows and ^C.
