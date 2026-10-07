@@ -77,6 +77,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   listed panes under their working directory. The sidebar always lists workspaces, a repository's
   worktrees under it. A device that had chosen **By folder** shows workspaces again; its workspaces
   and panes are untouched.
+  ([#556](https://github.com/devswha/herdr-web-ui/pull/556))
 - Opened worktree branches appear beneath their repository workspace, using actual branch names
   from herdr's worktree API and keeping custom workspace names beside them. Creating or opening
   a worktree expands its group. The browser demo supports these worktree actions with fictional
