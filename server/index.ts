@@ -1994,11 +1994,16 @@ export function createServer(
               // that answer is on its way must not overtake the typing.
               if (terminalAttachKnown === false || (!attachment && terminalAttachKnown === null)) {
                 const text = message.text;
+                // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
+                const origin = attachment?.clients.has(client) ? attachment : undefined;
+                const claim = client.data.attached.get(message.pane_id);
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) { inputFailed(); return; }
                   // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
                   const shaped = await mirrorInput(text, async () => (await paneContext(message.pane_id)).agent);
+                  if (client.data.attached.get(message.pane_id) !== claim
+                    || (origin && (attachments.get(message.pane_id) !== origin || !origin.clients.has(client)))) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
