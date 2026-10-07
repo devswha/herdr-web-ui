@@ -198,10 +198,13 @@ describe("startStatusCollector recovery", () => {
     herdr.hold();
     herdr.lifecycle().emit({ event: "pane_closed", data: { type: "pane_closed" } });
     await tick(20);
+    log.order.length = 0;
     second.emit(statusFrame("w1:p1", "working"));
     herdr.answerAll();
     await tick();
     expect(log.statuses).toEqual(["w1:p1:idle (was working)", "w1:p1:working"]);
+    // and that snapshot is not handed on for the pane the event spoke of
+    expect(log.order).toEqual(["w1:p1:working", "reconciled w2:p1:idle"]);
     collector.stop();
   });
 
