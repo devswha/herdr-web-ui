@@ -453,11 +453,16 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   animation: sidebar-working var(--dur-pulse) steps(8, end) infinite;
 }
 
-/* Weight follows urgency. Waiting for an answer is the one filled glyph; finished and not yet
-   looked at is a dot, as an unread mark is; running moves, so it needs no color. Waiting and
-   done keep the colors they have on every other surface. */
+/* A question mark asks for an answer; a dot, as an unread mark is, has finished and was not
+   looked at; running moves, so it needs no color. Waiting and done keep the colors they have
+   on every other surface. */
 .sidebar-status[data-status="working"] { color: var(--text-dim); }
-.sidebar-status[data-status="blocked"] svg { fill: currentColor; }
+
+.sidebar-status-mark {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  line-height: 1;
+}
 
 .sidebar-status-dot {
   width: var(--space-2);

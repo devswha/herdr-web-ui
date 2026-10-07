@@ -930,8 +930,8 @@ try {
   const initialWorktree = await initialResponse.json() as WorktreeOpened;
   worktreeWorkspaces.push(initialWorktree.workspace_id);
   const initialRow = page.locator(`.worktree-children .workspace-group[data-workspace="${initialWorktree.workspace_id}"]`);
-  await until(async () => await initialRow.locator(".workspace-name").textContent() === "browser/initial", "the list API discovers an existing worktree's exact branch");
-  assert.equal(await initialRow.locator(".worktree-workspace-label").textContent(), "Existing checkout", "the workspace label is secondary to its branch");
+  await until(async () => await initialRow.locator(".workspace-name").textContent() === "Existing checkout", "a named worktree's row is titled by its workspace name");
+  assert.equal(await initialRow.locator(".worktree-workspace-label").textContent(), "browser/initial", "the list API discovers an existing worktree's exact branch, said after the name");
   assert.equal(await repoRow.locator(".workspace-name").textContent(), "herdr-web-ui-test-repo", "the parent keeps its workspace name");
   // A list read from before creation must not erase the branch supplied by the create response.
   let releaseWorktreeList!: () => void;
@@ -988,8 +988,8 @@ try {
   assert.equal(await childHeader.locator(".sidebar-drag-handle").count(), 0, "the branch workspace has no reorder grip column");
   assert.equal(await repoRow.locator(".workspace-select").getAttribute("draggable"), "true", "the parent workspace row supports dragging");
   assert.equal(await childHeader.locator(".workspace-select").getAttribute("draggable"), "true", "the branch workspace row supports dragging");
-  await until(async () => await childHeader.locator(".workspace-name").textContent() === "browser/sidebar", "a newly created child uses its exact branch including the slash");
-  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "Sidebar redesign");
+  await until(async () => await childHeader.locator(".workspace-name").textContent() === "Sidebar redesign", "a newly created child is titled by the name it was given");
+  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "browser/sidebar", "its exact branch, slash included, follows the name");
   assert.equal(await repoRow.locator(".workspace-toggle").getAttribute("aria-expanded"), "true", "creation expands a previously folded parent");
   assert.equal(await page.locator(`.workspace-group[data-workspace="${repoWorkspace.workspace.workspace_id}"] + .worktree-children > .workspace-list > .workspace-group`).count(), 2,
     "existing and newly created branches share their repository workspace");
@@ -997,7 +997,8 @@ try {
   assert.equal(staleWorktreeListFinished, false, "the create response displays the branch before the pending list finishes");
   releaseWorktreeList();
   await until(() => staleWorktreeListFinished && freshWorktreeListFinished, "the stale inventory is followed by a fresh one");
-  assert.equal(await childHeader.locator(".workspace-name").textContent(), "browser/sidebar", "a pre-create inventory cannot erase the new branch");
+  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "browser/sidebar", "a pre-create inventory cannot erase the new branch");
+  assert.equal(await childHeader.locator(".workspace-name").textContent(), "Sidebar redesign", "nor the name it was given");
   await page.unroute("**/api/worktree/list?*");
   await childHeader.hover();
   await childHeader.locator(".row-menu-toggle").click();
@@ -1006,9 +1007,9 @@ try {
   assert.equal(await childHeader.locator(".workspace-select").getAttribute("draggable"), "false", "an editing field disables row dragging");
   await worktreeRename.fill("Sidebar renamed");
   await worktreeRename.press("Enter");
-  await until(async () => await childHeader.locator(".worktree-workspace-label").textContent() === "Sidebar renamed", "the child workspace label is renamed");
+  await until(async () => await childHeader.locator(".workspace-name").textContent() === "Sidebar renamed", "the child workspace is renamed in its row title");
   assert.equal(await childHeader.locator(".workspace-select").getAttribute("draggable"), "true", "row dragging returns after editing finishes");
-  assert.equal(await childHeader.locator(".workspace-name").textContent(), "browser/sidebar", "renaming a workspace preserves its actual git branch");
+  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "browser/sidebar", "renaming a workspace preserves its actual git branch");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "worktree-branches-sidebar.png") });
   // a workspace row's menu also opens from a right-click on the row
   await repoRow.locator(".workspace-select").click({ button: "right" });
