@@ -11,6 +11,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
+- Settings opened over a file preview is visible above it; Escape and Back close Settings
+  first, preserving the preview and its history entry until the file itself is closed.
 
 ## [0.4.0] - 2026-10-08
 

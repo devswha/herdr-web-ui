@@ -925,6 +925,8 @@ One set for both themes: the card is island black wherever it shows.
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
+- A Settings shortcut opened over a file preview places Settings above it. Settings owns Escape
+  until it closes; the preview keeps its history entry underneath for the next Back or close.
 - One page at a time. From 641px the dialog is two columns at a fixed size (`--content-w` wide,
   `40rem` tall, so turning a page never moves its edge): a `13rem` list of pages on `--bg`
   (icon + name, the open one on `--bg-hover` with its glyph in `--accent`) and the open page

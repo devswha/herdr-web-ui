@@ -663,7 +663,7 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
   const focusable = page ?? PAGES[0]!.id;
 
   return (
-    <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="modal-scrim settings-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       {/* named Settings on every page: the page's own name is the visible title */}
       <section className="modal settings-dialog" role="dialog" aria-modal="true" aria-label={keyBarOpen ? t("Key bar") : t("Settings")}>
         <header className="modal-header settings-header">
