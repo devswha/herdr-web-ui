@@ -26,8 +26,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - The sidebar follows herdr's separate workspace and agent lists, drawn on one quiet grid. Every
   row leads with the coding agent that runs in it (its mark, or a terminal for a shell and a
-  branch for a worktree without an agent) and ends in one status column, drawn by urgency (a filled amber bubble waits for an answer, a
-  blue dot has finished and was not looked at yet, a dim arc runs), which stays empty while
+  branch for a worktree without an agent) and ends in one status column, drawn by urgency (a filled red bubble waits for an answer, a
+  green dot has finished and was not looked at yet, a dim arc runs), which stays empty while
   an agent is ready. Agent rows name the agent, then the PC when there are several, the workspace
   and the tab. Sections are parted by space instead of rules, a row's menu button takes no room
   until the row is hovered or selected, and a workspace row starts with a folder: where linked

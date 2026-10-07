@@ -47,8 +47,6 @@
   --status-working: #6cb8d6;
   --status-blocked: #ff7b70;
   --status-done: #93c36b;
-  --status-attention: #f6c343;
-  --status-unseen: #6cb8d6;
   --status-working-tint: rgba(108, 184, 214, 0.14);
   --status-blocked-tint: rgba(255, 123, 112, 0.14);
   --status-done-tint: rgba(147, 195, 107, 0.14);
@@ -193,8 +191,6 @@
   --status-working: #155a72;
   --status-blocked: #a82323;
   --status-done: #2f6317;
-  --status-attention: #b06800;
-  --status-unseen: #1a6fa8;
   --status-working-tint: rgba(21, 90, 114, 0.12);
   --status-blocked-tint: rgba(168, 35, 35, 0.12);
   --status-done-tint: rgba(47, 99, 23, 0.12);
@@ -244,8 +240,6 @@
   --status-working: #f5b544;
   --status-blocked: #ff6b7a;
   --status-done: #3ddc97;
-  --status-attention: #ff9248;
-  --status-unseen: #38c6f4;
   --status-working-tint: rgba(245, 181, 68, 0.14);
   --status-blocked-tint: rgba(255, 107, 122, 0.14);
   --status-done-tint: rgba(61, 220, 151, 0.14);
@@ -313,8 +307,6 @@
   --status-working: #c2a2af;
   --status-blocked: #e0877f;
   --status-done: #a7b789;
-  --status-attention: #d4b06a;
-  --status-unseen: #8fb3d1;
   --status-working-tint: rgba(194, 162, 175, 0.14);
   --status-blocked-tint: rgba(224, 135, 127, 0.14);
   --status-done-tint: rgba(167, 183, 137, 0.14);
@@ -367,8 +359,6 @@
   --status-working: #89b4fa;
   --status-blocked: #eba0ac;
   --status-done: #a6e3a1;
-  --status-attention: #f9e2af;
-  --status-unseen: #74c7ec;
   --status-working-tint: rgba(137, 180, 250, 0.14);
   --status-blocked-tint: rgba(235, 160, 172, 0.14);
   --status-done-tint: rgba(166, 227, 161, 0.14);
@@ -403,8 +393,6 @@
   --status-working: #1750bf;
   --status-blocked: #ac0c2f;
   --status-done: #28651b;
-  --status-attention: #a35f00;
-  --status-unseen: #136d82;
   --status-working-tint: rgba(23, 80, 191, 0.12);
   --status-blocked-tint: rgba(172, 12, 47, 0.12);
   --status-done-tint: rgba(40, 101, 27, 0.12);
@@ -445,8 +433,6 @@
   --status-working: #85b8ff;
   --status-blocked: #ff94ad;
   --status-done: #92d9ab;
-  --status-attention: #ffd166;
-  --status-unseen: #6fd3e8;
   --status-working-tint: rgba(133, 184, 255, 0.14);
   --status-blocked-tint: rgba(255, 148, 173, 0.14);
   --status-done-tint: rgba(146, 217, 171, 0.14);
@@ -481,8 +467,6 @@
   --status-working: #1f4aa6;
   --status-blocked: #9c2044;
   --status-done: #1f5c39;
-  --status-attention: #b06a00;
-  --status-unseen: #1b6f8f;
   --status-working-tint: rgba(31, 74, 166, 0.12);
   --status-blocked-tint: rgba(156, 32, 68, 0.12);
   --status-done-tint: rgba(31, 92, 57, 0.12);
