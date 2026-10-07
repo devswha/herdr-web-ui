@@ -430,10 +430,23 @@ try {
     if (hidden) Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
     else delete (document as unknown as Record<string, unknown>).visibilityState;
     document.dispatchEvent(new Event("visibilitychange"));
+    // The app takes the change in a task it posts during the event. A hide and a show sent one
+    // after the other both land before that task, and are one render in which nothing changed:
+    // a task of the page's own, posted after the app's, has run once the app has taken it.
+    return new Promise<void>((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => resolve();
+      channel.port2.postMessage(null);
+    });
   }, hidden);
   // the idle status poll runs every 30 s: a hide and a show restart it at once, onto the fake
-  await setPageHidden(true);
-  await setPageHidden(false);
+  for (const deadline = Date.now() + 10_000; ;) {
+    const restarted = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/updates", { timeout: 2_000 }).then(() => true, () => false);
+    await setPageHidden(true);
+    await setPageHidden(false);
+    if (await restarted) break;
+    assert.ok(Date.now() < deadline, "a hide and a show restart the update status poll");
+  }
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
   await checkUpdates.waitFor();

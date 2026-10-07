@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Eye, EyeOff, Minus, Monitor, Plus, Star, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowLeft, ChevronDown, ChevronUp, Eye, EyeOff, Minus, Monitor, Plus, Star, X } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -8,8 +8,7 @@ import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
-import { KEY_BAR_EXTRAS } from "../lib/keys.ts";
-import { EXTRA_KEY_CAPS } from "./KeyBar.tsx";
+import { KeyBarSettings } from "./KeyBarSettings.tsx";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
@@ -28,6 +27,8 @@ import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
   open: boolean;
+  /** the section to open on, for a button that points at it; the top otherwise */
+  section?: "updates" | null;
   onClose: () => void;
   actions: AppActions;
   updates: UpdatesModel;
@@ -138,13 +139,42 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   );
 }
 
-export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, section = null, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   // the accounts to order and hide: the same report the meters show, from the server's cache
   const usage = useUsage(open && settings.showUsage);
   const t = useT();
   const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
+  const [keyBarOpen, setKeyBarOpen] = useState(false);
+  const keyBarButtonRef = useRef<HTMLButtonElement>(null);
+  const keyBarBackRef = useRef<HTMLButtonElement>(null);
+  const settingsBodyRef = useRef<HTMLDivElement>(null);
+  const settingsScrollRef = useRef(0);
+  const wasKeyBarOpen = useRef(false);
+  const openKeyBar = (): void => {
+    settingsScrollRef.current = settingsBodyRef.current?.scrollTop ?? 0;
+    setKeyBarOpen(true);
+  };
+  useLayoutEffect(() => {
+    if (!open) {
+      wasKeyBarOpen.current = false;
+      if (keyBarOpen) setKeyBarOpen(false);
+      return;
+    }
+    if (keyBarOpen) keyBarBackRef.current?.focus();
+    else if (wasKeyBarOpen.current) {
+      if (settingsBodyRef.current) settingsBodyRef.current.scrollTop = settingsScrollRef.current;
+      keyBarButtonRef.current?.focus({ preventScroll: true });
+    } else {
+      // Updates is the last of a long list: a button that points at it opens on it, and the
+      // focus goes there too, or the next Tab would scroll back to the top
+      const pointed = section === "updates" ? settingsBodyRef.current?.querySelector<HTMLElement>(".settings-updates") : null;
+      if (pointed) { pointed.focus({ preventScroll: true }); pointed.scrollIntoView(); }
+      else firstControlRef.current?.focus();
+    }
+    wasKeyBarOpen.current = keyBarOpen;
+  }, [open, keyBarOpen, section]);
   // the Sound switch as last set: the preview waits for the audio, and must not play once it is off
   const alertSoundWanted = useRef(settings.alertSound);
   // server-side: the web server updates PC bridges, so it keeps this choice
@@ -202,15 +232,16 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
 
   useEffect(() => {
     if (!open) return;
-    firstControlRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
+      // an Escape that cancels an IME composition (the editor's Character field) is the IME's
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
-      onClose();
+      if (keyBarOpen) setKeyBarOpen(false);
+      else onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open, onClose]);
+  }, [open, onClose, keyBarOpen]);
 
   if (!open) return null;
 
@@ -218,10 +249,11 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
     <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="modal settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="modal-header">
-          <h2 className="modal-title" id="settings-title">{t("Settings")}</h2>
+          {keyBarOpen && <button type="button" ref={keyBarBackRef} className="icon-button" aria-label={t("Back to settings")} onClick={() => setKeyBarOpen(false)}><ArrowLeft aria-hidden="true" /></button>}
+          <h2 className="modal-title" id="settings-title">{keyBarOpen ? t("Key bar") : t("Settings")}</h2>
           <button type="button" className="icon-button" aria-label={t("Close settings")} onClick={onClose}><X /></button>
         </header>
-        <div className="modal-body settings-body">
+        <div ref={settingsBodyRef} className="modal-body settings-body" hidden={keyBarOpen}>
           <section className="settings-section">
             <h3>{t("Appearance")}</h3>
             <div className="settings-row">
@@ -309,20 +341,9 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
                 <option value="auto">{t("Automatic")}</option><option value="line">{t("Input line")}</option><option value="direct">{t("Direct typing")}</option>
               </select>
             </div>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Key bar")}</span><span className="settings-description">{t("Extra keys in the bar under the terminal on a touch screen. Esc, Tab, Ctrl, the arrows and ^C are always there.")}</span></div>
-            </div>
-            <div className="key-bar-extras" role="group" aria-label={t("Key bar")}>
-              {KEY_BAR_EXTRAS.map((extra) => {
-                const { cap, label } = EXTRA_KEY_CAPS[extra];
-                const on = settings.keyBarExtras.includes(extra);
-                return (
-                  <button key={extra} type="button" aria-pressed={on} aria-label={label ? t(label) : undefined} title={label ? t(label) : undefined}
-                    onClick={() => update({ keyBarExtras: on ? settings.keyBarExtras.filter((chosen) => chosen !== extra) : [...settings.keyBarExtras, extra] })}>
-                    {cap}
-                  </button>
-                );
-              })}
+            <div className="settings-row settings-key-bar-row">
+              <div><span className="settings-label">{t("Key bar")}</span><span className="settings-description">{t("Keys, order and custom combinations for the terminal.")}</span></div>
+              <button type="button" ref={keyBarButtonRef} className="btn" onClick={openKeyBar}>{t("Edit key bar")}</button>
             </div>
           </section>
 
@@ -614,6 +635,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
           <UpdateControls updates={updates} bridgesFollow={pcSettings?.auto_update_bridges === true} />
           <HerdrUpdateControls enabled={open} herdrVersion={herdrVersion} />
         </div>
+        {keyBarOpen && <div className="modal-body settings-key-bar-body"><KeyBarSettings /></div>}
       </section>
     </div>
   );

@@ -28,7 +28,7 @@ import type {
   WorktreeRemoved,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
-import type { HerdrUpdateStatus, UpdateCommand, UpdateStatus } from "../../shared/update.ts";
+import { readUpdateNotes, type HerdrUpdateStatus, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
@@ -46,6 +46,11 @@ export function fetchUsage(refresh = false): Promise<UsageReport> {
 
 export function fetchUpdateStatus(): Promise<UpdateStatus> {
   return getJson<UpdateStatus>("/api/updates");
+}
+
+/** What the available update brings. A server older than the notes answers with an error. */
+export async function fetchUpdateNotes(): Promise<UpdateNotes> {
+  return readUpdateNotes(await getJson<unknown>("/api/updates/notes"));
 }
 
 export async function requestUpdate(command: UpdateCommand): Promise<void> {
