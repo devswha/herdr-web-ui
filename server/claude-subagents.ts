@@ -120,9 +120,9 @@ export function lineNotifications(line: string): TaskNotification[] {
  * one that does not fit READ_BUDGET is skipped, not waited for. `more`: the file goes on past
  * what this read looked at.
  */
-function readLines(path: string, from: number, size: number, limit: number, each: (line: string) => void, skipping: boolean): { offset: number; skipping: boolean; more: boolean } {
+export function readLines(path: string, from: number, size: number, limit: number, each: (line: string) => void, skipping: boolean): { offset: number; skipping: boolean; more: boolean; failed?: true } {
   let fd: number;
-  try { fd = openSync(path, "r"); } catch { return { offset: from, skipping, more: false }; }
+  try { fd = openSync(path, "r"); } catch { return { offset: from, skipping, more: false, failed: true }; }
   try {
     const length = Math.min(size - from, limit);
     const buffer = Buffer.alloc(length);
@@ -148,10 +148,10 @@ function readLines(path: string, from: number, size: number, limit: number, each
     }
     for (const line of buffer.subarray(start, end).toString("utf8").split("\n")) if (line.length > 0) each(line);
     return { offset: from + end, skipping: false, more };
-  } catch { return { offset: from, skipping, more: false }; } finally { closeSync(fd); }
+  } catch { return { offset: from, skipping, more: false, failed: true }; } finally { closeSync(fd); }
 }
 
-function plain(path: string, max = Infinity): { size: number; mtimeMs: number; id: string } | null {
+export function plain(path: string, max = Infinity): { size: number; mtimeMs: number; id: string } | null {
   try {
     const stat = lstatSync(path);
     return stat.isFile() && stat.size <= max ? { size: stat.size, mtimeMs: stat.mtimeMs, id: `${stat.dev}:${stat.ino}` } : null;

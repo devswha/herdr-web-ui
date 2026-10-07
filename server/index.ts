@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PanePlan, PendingMessage, PlanSummary, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -21,6 +21,8 @@ import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { ClaudeSubagentStatus, claudeSubagents, within } from "./claude-subagents.ts";
+import { SessionPlans } from "./session-plan.ts";
+import { codexOpenRollout, paneCodexHome } from "./codex.ts";
 import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
@@ -680,21 +682,36 @@ export function createServer(
     pid: claudePanePid,
     onChange: (paneId, running) => claudeAgentsChanged(paneId, running),
   });
+  /** the plan each Claude Code and Codex pane's agent keeps, for the sidebar's progress (server/session-plan.ts) */
+  const plans = new SessionPlans({
+    claudePath: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null,
+    // only what is certain without reading the screen: the chat's own matching stays the chat's
+    codexPath: async (pane) => codexOpenRollout(pane.pane_id, pane.cwd, await paneCodexHome(pane.pane_id, options.codexHome)),
+    onChange: (paneId, summary) => planChanged(paneId, summary),
+  });
   /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
   const rawSnapshot = async (): Promise<SessionSnapshot> => {
     const snapshot = await sessionSnapshot();
     await omo.refresh(snapshot.panes);
     const named = omo.apply(snapshot);
-    // not waited for: finding a transcript costs process calls, and a snapshot must not wait on them
-    void claudeAgents.refresh(named.panes).catch(() => undefined);
+    // not waited for: finding a transcript costs process calls, and a snapshot must not wait on them.
+    // The plans come after: a Claude pane's transcript is the one the subagent tracker found
+    void claudeAgents.refresh(named.panes).catch(() => undefined).then(() => plans.refresh(named.panes)).catch(() => undefined);
     return named;
   };
   const backgroundOf = (paneId: string): number => omo.backgroundOf(paneId) || claudeAgents.countOf(paneId);
-  /** the snapshot clients get: finishes settled, OmO panes named, their running background tasks counted */
+  /** the snapshot clients get: finishes settled, OmO panes named, their running background tasks counted, their plans' progress */
   const clientSnapshot = async (): Promise<SessionSnapshot> => {
     const snapshot = await completions.readSnapshot(rawSnapshot);
-    if (!snapshot.panes.some((pane) => backgroundOf(pane.pane_id) > 0)) return snapshot;
-    return { ...snapshot, panes: snapshot.panes.map((pane) => backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: backgroundOf(pane.pane_id) } : pane) };
+    if (!snapshot.panes.some((pane) => backgroundOf(pane.pane_id) > 0 || plans.summaryOf(pane.pane_id) !== null)) return snapshot;
+    return {
+      ...snapshot,
+      panes: snapshot.panes.map((pane) => {
+        const background = backgroundOf(pane.pane_id);
+        const plan = plans.summaryOf(pane.pane_id);
+        return background > 0 || plan !== null ? { ...pane, ...(background > 0 ? { background_tasks: background } : {}), ...(plan !== null ? { plan } : {}) } : pane;
+      }),
+    };
   };
   const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions, clientSnapshot);
   const bridgeToken = randomBytes(32).toString("hex");
@@ -1135,6 +1152,13 @@ export function createServer(
     if (status !== undefined) broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: running });
   }
 
+  /** A pane's plan moved on: no turn either, so the status stands and nothing is alerted. */
+  function planChanged(paneId: string, plan: PlanSummary | null): void {
+    const status = completions.current(paneId);
+    // a pane never reported here carries its plan in the next snapshot
+    if (status !== undefined) broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, plan });
+  }
+
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
       // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
@@ -1197,6 +1221,7 @@ export function createServer(
   }, { snapshot: rawSnapshot });
   omo.start();
   claudeAgents.start();
+  plans.start();
 
   const envPort = process.env["PORT"];
   const server = Bun.serve<SocketData>({
@@ -1663,6 +1688,24 @@ export function createServer(
           return jsonResponse({ tasks: claude === null ? [] : claudeSubagents(claude.path, claude.live, Date.now(), claude.startedAt), runs: [], server_time });
         }
         return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });
+      }
+
+      if (pathname === "/api/pane/plan") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        const paneId = url.searchParams.get("pane_id");
+        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+        // a pane the background lookup has not got to yet is looked up here, for a second at most.
+        // An OmO pane reads as `claude` in herdr's own snapshot: its plan is no Claude task list
+        if (!plans.known(paneId) && omo.sessionOf(paneId) === null) {
+          await within(1000, (async () => {
+            const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+            if (pane?.agent === "claude") await claudeAgents.ensure(pane);
+            if (pane) await plans.ensure(pane, true);
+          })());
+        }
+        const steps = plans.planOf(paneId);
+        const answer: PanePlan = { plan: steps === null ? null : { steps }, server_time: new Date().toISOString() };
+        return jsonResponse(answer);
       }
 
       if (pathname === "/api/pane/read") {
@@ -2327,6 +2370,7 @@ export function createServer(
       collector.stop();
       omo.stop();
       claudeAgents.stop();
+      plans.stop();
       machines?.stop();
       registration?.close();
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);

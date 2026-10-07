@@ -41,6 +41,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   running ones, and a subagent that ends leaves a card in the chat with its answer instead of
   being hidden. They are read from the session's own `subagents/` files and its transcript.
   ([#527](https://github.com/devswha/herdr-web-ui/pull/527))
+- The plan a Claude Code or Codex pane's agent keeps (Claude Code's task list, Codex's
+  `update_plan` checklist) now shows: a count in the header opens it, in the chat and the
+  terminal alike, as a flow of boxes (a step below the steps it waits on) or as a list, with
+  what the running step does and how long each step took, and the sidebar row carries the same
+  count. It is read back from the session's transcript; nothing new is asked of the agent.
 
 ### Changed
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during

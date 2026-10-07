@@ -27,8 +27,11 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } f
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
 export type HerdrTab = TabInfo;
-/** `background_tasks`: an OmO pane's `task` children or a Claude Code pane's subagents still running, counted by the server; absent when none */
-export type HerdrPane = PaneInfo & { background_tasks?: number };
+/**
+ * `background_tasks`: an OmO pane's `task` children or a Claude Code pane's subagents still running, counted by the server; absent when none.
+ * `plan`: how far the plan the pane's agent keeps (Claude Code's task list, Codex's checklist) has got; absent when it keeps none.
+ */
+export type HerdrPane = PaneInfo & { background_tasks?: number; plan?: PlanSummary };
 
 export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
 
@@ -83,6 +86,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         pane's OmO session started, or a Claude Code pane's subagents (no workflows): running ones, then
  *         those that ended in the last day; empty for any other pane or one whose session is not
  *         known yet. server_time: that PC's clock, which the times are on)
+ *  GET    /api/pane/plan?pane_id=       -> PanePlan (the plan the pane's Claude Code or Codex session
+ *         keeps: its task list or checklist, read from the transcript; null when it keeps none)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
@@ -361,6 +366,38 @@ export interface OmoActivity {
   runs: OmoRun[];
   /** the PC's clock, which the times are on */
   server_time: string;
+}
+
+/**
+ * One step of the plan an agent keeps for its session (GET /api/pane/plan): a task of Claude
+ * Code's task list (`TaskCreate`/`TaskUpdate`), or an item of Codex's `update_plan` checklist.
+ */
+export interface PlanStep {
+  id: string;
+  label: string;
+  /** what it does now, in the agent's own words (Claude's `activeForm`), when it gave some */
+  active: string | null;
+  status: "pending" | "in_progress" | "completed";
+  /** the steps it waits on: Claude's `blockedBy`, or for Codex the step before it */
+  blocked_by: string[];
+  /** the teammate it was given to, in a Claude Code agent team */
+  owner: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+/** GET /api/pane/plan: the plan the pane's agent keeps now, null when it keeps none. */
+export interface PanePlan {
+  plan: { steps: PlanStep[] } | null;
+  /** the PC's clock, which the times are on */
+  server_time: string;
+}
+
+/** How far a pane's plan has got, for the sidebar: `current` names the step in progress. */
+export interface PlanSummary {
+  done: number;
+  total: number;
+  current: string | null;
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */
@@ -683,7 +720,7 @@ export type ServerMessage =
   | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" }> }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
-  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents), when the frame is about them: it changes no status */ background_tasks?: number }
+  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents), when the frame is about them: it changes no status */ background_tasks?: number; /** a pane's plan, when the frame is about it (null: it keeps none now); it changes no status */ plan?: PlanSummary | null }
   /** a pane's process exited (pushed even when nobody is attached to it) */
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */

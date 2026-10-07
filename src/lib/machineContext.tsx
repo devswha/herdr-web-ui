@@ -16,6 +16,7 @@ export function useMachineApi() {
     fetchPaneCommands: (pane: string) => api.fetchPaneCommands(pane, id),
     fetchPaneFiles: (pane: string, query: string, limit = 20) => api.fetchPaneFiles(pane, query, limit, id),
     fetchPaneOmoActivity: (pane: string) => api.fetchPaneOmoActivity(pane, id),
+    fetchPanePlan: (pane: string) => api.fetchPanePlan(pane, id),
     closePane: (pane: string) => api.closePane(pane, id),
     closeWorkspace: (workspace: string, closeGroup = false) => api.closeWorkspace(workspace, id, closeGroup),
     createWorktree: (request: CreateWorktreeRequest) => api.createWorktree(request, id),
