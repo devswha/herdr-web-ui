@@ -19,9 +19,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   until it is closed on that device, and **Settings → Updates** keeps the notes under
   **What the last update brought**. These come from the new version itself, so they appear
   with the first update to a version that has them.
+  ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
 - A release is told in a few sentences, in the app's language (English, Korean, Japanese or
   Chinese), before and after its install. The changelog entries are folded under
   **Show every change**. A release that wrote no summary shows its entries as before.
+  ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
 - **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
   agent is doing, with the workspace and folder under it, as the sidebar did before its rows
   became one line. **One line**, the workspace's name alone, stays the default.
