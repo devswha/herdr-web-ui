@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { Machine } from "../../shared/machines.ts";
 import type { AgentStatus, PaneInfo } from "../../shared/protocol.ts";
 import { useSettings } from "./settings.ts";
-import { liveSeqs, loadSeen, markSeen, newSeqMemory, pruneSeen, saveSeen, seedSeen, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
+import { anySeen, carrySeen, forgetSeen, liveSeqs, loadSeen, markSeen, newSeqMemory, pruneSeen, saveSeen, seedSeen, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
 
 export interface SidebarActivity {
   /** herdr's state_change_seq per pane on a PC, a pushed status change dated at once */
@@ -32,8 +32,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
     return [machine.id, liveSeqs(machine.snapshot, memory)] as const;
   })), [machines]);
 
-  // The pane on screen, while the page is visible, is looked at at its current counter. A PC's
-  // first record counts everything open as looked at, so turning the setting on starts quiet.
+  // The pane on screen, while the page is visible, is looked at at its current counter. The first
+  // time the setting is on in this browser, everything open counts as looked at, so the lists
+  // start quiet; a PC first seen after that starts with nothing looked at.
   const [seen, setSeen] = useState<ReadonlyMap<string, SeenRecord>>(() => new Map());
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === "visible");
   useEffect(() => {
@@ -43,6 +44,7 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   }, []);
   useEffect(() => {
     if (!settings.quietOpenedDone) return;
+    const firstUse = !anySeen();
     setSeen((current) => {
       let next: Map<string, SeenRecord> | null = null;
       for (const machine of machines) {
@@ -50,7 +52,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
         if (!machine.snapshot || machine.state !== "connected") continue;
         const seqs = seqsByMachine.get(machine.id) ?? NO_SEQS;
         const before = current.get(machine.id);
-        let record = before ?? loadSeen(machine.id) ?? seedSeen(machine.snapshot.panes, seqs);
+        let record = before ?? loadSeen(machine.id) ?? (firstUse ? seedSeen(machine.snapshot.panes, seqs) : {});
+        // a look recorded at a stand-in counter follows it to herdr's own (lib/sidebarOrder.ts carrySeen)
+        record = carrySeen(record, memories.current.get(machine.id)?.promoted ?? new Map());
         const seq = machine.id === selectedMachineId && selectedPaneId && pageVisible ? seqs.get(selectedPaneId) : undefined;
         if (selectedPaneId && seq !== undefined) record = markSeen(record, selectedPaneId, seq);
         record = pruneSeen(record, machine.snapshot.panes);
@@ -62,11 +66,24 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   useEffect(() => {
     for (const [machineId, record] of seen) saveSeen(machineId, record);
   }, [seen]);
+  // a removed PC takes its record with it; an empty roster is one still loading
+  useEffect(() => {
+    if (machines.length === 0) return;
+    const ids = new Set(machines.map((machine) => machine.id));
+    forgetSeen(ids);
+    setSeen((current) => [...current.keys()].every((id) => ids.has(id)) ? current : new Map([...current].filter(([id]) => ids.has(id))));
+  }, [machines]);
 
+  // drawn with the carry applied too, so a finish looked at does not flash its dot for the one
+  // render between the roster read and the effect above
+  const carryOpened = (machineId: string): SeenRecord | null => {
+    const record = seen.get(machineId);
+    return record ? carrySeen(record, memories.current.get(machineId)?.promoted ?? new Map()) : null;
+  };
   return useMemo<SidebarActivity>(() => ({
     seqs: (machineId) => seqsByMachine.get(machineId) ?? NO_SEQS,
     status: (machineId, pane) => settings.quietOpenedDone
-      ? shownStatus(pane, seqsByMachine.get(machineId) ?? NO_SEQS, seen.get(machineId) ?? null)
+      ? shownStatus(pane, seqsByMachine.get(machineId) ?? NO_SEQS, carryOpened(machineId))
       : pane.agent_status,
   }), [seqsByMachine, seen, settings.quietOpenedDone]);
 }

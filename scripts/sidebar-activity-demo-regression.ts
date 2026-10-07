@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import panes from "../site/demo/fixtures/panes.json";
+import { buildDemoApp } from "./demo-build.ts";
 
 // Settings → Agents order (Activity) and Quiet opened finishes, on the unmodified app over the
 // demo's fixture transport, whose agents carry herdr's state_change_seq and bump it on every state
 // change. The demo's Claude pane finishes by itself 4.5s in (site/demo/transport.ts), and a message
 // sent from a chat runs for 2.4s and then finishes. All files and HTTP traffic stay in this
 // disposable, loopback-only app; no herdr session is opened.
-const repo = join(import.meta.dir, "..");
 const app = mkdtempSync(join(tmpdir(), "herdr-sidebar-activity-demo-"));
 
 const API = "Idempotent payments";        // claude, working, finishes by itself
@@ -49,14 +49,7 @@ async function withPage(browser: Browser, settings: object, run: (page: Page) =>
 
 let url = "";
 try {
-  const build = Bun.spawnSync([join(repo, "node_modules/.bin/vite"), "build", "--base", "./", "--outDir", app, "--emptyOutDir", "--logLevel", "warn"], { cwd: repo });
-  assert.equal(build.exitCode, 0, new TextDecoder().decode(build.stderr));
-  const transport = await Bun.build({
-    entrypoints: [join(repo, "site/demo/transport.ts")], outdir: app,
-    naming: "demo-transport.js", target: "browser",
-    define: { __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).version) },
-  });
-  assert.ok(transport.success, transport.logs.map(String).join("\n"));
+  await buildDemoApp(app);
   const index = join(app, "index.html");
   const html = readFileSync(index, "utf8");
   assert.match(html, /<script type="module"/);
@@ -114,6 +107,36 @@ try {
         assert.equal(await agentStatus(page, API), "done", "a finish never opened keeps its dot");
         const record = JSON.parse(await page.evaluate(() => localStorage.getItem("herdr-web-ui:seen:local") ?? "{}")) as Record<string, number>;
         assert.ok(record[panes.infra]! > record[panes.api]!, `the opened finish is recorded past the unopened one: ${JSON.stringify(record)}`);
+
+        // a finish watched on screen stays quiet after another pane is opened before the roster
+        // read brings herdr's counter for it (#529 review): the look follows the counter. Roster
+        // reads are held for that window, so the statuses come by push alone, as they do between reads
+        await page.evaluate(() => {
+          const page = window as unknown as { holdRoster: boolean; releaseRoster: () => void };
+          const inner = window.fetch.bind(window);
+          const waiting: Array<() => void> = [];
+          page.holdRoster = true;
+          page.releaseRoster = () => { page.holdRoster = false; for (const resume of waiting.splice(0)) resume(); };
+          window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+            const target = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            if (page.holdRoster && /\/api\/(machines|session)\b/.test(target)) await new Promise<void>((resume) => waiting.push(resume));
+            return inner(input, init);
+          }) as typeof fetch;
+        });
+        await page.locator(".composer-text").fill("And once more");
+        await page.locator(".composer-text").press("Enter");
+        await waitStatus(page, INFRA, "working");
+        await waitStatus(page, INFRA, "idle");
+        await page.locator(".machine-workspaces .workspace-select", { hasText: "release" }).first().click();
+        // the held reads go through, and a visibility change asks for one more: herdr's counter arrives
+        await page.evaluate(() => {
+          (window as unknown as { releaseRoster: () => void }).releaseRoster();
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        for (const deadline = Date.now() + 2_000; Date.now() < deadline;) {
+          assert.equal(await agentStatus(page, INFRA), "idle", "a finish watched on screen does not get its dot back");
+          await page.waitForTimeout(100);
+        }
       });
       console.log("PASS Activity pins blocked and follows recency; an opened DONE reads as ready in both lists, an unopened one keeps its dot");
     } finally {

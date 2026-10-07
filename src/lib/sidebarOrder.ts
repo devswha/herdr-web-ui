@@ -21,23 +21,27 @@ export type SeenRecord = Readonly<Record<string, number>>;
 export function stateSeqs(snapshot: Pick<SessionSnapshot, "agents"> | null | undefined): Map<string, number> {
   const seqs = new Map<string, number>();
   for (const agent of snapshot?.agents ?? []) {
-    const seq = (agent as { state_change_seq?: unknown }).state_change_seq;
-    if (typeof seq === "number" && Number.isFinite(seq)) seqs.set(agent.pane_id, seq);
+    const seq = agent.state_change_seq;
+    if (seq !== undefined && Number.isFinite(seq)) seqs.set(agent.pane_id, seq);
   }
   return seqs;
 }
 
-/** What `liveSeqs` remembers between snapshots: each pane's last status, and the changes it dated itself. */
-export interface SeqMemory { status: Map<string, unknown>; bumped: Map<string, number> }
-export const newSeqMemory = (): SeqMemory => ({ status: new Map(), bumped: new Map() });
+/**
+ * What `liveSeqs` remembers between snapshots: each pane's last status, the changes it dated
+ * itself (`bumped`), and for each pane the last stand-in herdr's own counter replaced
+ * (`promoted`, stand-in → counter), so a record made at the stand-in can follow it (`carrySeen`).
+ */
+export interface SeqMemory { status: Map<string, unknown>; bumped: Map<string, number>; promoted: Map<string, { from: number; to: number }> }
+export const newSeqMemory = (): SeqMemory => ({ status: new Map(), bumped: new Map(), promoted: new Map() });
 
 /**
  * `stateSeqs`, kept in step with pushed statuses. A pane-status push lands in the snapshot at once
  * (applyPaneStatus), but the counter only comes with the next roster read, up to POLL_MS later: a
  * pane sent a message would sit in its old place, and a finish seen through that gap would count as
  * viewed at the old counter. So a status that changed since the last call is dated now, just above
- * every counter known; herdr's own counter for that change is higher and takes over when it comes.
- * Mutates `memory`.
+ * every counter known; herdr's own counter for that change is higher and takes over when it comes,
+ * and the swap is kept in `memory.promoted`. Mutates `memory`.
  */
 export function liveSeqs(snapshot: Pick<SessionSnapshot, "agents" | "panes"> | null | undefined, memory: SeqMemory): Map<string, number> {
   const seqs = stateSeqs(snapshot);
@@ -49,9 +53,13 @@ export function liveSeqs(snapshot: Pick<SessionSnapshot, "agents" | "panes"> | n
     memory.status.set(pane.pane_id, pane.agent_status);
   }
   const open = new Set(panes.map((pane) => pane.pane_id));
-  for (const id of memory.status.keys()) if (!open.has(id) && panes.length > 0) memory.status.delete(id);
+  if (panes.length > 0) {
+    for (const id of memory.status.keys()) if (!open.has(id)) memory.status.delete(id);
+    for (const id of memory.promoted.keys()) if (!open.has(id)) memory.promoted.delete(id);
+  }
   for (const [id, bump] of memory.bumped) {
     const real = seqs.get(id);
+    if (real !== undefined && real > bump) memory.promoted.set(id, { from: bump, to: real });
     if (real === undefined || real > bump) memory.bumped.delete(id);
     else seqs.set(id, bump);
   }
@@ -71,7 +79,7 @@ export function shownStatus(pane: Pick<PaneInfo, "pane_id" | "agent_status">, se
   return seen && isSeenDone(pane, seqs, seen) ? "idle" : pane.agent_status;
 }
 
-/** The first record on a browser: everything open now counts as seen, so turning the setting on quiets what is already there. */
+/** A first record: everything open now counts as looked at. Used the first time the setting is on in a browser, so the lists start quiet. */
 export function seedSeen(panes: readonly Pick<PaneInfo, "pane_id">[], seqs: ReadonlyMap<string, number>): SeenRecord {
   const record: Record<string, number> = {};
   for (const pane of panes) {
@@ -84,6 +92,17 @@ export function seedSeen(panes: readonly Pick<PaneInfo, "pane_id">[], seqs: Read
 /** The record with `paneId` seen at `seq`; the same object when nothing changes, so state does not churn. */
 export function markSeen(record: SeenRecord, paneId: string, seq: number): SeenRecord {
   return record[paneId] === seq ? record : { ...record, [paneId]: seq };
+}
+
+/**
+ * The record with each entry made at a stand-in counter moved onto the counter herdr gave that
+ * change (`SeqMemory.promoted`); the same object when none was. Without it, a finish looked at
+ * before the roster read brought its counter would read as not looked at once it did.
+ */
+export function carrySeen(record: SeenRecord, promoted: ReadonlyMap<string, { from: number; to: number }>): SeenRecord {
+  let next: Record<string, number> | null = null;
+  for (const [id, { from, to }] of promoted) if (record[id] === from) (next ??= { ...record })[id] = to;
+  return next ?? record;
 }
 
 /** The record without panes that closed; the same object when none did. An empty roster keeps it (herdr restarting). */
@@ -126,6 +145,27 @@ export function loadSeen(machineId: string): SeenRecord | null {
   } catch {
     return null;
   }
+}
+
+/** Whether this browser has a record for any PC: the setting was turned on here before. */
+export function anySeen(): boolean {
+  try {
+    for (let index = 0; index < localStorage.length; index++) if (localStorage.key(index)?.startsWith(seenKey(""))) return true;
+  } catch { /* storage blocked */ }
+  return false;
+}
+
+/** Drops the records of PCs no longer in the roster. */
+export function forgetSeen(machineIds: Iterable<string>): void {
+  const keep = new Set([...machineIds].map(seenKey));
+  try {
+    const stale: string[] = [];
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(seenKey("")) && !keep.has(key)) stale.push(key);
+    }
+    for (const key of stale) localStorage.removeItem(key);
+  } catch { /* storage blocked */ }
 }
 
 export function saveSeen(machineId: string, record: SeenRecord): void {

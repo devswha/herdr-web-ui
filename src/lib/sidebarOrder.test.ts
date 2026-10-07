@@ -1,7 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
 import type { PaneInfo } from "../../shared/protocol.ts";
-import { activityOrder, isSeenDone, liveSeqs, markSeen, newSeqMemory, pruneSeen, seedSeen, shownStatus, stateSeqs } from "./sidebarOrder.ts";
+import { activityOrder, anySeen, carrySeen, forgetSeen, isSeenDone, liveSeqs, loadSeen, markSeen, newSeqMemory, pruneSeen, saveSeen, seedSeen, shownStatus, stateSeqs } from "./sidebarOrder.ts";
 import { DEFAULT_SETTINGS, sanitizeSettings } from "./settings.ts";
 
 const pane = (id: string, agent_status: string, workspace_id = `w-${id}`) => ({ pane_id: id, workspace_id, agent_status }) as PaneInfo;
@@ -33,6 +33,26 @@ describe("live counters", () => {
     // herdr's counter arrives and replaces the stand-in
     expect(liveSeqs(snap({ a: "done", b: "done" }, { a: 11, b: 9 }), memory).get("a")).toBe(11);
     expect(memory.bumped.size).toBe(0);
+  });
+
+  it("keeps a look made at a stand-in counter when herdr's own counter replaces it", () => {
+    // devswha's reproduction on #529: a finish watched on screen, then another pane opened before
+    // the roster read brought its counter
+    const memory = newSeqMemory();
+    liveSeqs(snap({ a: "working", b: "done" }, { a: 5, b: 9 }), memory);
+    const pushed = liveSeqs(snap({ a: "done", b: "done" }, { a: 5, b: 9 }), memory);
+    const seen = markSeen({}, "a", pushed.get("a")!);
+    const read = liveSeqs(snap({ a: "done", b: "done" }, { a: 10, b: 9 }), memory);
+    expect(memory.promoted.get("a")).toEqual({ from: pushed.get("a")!, to: 10 });
+    expect(shownStatus(pane("a", "done"), read, seen)).toBe("done");
+    const carried = carrySeen(seen, memory.promoted);
+    expect(carried).toEqual({ a: 10 });
+    expect(shownStatus(pane("a", "done"), read, carried)).toBe("idle");
+    // a later change is not a look: the record stays behind it
+    liveSeqs(snap({ a: "working", b: "done" }, { a: 10, b: 9 }), memory);
+    const next = liveSeqs(snap({ a: "done", b: "done" }, { a: 12, b: 9 }), memory);
+    expect(shownStatus(pane("a", "done"), next, carrySeen(carried, memory.promoted))).toBe("done");
+    expect(carrySeen(carried, new Map())).toBe(carried);
   });
 
   it("does not date a pane's first sighting, or a pane with no counter", () => {
@@ -107,4 +127,42 @@ it("defaults to herdr's order and herdr's DONE, and accepts only known values", 
   expect([DEFAULT_SETTINGS.agentOrder, DEFAULT_SETTINGS.quietOpenedDone]).toEqual(["workspace", false]);
   expect(sanitizeSettings({ agentOrder: "activity", quietOpenedDone: true })).toMatchObject({ agentOrder: "activity", quietOpenedDone: true });
   expect(sanitizeSettings({ agentOrder: "recent", quietOpenedDone: "yes" })).toMatchObject({ agentOrder: "workspace", quietOpenedDone: false });
+});
+
+describe("records in storage", () => {
+  const original = (globalThis as { localStorage?: Storage }).localStorage;
+  const fake = () => {
+    const data = new Map<string, string>();
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      get length() { return data.size; },
+      key: (index: number) => [...data.keys()][index] ?? null,
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => { data.set(key, value); },
+      removeItem: (key: string) => { data.delete(key); },
+    };
+    return data;
+  };
+  afterEach(() => { (globalThis as { localStorage?: unknown }).localStorage = original; });
+
+  it("knows whether the setting was on here before, and drops removed PCs", () => {
+    const data = fake();
+    data.set("herdr-web-ui:settings", "{}");
+    expect(anySeen()).toBe(false);
+    saveSeen("local", { a: 3 });
+    saveSeen("box", { b: 4 });
+    expect(anySeen()).toBe(true);
+    expect(loadSeen("local")).toEqual({ a: 3 });
+    forgetSeen(["local"]);
+    expect(loadSeen("box")).toBeNull();
+    expect(loadSeen("local")).toEqual({ a: 3 });
+    expect(data.has("herdr-web-ui:settings")).toBe(true);
+  });
+
+  it("reads a damaged record as none, keeping only numbers", () => {
+    const data = fake();
+    data.set("herdr-web-ui:seen:local", "not json");
+    expect(loadSeen("local")).toBeNull();
+    data.set("herdr-web-ui:seen:local", JSON.stringify({ a: 3, b: "x", c: null }));
+    expect(loadSeen("local")).toEqual({ a: 3 });
+  });
 });
