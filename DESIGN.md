@@ -920,7 +920,9 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
-  lead an empty query; arrows cycle, Enter activates and Escape closes.
+  lead an empty query; arrows in the search field cycle through visible results, Enter activates
+  and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
+  with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
 - Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints where a global shortcut exists.
 

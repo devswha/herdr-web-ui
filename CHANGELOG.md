@@ -11,6 +11,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
+- Command palette buttons keep their native Enter action; IME commit and cancel keys
+  stay with text input, and arrow navigation keeps the selected result visible.
 
 ## [0.4.0] - 2026-10-08
 
