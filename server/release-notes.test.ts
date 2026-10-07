@@ -72,6 +72,13 @@ describe("release notes of an update", () => {
     ]);
   });
 
+  it("keeps a linked heading that names no release, and ends at a release it cannot read", () => {
+    const log = "## [0.4.0] - 2026-10-07\nBefore.\n\n## [Migration](https://example.com/migrate)\nRun the thing.\n\n## [0.4.0-rc.1] - 2026-10-01\nA candidate.\n\n## [0.3.9](https://example.com/v0.3.9)\nNine.\n";
+    expect(releaseNotes(log, "0.3.8", "0.4.0").releases).toEqual([
+      { version: "0.4.0", date: "2026-10-07", notes: "Before.\n\n## [Migration](https://example.com/migrate)\nRun the thing." },
+    ]);
+  });
+
   it("tells the latest release alone when the running version is unknown", () => {
     expect(releaseNotes(CHANGELOG, null, "0.3.10").releases.map((release) => release.version)).toEqual(["0.3.10"]);
     expect(releaseNotes(CHANGELOG, "main", "0.3.10").releases.map((release) => release.version)).toEqual(["0.3.10"]);

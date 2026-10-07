@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { readUpdateNotes, type UpdateNotes } from "../../shared/update.ts";
 import { ApiError } from "./api.ts";
-import { notesRetryDelay, offeredNotes } from "./updateNotes.ts";
+import { notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes } from "./updateNotes.ts";
 
-const offered = { current_revision: "a".repeat(40), latest_revision: "b".repeat(40) };
+const offered = { current_revision: "a".repeat(40), latest_revision: "b".repeat(40), current_version: "0.3.9", latest_version: "0.4.0" };
 const notes: UpdateNotes = { revision: offered.latest_revision, releases: [{ version: "0.4.0", date: "2026-10-07", notes: "### Added\n- A thing." }], omitted: 0 };
 
 describe("notes beside an offered update", () => {
@@ -33,7 +33,37 @@ describe("notes beside an offered update", () => {
   });
 });
 
+describe("what the notes are asked for", () => {
+  it("is nothing without an offer", () => {
+    expect(notesOffer(null)).toBeNull();
+    expect(notesOffer({ ...offered, latest_revision: null })).toBeNull();
+    expect(notesOffer({ ...offered, current_revision: offered.latest_revision })).toBeNull();
+  });
+
+  it("stays the same from one status to the next of the same offer", () => {
+    expect(notesOffer({ ...offered })).toBe(notesOffer(offered)!);
+  });
+
+  it("is another when the commit, the release's version or the running build moves", () => {
+    const keys = [offered,
+      { ...offered, latest_revision: "c".repeat(40) },
+      // a second tag on the same commit: its changelog has both sections
+      { ...offered, latest_version: "0.5.0" },
+      // an older build restored under the same offer: one more release lies between
+      { ...offered, current_revision: "d".repeat(40), current_version: "0.3.8" },
+      { ...offered, current_version: null }].map(notesOffer);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys).not.toContain(null);
+  });
+});
+
 describe("asking for the notes again", () => {
+  it("asks again for an answer that is not the offered commit's, about a minute long, then leaves it", () => {
+    expect([0, 1, 2, 3, 4].map(notesUnboundDelay)).toEqual([2000, 4000, 8000, 16000, 30000]);
+    expect(notesUnboundDelay(5)).toBeNull();
+    expect(notesUnboundDelay(50)).toBeNull();
+  });
+
   it("retries a dropped connection or a failing server, more slowly each time, up to half a minute", () => {
     const delays = [0, 1, 2, 3, 4, 50].map((attempt) => notesRetryDelay(new TypeError("Failed to fetch"), attempt));
     expect(delays).toEqual([2000, 4000, 8000, 16000, 30000, 30000]);

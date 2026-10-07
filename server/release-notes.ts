@@ -4,6 +4,8 @@ import type { ReleaseNote, UpdateNotes } from "../shared/update.ts";
 /** `## [0.3.52] - 2026-10-06`; `## [Unreleased]` is no release. */
 const SECTION = /^## \[(\d+\.\d+\.\d+)\](?:\s+-\s+(\S+))?\s*$/;
 /** `[0.3.52]: https://…`, the compare links under the last section */
+/** Where a section ends: the heading of any release (a pre-release, a linked one) or of Unreleased. */
+const BOUNDARY = /^## \[(?:unreleased|\d+\.\d+\.\d+[^\]]*)\]/i;
 const LINK_DEFINITION = /^\[[^\]]+\]:\s/;
 /**
  * Notes are read in a Settings box, not as the whole history: a jump over many releases names
@@ -29,8 +31,9 @@ function sections(changelog: string): ReleaseNote[] {
     open = null;
   };
   for (const line of changelog.split(/\r?\n/)) {
-    // `## [` opens the next release or Unreleased; another level-two heading (`## Migration`) belongs to the notes
-    if (line.startsWith("## [")) {
+    // a release or Unreleased opens the next section; another level-two heading (`## Migration`,
+    // `## [Migration](https://…)`) belongs to the notes
+    if (BOUNDARY.test(line)) {
       close();
       const match = SECTION.exec(line);
       if (match) open = { version: match[1]!, date: match[2] ?? null, lines: [] };
