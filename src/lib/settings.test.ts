@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
@@ -20,11 +20,11 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
-it("keeps sidebar rows on one line unless two lines were chosen", () => {
-  expect(sanitizeSettings({}).sidebarRows).toBe("one");
-  expect(sanitizeSettings({ sidebarRows: "two" }).sidebarRows).toBe("two");
+it("keeps sidebar rows on two lines unless one line was chosen", () => {
+  expect(sanitizeSettings({}).sidebarRows).toBe("two");
+  expect(sanitizeSettings({ sidebarRows: "one" }).sidebarRows).toBe("one");
   for (const sidebarRows of [null, true, "three", 2]) {
-    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("one");
+    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("two");
   }
 });
 
@@ -281,12 +281,36 @@ describe("quick replies", () => {
   });
 });
 
+describe("microphone button", () => {
+  it("is automatic until chosen, and reads a record from before it had three places", () => {
+    expect(DEFAULT_SETTINGS.voiceInput).toBe("auto");
+    expect(sanitizeSettings({}).voiceInput).toBe("auto");
+    for (const voiceInput of VOICE_BUTTONS) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe(voiceInput);
+    // the old toggle: on was a choice, off was also what an untouched device stored
+    expect(sanitizeSettings({ voiceInput: true }).voiceInput).toBe("on");
+    expect(sanitizeSettings({ voiceInput: false }).voiceInput).toBe("auto");
+    for (const voiceInput of [null, 1, "yes", "ON"]) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe("auto");
+  });
+
+  it("is asked for in the chat off a phone on auto, everywhere when on and nowhere when off", () => {
+    expect(wantsVoiceInput("auto", "chat", false)).toBe(true);
+    expect(wantsVoiceInput("auto", "chat", true)).toBe(false);
+    expect(wantsVoiceInput("auto", "terminal", false)).toBe(false);
+    for (const mode of ["chat", "terminal"] as const) {
+      for (const phone of [false, true]) {
+        expect(wantsVoiceInput("on", mode, phone)).toBe(true);
+        expect(wantsVoiceInput("off", mode, phone)).toBe(false);
+      }
+    }
+  });
+});
+
 describe("suggestion chip", () => {
-  it("stays off until chosen in settings", () => {
-    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(false);
-    expect(sanitizeSettings({}).showSuggestionChip).toBe(false);
-    expect(sanitizeSettings({ showSuggestionChip: true }).showSuggestionChip).toBe(true);
-    expect(sanitizeSettings({ showSuggestionChip: "yes" }).showSuggestionChip).toBe(false);
+  it("stays on until turned off in settings", () => {
+    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(true);
+    expect(sanitizeSettings({}).showSuggestionChip).toBe(true);
+    expect(sanitizeSettings({ showSuggestionChip: false }).showSuggestionChip).toBe(false);
+    expect(sanitizeSettings({ showSuggestionChip: "no" }).showSuggestionChip).toBe(true);
   });
 });
 
