@@ -37,6 +37,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Workspace rows keep their names, and agents open their panes directly. Tab and pane navigation
   stays in the tab strip and palette; saved folder grouping choices stay in effect.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The sidebar no longer opens with a **Needs you** list of waiting panes. A pane that waits
+  shows its state on its workspace row and its row in **Agents**, and the alerts are unchanged.
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - Opened worktree branches appear beneath their repository workspace, using actual branch names
   from herdr's worktree API and keeping custom workspace names beside them. Creating or opening
   a worktree expands its group. The browser demo supports these worktree actions with fictional

@@ -632,7 +632,6 @@ export const ZH: Record<string, string> = {
   "…": "…",
   "Alerts": "提醒",
   "Needs you": "需要你回应",
-  "Panes waiting for input: {n}": "等待输入的窗格：{n}",
   "Keep screen on": "保持屏幕常亮",
   "While a terminal or chat pane is open. Requires HTTPS or localhost and a supported browser.": "打开终端或聊天窗格时保持屏幕常亮。需要 HTTPS 或 localhost，以及支持此功能的浏览器。",
   "Test notification": "测试通知",

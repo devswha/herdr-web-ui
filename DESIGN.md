@@ -405,14 +405,13 @@ One set for both themes: the card is island black wherever it shows.
 - Mono metadata at `--chip-h`. Offline is the one header pill and uses danger tokens.
 
 ### Sidebar roster row and footer
-- No top bar. The sidebar opens with the plan panel (when Settings puts it there), **Needs you**
-  while a pane waits, the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**
+- No top bar. The sidebar opens with the plan panel (when Settings puts it there), the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**
   button in the dashed **No workspaces yet** box of an empty PC. **Add PC** lives in Settings →
   Remote PCs and in the command palette. Search lives in the command palette, not the roster.
 - Every row sits on one grid, built from existing tokens as `--side-*` aliases on `.sidebar-shell`:
   a `--control-h` leading cell, the title, and a `--control-h` trailing status cell, the same two
   columns as the header zone's buttons above the list. One-line rows and section heads are
-  `--control-h` tall, agent and Needs-you rows `--control-h` + `--space-3`; fills use `--radius-md`.
+  `--control-h` tall, agent rows `--control-h` + `--space-3`; fills use `--radius-md`.
   Hover is `color-mix(in srgb, var(--bg-hover) 50%, var(--bg-panel))`, only where a pointer hovers;
   selection is `--bg-hover`; keyboard focus draws the ring inside the row and no fill. No rule
   separates sections: `--space-4` and a dim `--fs-sm` head do.
@@ -459,7 +458,8 @@ One set for both themes: the card is island black wherever it shows.
   bare brand mark, the pane's title, and one dim line naming the agent, then the PC (only when two
   or more are registered), the workspace and the tab (only when the workspace has two or more tabs
   or the tab was renamed, and never when it repeats the workspace). Its background-task count and
-  compact status sit at the right. **Needs you** rows are the same row. Pane state is
+  compact status sit at the right. A pane that waits for an answer is not listed apart or moved
+  up: its state shows on its workspace row and its agent row, and the alerts say the rest. Pane state is
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
@@ -473,7 +473,7 @@ One set for both themes: the card is island black wherever it shows.
   A workspace whose panes sit in two folders has a row in each, opening the pane in that folder.
   Each row represents its current pane: the selected one in that folder, else the last viewed
   one there, else the pane herdr has focused, else its first. Its compact glyph rolls up those
-  panes' states; the other panes remain reachable from the tab strip, palette, **Agents** and **Needs you**.
+  panes' states; the other panes remain reachable from the tab strip, palette and **Agents**.
 - Every folder has an open or closed folder glyph, which with its name is the fold, and a
   basename, even for one pane. The
   folder containing the selection names itself in `--text-strong`; only the selected row is filled.
@@ -666,7 +666,7 @@ One set for both themes: the card is island black wherever it shows.
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
   timestamp minus this one's; "Working…" in `--status-working` behind a breathing dot while the agent runs;
-  "Needs you", the sidebar's words, in `--text-dim` behind a still `--status-blocked` dot while the
+  "Needs you" in `--text-dim` behind a still `--status-blocked` dot while the
   agent is blocked, by the pane's status and not by whether a prompt card was parsed) over
   one-line rows on the header's own left edge, which is the prose edge too (the hover plate
   overhangs it by `--space-1`).

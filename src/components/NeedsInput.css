@@ -1,7 +1,0 @@
-/* the agents that wait for an answer, above everything else; its rows are the Agents list's */
-.needs-input {
-  margin-bottom: var(--space-4);
-  padding: 0 var(--side-gutter);
-}
-
-.needs-input-heading { padding-left: var(--side-box); }

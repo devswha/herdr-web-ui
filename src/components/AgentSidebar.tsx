@@ -10,7 +10,7 @@ import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundBadge, displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import "./AgentSidebar.css";
 
-export interface AgentRowBodyProps {
+interface AgentRowBodyProps {
   /** the agent's kind or name; null draws a terminal, for a shell */
   mark: string | null;
   title: string;
@@ -21,9 +21,9 @@ export interface AgentRowBodyProps {
 
 /**
  * One agent in a list: the coding agent's mark, what it is working on, who and where it is, and
- * how it is doing. Agents and Needs you draw the same body, so a pane reads the same in both.
+ * how it is doing.
  */
-export function AgentRowBody({ mark, title, context, backgroundTasks, status }: AgentRowBodyProps) {
+function AgentRowBody({ mark, title, context, backgroundTasks, status }: AgentRowBodyProps) {
   return <>
     <span className="sidebar-mark" aria-hidden="true">{mark !== null ? <AgentMark agent={mark} size={18} /> : <Terminal />}</span>
     <span className="agent-copy">

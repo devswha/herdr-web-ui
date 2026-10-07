@@ -21,7 +21,7 @@
   padding: 0 var(--side-gutter);
 }
 
-/* section heads (Needs you, Agents): quiet words, never a rule */
+/* a section head (Agents): quiet words, never a rule */
 .sidebar-section-label {
   display: flex;
   align-items: center;
