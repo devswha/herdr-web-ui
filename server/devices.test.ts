@@ -2,7 +2,8 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeviceStore, normalizeLabel } from "./devices.ts";
+import type { Access } from "./access.ts";
+import { DeviceStore, handleDeviceRequest, normalizeLabel } from "./devices.ts";
 import { isTaggedNode, parseTailscaleOwner } from "./tailscale.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "herdr-devices-"));
@@ -136,4 +137,38 @@ it("reports failed registry writes without committing a pair, rename or revocati
   expect(store.revoke(first.device.id)).toBe(true);
   expect(closed).toBe(true);
   expect(new DeviceStore(root).match(first.token)).toBeNull();
+});
+
+describe("starting a pairing", () => {
+  const start = (access: Access): Promise<Response> => handleDeviceRequest(
+    new Request("http://127.0.0.1:7317/api/devices/pair/start", { method: "POST", headers: { origin: "http://127.0.0.1:7317", "x-herdr-machine": "1" } }),
+    "/api/devices/pair/start",
+    store,
+    access,
+  );
+  const owner = (via: "local" | "tailscale" | "token"): Access => ({ level: "full", via, role: "drive" });
+  const store = new DeviceStore(mkdtempSync(join(dir, "owner-")));
+
+  it("is the owner's act, and never a stranger's", async () => {
+    // this PC, the shared token and the PC's own Tailscale login all mint one
+    for (const via of ["local", "tailscale", "token"] as const) expect((await start(owner(via))).status).toBe(200);
+    // so does a device already paired with drive rights, and only those
+    const paired = store.match(store.pair(store.startPairing().code, "Phone", "drive")!.token)!;
+    expect((await start({ level: "full", via: "device", role: "drive", device: paired })).status).toBe(200);
+    // the open-LAN opt-in is the one accepted exception: its peers already hold every
+    // terminal, and pairing from the LAN is what the mode is for
+    expect((await start({ level: "full", via: "open", role: "drive" })).status).toBe(200);
+  });
+
+  it("leaves pairing completion public: the code is the secret", async () => {
+    const { code } = store.startPairing();
+    const completed = await handleDeviceRequest(
+      new Request("http://192.168.0.10:7317/api/devices/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, label: "Phone" }) }),
+      "/api/devices/pair",
+      store,
+      { level: "none", reason: "token_required" },
+    );
+    expect(completed.status).toBe(204);
+    expect(completed.headers.get("set-cookie")).toContain("herdr_web_device=");
+  });
 });

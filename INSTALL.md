@@ -178,7 +178,10 @@ code, or the exact command still to run. Who gets in:
    `env $(cat ~/.config/herdr-web-ui/token.env) bun run start`. Restart herdr web ui either way.
 
 Tell the user the HTTPS address. Until a device is paired, and with no token set, a LAN or proxied
-address is open to anyone who reaches it, as before; the server warns on startup.
+address is closed to everyone but this PC: a client that is not a paired device is asked for the
+token, and pairing is started from this PC. Set `HERDR_WEB_ALLOW_OPEN=1` only when the user asks
+for the older behaviour, where anything that reaches the address types into the terminals until a
+device is paired.
 
 Other PCs over SSH are added from the web UI (Settings → Remote PCs → **Add PC**), not by an install step here.
 
@@ -189,6 +192,7 @@ Other PCs over SSH are added from the web UI (Settings → Remote PCs → **Add 
 | `HOST` | `127.0.0.1` | Bind address |
 | `PORT` | `7317` | HTTP and WebSocket port |
 | `HERDR_WEB_TOKEN` | unset | Token for scripts and proxies. Once set, every client that is not a paired device or the user's own Tailscale login needs it, this PC included |
+| `HERDR_WEB_ALLOW_OPEN` | unset | `1` restores the old open-LAN behaviour: with no token and no paired device, anything that reaches a non-loopback address gets full control until one is paired |
 | `HERDR_SOCKET` | `~/.config/herdr/herdr.sock` | herdr socket (source installs; the plugin follows herdr) |
 | `HERDR_WEB_AUTO_UPDATE` | `0` | `1` installs new versions automatically |
 | `HERDR_WEB_STATE_DIR` | `~/.config/herdr-web-ui` | Push keys, device subscriptions, PC registrations, update builds. Keep it across reinstalls. |

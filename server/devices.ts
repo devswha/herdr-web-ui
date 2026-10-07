@@ -204,6 +204,15 @@ export class DeviceStore {
 }
 
 /**
+ * May this session hand out a new device credential? Only an owner may, and an owner is
+ * exactly a session with drive rights: this PC, the shared token, the PC's own Tailscale
+ * login, a device already paired with drive rights, or the owner's open-LAN opt-in. A
+ * `watch` device is the one full session that is not an owner.
+ */
+function ownerSession(access: Access): boolean {
+  return access.level === "full" && access.role === "drive";
+}
+/**
  * /api/devices*. Pairing itself is public, like /api/auth: it is how a device gets in. The
  * rest reaches here only through the gate in index.ts, and anything that changes the list
  * needs the app's own mutation guard (same origin + X-Herdr-Machine), like the other mutations.
@@ -232,6 +241,18 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
   if (!sameOrigin(request) || request.headers.get("x-herdr-machine") !== "1") return jsonResponse({ error: { code: "invalid_origin", message: "Manage devices from this app" } }, 403);
   if (access.level === "full" && access.role === "watch") return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
   if (pathname === "/api/devices/pair/start") {
+    // Minting a credential is an owner's act: this PC, the shared token, the PC's own
+    // Tailscale login, or a device already paired with drive rights. `via` names how the
+    // session was established, so no new identity is read here.
+    // The one accepted exception is the owner's own open-LAN opt-in
+    // (HERDR_WEB_ALLOW_OPEN=1, `via: "open"`): there the user has already accepted that any
+    // peer on the LAN has full control of every terminal, and pairing a phone from the LAN
+    // is the whole point of that mode — refusing it would leave the opt-in with no way to
+    // hand a phone a credential. The code itself stays the thing a stranger must not have:
+    // it lives ten minutes, takes five tries, and the owner is shown it on this PC.
+    if (!ownerSession(access)) {
+      return jsonResponse({ error: { code: "not_owner", message: "Start pairing from this PC, or with the token" } }, 403);
+    }
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     return jsonResponse(store.startPairing(), 200, { "cache-control": "no-store" });
   }

@@ -7,8 +7,11 @@
  * Tailscale login included: a plain local connection, since the remote-PC bridge runs on a
  * loopback port of a PC other people may use, and the login, since any other proxy on this PC
  * (nginx, Caddy, a tunnel) passes a visitor's copy of that header on unless told to drop it.
- * Without a token, and until the first device is paired, anything that reaches the server is
- * let in as it always was, except through a proxy
+ * Without a token, and until the first device is paired, a client that is not this PC is
+ * let in only while the owner has asked for it: `HERDR_WEB_ALLOW_OPEN=1` puts the server
+ * back in the "open LAN" shape it had before, where anything that reaches the address
+ * types into your terminals until a device is paired. Without it a LAN peer is refused
+ * the token gate (`token_required`: the token is the one way in it has), except through a proxy
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
  * node (tailscale serve states no person for it), and a tailnet can hold many of those. The
  * exception is an install whose operator declared `tailscale serve` the only way in
@@ -59,6 +62,8 @@ export interface AccessInput {
   tokenConfigured: boolean;
   /** a device has been paired at some point: the gate is closed to strangers (server/devices.ts) */
   gated: boolean;
+  /** HERDR_WEB_ALLOW_OPEN=1: the owner asked for the old "open LAN" shape, where a client that is not this PC and holds neither token nor device is let in until the first device is paired */
+  allowOpen: boolean;
 }
 
 export type Access =
@@ -135,6 +140,12 @@ export function decideAccess(input: AccessInput): Access {
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
   if (input.loopback && input.forwarded && (input.owner !== null || input.tagged || input.serveOnly)) return { level: "none", reason: "pairing_required" };
   // the public internet is never "open", whatever is paired
-  if (!input.gated && !input.funnel) return { level: "full", via: "open", role: "drive" };
+  if (!input.gated && !input.funnel) {
+    // Opt-in only (HERDR_WEB_ALLOW_OPEN=1). Refused as the token gate, not as pairing:
+    // pairing initiation is an owner's act (server/devices.ts), so telling a LAN peer to
+    // pair would be a dead end — the token, or a code the owner already started, is the way in.
+    if (input.allowOpen) return { level: "full", via: "open", role: "drive" };
+    return { level: "none", reason: "token_required" };
+  }
   return { level: "none", reason: "pairing_required" };
 }

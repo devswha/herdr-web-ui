@@ -52,7 +52,7 @@ describe("parseSoleTailnetLogin", () => {
 /** the access decision for a no-login request that `tailscale serve` forwarded, with the operator's serve-only switch on */
 const HOST = "pc.example.ts.net";
 const serveRequest = (identity: TailnetIdentity, host: string | null = HOST) => {
-  const input: AccessInput = { loopback: true, forwarded: true, funnel: false, tailscaleLogin: null, host, tokenMatched: false, device: null, ...identity, serveOnly: true, tokenConfigured: false, gated: false };
+  const input: AccessInput = { loopback: true, forwarded: true, funnel: false, tailscaleLogin: null, host, tokenMatched: false, device: null, ...identity, serveOnly: true, tokenConfigured: false, gated: false, allowOpen: false };
   const access = decideAccess(input);
   return access.level === "full" ? access.via : `refused:${access.reason}`;
 };

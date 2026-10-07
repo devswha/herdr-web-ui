@@ -148,6 +148,8 @@ const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-inp
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+/** HERDR_WEB_ALLOW_OPEN=1: the owner's own opt-in for the "open LAN" shape (server/access.ts). */
+const allowOpenEnv = (): boolean => process.env["HERDR_WEB_ALLOW_OPEN"] === "1";
 
 const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -322,6 +324,8 @@ export function createServer(
     tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
+    /** the owner's "open LAN" opt-in (HERDR_WEB_ALLOW_OPEN=1): a non-loopback client that holds no token and no device is let in until one is paired. Unset refuses it. */
+    allowOpen?: boolean;
     updates?: UpdateService;
     /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
     herdrUpdate?: HerdrUpdater;
@@ -391,6 +395,8 @@ export function createServer(
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
+  /** "Open LAN" mode, the owner's own opt-in: without it a LAN peer holding no token and no device gets nothing (server/access.ts) */
+  const allowOpen = options.allowOpen ?? allowOpenEnv();
   const usage = options.usage ?? new UsageService();
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
@@ -1207,6 +1213,7 @@ export function createServer(
         device: pairedDevice,
         ...identity,
         tokenConfigured: token !== "",
+        allowOpen,
         gated: devices.gated,
       });
       const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
@@ -2320,9 +2327,15 @@ if (import.meta.main) {
   process.on("SIGINT", shutdown);
   if (process.env["HERDR_WEB_MANAGED"] === "1") process.on("disconnect", shutdown);
   console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
-  if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "" && !LOOPBACK_HOSTNAMES.has(instance.hostname)) {
-    console.error(
-      `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
-    );
+  if (!LOOPBACK_HOSTNAMES.has(instance.hostname)) {
+    if (allowOpenEnv()) {
+      console.error(
+        `WARNING: HERDR_WEB_ALLOW_OPEN=1 - listening on ${instance.hostname} with no HERDR_WEB_TOKEN means anyone who can reach this address can type into your terminals and read any file your user can, until a device is paired (Settings → Devices, on this PC); set HERDR_WEB_TOKEN=<token> or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
+      );
+    } else if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "") {
+      console.error(
+        `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - a device that reaches this address from outside this PC needs a paired device or the token, so pair your devices (Settings → Devices, on this PC), set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1. Set HERDR_WEB_ALLOW_OPEN=1 only if you mean anyone who can reach this address to have that control until you pair a device.`,
+      );
+    }
   }
 }

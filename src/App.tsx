@@ -865,6 +865,7 @@ export function App() {
         <main className="terminal-host">
           <PaneTerminal
             key={selectedMachineId}
+            title={selectedTitle}
             paneId={selectedPane?.restore_error ? null : selectedPaneId}
             restoreError={selectedPane?.restore_error ?? null}
             agent={selectedAgent}
