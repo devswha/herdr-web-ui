@@ -6,7 +6,7 @@ import "./SettingsDialog.css";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, VOICE_BUTTONS, useSettings, forgetPaneViews, type VoiceButton } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { KeyBarSettings } from "./KeyBarSettings.tsx";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
@@ -204,11 +204,11 @@ export function SettingsDialog({ open, section = null, onClose, actions, updates
   useEffect(() => {
     if (open) fetchVoiceStatus().then(setVoice, () => setVoice(null));
   }, [open]);
-  /** ask now, so the first dictation does not stop at the browser's permission prompt */
-  const toggleVoiceInput = async (voiceInput: boolean) => {
+  /** On asks now, so the first dictation does not stop at the browser's permission prompt */
+  const chooseVoiceInput = async (voiceInput: VoiceButton) => {
     update({ voiceInput });
     setMicDenied(false);
-    if (!voiceInput || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return;
+    if (voiceInput !== "on" || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return;
     try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((track) => track.stop()); }
     catch { setMicDenied(true); }
   };
@@ -355,11 +355,17 @@ export function SettingsDialog({ open, section = null, onClose, actions, updates
               <h4 className="voice-group-title">{t("Microphone")}</h4>
               <div className="voice-group-body">
                 <div className="settings-row">
-                  <div><span className="settings-label">{t("Microphone button")}</span><span className="settings-description">{t("In the chat composer and the terminal input line")}</span></div>
-                  <Toggle label={t("Microphone button")} checked={settings.voiceInput} onChange={(voiceInput) => void toggleVoiceInput(voiceInput)} />
+                  <div><span className="settings-label">{t("Microphone button")}</span><span className="settings-description">{t("Auto: in the chat on a desktop, where dictation can work. On: on a phone and in the terminal input line too.")}</span></div>
+                  <div className="segmented" aria-label={t("Microphone button")}>
+                    {VOICE_BUTTONS.map((voiceInput) => (
+                      <button key={voiceInput} type="button" aria-pressed={settings.voiceInput === voiceInput} onClick={() => void chooseVoiceInput(voiceInput)}>
+                        {t(voiceInput === "auto" ? "Auto" : voiceInput === "on" ? "On" : "Off")}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                {settings.voiceInput && !window.isSecureContext && <p className="settings-hint voice-error">{t("Voice input needs HTTPS")}</p>}
-                {settings.voiceInput && window.isSecureContext && micDenied && <p className="settings-hint voice-error">{t("Microphone permission was denied")}</p>}
+                {settings.voiceInput !== "off" && !window.isSecureContext && <p className="settings-hint voice-error">{t("Voice input needs HTTPS")}</p>}
+                {settings.voiceInput !== "off" && window.isSecureContext && micDenied && <p className="settings-hint voice-error">{t("Microphone permission was denied")}</p>}
               </div>
             </div>
 
@@ -398,7 +404,7 @@ export function SettingsDialog({ open, section = null, onClose, actions, updates
               </div>
             </div>
 
-            {settings.voiceInput && (
+            {settings.voiceInput !== "off" && (
               <div className="voice-group">
                 <h4 className="voice-group-title">{t("Tidy dictated text")}</h4>
                 <div className="voice-group-body">

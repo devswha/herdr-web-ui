@@ -138,6 +138,8 @@ try {
   await until(() => painted.has(paneA), "owned pane paint");
   const composer = page.getByRole("textbox", { name: "Message", exact: true });
   await composer.waitFor();
+  await page.locator(".composer .voice-mic").waitFor();
+  console.log("PASS a desktop's chat offers the mic before Settings is asked");
   assert.equal(await workspaceHeader(workspaces[0]!).locator(".workspace-name").textContent(), "herdr-web-ui-test-browser-a",
     "Spaces names the workspace rather than its current pane");
   assert.equal(await workspaceGroup(workspaces[0]!).locator(".pane-select").count(), 1, "a workspace has one representative selector");
@@ -404,16 +406,18 @@ try {
   assert.deepEqual(await sidebarWidths(), defaultWidths, "a double-click goes back to the default width and forgets the stored one");
   console.log("PASS the sidebar's edge drags, steps from the keyboard, remembers its width and resets on a double-click");
 
-  // Settings → Sidebar rows → Two lines: a workspace row says what its pane is doing over its
-  // place, on a taller row; One line gives the workspace its name back
-  const oneLineHeight = await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height);
-  assert.equal(await page.locator(".workspace-copy.is-two-line").count(), 0, "rows are one line until two are chosen");
+  // Sidebar rows: a workspace row says what its pane is doing over its place, on a taller row,
+  // until Settings → Sidebar rows → One line gives the workspace its name back
+  const twoLineHeight = await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height);
+  assert.ok(await page.locator(".workspace-copy.is-two-line").count() > 0, "rows are two lines until one is chosen");
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   const rowsSetting = page.locator('.settings-dialog .segmented[aria-label="Sidebar rows"]');
+  await rowsSetting.getByRole("button", { name: "One line", exact: true }).click();
+  await page.locator(".workspace-copy.is-two-line").first().waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "one");
+  assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) < twoLineHeight, "a one-line row is shorter");
   await rowsSetting.getByRole("button", { name: "Two lines", exact: true }).click();
   await page.locator(".workspace-copy.is-two-line").first().waitFor();
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "two");
-  assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) > oneLineHeight, "a two-line row is taller");
   await rowsSetting.getByRole("button", { name: "One line", exact: true }).click();
   await page.locator(".workspace-copy.is-two-line").first().waitFor({ state: "detached" });
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
@@ -1363,32 +1367,36 @@ try {
   await until(() => typing(mobilePage), "a tap on the message box takes the keyboard");
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).blur();
   await mobilePage.locator('button[aria-controls="workspace-drawer"]').click();
+  assert.equal(await mobilePage.locator(".agents-sidebar .agent-section-toggle").getAttribute("aria-expanded"), "false", "a phone's drawer opens with Agents folded");
   await mobilePage.locator(`.pane-select[title^="${paneB} —"]`).click();
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
   console.log("PASS a pane picked on a phone waits for a tap before raising the keyboard");
 
-  // Claude's suggestion on a phone is the placeholder only, until Settings turns its chip on
+  // Claude's suggestion on a phone is the placeholder and a chip that fills the box, until Settings turns the chip off
   const promptRoute = `**/api/pane/prompt?pane_id=${encodeURIComponent(paneB)}`;
   const suggest = { json: { prompt: null, suggestion: "run the tests" } };
   const mobileComposer = mobilePage.getByRole("textbox", { name: "Message", exact: true });
   await mobilePage.route(promptRoute, (route) => route.fulfill(suggest));
   await mobileComposer.fill("");
   await until(async () => await mobileComposer.getAttribute("placeholder") === "run the tests", "a phone shows the suggestion as the placeholder");
-  assert.equal(await mobilePage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip until Settings turns it on");
+  assert.equal(await mobilePage.locator(".voice-mic").count(), 0, "a phone's chat has no mic until Settings asks for it");
+  await mobilePage.getByTitle("Use the suggestion", { exact: true }).click();
+  assert.equal(await mobileComposer.inputValue(), "run the tests", "the chip puts the suggestion in the box");
   await mobilePage.unroute(promptRoute);
-  const chipPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-  await chipPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: true })); });
-  const chipPage = await chipPhone.newPage();
-  chipPage.on("pageerror", (error) => errors.push(error.message));
-  await chipPage.route(promptRoute, (route) => route.fulfill(suggest));
-  await chipPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
-  await chipPage.locator(".conn-live").waitFor();
-  await chipPage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
-  await chipPage.getByTitle("Use the suggestion", { exact: true }).click();
-  assert.equal(await chipPage.getByRole("textbox", { name: "Message", exact: true }).inputValue(), "run the tests", "the chip puts the suggestion in the box");
-  await chipPhone.close();
+  const plainPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await plainPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: false })); });
+  const plainPage = await plainPhone.newPage();
+  plainPage.on("pageerror", (error) => errors.push(error.message));
+  await plainPage.route(promptRoute, (route) => route.fulfill(suggest));
+  await plainPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
+  await plainPage.locator(".conn-live").waitFor();
+  await plainPage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  const plainComposer = plainPage.getByRole("textbox", { name: "Message", exact: true });
+  await until(async () => await plainComposer.getAttribute("placeholder") === "run the tests", "the suggestion stays the placeholder with the chip off");
+  assert.equal(await plainPage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip once Settings turns it off");
+  await plainPhone.close();
   assert.deepEqual(errors, []);
-  console.log("PASS a phone offers Claude's suggestion as a chip only once Settings turns it on");
+  console.log("PASS a phone offers Claude's suggestion as a chip until Settings turns it off");
 
   await checkTerminalInput(browser, origin, paneA, paneB);
 
