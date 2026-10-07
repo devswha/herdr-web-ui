@@ -24,6 +24,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Chinese), before and after its install. The changelog entries are folded under
   **Show every change**. A release that wrote no summary shows its entries as before.
   ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
+- The one-line installers can give the GitHub star they mention. On a first install, when the gh
+  CLI is signed in and that account has not starred the repository, `install.sh` and `install.ps1`
+  ask once at the terminal and star only on `y`. An account that already starred hears nothing.
+  Without a terminal, as under a script or in CI, nothing is asked, and a question nobody answers
+  goes on by itself after 20 seconds. `install.ps1` did not mention the star before.
+  ([#550](https://github.com/devswha/herdr-web-ui/pull/550))
 - **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
   agent is doing, with the workspace and folder under it, as the sidebar did before its rows
   became one line. **One line**, the workspace's name alone, stays the default.
