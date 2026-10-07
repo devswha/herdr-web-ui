@@ -119,20 +119,27 @@ describe("the bounds of an answer", () => {
     expect(releaseNotes(log, "0.1.0", "0.2.0", 60, summaries)).toMatchObject({ omitted: 1 });
   });
 
-  it("keeps the newest release's summary only where it fits the budget with the notes", () => {
+  it("tells the newest release within the budget: its summary first, its notes cut to the room left", () => {
     const log = "## [0.2.0]\n- two\n\n## [0.1.0]\n- one\n";
-    const summaries = new Map([["0.2.0", { en: { new: ["x".repeat(100)] } }]]);
-    expect(releaseNotes(log, "0.1.0", "0.2.0", 200, summaries).releases[0]!.summary).toBeDefined();
+    const summary = { en: { new: ["x".repeat(100)] } };
+    const summaries = new Map([["0.2.0", summary]]);
+    const summarySize = JSON.stringify(summary).length;
+    expect(releaseNotes(log, "0.1.0", "0.2.0", 200, summaries).releases[0]).toMatchObject({ notes: "- two", summary });
+    // a summary that alone is over the budget is left out, and the notes get the budget
     const told = releaseNotes(log, "0.1.0", "0.2.0", 60, summaries);
     expect(told.releases).toHaveLength(1);
     expect(told.releases[0]!.summary).toBeUndefined();
     expect(told.releases[0]!.notes).toBe("- two");
-    // a section over the budget on its own is cut at a line, and its summary goes with the cut
+    // long notes are cut at a line to the room the summary leaves, so the two stay within the budget
     const long = `## [0.2.0]\n${"- line\n".repeat(40)}\n## [0.1.0]\n- one\n`;
-    const cut = releaseNotes(long, "0.1.0", "0.2.0", 100, summaries).releases[0]!;
+    const cut = releaseNotes(long, "0.1.0", "0.2.0", 300, summaries).releases[0]!;
+    expect(cut.summary).toEqual(summary);
     expect(cut.notes.endsWith("…")).toBe(true);
-    expect(cut.notes.length).toBeLessThanOrEqual(104);
-    expect(cut.summary).toBeUndefined();
+    expect(cut.notes.length + summarySize).toBeLessThanOrEqual(300 + 3);
+    // and without room for the summary, the notes alone are cut to the budget
+    const alone = releaseNotes(long, "0.1.0", "0.2.0", 100, summaries).releases[0]!;
+    expect(alone.summary).toBeUndefined();
+    expect(alone.notes.length).toBeLessThanOrEqual(103);
   });
 
   it("names at most RELEASES_LIMIT releases and counts the rest, however large the budget", () => {

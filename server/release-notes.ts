@@ -105,12 +105,16 @@ export function releaseNotes(
   let used = 0;
   for (const section of wanted) {
     const size = section.notes.length + summarySize(section.summary);
-    // the newest release is always told, cut at a line when it alone is over the budget; its
-    // summary stays only where the two fit the budget together
+    // the newest release is always told, within the budget: its summary first, since that is
+    // what tells the release, and its notes cut at a line to the room the summary leaves; a
+    // summary that alone is over the budget is left out, and the notes get the budget
     if (releases.length === 0 && size > budget) {
-      const notes = section.notes.length > budget ? `${section.notes.slice(0, Math.max(section.notes.lastIndexOf("\n", budget), 0) || budget).trimEnd()}\n\n…` : section.notes;
-      const { summary, ...told } = section;
-      releases.push(summary && notes.length + summarySize(summary) <= budget ? { ...told, summary, notes } : { ...told, notes });
+      const { summary: written, ...told } = section;
+      const summary = written && summarySize(written) < budget ? written : undefined;
+      const room = budget - summarySize(summary);
+      const cut = section.notes.lastIndexOf("\n", room);
+      const notes = section.notes.length > room ? `${section.notes.slice(0, cut > 0 ? cut : room).trimEnd()}\n\n…` : section.notes;
+      releases.push(summary ? { ...told, summary, notes } : { ...told, notes });
       break;
     }
     if (releases.length === RELEASES_LIMIT || used + size > budget) break;
