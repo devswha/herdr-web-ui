@@ -7,6 +7,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- **A server with no token and no paired device no longer lets a LAN or proxied client in.** Until
+  a device is paired, a client that is not this PC is asked to pair with a code the owner starts on
+  the PC, and `HERDR_WEB_ALLOW_OPEN=1` brings back the old open behaviour. Before, anything that
+  reached a bound non-loopback address typed into every terminal and could pair itself a credential
+  that lasted a year. This is a breaking change for anyone running `HOST=0.0.0.0` without a token:
+  set the token, pair a device from the PC, or set `HERDR_WEB_ALLOW_OPEN=1`.
+  ([#569](https://github.com/devswha/herdr-web-ui/pull/569) by @radicor)
+- Starting a device pairing now requires a session with drive rights, as defense in depth: the
+  access gate already answers a session without them before the pairing start is reached, and this
+  keeps a credential from being minted if a path ever lets one through. Completing a pairing with a
+  code still works from anywhere, as before.
+  ([#569](https://github.com/devswha/herdr-web-ui/pull/569) by @radicor)
+
 ### Fixed
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
@@ -27,6 +41,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   minified file, no longer freezes the chat: a megabyte of them took a minute or more to read, and
   now takes milliseconds. What every message shows is unchanged.
   ([#574](https://github.com/devswha/herdr-web-ui/pull/574))
+
+### Maintenance
+- The terminal now announces itself: it is a labelled region named after the pane, so a screen
+  reader names the pane before its content.
+  ([#569](https://github.com/devswha/herdr-web-ui/pull/569) by @radicor)
 
 ## [0.4.0] - 2026-10-08
 
@@ -248,13 +267,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   CSS): KaTeX, which draws math in the chat, loads with the first reply that has an expression.
   Until it arrives, that expression shows in its source form, as it did when KaTeX could not read it.
   ([#493](https://github.com/devswha/herdr-web-ui/pull/493) by @kilhyeonjun)
-- Until a device is paired and no token is set, a LAN or proxied address no longer gets in at all — the
-  client is asked for the token, and `HERDR_WEB_ALLOW_OPEN=1` brings back the old open behaviour.
-  Before, anything that reached a bound non-loopback address typed into every terminal and could pair
-  itself a credential that lasted a year.
-- Starting a device pairing is now something an owner does — from the PC itself, with the token, or from
-  a device already paired — and completing one with a code still works from anywhere. Before, any
-  client that reached the address could start one and keep the credential.
 
 ### Fixed
 - A Claude Code pane started with its own `CLAUDE_CONFIG_DIR` (a launcher such as cac keeps one
@@ -307,8 +319,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#502](https://github.com/devswha/herdr-web-ui/pull/502))
 - The website serves the Google Search Console ownership verification file.
   ([#505](https://github.com/devswha/herdr-web-ui/pull/505))
-- The terminal now announces itself: it is a labelled region named after the pane, so a screen
-  reader names the pane before its content.
 
 ## [0.3.51] - 2026-10-06
 

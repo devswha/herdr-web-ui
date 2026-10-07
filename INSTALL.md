@@ -178,8 +178,8 @@ code, or the exact command still to run. Who gets in:
    `env $(cat ~/.config/herdr-web-ui/token.env) bun run start`. Restart herdr web ui either way.
 
 Tell the user the HTTPS address. Until a device is paired, and with no token set, a LAN or proxied
-address is closed to everyone but this PC: a client that is not a paired device is asked for the
-token, and pairing is started from this PC. Set `HERDR_WEB_ALLOW_OPEN=1` only when the user asks
+address is closed to everyone but this PC: a client that is not a paired device is told to pair, and
+pairing is started from this PC. Set `HERDR_WEB_ALLOW_OPEN=1` only when the user asks
 for the older behaviour, where anything that reaches the address types into the terminals until a
 device is paired.
 

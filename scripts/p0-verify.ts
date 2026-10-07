@@ -8,9 +8,9 @@
  * Run after `bun run build:site` (or `bun run build`), with CHROME_PATH pointed at a Chromium.
  */
 import assert from "node:assert/strict";
-import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { chromium, type Page } from "playwright-core";
+import { chromium, type Browser, type Page } from "playwright-core";
 import { serveStatic } from "../server/static.ts";
 
 const repo = join(import.meta.dir, "..");
@@ -39,65 +39,76 @@ const terminalA11y = (page: Page): Promise<TerminalA11y> => page.evaluate(() => 
 
 async function main() {
   // serveStatic reads DIST_DIR (the repo's dist/), so the demo app is laid out there: its
-  // index.html uses relative asset paths, which resolve the same under the real handler
+  // index.html uses relative asset paths, which resolve the same under the real handler.
+  // A real build's output is moved aside and put back at the end, so this never deletes
+  // what `bun run build` left here.
   const dist = join(repo, "dist");
-  rmSync(dist, { recursive: true, force: true });
-  cpSync(DEMO_APP, dist, { recursive: true });
-  const index = join(dist, "index.html");
-  let html = readFileSync(index, "utf8");
-  // the transport stub must load before the app's module so every /api and /ws call is answered
-  if (!html.includes("./demo-transport.js")) {
-    html = html.replace(/<script type="module"/, () => `<script src="./demo-transport.js"></script>\n    <script type="module"`);
-    writeFileSync(index, html);
+  const held = `${dist}.p0-verify`;
+  if (existsSync(dist)) {
+    rmSync(held, { recursive: true, force: true });
+    renameSync(dist, held);
   }
+  let browser: Browser | undefined;
+  let server;
+  try {
+    cpSync(DEMO_APP, dist, { recursive: true });
+    const index = join(dist, "index.html");
+    let html = readFileSync(index, "utf8");
+    // the transport stub must load before the app's module so every /api and /ws call is answered
+    if (!html.includes("./demo-transport.js")) {
+      html = html.replace(/<script type="module"/, () => `<script src="./demo-transport.js"></script>\n    <script type="module"`);
+      writeFileSync(index, html);
+    }
 
-  const browser = await chromium.launch({
-    executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
-    headless: true,
-    args: ["--no-sandbox", "--accept-lang=en-US"],
-  });
-
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  page.on("pageerror", (e) => errors.push(String(e)));
-  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-
-  // serve through the real serveStatic, so the load sees what the shipped handler sends
-  const server = Bun.serve({
-    hostname: "127.0.0.1", port: 0,
-    fetch: async (request) => serveStatic(new URL(request.url).pathname),
-  });
-
-  const origin = `http://127.0.0.1:${server.port}`;
-  await page.goto(origin);
-  await page.waitForSelector(".pane-terminal", { timeout: 15_000 });
-
-  // --- A1: the terminal's accessible surface ---
-  const a11y = await terminalA11y(page);
-  console.log(JSON.stringify(a11y, null, 2));
-  assert.equal(a11y.hasRegion, true, "the terminal host is a region");
-  assert.equal(a11y.roledescription, "terminal", "aria-roledescription is terminal");
-  assert.ok(a11y.label && a11y.label.length > 0, "the region is labelled");
-  console.log(`PASS the terminal is a labelled region announced as a terminal (${JSON.stringify(a11y.label)})`);
-
-  // the label follows the pane: open a workspace and re-read
-  await page.evaluate(async () => {
-    await fetch("/api/workspace/create", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ cwd: "/tmp", agent: { kind: "claude" } }),
+    browser = await chromium.launch({
+      executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
+      headless: true,
+      args: ["--no-sandbox", "--accept-lang=en-US"],
     });
-  });
-  await page.waitForTimeout(600);
-  const after = await terminalA11y(page);
-  assert.ok(after.label && after.label.length > 0, "the label is still set after a workspace opens");
-  console.log(`PASS the label persists across a workspace open (${JSON.stringify(after.label)})`);
 
-  if (errors.length > 0) throw new Error(`page errors: ${errors.slice(0, 5).join("; ")}`);
-  console.log("PASS no page errors");
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
-  await browser.close();
-  server.stop(true);
-  // dist/ is a build artefact; the next `bun run build` replaces it, and so does this
-  rmSync(dist, { recursive: true, force: true });
+    // serve through the real serveStatic, so the load sees what the shipped handler sends
+    server = Bun.serve({
+      hostname: "127.0.0.1", port: 0,
+      fetch: async (request) => serveStatic(new URL(request.url).pathname),
+    });
+
+    const origin = `http://127.0.0.1:${server.port}`;
+    await page.goto(origin);
+    await page.waitForSelector(".pane-terminal", { timeout: 15_000 });
+
+    // --- A1: the terminal's accessible surface ---
+    const a11y = await terminalA11y(page);
+    console.log(JSON.stringify(a11y, null, 2));
+    assert.equal(a11y.hasRegion, true, "the terminal host is a region");
+    assert.equal(a11y.roledescription, "terminal", "aria-roledescription is terminal");
+    assert.ok(a11y.label && a11y.label.length > 0, "the region is labelled");
+    console.log(`PASS the terminal is a labelled region announced as a terminal (${JSON.stringify(a11y.label)})`);
+
+    // the label follows the pane: open a workspace and re-read
+    await page.evaluate(async () => {
+      await fetch("/api/workspace/create", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cwd: "/tmp", agent: { kind: "claude" } }),
+      });
+    });
+    await page.waitForTimeout(600);
+    const after = await terminalA11y(page);
+    assert.ok(after.label && after.label.length > 0, "the label is still set after a workspace opens");
+    console.log(`PASS the label persists across a workspace open (${JSON.stringify(after.label)})`);
+
+    if (errors.length > 0) throw new Error(`page errors: ${errors.slice(0, 5).join("; ")}`);
+    console.log("PASS no page errors");
+  } finally {
+    // an assertion throwing here still closes both, and leaves the repo's dist/ as it found it
+    await browser?.close().catch(() => {});
+    server?.stop(true);
+    rmSync(dist, { recursive: true, force: true });
+    if (existsSync(held)) renameSync(held, dist);
+  }
 }
 
 await main().catch((error) => {

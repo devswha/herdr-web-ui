@@ -15,9 +15,10 @@ describe("decideAccess", () => {
   });
 
   it("denies a LAN client by default, and only opens while the owner asked for it", () => {
-    // no token, nothing paired, nothing asked for: a peer on the LAN gets the token gate
-    expect(via({ loopback: false })).toBe("refused:token_required");
-    expect(via({ loopback: true, forwarded: true })).toBe("refused:token_required");
+    // no token, nothing paired, nothing asked for: a peer on the LAN is told to pair — there is
+    // no token on a server like this, so the token gate would name a way in that does not exist
+    expect(via({ loopback: false })).toBe("refused:pairing_required");
+    expect(via({ loopback: true, forwarded: true })).toBe("refused:pairing_required");
     // HERDR_WEB_ALLOW_OPEN=1 is the old shape, kept deliberately
     expect(via({ loopback: false, allowOpen: true })).toBe("open");
     expect(via({ loopback: true, forwarded: true, allowOpen: true })).toBe("open");
@@ -43,7 +44,7 @@ describe("decideAccess", () => {
     expect(via({ forwarded: true, owner: "me@example.com" })).toBe("refused:pairing_required");
     expect(via({ forwarded: true, owner: "me@example.com", device })).toBe("device");
     // no owner known yet: the header decides nothing either way
-    expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: null })).toBe("refused:token_required");
+    expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: null })).toBe("refused:pairing_required");
   });
 
   it("lets the owner's own device in through serve with no login, when serve is declared the only ingress and one login owns the tailnet", () => {

@@ -11,7 +11,8 @@
  * let in only while the owner has asked for it: `HERDR_WEB_ALLOW_OPEN=1` puts the server
  * back in the "open LAN" shape it had before, where anything that reaches the address
  * types into your terminals until a device is paired. Without it a LAN peer is refused
- * the token gate (`token_required`: the token is the one way in it has), except through a proxy
+ * as pairing (`pairing_required`: a code the owner starts on this PC is the one way in it has),
+ * except through a proxy
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
  * node (tailscale serve states no person for it), and a tailnet can hold many of those. The
  * exception is an install whose operator declared `tailscale serve` the only way in
@@ -141,11 +142,13 @@ export function decideAccess(input: AccessInput): Access {
   if (input.loopback && input.forwarded && (input.owner !== null || input.tagged || input.serveOnly)) return { level: "none", reason: "pairing_required" };
   // the public internet is never "open", whatever is paired
   if (!input.gated && !input.funnel) {
-    // Opt-in only (HERDR_WEB_ALLOW_OPEN=1). Refused as the token gate, not as pairing:
-    // pairing initiation is an owner's act (server/devices.ts), so telling a LAN peer to
-    // pair would be a dead end — the token, or a code the owner already started, is the way in.
+    // Opt-in only (HERDR_WEB_ALLOW_OPEN=1): the user asked for the old "open LAN" shape, where
+    // anything that reaches the address types into the terminals until a device is paired.
     if (input.allowOpen) return { level: "full", via: "open", role: "drive" };
-    return { level: "none", reason: "token_required" };
+    // Refused as pairing, never as the token gate: a token was already answered for at the top, so
+    // the one way left in is a code the owner starts on this PC. `/api/devices/pair` stays public
+    // and its refusal names exactly that, so this is the way in, not a dead end.
+    return { level: "none", reason: "pairing_required" };
   }
   return { level: "none", reason: "pairing_required" };
 }

@@ -160,6 +160,19 @@ describe("starting a pairing", () => {
     expect((await start({ level: "full", via: "open", role: "drive" })).status).toBe(200);
   });
 
+  it("still refuses a session that reached the start without drive rights", async () => {
+    // The gate in index.ts answers a session like this before the handler runs, so this is the
+    // floor the check holds if one ever reaches it, not a path that runs today. A watch device,
+    // the one full session that is not an owner, is answered read_only just above the check.
+    const refused = await start({ level: "none", reason: "token_required" });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: { code: "not_owner", message: "Start pairing from this PC, or with the token" } });
+    const watch = store.match(store.pair(store.startPairing().code, "Tablet", "watch")!.token)!;
+    const watched = await start({ level: "full", via: "device", role: "watch", device: watch });
+    expect(watched.status).toBe(403);
+    expect((await watched.json()).error.code).toBe("read_only");
+  });
+
   it("leaves pairing completion public: the code is the secret", async () => {
     const { code } = store.startPairing();
     const completed = await handleDeviceRequest(
