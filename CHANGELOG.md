@@ -18,7 +18,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   lines, the default, a workspace row shows what its agent is doing, with the workspace and
   folder under it, as the sidebar did before its rows became one line. **One line** keeps the
   workspace's name alone.
-  ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+  ([#521](https://github.com/devswha/herdr-web-ui/pull/521),
+  [#559](https://github.com/devswha/herdr-web-ui/pull/559))
 - A right-click on a workspace or pane row in the sidebar opens the row's menu, the one its `⋯`
   button opens. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - The sidebar can be resized: drag its right edge, or focus the edge and use the arrow keys.
@@ -45,10 +46,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   key or a browser that recognizes speech. A phone and the terminal input line have it when the
   setting is **On**, as before. Nothing is recorded until the mic is pressed. A device that had
   the button on keeps it; one that had it off follows Auto.
+  ([#559](https://github.com/devswha/herdr-web-ui/pull/559))
 - On a phone, the sidebar's **Agents** list starts folded, leaving the drawer to the workspaces.
-  A tap on its heading opens it.
+  A tap on its heading opens it. ([#559](https://github.com/devswha/herdr-web-ui/pull/559))
 - On a touch screen, the chip above the message box that takes Claude Code's suggested next
   prompt is on again unless **Settings → Composer → Suggestion chip** turns it off.
+  ([#559](https://github.com/devswha/herdr-web-ui/pull/559))
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
   work schedules a next-turn message; its explicit ↑ Send now action delivers it immediately,
   or X discards it. The bridge claims each message once and pauses automatic delivery when
