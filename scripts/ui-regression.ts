@@ -240,6 +240,133 @@ try {
   } finally { await offlineContext.close(); }
   console.log("PASS Agents excludes shells, survives PC folds, selects its machine target and disables offline rows");
 
+  // A pane's plan: the header's count opens it in the chat and the terminal alike, as a flow of
+  // boxes (a step below the steps it waits on) or as a list, and the sidebar row carries the same
+  // count. Reading it is the server's (server/session-plan.ts): its summary and steps are given here.
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  // what the running step's time held, and what was done while none ran
+  const parserWork = {
+    tools: [{ name: "Bash", count: 5 }, { name: "Edit", count: 3 }, { name: "Agent", count: 1 }],
+    recent: [
+      { at: minutesAgo(6), tool: "Edit", detail: "server/session-plan.ts" },
+      { at: minutesAgo(4), tool: "Agent", detail: "Review the parser" },
+      { at: minutesAgo(1), tool: "Bash", detail: "bun test server/session-plan.test.ts", failed: true },
+    ],
+    last_at: minutesAgo(1),
+    agents: [{ id: "a1", label: "Review the parser", type: "reviewer" }],
+    background: [{ id: "b1", command: "bun run build", status: "running" }],
+    files: [{ path: "server/session-plan.ts", count: 3 }],
+    failed: 1,
+  };
+  const outsideWork = { tools: [{ name: "Bash", count: 2 }], recent: [{ at: minutesAgo(30), tool: "Bash", detail: "git status" }], last_at: minutesAgo(30), agents: [], background: [] };
+  const planSteps = [
+    { id: "1", label: "Read the code", active: null, status: "completed", blocked_by: [], owner: null, started_at: "2026-10-07T00:00:00.000Z", ended_at: "2026-10-07T00:04:00.000Z" },
+    { id: "2", label: "Write the parser", active: "Writing the parser", description: "Read the transcript's task calls\ninto steps", status: "in_progress", blocked_by: ["1"], owner: null, started_at: "2026-10-07T00:04:00.000Z", ended_at: null, activity: parserWork },
+    { id: "3", label: "Write the panel", active: null, status: "pending", blocked_by: ["1"], owner: null, started_at: null, ended_at: null },
+    { id: "4", label: "Ship it", active: null, status: "pending", blocked_by: ["2", "3"], owner: null, started_at: null, ended_at: null },
+  ];
+  const planned = async (target: typeof page): Promise<void> => {
+    await target.route("**/api/machines", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json() as { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
+      for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
+      await route.fulfill({ response, json: body });
+    });
+    await target.route(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: { plan: { steps: planSteps, outside: outsideWork }, server_time: new Date().toISOString() } }));
+    // the subagent the step started, as the pane's subagent list tells it
+    await target.route(`**/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: {
+      tasks: [{ id: "a1", title: "Review the parser", category: "reviewer", model: null, status: "running", started_at: minutesAgo(4), ended_at: null, turns: 3, tool_calls: 7, tokens: 18_200 }],
+      runs: [], server_time: new Date().toISOString(),
+    } }));
+  };
+  await planned(page);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  const planButton = page.getByRole("button", { name: "Plan: 1 of 4 done", exact: true });
+  await planButton.waitFor();
+  assert.equal((await agentRow(paneA).locator("[data-testid=plan-progress]").textContent())?.trim(), "1/4");
+  await planButton.click();
+  const planDialog = page.getByRole("dialog", { name: /^Plan/ });
+  await until(async () => await planDialog.locator(".plan-node").count() === 4, "the plan's boxes");
+  assert.equal(await planDialog.locator(".plan-flow-edges .plan-edge").count(), 4, "one curve per wait");
+  assert.equal(await planDialog.locator(".plan-flow-edges .plan-edge.is-done").count(), 2, "the ways out of a done step are open");
+  const box = async (label: string) => (await planDialog.locator(".plan-node-label", { hasText: label }).boundingBox())!;
+  const [read, parser, panel, ship] = [await box("Read the code"), await box("Write the parser"), await box("Write the panel"), await box("Ship it")];
+  assert.ok(read.y < parser.y && Math.abs(parser.y - panel.y) < 1 && panel.y < ship.y && parser.x < panel.x, "waves top to bottom, a wave side by side");
+  assert.equal(await planDialog.locator(".plan-node.is-in_progress").textContent().then((text) => text?.includes("Write the parser")), true);
+  assert.equal(await planDialog.locator(".plan-node.is-pending .sr-only").last().textContent(), "after Write the parser, Write the panel", "the waits are told in words");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Close plan", "the focus comes into the dialog");
+  assert.match(await planDialog.locator(".plan-summary").textContent() ?? "", /1 of 4 done\s*Writing the parser/);
+  // told the way a person would: what runs now, what can start, what waits; each box says what it waits for, and a key says how to read the flow
+  assert.equal(await planDialog.getByRole("progressbar", { name: "Plan progress" }).getAttribute("aria-valuenow"), "1");
+  assert.deepEqual(await planDialog.locator(".plan-overview .plan-outlook > div").allTextContents(), ["NowWrite the parser", "Can start nowWrite the panel", "Later1 step waits for others to finish first"]);
+  assert.deepEqual(await planDialog.locator(".plan-node-meta").allTextContents().then((metas) => metas.map((meta) => meta.split(" · ")[0])), ["done", "running", "ready to start", "waits for 2 steps"]);
+  assert.match(await planDialog.locator(".plan-key").textContent() ?? "", /not startedrunningdonewaits for the step abovethe step above is doneRead it from the top down/);
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-flow.png") });
+  // a box opens what its step's time held: calls by tool, the last few, what it started
+  const parserBox = planDialog.locator(".plan-node.is-in_progress .plan-node-open");
+  await parserBox.click();
+  const detail = planDialog.getByRole("region", { name: "Step details" });
+  await detail.waitFor();
+  assert.equal(await parserBox.getAttribute("aria-expanded"), "true");
+  assert.match(await detail.locator(".plan-detail-tools").textContent() ?? "", /^9 tool calls · 1 failed · last action 1m \d+s agoCommands 5 · Edits 3 · Subagents 1$/);
+  assert.equal(await detail.locator(".plan-detail-description").textContent(), "Read the transcript's task calls\ninto steps");
+  assert.deepEqual(await detail.locator(".plan-detail-links > div").allTextContents(), ["Waits forRead the code", "ThenShip it"]);
+  assert.deepEqual(await detail.locator(".plan-detail-file").allTextContents(), ["server/session-plan.ts"]);
+  const recentCalls = detail.locator("ol.plan-detail-list");
+  assert.deepEqual(await recentCalls.locator(".plan-detail-tool").allTextContents(), ["Ran", "Delegated", "Edited"], "the last call first, said as what it did");
+  assert.match(await recentCalls.locator("li.is-failed").textContent() ?? "", /bun test server\/session-plan\.test\.tsfailed · 1m \d+s ago$/);
+  await until(async () => (await detail.locator("li", { hasText: "reviewer" }).textContent())?.includes("Review the parserreviewer · running") ?? false, "the subagent's state from the pane's subagent list");
+  assert.match(await detail.locator("li", { hasText: "bun run build" }).textContent() ?? "", /running$/);
+  if (process.env.UI_EVIDENCE_DIR) await detail.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-detail.png") });
+  // a step it names opens that step's detail
+  await detail.getByRole("button", { name: "Ship it", exact: true }).click();
+  await until(async () => await detail.locator(".plan-detail-title").textContent() === "Ship it", "the step the detail named");
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-detail")), true, "the focus stays in the dialog when the chip that opened the step is gone");
+  assert.match(await detail.locator(".plan-detail-meta").textContent() ?? "", /^waits for 2 steps/);
+  assert.equal(await detail.locator(".plan-note").textContent(), "Not started yet.");
+  // what was done while no step ran has a detail of its own
+  await planDialog.getByRole("button", { name: "Work outside the steps · 2 calls", exact: true }).click();
+  assert.equal(await detail.locator(".plan-detail-title").textContent(), "Outside the steps");
+  await detail.getByRole("button", { name: "Close step", exact: true }).click();
+  await detail.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-outside")), true, "the focus goes back to what opened the detail");
+  await planDialog.getByRole("button", { name: "Steps", exact: true }).click();
+  assert.deepEqual(await planDialog.locator(".plan-step-label").allTextContents(), ["Read the code", "Write the parser", "Write the panel", "Ship it"]);
+  await page.keyboard.press("Escape");
+  await planDialog.waitFor({ state: "detached" });
+  await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+  await planButton.click();
+  await until(async () => await planDialog.locator(".plan-node").count() === 4, "the plan over the terminal");
+  // Escape is the dialog's even over the terminal, and the focus goes back to the button that opened it
+  await page.keyboard.press("Escape");
+  await planDialog.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-button")), true, "the focus goes back on close");
+  await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  await page.unroute("**/api/machines");
+  await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
+  await page.unroute(`**/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneA)}`);
+  console.log("PASS a pane's plan opens from the header in the chat and the terminal, as a flow and a list, and a step opens what its time held");
+
+  // a turn that ended on work still running in the background reads BG, not DONE: drawn in the sidebar, and read in the composer
+  await page.route("**/api/machines", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
+    for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { agent_status: "done", background_tasks: 1, background_wait: true });
+    await route.fulfill({ response, json: body });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  const waitingBadge = agentRow(paneA).locator(".badge[data-status=waiting]");
+  await waitingBadge.waitFor();
+  assert.equal((await waitingBadge.textContent())?.trim(), "BG");
+  assert.equal(await waitingBadge.getAttribute("title"), "Agent waiting on background work");
+  assert.equal(await waitingBadge.locator("svg").count(), 1, "BG draws the running arc, held still");
+  await page.locator('.composer-status[data-status="waiting"] strong.visually-hidden', { hasText: "BG" }).waitFor();
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "background-wait.png") });
+  await page.unroute("**/api/machines");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await waitingBadge.waitFor({ state: "detached" });
+  console.log("PASS a pane whose turn ended on its background work reads BG in the sidebar and the composer, and its status again once it does not");
+
   // Use a real browser paste: keydown must not send Ctrl+V (0x16) to the agent,
   // where it can trigger image paste against the server's unrelated clipboard.
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
@@ -1348,6 +1475,36 @@ try {
   await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
+
+  // a phone: the plan's count fits the header, and the plan opens as a sheet the page does not scroll past
+  const planPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const phone = await planPhone.newPage();
+  phone.on("pageerror", (error) => errors.push(error.message));
+  await planned(phone);
+  await phone.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
+  await phone.locator(".conn-live").waitFor();
+  const phonePlan = phone.getByRole("button", { name: "Plan: 1 of 4 done", exact: true });
+  await phonePlan.waitFor();
+  const header = (await phone.locator(".app-header").boundingBox())!;
+  const counted = (await phonePlan.boundingBox())!;
+  assert.ok(counted.x >= 0 && counted.x + counted.width <= header.width, "the plan's count fits a phone's header");
+  await phonePlan.tap();
+  const phoneDialog = phone.getByRole("dialog", { name: /^Plan/ });
+  await until(async () => await phoneDialog.locator(".plan-node").count() === 4, "the plan on a phone");
+  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (process.env.UI_EVIDENCE_DIR) await phone.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-phone.png") });
+  // a step's detail opens below the flow and is brought into view, still within the sheet's width
+  await phoneDialog.locator(".plan-node.is-in_progress .plan-node-open").tap();
+  const phoneDetail = phoneDialog.getByRole("region", { name: "Step details" });
+  await phoneDetail.waitFor();
+  await until(async () => { const shown = await phoneDetail.boundingBox(); return shown !== null && shown.y < 844 && shown.y + 40 > 0; }, "the step's detail in view");
+  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (process.env.UI_EVIDENCE_DIR) await phone.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-detail-phone.png") });
+  await phoneDialog.getByRole("button", { name: "Close plan", exact: true }).tap();
+  await phoneDialog.waitFor({ state: "detached" });
+  await planPhone.close();
+  assert.deepEqual(errors, []);
+  console.log("PASS a phone opens the plan from a header it fits in");
 
   // a phone reads a pane before it answers: a pane picked from the drawer raises no keyboard,
   // and a tap on the message box does

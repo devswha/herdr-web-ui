@@ -13,7 +13,10 @@ import type {
   OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
+  PanePlan,
   PaneReadResult,
+  PlanActivity,
+  PlanStep,
   PromptAnswer,
   PushKey,
   RemoteAccess,
@@ -440,6 +443,13 @@ export async function fetchPaneOmoActivity(paneId: string, machineId = "local"):
   const activity = await getJson<Partial<OmoActivity>>(machinePath(machineId, `pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`));
   // a bridge from before workflows answers tasks only
   return { tasks: activity.tasks ?? [], runs: activity.runs ?? [], serverTime: activity.server_time ?? null };
+}
+
+/** GET /api/pane/plan: the plan the pane's Claude Code or Codex session keeps, and that PC's clock. */
+export async function fetchPanePlan(paneId: string, machineId = "local"): Promise<{ steps: PlanStep[] | null; outside: PlanActivity | null; serverTime: string | null }> {
+  const answer = await getJson<Partial<PanePlan>>(machinePath(machineId, `pane/plan?pane_id=${encodeURIComponent(paneId)}`));
+  // a bridge from before step activity answers steps only
+  return { steps: answer.plan?.steps ?? null, outside: answer.plan?.outside ?? null, serverTime: answer.server_time ?? null };
 }
 
 /** GET /api/pane/files: paths under the pane's cwd matching `query`, for @-mentions. */

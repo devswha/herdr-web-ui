@@ -44,6 +44,29 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
   and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- A Claude Code pane's subagents (the `Agent` tool) now show where OmO's background tasks do:
+  the status line lists what runs and what ended in the last day, the pane's badge counts the
+  running ones, and a subagent that ends leaves a card in the chat with its answer instead of
+  being hidden. They are read from the session's own `subagents/` files and its transcript.
+  ([#527](https://github.com/devswha/herdr-web-ui/pull/527))
+- The plan a Claude Code or Codex pane's agent keeps (Claude Code's task list, Codex's
+  `update_plan` checklist) now shows: a count in the header opens it, in the chat and the
+  terminal alike, as a flow of boxes (a step below the steps it waits on) or as a list, with
+  what the running step does and how long each step took, and the sidebar row carries the same
+  count. It is read back from the session's transcript; nothing new is asked of the agent.
+- A plan's step opens what was done while it ran: its tool calls by tool, the last few with what
+  each was given, the subagents it started and their state, and the background commands it left
+  running and how they ended. Work done while no step ran has a detail of its own.
+- A plan reads as an explanation, for someone who was not watching: a progress bar, what runs
+  now, what can start now and how many steps still wait on others; each box says what it waits
+  for (or that it is ready to start), and a key under the flow says what the marks and lines
+  mean. A step's detail adds what the step is for (Claude Code's task description), when it
+  started, the steps it waits for and the ones that follow (each opens its own detail), a note
+  when other steps ran at the same time, its calls said as what they did (commands, edits,
+  reads, searches), the files it changed, and the calls that failed.
+- A Claude Code pane's background commands (`run_in_background`, Ctrl+B, or a command moved
+  there by its timeout, by the session or by a subagent) are listed and counted with its
+  subagents, and end with their notice or a `TaskStop`.
 
 ### Changed
 - The mic button shows in a desktop's chat without being turned on. **Settings → Voice input →
@@ -156,6 +179,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that claims the same headers still gains nothing, and a configured token is still required of
   everything but a paired device.
   ([#525](https://github.com/devswha/herdr-web-ui/pull/525) by @jetmobsol)
+- A Claude Code turn that ends while work it started still runs in the background (a test suite
+  it waits on, a subagent) no longer reads DONE and alerts "work finished": the pane reads
+  **BG** until that work ends, and the turn its notice starts is the same turn, alerted once when
+  it ends. A turn is held at most 30 minutes, and work started before the person's last prompt
+  (a dev server left running) holds nothing.
 
 ## [0.3.52] - 2026-10-06
 

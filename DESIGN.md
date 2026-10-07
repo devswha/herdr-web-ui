@@ -391,14 +391,18 @@ One set for both themes: the card is island black wherever it shows.
   (`aria-current`).
 
 ### Badge (`.badge`)
-- Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**.
+- Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
+  whose turn ended while work it started still runs in the background (`background_wait`): it
+  stands in for DONE or READY until that work's turn ends.
 - Idle is elevated/dim; working, blocked and done use their own tint and text. RUN carries a small
-  breathing dot before the word; the word itself never fades.
+  breathing dot before the word; the word itself never fades. BG takes the working tint and text,
+  holding still; a tab's dot for it is a working-coloured ring.
 - The written label and unknown dashed edge keep color from being the only signal.
 - The sidebar's compact variant weights each state by how much it asks of the user. Waiting for
   an answer is the one filled glyph, a filled message circle in `--status-blocked`; finished and
   not yet looked at is an 8px dot in `--status-done`, as an unread mark is; working is a stepped
-  spinning arc in `--text-dim`, since its motion already says it; ready and unknown draw
+  spinning arc in `--text-dim`, since its motion already says it; BG is the same arc held still in
+  `--status-working`, since nothing about it moves until its work ends; ready and unknown draw
   nothing. A pane herdr could not restore
   draws a warning triangle in `--status-blocked`. The element, its label and its tooltip are there
   for every state, and each drawn state has its own glyph as well as its color. Background tasks
@@ -689,8 +693,50 @@ One set for both themes: the card is island black wherever it shows.
 - An OmO or omp `task` row opens to the tasks it starts (`.chat-task-calls`): each summary in
   `--text`, the agent as a hairline mono pill, the prompt in the bounded mono input box.
 
+### Plan (`.plan-button`, `.plan-dialog`, `.plan-count`)
+- The header's plan button sits after the view switch, in both lenses: the list-checks glyph
+  (`--status-working`, `--status-done` once every step is done) and `done/total` in tabular
+  figures, on the `--bg-elevated` hairline chip the switch uses. The sidebar's agent row repeats the
+  count beside the background count, in its quiet mono figures and with no box (`.plan-count`).
+- The plan opens as a modal (a bottom sheet under 641px): title, the pane's name (hidden on a
+  phone), a Flow / Steps switch and a close button. Under them a 6px pill bar on `--bg-elevated`
+  (done in `--status-done`, running in `--status-working`), `N of M done` and, in
+  `--status-working`, what the running step does now; then an outlook, a dim label column beside
+  its line: **Now** and **Can start now** name their steps as chips (`--bg-elevated` hairline
+  pills with the status glyph, `--accent` border on hover or while open, three at most then
+  `+N more`), **Later** says how many steps still wait on others. A plan whose steps record no
+  waits says **Not started** and a count instead, and the flow says why it has no arrows (its key
+  then shows only the glyphs).
+- Flow (`lib/plan.ts`): waves top to bottom, a wave's boxes side by side and centred, a curve
+  with an arrowhead from each step waited on. A box is a step's name (two lines at most, a status
+  glyph before it) over a dim meta line (state · time · teammate, where a step not started says
+  `ready to start` or `waits for <step>` / `waits for N steps`). Done: solid `--status-done`
+  edge on its tint; running: a 2px `--status-working` edge on its tint; waiting: a dashed hairline
+  and dim text. A curve out of a done step is solid `--status-done`; one still waiting is a dim
+  dashed line. A wave wider than the sheet scrolls sideways inside it, never the page. Under the
+  flow a dim key: the three glyphs, a dashed and a solid line drawn as the curves are, and one
+  sentence on reading it top down.
+- Steps: the same steps in wave order, a status glyph, the name, what a running step does now and
+  the meta line.
+- A box or a row is a button: it opens the step's detail below the flow or the list (and is
+  outlined in `--accent` while open); a second press closes it. The detail is a `--bg-panel`
+  hairline card: the step's name and glyph with a close button, the meta line with the clock
+  time it started, what a running step does now, **What this step is for** (the description, its
+  line breaks kept), **Waits for** / **Then** chips that open those steps, a dim note when other
+  steps ran at the same time, then **What was done**: `N tool calls · N failed · last action …
+  ago` over a tally by kind (Commands, Edits, Reads, Writes, Searches, Subagents; a tool of no
+  kind by its name), **Files changed** (mono path, `N times` when more than once), the last five
+  calls newest first (the verb it did in `--fw-medium`, its tool id in the title, what it was
+  given, a dim time, `failed` in `--status-blocked` for an error, a refusal or an interrupt), the
+  subagents it started
+  (their type, state and tokens from the pane's subagent list) and its background commands (state
+  in `--status-working`, `--status-done` or `--status-blocked`). No percentage: nothing in the
+  transcript measures one. Work done while no step ran opens from a dashed `Work outside the
+  steps · N calls` chip under the flow. On a phone the detail is brought into view as it opens.
+
 ### Background tasks ended (`.chat-task-results`)
-- Where OmO reports background tasks that ended, the transcript shows one `--bg-elevated` card
+- Where OmO reports background tasks that ended, or a Claude Code subagent ends (its
+  `<task-notification>`, drawn once however many records carry it), the transcript shows one `--bg-elevated` card
   (hairline edge, `--radius-lg`) on the prose column: a dim `--fs-xs` line with the layers icon,
   "2 background tasks ended" and the time, then one hairline-separated row per task.
 - A row is the status icon (`--status-done` check, `--status-blocked` x, dim slash for
@@ -798,7 +844,7 @@ One set for both themes: the card is island black wherever it shows.
   pushed to the button's side. It draws, at `--fs-xs`: the model pill and the uploading
   or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;
   its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
-  `READY` / `RUN` / `INPUT` / `DONE` and the sentence `Reasoning high` stay in it for assistive tech only
+  `READY` / `RUN` / `INPUT` / `DONE` / `BG` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
   and the prompt card. No state word is drawn in the chat composer.
 - The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the

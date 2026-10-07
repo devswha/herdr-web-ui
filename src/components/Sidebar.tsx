@@ -1,13 +1,13 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { Ellipsis, Folder, FolderOpen, GitBranch, Layers, ListChecks, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
-import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
+import type { AgentStatus, HerdrPane, PaneInfo, PlanSummary, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
-import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
+import { knownStatus, paneStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
@@ -68,11 +68,12 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
   const t = useT();
   const value = knownStatus(status);
   const label = t(STATUS_WORD[value]);
-  const description = t("Agent {status}", { status: label });
+  const description = value === "waiting" ? t("Agent waiting on background work") : t("Agent {status}", { status: label });
   // a compact cell draws only the states that ask for a look: a red question mark while the agent
   // waits for an answer, a green dot once it has finished and was not looked at, a dim arc while
-  // it runs. Ready and unknown keep the cell, its label and its tooltip
-  const Icon = { idle: null, working: LoaderCircle, blocked: null, done: null, unknown: null }[value];
+  // it runs, the same arc held still in the working colour while its turn waits on background work.
+  // Ready and unknown keep the cell, its label and its tooltip
+  const Icon = { idle: null, working: LoaderCircle, blocked: null, done: null, waiting: LoaderCircle, unknown: null }[value];
   return (
     <span
       className={`badge badge-${value}${compact ? " sidebar-status" : ""}`}
@@ -101,6 +102,18 @@ export function BackgroundBadge({ count }: { count?: number }) {
   return (
     <span className="background-count" title={label} aria-label={label} data-testid="background-tasks">
       <Layers aria-hidden="true" />{count}
+    </span>
+  );
+}
+
+/** How far the pane's plan has got: a count beside the state word, quiet once every step is done. */
+export function PlanBadge({ plan }: { plan?: PlanSummary }) {
+  const t = useT();
+  if (!plan || plan.total <= 0) return null;
+  const label = t("Plan: {done} of {total} done", { done: plan.done, total: plan.total });
+  return (
+    <span className={`plan-count${plan.done === plan.total ? " is-done" : ""}`} title={plan.current ? `${label} · ${plan.current}` : label} aria-label={label} data-testid="plan-progress">
+      <ListChecks aria-hidden="true" />{plan.done}/{plan.total}
     </span>
   );
 }
@@ -555,7 +568,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           </span>}
           <span className="sidebar-pane-meta">
             <span className="visually-hidden">{markName(pane)}</span>
-            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => candidate.agent_status)) : undefined} />}
+            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => paneStatus(candidate as HerdrPane))) : undefined} />}
           </span>
         </div>
         <div className="workspace-actions">
