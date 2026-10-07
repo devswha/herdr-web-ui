@@ -8,9 +8,9 @@ import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, Her
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
-import { cameThroughProxy, decideAccess, isLoopbackAddress } from "./access.ts";
+import { cameThroughProxy, decideAccess, isLoopbackAddress, isServeOwnerRequest } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
-import { remoteAccess, tailscaleIdentity } from "./tailscale.ts";
+import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
@@ -316,6 +316,10 @@ export function createServer(
     stateDir?: string;
     /** the PC's own Tailscale login, for the identity check; tests set it, otherwise `tailscale status` says */
     tailscaleOwner?: string | null;
+    /** the operator declares `tailscale serve` as this install's only ingress; HERDR_WEB_TAILSCALE_SERVE_ONLY=1 says the same */
+    tailscaleServeOnly?: boolean;
+    /** the tailnet identity behind the access check; unset, the tailscale CLI says. Tests pass one with their own status reader. */
+    tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
     updates?: UpdateService;
@@ -391,8 +395,13 @@ export function createServer(
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
-  const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
-  identityOf();
+  const tailnet = options.tailnet ?? new TailnetIdentitySource();
+  const identityOf = async (grantPath: boolean, host: string | null) => {
+    if (namedOwner !== undefined) return { ...(grantPath ? await tailnet.freshIdentity(host) : { soleLogin: null, dnsName: null, tailnetIp: null }), owner: namedOwner, tagged: false };
+    return grantPath ? tailnet.freshIdentity(host) : tailnet.identity();
+  };
+  identityOf(false, null);
+  const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
 
   /**
    * Runs `task` after everything queued for the pane. While a composer message is in
@@ -1175,14 +1184,21 @@ export function createServer(
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
       const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
+      const loopback = ip !== null && isLoopbackAddress(ip.address);
+      const forwarded = cameThroughProxy(request.headers);
+      const funnel = request.headers.has("tailscale-funnel-request");
+      const tailscaleLogin = request.headers.get("tailscale-user-login");
+      const requestHost = request.headers.get("host");
+      const tokenMatched = token !== "" && isAuthenticated(request, token);
+      const pairedDevice = devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE));
+      const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
+      const identity = await identityOf(token === "" && pairedDevice === null && isServeOwnerRequest(requestShape) && (pathname === "/ws" || pathname.startsWith("/api/")), requestHost);
       const access = decideAccess({
-        loopback: ip !== null && isLoopbackAddress(ip.address),
-        forwarded: cameThroughProxy(request.headers),
-        funnel: request.headers.has("tailscale-funnel-request"),
-        tailscaleLogin: request.headers.get("tailscale-user-login"),
-        tokenMatched: token !== "" && isAuthenticated(request, token),
-        device: devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE)),
-        ...identityOf(),
+        ...requestShape,
+        host: requestHost,
+        tokenMatched,
+        device: pairedDevice,
+        ...identity,
         tokenConfigured: token !== "",
         gated: devices.gated,
       });

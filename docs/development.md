@@ -14,6 +14,33 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 
 ## Checks
 
+`bun run check` runs what CI runs, from the same script (`scripts/check.ts`):
+
+```bash
+bun run check fast                  # CI's Fast checks: workflow syntax, generated types, typecheck, build, unit tests
+bun run check integration browser   # CI's Integration and browser: a build, then both lanes side by side
+bun run check full                  # fast, then both lanes
+bun run check run bun test --timeout 15000 ./server/api.contract.test.ts   # one command on the same isolated herdr
+bun run check run bun scripts/ui-regression.ts                             # (a browser script serves dist/: build first)
+```
+
+`fast` needs no herdr. The other modes run on a herdr of their own: its config, its plugin state
+and the web UI's state live in a directory made for the run (`XDG_CONFIG_HOME`, `XDG_STATE_HOME`,
+`HERDR_WEB_STATE_DIR`), under a session name made for the run. Nothing reads your herdr config,
+so no plugin installed there starts with the test servers, and two runs on one PC share no
+socket and no file. The run stops its herdr servers and removes the directory when it ends, also
+when it is interrupted; `CHECK_DIR=<path>` keeps it there instead. Only one run with a lane at a
+time on a PC: the contract and browser tests are bound by timing, and a second run names the
+first and exits (the lock is loopback port 41737, which a run listens on while it runs). One run per checkout: `fast` rewrites the generated types file while it
+checks it, and every mode builds into `dist/`.
+
+A local pass is not CI's: the PC has its own Node (CI pins 22), its own cores and its own system
+libraries. The browser lane uses the lockfile's Chromium, which it downloads into Playwright's
+cache on first use. `HERDR_TEST_SHARDS=4` runs four integration files at a time, as a way to
+look for timing failures; the default is one, as in CI.
+
+The single commands still work on their own:
+
 ```bash
 bun run typecheck
 bun run build
@@ -164,14 +191,17 @@ There is no permanent `develop` branch. Release metadata changes also go through
 
 The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
 
-- **Fast checks**: frozen dependency install, generated type freshness, typecheck, build,
-  and `bun run test:unit`. This suite does not start herdr.
-- **Integration and browser**: checksum-pinned herdr 0.9.3, Node 22, isolated state/session,
-  `bun run test:integration`, and `scripts/ui-regression.ts` with the lockfile's Chromium.
-  The two run at the same time (`scripts/ci-lanes.ts`). The integration files can run a few
-  at a time, each worker on a herdr session of its own (`scripts/ci-tests.ts`); CI runs them
-  one by one (`HERDR_TEST_SHARDS: 1`) until the timing-bound contract tests hold under load.
-  Missing herdr fails the integration suite. The owned session is stopped even on failure.
+- **Fast checks**: frozen dependency install, then `bun run check fast`: workflow syntax
+  (checksum-pinned actionlint), generated type freshness, typecheck, build, and
+  `bun run test:unit`. This suite does not start herdr.
+- **Integration and browser**: checksum-pinned herdr 0.9.3, Node 22, then
+  `bun run check integration browser`: a build, `bun run test:integration`, and the browser
+  scripts of `scripts/ci-browser.sh` with the lockfile's Chromium, on a herdr of the run's own
+  ([Checks](#checks)). The two lanes run at the same time (`scripts/ci-lanes.ts`). The
+  integration files can run a few at a time, each worker on a herdr session of its own
+  (`scripts/ci-tests.ts`); they run one by one (`HERDR_TEST_SHARDS`, default 1 in
+  `scripts/check.ts`) until the timing-bound contract tests hold under load.
+  Missing herdr fails the run. Its herdr servers are stopped even on failure.
   Integration tests have a 15-second default timeout so their bounded process-startup
   probes can finish; individual tests can still specify a longer timeout.
 

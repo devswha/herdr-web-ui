@@ -90,6 +90,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The Claude usage meter shows a model's own weekly limit, such as Fable's, which Anthropic
   reports only in its list of limits; the Opus and Sonnet weeks are still read as before.
   ([#532](https://github.com/devswha/herdr-web-ui/pull/532) by @bertkiefer)
+- A Claude or Codex question asked right after a message that began with a number ("1. …") shows
+  as a question card in the chat again. The sent message, still on screen above the question, was
+  read as an option of its own, so the question fell back to a card of arrow keys. Option
+  descriptions that wrap over two lines are shown whole, not cut off at the first line.
+  ([#517](https://github.com/devswha/herdr-web-ui/pull/517) by @kilhyeonjun)
+- With `HERDR_WEB_TAILSCALE_SERVE_ONLY=1`, which declares `tailscale serve` the only way in, your
+  own phone lands in the app as soon as it opens the `tailscale serve` address, with no pairing
+  code, on a tailnet that one Tailscale login owns and that has no tagged node on it. Before,
+  `tailscale serve` states no login for some of those requests, and every request without one was
+  taken for a tagged node's and asked to pair. Off by default, such a request still pairs. Another
+  Tailscale login is still refused, a tagged node still pairs, Funnel stays closed, a LAN client
+  that claims the same headers still gains nothing, and a configured token is still required of
+  everything but a paired device.
+  ([#525](https://github.com/devswha/herdr-web-ui/pull/525) by @jetmobsol)
 
 ## [0.3.52] - 2026-10-06
 
