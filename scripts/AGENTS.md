@@ -16,7 +16,7 @@ Build, code generation, CI orchestration and the browser QA harness. Only `build
 
 ## BROWSER LANE
 - The lane builds the demo client once into `HERDR_DEMO_BUILD` and every script copies it (`demo-build.ts`). Run with a directory, `demo-build.ts` always builds into it whatever `HERDR_DEMO_BUILD` says, which is what makes that directory the one the others copy; a script run on its own builds its own.
-- `CHROME_PATH` is the lockfile's `playwright-core` Chromium, installed `--with-deps` only under `CI`, because a PC is never asked for sudo.
+- `CHROME_PATH` is the lockfile's `playwright-core` Chromium. Only under `CI` are its system libraries installed (`install-deps`, as root through `ci-bounded-retry.sh`, which bounds each apt attempt and tries three times), because a PC is never asked for sudo.
 - `ui-regression.ts` runs its checks in one process behind one outer try/finally: the first failure skips every later check (cleanup still runs), and a check that waits without a deadline stops the rest of the suite instead of failing it.
 
 ## GENERATED TYPES AND RELEASE GATES
