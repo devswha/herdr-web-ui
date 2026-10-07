@@ -248,7 +248,8 @@ interface SocketData {
   revoked?: boolean;
   unwatchDevice?: () => void;
   relay?: MachineRelay;
-  attached: Set<string>;
+  /** A fresh claim per attach lifetime; deleting it invalidates queued terminal keys. */
+  attached: Map<string, object>;
   output: Map<string, OutputWindow>;
   closing: boolean;
   /** the connection's authority: observe connections cannot type or resize */
@@ -600,7 +601,7 @@ export function createServer(
     client.data.closing = true;
     pending.close(client);
     clients.delete(client);
-    for (const paneId of client.data.attached) detach(paneId, client);
+    for (const paneId of client.data.attached.keys()) detach(paneId, client);
     client.data.attached.clear();
     client.data.output.clear();
     client.close(OUTPUT_STALLED_CLOSE_CODE, "terminal output consumer stalled");
@@ -1239,13 +1240,13 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -1824,7 +1825,7 @@ export function createServer(
       backpressureLimit: OUTPUT_HARD_BYTES,
       closeOnBackpressureLimit: true,
       drain(client) {
-        for (const paneId of client.data.attached) reconcileOutput(paneId);
+        for (const paneId of client.data.attached.keys()) reconcileOutput(paneId);
       },
       async open(client) {
         if (client.data.deviceId) {
@@ -1832,7 +1833,7 @@ export function createServer(
             client.data.revoked = true;
             client.data.closing = true;
             clients.delete(client);
-            for (const paneId of client.data.attached) detach(paneId, client);
+            for (const paneId of client.data.attached.keys()) detach(paneId, client);
             client.data.attached.clear();
             client.data.output.clear();
             client.data.relay?.close(1008, "Device access revoked");
@@ -1875,16 +1876,17 @@ export function createServer(
               // record the pane before the await: a detach (switching panes) or a close
               // that lands while the terminal is looked up must cancel this attach, and
               // neither can see a client that only joins the attachment afterwards
-              client.data.attached.add(message.pane_id);
+              const claim = client.data.attached.get(message.pane_id) ?? {};
+              if (!client.data.attached.has(message.pane_id)) client.data.attached.set(message.pane_id, claim);
               let attachment: PaneAttachment;
               try {
                 // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
                 attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe" || message.keep_size === true);
               } catch (error) {
-                client.data.attached.delete(message.pane_id);
+                if (client.data.attached.get(message.pane_id) === claim) client.data.attached.delete(message.pane_id);
                 throw error;
               }
-              if (!client.data.attached.has(message.pane_id)) {
+              if (client.data.attached.get(message.pane_id) !== claim) {
                 releaseUnclaimed(message.pane_id, attachment);
                 break;
               }
@@ -1992,9 +1994,12 @@ export function createServer(
                 const text = message.text;
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
+                const claim = client.data.attached.get(message.pane_id);
                 void serialize(message.pane_id, () => {
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
-                  if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty || !attachment.clients.has(client) || !attachment.ready || attachment.held) { inputFailed(); return; }
+                  if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty
+                    || client.data.attached.get(message.pane_id) !== claim
+                    || !attachment.clients.has(client) || !attachment.ready || attachment.held) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
@@ -2035,11 +2040,35 @@ export function createServer(
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
                 break;
               }
-              if (attachments.get(message.pane_id)?.held) {
+              const attachment = attachments.get(message.pane_id);
+              // Terminal chords belong to the attachment that accepted them, just like input.
+              // Unattached RPC keys retain their existing path (including native Windows).
+              const origin = attachment?.clients.has(client) ? attachment : undefined;
+              const pty = origin?.pty;
+              const claim = client.data.attached.get(message.pane_id);
+              if (attachment?.held) {
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
               }
+              // an attach still being looked up: its chord has no attachment to belong to yet, and must
+              // not take the unattached RPC path around the claim it will be checked against
+              if (origin === undefined && claim !== undefined) {
+                send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
+                break;
+              }
               await serialize(message.pane_id, async () => {
+                // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
+                // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
+                // pane's readiness, and the attach it holds by now has already been told it is ready
+                if (origin && (attachments.get(message.pane_id) !== origin || origin.pty !== pty
+                  || client.data.attached.get(message.pane_id) !== claim || !origin.clients.has(client))) {
+                  if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
+                  return;
+                }
+                if (origin && !origin.ready) {
+                  if (clients.has(client)) send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
+                  return;
+                }
                 // held while this waited its turn (the attach was refused after the check above)
                 if (attachments.get(message.pane_id)?.held) {
                   send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
@@ -2200,7 +2229,7 @@ export function createServer(
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {
                 // the fresh observer needs the grid it must adopt
-                for (const paneId of client.data.attached) {
+                for (const paneId of client.data.attached.keys()) {
                   const attachment = attachments.get(paneId);
                   if (attachment) {
                     send(client, { type: "pane-geometry", pane_id: paneId, cols: attachment.cols, rows: attachment.rows });
@@ -2221,7 +2250,7 @@ export function createServer(
         if (client.data.relay) { client.data.relay.close(); return; }
         pending.close(client);
         clients.delete(client);
-        for (const paneId of client.data.attached) detach(paneId, client);
+        for (const paneId of client.data.attached.keys()) detach(paneId, client);
         client.data.attached.clear();
         client.data.output.clear();
       },
