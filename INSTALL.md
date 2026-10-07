@@ -154,7 +154,9 @@ code, or the exact command still to run. Who gets in:
 
 - The user's own Tailscale devices get in as the user: `tailscale serve` states the login, and the
   server compares it with this PC's. Nothing to configure. Other people's logins are refused, and
-  tagged devices (no person's login) need pairing.
+  tagged devices (no person's login) need pairing. If the user's own phone is asked to pair anyway,
+  `HERDR_WEB_TAILSCALE_SERVE_ONLY=1` lets it in without a code on a tailnet one login owns
+  ([Access and safety](docs/guide.md#access-and-safety)).
 - Any other device (someone else's, or a LAN or public address) is paired: **Settings → Devices**
   on the PC shows a six-digit code and a QR code; the device enters it once. On a headless PC with
   no browser, `bun "$(ls -d ~/.config/herdr/plugins/github/devswha.herdr-web-ui-* | head -1)/scripts/plugin.ts" pair`

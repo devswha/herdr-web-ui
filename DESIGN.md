@@ -950,6 +950,16 @@ One set for both themes: the card is island black wherever it shows.
   pane / Wide 1152px / Full, the pane less its gutters), chat font
   size and family. Shortcuts: the complete
   platform-resolved table.
+- Appearance keeps Key bar as a compact description and Edit key bar button. That button opens
+  a detail screen in the same dialog with its own scroll body and a Back to settings control.
+  Back or Escape returns to the previous Settings scroll position and focuses Edit key bar;
+  closing the dialog resets it to Settings for the next open. The detail lists the terminal keys
+  in their display order. Every key can be
+  removed or moved with up/down buttons; those controls keep `--touch-target` hit areas on phones.
+  Add key offers the supported key catalog, and Ctrl/Alt/Shift toggles add or remove held-modifier
+  buttons. Custom combination chooses one key or printable character plus modifiers, with its cap
+  previewed before Add. Saved combinations send exactly those modifiers; ordinary keys inherit the
+  held modifiers. Restore defaults returns the original row. The keyboard mode control stays first.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not
   per keystroke.
 - Remote PCs follows Devices: an **Add PC** row (label, one-line description, button) opens the PC
@@ -974,7 +984,12 @@ One set for both themes: the card is island black wherever it shows.
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount clips its own gutter and hides the unused xterm scrollbar.
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.
-- The mobile key bar is Esc, Tab, one-shot Ctrl, arrows and `^C`; it never steals xterm focus.
+- The mobile key bar is Esc, Tab, sticky Ctrl/Alt/Shift, Enter, arrows and `^C`;
+  it never steals typing focus. Modifiers remain highlighted until toggled off,
+  leaving the pane/lens or disconnecting; each exposes `aria-pressed`.
+- That is the default row. Settings → Appearance → Key bar can add, remove and reorder every
+  terminal key and register exact combinations. Removing a held modifier clears it immediately.
+  A deliberately empty row retains only the keyboard mode control on a touch screen.
 - The mobile drawer slides over a scrim. Closed visibility removes its controls from the tab order.
 
 ### In-app alert
