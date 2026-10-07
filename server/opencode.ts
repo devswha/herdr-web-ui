@@ -410,11 +410,11 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
         // the newest page is read on every poll while the agent works: only rows that changed are parsed again
         const known = newestRecords.get(key) ?? new Map<string, { updated: number; record: OpencodeRecord | null }>();
         const kept = new Map<string, { updated: number; record: OpencodeRecord | null }>();
-        const data = db.query<{ data: string }, [string]>("SELECT data FROM session_message WHERE id = ?");
+        const data = db.query<{ data: string }, [string, string]>("SELECT data FROM session_message WHERE id = ? AND session_id = ?");
         for (const row of db.query<RowMeta, [string, number, number]>(META).iterate(sessionId, start, to)) {
           let entry = known.get(row.id);
           if (entry?.updated !== row.updated) {
-            const found = data.get(row.id);
+            const found = data.get(row.id, sessionId);
             entry = { updated: row.updated, record: found === null ? null : opencodeRecord(row.id, row.type, parseData(found.data)) };
           }
           kept.set(row.id, entry);

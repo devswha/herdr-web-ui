@@ -15,6 +15,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   compactions. Turns an `/undo` took back leave the chat with it. The ring by the message box
   shows the context the last step filled, as OpenCode's own footer counts it. A pane on OpenCode's
   home screen, or on a 1.x store, keeps the terminal's text.
+  ([#543](https://github.com/devswha/herdr-web-ui/pull/543) by @Ploppy3)
 - **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
   agent is doing, with the workspace and folder under it, as the sidebar did before its rows
   became one line. **One line**, the workspace's name alone, stays the default.
