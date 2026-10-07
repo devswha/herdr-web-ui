@@ -145,7 +145,8 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
   const { status, error, busy, needsReload, notes, installed, request } = updates;
   // the version whose line this device closed: opening its notes closes it too, in every tab
   const [announced, setAnnounced] = useState(readAnnounced);
-  useEffect(() => watchAnnounced(setAnnounced), []);
+  // subscribed first, then read: a dismissal in another tab between this tab's first read and its subscription is not lost
+  useEffect(() => { const stop = watchAnnounced(setAnnounced); setAnnounced(readAnnounced()); return stop; }, []);
   // the check an install starts with reports nothing available until it is done: the line this
   // button sits on must not leave between the tap and the first step
   const [started, setStarted] = useState(false);

@@ -119,6 +119,22 @@ describe("the bounds of an answer", () => {
     expect(releaseNotes(log, "0.1.0", "0.2.0", 60, summaries)).toMatchObject({ omitted: 1 });
   });
 
+  it("keeps the newest release's summary only where it fits the budget with the notes", () => {
+    const log = "## [0.2.0]\n- two\n\n## [0.1.0]\n- one\n";
+    const summaries = new Map([["0.2.0", { en: { new: ["x".repeat(100)] } }]]);
+    expect(releaseNotes(log, "0.1.0", "0.2.0", 200, summaries).releases[0]!.summary).toBeDefined();
+    const told = releaseNotes(log, "0.1.0", "0.2.0", 60, summaries);
+    expect(told.releases).toHaveLength(1);
+    expect(told.releases[0]!.summary).toBeUndefined();
+    expect(told.releases[0]!.notes).toBe("- two");
+    // a section over the budget on its own is cut at a line, and its summary goes with the cut
+    const long = `## [0.2.0]\n${"- line\n".repeat(40)}\n## [0.1.0]\n- one\n`;
+    const cut = releaseNotes(long, "0.1.0", "0.2.0", 100, summaries).releases[0]!;
+    expect(cut.notes.endsWith("…")).toBe(true);
+    expect(cut.notes.length).toBeLessThanOrEqual(104);
+    expect(cut.summary).toBeUndefined();
+  });
+
   it("names at most RELEASES_LIMIT releases and counts the rest, however large the budget", () => {
     const log = Array.from({ length: 60 }, (_, i) => `## [0.${60 - i}.0]\n- r\n`).join("\n");
     const told = releaseNotes(log, "0.0.0", "0.60.0", 1_000_000);

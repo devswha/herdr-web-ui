@@ -7,8 +7,12 @@ import { ANNOUNCED_FOR_MS, announcesUpdate, installedUpdate, notesOffer, notesRe
 describe("the bounds of a read answer", () => {
   it("reads at most RELEASES_LIMIT releases of an answer, whatever sent it", () => {
     const releases = Array.from({ length: RELEASES_LIMIT + 10 }, (_, i) => ({ version: `0.${i}.0`, date: null, notes: "- r" }));
-    expect(readUpdateNotes({ revision: "abc", releases, omitted: 0 }).releases.length).toBe(RELEASES_LIMIT);
-    expect(readInstalledNotes({ revision: "abc", version: "1.0.0", previous_version: "0.9.0", installed_at: null, releases, omitted: 0 }).releases.length).toBe(RELEASES_LIMIT);
+    const read = readUpdateNotes({ revision: "abc", releases, omitted: 2 });
+    expect(read.releases.length).toBe(RELEASES_LIMIT);
+    // the ones past the cap are counted with the sender's own count, and a second read adds nothing
+    expect(read.omitted).toBe(12);
+    expect(readUpdateNotes(JSON.parse(JSON.stringify(read))).omitted).toBe(12);
+    expect(readInstalledNotes({ revision: "abc", version: "1.0.0", previous_version: "0.9.0", installed_at: null, releases, omitted: 0 })).toMatchObject({ omitted: 10 });
   });
 
   it("does not announce an update installed in the future: a clock set back since would stretch the week", () => {

@@ -105,10 +105,12 @@ export function releaseNotes(
   let used = 0;
   for (const section of wanted) {
     const size = section.notes.length + summarySize(section.summary);
-    // the newest release is always told, cut at a line when it alone is over the budget
+    // the newest release is always told, cut at a line when it alone is over the budget; its
+    // summary stays only where the two fit the budget together
     if (releases.length === 0 && size > budget) {
-      const cut = section.notes.lastIndexOf("\n", budget);
-      releases.push({ ...section, notes: `${section.notes.slice(0, cut > 0 ? cut : budget).trimEnd()}\n\n…` });
+      const notes = section.notes.length > budget ? `${section.notes.slice(0, Math.max(section.notes.lastIndexOf("\n", budget), 0) || budget).trimEnd()}\n\n…` : section.notes;
+      const { summary, ...told } = section;
+      releases.push(summary && notes.length + summarySize(summary) <= budget ? { ...told, summary, notes } : { ...told, notes });
       break;
     }
     if (releases.length === RELEASES_LIMIT || used + size > budget) break;

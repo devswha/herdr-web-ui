@@ -119,18 +119,19 @@ export function readSummary(value: unknown): ReleaseSummary | undefined {
   return Object.keys(summary).length > 0 ? summary : undefined;
 }
 
-/** The releases of an answer, or null when one of them is not in shape. */
-function readReleases(value: unknown): ReleaseNote[] | null {
+/** The releases of an answer, or null when one of them is not in shape; `dropped` counts those past the cap. */
+function readReleases(value: unknown): { releases: ReleaseNote[]; dropped: number } | null {
   if (!Array.isArray(value)) return null;
   const releases: ReleaseNote[] = [];
-  // what is past the cap is not read: an answer is bounded here, whatever sent it
+  // what is past the cap is not read, and counted as omitted: an answer is bounded here, whatever sent it
+  const dropped = Math.max(0, value.length - RELEASES_LIMIT);
   for (const entry of (value as Array<Partial<Record<keyof ReleaseNote, unknown>> | null>).slice(0, RELEASES_LIMIT)) {
     if (typeof entry?.version !== "string" || typeof entry.notes !== "string") return null;
     if (entry.date !== null && typeof entry.date !== "string") return null;
     const summary = readSummary(entry.summary);
     releases.push({ version: entry.version, date: entry.date, notes: entry.notes, ...(summary ? { summary } : {}) });
   }
-  return releases;
+  return { releases, dropped };
 }
 
 const readOmitted = (value: unknown): number => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -141,9 +142,9 @@ const readOmitted = (value: unknown): number => typeof value === "number" && Num
  */
 export function readUpdateNotes(value: unknown): UpdateNotes {
   const notes = value as Partial<Record<keyof UpdateNotes, unknown>> | null | undefined;
-  const releases = typeof notes === "object" && notes !== null ? readReleases(notes.releases) : null;
-  if (!notes || !releases) return noUpdateNotes();
-  return { revision: typeof notes.revision === "string" ? notes.revision : null, releases, omitted: readOmitted(notes.omitted) };
+  const read = typeof notes === "object" && notes !== null ? readReleases(notes.releases) : null;
+  if (!notes || !read) return noUpdateNotes();
+  return { revision: typeof notes.revision === "string" ? notes.revision : null, releases: read.releases, omitted: readOmitted(notes.omitted) + read.dropped };
 }
 
 /**
@@ -152,13 +153,13 @@ export function readUpdateNotes(value: unknown): UpdateNotes {
  */
 export function readInstalledNotes(value: unknown): InstalledNotes {
   const notes = value as Partial<Record<keyof InstalledNotes, unknown>> | null | undefined;
-  const releases = typeof notes === "object" && notes !== null ? readReleases(notes.releases) : null;
-  if (!notes || !releases || typeof notes.revision !== "string") return noInstalledNotes();
+  const read = typeof notes === "object" && notes !== null ? readReleases(notes.releases) : null;
+  if (!notes || !read || typeof notes.revision !== "string") return noInstalledNotes();
   if (typeof notes.version !== "string" || typeof notes.previous_version !== "string") return { ...noInstalledNotes(), revision: notes.revision };
   return {
     revision: notes.revision, version: notes.version, previous_version: notes.previous_version,
     installed_at: typeof notes.installed_at === "string" ? notes.installed_at : null,
-    releases, omitted: readOmitted(notes.omitted),
+    releases: read.releases, omitted: readOmitted(notes.omitted) + read.dropped,
   };
 }
 
