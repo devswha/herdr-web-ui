@@ -24,8 +24,30 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A double-click returns to the default width. The width is remembered on each device, and the
   sidebar never takes more than half the window.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The mobile terminal key bar has sticky Ctrl, Alt and Shift toggles and an Enter key.
+  Herdr encodes held combinations with arrows, special keys and direct typing for
+  the pane's keyboard protocol. Modifiers clear when leaving
+  the pane or disconnecting. Pasted text and submitted drafts keep their contents.
+  Queued terminal chords and text are cancelled when the sender leaves their attachment or
+  its terminal is replaced.
+  ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot,
+  [#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- Settings can add, remove and reorder every mobile terminal key and register custom key
+  combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
+  and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
+  and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
+- Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
+  work schedules a next-turn message; its explicit ↑ Send now action delivers it immediately,
+  or X discards it. The bridge claims each message once and pauses automatic delivery when
+  the connection changes, including during delivery and when a request races the end of a turn.
+  While a draft shows Send in Stop's place, Escape in the message box stops the agent.
+  A remote PC whose bridge is older than this keeps the draft during work and asks for an
+  update; its messages held by earlier versions keep their own Send now.
+  Chat status words stay hidden, and desktop plan usage shows the five-hour limit first with
+  weekly fallback; phones omit the compact quota.
+  ([#520](https://github.com/devswha/herdr-web-ui/pull/520))
 - The message box follows **Settings → Chat font size**, as the transcript and prompt cards
   already did: with a mouse it is typed at the transcript's size, and on a touch screen it
   grows with a size above 16px (it stays at 16px or more, so iOS still does not zoom).
@@ -63,6 +85,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
   keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
+- An in-app alert and its sound are no longer lost now and then: when the list of panes showed
+  a pane waiting or finished a moment before the status change itself arrived, the open app
+  took the change for old news and said nothing. A finished turn is also measured from its own
+  start in that case, so a short turn is not told as a long one.
+  ([#536](https://github.com/devswha/herdr-web-ui/pull/536))
+- **Dismiss** on the terminal's notice that input was not sent works: a tap or click on it went
+  through to the terminal under it and the notice stayed.
+  ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- The Claude usage meter shows a model's own weekly limit, such as Fable's, which Anthropic
+  reports only in its list of limits; the Opus and Sonnet weeks are still read as before.
+  ([#532](https://github.com/devswha/herdr-web-ui/pull/532) by @bertkiefer)
 
 ## [0.3.52] - 2026-10-06
 
