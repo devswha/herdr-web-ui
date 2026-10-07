@@ -79,6 +79,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 
 ### Fixed
+- A pane whose agent has just started is listed as an agent's pane within a moment, where the
+  list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
+  time took it for a shell: it opened the terminal instead of the chat, and resized the
+  terminal shared with the other devices.
+  ([#537](https://github.com/devswha/herdr-web-ui/pull/537))
 - A message can no longer freeze or crash the chat by its shape alone. A long run of underscores
   nested emphasis until the page ran out of stack; a URL followed by thousands of closing
   parentheses, a formula opened on many lines and never closed, a long blank line under a table
