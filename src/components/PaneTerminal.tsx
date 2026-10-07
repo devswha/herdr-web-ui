@@ -6,12 +6,13 @@ import { ChevronRight, Clock, TriangleAlert, X } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
-import { HerdrSocket } from "../lib/ws.ts";
+import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
 import { altSequence, controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
+import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
-import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
+import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
@@ -26,6 +27,7 @@ import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
+import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
@@ -145,6 +147,9 @@ export function PaneTerminal({
   const onServerMessageRef = useRef(onServerMessage);
   const onRoleAckRef = useRef(onRoleAck);
   const [connected, setConnected] = useState(false);
+  const pendingScopeRef = useRef<string | null>(null);
+  /** counts this terminal's disconnects: an answer belongs to the connection that was up when its request left */
+  const pendingEpochRef = useRef(0);
   const [outputReady, setOutputReady] = useState(false);
   const [ended, setEnded] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
@@ -292,6 +297,7 @@ export function PaneTerminal({
   const queueStore = messageQueues;
   const queueOwner = paneId === null ? null : paneStorageId(machineId, paneId);
   const queued = useSyncExternalStore(queueStore.subscribe, () => queueStore.read(queueOwner ?? ""));
+  const pending = useSyncExternalStore(pendingMessages.subscribe, () => pendingMessages.read(queueOwner ?? ""));
   const sendingRef = useRef(false);
   const [queueSending, setQueueSending] = useState<string | null>(null);
   const [queueError, setQueueError] = useState<{ owner: string; id: string; text: string } | null>(null);
@@ -706,6 +712,22 @@ export function PaneTerminal({
     let outputGeneration = 0;
     const off = socket.on((message) => {
       onServerMessageRef.current?.(message);
+      if (message.type === "snapshot" && pendingScopeRef.current === null) pendingScopeRef.current = `${Date.now()}-${Math.random()}`;
+      if (message.type === "pending-messages" && pendingScopeRef.current !== null) {
+        const owner = paneStorageId(machineId, message.pane_id);
+        const scope = pendingScopeRef.current;
+        const known = new Set(pendingMessages.read(owner).filter((item) => pendingMessages.isOwned(owner, item.id, scope)).map((item) => item.id));
+        pendingMessages.publish(owner, message.messages, message.removed ?? [], scope);
+        if (message.removed?.some((item) => item.outcome === "sent" && known.has(item.id))) {
+          const memory = greetingMemory(owner);
+          rememberGreeting(owner, afterSettled(afterSend(memory), true, memory.history)); redrawGreeting();
+          if (message.pane_id === paneRef.current) {
+            onChatSuggestion(message.pane_id, null);
+            setChatSent((current) => current + 1);
+            setChatRefresh((current) => current + 1);
+          }
+        }
+      }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
       if (message.type === "pty-data") {
         if (message.pane_id !== paneRef.current) return;
@@ -810,6 +832,9 @@ export function PaneTerminal({
       setConnected(socket.connected);
     });
     const offDisconnect = socket.onDisconnect(() => {
+      if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
+      pendingScopeRef.current = null;
+      pendingEpochRef.current++;
       outputGeneration++;
       setOutputReady(false);
       setInputReady(false);
@@ -1045,6 +1070,8 @@ export function PaneTerminal({
 
     return () => {
       disposed = true;
+      if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
+      pendingScopeRef.current = null;
       window.clearInterval(poll);
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
@@ -1190,6 +1217,7 @@ export function PaneTerminal({
     if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();
     return () => {
       socket.detach(paneId);
+      if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, paneId), pendingScopeRef.current);
     };
   }, [paneId]);
 
@@ -1254,34 +1282,52 @@ export function PaneTerminal({
   // must not turn a one-letter message into a control key. Offline it sends nothing and
   // keeps its text (never-queue); a message the server could not deliver keeps it too,
   // with the reason. Bracketed-paste wrapping follows the pane program's mode.
-  const sendComposerText = useCallback((text: string): false | Promise<true | string> => {
+  const submitComposerMessage = useCallback((text: string, delivery: "queue" | "immediate" = "immediate"): Promise<SubmitResult> | null => {
     const term = termRef.current;
     const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!term || !socket || pane === null || secretRef.current !== null || heldRef.current) return false;
-    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode));
-    if (sent === null) return false;
+    if (!term || !socket || pane === null || secretRef.current !== null || heldRef.current) return null;
+    // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
+    const epoch = pendingEpochRef.current;
+    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery);
+    if (sent === null) return null;
     term.scrollToBottom();
-    setChatSent((current) => current + 1);
+    if (delivery === "immediate") setChatSent((current) => current + 1);
     const owner = paneStorageId(machineId, pane);
     const history = greetingMemory(owner).history;
-    rememberGreeting(owner, afterSend(greetingMemory(owner))); redrawGreeting();
+    if (delivery === "immediate") { rememberGreeting(owner, afterSend(greetingMemory(owner))); redrawGreeting(); }
     // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
     onChatSuggestion(pane, null);
     return sent.then((result) => {
       // a message refused before anything was typed leaves the greeting as it was; each answer
       // settles its own message only, so one on its way beside it (a queued "Send now") is not undone
-      rememberGreeting(owner, afterSettled(greetingMemory(owner), result.ok || !submitNotTyped(result.code), history)); redrawGreeting();
-      if (!result.ok) return submitNote(result.code, result.message);
-      // the chat lens refetches at once so the sent prompt appears without a poll beat
-      setChatRefresh((current) => current + 1);
-      return true;
+      const typed = result.ok ? result.pending === undefined : !submitNotTyped(result.code);
+      if (delivery === "immediate") {
+        rememberGreeting(owner, afterSettled(greetingMemory(owner), typed, history)); redrawGreeting();
+      } else if (typed) {
+        rememberGreeting(owner, afterSettled(afterSend(greetingMemory(owner)), true, history)); redrawGreeting();
+      }
+      if (!result.ok) return result;
+      if (result.pending) {
+        pendingMessages.accept(owner, result.pending, socketRef.current === socket && socket.connected && pendingEpochRef.current === epoch && paneRef.current === pane ? pendingScopeRef.current : null);
+      } else {
+        if (paneRef.current === pane) {
+          if (delivery === "queue") setChatSent((current) => current + 1);
+          setChatRefresh((current) => current + 1);
+        }
+      }
+      return result;
     }, (error: unknown) => {
       // the send broke with no answer: it may have been typed, and it is no longer on its way
-      rememberGreeting(owner, afterSettled(greetingMemory(owner), true, history)); redrawGreeting();
+      rememberGreeting(owner, afterSettled(delivery === "immediate" ? greetingMemory(owner) : afterSend(greetingMemory(owner)), true, history)); redrawGreeting();
       throw error;
     });
   }, [onChatSuggestion, machineId]);
+
+  const sendComposerText = useCallback((text: string, delivery: "queue" | "immediate" = "immediate"): false | Promise<true | string> => {
+    const result = submitComposerMessage(text, delivery);
+    return result === null ? false : result.then((answer) => answer.ok ? true : submitNote(answer.code, answer.message));
+  }, [submitComposerMessage]);
 
   // the terminal's input line: the text typed like the keyboard would, into an agent's open
   // menu too, then Enter after the server's gap; several lines go as one paste
@@ -1345,7 +1391,6 @@ export function PaneTerminal({
   const answering = chatView && chatPrompt !== null && chatPrompt.pane === paneId && !chatPrompt.value.queued && !chatPrompt.value.fallback ? chatPrompt.value : null;
   // ...and while it is open in the terminal it holds the input: nothing is sent into it
   const heldByOpenQueue = chatView && chatPrompt !== null && chatPrompt.pane === paneId && chatPrompt.value.queued === "open";
-  const busy = agent !== null && agentStatus === "working" && answering === null;
   const readyForQueue = agentStatus !== undefined && QUEUE_READY_STATUS[agentStatus] === true;
   // The held rows fold into their caption while a prompt card needs the room, or a phone's
   // window is short. They stay mounted; the caption is then the button that opens them
@@ -1394,7 +1439,7 @@ export function PaneTerminal({
   // an empty chat: one greeting line over the composer, which a mouse-driven window centres
   const folder = greetingFolder(cwd);
   const greetingDue = chatView && paneId !== null && agent !== null && !secretActive && !observing && !ended
-    && showsGreeting({ memory: greetingMemory(paneStorageId(machineId, paneId)), agentStatus, queued: queued.length, folder });
+    && showsGreeting({ memory: greetingMemory(paneStorageId(machineId, paneId)), agentStatus, queued: queued.length + pending.length, folder });
   // a stack too short for the composer and the greeting keeps the chat's own empty line
   const greeted = greetingDue && greetingRoom;
   // Only the composer moves (Composer.css): the surface under it keeps its box, so the xterm
@@ -1445,14 +1490,54 @@ export function PaneTerminal({
           },
         );
       }
-      if (pane !== null && agent !== null && agentStatus === "working") {
-        queueStore.add(paneStorageId(machineId, pane), text);
-        return true; // the composer may clear its box: the text lives in the queue card
-      }
-      return sendComposerText(text);
+      if (!socketRef.current?.connected || heldRef.current || secretRef.current !== null) return false;
+      // an older bridge is told apart by the socket, once this connection's snapshot has said what it supports
+      return sendComposerText(text, composerDelivery(agent, agentStatus));
     },
     [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, queueStore, machineId],
   );
+
+  const actOnPending = useCallback(async (id: string, action: "steer" | "discard"): Promise<void> => {
+    const owner = queueOwner, pane = paneId;
+    const socket = socketRef.current, scope = pendingScopeRef.current;
+    if (owner === null || pane === null || paneRef.current !== pane) return;
+    // what another tab saved since: a copy it is sending again is not confirmed here either
+    pendingMessages.refresh(owner);
+    const message = pendingMessages.read(owner).find((item) => item.id === id);
+    if (!message || message.state === "sending") return;
+    if (action === "steer" && (message.state === "uncertain" || !socket?.connected || heldRef.current || secretRef.current !== null || observeRef.current || ended || heldByOpenQueue || answering !== null)) return;
+    if (message.serverOwned && !pendingMessages.isOwned(owner, id, scope)) return;
+    if (!pendingMessages.begin(owner, id)) return;
+    try {
+      if (message.serverOwned) {
+        const result = socket?.pendingAction(pane, id, action);
+        if (!result) {
+          pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
+          return;
+        }
+        const answer = await result;
+        if (!answer.ok) pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, answer.code === "pending_not_found" || !submitNotTyped(answer.code));
+        // Only the matching server removal receipt removes an authoritative item.
+      } else if (action === "discard") {
+        pendingMessages.removeCopy(owner, id);
+      } else if (message.state === "held") {
+        if (!pendingMessages.unconfirm(owner, id)) {
+          pendingMessages.fail(owner, id, { code: "unsaved", message: t("Queue could not be saved. Keep this tab open or copy the messages before reloading.") }, false);
+          return;
+        }
+        const result = submitComposerMessage(message.text, "immediate");
+        if (!result) {
+          pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not sent. Reconnect and try again.") }, false);
+          return;
+        }
+        const answer = await result;
+        if (answer.ok) pendingMessages.removeCopy(owner, id);
+        else pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, !submitNotTyped(answer.code));
+      }
+    } catch {
+      pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
+    } finally { pendingMessages.end(owner, id); }
+  }, [answering, ended, heldByOpenQueue, paneId, queueOwner, submitComposerMessage]);
 
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
@@ -1460,7 +1545,7 @@ export function PaneTerminal({
 
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
-    <div ref={stackRef} className={`terminal-stack${chatView ? " is-chat" : ""}${greeted ? " is-greeted" : ""}`} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}>
+    <div ref={stackRef} className={`terminal-stack${chatView ? " is-chat" : ""}${greeted ? " is-greeted" : ""}`} data-pane-owner={paneId === null ? undefined : paneStorageId(machineId, paneId)} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}>
       {paneId === null && restoreError !== null && (
         <div className="terminal-placeholder is-restore-error" role="status">
           <div className="terminal-placeholder-inner">
@@ -1648,6 +1733,17 @@ export function PaneTerminal({
           </ol>
         </section>
       )}
+      {paneId !== null && chatView && !observing && queueOwner !== null && pending.length > 0 && <PendingMessages
+        key={`pending-${queueOwner}`}
+        messages={pending.map((message) => !message.serverOwned || pendingMessages.isOwned(queueOwner, message.id, pendingScopeRef.current)
+          ? message : { ...message, serverOwned: false, state: "uncertain" as const })}
+        connected={connected}
+        blocked={held || secretActive || ended || heldByOpenQueue || answering !== null}
+        unsaved={pendingMessages.isUnsaved(queueOwner)}
+        isBusy={(id) => pendingMessages.isBusy(queueOwner, id)}
+        onSendNow={(id) => actOnPending(id, "steer")}
+        onDiscard={(id) => actOnPending(id, "discard")}
+      />}
       {/* The prompt card's place: under the held messages (which fold to their caption while it is
           open), directly over the input card, on the same column. ChatView renders the card into
           it. It is a live region of its own, since the card is no longer inside the transcript's
@@ -1670,7 +1766,6 @@ export function PaneTerminal({
           backgroundTasks={backgroundTasks}
           metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
           connected={connected && !held}
-          queueMode={busy}
           answerHint={answering === null ? null
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
