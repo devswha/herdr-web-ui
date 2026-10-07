@@ -114,24 +114,25 @@ try {
   const sockets: import("playwright-core").WebSocket[] = [];
   const inputs: Array<{ type: "input" | "submit"; pane_id: string; text: string; delivery?: "immediate" | "queue" }> = [];
   const pendingActions: Array<{ pane_id: string; pending_id: string; action: string }> = [];
-  const inputStates = new Map<string, { ready: boolean; at: number }>();
+  // keyed by pane, with the connection that said so: an earlier connection's input-ready says nothing about the current one
+  const inputStates = new Map<string, { ready: boolean; at: number; socket: import("playwright-core").WebSocket }>();
   const pendingReady = (pane: string) => until(() => {
     const state = inputStates.get(pane);
-    return state?.ready === true && Date.now() - state.at >= 500;
+    return state?.ready === true && state.socket === sockets.at(-1) && !state.socket.isClosed() && Date.now() - state.at >= 500;
   }, `stable pending attachment of ${pane}`);
   page.on("websocket", (socket) => {
     sockets.push(socket);
     socket.on("framereceived", ({ payload }) => {
       const message = JSON.parse(String(payload));
       if (message.type === "pty-data") painted.add(message.pane_id);
-      if (message.type === "input-ready") inputStates.set(message.pane_id, { ready: message.ready !== false, at: Date.now() });
+      if (message.type === "input-ready") inputStates.set(message.pane_id, { ready: message.ready !== false, at: Date.now(), socket });
     });
     socket.on("framesent", ({ payload }) => {
       const message = JSON.parse(String(payload));
       // composer messages go out as "submit" on servers that list it (#15), keystrokes as "input"
       if (message.type === "input" || message.type === "submit") inputs.push(message);
       if (message.type === "pending-action") pendingActions.push(message);
-      if (message.type === "attach" || message.type === "detach") inputStates.set(message.pane_id, { ready: false, at: Date.now() });
+      if (message.type === "attach" || message.type === "detach") inputStates.set(message.pane_id, { ready: false, at: Date.now(), socket });
     });
   });
   await page.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
@@ -592,9 +593,13 @@ try {
   await composer.fill("");
   // a follow-up sent between a reconnect and its snapshot is the new connection's own row, not an unconfirmed copy
   const sentBeforeSnapshot = inputs.length;
+  const socketsBeforeReconnect = sockets.length;
   holdSnapshot = true;
   await routed.at(-1)!.close();
   await until(() => releaseSnapshot !== null, "the reconnect's snapshot was held back");
+  // the server can send its snapshot before the page has even sent its attach: the pane is
+  // ready only once the new connection says so, not by the closed one's last word
+  await until(() => sockets.length > socketsBeforeReconnect, "the page opened its new connection");
   await pendingReady(pendingPane);
   assert.equal(await page.locator('.pending-message[data-state="uncertain"]').count(), 2, "the lost connection's rows are no longer its own");
   await composer.fill("sent before the snapshot");

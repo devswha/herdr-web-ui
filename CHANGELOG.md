@@ -31,6 +31,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   was still being sent no longer reaches the pane once you have left it, or left it and opened it
   again, before the text's turn came.
   ([#576](https://github.com/devswha/herdr-web-ui/pull/576))
+- The plugin's `start` keeps the app on its port when the app's own server holds it but cannot
+  reach herdr. It used to move the app to another port beside the running one and blame another
+  program; now it says that the app runs there without herdr and exits, and the app answers
+  again on its port once herdr is back.
+  ([#577](https://github.com/devswha/herdr-web-ui/pull/577))
 
 ## [0.4.0] - 2026-10-08
 
