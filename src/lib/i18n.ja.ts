@@ -105,6 +105,8 @@ export const JA: Record<string, string> = {
   "Background tasks running: {count}": "実行中のバックグラウンドタスク: {count}",
   "INPUT": "入力待ち",
   "DONE": "完了",
+  "BG": "BG待ち",
+  "Agent waiting on background work": "エージェントがバックグラウンドの作業を待っています",
   "—": "—",
   "Agent {status}": "エージェント {status}",
 

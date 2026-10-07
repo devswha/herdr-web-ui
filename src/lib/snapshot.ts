@@ -8,16 +8,16 @@ const samePlan = (a: PlanSummary | undefined, b: PlanSummary | undefined): boole
  * instantly; the debounced /api/session refetch that follows brings the derived
  * workspace/tab rollups back in line. Pure: returns the same object when nothing changed.
  */
-export function applyPaneStatus(snapshot: SessionSnapshot, paneId: string, status: AgentStatus, background?: number, plan?: PlanSummary | null): SessionSnapshot {
+export function applyPaneStatus(snapshot: SessionSnapshot, paneId: string, status: AgentStatus, background?: number, plan?: PlanSummary | null, waiting = false): SessionSnapshot {
   let paneChanged = false;
   const panes = snapshot.panes.map((pane: HerdrPane) => {
-    // a frame that says nothing of background tasks, or of a plan, leaves it as it was
+    // a frame that says nothing of background tasks, or of a plan, leaves it as it was; every frame says whether the pane waits
     const tasks = background === undefined ? pane.background_tasks : background > 0 ? background : undefined;
     const progress = plan === undefined ? pane.plan : plan ?? undefined;
-    if (pane.pane_id !== paneId || (pane.agent_status === status && pane.background_tasks === tasks && samePlan(pane.plan, progress))) return pane;
+    if (pane.pane_id !== paneId || (pane.agent_status === status && pane.background_tasks === tasks && (pane.background_wait === true) === waiting && samePlan(pane.plan, progress))) return pane;
     paneChanged = true;
-    const { background_tasks: _before, plan: _plan, ...rest } = pane;
-    return { ...rest, agent_status: status, ...(tasks === undefined ? {} : { background_tasks: tasks }), ...(progress === undefined ? {} : { plan: progress }) };
+    const { background_tasks: _before, background_wait: _waited, plan: _plan, ...rest } = pane;
+    return { ...rest, agent_status: status, ...(tasks === undefined ? {} : { background_tasks: tasks }), ...(waiting ? { background_wait: true as const } : {}), ...(progress === undefined ? {} : { plan: progress }) };
   });
   if (!paneChanged) return snapshot;
   const agents = snapshot.agents.map((agent) =>

@@ -49,6 +49,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A plan's step opens what was done while it ran: its tool calls by tool, the last few with what
   each was given, the subagents it started and their state, and the background commands it left
   running and how they ended. Work done while no step ran has a detail of its own.
+- A Claude Code pane's background commands (`run_in_background`, Ctrl+B, or a command moved
+  there by its timeout, by the session or by a subagent) are listed and counted with its
+  subagents, and end with their notice or a `TaskStop`.
 
 ### Changed
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
@@ -149,6 +152,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that claims the same headers still gains nothing, and a configured token is still required of
   everything but a paired device.
   ([#525](https://github.com/devswha/herdr-web-ui/pull/525) by @jetmobsol)
+- A Claude Code turn that ends while work it started still runs in the background (a test suite
+  it waits on, a subagent) no longer reads DONE and alerts "work finished": the pane reads
+  **BG** until that work ends, and the turn its notice starts is the same turn, alerted once when
+  it ends. A turn is held at most 30 minutes, and work started before the person's last prompt
+  (a dev server left running) holds nothing.
 
 ## [0.3.52] - 2026-10-06
 

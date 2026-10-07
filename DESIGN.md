@@ -391,14 +391,18 @@ One set for both themes: the card is island black wherever it shows.
   (`aria-current`).
 
 ### Badge (`.badge`)
-- Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**.
+- Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
+  whose turn ended while work it started still runs in the background (`background_wait`): it
+  stands in for DONE or READY until that work's turn ends.
 - Idle is elevated/dim; working, blocked and done use their own tint and text. RUN carries a small
-  breathing dot before the word; the word itself never fades.
+  breathing dot before the word; the word itself never fades. BG takes the working tint and text,
+  holding still; a tab's dot for it is a working-coloured ring.
 - The written label and unknown dashed edge keep color from being the only signal.
 - The sidebar's compact variant weights each state by how much it asks of the user. Waiting for
   an answer is the one filled glyph, a filled message circle in `--status-blocked`; finished and
   not yet looked at is an 8px dot in `--status-done`, as an unread mark is; working is a stepped
-  spinning arc in `--text-dim`, since its motion already says it; ready and unknown draw
+  spinning arc in `--text-dim`, since its motion already says it; BG is the same arc held still in
+  `--status-working`, since nothing about it moves until its work ends; ready and unknown draw
   nothing. A pane herdr could not restore
   draws a warning triangle in `--status-blocked`. The element, its label and its tooltip are there
   for every state, and each drawn state has its own glyph as well as its color. Background tasks
@@ -824,7 +828,7 @@ One set for both themes: the card is island black wherever it shows.
   pushed to the button's side. It draws, at `--fs-xs`: the model pill and the uploading
   or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;
   its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
-  `READY` / `RUN` / `INPUT` / `DONE` and the sentence `Reasoning high` stay in it for assistive tech only
+  `READY` / `RUN` / `INPUT` / `DONE` / `BG` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
   and the prompt card. No state word is drawn in the chat composer.
 - The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the

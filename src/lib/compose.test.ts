@@ -111,6 +111,7 @@ describe("composer presentation helpers", () => {
     expect(composerStatusWord("working")).toBe("RUN");
     expect(composerStatusWord("blocked")).toBe("INPUT");
     expect(composerStatusWord("done")).toBe("DONE");
+    expect(composerStatusWord("waiting")).toBe("BG");
     expect(composerStatusWord("paused")).toBe("READY");
   });
 

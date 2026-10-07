@@ -28,10 +28,11 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } f
 export type HerdrWorkspace = WorkspaceInfo;
 export type HerdrTab = TabInfo;
 /**
- * `background_tasks`: an OmO pane's `task` children or a Claude Code pane's subagents still running, counted by the server; absent when none.
+ * `background_tasks`: an OmO pane's `task` children, or a Claude Code pane's subagents and background commands, still running, counted by the server; absent when none.
+ * `background_wait`: the pane is at rest while work its turn started still runs, and the turn goes on when it ends (server/background-wait.ts); absent when not.
  * `plan`: how far the plan the pane's agent keeps (Claude Code's task list, Codex's checklist) has got; absent when it keeps none.
  */
-export type HerdrPane = PaneInfo & { background_tasks?: number; plan?: PlanSummary };
+export type HerdrPane = PaneInfo & { background_tasks?: number; background_wait?: true; plan?: PlanSummary };
 
 export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
 
@@ -740,7 +741,7 @@ export type ServerMessage =
   | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" }> }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
-  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents), when the frame is about them: it changes no status */ background_tasks?: number; /** a pane's plan, when the frame is about it (null: it keeps none now); it changes no status */ plan?: PlanSummary | null }
+  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents and commands), when the frame is about them: it changes no status */ background_tasks?: number; /** a pane's plan, when the frame is about it (null: it keeps none now); it changes no status */ plan?: PlanSummary | null; /** every frame says it: absent, the pane does not wait on its turn's background work */ background_wait?: true }
   /** a pane's process exited (pushed even when nobody is attached to it) */
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */

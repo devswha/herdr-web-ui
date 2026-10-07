@@ -327,6 +327,26 @@ try {
   await page.unroute(`**/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneA)}`);
   console.log("PASS a pane's plan opens from the header in the chat and the terminal, as a flow and a list, and a step opens what its time held");
 
+  // a turn that ended on work still running in the background reads BG, not DONE: drawn in the sidebar, and read in the composer
+  await page.route("**/api/machines", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
+    for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { agent_status: "done", background_tasks: 1, background_wait: true });
+    await route.fulfill({ response, json: body });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  const waitingBadge = agentRow(paneA).locator(".badge[data-status=waiting]");
+  await waitingBadge.waitFor();
+  assert.equal((await waitingBadge.textContent())?.trim(), "BG");
+  assert.equal(await waitingBadge.getAttribute("title"), "Agent waiting on background work");
+  assert.equal(await waitingBadge.locator("svg").count(), 1, "BG draws the running arc, held still");
+  await page.locator('.composer-status[data-status="waiting"] strong.visually-hidden', { hasText: "BG" }).waitFor();
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "background-wait.png") });
+  await page.unroute("**/api/machines");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await waitingBadge.waitFor({ state: "detached" });
+  console.log("PASS a pane whose turn ended on its background work reads BG in the sidebar and the composer, and its status again once it does not");
+
   // Use a real browser paste: keydown must not send Ctrl+V (0x16) to the agent,
   // where it can trigger image paste against the server's unrelated clipboard.
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
