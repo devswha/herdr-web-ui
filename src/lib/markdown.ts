@@ -128,10 +128,11 @@ export function parseInline(source: string, links = true, depth = 0): InlineNode
       const split = token.lastIndexOf("](");
       const label = token.slice(1, split);
       const target = token.slice(split + 2, -1);
+      // a label holds no `]`, so no link nests in one: only emphasis counts toward the depth
       const href = safeMarkdownHref(target) ?? webLikeHref(target);
       const file = href === null ? markdownFileTarget(target) : null;
-      nodes.push(href !== null ? { type: "link", href, children: parseInline(label, false, depth + 1) }
-        : file !== null ? { type: "file", path: file, children: parseInline(label, false, depth + 1) }
+      nodes.push(href !== null ? { type: "link", href, children: parseInline(label, false, depth) }
+        : file !== null ? { type: "file", path: file, children: parseInline(label, false, depth) }
         : { type: "text", value: label });
     } else if (token.startsWith("**") || token.startsWith("__")) {
       nodes.push({ type: "strong", children: parseInline(token.slice(2, -2), links, depth + 1) });
@@ -146,7 +147,9 @@ export function parseInline(source: string, links = true, depth = 0): InlineNode
   return nodes;
 }
 
-const listLine = /^(\s*)([-*]|\d+\.)\s+(.+)$/;
+// `s`: the text may hold a line separator (U+2028) that `.` would stop at, and the pattern then
+// tries every split of the spaces before it; with it the line is an item, as it reads
+const listLine = /^(\s*)([-*]|\d+\.)\s+(.+)$/s;
 /**
  * The line under a table's header: two or more cells of dashes (`---`, `:---:`), with or without
  * the outer pipes. Read cell by cell: one pattern for the whole line tries every way to share
@@ -254,6 +257,24 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
   return { block, next: index };
 }
 
+/** KaTeX reads a formula one call per group: nested deeper than this, it is shown as its source. */
+const MAX_MATH_DEPTH = 100;
+
+/**
+ * Whether a formula's braces nest deeper than anyone writes them. KaTeX takes over a second on
+ * thousands of nested fractions before it gives up, with the page waiting on it.
+ */
+export function mathNestsTooDeep(value: string): boolean {
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "\\") index += 1;
+    else if (char === "{") { depth += 1; if (depth > MAX_MATH_DEPTH) return true; }
+    else if (char === "}" && depth > 0) depth -= 1;
+  }
+  return false;
+}
+
 /** Code blocks longer than this open folded to their first FOLDED_CODE_LINES lines. */
 export const FOLD_CODE_AFTER_LINES = 30;
 export const FOLDED_CODE_LINES = 20;
@@ -316,7 +337,7 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
       unclosedMath = next;
     }
 
-    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    const heading = /^(#{1,6})\s+(.+)$/s.exec(line);
     if (heading !== null) {
       blocks.push({ type: "heading", level: (heading[1] ?? "#").length as 1 | 2 | 3 | 4 | 5 | 6, content: parseInline(heading[2] ?? "") });
       index += 1;

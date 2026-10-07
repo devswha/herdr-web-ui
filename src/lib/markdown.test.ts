@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadKatex, Markdown } from "../components/Markdown.tsx";
 import { SettingsProvider } from "./settings.ts";
-import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, isTableSeparator, parseInline, parseMarkdown, safeMarkdownHref, trimUrl, type InlineNode, type ListBlock } from "./markdown.ts";
+import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, isTableSeparator, mathNestsTooDeep, parseInline, parseMarkdown, safeMarkdownHref, trimUrl, type InlineNode, type ListBlock } from "./markdown.ts";
 
 describe("parseMarkdown", () => {
   it("renders inline and display math while leaving fenced code untouched", async () => {
@@ -313,6 +313,44 @@ describe("text no one wrote by hand", () => {
     expect(parseInline("**a _b ~~c~~_**")).toEqual([{ type: "strong", children: [{ type: "text", value: "a " },
       { type: "em", children: [{ type: "text", value: "b " }, { type: "del", children: [{ type: "text", value: "c" }] }] }] }]);
     expect(depth(parseInline(`${"__".repeat(8)}a${"__".repeat(8)}`))).toBe(9);
+    // a link around it is not a level: sixteen of emphasis read whole inside a label too
+    const sixteen = `${"__".repeat(16)}a\`x\`b${"__".repeat(16)}`;
+    expect(JSON.stringify(parseInline(sixteen))).toContain('{"type":"code","value":"x"}');
+    expect(JSON.stringify(parseInline(`[${sixteen}](https://x.dev)`))).toContain('{"type":"code","value":"x"}');
+  });
+
+  it("reads a heading or an item whose text holds a line separator, without trying every split of its spaces", () => {
+    // U+2028 is not a line here (only \n is), and `.` stops at it unless told otherwise
+    within(1000, () => {
+      const [heading] = parseMarkdown(`# ${" ".repeat(48_000)}a\u2028b`);
+      expect(heading).toEqual({ type: "heading", level: 1, content: [{ type: "text", value: "a\u2028b" }] });
+    });
+    within(1000, () => {
+      const [list] = parseMarkdown(`- ${" ".repeat(48_000)}a\u2028b`) as [ListBlock];
+      expect(list.items).toEqual([{ content: [{ type: "text", value: "a\u2028b" }] }]);
+    });
+    within(1000, () => parseMarkdown(`1. ${" ".repeat(48_000)}\u2029`));
+  });
+
+  it("shows a formula nested beyond reason as its source, without asking KaTeX", async () => {
+    for (const formula of ["x", "\\frac{1}{2}", "{".repeat(100) + "}".repeat(100), "\\{".repeat(500), "{}".repeat(5000)]) expect(mathNestsTooDeep(formula)).toBe(false);
+    expect(mathNestsTooDeep("{".repeat(101))).toBe(true);
+    const fractions = `${"\\frac{1}{".repeat(4000)}x${"}".repeat(4000)}`;
+    expect(mathNestsTooDeep(fractions)).toBe(true);
+    await loadKatex();
+    const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
+    Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
+    try {
+      within(1000, () => {
+        const html = renderToStaticMarkup(createElement(SettingsProvider, { children: createElement(Markdown, { children: `\\[${fractions}\\]\n\n\\(\\frac{1}{2}\\)` }) }));
+        expect(html).toContain("\\frac{1}{\\frac{1}{");
+        // the formula beside it is still drawn
+        expect(html).toContain("katex-html");
+      });
+    } finally {
+      if (languages) Object.defineProperty(navigator, "languages", languages);
+      else Reflect.deleteProperty(navigator, "languages");
+    }
   });
 });
 
