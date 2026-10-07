@@ -1,9 +1,9 @@
 /** Build in a private checkout. The source tree and the serving build stay intact. */
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { noUpdateNotes, unmanagedUpdateStatus, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
-import { releaseNotes } from "./release-notes.ts";
+import { noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
+import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
 
 export interface Release { directory: string; revision: string; source_revision: string }
 const SHA = /^[0-9a-f]{40,64}$/;
@@ -51,6 +51,8 @@ export class Updater {
   release: Release | null = null;
   /** What the available update brings; set before the status that offers it is published. */
   notes: UpdateNotes = noUpdateNotes();
+  /** What the last update brought; set with the release that runs. */
+  installed: InstalledNotes = noInstalledNotes();
   private busy = false;
   private timer?: ReturnType<typeof setInterval>;
   private initialTimer?: ReturnType<typeof setTimeout>;
@@ -96,11 +98,50 @@ export class Updater {
               await runCommand(saved.directory, ["git", "rev-parse", "HEAD"]) === saved.revision) this.release = saved;
         } catch { /* missing/stale release: use the source checkout */ }
       }
+      this.installed = this.brought(this.release);
       this.patch({ current_revision: this.release.revision, current_version: packageVersion(this.release.directory), blocked_reason: reason });
     } catch {
       this.patch({ managed: false, blocked_reason: "Updates require a Git checkout on the main branch." });
     }
     return this.release;
+  }
+
+  /**
+   * What the update that installed `release` brought: its own changelog and summaries, from the
+   * version it replaced. Nothing for the source checkout, which no update installed. The
+   * replaced version is not on record (the supervisor that installed this release may be older
+   * than this question): it is the newest older build still here, since an install keeps the
+   * release it replaces and the source checkout stays.
+   */
+  private brought(release: Release): InstalledNotes {
+    if (release.directory === this.options.root) return noInstalledNotes();
+    const version = packageVersion(release.directory);
+    if (!version) return noInstalledNotes();
+    let previous: string | null = null;
+    const builds = [this.options.root];
+    try {
+      for (const entry of readdirSync(this.options.stateDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith("release-")) builds.push(join(this.options.stateDir, entry.name));
+      }
+    } catch { /* the source checkout alone */ }
+    for (const directory of builds) {
+      const other = directory === release.directory ? null : packageVersion(directory);
+      if (!other || !((compareVersions(version, other) ?? 0) > 0)) continue;
+      if (previous === null || (compareVersions(other, previous) ?? 0) > 0) previous = other;
+    }
+    if (previous === null) return noInstalledNotes();
+    let installed_at: string | null = null;
+    try { installed_at = statSync(join(this.options.stateDir, "current.json")).mtime.toISOString(); } catch { /* not told */ }
+    const read = (file: string) => readFileSync(join(release.directory, file), "utf8");
+    let notes: Omit<UpdateNotes, "revision"> = { releases: [], omitted: 0 };
+    try {
+      const changelog = read("CHANGELOG.md");
+      // a release that ships no summaries is told by its changelog alone
+      let summaries = "";
+      try { summaries = read(SUMMARIES_FILE); } catch { /* none */ }
+      notes = releaseNotes(changelog, previous, version, undefined, releaseSummaries(summaries));
+    } catch { /* a release without a changelog: the update is told without notes */ }
+    return { revision: release.revision, version, previous_version: previous, installed_at, ...notes };
   }
 
   private async sourceBlock(): Promise<string | null> {
@@ -159,8 +200,12 @@ export class Updater {
    * (or with one that cannot be read) is offered without notes.
    */
   private async changes(revision: string, version: string): Promise<UpdateNotes> {
-    try { return { revision, ...releaseNotes(await this.git("show", `${revision}:CHANGELOG.md`), this.status.current_version, version) }; }
-    catch { return { ...noUpdateNotes(), revision }; }
+    try {
+      const changelog = await this.git("show", `${revision}:CHANGELOG.md`);
+      // a release older than the summaries has no such file: its notes are told as they are
+      const summaries = await this.git("show", `${revision}:${SUMMARIES_FILE}`).catch(() => "");
+      return { revision, ...releaseNotes(changelog, this.status.current_version, version, undefined, releaseSummaries(summaries)) };
+    } catch { return { ...noUpdateNotes(), revision }; }
   }
 
   /** herdr's plugin checkout is shallow: fetch the missing history once before calling two commits unrelated. */
@@ -214,6 +259,8 @@ export class Updater {
         this.release = next;
         stage = null;
         this.notes = noUpdateNotes();
+        // a supervisor that stays (one run directly, without the launcher) tells it from here on
+        this.installed = this.brought(next);
         this.patch({ current_revision: revision, current_version: packageVersion(next.directory), available: false });
         this.failedRevision = null;
         rmSync(join(this.options.stateDir, "failed.json"), { force: true });

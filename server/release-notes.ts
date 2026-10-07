@@ -1,5 +1,5 @@
-/** What an update brings, read from the CHANGELOG.md of the release it installs. */
-import type { ReleaseNote, UpdateNotes } from "../shared/update.ts";
+/** What an update brings, read from the CHANGELOG.md and release-summaries.json of the release it installs. */
+import { SUMMARY_LANGUAGES, type ReleaseNote, type ReleaseSummary, type UpdateNotes } from "../shared/update.ts";
 
 /** `## [0.3.52] - 2026-10-06`; `## [Unreleased]` is no release. */
 const SECTION = /^## \[(\d+\.\d+\.\d+)\](?:\s+-\s+(\S+))?\s*$/;
@@ -12,6 +12,10 @@ const LINK_DEFINITION = /^\[[^\]]+\]:\s/;
  * the rest by count. Characters, since it bounds what is read, not what is sent.
  */
 export const NOTES_BUDGET = 48_000;
+/** Where a release tells itself in a few sentences per language, beside CHANGELOG.md. */
+export const SUMMARIES_FILE = "release-summaries.json";
+/** A summary is a few sentences: one that is longer is cut here. */
+export const SUMMARY_LIMIT = 1200;
 
 function triple(version: string): [number, number, number] | null {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
@@ -21,6 +25,36 @@ function triple(version: string): [number, number, number] | null {
 /** Positive when `a` is the later version. */
 function compare(a: [number, number, number], b: [number, number, number]): number {
   return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/** Positive when `a` is the later version; null when either is not `X.Y.Z`. */
+export function compareVersions(a: string, b: string): number | null {
+  const first = triple(a), second = triple(b);
+  return first && second ? compare(first, second) : null;
+}
+
+/**
+ * release-summaries.json as a release wrote it: `{ "0.3.53": { "en": "…", "ko": "…", … } }`.
+ * It is text from a Git remote, like the changelog: what is not a version with text in a
+ * language the app has is left out, and a file that is not JSON holds no summary.
+ */
+export function releaseSummaries(text: string): Map<string, ReleaseSummary> {
+  const found = new Map<string, ReleaseSummary>();
+  let written: unknown;
+  try { written = JSON.parse(text); } catch { return found; }
+  if (typeof written !== "object" || written === null || Array.isArray(written)) return found;
+  for (const [version, entry] of Object.entries(written)) {
+    if (!triple(version) || typeof entry !== "object" || entry === null) continue;
+    const summary: ReleaseSummary = {};
+    for (const language of SUMMARY_LANGUAGES) {
+      const told: unknown = (entry as Record<string, unknown>)[language];
+      if (typeof told !== "string" || told.trim() === "") continue;
+      const trimmed = told.trim();
+      summary[language] = trimmed.length > SUMMARY_LIMIT ? `${trimmed.slice(0, SUMMARY_LIMIT).trimEnd()}…` : trimmed;
+    }
+    if (Object.keys(summary).length > 0) found.set(version, summary);
+  }
+  return found;
 }
 
 function sections(changelog: string): ReleaseNote[] {
@@ -46,9 +80,13 @@ function sections(changelog: string): ReleaseNote[] {
 /**
  * The sections of every release after `current`, up to `latest`, newest first. With no known
  * running version, the latest release alone. A release without a section, or with an empty one,
- * is left out.
+ * is left out. A release named in `summaries` carries its summary; the budget counts the
+ * sections, which are what grows.
  */
-export function releaseNotes(changelog: string, current: string | null, latest: string, budget = NOTES_BUDGET): Omit<UpdateNotes, "revision"> {
+export function releaseNotes(
+  changelog: string, current: string | null, latest: string, budget = NOTES_BUDGET,
+  summaries: ReadonlyMap<string, ReleaseSummary> = new Map(),
+): Omit<UpdateNotes, "revision"> {
   const to = triple(latest);
   if (!to) return { releases: [], omitted: 0 };
   const from = current === null ? null : triple(current);
@@ -58,7 +96,11 @@ export function releaseNotes(changelog: string, current: string | null, latest: 
       if (section.notes === "" || compare(version, to) > 0) return false;
       return from ? compare(version, from) > 0 : compare(version, to) === 0;
     })
-    .sort((a, b) => compare(triple(b.version)!, triple(a.version)!));
+    .sort((a, b) => compare(triple(b.version)!, triple(a.version)!))
+    .map((section) => {
+      const summary = summaries.get(section.version);
+      return summary ? { ...section, summary } : section;
+    });
   const releases: ReleaseNote[] = [];
   let used = 0;
   for (const section of wanted) {

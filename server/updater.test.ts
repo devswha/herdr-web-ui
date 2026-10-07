@@ -192,6 +192,58 @@ describe("managed source updates with real Git repositories and builds", () => {
     versioned.stop();
   });
 
+  it("tells a release by its summary, and what the update brought once it runs", async () => {
+    const manifest = JSON.parse(readFileSync(join(upstream, "package.json"), "utf8")) as Record<string, unknown>;
+    const cut = (version: string, sections: string[], summaries: Record<string, Record<string, string>> | null) => {
+      writeFileSync(join(upstream, "package.json"), JSON.stringify({ ...manifest, version }));
+      writeFileSync(join(upstream, "CHANGELOG.md"), `# Changelog\n\n${sections.map((entry) => `## [${entry}] - 2026-10-07\n\n### Added\n- Release ${entry}.\n`).join("\n")}`);
+      if (summaries) writeFileSync(join(upstream, "release-summaries.json"), JSON.stringify(summaries));
+      else rmSync(join(upstream, "release-summaries.json"), { force: true });
+    };
+    cut("0.1.0", ["0.1.0"], null);
+    await commit("versioned");
+    await git(root, "pull", "--ff-only", "--quiet");
+    // what the last update brought is there when the status that names the new revision is published
+    let told: unknown = null;
+    const versioned = new Updater({ ...updater.options, publish(status) { if (status.current_version === "0.2.0" && told === null) told = versioned.installed; } });
+    await versioned.initialize();
+    const none = { revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 };
+    // the source checkout: no update installed it
+    expect(versioned.installed).toEqual(none);
+
+    const summary = { en: "The second release, in short.", ko: "두 번째 릴리스를 짧게." };
+    cut("0.2.0", ["0.2.0", "0.1.0"], { "0.2.0": summary, "0.1.0": { en: "The first." } });
+    const second = await release("second", "v0.2.0");
+    await versioned.request("check");
+    const brought = [{ version: "0.2.0", date: "2026-10-07", notes: "### Added\n- Release 0.2.0.", summary }];
+    expect(versioned.notes).toEqual({ revision: second, releases: brought, omitted: 0 });
+    expect(versioned.installed).toEqual(none);
+
+    const before = Date.now();
+    await versioned.request("install");
+    expect(versioned.status.error).toBeNull();
+    expect(versioned.installed).toMatchObject({ revision: second, version: "0.2.0", previous_version: "0.1.0", releases: brought, omitted: 0 });
+    // a file's time is kept to the millisecond at best
+    expect(Date.parse(versioned.installed.installed_at!)).toBeGreaterThanOrEqual(before - 1000);
+    expect(told).toEqual(versioned.installed);
+    // the supervisor the release starts was not there for the install: it reads the same
+    const resumed = new Updater({ ...versioned.options, publish() {} });
+    await resumed.initialize();
+    expect(resumed.installed).toEqual(versioned.installed);
+
+    // the next update replaces that release, not the source checkout, and one that wrote no summary is told by its section
+    cut("0.3.0", ["0.3.0", "0.2.0", "0.1.0"], null);
+    const third = await release("third", "v0.3.0");
+    await resumed.request("install");
+    expect(resumed.status.error).toBeNull();
+    expect(resumed.installed).toMatchObject({ revision: third, version: "0.3.0", previous_version: "0.2.0",
+      releases: [{ version: "0.3.0", date: "2026-10-07", notes: "### Added\n- Release 0.3.0." }], omitted: 0 });
+    const later = new Updater({ ...versioned.options, publish() {} });
+    await later.initialize();
+    expect(later.installed).toEqual(resumed.installed);
+    versioned.stop(); resumed.stop(); later.stop();
+  });
+
   it("refuses local changes, detached branches, and an ahead/diverged history", async () => {
     await commit("second");
     writeFileSync(join(root, "user-draft.txt"), "preserve");

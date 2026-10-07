@@ -94,6 +94,32 @@
   font-weight: var(--fw-regular);
 }
 
+/* a release in a few sentences, as its author wrote them: line breaks kept */
+.update-summary {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-prose);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* the release's changelog section, on request */
+.update-details {
+  margin-top: var(--space-2);
+}
+
+.update-details > summary {
+  width: fit-content;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.update-details[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
 /* Added, Changed, Fixed: labels over their lists, as the dialog's own section titles */
 .update-notes .markdown h3 {
   margin: var(--space-3) 0 var(--space-1);

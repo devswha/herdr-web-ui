@@ -165,7 +165,12 @@ after changing the staged session. Files, images, push and remote PCs are not pa
 ## Releasing
 
 1. Open a release PR that bumps `version` in `package.json` and `herdr-plugin.toml`,
-   and moves the `Unreleased` notes in [CHANGELOG.md](../CHANGELOG.md) under the new version.
+   moves the `Unreleased` notes in [CHANGELOG.md](../CHANGELOG.md) under the new version,
+   and tells the release in [release-summaries.json](../release-summaries.json): a few
+   sentences of plain text for the people who use the app, under the version, in each of
+   `en`, `ko`, `ja` and `zh`. It is what an install shows before and after the update, with
+   the changelog section folded under it, so it says what changes for them and leaves out PR
+   numbers and internals. The unit suite and the release workflow fail without all four.
 2. Merge it after CI passes.
 3. Run **Actions → Release → Run workflow**, select `main`, and enter `X.Y.Z` without `v`.
    The CLI equivalent is `gh workflow run release.yml --ref main -f version=X.Y.Z`.

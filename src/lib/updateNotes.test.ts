@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { readUpdateNotes, type UpdateNotes } from "../../shared/update.ts";
+import { readInstalledNotes, readUpdateNotes, SUMMARY_LANGUAGES, type InstalledNotes, type UpdateNotes } from "../../shared/update.ts";
 import { ApiError } from "./api.ts";
-import { notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes } from "./updateNotes.ts";
+import { LANGUAGE_SETTINGS } from "./i18n.ts";
+import { ANNOUNCED_FOR_MS, announcesUpdate, installedUpdate, notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes, summaryFor } from "./updateNotes.ts";
 
 const offered = { current_revision: "a".repeat(40), latest_revision: "b".repeat(40), current_version: "0.3.9", latest_version: "0.4.0" };
 const notes: UpdateNotes = { revision: offered.latest_revision, releases: [{ version: "0.4.0", date: "2026-10-07", notes: "### Added\n- A thing." }], omitted: 0 };
@@ -96,5 +97,79 @@ describe("notes as they arrive", () => {
   it("keeps the releases of an answer whose count or commit is not in shape", () => {
     expect(readUpdateNotes({ releases: notes.releases, omitted: -1, revision: 7 })).toEqual({ revision: null, releases: notes.releases, omitted: 0 });
     expect(readUpdateNotes({ releases: notes.releases, omitted: 1.5 }).omitted).toBe(0);
+  });
+});
+
+describe("a release's summary", () => {
+  const summary = { en: "In short.", ko: "짧게." };
+
+  it("is told in the app's language, else in English", () => {
+    expect(summaryFor({ summary }, "ko")).toBe("짧게.");
+    expect(summaryFor({ summary }, "ja")).toBe("In short.");
+  });
+
+  it("is none for a release that wrote none: its changelog section is what there is", () => {
+    expect(summaryFor({}, "ko")).toBeNull();
+    expect(summaryFor({ summary: { ko: "짧게." } }, "ja")).toBeNull();
+  });
+
+  it("is written in the languages the app has", () => {
+    expect([...SUMMARY_LANGUAGES].sort()).toEqual(LANGUAGE_SETTINGS.filter((language) => language !== "system").sort());
+  });
+
+  it("arrives with its release, and without what is not text in such a language", () => {
+    const sent = { revision: "b".repeat(40), omitted: 0, releases: [
+      { version: "0.4.0", date: null, notes: "text", summary: { en: "In short.", ko: 7, fr: "Bref.", ja: " " } },
+      { version: "0.3.9", date: null, notes: "text", summary: "short" },
+      { version: "0.3.8", date: null, notes: "text", summary: { fr: "Bref." } },
+    ] };
+    expect(readUpdateNotes(sent).releases).toEqual([
+      { version: "0.4.0", date: null, notes: "text", summary: { en: "In short." } },
+      { version: "0.3.9", date: null, notes: "text" },
+      { version: "0.3.8", date: null, notes: "text" },
+    ]);
+  });
+});
+
+describe("what the last update brought", () => {
+  const running = { current_revision: "b".repeat(40) };
+  const installed: InstalledNotes = { revision: running.current_revision, version: "0.4.0", previous_version: "0.3.9", installed_at: "2026-10-07T00:00:00.000Z",
+    releases: [{ version: "0.4.0", date: "2026-10-07", notes: "### Added\n- A thing.", summary: { en: "A thing." } }], omitted: 0 };
+  const at = Date.parse(installed.installed_at!);
+
+  it("is shown for the commit that runs", () => {
+    expect(installedUpdate(running, installed)).toBe(installed);
+  });
+
+  it("is nothing before an answer, on a server no update installed, or for another commit", () => {
+    expect(installedUpdate(null, installed)).toBeNull();
+    expect(installedUpdate(running, null)).toBeNull();
+    expect(installedUpdate({ current_revision: null }, installed)).toBeNull();
+    expect(installedUpdate(running, readInstalledNotes({}))).toBeNull();
+    expect(installedUpdate({ current_revision: "c".repeat(40) }, installed)).toBeNull();
+  });
+
+  it("is announced until this device closes it for that version", () => {
+    expect(announcesUpdate(installed, null, at + 60_000)).toBe(true);
+    expect(announcesUpdate(installed, "0.3.9", at + 60_000)).toBe(true);
+    expect(announcesUpdate(installed, "0.4.0", at + 60_000)).toBe(false);
+  });
+
+  it("is announced for a week, and not at all when its time is not known", () => {
+    expect(announcesUpdate(installed, null, at + ANNOUNCED_FOR_MS - 1)).toBe(true);
+    expect(announcesUpdate(installed, null, at + ANNOUNCED_FOR_MS)).toBe(false);
+    expect(announcesUpdate({ ...installed, installed_at: null }, null, at)).toBe(false);
+    expect(announcesUpdate({ ...installed, installed_at: "yesterday" }, null, at)).toBe(false);
+    expect(announcesUpdate(null, null, at)).toBe(false);
+  });
+
+  it("arrives in shape, or as no update", () => {
+    expect(readInstalledNotes(JSON.parse(JSON.stringify(installed)))).toEqual(installed);
+    const none = { revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 };
+    for (const value of [undefined, null, 7, {}, { ...installed, releases: "all" }, { ...installed, revision: null },
+      { ...installed, version: 4 }, { ...installed, previous_version: null }, { ...installed, releases: [{ version: "0.4.0" }] }]) {
+      expect(readInstalledNotes(value)).toEqual(none);
+    }
+    expect(readInstalledNotes({ ...installed, installed_at: 7, omitted: -2 })).toEqual({ ...installed, installed_at: null, omitted: 0 });
   });
 });

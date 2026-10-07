@@ -26,7 +26,13 @@ export type UpdateStep = typeof UPDATE_STEPS[number];
 
 export type UpdateCommand = "check" | "install";
 
-/** One release's section of CHANGELOG.md. */
+/** The languages a release's summary is written in: the app's own (src/lib/i18n.ts). */
+export const SUMMARY_LANGUAGES = ["en", "ko", "ja", "zh"] as const;
+export type SummaryLanguage = typeof SUMMARY_LANGUAGES[number];
+/** A release told in a few sentences, per language; a language the release did not write is absent. */
+export type ReleaseSummary = Partial<Record<SummaryLanguage, string>>;
+
+/** One release's section of CHANGELOG.md, and its summary from release-summaries.json. */
 export interface ReleaseNote {
   /** without the v */
   version: string;
@@ -34,6 +40,8 @@ export interface ReleaseNote {
   date: string | null;
   /** the section's body, Markdown */
   notes: string;
+  /** plain text; absent from a release older than the summaries, and from one that wrote none */
+  summary?: ReleaseSummary;
 }
 
 /**
@@ -54,22 +62,74 @@ export function noUpdateNotes(): UpdateNotes {
 }
 
 /**
+ * GET /api/updates/installed: what the last update brought, read from the running release's own
+ * files. Asked for once per running release, like the notes of an offer.
+ */
+export interface InstalledNotes {
+  /** the commit that runs, the status's `current_revision`; null when no update was installed (a source checkout, an unmanaged server) */
+  revision: string | null;
+  /** the running version and the one the update replaced, without the v */
+  version: string | null;
+  previous_version: string | null;
+  /** when the update was installed, ISO */
+  installed_at: string | null;
+  /** every release after the replaced one, up to the running one, newest first; empty when the release has no changelog section for them */
+  releases: ReleaseNote[];
+  /** older releases the update also brought, left out for length */
+  omitted: number;
+}
+
+export function noInstalledNotes(): InstalledNotes {
+  return { revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 };
+}
+
+/** A summary as it arrived: the languages that are text, and nothing when none is. */
+function readSummary(value: unknown): ReleaseSummary | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const summary: ReleaseSummary = {};
+  for (const language of SUMMARY_LANGUAGES) {
+    const text = (value as Record<string, unknown>)[language];
+    if (typeof text === "string" && text.trim() !== "") summary[language] = text;
+  }
+  return Object.keys(summary).length > 0 ? summary : undefined;
+}
+
+/** The releases of an answer, or null when one of them is not in shape. */
+function readReleases(value: unknown): ReleaseNote[] | null {
+  if (!Array.isArray(value)) return null;
+  const releases: ReleaseNote[] = [];
+  for (const entry of value as Array<Partial<Record<keyof ReleaseNote, unknown>> | null>) {
+    if (typeof entry?.version !== "string" || typeof entry.notes !== "string") return null;
+    if (entry.date !== null && typeof entry.date !== "string") return null;
+    const summary = readSummary(entry.summary);
+    releases.push({ version: entry.version, date: entry.date, notes: entry.notes, ...(summary ? { summary } : {}) });
+  }
+  return releases;
+}
+
+const readOmitted = (value: unknown): number => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
+
+/**
  * Notes as another process or another version sent them (the supervisor over IPC, the server
  * over HTTP). Anything that is not in shape is no notes: they are drawn as they are.
  */
 export function readUpdateNotes(value: unknown): UpdateNotes {
   const notes = value as Partial<Record<keyof UpdateNotes, unknown>> | null | undefined;
-  if (typeof notes !== "object" || notes === null || !Array.isArray(notes.releases)) return noUpdateNotes();
-  const releases: ReleaseNote[] = [];
-  for (const entry of notes.releases as Array<Partial<Record<keyof ReleaseNote, unknown>> | null>) {
-    if (typeof entry?.version !== "string" || typeof entry.notes !== "string") return noUpdateNotes();
-    if (entry.date !== null && typeof entry.date !== "string") return noUpdateNotes();
-    releases.push({ version: entry.version, date: entry.date, notes: entry.notes });
-  }
+  const releases = typeof notes === "object" && notes !== null ? readReleases(notes.releases) : null;
+  if (!notes || !releases) return noUpdateNotes();
+  return { revision: typeof notes.revision === "string" ? notes.revision : null, releases, omitted: readOmitted(notes.omitted) };
+}
+
+/** The last update's notes, read as `readUpdateNotes` reads an offer's. An update is told only with both of its versions. */
+export function readInstalledNotes(value: unknown): InstalledNotes {
+  const notes = value as Partial<Record<keyof InstalledNotes, unknown>> | null | undefined;
+  const releases = typeof notes === "object" && notes !== null ? readReleases(notes.releases) : null;
+  if (!notes || !releases) return noInstalledNotes();
+  if (typeof notes.revision !== "string" || typeof notes.version !== "string" || typeof notes.previous_version !== "string") return noInstalledNotes();
   return {
-    revision: typeof notes.revision === "string" ? notes.revision : null,
-    releases,
-    omitted: typeof notes.omitted === "number" && Number.isSafeInteger(notes.omitted) && notes.omitted > 0 ? notes.omitted : 0,
+    revision: notes.revision, version: notes.version, previous_version: notes.previous_version,
+    installed_at: typeof notes.installed_at === "string" ? notes.installed_at : null,
+    releases, omitted: readOmitted(notes.omitted),
   };
 }
 
