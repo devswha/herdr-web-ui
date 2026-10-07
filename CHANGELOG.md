@@ -8,6 +8,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- An update tells what it brings before it is installed. **Settings → Updates** shows
+  **What's new** under the version on offer: the changelog of every release the update installs,
+  newest first, read from the release itself. The line under the header has a **What's new**
+  button that opens Settings there. The notes come from the version that is running, so they
+  appear from the update after this one.
+  ([#535](https://github.com/devswha/herdr-web-ui/pull/535))
 - **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
   agent is doing, with the workspace and folder under it, as the sidebar did before its rows
   became one line. **One line**, the workspace's name alone, stays the default.
