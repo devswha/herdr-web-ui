@@ -43,11 +43,17 @@ export interface AgentSidebarProps {
   onSelect(machineId: string, paneId: string): void;
 }
 
-/** All PCs' live agents form a second list; workspace and PC folds do not hide these rows. */
+/** the width under which the sidebar is a drawer (src/styles.css) */
+const DRAWER_QUERY = "(max-width: 768px)";
+
+/**
+ * All PCs' live agents form a second list; workspace and PC folds do not hide these rows.
+ * In the phone's drawer the list starts folded, leaving the room to the workspaces.
+ */
 export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stateWord, onSelect }: AgentSidebarProps) {
   const t = useT();
   const listId = useId();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => window.matchMedia?.(DRAWER_QUERY).matches === true);
   const rows = useMemo(() => machines.flatMap((machine) =>
     sidebarAgents(machine.snapshot).map((entry) => ({ machine, entry })),
   ), [machines]);

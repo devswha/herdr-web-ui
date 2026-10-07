@@ -28,6 +28,10 @@ export type Palette = "amber" | "report" | "charcoal" | "catppuccin" | "lilac";
  *  narrow: 820px; default: follows the pane, up to 60rem (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
 export type ChatWidth = "narrow" | "default" | "wide" | "full";
 export const CHAT_WIDTHS: readonly ChatWidth[] = ["narrow", "default", "wide", "full"];
+/** the microphone button. auto: in the chat composer off a phone, and only where dictation can work;
+ *  on: there, on a phone and in the terminal input line, disabled with its reason where it cannot work; off: nowhere */
+export type VoiceButton = "auto" | "on" | "off";
+export const VOICE_BUTTONS: readonly VoiceButton[] = ["auto", "on", "off"];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -81,7 +85,7 @@ export interface Settings {
   quickReplies: string[];
   /** whether the quick replies show above the composer at all */
   showQuickReplies: boolean;
-  /** touch screens: a chip above the message box takes the prompt Claude suggests next; off until chosen */
+  /** touch screens: a chip above the message box takes the prompt Claude suggests next */
   showSuggestionChip: boolean;
   /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
   showUsage: boolean;
@@ -93,8 +97,8 @@ export interface Settings {
   usageOrder: string[];
   /** accounts left out of the plan meters, strip and popover alike, by ProviderUsage.key */
   usageHidden: string[];
-  /** the microphone button in the composer and the terminal input line; off until chosen, as it sends audio out */
-  voiceInput: boolean;
+  /** the microphone button in the composer and the terminal input line; nothing is recorded until it is pressed */
+  voiceInput: VoiceButton;
   voicePolishChat: boolean;
   /** off by default: a terminal line is usually a command, kept as spoken */
   voicePolishTerminal: boolean;
@@ -107,7 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcutOverrides: {},
   theme: "dark",
   density: "comfortable",
-  sidebarRows: "one",
+  sidebarRows: "two",
   palette: "amber",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
@@ -126,14 +130,14 @@ export const DEFAULT_SETTINGS: Settings = {
   alertSound: false,
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
-  showSuggestionChip: false,
+  showSuggestionChip: true,
   showUsage: false,
   usageCount: "used",
   usageGlance: "week",
   defaultView: "auto",
   usageOrder: [],
   usageHidden: [],
-  voiceInput: false,
+  voiceInput: "auto",
   voicePolishChat: true,
   voicePolishTerminal: false,
 };
@@ -148,6 +152,20 @@ function usageKeys(value: unknown): string[] {
   return [...new Set(value.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 512))].slice(0, USAGE_KEYS_MAX);
 }
 export const QUICK_REPLY_MAX_CHARS = 200;
+
+/**
+ * A record from before the button had a place of its own holds a boolean: on stays on. Its off
+ * was also what a device that never chose held, so it follows the default.
+ */
+function voiceButton(value: unknown): VoiceButton {
+  if (value === true) return "on";
+  return VOICE_BUTTONS.includes(value as VoiceButton) ? value as VoiceButton : DEFAULT_SETTINGS.voiceInput;
+}
+
+/** Whether an input asks for dictation at all: auto leaves the terminal input line and a phone's composer alone. */
+export function wantsVoiceInput(setting: VoiceButton, mode: "chat" | "terminal", phone: boolean): boolean {
+  return setting === "on" || (setting === "auto" && mode === "chat" && !phone);
+}
 
 /** The replies worth a button: what the list holds, without the blank ones still being written. */
 export function quickReplyButtons(settings: Settings): string[] {
@@ -268,7 +286,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
     usageOrder: usageKeys(record["usageOrder"]),
     usageHidden: usageKeys(record["usageHidden"]),
-    voiceInput: typeof record["voiceInput"] === "boolean" ? record["voiceInput"] : DEFAULT_SETTINGS.voiceInput,
+    voiceInput: voiceButton(record["voiceInput"]),
     voicePolishChat: typeof record["voicePolishChat"] === "boolean" ? record["voicePolishChat"] : DEFAULT_SETTINGS.voicePolishChat,
     voicePolishTerminal: typeof record["voicePolishTerminal"] === "boolean" ? record["voicePolishTerminal"] : DEFAULT_SETTINGS.voicePolishTerminal,
   };
