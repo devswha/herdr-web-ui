@@ -371,11 +371,9 @@ One set for both themes: the card is island black wherever it shows.
 - Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
-  In workspace mode, a row offers Rename workspace, Rename pane (the pane it opens), New tab,
-  New worktree, Open worktree…, then Close workspace under a hairline. In folder mode, a representative row keeps Rename workspace,
-  Rename pane (the pane the row shows), New tab, New worktree, Open worktree…, then Close
-  (Close workspace when it has several panes). A worktree workspace has no worktree items and
-  ends in **Delete worktree checkout…** after Close. The
+  A row offers Rename workspace, Rename pane (the pane it opens), New tab,
+  New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
+  ends in **Delete worktree checkout…** after Close workspace. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
@@ -427,7 +425,7 @@ One set for both themes: the card is island black wherever it shows.
   Agents list gives its space back; PC and workspace folds do not hide agent rows.
 - A PC's header is the head of its workspaces, and the caret beside its `+` is the one fold over
   them. The roster has no label or fold of its own.
-- In workspace mode, a repository's parent row keeps `workspace.label`; its opened linked
+- A repository's parent row keeps `workspace.label`; its opened linked
   worktree rows show their actual checkout branches. Each row's compact status
   glyph rolls up all of the workspace's panes as herdr does (blocked, then done, then working,
   then ready); a folded worktree parent rolls up its whole group.
@@ -474,28 +472,8 @@ One set for both themes: the card is island black wherever it shows.
   "workspace · folder" with no name said twice (`taskRowLines`, lib/paneName.ts). A shell titled
   by its folder leads with the workspace instead; a linked worktree is placed by its branch,
   then its own workspace name. The folder, the mark, the status cell, the menu and the fold
-  count stay where they are, and the menu and rename still act on the workspace. In folder
-  mode the second line is the workspace's name. The choice is per device and applies at once.
-- Appearance's **Sidebar grouping** is **By workspace** by default for new settings and saved records
-  without a valid grouping preference. Explicit **By workspace** and **By folder** choices stay as
-  saved. The choice applies immediately and persists in the existing Settings record; folder
-  folds are remembered per PC and path.
-- In folder mode, within each PC, panes with the same full cwd share a folder group, including panes from
-  different workspaces. Trailing separators and Windows slash styles are normalized; case and
-  symlinks are not resolved. Unknown cwd stays with its workspace rather than merging unrelated sessions.
-  A workspace whose panes sit in two folders has a row in each, opening the pane in that folder.
-  Each row represents its current pane: the selected one in that folder, else the last viewed
-  one there, else the pane herdr has focused, else its first. Its compact glyph rolls up those
-  panes' states; the other panes remain reachable from the tab strip, palette and **Agents**.
-- Every folder has an open or closed folder glyph, which with its name is the fold, and a
-  basename, even for one pane. The
-  folder containing the selection names itself in `--text-strong`; only the selected row is filled.
-  Its full path and pane count remain
-  available to screen readers, and the path appears in the tooltip. Contents are indented without
-  tree hairlines. Folder folds are remembered per PC and path; opening a pane unfolds its folder,
-  but status updates do not.
-- Folder order follows the first workspace in server order; dragging workspace rows reorders
-  workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
+  count stay where they are, and the menu and rename still act on the workspace. The choice
+  is per device and applies at once.
 - Each workspace row is one line: its folder (top-level rows), a leading glyph, the name, and
   the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
   shell shows the terminal glyph, and a linked worktree without an agent the branch glyph. The
@@ -506,13 +484,11 @@ One set for both themes: the card is island black wherever it shows.
   Dragging is disabled while a name field is open. Each workspace's `⋯` opens its row menu
   (`.row-menu-toggle`: no width at rest; shown on hover, focus, selection and while its menu is
   open; always on touch). Inline server failures
-  stay beside their workspace. In the By workspace view a repository's workspace moves past the
+  stay beside their workspace. A repository's workspace moves past the
   next or previous group with its worktrees, and a worktree moves among its siblings only.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
-  in the row's tooltip. In folder mode, an unlabelled representative pane whose title repeats
-  its folder uses the workspace name, so sibling shell workspaces remain distinguishable.
-  Workspace mode keeps parent workspace names fixed and names linked checkouts by branch;
+  in the row's tooltip. Parent workspace names stay fixed and linked checkouts are named by branch;
   agent rows show their pane's own title. Each row's
   place is available to screen readers, without repeating what its title already says. The
   palette, which has no header, names the workspace and folder once when they are the same.
@@ -525,7 +501,7 @@ One set for both themes: the card is island black wherever it shows.
   caret and shows on hover, focus, while its panel is open, while the PC is not connected, and always
   on touch. Connected is the dot alone; every other state is also written under the name, with the server's
   error clamped to two lines and complete in the tooltip.
-- In the By workspace view, a repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
+- A repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
   sit indented under the row of the workspace on its main checkout (`.worktree-children`), without
   a tree hairline; a worktree whose repository workspace is not open stays at the top level.
 - Rows use only shared theme tokens in dark and light. Touch keeps row menus and folds visible,
