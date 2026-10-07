@@ -1924,11 +1924,14 @@ function parsePiEffort(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hint = findLastIndex(lines, (_, at) => PI_MODEL_HINT_RE.test(wrapped(lines, at)));
   const title = hint < 0 ? -1 : findLastIndex(lines.slice(0, hint), (line) => cleanLine(line) === "Thinking Level");
-  if (title < 0) return null;
-  const rows = lines.slice(title + 1, hint).flatMap((raw) => {
-    const match = cleanLine(raw).match(/^([→❯➜])?\s*(?:[✓✔]\s*)?(off|minimal|low|medium|high|xhigh|max)\s{2,}(\S.*)$/);
+  if (title < 0 || hint - title > 12) return null;
+  const menuLines = lines.slice(title + 1, hint).map(cleanLine).filter(Boolean);
+  const rows = menuLines.flatMap((line, index) => {
+    if (index === 0 && PI_MODEL_FILTER_RE.test(line)) return [];
+    const match = line.match(/^([→❯➜])?\s*(?:[✓✔]\s*)?(off|minimal|low|medium|high|xhigh|max)\s{2,}(\S.*)$/);
     return match ? [{ label: match[2]!, description: match[3]!, cursor: Boolean(match[1]) }] : [];
   });
+  if (menuLines.length !== rows.length + (PI_MODEL_FILTER_RE.test(menuLines[0] ?? "") ? 1 : 0)) return null;
   if (rows.length < 2 || rows.filter((row) => row.cursor).length !== 1) return null;
   const selectedIndex = rows.findIndex((row) => row.cursor);
   return finishPrompt("pi", {

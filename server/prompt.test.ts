@@ -3223,6 +3223,8 @@ Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
       expect(await answer(prompt.id, {option_index:2})).toEqual({status:200, code:undefined});
       expect(pane.sent).toEqual(["down", "down", "enter"]);
     });
+    expect(parseInteractivePrompt("pi", `Thinking Level\n${"old output\n".repeat(13)}${thinking(0).replace("Thinking Level\n", "")}`)).toBeNull();
+    expect(parseInteractivePrompt("pi", `Thinking Level\n>\nModel catalogue\n→ low  Description of low\n  high  Description of high\nEnter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel`)).toBeNull();
   });
 
   // each refusal waits out the answer's own 1.5 s for the list to show the row

@@ -39,6 +39,18 @@ try {
     const fetchDemo = window.fetch;
     window.fetch = async (input, init) => {
       if (String(input).includes('/api/pane/image')) return Response.json({path:'/tmp/demo-attachment.txt'});
+      if (String(input).includes('/api/pane/prompt?') && window.promptReadFailures > 0) {
+        window.promptReadFailures--;
+        throw new Error('temporary prompt read failure');
+      }
+      if (String(input).includes('/api/pane/prompt/answer') && window.answerConflicts > 0) {
+        window.answerConflicts--;
+        return Response.json({error:{code:'prompt_changed',message:'prompt changed'}},{status:409});
+      }
+      if (String(input).includes('/api/pane/prompt/answer') && window.answerFailures > 0) {
+        window.answerFailures--;
+        return Response.json({error:{code:'unavailable',message:'answer unavailable'}},{status:503});
+      }
       const response = await fetchDemo(input, init);
       if (String(input).includes('/api/pane/prompt?') && window.hideModelMenu) {
         window.hiddenPromptReads = (window.hiddenPromptReads ?? 0) + 1;
@@ -177,6 +189,21 @@ try {
         assert.equal(await button.getAttribute('title'), expected, 'effort changes preserve model');
         assert.equal(await input.inputValue(), draft);
         assert.equal(await page.locator('.composer-attachment.is-ready').count(), 1);
+        if (agent === 'codex') {
+          await page.evaluate(() => { (window as any).promptReadFailures = 1; (window as any).answerConflicts = 1; });
+          await effortButton.click();
+          await page.locator('.prompt-card-option').filter({hasText:'high'}).waitFor();
+          assert.equal(await page.evaluate(() => (window as any).promptReadFailures), 0);
+          assert.equal(await page.evaluate(() => (window as any).answerConflicts), 0);
+          await page.keyboard.press('Escape');
+          await page.locator('.prompt-card').waitFor({state:'detached'});
+          await page.evaluate(() => { (window as any).answerFailures = 1; });
+          await effortButton.click();
+          await page.getByText('Reasoning menu did not open. Check the terminal before trying again.', {exact:true}).waitFor();
+          await page.locator('.prompt-card-option').filter({hasText:'gpt-6'}).waitFor();
+          await page.locator('.prompt-card-option').filter({hasText:'Cancel'}).click();
+          await page.locator('.prompt-card').waitFor({state:'detached'});
+        }
         await page.evaluate(() => { (window as any).reject = true; });
         await button.click();
         await page.getByText("Not sent: the agent is waiting for an answer in the terminal. Answer it first.", { exact: true }).waitFor();

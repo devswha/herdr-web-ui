@@ -1638,28 +1638,41 @@ export function PaneTerminal({
     const deadline = Date.now() + 5_000;
     let openedEffortFrom: string | null = null;
     while (paneRef.current === paneId && socketRef.current?.connected && Date.now() < deadline) {
-      const state = await fetchPanePromptState(paneId);
-      if (paneRef.current !== paneId) return false;
-      if (state.prompt !== null) {
-        if (effort && agent === "codex" && state.prompt.model_menu && state.prompt.question.startsWith("Select model") && state.prompt.effort_option_index === undefined) {
-          await answerPanePrompt({ pane_id: paneId, prompt_id: state.prompt.id, cancel: true });
-          onChatPrompt(paneId, null);
-          setPromptRefresh((key) => key + 1);
-          return t("Reasoning menu did not open. Check the terminal before trying again.");
-        }
-        if (effort && agent === "codex" && state.prompt.effort_option_index !== undefined) {
-          if (openedEffortFrom !== state.prompt.id) {
-            openedEffortFrom = state.prompt.id;
-            await answerPanePrompt({ pane_id: paneId, prompt_id: state.prompt.id, option_index: state.prompt.effort_option_index });
+      let activePrompt: Awaited<ReturnType<typeof fetchPanePromptState>>["prompt"] = null;
+      try {
+        const state = await fetchPanePromptState(paneId);
+        if (paneRef.current !== paneId) return false;
+        activePrompt = state.prompt;
+        if (state.prompt !== null) {
+          if (effort && agent === "codex" && state.prompt.model_menu && state.prompt.question.startsWith("Select model") && state.prompt.effort_option_index === undefined) {
+            await answerPanePrompt({ pane_id: paneId, prompt_id: state.prompt.id, cancel: true });
+            onChatPrompt(paneId, null);
+            setPromptRefresh((key) => key + 1);
+            return t("Reasoning menu did not open. Check the terminal before trying again.");
           }
-        } else {
-          onChatPrompt(paneId, state.prompt);
+          if (effort && agent === "codex" && state.prompt.effort_option_index !== undefined) {
+            if (openedEffortFrom !== state.prompt.id) {
+              openedEffortFrom = state.prompt.id;
+              await answerPanePrompt({ pane_id: paneId, prompt_id: state.prompt.id, option_index: state.prompt.effort_option_index });
+            }
+          } else {
+            onChatPrompt(paneId, state.prompt);
+            setPromptRefresh((key) => key + 1);
+            return true;
+          }
+        }
+      } catch (cause) {
+        if (paneRef.current !== paneId) return false;
+        if (cause instanceof ApiError && cause.status === 409) openedEffortFrom = null;
+        else if (activePrompt !== null) {
+          onChatPrompt(paneId, activePrompt);
           setPromptRefresh((key) => key + 1);
-          return true;
+          return effort ? t("Reasoning menu did not open. Check the terminal before trying again.") : t("Model menu did not open. Check the terminal before trying again.");
         }
       }
       await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
     }
+    setPromptRefresh((key) => key + 1);
     return effort ? t("Reasoning menu did not open. Check the terminal before trying again.") : t("Model menu did not open. Check the terminal before trying again.");
   }, [modelChangeEnabled, paneId, agent, sendComposerText, fetchPanePromptState, answerPanePrompt, onChatPrompt, t]);
   const changeModel = useCallback(() => openModelMenu(), [openModelMenu]);
