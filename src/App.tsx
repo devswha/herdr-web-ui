@@ -49,7 +49,7 @@ import { useT } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
-import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
+import { dropletAllows, endedTurn, seedStatuses, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 import { playAlertSound, unlockAlertSound, type AlertSoundKind } from "./lib/alertSound.ts";
 
 const APP_TITLE = "herdr web ui";
@@ -348,11 +348,6 @@ export function App() {
   // One SSE subscription watches every PC, even when no terminal is selected.
   useEffect(() => {
     if (locked !== false) return;
-    const seed = (list: Machine[]) => {
-      for (const machine of list) for (const pane of machine.snapshot?.panes ?? []) {
-        statusRef.current.set(paneStorageId(machine.id, pane.pane_id), pane.agent_status);
-      }
-    };
     const events = new EventSource("/api/machines/events");
     events.onmessage = (event) => {
       let payload: MachineEvent;
@@ -360,7 +355,7 @@ export function App() {
       // A poll started before this event can carry an older roster or pane status.
       snapshotRequests.current.invalidate();
       if (payload.type === "machines") {
-        seed(payload.machines);
+        seedStatuses(statusRef.current, payload.machines, { started: turnStartRef.current, lasted: lastTurnRef.current });
         setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
         return;
       }
