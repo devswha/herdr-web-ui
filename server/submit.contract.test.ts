@@ -131,6 +131,7 @@ describe("WebSocket submit", () => {
     try {
       // a pane-status can arrive first: the snapshot is found by its type
       expect(socket.seen.find((message) => message.type === "snapshot")?.features).toContain("submit");
+      expect(socket.seen.find((message) => message.type === "snapshot")?.features).toContain("pending-input");
     } finally {
       socket.close();
     }
