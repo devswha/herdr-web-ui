@@ -619,6 +619,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     // branch itself is the tooltip's and the menu's, where the name does not already say it
     const rowTitle = workspace.label;
     const secondaryBranch = branchTitle && workspace.label !== branchTitle && workspace.label !== worktreeLabel(branchTitle) ? branchTitle : null;
+    // the tooltip and the menu keep the exact branch (its slashes) even where the row does not repeat it
+    const branchNote = branchTitle && branchTitle !== workspace.label ? branchTitle : null;
     const paths = [...new Set([workspace.worktree?.checkout_path, pane.cwd].filter((path): path is string => Boolean(path)))];
     const collapsed = children.length > 0 && repoKey !== undefined && collapsedWorktrees.has(repoKey);
     // a folded group's parent stands for its worktrees too, as herdr's collapsed parent does:
@@ -632,7 +634,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const editingPane = editingPaneId === pane.pane_id;
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id && menu.scope === "" && menu.kind === "workspace";
     const contentsId = `${rosterId}-worktrees-${encodeURIComponent(repoKey ?? workspace.workspace_id)}`;
-    const toggleMenu = (anchor: HTMLElement): void => setMenu(menuOpen ? null : { anchor, workspace, pane, scope: "", title: rowTitle, place: [secondaryBranch, ...paths].filter(Boolean).join(" · ") || workspace.label, kind: "workspace" });
+    const toggleMenu = (anchor: HTMLElement): void => setMenu(menuOpen ? null : { anchor, workspace, pane, scope: "", title: rowTitle, place: [branchNote, ...paths].filter(Boolean).join(" · ") || workspace.label, kind: "workspace" });
     return <li
       className={`workspace workspace-group pane-item${selected ? " is-selected" : ""}${collapsed ? " is-collapsed" : ""}${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}`}
       key={workspace.workspace_id}
@@ -663,7 +665,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           aria-description={`${t("Reorder workspace {name}", { name: workspace.label })} · ${t("Drag to reorder · Alt+↑/↓")}`}
           data-pane={pane.pane_id}
           aria-current={selected ? "true" : undefined}
-          title={[`${pane.pane_id} — ${rowTitle}`, secondaryBranch, ...paths, paneTitle(pane), agentsTitle(workspace)].filter(Boolean).join(" — ")}
+          title={[`${pane.pane_id} — ${rowTitle}`, branchNote, ...paths, paneTitle(pane), agentsTitle(workspace)].filter(Boolean).join(" — ")}
           onClick={() => actions.selectPane(pane.pane_id)}
           onKeyDown={(event) => {
             onRowKeyDown(event, workspace.workspace_id);
