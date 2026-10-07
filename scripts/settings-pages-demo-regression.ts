@@ -169,6 +169,31 @@ try {
         await page.waitForFunction(() => (history.state as Record<string, unknown> | null)?.["herdr-web-ui:settings"] === undefined);
         assert.deepEqual(errors, []);
         console.log("PASS on a desktop Back closes Settings in one step, Forward reopens its page, Escape takes the entry off");
+
+        // the window changes width with Settings open: the steps Back takes are the ones now shown
+        await openSettings(page);
+        await openSettingsPage(page, "Terminal");
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForFunction(() => (history.state as Record<string, { depth: number }> | null)?.["herdr-web-ui:settings"]?.depth === 2);
+        await page.goBack();
+        await dialogOf(page).getByRole("tablist").waitFor();
+        assert.equal(await dialogOf(page).getByRole("tabpanel").count(), 0, "narrowed, Back from the page shows the list");
+        await page.goBack();
+        await page.locator(".settings-dialog").waitFor({ state: "detached" });
+        await openSettings(page);
+        await openSettingsPage(page, "Terminal");
+        await dialogOf(page).getByRole("button", { name: "Edit key bar", exact: true }).click();
+        await page.getByRole("dialog", { name: "Key bar", exact: true }).waitFor();
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.waitForFunction(() => (history.state as Record<string, { depth: number }> | null)?.["herdr-web-ui:settings"]?.depth === 2);
+        await page.goBack();
+        await dialogOf(page).getByRole("tabpanel", { name: "Terminal", exact: true }).waitFor();
+        assert.equal(await page.locator(".key-bar-settings").count(), 0, "widened, Back from the editor shows the Terminal page");
+        await page.goBack();
+        await page.locator(".settings-dialog").waitFor({ state: "detached" });
+        await page.waitForFunction(() => (history.state as Record<string, unknown> | null)?.["herdr-web-ui:settings"] === undefined);
+        assert.deepEqual(errors, []);
+        console.log("PASS a window that changes width with Settings open keeps Back to the steps it shows");
       } finally {
         await desktop.close();
       }

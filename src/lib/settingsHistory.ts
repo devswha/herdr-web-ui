@@ -50,6 +50,9 @@ export function settingsEntry(state: unknown): SettingsEntry | null {
 type Listener = (entry: SettingsEntry | null, own: boolean) => void;
 const listeners = new Set<Listener>();
 let wanted: readonly SettingsLevel[] = [];
+/** the steps this module believes the history holds for Settings, by depth */
+let held: SettingsLevel[] = [];
+const same = (a: SettingsLevel, b: SettingsLevel): boolean => a.page === b.page && a.keyBar === b.keyBar;
 /** traversals asked for here that have not landed yet: nothing is pushed while one is under way */
 let rewinding = 0;
 let landing: ReturnType<typeof setTimeout> | undefined;
@@ -65,15 +68,28 @@ function rewind(by: number): void {
 function reconcile(): void {
   if (rewinding > 0) return;
   const state: unknown = window.history.state;
-  const have = settingsEntry(state)?.depth ?? 0;
+  const current = settingsEntry(state);
+  const have = current?.depth ?? 0;
+  // what the history holds up to here: a Back landed under what was recorded, and entries this
+  // module did not push (a reload left them) are known by the one the state shows
+  held = held.slice(0, have);
+  while (held.length < have) held.push(held.length === have - 1 && current ? { page: current.page, keyBar: current.keyBar } : { page: null, keyBar: false });
   if (have > wanted.length) { rewind(have - wanted.length); return; }
+  // the first step that differs from what is wanted. An earlier one (the window changed width:
+  // a phone's list belongs under a page a wider dialog had opened directly, or no longer does)
+  // is stepped back to and the steps above it are made anew
+  let differs = 0;
+  while (differs < have && differs < wanted.length && same(held[differs]!, wanted[differs]!)) differs++;
+  if (differs < have - 1) { rewind(have - differs - 1); return; }
   const base = state !== null && typeof state === "object" ? state : {};
-  for (let depth = have + 1; depth <= wanted.length; depth++) window.history.pushState({ ...base, [KEY]: { ...wanted[depth - 1], depth } }, "");
-  if (have === wanted.length && have > 0) {
-    const current = settingsEntry(state)!;
-    const level = wanted[have - 1]!;
-    // a wider dialog turned its page: the same step, now showing something else
-    if (current.page !== level.page || current.keyBar !== level.keyBar) window.history.replaceState({ ...base, [KEY]: { ...level, depth: have } }, "");
+  if (have > 0 && differs === have - 1) {
+    // the step shown is another: a wider dialog turned its page, or the list took a page's place
+    window.history.replaceState({ ...base, [KEY]: { ...wanted[have - 1], depth: have } }, "");
+    held[have - 1] = wanted[have - 1]!;
+  }
+  for (let depth = have + 1; depth <= wanted.length; depth++) {
+    window.history.pushState({ ...base, [KEY]: { ...wanted[depth - 1], depth } }, "");
+    held.push(wanted[depth - 1]!);
   }
 }
 

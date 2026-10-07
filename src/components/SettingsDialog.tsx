@@ -556,10 +556,11 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
   const narrow = useNarrow();
   // opened by Forward, the dialog shows what that entry of the history showed
   const [restored] = useState(() => shownBy(settingsEntry(window.history.state)));
-  // a phone opens on the list of pages; a wider dialog shows the list beside the first page
-  const [chosen, setChosen] = useState<SettingsPage | null>(restored ? restored.page : section === "updates" ? "about" : null);
+  // a phone opens on the list of pages; a wider dialog shows the list beside the first page. A
+  // button that points at Updates opens on About whatever an entry still landing would restore
+  const [chosen, setChosen] = useState<SettingsPage | null>(section === "updates" ? "about" : restored ? restored.page : null);
   const page = chosen ?? (narrow ? null : PAGES[0]!.id);
-  const [keyBarOpen, setKeyBarOpen] = useState(restored?.keyBar ?? false);
+  const [keyBarOpen, setKeyBarOpen] = useState(section === "updates" ? false : restored?.keyBar ?? false);
   // every step in is an entry of the history, so the system Back button takes one step out
   // (lib/settingsHistory.ts); the Back control, the X and Escape take the same entries off
   useEffect(() => { recordSettings(settingsLevels(narrow, page, keyBarOpen)); }, [narrow, page, keyBarOpen]);
@@ -608,7 +609,13 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
   // server-side: the web server updates PC bridges, so it keeps this choice
   const [pcSettings, setPcSettings] = useState<MachineSettings | null>(null);
   const [pcSettingsError, setPcSettingsError] = useState<string | null>(null);
-  useEffect(() => { machineRequest<MachineSettings>("/settings").then(setPcSettings, () => setPcSettings(null)); }, []);
+  // asked when a page that shows them opens, so a request that failed earlier is made again
+  useEffect(() => {
+    if (page !== "remote" && page !== "about") return;
+    let live = true;
+    machineRequest<MachineSettings>("/settings").then((settings) => { if (live) setPcSettings(settings); }, () => { if (live) setPcSettings(null); });
+    return () => { live = false; };
+  }, [page]);
   const updatePcSettings = async (patch: Partial<MachineSettings>) => {
     try { setPcSettings(await machineRequest<MachineSettings>("/settings", "PATCH", patch)); setPcSettingsError(null); }
     catch (e) { setPcSettingsError(e instanceof Error ? e.message : String(e)); }
