@@ -36,7 +36,7 @@ import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPan
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
+import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { piTranscriptPath, unwrittenSession } from "./pi.ts";
@@ -750,13 +750,10 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
     const processInfo = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; name?: string; argv0?: string; argv?: string[] }[] } }>(
       "pane.process_info", { pane_id: paneId },
     );
-    processes = processInfo.process_info?.foreground_processes?.filter((entry) =>
-      // macOS keeps the executable name "node" for npm installs; the process title is argv0.
-      entry.name === "claude" || /(?:^|\/)claude$/.test(entry.argv0 ?? "") || /(?:^|\/)claude$/.test(entry.argv?.[0] ?? ""),
-    ) ?? [];
+    processes = processInfo.process_info?.foreground_processes?.filter(isClaudeProcess) ?? [];
   } catch { /* herdr busy: the default store */ }
   const only = processes.length === 1 ? processes[0] : undefined;
-  const configDir = (only && await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""])) || defaultClaudeConfigDir(home);
+  const configDir = (only && await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""], home)) || defaultClaudeConfigDir(home);
   if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) session = await claudeProcessSession(home, only.pid, configDir);
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
   const path = await claudeTranscriptFile(home, session, cwds, configDir);
