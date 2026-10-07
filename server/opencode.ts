@@ -173,7 +173,7 @@ export function opencodeRecord(id: string, type: string, data: Row): OpencodeRec
   // a command the user ran with `!`: it sits in the user's seat, with what it printed
   if (type === "shell" && typeof data.command === "string") {
     const output = record(data.output).output;
-    const printed = typeof output === "string" && output.length > 0 ? `\n${output.replace(/\n+$/, "")}` : "";
+    const printed = typeof output === "string" && output.length > 0 ? `\n${output.replace(/[\r\n]+$/, "")}` : "";
     return { role: "user", ts: iso(time.created), parts: [{ kind: "notice", text: cut(`$ ${data.command}${printed}`), source: "shell" }] };
   }
   // what OpenCode put in the user's seat to wake its model: a background job's or subagent's
@@ -271,6 +271,7 @@ export function forgetOpencodeState(): void {
   histories.clear();
   newestRecords.clear();
   answers.clear();
+  settings.clear();
 }
 
 /** The store, read-only; null when it cannot be opened (no file, not SQLite, not readable). */
@@ -330,28 +331,54 @@ function sessionView(db: Database, key: string, sessionId: string): SessionView 
   return { end, historyId, signature: `${historyId}:${stats.count}:${stats.last}:${stats.updated}` };
 }
 
-/** Latest recorded settings at `end`, as OpenCode's own footer reads them. */
+/** What a step or `/model` row says about the session's settings, kept while its `time_updated` holds. */
+const settings = new Map<string, { updated: number; model: string | null; variant: string | null; tokens: Row | null; completed: boolean }>();
+
+/**
+ * Latest recorded settings at `end`, as OpenCode's own footer reads them. The rows are walked from
+ * the newest and parsed here: JSON1 is not part of every SQLite Bun may run on (on macOS it uses the
+ * system's own), so nothing is asked of SQL beyond the index.
+ */
 function sessionMetadata(db: Database, sessionId: string, end: number): ConversationMetadata {
-  const last = (type: string, extra = "") => db.query<{ seq: number; model: string | null; variant: string | null; tokens: string | null }, [string, string, number]>(
-    `SELECT seq, json_extract(data, '$.model.id') AS model, json_extract(data, '$.model.variant') AS variant, json_extract(data, '$.tokens') AS tokens
-     FROM session_message WHERE session_id = ? AND type = ? AND seq < ?${extra} ORDER BY seq DESC LIMIT 1`,
-  ).get(sessionId, type, end);
-  const step = last("assistant");
-  const switched = last("model-switched");
-  const setting = switched !== null && (step === null || switched.seq > step.seq) ? switched : step;
+  const data = db.query<{ data: string }, [string, string]>("SELECT data FROM session_message WHERE id = ? AND session_id = ?");
+  let setting: { model: string | null; variant: string | null } | null = null;
+  let usage: Row | null = null;
+  let compacted = false;
+  for (const row of db.query<{ id: string; type: string; updated: number }, [string, number]>(
+    `SELECT id, type, time_updated AS updated FROM session_message
+     WHERE session_id = ? AND type IN ('assistant', 'model-switched', 'compaction') AND seq < ? ORDER BY seq DESC`,
+  ).iterate(sessionId, end)) {
+    let known = settings.get(row.id);
+    if (known?.updated !== row.updated) {
+      const found = data.get(row.id, sessionId);
+      const parsed = found === null ? {} : parseData(found.data);
+      const model = record(parsed.model);
+      known = {
+        updated: row.updated,
+        model: text(model.id),
+        variant: text(model.variant),
+        tokens: parsed.tokens === undefined ? null : record(parsed.tokens),
+        completed: parsed.status === "completed",
+      };
+      remember(settings, row.id, known, 256);
+    }
+    if (row.type === "compaction") {
+      // the footer counts no step from before a compaction: its usage is gone with it
+      if (known.completed && usage === null) compacted = true;
+    } else {
+      setting ??= { model: known.model, variant: known.variant };
+      if (row.type === "assistant" && known.tokens !== null && !compacted) usage ??= known.tokens;
+    }
+    if (setting !== null && (usage !== null || compacted)) break;
+  }
   const metadata: ConversationMetadata = {
-    model: text(setting?.model) ?? null,
+    model: setting?.model ?? null,
     // `default` is the model's own reasoning, not a level anyone chose
-    reasoning_effort: text(setting?.variant) !== null && setting!.variant !== "default" ? setting!.variant : null,
+    reasoning_effort: setting?.variant !== null && setting?.variant !== undefined && setting.variant !== "default" ? setting.variant : null,
   };
-  // the footer counts the last step that reported usage, unless a compaction came after it
-  const usage = last("assistant", " AND json_extract(data, '$.tokens') IS NOT NULL");
-  const compacted = last("compaction", " AND json_extract(data, '$.status') = 'completed'");
-  if (usage !== null && (compacted === null || compacted.seq < usage.seq)) {
-    let tokens: Row = {};
-    try { tokens = record(JSON.parse(usage.tokens ?? "null")); } catch { /* not JSON */ }
-    const cache = record(tokens.cache);
-    const used = count(tokens.input) + count(tokens.output) + count(tokens.reasoning) + count(cache.read) + count(cache.write);
+  if (usage !== null) {
+    const cache = record(usage.cache);
+    const used = count(usage.input) + count(usage.output) + count(usage.reasoning) + count(cache.read) + count(cache.write);
     if (used > 0) metadata.context = { used, window: null };
   }
   return metadata;
@@ -368,7 +395,20 @@ function cursorOf(historyId: string, cursor: string, end: number): number | null
   return offset;
 }
 
-const META = "SELECT id, seq, type, time_updated AS updated, octet_length(data) AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq";
+/**
+ * A row's size in bytes. `octet_length` (SQLite 3.43) answers without reading the row; on macOS
+ * Bun runs the system's own SQLite, which can be older, and there the bytes are counted instead.
+ */
+let rowSize: string | null = null;
+function sizeOf(db: Database): string {
+  if (rowSize === null) {
+    try { db.query("SELECT octet_length('')").get(); rowSize = "octet_length(data)"; }
+    catch { rowSize = "length(CAST(data AS BLOB))"; }
+  }
+  return rowSize;
+}
+
+const meta = (db: Database) => `SELECT id, seq, type, time_updated AS updated, ${sizeOf(db)} AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq`;
 
 /**
  * One page of the session's conversation (as conversation.ts's transcriptPage, over rows):
@@ -387,7 +427,7 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
       if (cached?.signature === view.signature) return cached.answer;
 
       const end = view.end;
-      const descending = (from: number, to: number) => db.query<RowMeta, [string, number, number]>(`${META} DESC`).iterate(sessionId, from, to);
+      const descending = (from: number, to: number) => db.query<RowMeta, [string, number, number]>(`${meta(db)} DESC`).iterate(sessionId, from, to);
       let start: number;
       let to = end;
       if (page.before !== undefined) {
@@ -411,7 +451,7 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
         const known = newestRecords.get(key) ?? new Map<string, { updated: number; record: OpencodeRecord | null }>();
         const kept = new Map<string, { updated: number; record: OpencodeRecord | null }>();
         const data = db.query<{ data: string }, [string, string]>("SELECT data FROM session_message WHERE id = ? AND session_id = ?");
-        for (const row of db.query<RowMeta, [string, number, number]>(META).iterate(sessionId, start, to)) {
+        for (const row of db.query<RowMeta, [string, number, number]>(meta(db)).iterate(sessionId, start, to)) {
           let entry = known.get(row.id);
           if (entry?.updated !== row.updated) {
             const found = data.get(row.id, sessionId);

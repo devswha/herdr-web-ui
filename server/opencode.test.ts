@@ -2,13 +2,15 @@ import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { forgetOpencodeState, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeRecord, opencodeSessionId, opencodeToolOutput, opencodeTurns, pageStart, type OpencodeAnswer, type RowMeta } from "./opencode.ts";
 import type { ConversationPart, ConversationTurn } from "../shared/protocol.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-opencode-store-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+const opened: Database[] = [];
+// Windows refuses to delete a file a handle still holds
+afterAll(() => { for (const db of opened) db.close(); rmSync(root, { recursive: true, force: true }); });
 beforeEach(() => forgetOpencodeState());
 
 // The tables OpenCode 2.0.24 reads a conversation from, as it creates them (columns the reader
@@ -35,6 +37,7 @@ const T0 = Date.parse("2026-10-07T09:00:00Z");
 function store(session = "ses_test1") {
   const path = join(root, `opencode-${++stores}.db`);
   const db = new Database(path, { create: true });
+  opened.push(db);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec(SCHEMA);
   db.query("INSERT INTO session_v2 (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES (?, 'global', 'slug', ?, 'Test', '2.0.24', ?, ?)").run(session, root, T0, T0);
@@ -65,13 +68,17 @@ const record = (type: string, data: Record<string, unknown>, id = "msg_row1") =>
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 describe("where OpenCode keeps its store", () => {
-  it("follows the paths OpenCode resolves for itself", () => {
-    expect(opencodeDatabasePath({}, "/home/u")).toBe("/home/u/.local/share/opencode/opencode.db");
-    expect(opencodeDatabasePath({ XDG_DATA_HOME: "/data" }, "/home/u")).toBe("/data/opencode/opencode.db");
+  it("follows the paths OpenCode resolves for itself, the same on every platform", () => {
+    const home = join(root, "home");
+    const data = join(root, "data");
+    // OpenCode has no per-platform data dir: macOS and Windows use ~/.local/share too
+    expect(opencodeDatabasePath({}, home)).toBe(join(home, ".local", "share", "opencode", "opencode.db"));
+    expect(opencodeDatabasePath({ XDG_DATA_HOME: data }, home)).toBe(join(data, "opencode", "opencode.db"));
     // OPENCODE_DB names a file relative to the data dir, or anywhere
-    expect(opencodeDatabasePath({ OPENCODE_DB: "other.db" }, "/home/u")).toBe("/home/u/.local/share/opencode/other.db");
-    expect(opencodeDatabasePath({ OPENCODE_DB: "/elsewhere/x.db", XDG_DATA_HOME: "/data" }, "/home/u")).toBe("/elsewhere/x.db");
-    expect(opencodeDatabasePath({ OPENCODE_DB: ":memory:" }, "/home/u")).toBeNull();
+    expect(opencodeDatabasePath({ OPENCODE_DB: "other.db" }, home)).toBe(join(home, ".local", "share", "opencode", "other.db"));
+    const elsewhere = join(root, "elsewhere", "x.db");
+    expect(opencodeDatabasePath({ OPENCODE_DB: elsewhere, XDG_DATA_HOME: data }, home)).toBe(resolve(elsewhere));
+    expect(opencodeDatabasePath({ OPENCODE_DB: ":memory:" }, home)).toBeNull();
   });
 
   it("binds a pane by the session herdr's OpenCode integration reported, and nothing else", () => {
@@ -226,6 +233,9 @@ describe("OpenCode's rows as a conversation", () => {
       [{ kind: "notice", text: "$ git diff\ndiff --git a/x b/x", source: "shell" }],
       [{ kind: "text", text: "commit it" }],
     ]);
+    // a Windows shell ends its lines with \r\n
+    const windows = record("shell", { time: { created: T0 }, command: "dir", output: { output: "a.txt\r\nb.txt\r\n" } });
+    expect(windows !== null && windows.role === "user" && windows.parts).toEqual([{ kind: "notice", text: "$ dir\na.txt\r\nb.txt", source: "shell" }]);
   });
 
   it("marks where the conversation was compacted", () => {
@@ -346,6 +356,7 @@ describe("a page of an OpenCode session", () => {
     expect(opencodeConversation(s.path, "../etc")).toEqual({ kind: "unavailable", reason: "no_session_id" });
     const v1 = join(root, "v1.db");
     const old = new Database(v1, { create: true });
+    opened.push(old);
     old.exec("CREATE TABLE session (id text PRIMARY KEY); CREATE TABLE message (id text PRIMARY KEY, session_id text, data text)");
     old.close();
     expect(opencodeConversation(v1, "ses_test1")).toEqual({ kind: "unavailable", reason: "transcript_missing" });
@@ -359,6 +370,19 @@ describe("a page of an OpenCode session", () => {
 });
 
 describe("where a page starts", () => {
+  it("measures a row in bytes without octet_length too", () => {
+    // macOS's own SQLite, which Bun uses there, can predate octet_length (3.43): the fallback must count bytes
+    const s = store();
+    s.prompt("ascii");
+    s.prompt("multibyte: é ü 한국어 🦀");
+    s.add("assistant", { time: { created: T0 }, content: [{ type: "text", text: "x".repeat(70_000) }] });
+    const sizes = s.db.query<{ data: string; bytes: number }, [string]>(
+      "SELECT data, length(CAST(data AS BLOB)) AS bytes FROM session_message WHERE session_id = ?",
+    ).all(s.session);
+    expect(sizes.length).toBe(3);
+    for (const size of sizes) expect(size.bytes).toBe(Buffer.byteLength(size.data, "utf8"));
+  });
+
   const rows = (...spec: [string, number][]): RowMeta[] => spec.map(([type, size], index) => ({ id: `msg_${index}`, seq: (spec.length - index) * 2, type, updated: 0, size }));
 
   it("starts at the earliest prompt inside the window, or at the floor it reaches", () => {
