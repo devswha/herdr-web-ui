@@ -524,6 +524,7 @@ export function Composer({
   const dictation = useDictation({
     mode: "chat",
     connected,
+    phone: mobile,
     polish: settings.voicePolishChat,
     keywords: () => [...(agent ? [agentLabel] : []), ...commands.map((command) => command.name)],
     box: textareaRef,
@@ -788,7 +789,7 @@ export function Composer({
   return (
     <div className="composer" role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined}>
       {greeting}
-      {/* no Tab key on a phone: the suggestion can be a chip there that fills the box, once chosen in Settings */}
+      {/* no Tab key on a phone: the suggestion is a chip there that fills the box, unless Settings turns it off */}
       {settings.showSuggestionChip && offered !== null && text === "" && (
         <div className="composer-quick composer-suggestion-row">
           <button type="button" className="composer-quick-reply composer-suggestion" title={t("Use the suggestion")} onClick={() => setTextAndCaret(offered, offered.length)}>
