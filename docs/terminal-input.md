@@ -146,7 +146,7 @@ trips and pane changes on those keyboards before claiming universal IME compatib
 
 Updated: 2026-10-06
 
-Native Safari 26.6.2 reproduced `abc` → Korean `한글` → Space as `abcㅎㄱ ` in xterm's
+Native Safari 26.6.2 reproduced `abc` → Korean `한글` → Space as `abcㅎㄱ\x20` in xterm's
 `onData`, outgoing WS frames and the owned local PTY. A plain textarea and Chrome's native
 composition path preserved the Korean text. Safari emitted `insertText("ㅎ")`, then
 `insertReplacementText("하")` and `insertReplacementText("한")`, with `isComposing:false`
@@ -170,13 +170,14 @@ client (`7666d17`). Input travels through the real WS/attach path into an owned 
 process. That process prints the expected string and the bytes it actually receives; the
 screenshots capture its terminal output. The first baseline failure matches the earlier native
 Safari capture. These are fresh Chromium replay captures, not original native Safari screenshots.
+In these examples, `\x20` denotes one trailing space byte.
 
 | Case | Before: received | After: received |
 | --- | --- | --- |
-| English → Korean + Space | `abcㅎㄱ ` | `abc한글 ` |
-| Korean → English + Space | `ㅎㄱabc ` | `한글abc ` |
-| Final consonant: 값 + 아 | `ㄱ사 ` | `갑사 ` |
-| Backspace preedit, then retype | `ㅎㅎ ` | `한 ` |
+| English → Korean + Space | `abcㅎㄱ\x20` | `abc한글\x20` |
+| Korean → English + Space | `ㅎㄱabc\x20` | `한글abc\x20` |
+| Final consonant: 값 + 아 | `ㄱ사\x20` | `갑사\x20` |
+| Backspace preedit, then retype | `ㅎㅎ\x20` | `한\x20` |
 | English → Korean + Enter | `abcㅎㄱ\r` | `abc한글\r` |
 
 **Before — all five cases fail:**
