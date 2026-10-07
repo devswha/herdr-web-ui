@@ -11,6 +11,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
+- The plugin's `start` keeps the app on its port when the app's own server holds it but cannot
+  reach herdr. It used to move the app to another port beside the running one and blame another
+  program; now it says that the app runs there without herdr and exits, and the app answers
+  again on its port once herdr is back.
 
 ## [0.4.0] - 2026-10-08
 
