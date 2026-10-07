@@ -69,12 +69,33 @@ try {
   await page.getByRole("heading", { name: "Updates", exact: true }).scrollIntoViewIfNeeded();
 
   writeFileSync(join(upstream, "qa-revision.txt"), "second build\n");
+  // as a release does: what was unreleased becomes the release's section of the changelog
+  const cut = (version: string, body = "") => writeFileSync(join(upstream, "CHANGELOG.md"),
+    readFileSync(join(upstream, "CHANGELOG.md"), "utf8").replace("## [Unreleased]\n", `## [Unreleased]\n\n## [${version}] - 2099-01-01\n${body}`));
+  cut("99.0.0");
   await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA update"); await git(upstream, "tag", "v99.0.0");
   const next = await git(upstream, "rev-parse", "HEAD");
   await page.getByRole("button", { name: "Check for updates", exact: true }).click();
   const installButton = page.getByRole("button", { name: "Update and restart", exact: true });
   await until(() => installButton.isEnabled(), "Update never became installable");
+  // the release's notes, read from its own changelog, in a box that scrolls on its own
+  const notes = page.locator(".update-notes");
+  await notes.getByRole("heading", { name: "v99.0.0" }).waitFor();
+  assert.ok(await notes.locator("li").count() > 0);
+  assert.equal(await notes.getByText("Unreleased").count(), 0);
+  assert.ok(await installButton.isVisible());
   await page.screenshot({ path: join(evidence, "available-desktop.png"), fullPage: true });
+  // the line under the header points at them: its button opens Settings on Updates, the last section
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await page.locator(".update-notice").getByRole("button", { name: "What's new", exact: true }).click();
+  await until(() => notes.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return box.top >= 0 && box.bottom <= window.innerHeight;
+  }), "What's new did not open Settings on the release notes");
+  // and the focus is there with it: the next Tab must not scroll back to the top of Settings
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("settings-updates")), true);
+  await page.screenshot({ path: join(evidence, "notes-desktop.png") });
+  console.log("PASS release notes beside the offered update, and from the header line");
   await installButton.click();
   await until(async () => (await status())?.current_revision === next, "Updated process never became active");
   await page.locator(".update-notice").getByRole("button", { name: "Reload app" }).waitFor();
@@ -92,12 +113,16 @@ try {
   assert.equal(await page.locator(".update-notice").count(), 0);
 
   writeFileSync(join(upstream, "server/index.ts"), `throw new Error('QA startup failure');\n${readFileSync(join(upstream, "server/index.ts"), "utf8")}`);
+  // its notes hold a line no one wrote by hand: they are text from a Git remote, and must not take the app down
+  cut("99.0.1", `\n### Fixed\n- A release that fails to start.\n\n${">".repeat(30_000)} quoted beyond reason\n`);
   await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA failed startup"); await git(upstream, "tag", "v99.0.1");
   await page.getByRole("button", { name: "Check for updates", exact: true }).click();
   await until(() => installButton.isEnabled(), "Rollback candidate never became available");
   await installButton.click();
   await page.getByText(/Previous version restored/).waitFor();
   assert.equal((await status())?.current_revision, next);
+  // the release is still on offer, and so are its notes
+  await notes.getByRole("heading", { name: "v99.0.1" }).waitFor();
   await page.locator(".conn-live").waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("heading", { name: "Updates", exact: true }).scrollIntoViewIfNeeded();

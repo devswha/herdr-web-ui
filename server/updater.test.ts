@@ -130,9 +130,11 @@ const liveHerdr = existsSync(process.env["HERDR_SOCKET"] || HERDR_SOCKET_PATH);
 describe("managed source updates with real Git repositories and builds", () => {
   it("checks without installing, then builds an exact revision without changing the source", async () => {
     const original = await git(root, "rev-parse", "HEAD");
+    writeFileSync(join(upstream, "CHANGELOG.md"), "# Changelog\n\n## [0.2.0] - 2026-10-07\n\n### Added\n- Second.\n");
     const target = await release("second", "v0.2.0");
     await updater.request("check");
     expect(updater.status.available).toBe(true);
+    expect(updater.notes).toEqual({ revision: target, releases: [{ version: "0.2.0", date: "2026-10-07", notes: "### Added\n- Second." }], omitted: 0 });
     expect(updater.status.current_revision).toBe(original);
     expect(readdirSync(stateDir).filter(name => name.startsWith("release-"))).toHaveLength(0);
     expect(steps).toEqual([null]);
@@ -140,12 +142,54 @@ describe("managed source updates with real Git repositories and builds", () => {
     expect(updater.status.error).toBeNull();
     expect(steps).toEqual([null, "download", "dependencies", "typecheck", "build", "restart", null]);
     expect(updater.status.current_revision).toBe(target);
+    expect(updater.notes).toEqual({ revision: null, releases: [], omitted: 0 });
     expect(readFileSync(join(updater.release!.directory, "dist/index.html"), "utf8")).toBe("second");
     expect(await git(root, "rev-parse", "HEAD")).toBe(original);
     expect(await git(root, "status", "--porcelain")).toBe("");
     const resumed = new Updater(updater.options);
     expect((await resumed.initialize())?.revision).toBe(target);
     resumed.stop();
+  });
+
+  it("tells what an update brings from the release's own changelog, every release since the running one", async () => {
+    const manifest = JSON.parse(readFileSync(join(upstream, "package.json"), "utf8")) as Record<string, unknown>;
+    writeFileSync(join(upstream, "package.json"), JSON.stringify({ ...manifest, version: "0.1.0" }));
+    await commit("versioned");
+    await git(root, "pull", "--ff-only", "--quiet");
+    // the notes are there when the status that offers the update is published, not after it
+    let offered: unknown = null;
+    const versioned = new Updater({ ...updater.options, publish(status) { if (status.available) offered = versioned.notes; } });
+    await versioned.initialize();
+    expect(versioned.status.current_version).toBe("0.1.0");
+
+    const section = (version: string) => `## [${version}] - 2026-10-07\n\n### Added\n- Release ${version}.\n`;
+    writeFileSync(join(upstream, "CHANGELOG.md"), `# Changelog\n\n${section("0.2.0")}`);
+    await release("second", "v0.2.0");
+    writeFileSync(join(upstream, "CHANGELOG.md"), `# Changelog\n\n${section("0.3.0")}\n${section("0.2.0")}`);
+    const third = await release("third", "v0.3.0");
+    // main moves on after the release: an entry the install does not bring
+    writeFileSync(join(upstream, "CHANGELOG.md"), `# Changelog\n\n## [Unreleased]\n- Later.\n\n${section("0.4.0")}\n${section("0.3.0")}\n${section("0.2.0")}`);
+    await commit("unreleased work");
+    await versioned.request("check");
+    expect(versioned.status.available).toBe(true);
+    expect(versioned.notes.releases.map((entry) => [entry.version, entry.notes])).toEqual([
+      ["0.3.0", "### Added\n- Release 0.3.0."], ["0.2.0", "### Added\n- Release 0.2.0."],
+    ]);
+    // the notes name the commit they were read from: the one the status offers
+    expect(versioned.notes.revision).toBe(third);
+    expect(versioned.status.latest_revision).toBe(third);
+    expect(offered).toEqual(versioned.notes);
+
+    // a release that ships no changelog is offered all the same, without notes
+    await release("fourth", "v0.5.0");
+    await git(upstream, "rm", "-q", "CHANGELOG.md");
+    const fifth = await release("fifth", "v0.6.0");
+    await versioned.request("check");
+    expect(versioned.status.error).toBeNull();
+    expect(versioned.status.latest_version).toBe("0.6.0");
+    expect(versioned.status.available).toBe(true);
+    expect(versioned.notes).toEqual({ revision: fifth, releases: [], omitted: 0 });
+    versioned.stop();
   });
 
   it("refuses local changes, detached branches, and an ahead/diverged history", async () => {
