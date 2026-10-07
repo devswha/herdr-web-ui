@@ -54,9 +54,14 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const online = machine.state === "connected";
+  // one request at a time: a double-clicked Disconnect/Connect can otherwise race and leave this
+  // UI's idea of the state opposite the server's until the next refetch
+  const [busy, setBusy] = useState(false);
   const mutate = async (method: string, body?: unknown) => {
+    setBusy(true);
     try { await machineRequest(`/${machine.id}`, method, body); setError(null); if (method === "DELETE" && props.selectedMachineId === machine.id) props.onSelect("local", null); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
   };
   const actions: AppActions = { ...props.actions, selectPane: (id) => props.onSelect(machine.id, id), openNewSession: () => props.onNew(machine.id) };
   const toggle = () => {
@@ -80,12 +85,14 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
     </header>
     {/* connected is the norm and says nothing new; every other state is spelled out */}
     {machine.action_required || machine.updating ? <MachineActionNotice machine={machine} onSetup={props.onSetup} /> : <p className={`machine-state is-${machine.state}${online ? " visually-hidden" : ""}`} role="status" title={machine.error ?? undefined}>
-      <span className="machine-state-word">{STATE_WORD[machine.state]}</span>
+      <span className="machine-state-word">{t(STATE_WORD[machine.state])}</span>
       {machine.error && <span className="machine-state-detail">{machine.error}</span>}
     </p>}
     {editing && <div className="machine-controls">
-      <form onSubmit={(e) => { e.preventDefault(); void mutate("PATCH", { name }); }}><label className="field"><span className="field-label">{t("PC name")}</span><input className="input" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label><button className="btn" type="submit">{t("Rename")}</button></form>
-      <div className="machine-control-buttons"><button className="btn" onClick={() => void mutate("PATCH", { enabled: !machine.enabled })}>{t(machine.enabled ? "Disconnect" : "Connect")}</button><button className="btn" onClick={() => props.onSetup(machine)}>{t("Reconnect / setup")}</button><button className="btn" onClick={() => props.onSetup(machine, true)}>{t("Update bridge…")}</button><button className="btn btn-danger" onClick={() => { if (confirmDelete) void mutate("DELETE"); else setConfirmDelete(true); }}>{t(confirmDelete ? "Confirm remove PC" : "Remove PC")}</button></div>
+      <form onSubmit={(e) => { e.preventDefault(); void mutate("PATCH", { name }); }}><label className="field"><span className="field-label">{t("PC name")}</span><input className="input" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label><button className="btn" type="submit" disabled={busy}>{t("Rename")}</button></form>
+      {/* the first click only arms the removal, so it does not look destructive; the second one
+          is, as in DevicesPanel's revoke */}
+      <div className="machine-control-buttons"><button className="btn" disabled={busy} onClick={() => void mutate("PATCH", { enabled: !machine.enabled })}>{t(machine.enabled ? "Disconnect" : "Connect")}</button><button className="btn" onClick={() => props.onSetup(machine)}>{t("Reconnect / setup")}</button><button className="btn" onClick={() => props.onSetup(machine, true)}>{t("Update bridge…")}</button><button className={confirmDelete ? "btn btn-danger" : "btn btn-ghost"} disabled={busy} onClick={() => { if (confirmDelete) void mutate("DELETE"); else setConfirmDelete(true); }}>{t(confirmDelete ? "Confirm remove PC" : "Remove PC")}</button></div>
       {confirmDelete && <p className="field-hint">{t("Removes this registration. Remote sessions keep running.")}</p>}
     </div>}
     {error && <p className="machine-error" role="alert">{error}</p>}

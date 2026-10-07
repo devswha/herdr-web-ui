@@ -33,6 +33,8 @@ import { checkFolderFilter } from "./folder-filter-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
 import { openSettingsPage } from "./settings-page.ts";
+import { assertCspClean, watchCsp } from "./csp-violations.ts";
+import type { CspWatch } from "./csp-violations.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
@@ -41,6 +43,8 @@ const worktreeWorkspaces: string[] = [];
 let repo: string | null = null;
 const releases: Array<() => void> = [];
 const errors: string[] = [];
+/** One entry per page that loaded the app through the real server, and so saw the real policy. */
+const csp: CspWatch[] = [];
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 /** WebKit's IME commit: an Enter keydown after compositionend, isComposing false, key code 229 */
@@ -84,6 +88,9 @@ try {
   const workspaceGroup = (workspaceId: string) => page.locator(`.workspace-group[data-workspace="${workspaceId}"]`);
   const workspaceHeader = (workspaceId: string) => workspaceGroup(workspaceId).locator(":scope > .workspace-header");
   const agentRow = (paneId: string) => page.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneId}"]`);
+  // the header under test is the app's own (server/static.ts), so this is where a broken
+  // directive shows up: every page below loads through this same server
+  csp.push(await watchCsp(page));
   let holdSubmitResult = false;
   let releaseSubmitResult: (() => void) | null = null;
   // a connection's first frame held back: what the page does between a reconnect and its snapshot
@@ -497,6 +504,7 @@ try {
     Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" });
   });
   const blockedPage = await blocked.newPage();
+  csp.push(await watchCsp(blockedPage));
   await blockedPage.goto(origin);
   await blockedPage.locator(".header-more-button").waitFor();
   assert.equal(await alertsState(blockedPage), "On in the app");
@@ -1140,6 +1148,7 @@ try {
   // on a touch screen the open tab carries a chevron in place of the x: the same menu, as a sheet
   const tabPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const tabPhonePage = await tabPhone.newPage();
+  csp.push(await watchCsp(tabPhonePage));
   tabPhonePage.on("pageerror", (error) => errors.push(error.message));
   await tabPhonePage.goto(`${origin}/?pane=${encodeURIComponent(createdTab.pane_id)}`);
   const phoneStrip = tabPhonePage.locator(".tab-strip");
@@ -1336,6 +1345,7 @@ try {
     Storage.prototype.getItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };
   });
   const mobilePage = await mobile.newPage();
+  csp.push(await watchCsp(mobilePage));
   mobilePage.on("pageerror", (error) => errors.push(error.message));
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
   await mobilePage.locator(".conn-live").waitFor();
@@ -1352,6 +1362,7 @@ try {
   assert.equal(await mobilePage.getByRole("button", { name: "Hide keyboard", exact: true }).count(), 0, "no keyboard button on a phone");
   await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "the chat, the composer and the phone views load with no CSP violation");
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 
   // a phone reads a pane before it answers: a pane picked from the drawer raises no keyboard,
@@ -1391,6 +1402,7 @@ try {
   const plainPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await plainPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: false })); });
   const plainPage = await plainPhone.newPage();
+  csp.push(await watchCsp(plainPage));
   plainPage.on("pageerror", (error) => errors.push(error.message));
   await plainPage.route(promptRoute, (route) => route.fulfill(suggest));
   await plainPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
@@ -1401,6 +1413,7 @@ try {
   assert.equal(await plainPage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip once Settings turns it off");
   await plainPhone.close();
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "the suggestion chip loads with no CSP violation");
   console.log("PASS a phone offers Claude's suggestion as a chip until Settings turns it off");
 
   await checkTerminalInput(browser, origin, paneA, paneB);
@@ -1408,6 +1421,7 @@ try {
   // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const touchPage = await touch.newPage();
+  csp.push(await watchCsp(touchPage));
   touchPage.on("pageerror", (error) => errors.push(error.message));
   const touchSent: Array<Record<string, unknown>> = [];
   touchPage.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
@@ -1460,6 +1474,7 @@ try {
   await line.fill("");
   assert.equal(await touchPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "touch terminal input loads with no CSP violation");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await touchPage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-input-mobile.png") });
@@ -1524,6 +1539,8 @@ try {
     return selected?.pane_id && selected.pane_id !== "obsolete-pane";
   }, "obsolete saved selection recovered");
   console.log("PASS closed and obsolete saved panes recover their selection");
+  // the desktop page ran past the phone steps above: close it on the same gate
+  assertCspClean(csp, "the desktop shell, the file viewer and the pane close load with no CSP violation");
   await page.close();
 
   const secured = createServer({ port: 0, hostname: "127.0.0.1", token: "browser-test-token", stateDir: join(root, "secured"), tailscaleOwner: null });
@@ -1534,6 +1551,7 @@ try {
   const securedWorkspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-browser-signout" });
   workspaces.push(securedWorkspace.workspace.workspace_id);
   const securedPage = await securedContext.newPage();
+  csp.push(await watchCsp(securedPage));
   await securedContext.request.post(`${securedOrigin}/api/auth`, { data: { token: "browser-test-token" } });
   await securedPage.goto(`${securedOrigin}/?pane=${encodeURIComponent(securedWorkspace.root_pane.pane_id)}`);
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).waitFor();
@@ -1554,6 +1572,7 @@ try {
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
   await securedContext.close();
+  assertCspClean(csp, "the token gate loads with no CSP violation");
   console.log("PASS token and paired-device sign out return to the access gate");
 } finally {
   for (const release of releases) release();

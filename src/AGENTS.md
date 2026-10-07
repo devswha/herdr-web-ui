@@ -19,6 +19,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - Component CSS is colocated (`X.css` next to `X.tsx`); new component styles go there, not into styles.css. Override primitives at the same specificity and rely on order, never on `!important` or selector stacking.
 - Status surfaces (conn pill, banners, tree states) use `role="status"`; only the sidebar error block uses `role="alert"`.
 - index.html owns document meta (`interactive-widget=resizes-content`, `theme-color`, manifest link); client code never re-declares it.
+- A branch CSS alone cannot decide (a menu that is a bottom sheet or a popover, layout that has to know which side of a breakpoint it is on) reads `useMediaQuery` from `lib/useMediaQuery.ts`, never `matchMedia(...).matches` once at mount: the viewport moves while a menu is open.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |

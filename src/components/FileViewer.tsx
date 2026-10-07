@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Download, ExternalLink, X } from "lucide-react";
-
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 
@@ -10,6 +9,7 @@ import { formatBytes } from "../lib/bridgeProgress.ts";
 import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
+import { useFocusTrap } from "../lib/useFocusTrap.ts";
 
 /** Bigger images are offered as a download: a phone decodes an image whole. */
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -42,7 +42,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen }: FileViewerP
   const [candidates, setCandidates] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
-
+  // Escape closes it, Tab stays in it, and the focus goes back to the row that opened it
+  const surface = useFocusTrap<HTMLElement>(true);
   useEffect(() => setPath(asked), [asked]);
 
   useEffect(() => {
@@ -114,7 +115,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen }: FileViewerP
 
   return (
     <div className="modal-scrim file-viewer-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal file-viewer" role="dialog" aria-modal="true" aria-label={info?.name ?? path}>
+      <section ref={surface} className="modal file-viewer" role="dialog" aria-modal="true" aria-label={info?.name ?? path} tabIndex={-1}>
         <header className="modal-header file-viewer-header">
           <div className="file-viewer-title">
             <h2 className="modal-title">{info?.name ?? path.split("/").pop()}</h2>

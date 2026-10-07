@@ -45,4 +45,24 @@ describe("conversation polling", () => {
     }
     expect(sent.at(-1)).toBe("\"v\"");
   });
+
+  it("gives up the oldest answers when they outgrow the byte budget, not only when there are too many", async () => {
+    const asked = new Map<string, string | null>();
+    // ~3 MiB of turns per pane: a third of the cache budget, so four of them do not fit
+    const filler = "x".repeat(3 * 1024 * 1024);
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const etag = new Headers(init?.headers).get("if-none-match");
+      asked.set(String(url), etag);
+      if (etag !== null) return new Response(null, { status: 304, headers: { etag } });
+      return new Response(JSON.stringify({ source: "claude-transcript", turns: [{ text: filler }], cursor: null, filler }), { status: 200, headers: { etag: `"${asked.size}"` } });
+    }) as typeof fetch;
+    for (let pane = 0; pane < 5; pane++) await fetchPaneConversation(`big:p${pane}`);
+    asked.clear();
+    // the newest panes are still cached, the ones the budget pushed out are not
+    await fetchPaneConversation("big:p4");
+    expect([...asked.values()]).toEqual([`"5"`]);
+    asked.clear();
+    await fetchPaneConversation("big:p0");
+    expect([...asked.values()]).toEqual([null]);
+  });
 });

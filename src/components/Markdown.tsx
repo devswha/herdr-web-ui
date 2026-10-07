@@ -35,8 +35,10 @@ function MathExpression({ value, displayMode = false }: { value: string; display
   const source = displayMode ? `\\[${value}\\]` : `\\(${value}\\)`;
   if (!katex || mathNestsTooDeep(value)) return <span>{source}</span>;
   try {
-    // KaTeX escapes text and rejects untrusted commands by default.
-    const html = katex.renderToString(value, { displayMode, strict: "ignore" });
+    // KaTeX escapes text and rejects untrusted commands by default, and an unknown command
+    // throws - the catch below then draws the source form, so the guard costs nothing here.
+    // `trust` stays at its default, which is what keeps \href and \includegraphics refused.
+    const html = katex.renderToString(value, { displayMode, strict: true });
     return <span className={displayMode ? "markdown-math-display" : "markdown-math"} dangerouslySetInnerHTML={{ __html: html }} />;
   } catch {
     return <span>{source}</span>;
@@ -146,10 +148,11 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
   return <>{blocks.map((block, index): ReactNode => {
     const key = `${block.type}-${index}`;
     switch (block.type) {
-      case "heading": {
-        const Tag = `h${block.level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-        return <Tag key={key}><Inline nodes={block.content} /></Tag>;
-      }
+      case "heading":
+        // agent headings are h3 whatever the agent wrote: the app's own h1/h2 (Brand, the dialog
+        // titles) stay the outline above them. The level rides on a class, so the stylesheet
+        // keeps drawing each level as it did (ChatView.css `.markdown h1`...`.markdown h6`).
+        return <h3 key={key} className={`markdown-h${block.level}`}><Inline nodes={block.content} /></h3>;
       case "paragraph":
         return <p key={key}>{block.lines.map((line, lineIndex) => <span key={lineIndex}><Inline nodes={line} />{lineIndex < block.lines.length - 1 && <br />}</span>)}</p>;
       case "list": return <List key={key} block={block} />;

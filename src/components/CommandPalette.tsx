@@ -12,6 +12,7 @@ import { AgentMark } from "./AgentMark.tsx";
 import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import { placeLine } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
+import { useFocusTrap } from "../lib/useFocusTrap.ts";
 
 const RECENT_KEY = "herdr-web-ui:recent-panes";
 const RECENT_LIMIT = 8;
@@ -72,6 +73,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
+  const surface = useFocusTrap<HTMLElement>(open, { initialFocus: inputRef });
 
   // Terminal attachment can move focus after the palette opens. Escape belongs to
   // this modal even then, and must not leak through to the underlying terminal.
@@ -92,7 +94,6 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     setQuery("");
     setActiveIndex(0);
     setRecentPaneIds(loadRecentPanes(machineId));
-    window.requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
   useEffect(() => {
@@ -170,7 +171,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
 
   return (
     <div className="modal-scrim palette-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="menu command-palette" role="dialog" aria-modal="true" aria-label={t("Command palette")} onKeyDown={onKeyDown}>
+      <section ref={surface} className="menu command-palette" role="dialog" aria-modal="true" aria-label={t("Command palette")} onKeyDown={onKeyDown}>
         <div className="palette-search">
           <input ref={inputRef} className="input" type="search" value={query} placeholder={t("Search panes and actions…")} aria-label={t("Search panes and actions")} aria-controls="palette-results" aria-activedescendant={itemCount ? `palette-item-${activeIndex}` : undefined} onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }} />
           <button type="button" className="icon-button" aria-label={t("Close command palette")} onClick={onClose}><X /></button>

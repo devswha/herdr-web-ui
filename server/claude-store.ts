@@ -114,6 +114,11 @@ async function darwinProcessStart(pid: number): Promise<string | null> {
   } finally { clearTimeout(timer); }
 }
 
+/** Drops what a project scan remembered about one transcript file: the scan runs again if it is ever asked for. */
+export function forgetClaudeSessionFile(path: string): void {
+  for (const [key, value] of found) if (value === path) found.delete(key);
+}
+
 /**
  * Claude's native PID record names the current session even without Herdr's hook.
  * The process's exact start (ticks on Linux, `ps` lstart text on macOS) rejects leftovers after a

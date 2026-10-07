@@ -178,7 +178,9 @@ code, or the exact command still to run. Who gets in:
    `env $(cat ~/.config/herdr-web-ui/token.env) bun run start`. Restart herdr web ui either way.
 
 Tell the user the HTTPS address. Until a device is paired, and with no token set, a LAN or proxied
-address is open to anyone who reaches it, as before; the server warns on startup.
+address is open to anyone who reaches it, as before; the server warns on startup. A token sent over
+plain `http://` is readable by anyone on the network path: prefer HTTPS (Tailscale or a
+TLS-terminating proxy) for any address others can reach.
 
 Other PCs over SSH are added from the web UI (Settings → Remote PCs → **Add PC**), not by an install step here.
 

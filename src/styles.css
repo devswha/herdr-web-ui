@@ -59,6 +59,11 @@
   --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 
+  /* document surfaces: NOT theme-driven. A PDF page is paper, not UI — it is white in either
+     theme, so it is named here and never overridden by the theme blocks below
+     (FileViewer's .file-viewer-pdf) */
+  --pdf-page: #ffffff;
+
   /* terminal theme: mirrored verbatim in src/lib/settings.ts terminalTheme() */
   --term-bg: #181613;
   --term-fg: #d8d0c3;
@@ -78,6 +83,8 @@
   --fs-lg: 16px;
   --fs-xl: 18px;
   --fs-display: 22px;
+  /* the pairing code: a size of its own, still on the density scale (compact overrides it) */
+  --fs-pairing: 32px;
   --fs-input: 16px; /* the one size iOS Safari does not zoom on focus */
   --lh-tight: 1.2;
   --lh-base: 1.5;
@@ -505,6 +512,7 @@
   --fs-lg: 15px;
   --fs-xl: 17px;
   --fs-display: 21px;
+  --fs-pairing: 26px;
   --lh-base: 1.45;
   --header-h: 46px;
   --sidebar-w: 300px;
