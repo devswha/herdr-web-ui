@@ -2,7 +2,8 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { unmanagedUpdateStatus, type UpdateCommand, type UpdateStatus } from "../shared/update.ts";
+import { noUpdateNotes, unmanagedUpdateStatus, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
+import { releaseNotes } from "./release-notes.ts";
 
 export interface Release { directory: string; revision: string; source_revision: string }
 const SHA = /^[0-9a-f]{40,64}$/;
@@ -48,6 +49,8 @@ export class Updater {
   readonly controller = new AbortController();
   status: UpdateStatus = { ...unmanagedUpdateStatus(), managed: true, blocked_reason: null };
   release: Release | null = null;
+  /** What the available update brings; set before the status that offers it is published. */
+  notes: UpdateNotes = noUpdateNotes();
   private busy = false;
   private timer?: ReturnType<typeof setInterval>;
   private initialTimer?: ReturnType<typeof setTimeout>;
@@ -128,6 +131,7 @@ export class Updater {
     const checked_at = new Date().toISOString();
     const latest = tags[0];
     if (!latest) {
+      this.notes = noUpdateNotes();
       this.patch({ latest_revision: null, latest_version: null, checked_at, blocked_reason: null, available: false });
       return;
     }
@@ -144,7 +148,19 @@ export class Updater {
         block = "The running version is not part of the release history; automatic downgrade is disabled.";
       }
     }
+    // the notes of the last check stay readable while this one runs; they change with its answer
+    this.notes = available ? await this.changes(target, latest.slice(1)) : noUpdateNotes();
     this.patch({ latest_revision: target, latest_version: latest.slice(1), checked_at, blocked_reason: block, available });
+  }
+
+  /**
+   * The release's own CHANGELOG.md, as fetched with its tag: never the checkout's, which is older,
+   * and never main's, whose unreleased entries the install does not bring. A release without one
+   * (or with one that cannot be read) is offered without notes.
+   */
+  private async changes(revision: string, version: string): Promise<UpdateNotes> {
+    try { return { revision, ...releaseNotes(await this.git("show", `${revision}:CHANGELOG.md`), this.status.current_version, version) }; }
+    catch { return { ...noUpdateNotes(), revision }; }
   }
 
   /** herdr's plugin checkout is shallow: fetch the missing history once before calling two commits unrelated. */
@@ -197,6 +213,7 @@ export class Updater {
         });
         this.release = next;
         stage = null;
+        this.notes = noUpdateNotes();
         this.patch({ current_revision: revision, current_version: packageVersion(next.directory), available: false });
         this.failedRevision = null;
         rmSync(join(this.options.stateDir, "failed.json"), { force: true });

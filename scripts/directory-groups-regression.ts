@@ -1,4 +1,4 @@
-/** Owned, real-browser directory grouping regression. Run after `bun run build`. */
+/** Owned, real-browser workspace and directory sidebar regression. Run after `bun run build`. */
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,6 +62,7 @@ async function changeState(page: Page, states: readonly State[], action: () => P
 const directorySelector = (cwd: string): string => `.directory-group[data-directory=${JSON.stringify(cwd)}]`;
 const paneSelector = (paneId: string): string => `.pane-select[title^=${JSON.stringify(`${paneId} —`)}]`;
 const itemSelector = (paneId: string): string => `.pane-item:has(${paneSelector(paneId)})`;
+const workspaceSelector = (workspaceId: string): string => `.workspace-group[data-workspace=${JSON.stringify(workspaceId)}]`;
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-directory-regression-")));
 // These accumulators contain only IDs created by this invocation.
 const ownedWorkspaces: string[] = [];
@@ -154,7 +155,7 @@ try {
     if (evidence) await page.screenshot({ path: join(evidence, `directory-groups-${name}.png`), animations: "disabled" });
   };
   // the workspace with two panes in one tab: one row, whose strip and pane picker reach the second
-  const otherWorkspace = `.workspace:has(${paneSelector(other.paneId)}), .workspace:has(${paneSelector(split.pane.pane_id)})`;
+  const otherWorkspace = workspaceSelector(other.workspaceId);
   const grouping = '.settings-dialog .segmented[aria-label="Sidebar grouping"]';
   const switchGrouping = async (mode: "workspace" | "directory", states: readonly State[]): Promise<void> => {
     const documentIdentity = await page.evaluate(() => performance.timeOrigin);
@@ -180,21 +181,23 @@ try {
   await page.locator(paneSelector(other.paneId)).waitFor({ state: "attached" });
   assert.equal(await page.locator(".directory-group").count(), 0, "workspace is the default grouping");
   // one row per workspace, as herdr's Spaces sidebar: the split pane has no row of its own, the
-  // workspace's row shows the pane herdr has in front, and nothing folds a workspace any more
+  // workspace's selector follows its current pane while its visible name stays fixed.
   assert.equal(await page.locator(otherWorkspace).count(), 1, "a workspace with two panes is one row");
   assert.equal(await page.locator(paneSelector(split.pane.pane_id)).count(), 0);
   assert.equal(await page.locator(".workspace-toggle").count(), 0, "a legacy workspace fold has nothing to fold");
+  assert.equal(await page.locator(".workspace-contents, .sidebar-tab-heading, .sidebar-pane-item").count(), 0,
+    "tabs and panes are navigated above the terminal rather than as workspace children");
   assert.equal(await page.locator(".tab-strip").count(), 0, "no strip over a lone pane's workspace");
   for (const fixture of [alpha, beta]) {
-    // A single pane is its workspace: one row with the reorder handle, no heading or toggle above
-    // it. No header names the workspace, so line two does, with the folder unless the title
-    // already is that folder (a shell titled by its cwd).
-    const title = await page.locator(`${itemSelector(fixture.paneId)} .pane-title`).textContent();
-    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .pane-subtitle`).textContent(), title === "project" ? fixture.label : `${fixture.label} · project`);
-    const workspace = `.workspace:has(${paneSelector(fixture.paneId)})`;
-    assert.equal(await page.locator(`${workspace} .workspace-header`).count(), 0);
+    const workspace = workspaceSelector(fixture.workspaceId);
+    assert.equal(await page.locator(`${workspace} > .workspace-header`).count(), 1);
+    assert.equal(await page.locator(`${workspace} .workspace-name`).textContent(), fixture.label,
+      "workspaces sharing a folder retain independent workspace names");
     assert.equal(await page.locator(`${workspace} .workspace-toggle`).count(), 0);
-    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .sidebar-drag-handle`).count(), 1);
+    assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .sidebar-drag-handle`).count(), 0,
+      "workspace rows have no separate reorder grip column");
+    assert.equal(await page.locator(paneSelector(fixture.paneId)).getAttribute("draggable"), "true",
+      "the workspace row itself supports dragging");
   }
   // A fold stored while a single pane had a heading (0.3.44) must not hide a row that has no toggle.
   const singleFoldKey = `herdr-web-ui:workspace-collapsed:local:${alpha.workspaceId}`;
@@ -231,6 +234,26 @@ try {
   assert.equal(await picker.locator('[role="menuitem"][aria-current="true"]').count(), 1, "the picker marks the open pane");
   await changeState(page, [{ selector: `${paneSelector(split.pane.pane_id)}[aria-current="true"]` }, { selector: paneSelector(other.paneId), count: 0 }],
     () => picker.getByRole("menuitem").nth(1).click(), "the picker opens the split pane, and the row follows it");
+  assert.equal(await page.locator(otherWorkspace).count(), 1);
+  assert.equal(await page.locator(`${otherWorkspace} .workspace-name`).textContent(), other.label,
+    "selecting a split pane keeps the workspace label in Spaces");
+  await page.locator(`${otherWorkspace} .row-menu-toggle`).click();
+  assert.deepEqual(await page.getByRole("menu").getByRole("menuitem").allTextContents(),
+    ["Rename workspace", "Rename pane", "New tab", "New worktree", "Open worktree…", "Close workspace"],
+    "a workspace row exposes both explicit rename scopes and workspace operations");
+  await changeState(page, [{ selector: ".pane-rename-input:focus" }],
+    () => page.getByRole("menuitem", { name: "Rename pane", exact: true }).click(), "rename targets the representative pane");
+  const renamedSplit = "directory-regression-split-task";
+  await page.locator(".pane-rename-input").fill(renamedSplit);
+  const splitRenameResponse = page.waitForResponse((response) => response.request().method() === "POST"
+    && new URL(response.url()).pathname.endsWith("/pane/rename")
+    && response.request().postDataJSON().pane_id === split.pane.pane_id);
+  await changeState(page, [{ selector: ".pane-rename-input", count: 0 }],
+    () => page.locator(".pane-rename-input").press("Enter"), "the representative pane is renamed");
+  assert.equal((await splitRenameResponse).status(), 200);
+  assert.equal((await sessionSnapshot()).panes.find((pane) => pane.pane_id === split.pane.pane_id)?.label, renamedSplit);
+  assert.equal(await page.locator(`${otherWorkspace} .workspace-name`).textContent(), other.label,
+    "renaming a pane leaves the workspace's displayed name unchanged");
   for (const width of [1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
     if (await page.locator(".drawer-toggle").isVisible()
@@ -320,7 +343,7 @@ try {
     assert.equal(await page.locator(`${shared} ${paneSelector(fixture.paneId)}`).count(), 1);
     assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .pane-subtitle`).textContent(), fixture.label);
   }
-  assert.equal(await page.locator(`${shared} > .directory-header .workspace-number`).textContent(), "2");
+  assert.equal(await page.locator(`${shared} > .directory-header .workspace-number`).textContent(), "2 panes");
   assert.equal(await page.locator(distinct).count(), 1, "same basename in another parent stays separate");
   assert.equal(await page.locator(`${distinct} ${paneSelector(other.paneId)}`).count(), 1);
   assert.equal(await page.locator(`${distinct} ${paneSelector(alpha.paneId)}`).count(), 0);
@@ -337,15 +360,14 @@ try {
     assert.equal(await page.locator(".context-sub").textContent().then((text) => text?.includes(fixture.label)), true);
   }
 
-  // Alt+Arrow acts on the real workspace handle, even when its folder merges
+  // Alt+Arrow acts on the workspace row, even when its folder merges
   // two workspaces. Verify both optimistic DOM order and herdr's persisted order.
   const moveResponse = page.waitForResponse((response) => response.request().method() === "POST"
     && new URL(response.url()).pathname.endsWith("/workspace/move")
     && response.request().postDataJSON().workspace_id === beta.workspaceId);
   await changeState(page, [{ selector: `${shared} .workspace:first-child ${paneSelector(beta.paneId)}` }],
-    () => page.locator(itemSelector(beta.paneId)).getByRole("button", {
-      name: `Reorder workspace ${beta.label}`, exact: true,
-    }).press("Alt+ArrowUp"), "keyboard reorder moves beta ahead of alpha");
+    () => page.locator(paneSelector(beta.paneId)).press("Alt+ArrowUp"),
+    "keyboard reorder moves beta ahead of alpha");
   assert.equal((await moveResponse).status(), 200);
   const reordered = await sessionSnapshot();
   assert.ok(reordered.workspaces.findIndex((workspace) => workspace.workspace_id === beta.workspaceId)
@@ -453,6 +475,8 @@ try {
   await stateReceived(page, "a workspace split over two folders has a row in both");
   assert.equal(await page.locator(`${single} ${paneSelector(away)}`).count(), 1);
   assert.equal(await page.locator(`${distinct} ${paneSelector(other.paneId)}`).count(), 1);
+  // a row's menu button takes no room until the row is hovered, focused or selected
+  await page.locator(`${single} ${itemSelector(away)}`).hover();
   await changeState(page, [{ selector: ".workspace-rename-input:focus", count: 1 }, { selector: ".workspace-rename-input", count: 1 }],
     async () => {
       await page.locator(`${single} ${itemSelector(away)} .row-menu-toggle`).click();
@@ -545,7 +569,7 @@ try {
   await closeOwnedPane(alpha.paneId, [
     { selector: paneSelector(alpha.paneId), count: 0 },
     { selector: `${shared} .workspace`, count: 1 },
-    { selector: `${shared} > .directory-header .workspace-number`, text: "1" },
+    { selector: `${shared} > .directory-header .workspace-number`, text: "1 panes" },
   ]);
   assert.equal(await page.locator(`${shared} ${paneSelector(beta.paneId)}`).count(), 1);
   assert.equal(await page.locator(`${shared} > .directory-header[aria-expanded="true"]`).count(), 1);
