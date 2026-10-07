@@ -12,7 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   CLI is signed in and that account has not starred the repository, `install.sh` and `install.ps1`
   ask once at the terminal and star only on `y`. An account that already starred hears nothing,
   and an agent or a script that runs the installer is not asked. `install.ps1` did not mention
-  the star before.
+  the star before. ([#550](https://github.com/devswha/herdr-web-ui/pull/550))
 - **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
   agent is doing, with the workspace and folder under it, as the sidebar did before its rows
   became one line. **One line**, the workspace's name alone, stays the default.
