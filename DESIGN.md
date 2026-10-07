@@ -467,16 +467,16 @@ One set for both themes: the card is island black wherever it shows.
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
-- Appearance's **Sidebar rows** is **One line** by default: a workspace row is its name. **Two
-  lines** draws the row as the roster did before it was one line, on an agent row's height and
-  type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
+- Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
+  its name. Two lines draws the row as the roster did before it was one line, on an agent row's
+  height and type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
   "workspace · folder" with no name said twice (`taskRowLines`, lib/paneName.ts). A shell titled
   by its folder leads with the workspace instead; a linked worktree is placed by its branch,
   then its own workspace name. The folder, the mark, the status cell, the menu and the fold
   count stay where they are, and the menu and rename still act on the workspace. The choice
   is per device and applies at once.
-- Each workspace row is one line: its folder (top-level rows), a leading glyph, the name, and
-  the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
+- Each workspace row holds its folder (top-level rows), a leading glyph, the name (on two lines,
+  the title over the place) and the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
   shell shows the terminal glyph, and a linked worktree without an agent the branch glyph. The
   mark never stands for another pane's agent; the row's tooltip lists every agent in the
   workspace. A custom worktree workspace name follows the branch on the same line in dim text.
@@ -770,8 +770,8 @@ One set for both themes: the card is island black wherever it shows.
   focus turns its border `--accent` (no inner outline). Above it the completion popover and the
   background-task list; inside, the image strip is its own row at the top, then the auto-growing
   message box as a row of its own at the card's full width, then ONE row of controls under it:
-  on the left the add button (lucide `Plus`, named "Attach files"), the mic when voice input is
-  on, and the background-task chip; on the right the status content and ONE round Send/Stop button.
+  on the left the add button (lucide `Plus`, named "Attach files"), the mic when voice input
+  shows it (see Voice input), and the background-task chip; on the right the status content and ONE round Send/Stop button.
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
   `What should <agent> do in <folder>?` in `--text-strong`, `--fs-display`, `--fw-semibold`, `--tracking-display`, centred,
   and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
