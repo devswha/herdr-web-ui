@@ -39,6 +39,16 @@ function session() {
       appendFileSync(file, json({ isSidechain: true, agentId: id, type: "user", timestamp: at(minute), message: { role: "user", content: "x" } }));
       appendFileSync(file, json({ isSidechain: true, agentId: id, type: "assistant", timestamp: at(minute), message: { id: `m${minute}`, model: "claude-opus-5", usage: { input_tokens: 2, cache_read_input_tokens: 100, cache_creation_input_tokens: 5, output_tokens: output }, content: Array.from({ length: tools }, () => ({ type: "tool_use", id: "t", name: "Read", input: {} })) } }));
     },
+    /** a Bash call sent to the background, by the session or (`file`) by a subagent */
+    bash(taskId: string, minute: number, options: { description?: string; command?: string; file?: string } = {}) {
+      const write = (entry: unknown) => options.file ? appendFileSync(options.file, json({ isSidechain: true, ...(entry as object) })) : this.parent(entry);
+      write({ type: "assistant", timestamp: at(minute), message: { role: "assistant", content: [{ type: "tool_use", id: `toolu_${taskId}`, name: "Bash", input: { command: options.command ?? "bun test", ...(options.description === undefined ? {} : { description: options.description }), run_in_background: true } }] } });
+      write({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: `toolu_${taskId}`, content: `Command running in background with ID: ${taskId}.` }] }, toolUseResult: { stdout: "", stderr: "", interrupted: false, isImage: false, backgroundTaskId: taskId } });
+    },
+    /** a prompt the person typed; `origin` as Claude Code 2.1.2xx writes it, none (only the permission mode) as older ones do */
+    prompt(minute: number, origin: string | null = "human") {
+      this.parent({ type: "user", timestamp: at(minute), permissionMode: "default", ...(origin === null ? {} : { origin: { kind: origin } }), message: { role: "user", content: "next" } });
+    },
     notify(id: string, minute: number, options: { status?: string; toolUseId?: string; summary?: string; carriers?: ("user" | "queue" | "attachment")[] } = {}) {
       const block = `<task-notification>\n<task-id>${id}</task-id>\n<tool-use-id>${options.toolUseId ?? `toolu_${id}`}</tool-use-id>\n<status>${options.status ?? "completed"}</status>\n<summary>${options.summary ?? `Agent "task ${id}" finished`}</summary>\n<result>the answer</result>\n</task-notification>`;
       const timestamp = at(minute);
@@ -695,6 +705,94 @@ describe("claudeSubagents, an agent's own turn", () => {
       writeFileSync(join(dir, `agent-${id}.jsonl`), json({ type: "user", timestamp: at(1), message: { role: "user", content: "x" } }));
     }
     expect(Object.fromEntries(claudeSubagents(s.path, true, NOW).map((task) => [task.id, task.title]))).toEqual({ d: "D", n: "N", t: "T", i: "i" });
+  });
+});
+
+describe("claudeSubagents, background commands", () => {
+  const command = (summary: string) => ({ summary: `Background command "${summary}`, carriers: ["queue" as const] });
+
+  it("lists a command the session sent to the background as running, by its description, with no subagent folder", () => {
+    const s = session();
+    rmSync(join(s.path, "..", "11111111-1111-4111-8111-111111111111"), { recursive: true });
+    s.bash("b1", 2, { description: "Run the full suite", command: "bun run test" });
+    s.bash("b2", 3, { command: "sleep 30" });
+    expect(claudeSubagents(s.path, true, NOW)).toEqual([
+      { id: "b1", title: "Run the full suite", category: "shell", model: null, status: "running", started_at: at(2), ended_at: null, turns: null, tool_calls: null, tokens: null },
+      { id: "b2", title: "sleep 30", category: "shell", model: null, status: "running", started_at: at(3), ended_at: null, turns: null, tool_calls: null, tokens: null },
+    ]);
+  });
+
+  it("ends a command by its notice, whatever the status, and by TaskStop or KillShell", () => {
+    const s = session();
+    for (const id of ["ok", "bad", "killed", "stopped", "shell"]) s.bash(id, 2);
+    s.notify("ok", 3, command('x" completed (exit code 0)'));
+    s.notify("bad", 4, { status: "failed", ...command('x" failed with exit code 1') });
+    s.notify("killed", 5, { status: "killed", ...command('x" was stopped after reaching its background time limit') });
+    s.parent({ type: "user", timestamp: at(6), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_stop", content: "{}" }] }, toolUseResult: { message: "Successfully stopped task: stopped (sleep)", task_id: "stopped", task_type: "local_bash", command: "sleep" } });
+    s.parent({ type: "user", timestamp: at(7), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_kill", content: "{}" }] }, toolUseResult: { message: "Successfully killed shell: shell", shell_id: "shell" } });
+    expect(claudeSubagents(s.path, true, NOW).map((task) => `${task.id}:${task.status}:${task.ended_at === null ? "-" : task.ended_at.slice(14, 16)}`)).toEqual([
+      "shell:cancelled:07", "stopped:cancelled:06", "killed:cancelled:05", "bad:failed:04", "ok:completed:03",
+    ]);
+  });
+
+  it("reads a command a subagent started, ended by the notice the session got, and one ended in the subagent's own file", () => {
+    const s = session();
+    const file = s.agent("a1", { steps: [[1, 1]] });
+    s.bash("bsub", 2, { description: "Run the suite for the review", file });
+    s.bash("bown", 2, { file });
+    appendFileSync(file, json({ isSidechain: true, type: "attachment", timestamp: at(3), attachment: { type: "queued_command", commandMode: "task-notification", prompt: `<task-notification>\n<task-id>bown</task-id>\n<status>completed</status>\n<summary>Background command "x" completed (exit code 0)</summary>\n</task-notification>` } }));
+    s.notify("a1", 4);
+    expect(ids(s.path)).toEqual(["bsub:running", "a1:completed", "bown:completed"]);
+    s.notify("bsub", 9, command('Run the suite for the review" completed (exit code 0)'));
+    expect(ids(s.path)).toEqual(["bsub:completed", "a1:completed", "bown:completed"]);
+  });
+
+  it("reads a command as lost once the pane no longer runs Claude, or when it was started before the Claude process there", () => {
+    const s = session();
+    s.bash("old", 2);
+    s.bash("new", 50);
+    expect(ids(s.path, false)).toEqual(["new:lost", "old:lost"]);
+    expect(claudeSubagents(s.path, true, NOW, Date.parse(at(40))).map((task) => `${task.id}:${task.status}`)).toEqual(["new:running", "old:lost"]);
+  });
+
+  it("counts what still runs of the turn: what started since the last prompt the person gave, a notice's turn going on", () => {
+    const s = session();
+    s.bash("server", 2, { command: "bun run dev" });
+    s.prompt(10);
+    s.bash("suite", 11);
+    const file = s.agent("a1", { steps: [[12, 1]] });
+    s.bash("review", 13, { file });
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 4, turnRunning: 3 });
+    // the notice of one starts a turn of its own, which is the same work going on
+    s.notify("suite", 20, command('x" completed (exit code 0)'));
+    s.parent({ type: "user", timestamp: at(20), origin: { kind: "task-notification" }, message: { role: "user", content: "<task-notification>\n<task-id>suite</task-id>\n</task-notification>" } });
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 3, turnRunning: 2 });
+    // a prompt typed at rest, as older Claude Code writes it (no origin): a new turn
+    s.prompt(30, null);
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 3, turnRunning: 0 });
+    // one typed while the turn works is handed to it on the way: the same turn
+    s.bash("lint", 31);
+    s.parent({ type: "attachment", timestamp: at(32), attachment: { type: "queued_command", commandMode: "prompt", prompt: "and the docs" } });
+    // nor is another session's message, or an interruption: neither carries a permission mode
+    s.parent({ type: "user", timestamp: at(33), message: { role: "user", content: "Another Claude session sent a message: <teammate-message>hi</teammate-message>" } });
+    s.parent({ type: "user", timestamp: at(34), message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } });
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 4, turnRunning: 1 });
+  });
+
+  it("tells the pane's running count and what of it is the turn's when either changes", async () => {
+    const s = session();
+    s.prompt(1);
+    s.bash("b1", 2);
+    const told: [string, number, number][] = [];
+    const pane = { pane_id: "p1", agent: "claude", agent_session: { agent: "claude", kind: "id", source: "hook", value: "s1" }, cwd: "/work", agent_status: "idle", focused: false, revision: 1 } as HerdrPane;
+    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: null }), onChange: (paneId, running, turnRunning) => told.push([paneId, running, turnRunning]), now: () => NOW });
+    await status.refresh([pane]);
+    s.prompt(3);
+    status.poll("p1");
+    s.notify("b1", 4, command('x" completed (exit code 0)'));
+    status.poll("p1");
+    expect(told).toEqual([["p1", 1, 1], ["p1", 1, 0], ["p1", 0, 0]]);
+    expect(status.countOf("p1")).toBe(0);
   });
 });
 

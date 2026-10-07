@@ -68,6 +68,8 @@ export interface PaneTerminalProps {
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the composer's status line offers their list */
   backgroundTasks?: number;
+  /** the pane's turn ended on work still running in the background: the composer says BG */
+  backgroundWait?: boolean;
   /** the pane's working directory and its PC's name: an empty chat's greeting names them */
   cwd?: string | null;
   machineName?: string;
@@ -110,6 +112,7 @@ export function PaneTerminal({
   title = null,
   agentStatus,
   backgroundTasks = 0,
+  backgroundWait = false,
   cwd = null,
   machineName = "",
   view,
@@ -2045,6 +2048,7 @@ export function PaneTerminal({
           agent={agent}
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}
+          backgroundWait={backgroundWait}
           metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
           connected={connected && !held}
           answerHint={answering === null ? null

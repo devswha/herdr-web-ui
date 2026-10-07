@@ -31,6 +31,13 @@ import type { HerdrPane, OmoTask } from "../shared/protocol.ts";
  * input + cache read + cache creation + output tokens of the last assistant entry (checked
  * against `totalTokens` in the tool result of a finished agent). Summing every entry instead
  * would count the cached context again on each turn.
+ *
+ * Background commands are listed with them, as Claude Code's footer counts both: a `Bash` call
+ * whose answer carries a `backgroundTaskId` (`run_in_background`, Ctrl+B, or a call moved there
+ * when it ran past its timeout), by the session or by a subagent. One ends with the
+ * `<task-notification>` of its task id, in any transcript of the session, or with the answer
+ * of the `TaskStop` (`KillShell` in older Claude Code) that stopped it, which no notice follows.
+ * It lives in the Claude process that started it, as a running agent does.
  */
 const READ_BUDGET = 8 * 1024 * 1024;
 /** how much of a parent transcript is read the first time: older notices are not found */
@@ -159,6 +166,59 @@ export function plain(path: string, max = Infinity): { size: number; mtimeMs: nu
   } catch { return null; }
 }
 
+/** What one transcript says of background commands: those it started, by task id, and how those it heard of ended. */
+interface Commands {
+  /** the title of each `Bash` call not answered yet: its description, else its command */
+  calls: Map<string, string>;
+  launches: Map<string, { at: number; title: string }>;
+  ends: Map<string, { at: number; status: OmoTask["status"] }>;
+}
+const noCommands = (): Commands => ({ calls: new Map(), launches: new Map(), ends: new Map() });
+const TITLE_LENGTH = 120;
+
+/** Whether a line may say something of a background command, before it is parsed: the answers of every other call are passed over. */
+const commandLine = (line: string): boolean => line.includes('"name":"Bash"') || line.includes('"backgroundTaskId"') || line.includes('"task_id"') || line.includes('"shell_id"');
+
+function scanCommands(commands: Commands, entry: Row, at: number | null, notices: readonly TaskNotification[]): void {
+  if (at === null) return;
+  const content = row(entry["message"])?.["content"];
+  const blocks = (Array.isArray(content) ? content : []).flatMap((value): Row[] => { const block = row(value); return block === null ? [] : [block]; });
+  for (const block of blocks) {
+    if (block["type"] !== "tool_use" || block["name"] !== "Bash" || typeof block["id"] !== "string") continue;
+    const input = row(block["input"]);
+    const title = text(input?.["description"]) ?? text(input?.["command"]);
+    if (title !== null) remember(commands.calls, block["id"], title.slice(0, TITLE_LENGTH), 512);
+  }
+  const result = row(entry["toolUseResult"]);
+  const launched = result?.["backgroundTaskId"];
+  if (typeof launched === "string" && AGENT_ID.test(launched)) {
+    const call = blocks.find((block) => block["type"] === "tool_result" && typeof block["tool_use_id"] === "string")?.["tool_use_id"] as string | undefined;
+    remember(commands.launches, launched, { at, title: (call === undefined ? undefined : commands.calls.get(call)) ?? "Background command" }, MAX_NAMES);
+    if (call !== undefined) commands.calls.delete(call);
+  }
+  // TaskStop answers with the task it stopped, KillShell with the shell
+  const stopped = typeof result?.["task_type"] === "string" ? result["task_id"] : result?.["shell_id"];
+  if (typeof stopped === "string" && !commands.ends.has(stopped)) remember(commands.ends, stopped, { at, status: "cancelled" }, MAX_NAMES);
+  for (const notice of notices) if (!notice.agent && !commands.ends.has(notice.taskId)) remember(commands.ends, notice.taskId, { at, status: notice.status }, MAX_NAMES);
+}
+
+/**
+ * A prompt the person gave, which starts a turn. A notice's turn, a tool's answer, a message from
+ * another session, an interruption and Claude Code's own records are not: Claude Code 2.1.2xx
+ * marks the person's prompts with `origin` `human`, and older versions with a permission mode,
+ * which the others lack. A prompt typed while a turn works is handed to that turn on the way
+ * (a `queued_command` attachment): the same turn.
+ */
+function prompted(entry: Row): boolean {
+  if (entry["type"] !== "user" || entry["isMeta"] === true || entry["isCompactSummary"] === true || entry["isSidechain"] === true) return false;
+  const content = row(entry["message"])?.["content"];
+  if (Array.isArray(content) && content.some((block) => row(block)?.["type"] === "tool_result")) return false;
+  const origin = entry["origin"];
+  const kind = typeof origin === "string" ? origin : row(origin)?.["kind"];
+  if (kind !== undefined) return kind === "human";
+  return typeof entry["permissionMode"] === "string" && !blocksIn(entry).join("").trimStart().startsWith("<task-notification>");
+}
+
 interface Parent {
   id: string;
   offset: number;
@@ -173,6 +233,9 @@ interface Parent {
   /** the ids of `Agent` calls, and how those that were answered ended */
   calls: Set<string>;
   results: Map<string, { at: number; error: boolean }>;
+  commands: Commands;
+  /** when the person last gave a prompt: the turn going on, or last ended, began there */
+  promptAt: number | null;
 }
 const parents = new Map<string, Parent>();
 
@@ -182,7 +245,7 @@ function scanParent(path: string): Parent | null {
   let parent = parents.get(path);
   if (!parent || parent.id !== stat.id || parent.offset > stat.size) {
     const from = Math.max(0, stat.size - PARENT_WINDOW);
-    parent = { id: stat.id, offset: from, skipping: from > 0, windowed: from > 0, firstAt: null, behind: false, notes: new Map(), calls: new Set(), results: new Map() };
+    parent = { id: stat.id, offset: from, skipping: from > 0, windowed: from > 0, firstAt: null, behind: false, notes: new Map(), calls: new Set(), results: new Map(), commands: noCommands(), promptAt: null };
   }
   remember(parents, path, parent, 256);
   const state = parent;
@@ -215,18 +278,24 @@ function scanParentLine(parent: Parent, line: string): void {
   const mentioned = line.includes("<task-notification>");
   const calling = line.includes('"name":"Agent"') || line.includes('"name":"Task"');
   const answering = parent.calls.size > 0 && line.includes('"tool_result"');
-  if (!mentioned && !calling && !answering) return;
+  const commanding = commandLine(line);
+  // a tool's answer always names its call: a prompt is a user entry that does not
+  const prompting = line.includes('"type":"user"') && !line.includes('"tool_use_id"');
+  if (!mentioned && !calling && !answering && !commanding && !prompting) return;
   let entry: Row | null;
   try { entry = row(JSON.parse(line)); } catch { return; }
   if (entry === null) return;
   const at = stamp(entry["timestamp"]);
+  if (prompting && at !== null && prompted(entry)) parent.promptAt = at;
   // one line can hold all three: a batched entry, or an answer that quotes the tag
-  if (mentioned && at !== null) {
-    for (const notice of blocksIn(entry).flatMap((block) => taskNotification(block) ?? [])) {
+  const notices = mentioned ? blocksIn(entry).flatMap((block) => taskNotification(block) ?? []) : [];
+  if (at !== null) {
+    for (const notice of notices) {
       const known = parent.notes.get(notice.taskId);
       if (notice.agent && (!known || at >= known.at)) parent.notes.set(notice.taskId, { at, status: notice.status });
     }
   }
+  if (commanding || notices.length > 0) scanCommands(parent.commands, entry, at, notices);
   const content = row(entry["message"])?.["content"];
   for (const value of Array.isArray(content) ? content : []) {
     const block = row(value);
@@ -276,6 +345,7 @@ interface Work {
   lastMessage: string | null;
   /** when its last request ended its turn, while nothing has been said to it or by it since */
   turnEndedAt: number | null;
+  commands: Commands;
 }
 const works = new Map<string, Work>();
 
@@ -284,7 +354,7 @@ function scanWork(path: string, budget: { left: number }): Work | null {
   if (stat === null) return null;
   let work = works.get(path);
   if (!work || work.id !== stat.id || work.offset > stat.size) {
-    work = { id: stat.id, offset: 0, skipping: false, behind: false, hungry: false, firstAt: null, lastAt: null, model: null, turns: 0, toolCalls: 0, tokens: null, lastMessage: null, turnEndedAt: null };
+    work = { id: stat.id, offset: 0, skipping: false, behind: false, hungry: false, firstAt: null, lastAt: null, model: null, turns: 0, toolCalls: 0, tokens: null, lastMessage: null, turnEndedAt: null, commands: noCommands() };
   }
   remember(works, path, work, 4096);
   if (work.offset >= stat.size) { work.behind = false; work.hungry = false; return work; }
@@ -300,6 +370,8 @@ function scanWork(path: string, budget: { left: number }): Work | null {
     if (at !== null) { state.firstAt ??= at; state.lastAt = at; }
     // attachments and bookkeeping say nothing of its turn
     state.turnEndedAt = turnAfter(entry, at, state.turnEndedAt);
+    const notices = line.includes("<task-notification>") ? blocksIn(entry).flatMap((block) => taskNotification(block) ?? []) : [];
+    if (notices.length > 0 || commandLine(line)) scanCommands(state.commands, entry, at, notices);
     if (entry["type"] !== "assistant") return;
     const message = row(entry["message"]);
     // one request is written as one entry per content block, all with the same message id
@@ -458,23 +530,26 @@ const time = (value: string | null): number => value === null ? 0 : Date.parse(v
 /** what each session's last read said of each agent: kept while the transcript is read in parts */
 const previous = new Map<string, Map<string, OmoTask>>();
 
-export function claudeSubagentState(parentPath: string, live: boolean, now = Date.now(), since: number | null = null): { tasks: OmoTask[]; settled: boolean; watch: string[] } {
+export function claudeSubagentState(parentPath: string, live: boolean, now = Date.now(), since: number | null = null): { tasks: OmoTask[]; settled: boolean; watch: string[]; running: number; turnRunning: number } {
   const dir = subagentsDir(parentPath);
   const files = agentIds(parentPath).flatMap((id) => {
     const stat = plain(join(dir, `agent-${id}.jsonl`));
     return stat !== null && now - stat.mtimeMs <= RECENT_MS ? [{ id, mtimeMs: stat.mtimeMs, stat }] : [];
   }).sort((a, b) => Number(works.get(join(dir, `agent-${b.id}.jsonl`))?.hungry ?? false) - Number(works.get(join(dir, `agent-${a.id}.jsonl`))?.hungry ?? false) || b.mtimeMs - a.mtimeMs).slice(0, MAX_AGENTS);
-  if (files.length === 0) return { tasks: [], settled: true, watch: [] };
-  // each has a budget of its own: a long transcript must not keep the agents from being read
+  // each has a budget of its own: a long transcript must not keep the agents from being read.
+  // Read with no subagent too: the session's own background commands are in it
   const parent = scanParent(parentPath);
+  if (parent === null && files.length === 0) return { tasks: [], settled: true, watch: [], running: 0, turnRunning: 0 };
   const budget = { left: READ_BUDGET };
   const running: OmoTask[] = [];
   const ended: OmoTask[] = [];
   const all = new Map<string, OmoTask>();
+  const sources: Commands[] = parent === null ? [] : [parent.commands];
   let settled = parent !== null && !parent.behind;
   for (const { id, stat } of files) {
     const meta = readMeta(join(dir, `agent-${id}.meta.json`));
     const work = scanWork(join(dir, `agent-${id}.jsonl`), budget);
+    if (work !== null) sources.push(work.commands);
     // a file caught while it is written says nothing yet, and what was worked out without it is not final
     if (meta === null || work === null) { settled = false; continue; }
     if (work.behind) settled = false;
@@ -522,17 +597,37 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
       tool_calls: counted ? work.toolCalls : null,
       tokens: counted ? work.tokens : null,
     };
-    all.set(id, task);
+    keep(task);
+  }
+  // a command ends once, in whichever transcript was told first
+  const ends = new Map<string, { at: number; status: OmoTask["status"] }>();
+  for (const source of sources) for (const [id, end] of source.ends) if ((ends.get(id)?.at ?? Infinity) > end.at) ends.set(id, end);
+  for (const source of sources) {
+    for (const [id, launch] of source.launches) {
+      if (all.has(id)) continue;
+      const end = ends.get(id);
+      const lost = !live || (since !== null && launch.at < since - START_SLACK_MS);
+      keep({ id, title: launch.title, category: "shell", model: null, status: end?.status ?? (lost ? "lost" : "running"), started_at: iso(launch.at), ended_at: iso(end?.at ?? null), turns: null, tool_calls: null, tokens: null });
+    }
+  }
+  remember(previous, parentPath, all, 256);
+  running.sort((a, b) => time(a.started_at) - time(b.started_at));
+  // a command lost with its process has no end of its own: its start stands for it
+  const last = (task: OmoTask): number => time(task.ended_at) || time(task.started_at);
+  ended.sort((a, b) => last(b) - last(a));
+  // what runs of the turn going on, or last ended: what it started since the person's prompt (any, when none is in reach)
+  const promptAt = parent?.promptAt ?? null;
+  const turnRunning = running.filter((task) => promptAt === null || time(task.started_at) >= promptAt).length;
+  return { tasks: [...running, ...ended.slice(0, RECENT_LIMIT)], settled, watch: files.map(({ id }) => id), running: running.length, turnRunning };
+
+  function keep(task: OmoTask): void {
+    all.set(task.id, task);
     if (task.status === "running") running.push(task);
     else {
       const at = time(task.ended_at) || time(task.started_at);
       if (at !== 0 && now - at <= RECENT_MS) ended.push(task);
     }
   }
-  remember(previous, parentPath, all, 256);
-  running.sort((a, b) => time(a.started_at) - time(b.started_at));
-  ended.sort((a, b) => time(b.ended_at) - time(a.ended_at));
-  return { tasks: [...running, ...ended.slice(0, RECENT_LIMIT)], settled, watch: files.map(({ id }) => id) };
 }
 
 export const claudeSubagents = (parentPath: string, live: boolean, now = Date.now(), since: number | null = null): OmoTask[] => claudeSubagentState(parentPath, live, now, since).tasks;
@@ -552,8 +647,11 @@ export interface ClaudeSubagentDeps {
   resolve: (pane: HerdrPane) => Promise<{ path: string; startedAt: number | null; pid?: number | null } | null>;
   /** the pid of the pane's Claude process now: a restart under the same session id is another process */
   pid?: (pane: HerdrPane) => Promise<number | null>;
-  /** a pane's running subagents changed: no turn started or ended */
-  onChange: (paneId: string, running: number) => void;
+  /**
+   * A pane's running subagents and background commands changed, or how many of them its turn
+   * started (`turnRunning`, server/background-wait.ts): no turn started or ended.
+   */
+  onChange: (paneId: string, running: number, turnRunning: number) => void;
   pollMs?: number;
   refreshMs?: number;
   now?: () => number;
@@ -564,13 +662,13 @@ interface Tracked {
   key: string; path: string | null; startedAt: number | null; pid: number | null;
   /** when its transcript, and its process, were last looked for */
   at: number; pidAt: number;
-  live: boolean; running: number; sig: string | null;
+  live: boolean; running: number; turnRunning: number; sig: string | null;
   /** every observed agent, whose own file can end or resume its turn */
   watch: string[];
 }
 
 /**
- * The running subagents of every Claude pane, for the pane's count. Only a pane whose agent is
+ * The running subagents and background commands of every Claude pane, for the pane's count. Only a pane whose agent is
  * `claude` is looked at (an OmO pane is named `omo` by then, any other agent is not Claude's):
  * its transcript is found once per session, and polled for what changed since. A pane that is
  * not Claude any more keeps the transcript it had, so that its list can say what was left
@@ -670,25 +768,28 @@ export class ClaudeSubagentStatus {
     const current = this.panes.get(pane.pane_id);
     const same = current?.key === key;
     // the count it had goes on from here: another session with none says so at the next poll
-    this.panes.set(pane.pane_id, { key, path: found?.path ?? (same ? current.path : null), startedAt: found ? found.startedAt : same ? current.startedAt : null, pid: found ? found.pid ?? null : same ? current.pid : null, at: this.now(), pidAt: this.now(), live: true, running: current?.running ?? 0, sig: null, watch: same && !found ? current.watch : [] });
+    this.panes.set(pane.pane_id, { key, path: found?.path ?? (same ? current.path : null), startedAt: found ? found.startedAt : same ? current.startedAt : null, pid: found ? found.pid ?? null : same ? current.pid : null, at: this.now(), pidAt: this.now(), live: true, running: current?.running ?? 0, turnRunning: current?.turnRunning ?? 0, sig: null, watch: same && !found ? current.watch : [] });
   }
 
-  /** Reads what the subagent files gained; a pane whose count changed is told. */
-  poll(): void {
+  /** Reads what the files gained, of every pane or of one (a turn just ended there); a pane whose counts changed is told. */
+  poll(only?: string): void {
     for (const [paneId, tracked] of this.panes) {
+      if (only !== undefined && paneId !== only) continue;
       let running = 0;
+      let turnRunning = 0;
       if (tracked.path !== null && tracked.live) {
         if (`${subagentsSignature(tracked.path, tracked.watch).sig}:${tracked.startedAt}` === tracked.sig) continue;
         const state = claudeSubagentState(tracked.path, true, this.now(), tracked.startedAt);
-        running = state.tasks.filter((task) => task.status === "running").length;
+        ({ running, turnRunning } = state);
         tracked.watch = state.watch;
         const { sig, latestMs } = subagentsSignature(tracked.path, tracked.watch);
         // file times are coarse: only a signature of files quiet for a second says nothing changed when it reads the same
         tracked.sig = state.settled && this.now() - latestMs >= 1000 ? `${sig}:${tracked.startedAt}` : null;
       }
-      if (running === tracked.running) continue;
+      if (running === tracked.running && turnRunning === tracked.turnRunning) continue;
       tracked.running = running;
-      this.deps.onChange(paneId, running);
+      tracked.turnRunning = turnRunning;
+      this.deps.onChange(paneId, running, turnRunning);
     }
   }
 }

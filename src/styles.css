@@ -1143,6 +1143,12 @@ button {
   background: var(--status-done-tint);
 }
 
+/* BG: the turn ended on work still running in the background. The working colours, holding still */
+.badge-waiting {
+  color: var(--status-working);
+  background: var(--status-working-tint);
+}
+
 /* unknown keeps the dim text color (contrast) and is told apart by the dashed edge */
 .badge-unknown {
   color: var(--text-dim);

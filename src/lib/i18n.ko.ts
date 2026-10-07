@@ -106,6 +106,8 @@ export const KO: Record<string, string> = {
   "Background tasks running: {count}": "실행 중인 백그라운드 작업: {count}",
   "INPUT": "입력",
   "DONE": "완료",
+  "BG": "백그라운드",
+  "Agent waiting on background work": "에이전트가 백그라운드 작업을 기다리는 중",
   "—": "—",
   "Agent {status}": "에이전트 {status}",
 

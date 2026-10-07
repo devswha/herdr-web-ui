@@ -7,7 +7,7 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../.
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
-import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
+import { knownStatus, paneStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
@@ -71,11 +71,12 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
   const t = useT();
   const value = knownStatus(status);
   const label = t(STATUS_WORD[value]);
-  const description = t("Agent {status}", { status: label });
+  const description = value === "waiting" ? t("Agent waiting on background work") : t("Agent {status}", { status: label });
   // a compact cell draws only the states that ask for a look: a red question mark while the agent
   // waits for an answer, a green dot once it has finished and was not looked at, a dim arc while
-  // it runs. Ready and unknown keep the cell, its label and its tooltip
-  const Icon = { idle: null, working: LoaderCircle, blocked: null, done: null, unknown: null }[value];
+  // it runs, the same arc held still in the working colour while its turn waits on background work.
+  // Ready and unknown keep the cell, its label and its tooltip
+  const Icon = { idle: null, working: LoaderCircle, blocked: null, done: null, waiting: LoaderCircle, unknown: null }[value];
   return (
     <span
       className={`badge badge-${value}${compact ? " sidebar-status" : ""}`}
@@ -634,7 +635,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           </span>}
           <span className="sidebar-pane-meta">
             <span className="visually-hidden">{markName(pane)}</span>
-            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => activity.status(machineId, candidate))) : undefined} />}
+            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => paneStatus({ ...candidate, agent_status: activity.status(machineId, candidate) }))) : undefined} />}
           </span>
         </div>
         <div className="workspace-actions">
