@@ -154,7 +154,8 @@ async function appOnPort(): Promise<boolean> {
 /** Why the app's full health fails, as it says: herdr's error while herdr is away. */
 async function healthError(): Promise<string> {
   try {
-    const response = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(READY_TIMEOUT_MS) });
+    // short, as health() is: the wait before this has already spent the start's deadline
+    const response = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(1500) });
     const body = (await response.json()) as { error?: { message?: unknown } };
     return typeof body.error?.message === "string" ? body.error.message : `its health check answered ${response.status}`;
   } catch {
