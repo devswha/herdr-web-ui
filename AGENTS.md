@@ -54,6 +54,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 
 - `bun:test` only, with no DOM. `src/` tests cover pure logic in `lib/*.test.ts`; component behavior is covered by the Playwright scripts. A `.test.tsx` file is not discovered.
 - A test that needs a live herdr is named `*.contract.test.ts`. Unit tests run with `HERDR_TEST_MODE=unit` and never touch herdr.
+- `bun run check fast` is CI's Fast checks and `bun run check full` adds its two lanes, on a herdr of the run's own that reads nothing from the user's config. Only one run with a lane at a time on a PC: a second one exits and names the first. `bun run check run <command…>` gives one test file or browser script the same herdr.
 - Single file: `HERDR_TEST_MODE=unit bun test ./server/prompt.test.ts`. The `./` is required.
 - The unit suite is `bun run test:unit`. A bare `bun test` also loads every `*.contract.test.ts`; under `HERDR_TEST_MODE=unit` those fail, since unit mode points `HERDR_SOCKET` at a socket that does not exist.
 - `bun run test:ui` does not run `scripts/file-viewer-regression.ts`; CI does.
