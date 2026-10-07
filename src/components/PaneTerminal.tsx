@@ -1283,7 +1283,8 @@ export function PaneTerminal({
     let saved = EMPTY_DRAFT;
     try {
       const value = paneId ? JSON.parse(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`) ?? "null") : null;
-      if (value && typeof value.text === "string" && Number.isInteger(value.droppedSpecial)) saved = value;
+      // a draft stored by an earlier version also counts keys that were left out: only its text is kept
+      if (value && typeof value.text === "string") saved = { text: value.text };
     } catch {}
     setDraft(saved);
     draftPaneRef.current = paneId;
@@ -1691,10 +1692,7 @@ export function PaneTerminal({
         {paneId !== null && !ended && connected && !draftIsEmpty(draft) && (
           <div className="terminal-banner terminal-banner-draft" role="status">
             <span className="draft-label">{t("Input held until the terminal is ready:")}</span>
-            <code className="draft-text">{draft.text.length > 0 ? draft.text : "—"}</code>
-            {draft.droppedSpecial > 0 && (
-              <span className="draft-dropped">{t(draft.droppedSpecial === 1 ? "{count} special key dropped" : "{count} special keys dropped", { count: draft.droppedSpecial })}</span>
-            )}
+            <code className="draft-text">{draft.text}</code>
             <span className="draft-actions">
               <button type="button" className="draft-send" disabled={draft.text.length === 0 || observing || secretActive || held} onClick={sendDraft}>
                 {t("Send")}

@@ -46,6 +46,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
+- The terminal's **Input held until the terminal is ready** notice appears only when there is
+  text to send or discard. It no longer counts "special keys dropped": the count rose without
+  a key being pressed, with every answer the terminal gives a program by itself, and with
+  nothing held the notice had only a dash to show.
 - The mic button shows in a desktop's chat without being turned on. **Settings → Voice input →
   Microphone button** is now **Auto**, **On** or **Off**. Auto, the default, puts the mic in the
   chat's message box on a desktop, and only where dictation can work: over HTTPS, with an OpenAI

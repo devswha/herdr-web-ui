@@ -530,8 +530,6 @@ export const ZH: Record<string, string> = {
   "Open here": "在此打开",
   "Take this pane from another web app or terminal attach. That connection will close.": "从另一个网页应用或 terminal attach 接管此窗格。那边的连接将关闭。",
   "Input held until the terminal is ready:": "终端就绪前保留的输入：",
-  "{count} special key dropped": "已丢弃 {count} 个特殊按键",
-  "{count} special keys dropped": "已丢弃 {count} 个特殊按键",
   "Send": "发送",
   "Discard": "丢弃",
   "Held message — review and send": "保留的消息。请检查后发送",

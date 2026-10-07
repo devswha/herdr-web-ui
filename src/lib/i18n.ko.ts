@@ -526,8 +526,6 @@ export const KO: Record<string, string> = {
   "Open here": "여기서 열기",
   "Take this pane from another web app or terminal attach. That connection will close.": "다른 웹 앱이나 terminal attach에서 이 패널을 가져옵니다. 그쪽 연결은 종료됩니다.",
   "Input held until the terminal is ready:": "터미널 입력 준비까지 보관한 내용:",
-  "{count} special key dropped": "특수 키 {count}개 버려짐",
-  "{count} special keys dropped": "특수 키 {count}개 버려짐",
   "Send": "보내기",
   "Discard": "버리기",
   "Held message — review and send": "보관된 메시지. 확인하고 보내세요",

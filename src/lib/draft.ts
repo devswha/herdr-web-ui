@@ -6,11 +6,9 @@
 
 export interface InputDraft {
   readonly text: string;
-  /** special keys (Enter, arrows, ^C, ...) received while disconnected - undraftable, counted */
-  readonly droppedSpecial: number;
 }
 
-export const EMPTY_DRAFT: InputDraft = { text: "", droppedSpecial: 0 };
+export const EMPTY_DRAFT: InputDraft = { text: "" };
 
 const MAX_DRAFT_CHARS = 1024;
 
@@ -19,18 +17,16 @@ function isPrintableChar(data: string): boolean {
   return data.length > 0 && !/[\x00-\x1f\x7f-\x9f]/u.test(data);
 }
 
-/** Folds one onData chunk into the draft: printable text accumulates, special keys count. */
+/**
+ * Folds one onData chunk into the draft: printable text accumulates. Anything else is left
+ * out and not told: Enter, arrows and bracketed paste frames contain controls, and so do the
+ * answers xterm gives a program by itself (cursor position, focus, mouse), which no one typed.
+ */
 export function applyToDraft(draft: InputDraft, data: string): InputDraft {
-  if (!isPrintableChar(data)) {
-    // Enter, arrows and bracketed paste frames contain controls; keep only plain text.
-    return { ...draft, droppedSpecial: draft.droppedSpecial + 1 };
-  }
-  if (draft.text.length + data.length > MAX_DRAFT_CHARS) {
-    return { ...draft, droppedSpecial: draft.droppedSpecial + 1 };
-  }
-  return { ...draft, text: draft.text + data };
+  if (!isPrintableChar(data) || draft.text.length + data.length > MAX_DRAFT_CHARS) return draft;
+  return { text: draft.text + data };
 }
 
 export function draftIsEmpty(draft: InputDraft): boolean {
-  return draft.text.length === 0 && draft.droppedSpecial === 0;
+  return draft.text.length === 0;
 }
