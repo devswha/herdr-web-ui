@@ -11,6 +11,22 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
+- The PC's Tailscale login is read from a real Tailscale user id. These ids are too large for a
+  JavaScript number, so the owner was not recognised and the owner's own devices had to pair. Two
+  logins with neighbouring ids are also no longer taken for one.
+  ([#572](https://github.com/devswha/herdr-web-ui/pull/572))
+- On Windows, a Claude Code pane started with its own `CLAUDE_CONFIG_DIR`, such as a second
+  account's `~/.claude-*` directory, shows its chat. Before, the pane fell back to `~/.claude`, so
+  the chat said **Conversation unavailable** and only the terminal worked. Windows does not let
+  the server read another process's environment, so the store is the one among `~/.claude` and
+  the `~/.claude-*` directories beside it that holds the Claude process's own record, checked
+  against the time the process started. Claude Code processes reported as `claude.exe` are
+  recognized too.
+  ([#563](https://github.com/devswha/herdr-web-ui/pull/563) by @David-Sousa-Web)
+- A long line of brackets, `\(` or underscores that never close, as an agent prints in a log or a
+  minified file, no longer freezes the chat: a megabyte of them took a minute or more to read, and
+  now takes milliseconds. What every message shows is unchanged.
+  ([#574](https://github.com/devswha/herdr-web-ui/pull/574))
 
 ## [0.4.0] - 2026-10-08
 
