@@ -160,7 +160,7 @@ running llama.cpp server that this app cannot ask. The model and reasoning effor
 | **Follow the plan** | A supported todo-tool call folds into the turn's work block like any tool: it reads as the done count or the step it took, and opened, as the whole list by phase. |
 | **Drop into the real terminal** | xterm.js on the live pane: full-screen TUIs, raw keys and herdr's scrollback, shared with your own herdr TUI. Drag to select and it is copied on release; the wheel or the screen's edge scrolls further back while you drag. Ctrl+C copies a selection instead of interrupting. |
 | **Answer prompts** | Approval, question and plan menus become cards. Tap an option, or type its number in the composer. The server checks that the menu is still current before answering. |
-| **Compose** | `/` commands and `@` file mentions, any file or image up to 8 MB attached by path, a draft per pane, and multiple queued messages while the agent works. |
+| **Compose** | `/` commands and `@` file mentions, any file or image up to 8 MB attached by path, and a draft per pane. Send during work schedules a next-turn message; use its ↑ Send now action to send it now. |
 | **Follow every agent** | Live RUN / INPUT / DONE / READY status for all panes, and alerts when an agent needs input, finishes or its terminal ends. |
 | **Open what agents make** | A file path in an answer opens in a viewer (images, video, audio, PDF, text), or find it with **Browse files**, and download it to your phone. |
 | **Manage sessions** | Start an agent in a folder you type or pick with **Browse**. In New workspace, Browse filters the currently loaded folders as you type (case-insensitive); open a result, then choose **Use this folder**. It does not search subfolders or folders beyond the displayed 500. Add a tab to a workspace (as herdr's prefix+c), switch tabs from the strip over the pane, rename workspaces and panes, reorder workspaces, and jump anywhere from the command palette. |
@@ -168,7 +168,25 @@ running llama.cpp server that this app cannot ask. The model and reasoning effor
 | **Watch your plan limits** | Beside Settings, how much of each AI subscription signed in on the PC is used, or what is left: the week's or the session's limit per account, and every limit with its reset time on a tap. See [Subscription usage](#subscription-usage). |
 | **Make it yours** | English, Korean, Japanese or Simplified Chinese, following the browser or chosen in Settings. Dark, light or system theme, compact density, terminal and chat font sizes, a resizable composer, Enter behavior and thinking visibility. |
 
+Every agent has the same chat controls on desktop and phones: Stop while it works with an empty
+draft, Send when you type, and Send at rest. With a draft in the box, Escape stops the agent. Sending during work adds a message bubble above the
+input card. It waits for the current response, then goes to the agent's next turn. Use a pending message's
+**↑ Send now** action to send it now. The bridge immediately delivers it; when the agent reads
+it is controlled by that agent, so this does not promise instant interruption. The small X discards it.
+The bridge claims the same message ID for Send now and an automatic send, so they cannot both
+deliver it. Older bridges keep the draft and ask for an update instead of changing queueing into
+an immediate send. Connection loss pauses automatic delivery; uncertain text can be copied or
+discarded after checking the terminal. Previously held browser messages still need **Send now**
+or **Discard**.
+
 ## Subscription usage
+
+On a local desktop pane, the composer shows a compact read-only limit for the agent's provider:
+its plan-wide five-hour session first, or its week when no session is reported. It uses the first
+visible account in Settings order; it does not identify the pane's active sign-in. Its hover text
+names that account and the reset times. Details stay in the strip beside Settings. Phones and
+remote panes do not show this compact reference; failed or unavailable limits are omitted.
+
 
 The strip beside **Settings** shows the plan limits of the AI tools signed in on the PC the app's server runs on: for each account its provider's logo and one limit, the plan's week or its 5-hour session as chosen in Settings (red from 80%). A plan with neither shows its limit closest to running out. Tap it for every limit (5-hour session, week, month, per model where a plan has them) and when each starts over. It is off until you turn it on in **Settings → Subscription usage**: turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.
 
@@ -223,9 +241,18 @@ whether the test was sent or failed; a missing subscription offers **Turn alerts
 
 On a phone:
 - Agent panes open in the chat.
-- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, Alt, arrows, Ctrl+C).
-  **Settings → Appearance → Key bar** adds or removes Alt, Shift+Tab, Home/End, PgUp/PgDn,
-  Ctrl+D, Ctrl+Z, `|`, `~` and `/`.
+- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, Alt, Shift, Enter, arrows, Ctrl+C).
+  Ctrl, Alt and Shift stay held until tapped again and combine with each other.
+  Enable direct terminal typing with the keyboard button to use them with letters and
+  symbols. Herdr encodes each chord for the program's keyboard protocol; legacy
+  protocols cannot distinguish every chord (for example Ctrl+I and Tab).
+  Draft text in the input line is sent unchanged. Modifiers clear
+  when leaving the pane or terminal view, or when the connection drops.
+  **Settings → Appearance → Key bar → Edit key bar** opens a separate screen to add, remove and
+  reorder every key, including modifier
+  buttons. Register a custom combination such as Ctrl+W, choose editing keys or F1–F12, or restore
+  the default row. Saved combinations use exactly their selected modifiers; ordinary keys use
+  the currently held modifiers. Removing a held modifier button clears it.
 - Dragging the terminal scrolls the real herdr pane.
 - **Settings → Phone → Keep screen on** keeps the screen awake while a terminal or chat
   pane is open. It is off by default, releases when the app is hidden, and resumes when
@@ -236,10 +263,6 @@ A plain HTTP LAN address also works in the browser, but it can't install the app
 The running server sends the alerts. Keep it running, and keep `HERDR_WEB_STATE_DIR` across restarts, since it holds the push key and device subscriptions.
 
 ## Remote PCs over SSH
-
-Agents waiting for an answer appear in **Needs you** at the top of the sidebar, including
-those on collapsed PCs. Choose a row to open its pane on the correct PC. The shortcut
-disappears when the agent resumes or the PC disconnects; workspace order stays unchanged.
 
 A workspace row's **⋯** menu offers **New worktree** and **Open worktree…**, as herdr's own worktree keys do: the first checks a branch out as a git worktree under herdr's worktree folder and opens it as a workspace next to the repository's, the second lists the repository's other checkouts and opens one. New worktree opens with a branch (`worktree/brave-valley-07f8` style) and a name already filled in, as herdr's own form does; type over either. **Agent** picks what starts in the new checkout, as New workspace does: the agent you last started, or Shell for none. In the By workspace view a worktree workspace sits under its repository's row. Its menu ends in **Delete worktree checkout…**, which deletes the folder and closes the workspace but keeps the branch; a checkout with unsaved changes is refused first, in git's words, with **Delete anyway** as the second step. Closing the repository's workspace closes its open worktree workspaces with it and leaves their checkouts on disk.
 

@@ -131,6 +131,7 @@
      pane not measured yet. Never a percentage here: each column would resolve it against its
      own box and the columns would differ by their gutters */
   --chat-w: var(--content-w);
+  --pending-max-h: min(20dvh, 12rem);
   --palette-w: 640px;
   --palette-top: 12vh;
 
@@ -582,6 +583,9 @@ button {
 /* ---------- shell ---------- */
 
 .app {
+  /* the sidebar column's width: the one the user dragged its edge to (--sidebar-user-w, written
+     by App), else the density's; never more than half the window */
+  --sidebar-shown-w: min(var(--sidebar-user-w, var(--sidebar-w)), 50vw);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -611,10 +615,12 @@ button {
 }
 
 .sidebar {
+  /* positioned for its resize grip (SidebarResizer.css) */
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: var(--sidebar-w);
-  flex: 0 0 var(--sidebar-w);
+  width: var(--sidebar-shown-w);
+  flex: 0 0 var(--sidebar-shown-w);
   min-height: 0;
   background: var(--bg-panel);
   border-right: var(--hairline) solid var(--border);
@@ -894,7 +900,7 @@ button {
      one piece from the window's top down */
   .app:not(.sidebar-collapsed) .header-side {
     display: flex;
-    flex: 0 0 var(--sidebar-w);
+    flex: 0 0 var(--sidebar-shown-w);
     align-items: center;
     align-self: stretch;
     justify-content: space-between;
@@ -1118,12 +1124,6 @@ button {
 .badge-done {
   color: var(--status-done);
   background: var(--status-done-tint);
-}
-
-/* a pane herdr could not restore: no status to show, and nothing runs in it */
-.badge-restore-error {
-  color: var(--danger-text);
-  background: var(--danger-tint);
 }
 
 /* unknown keeps the dim text color (contrast) and is told apart by the dashed edge */

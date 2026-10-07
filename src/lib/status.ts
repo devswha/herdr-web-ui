@@ -18,12 +18,15 @@ export function knownStatus(status?: AgentStatus): KnownStatus {
   return (status !== undefined && KNOWN[status]) || "unknown";
 }
 
-/** herdr's roll-up order: a blocked agent colours the whole workspace, then a working one, then done. */
-const ROLLUP: readonly KnownStatus[] = ["blocked", "working", "done", "idle"];
+/**
+ * herdr's roll-up order, on its server (workspace aggregate) and in its sidebar: a blocked agent
+ * colours the whole workspace, then one that finished and was not looked at yet, then a working one.
+ */
+const ROLLUP: readonly KnownStatus[] = ["blocked", "done", "working", "idle"];
 
 /**
  * One state for a row that stands for several panes, as herdr rolls a workspace's agents up:
- * blocked wins, then working, then done, then ready; unknown only when no pane says more.
+ * blocked wins, then done, then working, then ready; unknown only when no pane says more.
  */
 export function rollupStatus(statuses: ReadonlyArray<AgentStatus | undefined>): KnownStatus {
   const known = statuses.map((status) => knownStatus(status));
