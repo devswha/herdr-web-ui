@@ -19,7 +19,8 @@
  * (CI reads the failure logs from it).
  *
  * Only one run with a lane at a time on a PC: the contract and browser tests are bound by
- * timing, and two runs side by side fail each other. A second one says so and exits.
+ * timing, and two runs side by side fail each other. A second one says so and exits. The lock
+ * is a loopback port the run listens on (LOCK_PORT), so a run that died holds nothing.
  *
  * What a run still shares with the PC: the checkout (`fast` rewrites the generated types file
  * while it checks it, and every mode builds into dist/, so one run per checkout), herdr's
@@ -27,7 +28,8 @@
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -97,32 +99,35 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
   return { env, sessions, remove: () => { if (!kept) rmSync(dir, { recursive: true, force: true }); } };
 }
 
+/** The loopback port a run with a lane listens on while it runs: the lock. */
+export const LOCK_PORT = 41737;
+
 /**
- * One run with a lane at a time on this PC. Returns the release, or the pid of the run that
- * holds the lock. A lock whose run is gone is taken over.
+ * One run with a lane at a time on this PC. The lock is a listening loopback port: taking it is
+ * one step, and it is free again the moment its run is gone, however it ended, so there is no
+ * lock left behind to take over. Whoever holds it answers a connection with its pid. Resolves
+ * with the release, or with the pid of the run that holds it (NaN when something else listens
+ * there).
  */
-export function lock(path: string, pid = process.pid, alive: (pid: number) => boolean = isAlive): { release: () => void } | { heldBy: number } {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      mkdirSync(path);
-      writeFileSync(join(path, "pid"), String(pid));
-      return { release: () => rmSync(path, { recursive: true, force: true }) };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      let holder = Number.NaN;
-      try { holder = Number(readFileSync(join(path, "pid"), "utf8")); } catch { /* being written, or left half made */ }
-      if (Number.isInteger(holder) && alive(holder)) return { heldBy: holder };
-      rmSync(path, { recursive: true, force: true });
-    }
-  }
-  return { heldBy: Number.NaN };
+export function lock(port = LOCK_PORT, pid = process.pid): Promise<{ release: () => void } | { heldBy: number }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((socket) => { socket.on("error", () => undefined); socket.end(String(pid)); });
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EADDRINUSE") { reject(error); return; }
+      let said = "";
+      const client = connect(port, "127.0.0.1");
+      client.setTimeout(2_000, () => client.destroy());
+      client.on("data", (chunk) => { said += chunk.toString(); });
+      client.on("error", () => undefined);
+      client.on("close", () => resolve({ heldBy: /^\d+$/.test(said) ? Number(said) : Number.NaN }));
+    });
+    server.listen(port, "127.0.0.1", () => {
+      // the lock must not keep the run alive once its work is done
+      server.unref();
+      resolve({ release: () => { server.close(); } });
+    });
+  });
 }
-
-function isAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
-}
-
-if (import.meta.main) await main();
 
 async function main(): Promise<void> {
   let todo: ReturnType<typeof plan>;
@@ -136,12 +141,19 @@ async function main(): Promise<void> {
     cleaned = true;
     for (const step of cleanups.reverse()) try { step(); } catch (error) { console.error(`check: cleanup failed: ${(error as Error).message}`); }
   };
+  let ending = false;
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(signal, () => {
-      // the step runs in a process group of its own: the whole group gets the signal
-      if (child?.pid !== undefined) try { process.kill(-child.pid, signal); } catch { /* gone already */ }
-      cleanup();
-      process.exit(signal === "SIGINT" ? 130 : 143);
+      if (ending) return;
+      ending = true;
+      void (async () => {
+        // The step runs in a process group of its own, and a lane starts processes of its own
+        // in it: the whole group gets the signal, and has ended before the herdr and the
+        // directory it uses are taken away.
+        if (child?.pid !== undefined) await endGroup(child.pid, signal);
+        cleanup();
+        process.exit(signal === "SIGINT" ? 130 : 143);
+      })();
     });
   }
 
@@ -153,6 +165,8 @@ async function main(): Promise<void> {
       const started = spawn(command[0]!, command.slice(1), { stdio: "inherit", env, detached: true });
       child = started;
       const finish = (code: number): void => {
+        // a run that is being ended is the signal handler's to finish, once the step's group is gone
+        if (ending) return;
         child = null;
         times.push({ label, seconds: (Date.now() - startedAt) / 1000, code });
         done(code);
@@ -187,8 +201,12 @@ async function main(): Promise<void> {
       const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
       if (!Bun.which(herdr)) throw new Error("this needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
       if (todo.lanes.length > 0) {
-        const held = lock(join(tmpdir(), "herdr-web-ui-check.lock"));
-        if ("heldBy" in held) throw new Error(`another \`bun run check\` with a lane is running on this PC (pid ${held.heldBy}); the tests are bound by timing, so wait for it to end`);
+        const held = await lock();
+        if ("heldBy" in held) {
+          throw new Error(Number.isNaN(held.heldBy)
+            ? `port ${LOCK_PORT} on 127.0.0.1, which a run with a lane holds while it runs, is in use by something else`
+            : `another \`bun run check\` with a lane is running on this PC (pid ${held.heldBy}); the tests are bound by timing, so wait for it to end`);
+        }
         cleanups.push(held.release);
       }
       const isolation = isolate(process.env);
@@ -219,6 +237,25 @@ async function main(): Promise<void> {
     for (const step of times) console.log(`${step.code === 0 ? "ok    " : "FAILED"} ${step.label} (${step.seconds.toFixed(1)}s)`);
   }
   process.exit(code);
+}
+
+/** How long a step's processes get to end after a signal before they are killed. */
+const END_GRACE_MS = 5_000;
+
+/** Signals a process group and waits until no process is left in it, killing what outlasts the grace. */
+async function endGroup(group: number, signal: NodeJS.Signals): Promise<void> {
+  const left = (): boolean => { try { process.kill(-group, 0); return true; } catch { return false; } };
+  const gone = async (ms: number): Promise<boolean> => {
+    for (const deadline = Date.now() + ms; left();) {
+      if (Date.now() > deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return true;
+  };
+  try { process.kill(-group, signal); } catch { return; }
+  if (await gone(END_GRACE_MS)) return;
+  try { process.kill(-group, "SIGKILL"); } catch { return; }
+  await gone(2_000);
 }
 
 /**
@@ -252,3 +289,6 @@ async function actionlint(run: (label: string, command: string[], env: Record<st
   }
   return run("workflow syntax", [binary, "-shellcheck="], env);
 }
+
+// last: main() uses every constant above
+if (import.meta.main) await main();

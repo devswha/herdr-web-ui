@@ -62,20 +62,31 @@ describe("isolate", () => {
 });
 
 describe("lock", () => {
-  it("lets one run in, names the run that holds it, and is free again once released", () => {
-    const path = join(scratch(), "check.lock");
-    const first = lock(path, 111, () => true);
+  /** a port nothing listens on: asked of the system, then given back */
+  const freePort = async (): Promise<number> => {
+    const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    return port;
+  };
+
+  it("lets one run in, names the run that holds it, and is free again once released", async () => {
+    const port = await freePort();
+    const first = await lock(port, 111);
     expect("release" in first).toBe(true);
-    expect(lock(path, 222, () => true)).toEqual({ heldBy: 111 });
+    expect(await lock(port, 222)).toEqual({ heldBy: 111 });
     (first as { release: () => void }).release();
-    expect("release" in lock(path, 222, () => true)).toBe(true);
+    const next = await lock(port, 222);
+    expect("release" in next).toBe(true);
+    (next as { release: () => void }).release();
   });
 
-  it("takes over a lock whose run is gone", () => {
-    const path = join(scratch(), "check.lock");
-    lock(path, 111, () => true);
-    const next = lock(path, 222, (pid) => pid !== 111);
-    expect("release" in next).toBe(true);
-    expect(lock(path, 333, () => true)).toEqual({ heldBy: 222 });
+  it("says so when something that is no run listens on the port", async () => {
+    const other = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { open(socket) { socket.end("hello"); }, data() {} } });
+    try {
+      expect(await lock(other.port, 222)).toEqual({ heldBy: Number.NaN });
+    } finally {
+      other.stop(true);
+    }
   });
 });
