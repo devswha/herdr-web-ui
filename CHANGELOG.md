@@ -37,6 +37,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   from the header in Chat or Terminal to see its steps as a flow or a list, with the current
   step and elapsed times. It is read from the agent's transcript.
   ([#531](https://github.com/devswha/herdr-web-ui/pull/531) by @kilhyeonjun)
+- A plan's step opens what was done while it ran: its tool calls by tool, the last few with what
+  each was given, the subagents it started and their state, and the background commands it left
+  running and how they ended. Work done while no step ran has a detail of its own.
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
