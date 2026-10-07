@@ -4,9 +4,9 @@ Browser UI for the herdr terminal multiplexer: a React 18 + xterm.js client (`sr
 
 ## Scope
 
-- This file, `server/AGENTS.md` and `src/AGENTS.md` are committed and apply to every agent working on the project, forks included. A PR is checked against them together with `CONTRIBUTING.md`, `.github/REVIEW.md`, `docs/development.md` and `DESIGN.md`.
+- This file, `server/AGENTS.md`, `src/AGENTS.md`, `scripts/AGENTS.md` and `shared/AGENTS.md` are committed and apply to every agent working on the project, forks included. A PR is checked against them together with `CONTRIBUTING.md`, `.github/REVIEW.md`, `docs/development.md` and `DESIGN.md`.
 - They hold only what the code and those documents do not show. Commands, layout, environment variables and release steps are in `docs/development.md` and `package.json`; do not copy them here.
-- Read `server/AGENTS.md` before editing `server/` and `src/AGENTS.md` before editing `src/`.
+- Read `server/AGENTS.md` before editing `server/` and `src/AGENTS.md` before editing `src/`; likewise `scripts/AGENTS.md` for `scripts/` and `shared/AGENTS.md` for `shared/`.
 - "Maintainer workflow" applies only to the maintainer. Everyone else follows `CONTRIBUTING.md` for branches, PRs and the changelog.
 
 ## Bridge invariants
@@ -24,12 +24,14 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 - Prompt answers are `send_keys` navigation, never digits, and go through `POST /api/pane/prompt/answer`: the key semantics per agent live on the server.
 - Web push: build requests with `generateRequestDetails` and send them with `fetch`; never call `sendNotification`.
 - The omo transcript is found through the process tree, never through `pane.agent` or file mtime.
-- Windows x64 has no PTY sidecar: herdr there cannot `terminal attach`, so the server mirrors the screen (`server/mirror.ts`). Do not assume a pty exists.
+- Windows x64 has no PTY sidecar: herdr there cannot `terminal attach`, so the server mirrors the screen (`server/mirror.ts`). A Linux or macOS PC without Node for the sidecar is mirrored the same way. Do not assume a pty exists.
 
 ## Changing a contract
 
 - HTTP and WS shapes live in `shared/protocol.ts`; change both sides through it and add a contract test (`server/api.contract.test.ts` for endpoints).
 - Every push to `main` redeploys the site and the demo. A new endpoint or WS frame needs an answer in `site/demo/transport.ts`, or the demo gets a 404.
+- The demo is the client itself: `site/demo/transport.ts` also imports `shared/` and `rollupStatus` from `src/lib/status.ts`, so a change there changes the demo.
+- `site/demo/fixtures.ts` is bundled into the browser and reused by `scripts/readme-media/stage.ts`: keep it fictional and free of server imports.
 - Every error body is `{ error: { code, message } }`, built only with the helpers in `server/http.ts`.
 - Mutating machine, device and update POSTs require same-origin plus the `x-herdr-machine: 1` or `x-herdr-update: 1` header.
 - Route order in `createServer().fetch` matters: bridge, then machines, then `/ws`, then the `/api/*` handlers, then a 404 for the rest of `/api/*`, then static files.
@@ -49,11 +51,12 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 - Icons come from lucide-react only; brand marks live in `AgentMark.tsx`. When icon files change, bump the `?v=` query in `index.html` and `CACHE_NAME` in `public/sw.js` together.
 - UI wording: "New workspace", not "New session". "Session" means the herdr server session or an agent's history.
 - There is no linter or formatter. `scripts/` and `site/` are not typechecked, so run what you change there.
+- `vite.config.ts` reads `THIRD_PARTY_NOTICES.md` at build time and ships it in `dist/`.
 
 ## Testing
 
 - `bun:test` only, with no DOM. `src/` tests cover pure logic in `lib/*.test.ts`; component behavior is covered by the Playwright scripts. A `.test.tsx` file is not discovered.
-- A test that needs a live herdr is named `*.contract.test.ts`. Unit tests run with `HERDR_TEST_MODE=unit` and never touch herdr.
+- A test that needs a live herdr is named `*.contract.test.ts`; without that name it runs in the unit suite, except the paths `scripts/ci-tests.ts` lists. Unit tests run with `HERDR_TEST_MODE=unit` and never touch herdr.
 - `bun run check fast` is CI's Fast checks and `bun run check full` adds its two lanes, on a herdr of the run's own that reads nothing from the user's config. Only one run with a lane at a time on a PC: a second one exits and names the first. `bun run check run <command…>` gives one test file or browser script the same herdr.
 - Single file: `HERDR_TEST_MODE=unit bun test ./server/prompt.test.ts`. The `./` is required.
 - The unit suite is `bun run test:unit`. A bare `bun test` also loads every `*.contract.test.ts`; under `HERDR_TEST_MODE=unit` those fail, since unit mode points `HERDR_SOCKET` at a socket that does not exist.
