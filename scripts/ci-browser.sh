@@ -4,6 +4,12 @@ set -euo pipefail
 bun node_modules/playwright-core/cli.js install --with-deps chromium
 CHROME_PATH="$(bun -e 'console.log(require("playwright-core").chromium.executablePath())')"
 export CHROME_PATH
+# The demo scripts below all show the same client: it is built once here and each copies it
+# (scripts/demo-build.ts), instead of each building it again.
+HERDR_DEMO_BUILD="$(mktemp -d)"
+export HERDR_DEMO_BUILD
+trap 'rm -rf "$HERDR_DEMO_BUILD"' EXIT
+bun scripts/demo-build.ts "$HERDR_DEMO_BUILD"
 bun scripts/ui-regression.ts
 bun scripts/sticky-modifiers-regression.ts
 bun scripts/key-bar-customization-demo-regression.ts
