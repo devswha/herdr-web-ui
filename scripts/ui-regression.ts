@@ -375,6 +375,12 @@ try {
   await page.keyboard.press("ArrowLeft");
   assert.equal((await sidebarWidths()).sidebar, dragged.sidebar - 16, "an arrow key moves the focused edge one step");
   assert.equal(await resizer.getAttribute("aria-valuenow"), String(dragged.sidebar - 16));
+  // half the window is the limit the keys enforce, and the edge reports it as the window changes
+  const wide = page.viewportSize()!;
+  await page.setViewportSize({ width: 900, height: wide.height });
+  await until(async () => await resizer.getAttribute("aria-valuemax") === "450", "the edge's upper limit follows the window");
+  await page.setViewportSize(wide);
+  await until(async () => await resizer.getAttribute("aria-valuemax") !== "450", "the limit returns with the window");
   await resizer.dblclick();
   assert.deepEqual(await sidebarWidths(), defaultWidths, "a double-click goes back to the default width and forgets the stored one");
   console.log("PASS the sidebar's edge drags, steps from the keyboard, remembers its width and resets on a double-click");

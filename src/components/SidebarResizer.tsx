@@ -18,13 +18,16 @@ export interface SidebarResizerProps {
 export function SidebarResizer({ width, onResize }: SidebarResizerProps) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ left: number; grip: number; width: number } | null>(null);
+  const drag = useRef<{ left: number; grip: number; width: number; moved: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
   // what the sidebar measures now: the default width is a token, and a narrow window caps a chosen one
   const [shown, setShown] = useState(width ?? SIDEBAR_MIN_WIDTH);
+  // the widest the keys allow in this window; a resize can move it while the sidebar's own width holds
+  const [limit, setLimit] = useState(() => sidebarMaxWidth(window.innerWidth));
   const measure = (): number => {
     const measured = Math.round(ref.current?.parentElement?.getBoundingClientRect().width ?? shown);
     setShown(measured);
+    setLimit(sidebarMaxWidth(window.innerWidth));
     return measured;
   };
   useLayoutEffect(() => { measure(); }, [width]);
@@ -41,7 +44,7 @@ export function SidebarResizer({ width, onResize }: SidebarResizerProps) {
     // no text selection in the pane while the edge moves
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { left: sidebar.left, grip: event.clientX - sidebar.right, width: Math.round(sidebar.width) };
+    drag.current = { left: sidebar.left, grip: event.clientX - sidebar.right, width: Math.round(sidebar.width), moved: false };
     setDragging(true);
   };
   const onPointerMove = (event: PointerEvent<HTMLDivElement>): void => {
@@ -50,6 +53,7 @@ export function SidebarResizer({ width, onResize }: SidebarResizerProps) {
     const next = clampSidebarWidth(event.clientX - state.grip - state.left, window.innerWidth);
     if (next === state.width) return;
     state.width = next;
+    state.moved = true;
     onResize(next);
   };
   const endDrag = (event: PointerEvent<HTMLDivElement>): void => {
@@ -58,8 +62,9 @@ export function SidebarResizer({ width, onResize }: SidebarResizerProps) {
     drag.current = null;
     setDragging(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    // a press that moved nothing chooses no width
-    if (width !== null) storeSidebarWidth(state.width);
+    // a press that moved nothing chooses no width; the drag's own record says so, since the
+    // width prop of a first drag may not have come back yet
+    if (state.moved) storeSidebarWidth(state.width);
   };
   const reset = (): void => {
     storeSidebarWidth(null);
@@ -82,7 +87,7 @@ export function SidebarResizer({ width, onResize }: SidebarResizerProps) {
       aria-orientation="vertical"
       aria-label={t("Resize sidebar")}
       aria-valuemin={SIDEBAR_MIN_WIDTH}
-      aria-valuemax={sidebarMaxWidth(typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerWidth)}
+      aria-valuemax={limit}
       aria-valuenow={shown}
       title={t("Drag to resize · double-click to reset")}
       onPointerDown={onPointerDown}
