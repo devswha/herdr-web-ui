@@ -45,11 +45,17 @@ Control sequences are counted as discarded, never saved for later execution. No 
 on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
 waits for composition to finish. Leaving the input clears its composition guard.
 
-The key bar always has Esc, Tab, Ctrl, Shift, Enter, the arrows and ^C. Settings → Appearance → Key bar adds
-Alt (on by default), Shift+Tab, Home/End, PgUp/PgDn, ^D, ^Z, `|`, `~` and `/`, each in a fixed
-place in the row. Ctrl, Alt and Shift stay held until tapped again and can be combined.
+The key bar defaults to Esc, Tab, Ctrl, Alt, Shift, Enter, the arrows and ^C.
+Settings → Appearance → Key bar → Edit key bar opens the complete list: add or remove keys, move each key up or
+down, and register a custom combination such as Ctrl+W. The catalog includes editing keys and
+F1–F12; a custom combination can use any single printable character, including space and `+`.
+Existing extra-key preferences migrate to the same visible order. Restore defaults returns the
+original bar; an empty list stays empty. The keyboard mode button stays first on touch screens.
+Ctrl, Alt and Shift stay held until tapped again and can be combined. Removing a modifier button
+clears its held state immediately. Ordinary key buttons use the held modifiers, while saved
+combinations send exactly their configured modifiers without changing the held state.
 Direct typing and arrow buttons send logical key chords; Herdr encodes them for the
-PTY's keyboard protocol. Home/End and Page keys use CSI navigation through the attach
+PTY's keyboard protocol. Home/End, Page and Delete/Insert keys use CSI navigation through the attach
 stream because Herdr's RPC key parser lacks those names. Paste, IME commits and terminal reports pass through unchanged.
 The input line and chat composer send their text as typed. Changing panes, leaving the
 terminal view or disconnecting clears the held modifiers.

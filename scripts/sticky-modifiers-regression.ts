@@ -4,14 +4,15 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { chromium } from "playwright-core";
+import { chromium, type Browser } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { workspaceCreate, workspaceClose, paneSendText, paneSendKeys, paneRead } from "../server/herdr/client.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-sticky-qa-"));
 const owned: string[] = [];
 const server = createServer({ port: 0, stateDir: join(root, "state"), token: "" });
-const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+// launched inside the try: a missing Chrome must still stop the server and remove the temp directory
+let launched: Browser | undefined;
 const errors: string[] = [];
 const evidence = process.env.UI_EVIDENCE_DIR;
 if (evidence) mkdirSync(evidence, { recursive: true });
@@ -23,6 +24,7 @@ async function until(check: () => boolean | Promise<boolean>, label: string) {
   }
 }
 try {
+  const browser = launched = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
   for (const mode of ["legacy", "kitty"] as const) {
     const made = await workspaceCreate({ cwd: root, label: `herdr-web-ui-test-sticky-${mode}`, focus: false });
     owned.push(made.workspace.workspace_id);
@@ -52,6 +54,8 @@ try {
       socket.onMessage((raw) => { frames.push(JSON.parse(String(raw))); remote.send(raw); });
     });
     await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);
+    const settingsShortcut = await page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent))
+      ? "Meta+Shift+Comma" : "Control+Shift+Comma";
     const ctrl = page.locator('[data-key="Control"]');
     await until(async () => !(await ctrl.isDisabled()), "terminal input ready");
     // Herdr's screen stream enables bracketed paste; exercise xterm with it disabled too.
@@ -172,16 +176,46 @@ try {
     await until(() => read().length > hardwareBefore.length, "hardware/touch combination received");
     assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+shift+d"]);
     if (mode === "kitty") assert.equal(Buffer.from(read().slice(hardwareBefore.length), "hex").toString(), "\x1b[100;8u");
+    // A physical key on a non-Latin layout names the chord by its position: Korean ㅊ on KeyC
+    // with a held Ctrl is Ctrl+C (an interrupt herdr encodes), not ctrl+ㅊ (a letter it types).
+    const layoutBefore = read();
+    const layoutFrames = frames.length;
+    // keydown and keyup both: xterm waits for the keypress of a key still down and ignores typed text
+    await input.evaluate((element) => {
+      for (const type of ["keydown", "keyup"]) element.dispatchEvent(new KeyboardEvent(type, { key: "ㅊ", code: "KeyC", keyCode: 67, ctrlKey: true, bubbles: true, cancelable: true }));
+    });
+    await until(() => frames.length > layoutFrames, "non-Latin layout chord frame");
+    assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+c"], "a Korean-layout Ctrl+C with a held Alt");
+    await until(() => read().length > layoutBefore.length, "non-Latin layout chord received by PTY");
+    if (mode === "kitty") assert.equal(Buffer.from(read().slice(layoutBefore.length), "hex").toString(), "\x1b[99;7u");
+    // A chord the terminal cannot take now is told, not dropped in silence: the page loses
+    // input readiness, the key bar greys out, and a held-modifier key typed meanwhile is
+    // answered with the not-sent banner. Nothing is queued for later.
+    ws!.send(JSON.stringify({ type: "input-ready", pane_id: pane, ready: false }));
+    await until(() => ctrl.isDisabled(), "key bar disabled while input is not ready");
+    const notReadyFrames = frames.length;
+    await page.keyboard.insertText("q");
+    const notSent = page.locator(".terminal-banner", { hasText: "Not sent: the terminal is not ready for keys." });
+    await notSent.waitFor({ state: "visible" });
+    assert.equal(frames.slice(notReadyFrames).some((frame) => frame.type === "keys" || frame.type === "input"), false, "nothing sent while input is not ready");
+    await notSent.locator(".terminal-banner-action").tap();
+    await until(async () => (await notSent.count()) === 0, "not-sent banner dismissed");
+    ws!.send(JSON.stringify({ type: "input-ready", pane_id: pane, ready: true }));
+    await until(async () => !(await ctrl.isDisabled()), "key bar enabled again");
+    console.log(`${mode} chord while not ready: told, not sent`);
     // Removing the optional Alt button must not leave an invisible held modifier.
-    await page.keyboard.press("Control+Shift+Comma");
+    await page.keyboard.press(settingsShortcut);
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
-    await settings.getByRole("button", { name: "Alt", exact: true }).tap();
-    await settings.getByRole("button", { name: "Close settings", exact: true }).tap();
+    await settings.getByRole("button", { name: "Edit key bar", exact: true }).tap();
+    const keyBarSettings = page.getByRole("dialog", { name: "Key bar", exact: true });
+    const heldModifierSettings = keyBarSettings.getByRole("group", { name: "Held modifiers", exact: true });
+    await heldModifierSettings.getByRole("button", { name: "Alt", exact: true }).tap();
+    await keyBarSettings.getByRole("button", { name: "Close settings", exact: true }).tap();
     assert.equal(await page.locator('[data-key="Alt"]').count(), 0);
     const plainBefore = frames.length;
     await until(async () => !(await ctrl.isDisabled()), "typing ready after settings");
     await input.evaluate((element) => { (element as HTMLTextAreaElement).value = ""; });
-    await settings.waitFor({ state: "hidden" });
+    await keyBarSettings.waitFor({ state: "hidden" });
     await input.focus();
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await input.focus();
@@ -189,9 +223,10 @@ try {
     await until(() => frames.length > plainBefore, "typing after hiding Alt");
     assert.equal(frames.at(-1).type, "input");
     assert.equal(frames.at(-1).text, "z");
-    await page.keyboard.press("Control+Shift+Comma");
-    await settings.getByRole("button", { name: "Alt", exact: true }).tap();
-    await settings.getByRole("button", { name: "Close settings", exact: true }).tap();
+    await page.keyboard.press(settingsShortcut);
+    await settings.getByRole("button", { name: "Edit key bar", exact: true }).tap();
+    await heldModifierSettings.getByRole("button", { name: "Alt", exact: true }).tap();
+    await keyBarSettings.getByRole("button", { name: "Close settings", exact: true }).tap();
     previousMask = 0;
     assert.equal(await page.locator('[data-key="Alt"]').getAttribute("aria-pressed"), "false");
     // Leaving the terminal lens clears held state on the same pane.
@@ -200,6 +235,14 @@ try {
     await until(async () => !(await ctrl.isDisabled()), "terminal lens ready again");
     for (const key of ["Control", "Alt", "Shift"]) assert.equal(await page.locator(`[data-key="${key}"]`).getAttribute("aria-pressed"), "false");
     previousMask = 0;
+    // A cancelled chord or text says so in a banner. The banner column lets taps through to the
+    // terminal under it, so its Dismiss has to take them back.
+    ws!.send(JSON.stringify({ type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: pane }));
+    const refused = page.locator(".terminal-banner", { hasText: "Terminal input could not be confirmed" });
+    await refused.waitFor();
+    await refused.getByRole("button", { name: "Dismiss", exact: true }).tap({ timeout: 5_000 });
+    await refused.waitFor({ state: "hidden" });
+    assert.equal(await ctrl.isDisabled(), false, "a refused key leaves the pane ready for the next one");
     await input.focus();
     await held(7);
     // Disconnect clears all modifiers and sends no retained shortcuts on reconnect.
@@ -212,7 +255,7 @@ try {
   }
   assert.deepEqual(errors, []);
 } finally {
-  await browser.close(); server.stop();
+  await launched?.close(); server.stop();
   for (const id of owned) await workspaceClose(id);
   rmSync(root, { recursive: true, force: true });
 }

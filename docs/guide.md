@@ -248,8 +248,11 @@ On a phone:
   protocols cannot distinguish every chord (for example Ctrl+I and Tab).
   Draft text in the input line is sent unchanged. Modifiers clear
   when leaving the pane or terminal view, or when the connection drops.
-  **Settings → Appearance → Key bar** adds or removes Alt, Shift+Tab, Home/End, PgUp/PgDn,
-  Ctrl+D, Ctrl+Z, `|`, `~` and `/`.
+  **Settings → Appearance → Key bar → Edit key bar** opens a separate screen to add, remove and
+  reorder every key, including modifier
+  buttons. Register a custom combination such as Ctrl+W, choose editing keys or F1–F12, or restore
+  the default row. Saved combinations use exactly their selected modifiers; ordinary keys use
+  the currently held modifiers. Removing a held modifier button clears it.
 - Dragging the terminal scrolls the real herdr pane.
 - **Settings → Phone → Keep screen on** keeps the screen awake while a terminal or chat
   pane is open. It is off by default, releases when the app is hidden, and resumes when

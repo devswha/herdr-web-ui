@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- The terminal input line explains the keyboard button for direct TUI input and
+  the line for paste, voice or swipe typing.
+  ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot)
 - **Settings → Appearance → Sidebar rows** has **Two lines**: a workspace row shows what its
   agent is doing, with the workspace and folder under it, as the sidebar did before its rows
   became one line. **One line**, the workspace's name alone, stays the default.
@@ -18,6 +21,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A double-click returns to the default width. The width is remembered on each device, and the
   sidebar never takes more than half the window.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The mobile terminal key bar has sticky Ctrl, Alt and Shift toggles and an Enter key.
+  Herdr encodes held combinations with arrows, special keys and direct typing for
+  the pane's keyboard protocol. Modifiers clear when leaving
+  the pane or disconnecting. Pasted text and submitted drafts keep their contents.
+  Queued terminal chords and text are cancelled when the sender leaves their attachment or
+  its terminal is replaced.
+  ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot,
+  [#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- Settings can add, remove and reorder every mobile terminal key and register custom key
+  combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
+  and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
+  and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
@@ -67,6 +82,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
   keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
+- An in-app alert and its sound are no longer lost now and then: when the list of panes showed
+  a pane waiting or finished a moment before the status change itself arrived, the open app
+  took the change for old news and said nothing. A finished turn is also measured from its own
+  start in that case, so a short turn is not told as a long one.
+  ([#536](https://github.com/devswha/herdr-web-ui/pull/536))
+- **Dismiss** on the terminal's notice that input was not sent works: a tap or click on it went
+  through to the terminal under it and the notice stayed.
+  ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ## [0.3.52] - 2026-10-06
 
@@ -86,13 +109,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   when it is set) or the `OPENCODE_API_KEY` variable. An OpenCode key without a Go
   subscription shows no meter.
   ([#444](https://github.com/devswha/herdr-web-ui/pull/444) by @diogo7dias)
-- The mobile terminal key bar has sticky Ctrl, Alt and Shift toggles and an Enter key.
-  Herdr encodes held combinations with arrows, special keys and direct typing for
-  the pane's keyboard protocol. Modifiers clear when leaving
-  the pane or disconnecting. Pasted text and submitted drafts keep their contents.
-  Queued terminal chords and text are cancelled when the sender leaves their attachment or
-  its terminal is replaced.
-  ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot)
 
 ### Changed
 - The README answers common questions about installation, Windows support, phone access,

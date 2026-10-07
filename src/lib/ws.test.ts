@@ -324,6 +324,13 @@ it("requires attachment readiness and never replays held input after a detach", 
   socket.receive({ type: "input-ready", pane_id: "w1:p1" });
   expect(client.sendInput("w1:p1", "한글")).toBe(true);
   expect(client.sendKeys("w1:p1", ["ctrl+alt+shift+left"])).toBe(true);
+  // a key or text of an attach that has gone is refused with `input_failed`: this attach stays ready
+  socket.receive({ type: "error", code: "input_failed", message: "stale", pane_id: "w1:p1" });
+  expect(client.canInput("w1:p1")).toBe(true);
+  socket.receive({ type: "error", code: "input_not_ready", message: "not ready", pane_id: "w1:p1" });
+  expect(client.canInput("w1:p1")).toBe(false);
+  socket.receive({ type: "input-ready", pane_id: "w1:p1" });
+  expect(client.canInput("w1:p1")).toBe(true);
   client.detach("w1:p1");
   socket.receive({ type: "input-ready", pane_id: "w1:p1" });
   expect(client.sendInput("w1:p1", "wrong pane")).toBe(false);
