@@ -151,12 +151,13 @@ async function appOnPort(): Promise<boolean> {
   }
 }
 
-/** Why the app's full health fails, as it says: herdr's error while herdr is away. */
-async function healthError(): Promise<string> {
+/** Why the app's full health fails, as it says: herdr's error while herdr is away; null when it answers now (herdr came back). */
+async function healthError(): Promise<string | null> {
   try {
     // short, as health() is: the wait before this has already spent the start's deadline
     const response = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(1500) });
-    const body = (await response.json()) as { error?: { message?: unknown } };
+    const body = (await response.json()) as { ok?: unknown; error?: { message?: unknown } };
+    if (response.ok && body.ok === true) return null;
     return typeof body.error?.message === "string" ? body.error.message : `its health check answered ${response.status}`;
   } catch {
     return "its health check did not answer";
@@ -218,8 +219,10 @@ async function settlePort(): Promise<"ready" | "running" | "failed"> {
   // the app holds the port but cannot reach herdr: another port would put a second server beside it (#428)
   if (await appOnPort()) {
     if (await health()) return "running";
+    const why = await healthError();
+    if (why === null) return "running";
     const pid = recordedPid();
-    failStart(`herdr web ui is running at ${origin}${pid === null ? "" : ` (pid ${pid})`} but cannot reach herdr: ${await healthError()}. It keeps this port and answers again once herdr is back.`);
+    failStart(`herdr web ui is running at ${origin}${pid === null ? "" : ` (pid ${pid})`} but cannot reach herdr: ${why}. It keeps this port and answers again once herdr is back.`);
     return "failed";
   }
   const settings = CONFIG_FILES.at(-1) ?? join(CONFIG_DIR, "env");

@@ -153,6 +153,29 @@ describe("port", () => {
       expect(readFileSync(join(scratch, "state", "server.pid"), "utf8")).toBe(`${process.pid}\n`);
     } finally { await ours.stop(true); }
   }, 40_000);
+
+  it("reports its own server as running when herdr comes back while start asks why it cannot reach it", async () => {
+    // herdr is away through the wait and the check after the bridge probe, and back for the question after that
+    let afterBridge = -1;
+    const ours = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (request) => {
+        if (new URL(request.url).searchParams.get("scope") === "bridge") { afterBridge = 0; return Response.json({ ok: true }); }
+        if (afterBridge >= 0 && afterBridge++ >= 1) return Response.json({ ok: true });
+        return Response.json({ error: { code: "connect_failed", message: "herdr socket unreachable" } }, { status: 502 });
+      },
+    });
+    try {
+      keep(ours.port!);
+      mkdirSync(join(scratch, "state"), { recursive: true });
+      writeFileSync(join(scratch, "state", "server.pid"), `${process.pid}\n`);
+      const started = await run("start", { HERDR_PLUGIN_ROOT: scratch });
+      expect(started.err).not.toContain("cannot reach herdr");
+      expect(started.exitCode).toBe(0);
+      expect(started.out).toContain(`herdr web ui already running at http://127.0.0.1:${ours.port}`);
+    } finally { await ours.stop(true); }
+  }, 40_000);
 });
 
 describe("stop", () => {
