@@ -11,7 +11,8 @@
 # 3. When Tailscale runs on this PC, serves the app to your tailnet (`tailscale serve`, on the first
 #    free HTTPS port) and prints the address a phone opens as a QR code (scripts/plugin.ts phone).
 # 4. On a first install, mentions a GitHub star once. When the gh CLI is signed in and has not
-#    starred the repository, it asks at the terminal and stars only on "y"; it never stars by itself.
+#    starred the repository, it asks at the terminal, for 20 seconds, and stars only on "y"; it
+#    never stars by itself.
 #
 # Run it again at any time: what is already there is kept, and step 3 is repeated.
 #   HERDR_WEB_UI_REF=<branch or tag>   install that ref instead of the latest release
@@ -44,29 +45,48 @@ at_least() {
 }
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{ print $1 }'; }
 
-# Whether the account the gh CLI is signed in to has starred the repository: yes, no, or unknown
-# (no gh, no sign-in, or an answer other than GitHub's "not starred").
+# gh api, given 10 seconds: a gh that does not answer must not hold up an install that is done
+gh_api() {
+  gh api --hostname github.com "$@" </dev/null &
+  gh_pid=$!
+  (sleep 10; kill "$gh_pid" 2>/dev/null) >/dev/null 2>&1 &
+  watch_pid=$!
+  gh_status=0
+  wait "$gh_pid" || gh_status=$?
+  kill "$watch_pid" 2>/dev/null || true
+  return "$gh_status"
+}
+# Whether the account the gh CLI is signed in to has starred the repository, by the status GitHub
+# answers with: yes (204), no (404), or unknown (no gh, no sign-in, no answer, or any other status).
 starred() {
   command -v gh >/dev/null 2>&1 || { echo unknown; return 0; }
-  if why=$(gh api --hostname github.com "user/starred/$REPO" 2>&1 >/dev/null </dev/null); then
-    echo yes
-  else
-    case "$why" in *"HTTP 404"*) echo no ;; *) echo unknown ;; esac
-  fi
+  case "$(gh_api --include "user/starred/$REPO" 2>/dev/null | sed -n '1s/^HTTP[^ ]* \([0-9][0-9][0-9]\).*/\1/p')" in
+    204) echo yes ;;
+    404) echo no ;;
+    *) echo unknown ;;
+  esac
 }
-# Asks once, and stars only on "y". Only at a terminal: an agent or a script that runs this has
-# nobody to answer, and must not wait for one. Under `curl | sh` stdin is the script, so the answer
-# is read from the terminal itself.
+# Asks once, and stars only on "y". Only at a terminal: a script that runs this has nobody to
+# answer. A terminal can have nobody at it either (an agent's), so the question waits 20 seconds
+# and then goes on; POSIX read cannot give up, bash's can. Under `curl | sh` stdin is the script,
+# so the answer is read from the terminal itself.
 offer_star() {
-  [ "$terminal" = 1 ] || return 0
+  [ "$terminal" = 1 ] && [ -z "${CI:-}" ] || return 0
+  command -v bash >/dev/null 2>&1 || return 0
   (exec </dev/tty) 2>/dev/null || return 0
+  # what was typed before the question is not an answer to it
+  ! command -v perl >/dev/null 2>&1 || perl -MPOSIX -e 'tcflush(0, TCIFLUSH)' </dev/tty 2>/dev/null || true
   printf '%s' "herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] "
-  read -r answer </dev/tty || answer=""
+  # the install is done: leaving the question with Ctrl-C is an answer, not a failure
+  trap 'echo; exit 0' INT
+  # shellcheck disable=SC2016 # bash's variable, not this shell's
+  answer=$(bash -c 'read -r -t 20 answer </dev/tty && printf %s "$answer"' 2>/dev/null) || { answer=""; echo; }
+  trap - INT
   case "$answer" in
     y | Y | yes | Yes | YES) ;;
     *) return 0 ;;
   esac
-  if gh api --hostname github.com --method PUT "user/starred/$REPO" >/dev/null 2>&1 </dev/null; then
+  if gh_api --method PUT "user/starred/$REPO" >/dev/null 2>&1; then
     say "starred. Thank you!"
   else
     say "gh could not star it; the page above can"

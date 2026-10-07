@@ -69,6 +69,7 @@ function Test-WindowsPlugin($Plugin) {
     $Plugin.plugin_root -and (Test-Path -LiteralPath (Join-Path $Plugin.plugin_root 'scripts\plugin.ps1'))
 }
 $plugin = Find-Plugin
+$newInstall = $false
 if ($plugin -and -not (Test-WindowsPlugin $plugin)) {
     # A copy from a release older than Windows support never starts here, so no in-app update reaches it.
     Write-Host 'herdr web ui: replacing an installed copy that has no Windows support'
@@ -115,34 +116,58 @@ if ($server.running) {
 } else { Write-Host 'herdr web ui: starts with herdr. Open a new terminal and run: herdr' }
 Write-Host 'herdr web ui: open Phone setup in herdr for phone access.'
 
-# Whether the account the gh CLI is signed in to has starred the repository: yes, no, or unknown
-# (no gh, no sign-in, or an answer other than GitHub's "not starred").
-function Get-Starred {
-    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return 'unknown' }
-    # gh says why on stderr; under Stop, Windows PowerShell would end this script at that line.
-    $ErrorActionPreference = 'Continue'
-    $why = (& gh api --hostname github.com user/starred/devswha/herdr-web-ui 2>&1 | Out-String)
-    if ($LASTEXITCODE -eq 0) { 'yes' } elseif ($why -match 'HTTP 404') { 'no' } else { 'unknown' }
+# One gh api call: gh's exit code and the HTTP status GitHub answered with, or nothing when gh is
+# not there or does not answer in 10 seconds. A gh that hangs must not hold up an install that is done.
+function Invoke-GhApi([string]$Arguments) {
+    $gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $gh) { return }
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $gh.Path
+    $start.Arguments = "api --hostname github.com --include $Arguments"
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($start)
+    $process.StandardInput.Close()
+    $said = $process.StandardOutput.ReadToEndAsync()
+    $null = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit(10000)) {
+        try { $process.Kill() } catch { }
+        return
+    }
+    $status = ''
+    if ($said.Result -match '^HTTP\S* (\d{3})') { $status = $Matches[1] }
+    @{ code = $process.ExitCode; status = $status }
 }
-function Add-Star {
-    $ErrorActionPreference = 'Continue'
-    & gh api --hostname github.com --method PUT user/starred/devswha/herdr-web-ui 2>&1 | Out-Null
-    $LASTEXITCODE -eq 0
+# A script that runs this has nobody to answer. A terminal can have nobody at it either (an agent's),
+# so the question waits 20 seconds for a first key, typed after it was asked, and then goes on.
+function Test-Terminal { -not ($env:CI -or [Console]::IsInputRedirected -or [Console]::IsOutputRedirected) }
+function Wait-Key {
+    $Host.UI.RawUI.FlushInputBuffer()
+    $until = (Get-Date).AddSeconds(20)
+    while (-not [Console]::KeyAvailable) {
+        if ((Get-Date) -gt $until) { return $false }
+        Start-Sleep -Milliseconds 200
+    }
+    $true
 }
-# An agent or a script that runs this has nobody to answer, and must not wait for one.
-function Test-Terminal { -not ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) }
-# Once, on the first install, and not to someone who already starred it. It asks only at a terminal
-# and stars only on "y".
+# Once, on the first install, and not to an account that already starred (204). It asks only when
+# GitHub says the account has not (404), only at a terminal, and stars only on "y".
 if ($newInstall) {
     try {
-        $starred = Get-Starred
-        if ($starred -ne 'yes') {
+        $starred = Invoke-GhApi 'user/starred/devswha/herdr-web-ui'
+        if (-not $starred -or $starred.status -ne '204') {
             Write-Host ''
             Write-Host 'herdr web ui: if it helps you, a GitHub star helps other herdr users find it: https://github.com/devswha/herdr-web-ui'
-            if ($starred -eq 'no' -and (Test-Terminal)) {
-                $answer = Read-Host 'herdr web ui: star it now with the GitHub account gh is signed in to? [y/N]'
+            if ($starred -and $starred.status -eq '404' -and (Test-Terminal)) {
+                Write-Host -NoNewline 'herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] '
+                $answer = ''
+                if (Wait-Key) { $answer = Read-Host } else { Write-Host '' }
                 if ("$answer".Trim() -match '^(y|yes)$') {
-                    if (Add-Star) { Write-Host 'herdr web ui: starred. Thank you!' }
+                    $given = Invoke-GhApi '--method PUT user/starred/devswha/herdr-web-ui'
+                    if ($given -and $given.code -eq 0) { Write-Host 'herdr web ui: starred. Thank you!' }
                     else { Write-Host 'herdr web ui: gh could not star it; the page above can' }
                 }
             }

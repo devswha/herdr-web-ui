@@ -5,8 +5,10 @@ $originalPath = $env:PATH
 $originalLocalAppData = $env:LOCALAPPDATA
 $originalUserProfile = $env:USERPROFILE
 $state = @{ installed = $false; installs = 0; uninstalls = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false; windowsRelease = $true }
-# The gh sign-in's star: 'yes', 'no', or 'unknown' as when gh has no sign-in. No real star is given or read.
-$star = @{ starred = 'unknown'; given = 0; asked = 0; answer = ''; failGive = $false; failAsk = $false }
+# gh is a stand-in .cmd, first on PATH: the installer runs gh as a process, and no real star is read or given.
+# mode.txt beside it is what it answers: starred, not, refuses (the star itself), upstream, signed-out or hangs.
+$star = @{ asked = 0; answer = ''; failAsk = $false }
+$ghStandIn = Join-Path ([IO.Path]::GetTempPath()) "herdr-installer-gh-$PID"
 # A real directory: the installer reads the installed copy to tell whether it can run on Windows.
 $pluginRoot = Join-Path ([IO.Path]::GetTempPath()) "herdr plugin with spaces $PID"
 $launcher = Join-Path $pluginRoot 'scripts\plugin.ps1'
@@ -50,14 +52,6 @@ function herdr {
         }
     }
 }
-function gh {
-    if (($args -join ' ') -notmatch '^api --hostname github\.com (--method PUT )?user/starred/devswha/herdr-web-ui$') { throw "Unexpected gh command: $args" }
-    $global:LASTEXITCODE = 0
-    if ($args -contains 'PUT') {
-        if ($star.failGive) { $global:LASTEXITCODE = 1; 'gh: Not Found (HTTP 404)' } else { $star.given++ }
-    } elseif ($star.starred -eq 'no') { $global:LASTEXITCODE = 1; '{"message":"Not Found"}'; 'gh: Not Found (HTTP 404)' }
-    elseif ($star.starred -ne 'yes') { $global:LASTEXITCODE = 4; 'To get started with GitHub CLI, please run:  gh auth login' }
-}
 function Read-Host {
     $star.asked++
     if ($star.failAsk) { throw 'Read-Host has no terminal to read from' }
@@ -73,6 +67,55 @@ function Invoke-WebRequest {
 }
 
 try {
+    New-Item -ItemType Directory -Force -Path $ghStandIn | Out-Null
+    Set-Content -LiteralPath (Join-Path $ghStandIn 'gh.cmd') -Encoding Ascii -Value @'
+@echo off
+echo %*>>"%~dp0calls.txt"
+set /p mode=<"%~dp0mode.txt"
+echo %* | findstr /C:"--method PUT" >nul
+if not errorlevel 1 goto star
+if "%mode%"=="starred" goto starred
+if "%mode%"=="hangs" goto hangs
+if "%mode%"=="signed-out" goto signedout
+if "%mode%"=="upstream" goto upstream
+echo HTTP/2.0 404 Not Found
+echo gh: Not Found (HTTP 404) 1>&2
+exit /b 1
+:starred
+echo HTTP/2.0 204 No Content
+exit /b 0
+:hangs
+ping -n 16 127.0.0.1 >nul
+exit /b 0
+:signedout
+echo To get started with GitHub CLI, please run:  gh auth login 1>&2
+exit /b 4
+:upstream
+echo HTTP/2.0 500 Internal Server Error
+echo gh: upstream answered HTTP 404 (HTTP 500) 1>&2
+exit /b 1
+:star
+if "%mode%"=="refuses" goto refused
+echo HTTP/2.0 204 No Content
+exit /b 0
+:refused
+echo HTTP/2.0 404 Not Found
+echo gh: Not Found (HTTP 404) 1>&2
+exit /b 1
+'@
+    $env:PATH = "$ghStandIn;$env:PATH"
+    $ghCalls = Join-Path $ghStandIn 'calls.txt'
+    # a first install with this gh; then what the installer said, and how often it starred
+    $firstInstall = {
+        param([string]$Gh, [string]$Source)
+        $state.installed = $false; $star.asked = 0
+        Set-Content -LiteralPath (Join-Path $ghStandIn 'mode.txt') -Encoding Ascii -Value $Gh
+        Remove-Item -LiteralPath $ghCalls -Force -ErrorAction SilentlyContinue
+        if ($Source) { Invoke-Expression $Source 6>&1 | Out-String } else { & $installer -Ref '' 6>&1 | Out-String }
+    }
+    $given = { @(Get-Content -LiteralPath $ghCalls -ErrorAction SilentlyContinue | Where-Object { $_ -match '--method PUT' }).Count }
+    Set-Content -LiteralPath (Join-Path $ghStandIn 'mode.txt') -Encoding Ascii -Value 'signed-out'
+
     & $installer -Ref ''
     Assert ($state.installed -and $state.ref -eq 'v1.10.0' -and $state.started) 'Install must choose the highest stable release and start a running server'
     & $installer -Ref ''
@@ -115,43 +158,53 @@ try {
 
     # The star: mentioned once on a first install, asked only at a terminal, given only on "y".
     $mention = 'a GitHub star helps other herdr users find it'
-    $firstInstall = { $state.installed = $false; $star.given = 0; $star.asked = 0; $star.failGive = $false; $star.failAsk = $false }
-    & $firstInstall; $star.starred = 'yes'
+    $question = 'star it now with the GitHub account'
+    $said = & $firstInstall 'starred'
+    Assert ($said -notmatch $mention -and $star.asked -eq 0 -and (& $given) -eq 0) "An account that already starred must hear nothing of it: $said"
+    $said = & $firstInstall 'signed-out'
+    Assert ($said -match $mention -and $said -notmatch $question -and (& $given) -eq 0) "Without a gh sign-in the link is all there is: $said"
+    $newInstall = $true
     $said = & $installer -Ref '' 6>&1 | Out-String
-    Assert ($said -notmatch $mention -and $star.asked -eq 0 -and $star.given -eq 0) "Someone who already starred must hear nothing of it: $said"
-    & $firstInstall; $star.starred = 'unknown'
-    $said = & $installer -Ref '' 6>&1 | Out-String
-    Assert ($said -match $mention -and $star.asked -eq 0 -and $star.given -eq 0) "Without a gh sign-in the link is all there is: $said"
-    $star.starred = 'no'
-    $said = & $installer -Ref '' 6>&1 | Out-String
-    Assert ($said -notmatch $mention -and $star.asked -eq 0) "A rerun must not mention the star again: $said"
+    Remove-Variable newInstall
+    Assert ($said -notmatch $mention) "A rerun must not mention the star, whatever the caller's variables hold: $said"
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $said = & $firstInstall 'hangs'
+    Assert ($said -match $mention -and $said -notmatch $question -and $clock.Elapsed.TotalSeconds -lt 14) "A gh that does not answer must be left after 10 seconds, with the link: $($clock.Elapsed.TotalSeconds) s, $said"
 
-    # Whether a terminal is there is the one answer a test host cannot give both ways: the installer's own text, with that line replaced.
+    # The installer as it is, where this test runs: CI has no terminal, and a developer's terminal is told it is CI.
+    $ci = $env:CI; $env:CI = 'true'
+    try { $said = & $firstInstall 'not' } finally { $env:CI = $ci }
+    Assert ($said -match $mention -and $said -notmatch $question -and $star.asked -eq 0 -and (& $given) -eq 0) "An agent or a script must get the link and no question: $said"
+
+    # Whether somebody is at a terminal is what a test host cannot be: the installer's own text, with those two answers given.
     $source = Get-Content -Raw $installer
-    $terminalCheck = 'function Test-Terminal \{[^\r\n]*\}'
-    Assert ($source -match $terminalCheck) 'The installer must decide in Test-Terminal whether it may ask'
-    $unattended = $source -replace $terminalCheck, 'function Test-Terminal { $false }'
-    $atTerminal = $source -replace $terminalCheck, 'function Test-Terminal { $true }'
-    & $firstInstall
-    $said = Invoke-Expression $unattended 6>&1 | Out-String
-    Assert ($said -match $mention -and $star.asked -eq 0 -and $star.given -eq 0) "An agent or a script must get the link and no question: $said"
-    & $firstInstall; $star.answer = ''
-    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
-    Assert ($said -match $mention -and $star.asked -eq 1 -and $star.given -eq 0) "Enter alone must not star: $said"
-    & $firstInstall; $star.answer = 'n'
-    Invoke-Expression $atTerminal 6>&1 | Out-Null
-    Assert ($star.asked -eq 1 -and $star.given -eq 0) 'A refusal must not star'
-    & $firstInstall; $star.answer = 'y'
-    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
-    Assert ($star.asked -eq 1 -and $star.given -eq 1 -and $said -match 'starred\. Thank you') "A yes must star once: $said"
-    & $firstInstall; $star.failGive = $true
-    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
-    Assert ($star.given -eq 0 -and $said -match 'could not star it') "A star gh refuses must be said, not thrown: $said"
-    & $firstInstall; $star.failAsk = $true
-    $said = Invoke-Expression $atTerminal 6>&1 | Out-String
-    Assert ($state.installed -and $star.asked -eq 1 -and $star.given -eq 0) "A question that cannot be asked must not fail the install: $said"
-    $star.starred = 'unknown'; $star.failAsk = $false
-    Write-Host 'PASS star: silent when starred or on a rerun, a link without gh or a terminal, asked once at a terminal and given only on yes'
+    $decision = 'if ($newInstall) {'
+    Assert (($source -split [regex]::Escape($decision)).Count -eq 2) 'The installer must decide once, after its helpers, whether this was a first install'
+    $atTerminal = $source.Replace($decision, "function Test-Terminal { `$true }; function Wait-Key { `$true }; $decision")
+    $nobodyThere = $source.Replace($decision, "function Test-Terminal { `$true }; function Wait-Key { `$false }; $decision")
+    $star.answer = 'y'
+    $said = & $firstInstall 'not' $nobodyThere
+    Assert ($said -match $question -and $star.asked -eq 0 -and (& $given) -eq 0) "A question nobody answers must be left without a star: $said"
+    foreach ($gh in 'upstream', 'signed-out') {
+        $said = & $firstInstall $gh $atTerminal
+        Assert ($said -match $mention -and $said -notmatch $question -and $star.asked -eq 0) "Only GitHub's own 404 is a reason to ask, not ${gh}: $said"
+    }
+    foreach ($answer in '', 'n', 'yy') {
+        $star.answer = $answer
+        $said = & $firstInstall 'not' $atTerminal
+        Assert ($said -match $question -and $star.asked -eq 1 -and (& $given) -eq 0) "The answer '$answer' must not star: $said"
+    }
+    $star.answer = 'y'
+    $said = & $firstInstall 'not' $atTerminal
+    Assert ($star.asked -eq 1 -and (& $given) -eq 1 -and $said -match 'starred\. Thank you') "A yes must star once: $said"
+    $said = & $firstInstall 'refuses' $atTerminal
+    Assert ($said -match 'could not star it' -and $state.installed) "A star gh refuses must be said, not thrown: $said"
+    $star.failAsk = $true
+    $said = & $firstInstall 'not' $atTerminal
+    $star.failAsk = $false
+    Assert ($state.installed -and $star.asked -eq 1 -and (& $given) -eq 0) "A question that cannot be asked must not fail the install: $said"
+    & $firstInstall 'signed-out' | Out-Null
+    Write-Host 'PASS star: silent when starred or on a rerun, a link without gh, an answer or a terminal, asked once at a terminal and given only on yes'
 
     # A PC without herdr: its installer is a stand-in .cmd, and nothing of this PC's own herdr is in reach.
     $scratch = Join-Path ([IO.Path]::GetTempPath()) "herdr-installer-test-$PID"
@@ -189,5 +242,6 @@ try {
     $env:USERPROFILE = $originalUserProfile
     if ($herdrStandIn) { Set-Item Function:\herdr $herdrStandIn }
     if ($scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $ghStandIn -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $pluginRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
