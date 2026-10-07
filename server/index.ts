@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -54,7 +54,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest, promptWaitEnded } from "./prompt.ts";
+import { codexQuestionsCollapsed, handlePromptRequest, modelListWaits, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -62,6 +62,8 @@ import { AttachOutputTail, isTakeoverExit } from "./attach-output.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { mirrorInput } from "./mirror-input.ts";
+import { PendingInputs, PendingInputError, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
+import { PendingRequestBook } from "./pending-requests.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
@@ -142,7 +144,7 @@ const TYPED_SETTLE_MS = 300;
  * reaches the pane later.
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready", "take-over"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -328,6 +330,8 @@ export function createServer(
     submitDeadlineMs?: number;
     /** SUBMIT_DELAY_MS; a test lengthens it to hold a second message behind the first */
     submitDelayMs?: number;
+    /** How long a queued send waits for a confirmed new turn to start; tests shorten it. */
+    pendingStartTimeoutMs?: number;
     /** how long a push alert waits for the pane to change first (server/push.ts); tests send at once */
     alertTiming?: Partial<AlertTiming>;
     /** ATTACH_RETRY_FOR_MS; tests shorten it */
@@ -364,6 +368,15 @@ export function createServer(
   // herdr releases its exclusive attach slot only after the old process exits.
   const retiringAttachments = new Map<string, Promise<void>>();
   const clients = new Set<Client>();
+  type PendingLease = { attachment: PaneAttachment; pty: PtySession | MirrorSession; authority: object };
+  const pendingAuthorities = new WeakMap<Client, Map<string, object>>();
+  type PendingItem = PendingRecord<Client, PendingLease>;
+  const pending = new PendingInputs<Client, PendingLease>((owner, paneId, messages, removed) => {
+    send(owner, { type: "pending-messages", pane_id: paneId, messages, ...(removed ? { removed } : {}) });
+  }, Date.now, options.pendingStartTimeoutMs);
+  const pendingDrains = new Set<string>();
+  type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; message?: string };
+  const pendingRequests = new WeakMap<Client, PendingRequestBook<SubmitReply>>();
   /** each pane's input while a composer message is in flight, one step after another */
   const paneQueues = new Map<string, Promise<unknown>>();
   /** when each pane last got keystrokes through its attach pty */
@@ -451,9 +464,141 @@ export function createServer(
     return codexQuestionsCollapsed((await paneRead({ paneId, source: "visible", format: "text" })).text);
   }
 
+  const pendingIdentity = (pane: HerdrPane): PendingIdentity => ({
+    agent: pane.agent ?? pane.agent_session?.agent ?? null, terminalId: pane.terminal_id,
+    session: pane.agent_session ? `${pane.agent_session.kind}:${pane.agent_session.source}:${pane.agent_session.value}` : null,
+  });
+  const pendingText = (text: string): string => {
+    const normalized = text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n");
+    if (!normalized.trim() || normalized.length > 20_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(normalized)) {
+      throw new HerdrError("invalid_submit_text", "A pending chat message must be nonempty text, at most 20000 characters, without terminal control characters");
+    }
+    return normalized;
+  };
+  function pendingLease(owner: Client, paneId: string): PendingLease {
+    const attachment = attachments.get(paneId);
+    if (!attachment) throw new HerdrError("input_not_ready", "The pane is not attached and ready");
+    let authorities = pendingAuthorities.get(owner);
+    if (!authorities) { authorities = new Map(); pendingAuthorities.set(owner, authorities); }
+    let authority = authorities.get(paneId);
+    if (!authority) { authority = {}; authorities.set(paneId, authority); }
+    const lease = { attachment, pty: attachment.pty, authority };
+    authorizePending(owner, paneId, lease);
+    return lease;
+  }
+  // Losing authority cancels already-running checks too. Rejoining the same shared
+  // attachment or returning to interact must never revive a captured lease.
+  function holdPending(owner: Client, paneId?: string): void {
+    if (paneId === undefined) pendingAuthorities.delete(owner);
+    else pendingAuthorities.get(owner)?.delete(paneId);
+    pending.hold(owner, paneId);
+  }
+  function holdPendingPane(paneId: string, fault: { code: string; message: string }): void {
+    for (const owner of clients) pendingAuthorities.get(owner)?.delete(paneId);
+    pending.holdPane(paneId, fault);
+  }
+  function authorizePending(owner: Client, paneId: string, lease: PendingLease): void {
+    authorizeSocket(owner);
+    if (!clients.has(owner) || owner.data.closing) throw new HerdrError("disconnected", "The pending message's connection closed");
+    if (pendingAuthorities.get(owner)?.get(paneId) !== lease.authority) throw new HerdrError("pending_lease_lost", "The pending message's authority changed; review it before sending again");
+    const attachment = attachments.get(paneId);
+    if (attachment?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
+    if (attachment !== lease.attachment || attachment.pty !== lease.pty || !owner.data.attached.has(paneId)
+      || !attachment.clients.has(owner) || !attachment.ready) throw new HerdrError("input_not_ready", "The pending message's pane connection changed");
+  }
+  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean }> {
+    authorizePending(owner, paneId, lease);
+    // The same normalized snapshot the client sees includes a known Codex finish that
+    // herdr reports as unknown. Nothing is inferred from a bare unknown state.
+    const pane = (await clientSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+    if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
+    const current = pendingIdentity(pane);
+    if (identity && (identity.agent !== current.agent || identity.terminalId !== current.terminalId || identity.session !== current.session)) {
+      throw new HerdrError("pending_target_changed", "The pane's terminal or agent session changed; review the message before sending it again");
+    }
+    // the live screen, not the viewport: a pane scrolled into its history still draws its next
+    // menu or password prompt at the bottom (server/prompt.ts liveScreen)
+    const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    if (secretPrompt(screen, lease.attachment.cols) !== null) {
+      throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
+    }
+    const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
+    if (current.agent && (parseInteractivePrompt(current.agent, screen) !== null || modelListWaits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
+      throw new HerdrError("agent_blocked", "The agent is waiting for an answer in the terminal");
+    }
+    if (current.agent && !["working", "idle", "done"].includes(pane.agent_status) && !collapsed) {
+      throw new HerdrError("agent_not_ready", "The agent's current input state is not known");
+    }
+    authorizePending(owner, paneId, lease);
+    return { pane, identity: current, working: current.agent !== null && (pane.agent_status === "working" || collapsed) };
+  }
+  const pendingFault = (error: unknown) => ({
+    code: error instanceof HerdrError || error instanceof PendingInputError ? error.code : "submit_failed",
+    message: error instanceof Error ? error.message : String(error),
+  });
+  async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
+    automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
+    let wrote = false;
+    // what the checks below read is older than a status event that arrives while they run
+    let mark = pending.mark(paneId);
+    try {
+      const typed = Date.now() - (lastTyped.get(paneId) ?? 0);
+      if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
+      mark = pending.mark(paneId);
+      const context = await pendingContext(owner, paneId, lease, identity);
+      if (automatic && context.working) {
+        pending.observe(paneId, "working", mark);
+        throw new HerdrError("pending_wait", "The agent is working again; this message still waits for its next turn");
+      }
+      if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
+      authorizePending(owner, paneId, lease);
+      // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
+      // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
+      wrote = true;
+      await paneSendText(paneId, `\u001b[200~${text}\u001b[201~`);
+      await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
+      const beforeEnter = await pendingContext(owner, paneId, lease, identity);
+      if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
+      authorizePending(owner, paneId, lease);
+      committing(!automatic && beforeEnter.working);
+      await paneSendKeys(paneId, ["Enter"]);
+      return { ok: true };
+    } catch (error) {
+      const fault = wrote ? { code: "submit_changed", message: "Pending-message delivery could not be confirmed. Check the terminal before sending again." } : pendingFault(error);
+      if (automatic && !wrote && fault.code === "agent_blocked") pending.observe(paneId, "blocked", mark);
+      return { ok: false, ...fault };
+    }
+  }
+  async function dispatchPending(item: PendingItem, automatic: boolean, arrivedAt: number): Promise<SubmitReply> {
+    const reply = await dispatchPendingText(item.owner, item.paneId, item.message.text, item.lease, item.identity,
+      automatic, arrivedAt, (working) => pending.committing(item, working));
+    pending.settle(item, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed",
+      automatic && ["pending_wait", "agent_blocked"].includes(reply.code ?? ""));
+    return reply;
+  }
+  function drainPending(paneId: string): void {
+    if (pendingDrains.has(paneId) || pending.next(paneId) === null) return;
+    pendingDrains.add(paneId);
+    const arrivedAt = Date.now();
+    void serialize(paneId, async () => {
+      const item = pending.next(paneId);
+      if (item && pending.claim(item, true)) await dispatchPending(item, true, arrivedAt);
+    }).catch((error) => console.warn("pending message:", pendingFault(error).code)).finally(() => {
+      pendingDrains.delete(paneId);
+      drainPending(paneId);
+    });
+  }
+  function replayPendingOutcome(owner: Client, paneId: string, id: string): boolean {
+    const outcome = pending.outcome(owner, paneId, id);
+    if (!outcome) return false;
+    send(owner, { type: "pending-messages", pane_id: paneId, messages: pending.list(owner, paneId), removed: [{ id, outcome }] });
+    return true;
+  }
+
   function stopSlowClient(client: Client): void {
     if (client.data.closing) return;
     client.data.closing = true;
+    pending.close(client);
     clients.delete(client);
     for (const paneId of client.data.attached) detach(paneId, client);
     client.data.attached.clear();
@@ -562,6 +707,7 @@ export function createServer(
   function closeAttachment(paneId: string): void {
     const attachment = attachments.get(paneId);
     if (!attachment) return;
+    for (const member of attachment.clients) holdPending(member, paneId);
     attachments.delete(paneId);
     clearTimeout(attachment.retry);
     clearTimeout(attachment.relookup);
@@ -777,7 +923,10 @@ export function createServer(
         clearTimeout(holdTimer);
         clearTimeout(tailTimer);
         if (attachments.get(paneId) !== attachment) return;
-        if (attachment.ready) broadcast(paneId, { type: "input-ready", pane_id: paneId, ready: false });
+        if (attachment.ready) {
+          broadcast(paneId, { type: "input-ready", pane_id: paneId, ready: false });
+          holdPendingPane(paneId, { code: "input_not_ready", message: "The pane's attachment is restarting; review pending messages before sending them" });
+        }
         attachment.ready = false;
         const now = Date.now();
         // displaced after attaching (herdr's last words): the read-race words may still be on its screen
@@ -920,6 +1069,7 @@ export function createServer(
   }
 
   function detach(paneId: string, client: Client): void {
+    holdPending(client, paneId);
     client.data.output.delete(paneId);
     const attachment = attachments.get(paneId);
     if (!attachment) return;
@@ -952,6 +1102,7 @@ export function createServer(
     if (turn && derived === "working") promptWaitEnded(paneId);
     // a background task starting or ending is no turn: the status stands, and nothing is alerted
     const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
+    if (turn) { pending.status(paneId, status); drainPending(paneId); }
     broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: background });
     if (turn) push.onStatus(paneId, status).catch(logPushError);
   }
@@ -973,23 +1124,37 @@ export function createServer(
       // an agent herdr lost on the way still works and finishes as such (server/completion.ts);
       // an OmO pane whose session is not known keeps herdr's status, under its own name
       const status = completions.observe(paneId, raw, omo.runs(paneId) ? "omo" : agent);
+      pending.status(paneId, status); drainPending(paneId);
       broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
       push.onStatus(paneId, status).catch(logPushError);
     },
     // a finish reported as done, now in front at herdr's terminal: seen, idle again
     onFocus: (paneId) => {
       if (!completions.seen(paneId)) return;
+      pending.status(paneId, "idle"); drainPending(paneId);
       broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: "idle" });
       push.onStatus(paneId, "idle").catch(logPushError);
     },
-    onBaseline: (panes) => push.seed(panes),
+    onBaseline: (panes) => {
+      push.seed(panes);
+      for (const pane of panes) {
+        // A fast mirrored client may queue before the collector's first baseline. A
+        // known ready baseline can schedule a fresh guarded check even when the tracker
+        // still remembers working; an unknown baseline never supplies that permission.
+        const status = pane.agent_status === "idle" || pane.agent_status === "done" ? pane.agent_status : completions.current(pane.pane_id) ?? pane.agent_status;
+        pending.status(pane.pane_id, status); drainPending(pane.pane_id);
+      }
+    },
     // the tracker first: what it makes of each pane (a finish after work is done, not idle) is
     // what the alerts are measured against from here, or the next event would alert of it
     onResync: (panes, newer) => {
       completions.resync(panes, newer);
+      for (const pane of panes) { pending.status(pane.pane_id, completions.current(pane.pane_id) ?? pane.agent_status); drainPending(pane.pane_id); }
       push.resync(panes.map((pane) => ({ ...pane, agent_status: completions.current(pane.pane_id) ?? pane.agent_status })), newer);
     },
     onPaneEnded: (paneId) => {
+      holdPendingPane(paneId, { code: "pane_not_found", message: "The pane ended; its pending messages were not sent" });
+      pending.forget(paneId);
       completions.forget(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);
@@ -1930,12 +2095,17 @@ export function createServer(
             }
             case "submit": {
               // every submit is answered: the composer keeps its text until it hears back
-              const result = (ok: boolean, code?: string, text?: string) => send(client, {
-                type: "submit-result", id: message.id, pane_id: message.pane_id, ok, ...(code ? { code, message: text } : {}),
+              const result = (ok: boolean, code?: string, text?: string, accepted?: PendingMessage) => send(client, {
+                type: "submit-result", id: message.id, pane_id: message.pane_id, ok, ...(accepted ? { pending: accepted } : {}), ...(code ? { code, message: text } : {}),
               });
               if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string" || !message.pane_id
                 || typeof message.text !== "string" || typeof message.payload !== "string") {
                 send(client, { type: "error", code: "invalid_submit", message: "id must be an integer, pane_id, text and payload strings" });
+                break;
+              }
+              if ((message.delivery !== undefined && message.delivery !== "immediate" && message.delivery !== "queue")
+                || (message.delivery === "queue" && message.typed !== undefined && message.typed !== false)) {
+                result(false, "invalid_delivery", "Use immediate delivery, or queue a chat message");
                 break;
               }
               if (client.data.mode === "observe") {
@@ -1949,6 +2119,37 @@ export function createServer(
               }
               const arrivedAt = Date.now();
               try {
+                if (message.delivery === "queue") {
+                  let book = pendingRequests.get(client);
+                  if (!book) { book = new PendingRequestBook((reply: SubmitReply) => reply.pending !== undefined && pending.retains(client, reply.pending.id)); pendingRequests.set(client, book); }
+                  // a digest, so a receipt kept for replay never holds a large request's bytes
+                  const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify([message.pane_id, message.text, message.payload])).digest("hex");
+                  const previous = book.get(message.id, fingerprint);
+                  const lease = previous ? null : pendingLease(client, message.pane_id);
+                  const reply = previous ?? book.run(message.id, fingerprint, () => serialize(message.pane_id, async (): Promise<SubmitReply> => {
+                    const text = pendingText(message.text);
+                    const mark = pending.mark(message.pane_id);
+                    const context = await pendingContext(client, message.pane_id, lease!);
+                    if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "This pending message waited too long; nothing was typed");
+                    if (!context.working) {
+                      // the agent left while the message was on its way: a chat follow-up is not typed into what is there now
+                      if (context.identity.agent === null) throw new HerdrError("agent_not_ready", "No agent is in front of this pane now; nothing was typed");
+                      // A request that raced the turn's finish still needs cancellable
+                      // paste + Enter; agent.prompt commits its key inside herdr. With a message
+                      // already waiting its turn here, this one takes its place behind it instead.
+                      if (!pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
+                    }
+                    pending.observe(message.pane_id, context.pane.agent_status, mark);
+                    const item = pending.enqueue(client, message.pane_id, message.id, text, lease!, context.identity);
+                    return { ok: true, pending: item.message };
+                  }).catch((error): SubmitReply => ({ ok: false, ...pendingFault(error) })));
+                  const answer = await reply;
+                  const accepted = answer.pending ? pending.get(client, message.pane_id, answer.pending.id)?.message : undefined;
+                  if (answer.pending && !accepted) replayPendingOutcome(client, message.pane_id, answer.pending.id);
+                  result(answer.ok, answer.code, answer.message, accepted);
+                  drainPending(message.pane_id);
+                  break;
+                }
                 await serialize(message.pane_id, () => {
                   // held while this waited its turn (the attach was refused after the check above)
                   if (attachments.get(message.pane_id)?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
@@ -1956,8 +2157,36 @@ export function createServer(
                 });
                 result(true);
               } catch (error) {
-                result(false, error instanceof HerdrError ? error.code : "submit_failed", error instanceof Error ? error.message : String(error));
+                const fault = pendingFault(error); result(false, fault.code, fault.message);
               }
+              break;
+            }
+            case "pending-action": {
+              const result = (reply: SubmitReply) => send(client, { type: "pending-result", id: message.id, pane_id: message.pane_id, pending_id: message.pending_id, ...reply });
+              if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string" || !message.pane_id
+                || typeof message.pending_id !== "string" || !message.pending_id || !["steer", "discard"].includes(message.action)) {
+                result({ ok: false, code: "invalid_pending_action", message: "Use steer or discard with a pending-message id" }); break;
+              }
+              const arrivedAt = Date.now();
+              try {
+                authorizeSocket(client);
+                const lease = message.action === "steer" ? pendingLease(client, message.pane_id) : null;
+                const answer = await serialize(message.pane_id, async (): Promise<SubmitReply> => {
+                  authorizeSocket(client);
+                  if (!clients.has(client) || client.data.closing) throw new HerdrError("disconnected", "This connection closed");
+                  const item = pending.get(client, message.pane_id, message.pending_id);
+                  if (!item) return replayPendingOutcome(client, message.pane_id, message.pending_id)
+                    ? { ok: true } : { ok: false, code: "pending_not_found", message: "This pending message does not belong to this connection" };
+                  if (message.action === "discard") return pending.discard(item) ? { ok: true } : { ok: false, code: "pending_busy", message: "This message is already being sent" };
+                  if (item.message.state === "uncertain") return { ok: false, code: "pending_uncertain", message: "Check the terminal before sending this message again" };
+                  await pendingContext(client, item.paneId, lease!, item.identity);
+                  if (!pending.claim(item, false)) return { ok: false, code: "pending_busy", message: "This message is already being sent" };
+                  item.lease = lease!;
+                  return dispatchPending(item, false, arrivedAt);
+                });
+                result(answer);
+                drainPending(message.pane_id);
+              } catch (error) { result({ ok: false, ...pendingFault(error) }); }
               break;
             }
             case "role": {
@@ -1966,6 +2195,7 @@ export function createServer(
                 break;
               }
               if (client.data.readOnly) message.mode = "observe";
+              if (message.mode === "observe") holdPending(client);
               client.data.mode = message.mode;
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {
@@ -1989,6 +2219,7 @@ export function createServer(
       close(client) {
         client.data.unwatchDevice?.();
         if (client.data.relay) { client.data.relay.close(); return; }
+        pending.close(client);
         clients.delete(client);
         for (const paneId of client.data.attached) detach(paneId, client);
         client.data.attached.clear();
@@ -2001,6 +2232,7 @@ export function createServer(
 
   // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
   const outputTimer = setInterval(() => {
+    pending.expire();
     for (const paneId of attachments.keys()) reconcileOutput(paneId);
   }, 100);
   outputTimer.unref();
