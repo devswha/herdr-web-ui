@@ -14,7 +14,7 @@ const MENTION = "a GitHub star helps other herdr users find it";
 const QUESTION = "star it now with the GitHub account gh is signed in to? [y/N]";
 const CTRL_C = "\x03";
 /** what the stand-in gh answers: the status line `gh api --include` prints, what it says on stderr, and its exit code */
-type Gh = "starred" | "not" | "refuses" | "denied" | "upstream" | "signed-out" | "hangs" | "stubborn";
+type Gh = "starred" | "not" | "refuses" | "denied" | "upstream" | "signed-out" | "hangs" | "stubborn" | "lingering";
 const STAND_INS: Record<string, string> = {
   herdr: `case "$*" in
   --version) echo "herdr 0.9.3" ;;
@@ -29,12 +29,14 @@ esac`,
 mode=$(cat "$SCRATCH/gh.mode")
 [ "$mode" != hangs ] || exec sleep 60
 [ "$mode" != stubborn ] || { trap '' TERM; exec sleep 60; }
+# a child that keeps gh's output open after gh itself has answered and gone
+[ "$mode" != lingering ] || { sleep 60 & }
 case "$*" in
   *"--method PUT"*) [ "$mode" != refuses ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }; exit 0 ;;
 esac
 case "$mode" in
   starred) printf 'HTTP/2.0 204 No Content\\n\\n' ;;
-  not | refuses) printf 'HTTP/2.0 404 Not Found\\n\\n{"message":"Not Found"}\\n'; echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+  not | refuses | lingering) printf 'HTTP/2.0 404 Not Found\\n\\n{"message":"Not Found"}\\n'; echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
   denied) printf 'HTTP/2.0 403 Forbidden\\n\\n'; echo "gh: Resource not accessible by personal access token (HTTP 403)" >&2; exit 1 ;;
   upstream) printf 'HTTP/2.0 500 Internal Server Error\\n\\n'; echo "gh: upstream answered HTTP 404 (HTTP 500)" >&2; exit 1 ;;
   signed-out) echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4 ;;
@@ -168,6 +170,15 @@ describe.skipIf(platform() === "win32")("install.sh without a terminal", () => {
     expect(exitCode).toBe(0);
     expect(out).toContain(MENTION);
     expect(Date.now() - started).toBeLessThan(20_000);
+  }, 30_000);
+
+  it.concurrent("is not held by a child of gh that keeps its output open after gh answered", async () => {
+    const pc = new Pc("lingering");
+    const started = Date.now();
+    const { out, exitCode } = await pc.unattended();
+    expect(exitCode).toBe(0);
+    expect(out).toContain(MENTION);
+    expect(Date.now() - started).toBeLessThan(8_000);
   }, 30_000);
 
   it.concurrent("kills a gh that ignores TERM, and goes on with the link", async () => {

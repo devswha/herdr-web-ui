@@ -68,7 +68,13 @@ gh_api() {
 # answers with: yes (204), no (404), or unknown (no gh, no sign-in, no answer, or any other status).
 starred() {
   command -v gh >/dev/null 2>&1 || { echo unknown; return 0; }
-  case "$(gh_api --include "user/starred/$REPO" 2>/dev/null | sed -n '1s/^HTTP[^ ]* \([0-9][0-9][0-9]\).*/\1/p')" in
+  # into a file, not a pipe: a gh that left a child holding its output would hold a pipe's reader
+  # past the deadline, where a file is read once gh_api has returned
+  answer=$(mktemp 2>/dev/null) || { echo unknown; return 0; }
+  gh_api --include "user/starred/$REPO" >"$answer" 2>/dev/null || true
+  status=$(sed -n '1s/^HTTP[^ ]* \([0-9][0-9][0-9]\).*/\1/p' "$answer" 2>/dev/null || true)
+  rm -f "$answer"
+  case "$status" in
     204) echo yes ;;
     404) echo no ;;
     *) echo unknown ;;
