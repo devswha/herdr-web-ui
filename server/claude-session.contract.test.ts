@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, expect, it } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import { claudeProjectDir } from "./claude-store.ts";
+import { startFakePushService } from "./push.fake.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "./herdr/client.ts";
-import type { ConversationResponse } from "../shared/protocol.ts";
+import type { ConversationResponse, OmoActivity, PanePlan, ServerMessage } from "../shared/protocol.ts";
 
 // Real foreground processes and native PID records, without hooks or a model request.
 const root = mkdtempSync(join(tmpdir(), "herdr-claude-session-"));
@@ -118,6 +119,94 @@ it.skipIf(!NATIVE)("reads each hookless Claude pane's own conversation in a shar
   expect(a.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${FIRST}` });
   expect(b.source).toBe("claude-transcript");
   expect(b.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${SECOND}` });
+});
+
+it.skipIf(!NATIVE)("lists a Claude pane's subagents, counts the running ones and pushes the count without a status", async () => {
+  const base = `http://127.0.0.1:${server.port}`;
+  const tasks = async (paneId: string): Promise<OmoActivity> => await (await fetch(`${base}/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`)).json();
+  const counted = async (paneId: string): Promise<number | undefined> => {
+    const { snapshot } = await (await fetch(`${base}/api/session`)).json() as { snapshot: { panes: { pane_id: string; background_tasks?: number }[] } };
+    return snapshot.panes.find((entry) => entry.pane_id === paneId)?.background_tasks;
+  };
+  /** every snapshot read also tells the server to look for the pane's transcript, which it does in the background */
+  const until = async (check: () => Promise<boolean>): Promise<void> => {
+    for (let attempt = 0; attempt < 100 && !(await check()); attempt++) await Bun.sleep(100);
+    expect(await check()).toBe(true);
+  };
+  const folder = join(project, SECOND, "subagents");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "agent-a1.meta.json"), JSON.stringify({ agentType: "reviewer", description: "Review the parser", toolUseId: "toolu_a1", requestShape: "background" }));
+  writeFileSync(join(folder, "agent-a1.jsonl"), `${JSON.stringify({ isSidechain: true, agentId: "a1", type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: "go" } })}\n`);
+
+  // a device that wants every alert: a count that changes alone must not reach it
+  const device = await startFakePushService();
+  const subscribed = await fetch(`${base}/api/push/subscribe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: device.subscription, alerts: { input: true, done: "always" } }) });
+  expect(subscribed.status).toBe(204);
+  const frames: ServerMessage[] = [];
+  const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+  socket.onmessage = (event) => { frames.push(JSON.parse(String(event.data))); };
+  await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("no socket")); });
+  try {
+    // asked first, before the server has had a snapshot to look for the pane's transcript with: it finds it itself
+    expect((await tasks(second.pane)).tasks).toMatchObject([{ id: "a1", status: "running" }]);
+    await until(async () => await counted(second.pane) === 1);
+    expect(await tasks(second.pane)).toMatchObject({ tasks: [{ id: "a1", title: "Review the parser", category: "reviewer", status: "running" }], runs: [] });
+    // a pane with no subagents has no count and no list
+    expect(await counted(first.pane)).toBeUndefined();
+    expect((await tasks(first.pane)).tasks).toEqual([]);
+
+    // the agent ends: its notification is written to the session's transcript
+    const notice = "<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_a1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the parser\" finished</summary>\n<result>fine</result>\n</task-notification>";
+    appendFileSync(join(project, `${SECOND}.jsonl`), `\n${JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: new Date(Date.now() + 1000).toISOString(), content: notice })}\n`);
+    await until(async () => await counted(second.pane) === undefined);
+    expect((await tasks(second.pane)).tasks).toMatchObject([{ id: "a1", status: "completed" }]);
+    // pushed as a count alone: the pane's status is the one it had, and it counts as no turn
+    const pushed = frames.filter((frame) => frame.type === "pane-status" && frame.pane_id === second.pane && frame.background_tasks !== undefined);
+    expect(pushed.at(-1)).toMatchObject({ background_tasks: 0, agent_status: expect.stringMatching(/^(idle|done)$/) });
+    expect(await read(second.pane)).toMatchObject({ source: "claude-transcript" });
+    // and no alert went out for it
+    await Bun.sleep(1500);
+    expect(device.received.filter((push) => push.payload.pane_id === second.pane)).toEqual([]);
+  } finally {
+    socket.close();
+    await fetch(`${base}/api/push/subscribe`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: device.subscription.endpoint }) }).catch(() => undefined);
+    device.stop();
+  }
+});
+
+it.skipIf(!NATIVE)("reads a Claude pane's task list as its plan, and pushes its progress without a status", async () => {
+  const base = `http://127.0.0.1:${server.port}`;
+  const plan = async (paneId: string): Promise<PanePlan> => await (await fetch(`${base}/api/pane/plan?pane_id=${encodeURIComponent(paneId)}`)).json();
+  const summary = async (paneId: string): Promise<unknown> => {
+    const { snapshot } = await (await fetch(`${base}/api/session`)).json() as { snapshot: { panes: { pane_id: string; plan?: unknown }[] } };
+    return snapshot.panes.find((entry) => entry.pane_id === paneId)?.plan;
+  };
+  const until = async (check: () => Promise<boolean>): Promise<void> => {
+    for (let attempt = 0; attempt < 100 && !(await check()); attempt++) await Bun.sleep(100);
+    expect(await check()).toBe(true);
+  };
+  const path = join(project, `${FIRST}.jsonl`);
+  const call = (id: string, name: string, input: unknown, answer: unknown, content: string): string => [
+    { type: "assistant", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] } },
+    { type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content }] }, toolUseResult: answer },
+  ].map((entry) => JSON.stringify(entry)).join("\n");
+  const frames: ServerMessage[] = [];
+  const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+  socket.onmessage = (event) => { frames.push(JSON.parse(String(event.data))); };
+  await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("no socket")); });
+  try {
+    // a session that made no task has no plan
+    expect((await plan(first.pane)).plan).toBeNull();
+    appendFileSync(path, `\n${call("toolu_p1", "TaskCreate", { subject: "Read", activeForm: "Reading" }, { task: { id: "1", subject: "Read" } }, "Task #1 created successfully: Read")}\n${call("toolu_p2", "TaskCreate", { subject: "Write" }, { task: { id: "2", subject: "Write" } }, "Task #2 created successfully: Write")}\n${call("toolu_p3", "TaskUpdate", { taskId: "2", addBlockedBy: ["1"] }, { success: true, taskId: "2", updatedFields: ["blockedBy"] }, "Updated task #2 blockedBy")}\n`);
+    await until(async () => JSON.stringify(await summary(first.pane)) === JSON.stringify({ done: 0, total: 2, current: null }));
+    expect((await plan(first.pane)).plan?.steps.map((step) => `${step.id}:${step.status}:${step.blocked_by.join(",")}`)).toEqual(["1:pending:", "2:pending:1"]);
+    appendFileSync(path, `${call("toolu_p4", "TaskUpdate", { taskId: "1", status: "in_progress" }, { success: true, taskId: "1", updatedFields: ["status"] }, "Updated task #1 status")}\n`);
+    await until(async () => frames.some((frame) => frame.type === "pane-status" && frame.pane_id === first.pane && frame.plan?.current === "Reading"));
+    // pushed as progress alone: the pane's status is the one it had
+    expect([...frames].reverse().find((frame) => frame.type === "pane-status" && frame.pane_id === first.pane && frame.plan !== undefined)).toMatchObject({ plan: { done: 0, total: 2, current: "Reading" }, agent_status: expect.stringMatching(/^(idle|done)$/) });
+  } finally {
+    socket.close();
+  }
 });
 
 it.skipIf(!NATIVE)("follows the current PID record without retaining a previous session", async () => {

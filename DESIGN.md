@@ -689,8 +689,35 @@ One set for both themes: the card is island black wherever it shows.
 - An OmO or omp `task` row opens to the tasks it starts (`.chat-task-calls`): each summary in
   `--text`, the agent as a hairline mono pill, the prompt in the bounded mono input box.
 
+### Plan (`.plan-button`, `.plan-dialog`, `.plan-count`)
+- The header's plan button sits after the view switch, in both lenses: the list-checks glyph
+  (`--status-working`, `--status-done` once every step is done) and `done/total` in tabular
+  figures, on the `--bg-elevated` hairline chip the switch uses. The sidebar's agent row repeats the
+  count beside the background count, in its quiet mono figures and with no box (`.plan-count`).
+- The plan opens as a modal (a bottom sheet under 641px): title, the pane's name (hidden on a
+  phone), a Flow / Steps switch and a close button. Under them `N of M done` and, in
+  `--status-working`, what the running step does now.
+- Flow (`lib/plan.ts`): waves top to bottom, a wave's boxes side by side and centred, a curve
+  with an arrowhead from each step waited on. A box is a step's name (two lines at most, a status
+  glyph before it) over a dim meta line (state · time · teammate). Done: solid `--status-done`
+  edge on its tint; running: a 2px `--status-working` edge on its tint; waiting: a dashed hairline
+  and dim text. A curve out of a done step is solid `--status-done`; one still waiting is a dim
+  dashed line. A wave wider than the sheet scrolls sideways inside it, never the page.
+- Steps: the same steps in wave order, a status glyph, the name, what a running step does now and
+  the meta line.
+- A box or a row is a button: it opens the step's detail below the flow or the list (and is
+  outlined in `--accent` while open); a second press closes it. The detail is a `--bg-panel`
+  hairline card: the step's name and glyph with a close button, the meta line, what a running
+  step does now, then `N tool calls · last action … ago` over a tally by tool, the last five
+  calls newest first (mono tool name, what it was given, a dim time), the subagents it started
+  (their type, state and tokens from the pane's subagent list) and its background commands (state
+  in `--status-working`, `--status-done` or `--status-blocked`). No percentage: nothing in the
+  transcript measures one. Work done while no step ran opens from a dashed `Work outside the
+  steps · N calls` chip under the flow. On a phone the detail is brought into view as it opens.
+
 ### Background tasks ended (`.chat-task-results`)
-- Where OmO reports background tasks that ended, the transcript shows one `--bg-elevated` card
+- Where OmO reports background tasks that ended, or a Claude Code subagent ends (its
+  `<task-notification>`, drawn once however many records carry it), the transcript shows one `--bg-elevated` card
   (hairline edge, `--radius-lg`) on the prose column: a dim `--fs-xs` line with the layers icon,
   "2 background tasks ended" and the time, then one hairline-separated row per task.
 - A row is the status icon (`--status-done` check, `--status-blocked` x, dim slash for

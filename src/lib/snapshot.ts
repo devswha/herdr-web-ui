@@ -1,19 +1,23 @@
-import type { AgentStatus, HerdrPane, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AgentStatus, HerdrPane, PlanSummary, SessionSnapshot } from "../../shared/protocol.ts";
+
+const samePlan = (a: PlanSummary | undefined, b: PlanSummary | undefined): boolean =>
+  a === b || (a !== undefined && b !== undefined && a.done === b.done && a.total === b.total && a.current === b.current);
 
 /**
  * Merges a pushed `pane-status` into the last snapshot so the sidebar badge updates
  * instantly; the debounced /api/session refetch that follows brings the derived
  * workspace/tab rollups back in line. Pure: returns the same object when nothing changed.
  */
-export function applyPaneStatus(snapshot: SessionSnapshot, paneId: string, status: AgentStatus, background?: number): SessionSnapshot {
+export function applyPaneStatus(snapshot: SessionSnapshot, paneId: string, status: AgentStatus, background?: number, plan?: PlanSummary | null): SessionSnapshot {
   let paneChanged = false;
   const panes = snapshot.panes.map((pane: HerdrPane) => {
-    // a frame that says nothing of background tasks leaves the count as it was
+    // a frame that says nothing of background tasks, or of a plan, leaves it as it was
     const tasks = background === undefined ? pane.background_tasks : background > 0 ? background : undefined;
-    if (pane.pane_id !== paneId || (pane.agent_status === status && pane.background_tasks === tasks)) return pane;
+    const progress = plan === undefined ? pane.plan : plan ?? undefined;
+    if (pane.pane_id !== paneId || (pane.agent_status === status && pane.background_tasks === tasks && samePlan(pane.plan, progress))) return pane;
     paneChanged = true;
-    const { background_tasks: _before, ...rest } = pane;
-    return { ...rest, agent_status: status, ...(tasks === undefined ? {} : { background_tasks: tasks }) };
+    const { background_tasks: _before, plan: _plan, ...rest } = pane;
+    return { ...rest, agent_status: status, ...(tasks === undefined ? {} : { background_tasks: tasks }), ...(progress === undefined ? {} : { plan: progress }) };
   });
   if (!paneChanged) return snapshot;
   const agents = snapshot.agents.map((agent) =>
