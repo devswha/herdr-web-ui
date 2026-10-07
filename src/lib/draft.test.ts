@@ -61,5 +61,10 @@ describe("draftIsEmpty", () => {
 it("holds multi-codepoint IME commits without splitting a surrogate at the limit", () => {
   for (const text of ["한글", "😀", "e\u0301", "abc"]) expect(applyToDraft(EMPTY_DRAFT, text).text).toBe(text);
   expect(applyToDraft({ text: "a".repeat(1023), truncated: false }, "😀")).toEqual({ text: "a".repeat(1023), truncated: true });
-  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text\x1b[201~").text).toBe("");
+  // a paste is held by its text, not lost with its frames; one of several lines holds controls and is not
+  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text\x1b[201~")).toEqual({ text: "text", truncated: false });
+  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~one\rtwo\x1b[201~")).toEqual(EMPTY_DRAFT);
+  expect(applyToDraft(EMPTY_DRAFT, `\x1b[200~${"a".repeat(1025)}\x1b[201~`)).toEqual({ text: "", truncated: true });
+  // a frame that never closes is a control chunk still
+  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text")).toEqual(EMPTY_DRAFT);
 });
