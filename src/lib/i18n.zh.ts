@@ -83,6 +83,7 @@ export const ZH: Record<string, string> = {
   "Forest": "森林绿",
   "Message from another session: {name}": "来自另一个会话的消息：{name}",
   "Message from another session": "来自另一个会话的消息",
+  "Rosé Pine": "Rosé Pine",
   "Density": "密度",
   "Comfortable": "宽松",
   "Compact": "紧凑",

@@ -79,6 +79,7 @@ export const TR: Record<string, string> = {
   "Forest": "Orman",
   "Message from another session: {name}": "Başka bir oturumdan mesaj: {name}",
   "Message from another session": "Başka bir oturumdan mesaj",
+  "Rosé Pine": "Rosé Pine",
   "Density": "Yoğunluk",
   "Comfortable": "Rahat",
   "Compact": "Kompakt",

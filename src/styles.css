@@ -7,7 +7,7 @@
  * the attribute); `[data-density="compact"]` overrides the type scale and row
  * heights. The base blocks are the amber palette, the default and the look before
  * settings load; `[data-palette]` blocks override them for the opt-in report,
- * charcoal, catppuccin, lilac and forest palettes. `[data-contrast]` (after them) re-mixes the
+ * charcoal, catppuccin, lilac, forest and rose-pine palettes. `[data-contrast]` (after them) re-mixes the
  * text and border tokens under <html> by the Contrast step. xterm cannot read CSS custom
  * properties, so the --term-* group is mirrored in settings.ts `terminalTheme()`.
  * Component-scoped rules live beside their component (Sidebar.css,
@@ -681,6 +681,98 @@
   --syntax-type: #166578;
   --syntax-variable: #20352a;
   --syntax-meta: #68489c;
+}
+
+/* Rosé Pine (rosepinetheme.com/palette): Moon in dark, Dawn in light.
+   Base content, Surface chrome, Overlay elevated/hover, Iris accent, Rose cursor.
+   Moon: Subtle is lightened 17% for dimmed text; input uses Rose rather than Love, with
+   an 8% tint, to keep AA contrast on Overlay. Primary hover is Iris lightened 20%. */
+[data-theme="dark"][data-palette="rose-pine"] {
+  --bg: #232136;
+  --bg-panel: #2a273f;
+  --bg-elevated: #393552;
+  --bg-hover: #393552;
+  --bg-input: #232136;
+  --border: #44415a;
+  --border-strong: #56526e;
+  --bubble-border: var(--border);
+  --text: #e0def4;
+  --text-dim: #a3a0b8;
+  --text-strong: #e0def4;
+  --accent: #c4a7e7;
+  --accent-tint: rgba(196, 167, 231, 0.12);
+  --primary: #c4a7e7;
+  --primary-hover: #d0b9ec;
+  --primary-text: #232136;
+  --primary-tint: rgba(196, 167, 231, 0.16);
+  --status-idle: #a3a0b8;
+  --status-working: #f6c177;
+  --status-blocked: #ea9a97;
+  --status-done: #9ccfd8;
+  --status-working-tint: rgba(246, 193, 119, 0.14);
+  --status-blocked-tint: rgba(234, 154, 151, 0.08);
+  --status-done-tint: rgba(156, 207, 216, 0.14);
+  --danger-tint: rgba(234, 154, 151, 0.08);
+  --danger-text: #ea9a97;
+  --scrim: rgba(35, 33, 54, 0.6);
+  --term-bg: #232136;
+  --term-fg: #e0def4;
+  --term-cursor: #ea9a97;
+  --term-selection: #44415a;
+  --notice: #f6c177;
+  --syntax-keyword: #6caac3;
+  --syntax-string: #f6c177;
+  --syntax-number: #ee82a0;
+  --syntax-type: #9ccfd8;
+  --syntax-variable: #e0def4;
+  --syntax-meta: #c4a7e7;
+  --syntax-function: #ea9a97;
+}
+
+/* Dawn's accents are pale on its paper, so each is darkened just enough for AA:
+   Subtle 13%, Iris 27% (accent and primary), Gold 46%, Love 24%, Foam 32%. */
+[data-theme="light"][data-palette="rose-pine"] {
+  --bg: #faf4ed;
+  --bg-panel: #fffaf3;
+  --bg-elevated: #f2e9e1;
+  --bg-hover: #f2e9e1;
+  --bg-input: #fffaf3;
+  --border: #dfdad9;
+  --border-strong: #cecacd;
+  --text: #575279;
+  --text-dim: #696680;
+  --text-strong: #575279;
+  --accent: #69597b;
+  --accent-tint: rgba(105, 89, 123, 0.1);
+  --primary: #69597b;
+  --primary-hover: #5c4e6c;
+  --primary-text: #faf4ed;
+  --primary-tint: rgba(105, 89, 123, 0.14);
+  --status-idle: #696680;
+  --status-working: #7e551c;
+  --status-blocked: #894b5d;
+  --status-done: #3a656c;
+  --status-working-tint: rgba(126, 85, 28, 0.12);
+  --status-blocked-tint: rgba(137, 75, 93, 0.12);
+  --status-done-tint: rgba(58, 101, 108, 0.12);
+  --danger-tint: rgba(137, 75, 93, 0.1);
+  --danger-text: #894b5d;
+  --notice: #7e551c;
+  --scrim: rgba(87, 82, 121, 0.35);
+  --shadow-drawer: 0 0 40px rgba(87, 82, 121, 0.22);
+  --shadow-pop: 0 16px 48px rgba(87, 82, 121, 0.16), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(87, 82, 121, 0.07);
+  --term-bg: #faf4ed;
+  --term-fg: #575279;
+  --term-cursor: #d7827e;
+  --term-selection: #dfdad9;
+  --syntax-keyword: #286983;
+  --syntax-string: #8f6020;
+  --syntax-number: #995468;
+  --syntax-type: #417079;
+  --syntax-variable: #575279;
+  --syntax-meta: #736287;
+  --syntax-function: #925856;
 }
 
 /* Contrast (Settings → Appearance → Contrast): text and hairlines stand out more or less than the

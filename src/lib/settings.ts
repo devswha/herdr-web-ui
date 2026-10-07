@@ -8,6 +8,7 @@
 import type { TelemetrySettings } from "../../shared/telemetry.ts";
 import { SHARED_SETTING_KEYS, type SharedSettingKey } from "../../shared/preferences.ts";
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { ITheme } from "@xterm/xterm";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
@@ -33,8 +34,9 @@ export type UsageCount = "used" | "left";
 export type UsageGlance = "week" | "session";
 /** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark;
  *  catppuccin: Catppuccin Mocha in dark, Latte in light; lilac: lavender surfaces and indigo accents;
- *  forest: low-saturation green surfaces for long sessions */
-export type Palette = "amber" | "report" | "charcoal" | "catppuccin" | "lilac" | "forest";
+ *  forest: low-saturation green surfaces for long sessions
+ *  rose-pine: Rosé Pine, Moon in dark and Dawn in light */
+export type Palette = "amber" | "report" | "charcoal" | "catppuccin" | "lilac" | "forest" | "rose-pine";
 /** the chat lane's widest: the transcript, the composer column and the held list share it (--chat-w in src/styles.css).
  *  narrow: 820px; default: follows the pane, up to 60rem (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
 export type ChatWidth = "narrow" | "default" | "wide" | "full";
@@ -400,7 +402,7 @@ export function alertPrefs(settings: Settings): AlertPrefs {
   return { input: settings.alertInput, done: settings.alertDone };
 }
 
-const PALETTES: readonly Palette[] = ["amber", "report", "charcoal", "catppuccin", "lilac", "forest"];
+const PALETTES: readonly Palette[] = ["amber", "report", "charcoal", "catppuccin", "lilac", "forest", "rose-pine"];
 
 const STORAGE_KEY = "herdr-web-ui:settings";
 export const TERMINAL_FONT_MIN = 10;
@@ -586,9 +588,9 @@ export function resolveTheme(setting: ThemeSetting): ResolvedTheme {
   return typeof window !== "undefined" && window.matchMedia?.(DARK_QUERY).matches === false ? "light" : "dark";
 }
 
-type TerminalColors = { background: string; foreground: string; cursor: string; selectionBackground: string };
+type TerminalColors = ITheme & { background: string; foreground: string; cursor: string; selectionBackground: string };
 
-/** The xterm theme for a resolved theme and palette: the `--term-*` tokens of src/styles.css, verbatim. */
+/** The xterm theme: base colors mirror `--term-*` in src/styles.css; ANSI overrides are terminal-only. */
 const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = {
   amber: {
     light: { background: "#faf8f3", foreground: "#2a251f", cursor: "#8c5000", selectionBackground: "#f0d9ae" },
@@ -614,6 +616,24 @@ const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = 
     light: { background: "#f7fbf8", foreground: "#20352a", cursor: "#2c7648", selectionBackground: "#cfe5d5" },
     dark: { background: "#16231d", foreground: "#d4e5d8", cursor: "#8fd3a2", selectionBackground: "#31513e" },
   },
+  "rose-pine": {
+    light: {
+      background: "#faf4ed", foreground: "#575279", cursor: "#d7827e", selectionBackground: "#dfdad9",
+      // Ghostty's Rose Pine Dawn ANSI slots 0–15; see DESIGN.md for the source.
+      black: "#f2e9e1", red: "#b4637a", green: "#286983", yellow: "#ea9d34",
+      blue: "#56949f", magenta: "#907aa9", cyan: "#d7827e", white: "#575279",
+      brightBlack: "#9893a5", brightRed: "#b4637a", brightGreen: "#286983", brightYellow: "#ea9d34",
+      brightBlue: "#56949f", brightMagenta: "#907aa9", brightCyan: "#d7827e", brightWhite: "#575279",
+    },
+    dark: {
+      background: "#232136", foreground: "#e0def4", cursor: "#ea9a97", selectionBackground: "#44415a",
+      // Ghostty's Rose Pine Moon ANSI slots 0–15; see DESIGN.md for the source.
+      black: "#393552", red: "#eb6f92", green: "#3e8fb0", yellow: "#f6c177",
+      blue: "#9ccfd8", magenta: "#c4a7e7", cyan: "#ea9a97", white: "#e0def4",
+      brightBlack: "#6e6a86", brightRed: "#eb6f92", brightGreen: "#3e8fb0", brightYellow: "#f6c177",
+      brightBlue: "#9ccfd8", brightMagenta: "#c4a7e7", brightCyan: "#ea9a97", brightWhite: "#e0def4",
+    },
+  },
 };
 
 export function terminalTheme(theme: ResolvedTheme, palette: Palette = "amber"): TerminalColors {
@@ -628,6 +648,7 @@ const THEME_COLOR: Record<Palette, Record<ResolvedTheme, string>> = {
   catppuccin: { dark: "#181825", light: "#e6e9ef" },
   lilac: { dark: "#1c1b34", light: "#f6f5fe" },
   forest: { dark: "#16231d", light: "#f7fbf8" },
+  "rose-pine": { dark: "#2a273f", light: "#fffaf3" },
 };
 
 function applyToDocument(settings: Settings, resolved: ResolvedTheme, palette: Palette, language: Language): void {

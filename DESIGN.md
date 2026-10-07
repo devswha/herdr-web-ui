@@ -12,7 +12,7 @@ chrome color, amber: focus, the chosen lens, the terminal cursor and the user's 
 buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture. A dark report look, a neutral charcoal one, Catppuccin, lilac and forest are
+changing information architecture. A dark report look, a neutral charcoal one, Catppuccin, lilac, forest and Rosé Pine are
 opt-in palettes (Settings → Appearance → Colors); amber stays the default and the look before settings load.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
@@ -75,14 +75,14 @@ paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the them
 
 ### Opt-in palettes
 
-`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`, `lilac`, `forest`) is written as `data-palette`. The
-tables above are amber, the base blocks; the five opt-in palettes override them in
+`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`, `lilac`, `forest`, `rose-pine`) is written as `data-palette`. The
+tables above are amber, the base blocks; the six opt-in palettes override them in
 `[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
 alone parts the bubble from `--bg`: dark amber, dark report, dark charcoal, dark lilac and dark forest. It is `var(--border)`
 where the two surfaces sit close: every light theme (the `[data-theme="light"]` block sets it for
-all palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
+all palettes), dark Rosé Pine and dark Catppuccin, whose elevated surface is darker than its canvas.
 
 - **Dark report** is a near-black blue-grey canvas with hairlines: `--bg` `#0a0d12`, panel and
   terminal `#0f1319`, text `#b4bdc9` / `#8792a3` / `#e8ecf2`. Primary (the user's action) is white
@@ -120,6 +120,23 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
   `#dcdaf4` / `#a5a2cc` / `#f2f1ff`, a pale lilac accent and primary `#b3abff` with `#17163a` text,
   states working `#85b8ff`, input `#ff94ad`, done `#92d9ab`, terminal `#18172f`, selection
   `#3a3768`. It keeps amber's rounded corners and card shadow, tinted indigo in light.
+- **Rosé Pine** uses the [Moon palette](https://rosepinetheme.com/palette/) in dark and Dawn in
+  light. Moon: content, input and terminal use Base `#232136`, chrome
+  Surface `#2a273f`, elevated/hover Overlay `#393552`, borders Highlight Med `#44415a` / High
+  `#56526e`. Text is `#e0def4`; dimmed and idle use `#a3a0b8` (Subtle lightened 17%) to stay AA
+  on Overlay. Accent and primary use Iris `#c4a7e7`, primary hover `#d0b9ec` (Iris lightened 20%),
+  with Base text. States are Gold `#f6c177` / Rose `#ea9a97` / Foam `#9ccfd8`; Rose replaces
+  Love for readable input badges, with an 8% tint (the others 14%). Danger text and terminal
+  cursor are Rose `#ea9a97`, terminal selection Highlight Med `#44415a`. Accent/primary/danger
+  tints use 12%/16%/8%, the scrim Base at 60%; rounded corners and shadows stay unchanged.
+  The PWA title bar follows Surface.
+  Dawn maps the same roles: content and terminal Base `#faf4ed`, chrome and input Surface
+  `#fffaf3`, elevated/hover Overlay `#f2e9e1`, borders Highlight Med `#dfdad9` / High `#cecacd`,
+  text `#575279`, terminal cursor Rose `#d7827e`, selection Highlight Med. Its accents are too pale
+  for AA on its paper, so each is darkened just enough: dimmed and idle `#696680` (Subtle 13%),
+  accent and primary `#69597b` (Iris 27%, hover `#5c4e6c`) with Base text, states working
+  `#7e551c` (Gold 46%), input and danger text `#894b5d` (Love 24%), done `#3a656c` (Foam 32%), at
+  12% tints. The scrim and shadows are Text-tinted.
 
 - **Forest** is a low-saturation green-grey, flat on every surface, meant to be restful over a long
   session (a preference, not a medical claim). In dark the canvas `--bg` `#101a16` sits under
@@ -148,6 +165,23 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 | Cursor | `--term-cursor` | `#f0a830` | `#8c5000` | `cursor` |
 | Selection | `--term-selection` | `#4a3d26` | `#f0d9ae` | `selectionBackground` |
 
+Rosé Pine also sets xterm's ANSI slots 0–15 to match Rosé Pine's
+Ghostty themes, Moon in dark and Dawn in light, which repeat slots 1–7 as 9–15. These are terminal-only values in `settings.ts`, not UI tokens:
+
+| ANSI color | Moon normal | Moon bright | Dawn normal | Dawn bright |
+|------------|-------------|-------------|-------------|-------------|
+| Black | `#393552` | `#6e6a86` | `#f2e9e1` | `#9893a5` |
+| Red | `#eb6f92` | `#eb6f92` | `#b4637a` | `#b4637a` |
+| Green | `#3e8fb0` | `#3e8fb0` | `#286983` | `#286983` |
+| Yellow | `#f6c177` | `#f6c177` | `#ea9d34` | `#ea9d34` |
+| Blue | `#9ccfd8` | `#9ccfd8` | `#56949f` | `#56949f` |
+| Magenta | `#c4a7e7` | `#c4a7e7` | `#907aa9` | `#907aa9` |
+| Cyan | `#ea9a97` | `#ea9a97` | `#d7827e` | `#d7827e` |
+| White | `#e0def4` | `#e0def4` | `#575279` | `#575279` |
+
+Other palettes keep xterm's default ANSI colors. Slots 16–255 and application
+true-color output are unchanged; Starship needs no separate configuration for named ANSI colors.
+
 ### Syntax highlighting
 
 Code in the chat and in the file viewer is colored by `--syntax-*` tokens. Four follow the
@@ -155,7 +189,9 @@ palette: `--syntax-comment` is `--text-dim`, `--syntax-function` is `--accent`,
 `--syntax-inserted` is `--status-done` and `--syntax-deleted` is `--status-blocked`. The other six are literals per block
 (each at least 4.5:1 on `--bg-panel` and `--bg-elevated`); light charcoal uses the light report
 column. Catppuccin follows Catppuccin's own mapping: keywords are mauve, so `--syntax-function` is
-blue there instead of `--accent`, and Latte's colors are darkened to stay readable.
+blue there instead of `--accent`, and Latte's colors are darkened to stay readable. Rosé Pine
+follows Rosé Pine's: keywords Pine, functions Rose, so `--syntax-function` is Rose there (Moon
+`#ea9a97`, Dawn `#925856`); Moon's Pine and Love are lightened and Dawn's accents darkened to stay readable.
 
 | Block | keyword | string | number | type | variable | meta |
 |-------|---------|--------|--------|------|----------|------|
@@ -168,6 +204,8 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 | Catppuccin Latte | `#712fc6` | `#2f7620` | `#b44201` | `#905c13` | `#4c4f69` | `#bc1d91` |
 | Dark forest | `#e6a96d` | `#91d69a` | `#d2b18a` | `#79c7d4` | `#d4e5d8` | `#c2a0d8` |
 | Light forest | `#9c4f15` | `#225f32` | `#865d13` | `#166578` | `#20352a` | `#68489c` |
+| Rosé Pine Moon | `#6caac3` | `#f6c177` | `#ee82a0` | `#9ccfd8` | `#e0def4` | `#c4a7e7` |
+| Rosé Pine Dawn | `#286983` | `#8f6020` | `#995468` | `#417079` | `#575279` | `#736287` |
 
 `--syntax-function` in Catppuccin: Mocha `#89b4fa`, Latte `#0b59f4`.
 
@@ -178,7 +216,7 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   color is not the only sign. It is a warning yellow, at least 4.5:1 on
   `--bg`, `--bg-panel` and `--bg-elevated`: amber `#e8c55c` / `#7a5a00`, dark report `#f5b544`, light
   report and charcoal `#8a5300`, dark charcoal `#d9b26a`, Catppuccin Mocha `#f9e2af` (yellow), Latte
-  `#8a5710`.
+  `#8a5710`, Rosé Pine Moon Gold `#f6c177`, Dawn `#7e551c`.
 - `--line-number` colors the line numbers beside code: tertiary text, quieter than the code. It is
   `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha
   overlay2 `#9399b2` (5.8:1), Latte `#64677d` (subtext0 darkened to 4.9:1 on `--bg`).
@@ -294,7 +332,7 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
-- `palette`: `amber`, `report`, `charcoal`, `catppuccin`, `lilac` or `forest`; default `amber`.
+- `palette`: `amber`, `report`, `charcoal`, `catppuccin`, `lilac`, `forest` or `rose-pine`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - `contrast`: a whole step from `-2` to `+3`; default `0`, the palette as drawn (Contrast, above).
 - `sidebarRows`: `one` or `two`; default `two`.

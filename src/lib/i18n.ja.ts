@@ -81,6 +81,7 @@ export const JA: Record<string, string> = {
   "Forest": "フォレスト",
   "Message from another session: {name}": "別のセッションからのメッセージ: {name}",
   "Message from another session": "別のセッションからのメッセージ",
+  "Rosé Pine": "Rosé Pine",
   "Density": "表示密度",
   "Comfortable": "ゆったり",
   "Compact": "コンパクト",

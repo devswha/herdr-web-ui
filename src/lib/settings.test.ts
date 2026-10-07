@@ -578,6 +578,7 @@ describe("palette", () => {
     expect(sanitizeSettings({ palette: "catppuccin" }).palette).toBe("catppuccin");
     expect(sanitizeSettings({ palette: "lilac" }).palette).toBe("lilac");
     expect(sanitizeSettings({ palette: "forest" }).palette).toBe("forest");
+    expect(sanitizeSettings({ palette: "rose-pine" }).palette).toBe("rose-pine");
     expect(sanitizeSettings({ palette: "pink" }).palette).toBe("amber");
   });
 
@@ -609,6 +610,8 @@ describe("palette", () => {
     { theme: "light", palette: "lilac", layers: ['[data-theme="light"][data-palette="lilac"]', '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "forest", layers: ['[data-theme="dark"][data-palette="forest"]', ":root"] },
     { theme: "light", palette: "forest", layers: ['[data-theme="light"][data-palette="forest"]', '[data-theme="light"]', ":root"] },
+    { theme: "dark", palette: "rose-pine", layers: ['[data-theme="dark"][data-palette="rose-pine"]', ":root"] },
+    { theme: "light", palette: "rose-pine", layers: ['[data-theme="light"][data-palette="rose-pine"]', '[data-theme="light"]', ":root"] },
   ] as const;
   const tokens = (layers: readonly string[]) => (name: string): string =>
     layers.map((selector) => block(selector).match(new RegExp(`--${name}: ([^;]+);`))?.[1]).find((value) => value !== undefined)!;
@@ -616,7 +619,7 @@ describe("palette", () => {
   it("mirrors each palette's --term-* tokens of styles.css for xterm", () => {
     for (const { theme, palette, layers } of cases) {
       const read = tokens(layers);
-      expect(terminalTheme(theme, palette)).toEqual({ background: read("term-bg"), foreground: read("term-fg"), cursor: read("term-cursor"), selectionBackground: read("term-selection") });
+      expect(terminalTheme(theme, palette)).toMatchObject({ background: read("term-bg"), foreground: read("term-fg"), cursor: read("term-cursor"), selectionBackground: read("term-selection") });
     }
   });
 
@@ -656,6 +659,30 @@ describe("palette", () => {
       }
     }
     expect(failures).toEqual([]);
+  });
+
+  it("uses Moon in dark, Dawn in light, each with Ghostty's ANSI 16 colors, for Rosé Pine", () => {
+    expect(terminalTheme("dark", "rose-pine")).toEqual({
+      background: "#232136", foreground: "#e0def4", cursor: "#ea9a97", selectionBackground: "#44415a",
+      black: "#393552", red: "#eb6f92", green: "#3e8fb0", yellow: "#f6c177",
+      blue: "#9ccfd8", magenta: "#c4a7e7", cyan: "#ea9a97", white: "#e0def4",
+      brightBlack: "#6e6a86", brightRed: "#eb6f92", brightGreen: "#3e8fb0", brightYellow: "#f6c177",
+      brightBlue: "#9ccfd8", brightMagenta: "#c4a7e7", brightCyan: "#ea9a97", brightWhite: "#e0def4",
+    });
+    expect(terminalTheme("light", "rose-pine")).toEqual({
+      background: "#faf4ed", foreground: "#575279", cursor: "#d7827e", selectionBackground: "#dfdad9",
+      black: "#f2e9e1", red: "#b4637a", green: "#286983", yellow: "#ea9d34",
+      blue: "#56949f", magenta: "#907aa9", cyan: "#d7827e", white: "#575279",
+      brightBlack: "#9893a5", brightRed: "#b4637a", brightGreen: "#286983", brightYellow: "#ea9d34",
+      brightBlue: "#56949f", brightMagenta: "#907aa9", brightCyan: "#d7827e", brightWhite: "#575279",
+    });
+  });
+
+  it("leaves other palettes on xterm's default ANSI colors", () => {
+    for (const { theme, palette } of cases) {
+      if (palette === "rose-pine") continue;
+      expect(Object.keys(terminalTheme(theme, palette)).sort()).toEqual(["background", "cursor", "foreground", "selectionBackground"]);
+    }
   });
 
   it("paints amber before settings load: the base blocks are the default palette's", () => {
