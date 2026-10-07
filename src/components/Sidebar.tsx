@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { Check, ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, MessageCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, MessageCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -602,7 +602,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     );
   };
 
-  const renderWorkspaceRow = (workspace: WorkspaceInfo, children: WorkspaceInfo[] = []) => {
+  const renderWorkspaceRow = (workspace: WorkspaceInfo, children: WorkspaceInfo[] = [], nested = false) => {
     const panes = roster.filter((pane) => pane.workspace_id === workspace.workspace_id);
     if (panes.length === 0) return null;
     const pane = currentPane(workspace, panes);
@@ -617,6 +617,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     // a folded group's parent stands for its worktrees too, as herdr's collapsed parent does:
     // a checkout that waits or has finished must not hide behind the fold
     const statusPanes = collapsed ? [...panes, ...children.flatMap((child) => roster.filter((candidate) => candidate.workspace_id === child.workspace_id))] : panes;
+    // a folded group still shows the checkout that is open; the count is of the ones put away
+    const foldedCount = collapsed ? children.filter((child) => !roster.some((candidate) => candidate.workspace_id === child.workspace_id && candidate.pane_id === selectedPaneId)).length : 0;
     const editingWorkspace = editingWorkspaceId === `\u0000${workspace.workspace_id}`;
     const editingPane = editingPaneId === pane.pane_id;
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id && menu.scope === "" && menu.kind === "workspace";
@@ -631,6 +633,16 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
       onDrop={(event) => onDrop(event, workspace.workspace_id)}
     >
       <div className="workspace-header" onContextMenu={(event) => onRowContextMenu(event, toggleMenu)}>
+        {/* a workspace leads with its folder, which is the fold when linked worktrees sit under it */}
+        {nested ? null : children.length > 0 && repoKey !== undefined ? <button
+          type="button"
+          className="sidebar-row-action workspace-toggle"
+          aria-label={collapsed ? t("Expand worktrees of {name}", { name: workspace.label }) : t("Collapse worktrees of {name}", { name: workspace.label })}
+          title={collapsed ? t("Expand worktrees of {name}", { name: workspace.label }) : t("Collapse worktrees of {name}", { name: workspace.label })}
+          aria-expanded={!collapsed}
+          aria-controls={contentsId}
+          onClick={() => setWorktreeCollapsed(repoKey, !collapsed)}
+        >{collapsed ? <Folder aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}</button> : <span className="sidebar-mark workspace-folder" aria-hidden="true"><Folder /></span>}
         <div
           className="pane-select workspace-select"
           role="button"
@@ -685,6 +697,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           /> : <span className="workspace-copy">
             <span className="workspace-name">{rowTitle}</span>
             {secondaryWorkspaceLabel && <span className="worktree-workspace-label">{secondaryWorkspaceLabel}</span>}
+            {foldedCount > 0 && <span className="workspace-fold-count" aria-hidden="true">+{foldedCount}</span>}
           </span>}
           <span className="sidebar-pane-meta">
             <span className="visually-hidden">{markName(pane)}</span>
@@ -696,14 +709,6 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
             <Ellipsis aria-hidden="true" />
           </button>
         </div>
-        {children.length > 0 && repoKey !== undefined && <button
-          type="button"
-          className="sidebar-row-action workspace-toggle"
-          aria-label={collapsed ? t("Expand worktrees of {name}", { name: workspace.label }) : t("Collapse worktrees of {name}", { name: workspace.label })}
-          aria-expanded={!collapsed}
-          aria-controls={contentsId}
-          onClick={() => setWorktreeCollapsed(repoKey, !collapsed)}
-        >{collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}</button>}
       </div>
       {inlineError?.workspaceId === workspace.workspace_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>}
     </li>;
@@ -730,7 +735,6 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
                 {collapsed ? <Folder aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
                 <span className="directory-copy"><span className="directory-name">{name}</span>{directory.path && <span className="directory-path visually-hidden">{directory.path}</span>}</span>
                 <span id={countId} className="workspace-number visually-hidden">{t("{n} panes", { n: directory.paneCount })}</span>
-                {collapsed ? <ChevronRight className="directory-caret" aria-hidden="true" /> : <ChevronDown className="directory-caret" aria-hidden="true" />}
               </button>
               {!collapsed && <div className="directory-contents"><ul className="workspace-list">{directory.workspaces.map(({ workspace, panes: visiblePanes }) => renderWorkspace(workspace, visiblePanes, directory.key))}</ul></div>}
             </section>;
@@ -742,7 +746,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
                 id={`${rosterId}-worktrees-${encodeURIComponent(workspace.worktree!.repo_key)}`}
                 hidden={collapsedWorktrees.has(workspace.worktree!.repo_key) && !children.some((child) => roster.some((pane) => pane.workspace_id === child.workspace_id && pane.pane_id === selectedPaneId))}
               ><ul className="workspace-list">
-                {children.filter((child) => !collapsedWorktrees.has(workspace.worktree!.repo_key) || roster.some((pane) => pane.workspace_id === child.workspace_id && pane.pane_id === selectedPaneId)).map((child) => renderWorkspaceRow(child))}
+                {children.filter((child) => !collapsedWorktrees.has(workspace.worktree!.repo_key) || roster.some((pane) => pane.workspace_id === child.workspace_id && pane.pane_id === selectedPaneId)).map((child) => renderWorkspaceRow(child, [], true))}
               </ul></li>}
             </Fragment>
           ))}</ul>}

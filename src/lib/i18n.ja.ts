@@ -159,6 +159,8 @@ export const JA: Record<string, string> = {
   "No workspaces yet": "ワークスペースはまだありません",
   "Workspace name": "ワークスペース名",
   "Reorder workspace {name}": "ワークスペース {name} を並べ替え",
+  "Expand {name}": "{name} を展開",
+  "Collapse {name}": "{name} を折りたたむ",
   "Collapse folder {name}": "フォルダー {name} を折りたたむ",
   "Expand folder {name}": "フォルダー {name} を展開",
   "Sidebar grouping": "サイドバーのセッション分類",

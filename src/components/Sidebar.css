@@ -143,11 +143,35 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   cursor: pointer;
 }
 
-/* One indent level. A linked worktree keeps herdr's repository workspace as its parent, a folder
-   its workspaces; the fill stays as wide as the list and the row's content moves. */
-.worktree-children .workspace-header,
-.directory-contents .pane-row {
-  padding-left: var(--side-indent);
+/* One indent level. A linked worktree keeps herdr's repository workspace as its parent and sits
+   under that row's mark, clear of the folder column; a folder's workspaces move by the indent.
+   The fill stays as wide as the list and the row's content moves. */
+.worktree-children .workspace-header { padding-left: var(--side-box); }
+.directory-contents .pane-row { padding-left: var(--side-indent); }
+
+/* The folder that leads a workspace row. It is the fold, and a button, when linked worktrees
+   sit under the workspace: open while they show, closed while they are folded. */
+.sidebar-row-action.workspace-toggle {
+  flex: 0 0 var(--side-box);
+  width: var(--side-box);
+  align-self: stretch;
+  height: auto;
+  border-radius: var(--radius-md);
+  color: var(--text);
+}
+
+.sidebar-row-action.workspace-toggle svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
+/* how many worktrees a closed folder holds: the closed glyph alone looks like any workspace's */
+.workspace-fold-count {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-tight);
 }
 
 /* hover first, selection after it: one neutral fill at two strengths */
@@ -239,7 +263,7 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 
 .directory-header:focus-visible { outline-offset: calc(var(--ring-offset) * -1); }
 
-.directory-header > svg:not(.directory-caret) {
+.directory-header > svg {
   flex: 0 0 auto;
   width: var(--icon-size);
   height: var(--icon-size);
@@ -252,23 +276,6 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   flex-direction: column;
   flex: 1 1 auto;
   min-width: 0;
-}
-
-/* the fold's caret sits in the status column and shows when it is of use */
-.directory-caret {
-  position: absolute;
-  right: calc((var(--side-box) - var(--space-4)) / 2);
-  width: var(--space-4);
-  height: var(--space-4);
-  color: var(--text-dim);
-  opacity: 0;
-}
-
-.directory-header:focus-visible .directory-caret,
-.directory-group.is-collapsed .directory-caret { opacity: 1; }
-
-@media (hover: hover) {
-  .directory-header:hover .directory-caret { opacity: 1; }
 }
 
 .workspace.is-dragging {
@@ -507,15 +514,13 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
     --side-action: var(--touch-target);
   }
 
-  /* Row menus and group folds stay visible on touch. */
+  /* Row menus stay visible on touch. */
   .workspace-actions,
   .pane-actions {
     width: auto;
     overflow: visible;
     opacity: 1;
   }
-
-  .directory-caret { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

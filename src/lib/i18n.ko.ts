@@ -157,6 +157,8 @@ export const KO: Record<string, string> = {
   "No workspaces yet": "아직 워크스페이스가 없습니다",
   "Workspace name": "워크스페이스 이름",
   "Reorder workspace {name}": "워크스페이스 {name} 순서 바꾸기",
+  "Expand {name}": "{name} 펼치기",
+  "Collapse {name}": "{name} 접기",
   "Collapse folder {name}": "폴더 {name} 접기",
   "Expand folder {name}": "폴더 {name} 펼치기",
   "Sidebar grouping": "사이드바 세션 묶음",

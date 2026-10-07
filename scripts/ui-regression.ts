@@ -179,6 +179,8 @@ try {
   await herdrRpc("pane.report_agent", { pane_id: paneB, source: "manual", agent: "codex", state: "idle" });
   await agentRow(paneB).waitFor();
   const machineToggle = page.locator(".machine-group .machine-toggle");
+  // the PC's fold is the caret beside its +
+  assert.equal(await page.locator(".machine-group .machine-toggle + .machine-new").count(), 1);
   await machineToggle.click();
   await workspaceGroup(workspaces[0]!).waitFor({ state: "detached" });
   assert.equal(await agentRow(paneA).isVisible(), true, "PC folding leaves Agents visible");
@@ -900,6 +902,9 @@ try {
   const repoToggle = repoHeader.locator(".workspace-toggle");
   await repoToggle.click();
   await childRow.waitFor({ state: "detached" });
+  // the folder that leads the row is the fold, and a closed one says how many checkouts it holds
+  assert.equal(await repoHeader.evaluate((header) => header.firstElementChild?.classList.contains("workspace-toggle") ?? false), true, "the fold leads the row");
+  assert.equal(await repoHeader.locator(".workspace-fold-count").textContent(), "+1");
   assert.equal(await agentRow(worktree.pane_id).isVisible(), true, "folding a worktree group preserves its independent agent");
   await agentRow(worktree.pane_id).locator(".agent-select").click();
   await childHeader.locator('.workspace-select[aria-current="true"]').waitFor();

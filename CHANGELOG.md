@@ -29,8 +29,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   branch for a worktree without an agent) and ends in one status column, which stays empty while
   an agent is ready. Agent rows name the agent, then the PC when there are several, the workspace
   and the tab. Sections are parted by space instead of rules, a row's menu button takes no room
-  until the row is hovered or selected, and a linked worktree group folds from a chevron that
-  always shows; folded, it shows the most urgent state among its checkouts. A pane herdr could
+  until the row is hovered or selected, and a workspace row starts with a folder: where linked
+  worktrees sit under the workspace, the folder folds them, and folded it shows how many it
+  holds and the most urgent state among its checkouts. A PC's fold sits beside its `+`. A pane herdr could
   not restore shows a warning glyph,
   and the background-task count sits on agent rows.
   Workspace rows keep their names, and agents open their panes directly. Tab and pane navigation

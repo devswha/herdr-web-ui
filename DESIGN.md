@@ -421,8 +421,8 @@ One set for both themes: the card is island black wherever it shows.
   workspace list has the rest. The Agents heading stays outside its scroll area and shows its
   count only while folded. A list that is cut fades out at its lower edge. An empty or folded
   Agents list gives its space back; PC and workspace folds do not hide agent rows.
-- A PC's header is the head of its workspaces, and its caret is the one fold over them. The roster
-  has no label or fold of its own.
+- A PC's header is the head of its workspaces, and the caret beside its `+` is the one fold over
+  them. The roster has no label or fold of its own.
 - In workspace mode, a repository's parent row keeps `workspace.label`; its opened linked
   worktree rows show their actual checkout branches. Each row's compact status
   glyph rolls up all of the workspace's panes as herdr does (blocked, then done, then working,
@@ -430,9 +430,13 @@ One set for both themes: the card is island black wherever it shows.
   Clicking its name opens the
   selected pane in that workspace, else the last viewed pane, else the pane herdr has focused,
   else its first pane. Tabs and panes are selected from the tab strip and command palette.
-- A repository workspace with linked worktree workspaces has a chevron for that group at the
-  right of its row, before the status cell, always visible as in herdr. Ordinary workspaces have
-  no fold control. Worktree folds are remembered at
+- A top-level workspace row starts with a folder glyph in the grid's leading cell, under the
+  PC's monitor; the row's mark and name follow it. For a repository workspace with linked
+  worktree workspaces that folder is the group's fold, a button (`.workspace-toggle`) in
+  `--text`: open while the worktrees show, closed while they are folded, when a dim `+N` after
+  the name counts the checkouts put away. For any other workspace it is a dim glyph and no
+  control. Worktree rows have no folder: they sit one cell in, their marks under the parent's.
+  Worktree folds are remembered at
   `herdr-web-ui:worktree-group-collapsed:<machineId>:<repo_key>`; a folded group keeps the selected
   child visible, and status snapshots preserve a deliberate fold.
 - Worktree branches come from the existing `GET /api/worktree/list`, matched by repository key,
@@ -470,7 +474,8 @@ One set for both themes: the card is island black wherever it shows.
   Each row represents its current pane: the selected one in that folder, else the last viewed
   one there, else the pane herdr has focused, else its first. Its compact glyph rolls up those
   panes' states; the other panes remain reachable from the tab strip, palette, **Agents** and **Needs you**.
-- Every folder has a caret, an open or closed folder glyph and basename, even for one pane. The
+- Every folder has an open or closed folder glyph, which with its name is the fold, and a
+  basename, even for one pane. The
   folder containing the selection names itself in `--text-strong`; only the selected row is filled.
   Its full path and pane count remain
   available to screen readers, and the path appears in the tooltip. Contents are indented without
@@ -478,8 +483,8 @@ One set for both themes: the card is island black wherever it shows.
   but status updates do not.
 - Folder order follows the first workspace in server order; dragging workspace rows reorders
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
-- Each workspace row is one line: a leading glyph, the name, and the compact state at the right.
-  The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
+- Each workspace row is one line: its folder (top-level rows), a leading glyph, the name, and
+  the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
   shell shows the terminal glyph, and a linked worktree without an agent the branch glyph. The
   mark never stands for another pane's agent; the row's tooltip lists every agent in the
   workspace. A custom worktree workspace name follows the branch on the same line in dim text.
@@ -498,12 +503,13 @@ One set for both themes: the card is island black wherever it shows.
   agent rows show their pane's own title. Each row's
   place is available to screen readers, without repeating what its title already says. The
   palette, which has no header, names the workspace and folder once when they are the same.
-- A PC group header is a caret, a monitor icon, the name in `--text-strong` semibold, “Host” for
+- A PC group header is a monitor icon in the leading cell, the name in `--text-strong` semibold, “Host” for
   the local machine (also when it is the only PC: the name alone does not say which computer it
   is), and a state dot (done = connected, working pulse = connecting/reconnecting, blocked =
-  error, idle = disconnected), then a `+` in the status column that starts a workspace on that
+  error, idle = disconnected), then the fold's caret (`.machine-toggle`, always shown; the name
+  itself is not a control) and a `+` in the status column that starts a workspace on that
   PC (disabled while it is offline). An SSH PC's manage button sits before the
-  `+` and shows on hover, focus, while its panel is open, while the PC is not connected, and always
+  caret and shows on hover, focus, while its panel is open, while the PC is not connected, and always
   on touch. Connected is the dot alone; every other state is also written under the name, with the server's
   error clamped to two lines and complete in the tooltip.
 - In the By workspace view, a repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)

@@ -161,6 +161,8 @@ export const ZH: Record<string, string> = {
   "No workspaces yet": "暂无工作区",
   "Workspace name": "工作区名称",
   "Reorder workspace {name}": "调整工作区 {name} 的顺序",
+  "Expand {name}": "展开 {name}",
+  "Collapse {name}": "折叠 {name}",
   "Collapse folder {name}": "折叠文件夹 {name}",
   "Expand folder {name}": "展开文件夹 {name}",
   "Sidebar grouping": "侧栏会话分组",
