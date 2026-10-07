@@ -52,6 +52,21 @@ describe("single-pane context lookup", () => {
   }
 });
 
+describe("GET /api/pane/plan", () => {
+  it("requires GET and a pane id with the shared error envelope", async () => {
+    for (const [url, method, code] of [
+      [`${base()}/api/pane/plan`, "GET", "missing_pane_id"],
+      [`${base()}/api/pane/plan?pane_id=w9999:p9999`, "POST", "method_not_allowed"],
+    ] as const) {
+      const response = await fetch(url, { method });
+      expect(response.status).toBe(400);
+      const body: ApiError = await response.json();
+      expect(body.error.code).toBe(code);
+      expect(typeof body.error.message).toBe("string");
+    }
+  });
+});
+
 describe("Devin conversation API", () => {
   it("keeps the terminal fallback rather than guessing a shell pane's session", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-devin-contract-"));

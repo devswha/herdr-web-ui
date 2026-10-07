@@ -3,14 +3,14 @@ import { ChevronDown, ChevronRight, Terminal } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
 import { paneStorageId } from "../../shared/machines.ts";
-import type { AgentStatus } from "../../shared/protocol.ts";
+import type { AgentStatus, PlanSummary } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
 import { agentContext, agentTabName, paneMark, sidebarAgents } from "../lib/sidebarAgents.ts";
 import { useSettings } from "../lib/settings.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
 import { activityOrder } from "../lib/sidebarOrder.ts";
 import { AgentMark, hasAgentMark } from "./AgentMark.tsx";
-import { BackgroundBadge, displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
+import { BackgroundBadge, displayPaneTitle, PlanBadge, StatusBadge } from "./Sidebar.tsx";
 import "./AgentSidebar.css";
 
 interface AgentRowBodyProps {
@@ -23,6 +23,7 @@ interface AgentRowBodyProps {
   name: string | null;
   context: string;
   backgroundTasks?: number;
+  plan?: PlanSummary;
   status?: AgentStatus;
 }
 
@@ -30,7 +31,7 @@ interface AgentRowBodyProps {
  * One agent in a list: the coding agent's mark, what it is working on, who and where it is, and
  * how it is doing.
  */
-function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, status }: AgentRowBodyProps) {
+function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, plan, status }: AgentRowBodyProps) {
   return <>
     <span className="sidebar-mark" aria-hidden="true">{mark !== null ? <AgentMark agent={mark} size={18} /> : <Terminal />}</span>
     <span className="agent-copy">
@@ -42,7 +43,7 @@ function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, s
         {context}
       </span>}
     </span>
-    <span className="agent-row-status"><BackgroundBadge count={backgroundTasks} /><StatusBadge status={status} compact /></span>
+    <span className="agent-row-status"><BackgroundBadge count={backgroundTasks} /><PlanBadge plan={plan} /><StatusBadge status={status} compact /></span>
   </>;
 }
 
@@ -103,7 +104,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
           return <li className={`agent-item${selected ? " is-selected" : ""}${online ? "" : " is-offline"}`} key={paneStorageId(machine.id, pane.pane_id)} data-machine={machine.id} data-pane={pane.pane_id}>
             <button type="button" className="agent-select agent-row" disabled={!online} aria-current={selected ? "true" : undefined} title={tooltip} onClick={() => onSelect(machine.id, pane.pane_id)}>
               {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
-              <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} status={online ? activity.status(machine.id, pane) : undefined} />
+              <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} plan={online ? pane.plan : undefined} status={online ? activity.status(machine.id, pane) : undefined} />
             </button>
           </li>;
         })}
