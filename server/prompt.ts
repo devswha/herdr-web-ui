@@ -213,14 +213,31 @@ function parseNumberedRows(lines: string[], start: number, end: number): Numbere
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const nextLineIndex = rows[index + 1]?.lineIndex ?? end;
+    // a description a narrow pane wraps goes on to the next blank line or rule
+    const description: string[] = [];
     for (let lineIndex = row.lineIndex + 1; lineIndex < nextLineIndex; lineIndex += 1) {
-      const description = cleanLine(lines[lineIndex]!);
-      if (!description || isDivider(description)) continue;
-      row.description = description;
-      break;
+      const line = cleanLine(lines[lineIndex]!);
+      if (line && !isDivider(line)) description.push(line);
+      else if (description.length > 0) break;
     }
+    if (description.length > 0) row.description = normalizeText(description.join(" "));
   }
   return rows;
+}
+
+/**
+ * A menu's rows among numbered lines read from well above it: the last run that counts up from 1,
+ * among the lines numbered in the column of the row the cursor is on. What is above a menu can hold
+ * a numbered line of its own, such as a message sent before ("❯ 1. …", "› 1. …") still on screen;
+ * a numbered line in an option's description is indented further.
+ */
+function menuRows(lines: string[], start: number, end: number): NumberedRow[] {
+  const rows = parseNumberedRows(lines, start, end);
+  const column = (row: NumberedRow): number => lines[row.lineIndex]!.replace(ANSI_RE, "").search(/\d/);
+  // the cursor's row is the menu's (a sent message after the same mark lines up with it); without one, the last row
+  const anchor = [...rows].reverse().find((row) => row.selected) ?? rows.at(-1);
+  const menu = anchor === undefined ? rows : rows.filter((row) => column(row) === column(anchor));
+  return menu.slice(Math.max(0, menu.map((row) => row.number).lastIndexOf(1)));
 }
 
 function sequentialRows(rows: NumberedRow[]): boolean {
@@ -293,7 +310,7 @@ function parseCodexContinueMenu(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => CODEX_CONTINUE_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
+  const rows = menuRows(lines, Math.max(0, hintIndex - 64), hintIndex);
   if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
   const body = lines.slice(Math.max(0, rows[0]!.lineIndex - 16), rows[0]!.lineIndex)
     .map(cleanLine).filter((line) => line && !isDivider(line)).join("\n");
@@ -312,7 +329,7 @@ function parseCodexQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => CODEX_ASK_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 48), hintIndex);
+  const rows = menuRows(lines, Math.max(0, hintIndex - 48), hintIndex);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const customIndex = rows.findIndex((row) => /^None of the above\b/i.test(row.label));
   if (customIndex !== rows.length - 1 || customIndex < 1) return null;
@@ -347,7 +364,8 @@ function parseCodexAsyncQuestion(screen: string): ParsedPrompt | null {
   if (hintIndex < 0) return null;
   const header = findLastIndex(lines.slice(Math.max(0, hintIndex - 48), hintIndex), (line) => CODEX_QUEUE_HEADER_RE.test(cleanLine(line)));
   const top = header < 0 ? Math.max(0, hintIndex - 48) : Math.max(0, hintIndex - 48) + header + 1;
-  const rows = parseNumberedRows(lines, top, hintIndex);
+  // without the header the rows are read from well above: a message sent before can be there too
+  const rows = menuRows(lines, top, hintIndex);
   const text = (from: number, to: number) => lines.slice(from, to).map(cleanLine).filter((line) => line && !isDivider(line));
   let position: RegExpMatchArray | null = null;
   const questionLines = (to: number): string[] => {
@@ -482,7 +500,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const lines = preview ? withoutPreview(raw, Math.max(0, hintIndex - 64), hintIndex) : raw;
   // with a preview the options end at the rule above "Chat about this": nothing under it is theirs
   const end = preview ? findLastIndex(lines.slice(0, hintIndex), (line) => isDivider(line)) : hintIndex;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), end);
+  const rows = menuRows(lines, Math.max(0, hintIndex - 64), end);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const chatIndex = rows.findIndex((row) => row.label === "Chat about this");
   const customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));
@@ -1521,6 +1539,14 @@ function parseCodexModel(screen: string): ParsedPrompt | null {
 }
 
 /**
+ * Whether a model list of Claude Code's or Codex's holds the end of the screen, read or not. Enter
+ * there saves a default, so nothing that ends in Enter is typed while one is open.
+ */
+export function modelListWaits(agent: string, screen: string): boolean {
+  return claudeModelListWaits(screen) || (agent === "codex" && codexModelListWaits(screen));
+}
+
+/**
  * Whether Claude Code's model list holds the end of the screen, by its hint alone: also a list
  * parseClaudeModel could not read (a name the pane cut in two). Such a list gets no fallback card
  * while herdr happens to report the pane blocked: that card offers Enter, and Enter on this list
@@ -1528,9 +1554,17 @@ function parseCodexModel(screen: string): ParsedPrompt | null {
  */
 function claudeModelListWaits(screen: string): boolean {
   const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
-  const shown = withoutClaudeTasks(visible);
-  // wider than the reader's own window: a hint wrapped further than it reads is still this list's
-  return [1, 2, 3, 4, 5, 6].some((span) => CLAUDE_MODEL_HINT_RE.test(shown.slice(-span).join(" ")));
+  // wider than the reader's own window: a hint wrapped further than it reads is still this list's.
+  // The match runs into the line it ends at, as in promptTailIsActive: a hint that ended above
+  // later output is an answered list's, and holds nothing
+  const ends = (lines: string[], end: number): boolean => [1, 2, 3, 4, 5, 6].some((span) => {
+    const from = Math.max(0, end - span);
+    return CLAUDE_MODEL_HINT_RE.test(lines.slice(from, end).join(" ")) && (span === 1 || !CLAUDE_MODEL_HINT_RE.test(lines.slice(from, end - 1).join(" ")));
+  });
+  // Claude's own footer under the open list (the session's rule, its task list) is no later
+  // output, and it sits under a wrapped hint as under a whole one
+  const shown = withoutClaudeTasks(visible, ends);
+  return ends(shown, shown.length);
 }
 
 // Claude Code's /effort slider: levels are read from its labels, never from a catalogue.
@@ -1614,7 +1648,8 @@ const CLAUDE_TASK_ROW_RE = /^[◻◼✔]\s/;
 const CLAUDE_TASKS_MORE_RE = /^…\s\+\d+ pending$/;
 const LABELED_RULE_RE = /^─{3,}\s.*─$/;
 const CLAUDE_HINT_TAIL_RE = /\besc to (?:cancel|exit|go back)\b/i;
-function withoutClaudeTasks(shown: string[]): string[] {
+/** `hintEnds`: whether the panel's hint ends at line `end`; a hint a narrow pane wrapped needs its own reading */
+function withoutClaudeTasks(shown: string[], hintEnds: (lines: string[], end: number) => boolean = (lines, end) => CLAUDE_HINT_TAIL_RE.test(lines[end - 1] ?? "")): string[] {
   let end = shown.length;
   const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
   if (head >= 0) {
@@ -1634,7 +1669,7 @@ function withoutClaudeTasks(shown: string[]): string[] {
   }
   // the session's rule is drawn above the list, and with no task list too
   if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
-  return end < shown.length && CLAUDE_HINT_TAIL_RE.test(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
+  return end < shown.length && hintEnds(shown, end) ? shown.slice(0, end) : shown;
 }
 
 function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
