@@ -1,5 +1,5 @@
 /* One PC per group: its name is the head of its workspaces. The caret hangs in the rows' leading
-   cell, so the name lines up with the titles below it, and the state line with the name. */
+   cell, the monitor follows it, and the state line starts where the name does. */
 .machine-list {
   position: relative;
   flex: 1 1 0;
@@ -24,7 +24,7 @@
 .machine-list > .tree-state { padding-left: calc(var(--side-gutter) + var(--side-box)); }
 
 .machine-group {
-  --machine-indent: calc(var(--side-gutter) + var(--side-box));
+  --machine-indent: calc(var(--side-gutter) + var(--side-box) + var(--icon-size) + var(--space-2));
 }
 
 .machine-group + .machine-group { margin-top: var(--space-4); }
@@ -36,15 +36,39 @@
 }
 
 .machine-toggle {
+  display: flex;
+  align-items: center;
   flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--side-row);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  text-align: left;
   cursor: pointer;
 }
+
+.machine-toggle:focus-visible { outline-offset: calc(var(--ring-offset) * -1); }
 
 .machine-caret {
   flex: none;
   width: var(--space-4);
   height: var(--space-4);
   margin-inline: calc((var(--side-box) - var(--space-4)) / 2);
+  color: var(--text-dim);
+}
+
+.machine-icon {
+  flex: none;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin-right: var(--space-2);
   color: var(--text-dim);
 }
 
@@ -60,6 +84,7 @@
   margin-left: var(--space-2);
   color: var(--text-dim);
   font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
 }
 
 .machine-dot {
@@ -71,6 +96,7 @@
   background: var(--status-idle);
 }
 
+.machine-dot.is-connected { background: var(--status-done); }
 .machine-dot.is-error { background: var(--status-blocked); }
 
 .machine-dot.is-connecting,

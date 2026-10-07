@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { Check, ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, MessageCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
@@ -309,6 +309,21 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  // A right-click on a row opens the menu its ⋯ opens, under that button, which also takes the
+  // focus back when the menu goes. A name being edited keeps the browser's own menu, for its paste.
+  // A finger's long press is left alone: it is how a row is picked up to be dragged, and the ⋯
+  // is always there on touch.
+  const onRowContextMenu = (event: MouseEvent<HTMLElement>, toggle: (anchor: HTMLElement) => void): void => {
+    if ((event.target as HTMLElement).closest("input")) return;
+    // Chrome and Safari say what pressed; Firefox does not, so there the device's main pointer decides
+    const pointer = (event.nativeEvent as PointerEvent).pointerType;
+    if (pointer ? pointer === "touch" : window.matchMedia("(pointer: coarse)").matches) return;
+    const anchor = event.currentTarget.querySelector<HTMLElement>(".row-menu-toggle");
+    if (!anchor) return;
+    event.preventDefault();
+    toggle(anchor);
+  };
+
   // A close takes the workspace with it, so it asks first, as herdr's ui.confirm_close does.
   // The row is gone afterwards, so focus moves to the header's workspace-list toggle.
   const leave = async (close: () => Promise<void>): Promise<void> => {
@@ -497,6 +512,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const editingWorkspace = editingWorkspaceId === `${scope}\u0000${workspace.workspace_id}`;
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id && menu.scope === scope && menu.kind === undefined;
     const linked = workspace.worktree?.is_linked_worktree === true;
+    const toggleMenu = (anchor: HTMLElement): void => setMenu(menuOpen ? null : { anchor, workspace, pane, scope, title: displayTitle, place: place || workspace.label });
     return (
       <li
         className={`workspace pane-item${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${selected ? " is-selected" : ""}`}
@@ -507,7 +523,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
         }}
         onDrop={(event) => onDrop(event, workspace.workspace_id)}
       >
-        <div className="pane-row">
+        <div className="pane-row" onContextMenu={(event) => onRowContextMenu(event, toggleMenu)}>
           <div
             className="pane-select workspace-select"
             role="button"
@@ -576,7 +592,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
             </span>
           </div>
           <div className="pane-actions">
-            <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => menuOpen ? setMenu(null) : setMenu({ anchor: event.currentTarget, workspace, pane, scope, title: displayTitle, place: place || workspace.label })}>
+            <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => toggleMenu(event.currentTarget)}>
               <Ellipsis aria-hidden="true" />
             </button>
           </div>
@@ -605,6 +621,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const editingPane = editingPaneId === pane.pane_id;
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id && menu.scope === "" && menu.kind === "workspace";
     const contentsId = `${rosterId}-worktrees-${encodeURIComponent(repoKey ?? workspace.workspace_id)}`;
+    const toggleMenu = (anchor: HTMLElement): void => setMenu(menuOpen ? null : { anchor, workspace, pane, scope: "", title: rowTitle, place: [secondaryWorkspaceLabel, ...paths].filter(Boolean).join(" · ") || workspace.label, kind: "workspace" });
     return <li
       className={`workspace workspace-group pane-item${selected ? " is-selected" : ""}${collapsed ? " is-collapsed" : ""}${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}`}
       key={workspace.workspace_id}
@@ -613,7 +630,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
       onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
       onDrop={(event) => onDrop(event, workspace.workspace_id)}
     >
-      <div className="workspace-header">
+      <div className="workspace-header" onContextMenu={(event) => onRowContextMenu(event, toggleMenu)}>
         <div
           className="pane-select workspace-select"
           role="button"
@@ -675,7 +692,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           </span>
         </div>
         <div className="workspace-actions">
-          <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: rowTitle })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => menuOpen ? setMenu(null) : setMenu({ anchor: event.currentTarget, workspace, pane, scope: "", title: rowTitle, place: [secondaryWorkspaceLabel, ...paths].filter(Boolean).join(" · ") || workspace.label, kind: "workspace" })}>
+          <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: rowTitle })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => toggleMenu(event.currentTarget)}>
             <Ellipsis aria-hidden="true" />
           </button>
         </div>

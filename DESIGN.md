@@ -378,6 +378,11 @@ One set for both themes: the card is island black wherever it shows.
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
+  A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
+  (the menu key and Shift+F10 too, as the browser sends them); a name field being edited keeps
+  the browser's own menu, and a finger's long press is left alone (it picks the row up for a
+  drag, and the `⋯` is always shown on touch). PC headers and agent rows have no menu, so they
+  keep the browser's.
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
   confirmed close, focus lands on the header's workspace-list toggle.
@@ -493,13 +498,13 @@ One set for both themes: the card is island black wherever it shows.
   agent rows show their pane's own title. Each row's
   place is available to screen readers, without repeating what its title already says. The
   palette, which has no header, names the workspace and folder once when they are the same.
-- A PC group header is a caret, the name, “Host” for the local machine (also when it is the only
-  PC: the name alone does not say which computer it is), and a state dot only while the PC is not
-  connected (working pulse =
-  connecting/reconnecting, blocked = error), then a `+` in the status column that starts a
-  workspace on that PC (disabled while it is offline). An SSH PC's manage button sits before the
+- A PC group header is a caret, a monitor icon, the name in `--text-strong` semibold, “Host” for
+  the local machine (also when it is the only PC: the name alone does not say which computer it
+  is), and a state dot (done = connected, working pulse = connecting/reconnecting, blocked =
+  error, idle = disconnected), then a `+` in the status column that starts a workspace on that
+  PC (disabled while it is offline). An SSH PC's manage button sits before the
   `+` and shows on hover, focus, while its panel is open, while the PC is not connected, and always
-  on touch. Connected says nothing; every other state is written under the name, with the server's
+  on touch. Connected is the dot alone; every other state is also written under the name, with the server's
   error clamped to two lines and complete in the tooltip.
 - In the By workspace view, a repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
   sit indented under the row of the workspace on its main checkout (`.worktree-children`), without

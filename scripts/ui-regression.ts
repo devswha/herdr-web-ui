@@ -865,8 +865,8 @@ try {
   assert.equal(await childHeader.locator(".workspace-select").getAttribute("draggable"), "true", "row dragging returns after editing finishes");
   assert.equal(await childHeader.locator(".workspace-name").textContent(), "browser/sidebar", "renaming a workspace preserves its actual git branch");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "worktree-branches-sidebar.png") });
-  await repoRow.hover();
-  await repoRow.locator(".row-menu-toggle").click();
+  // a workspace row's menu also opens from a right-click on the row
+  await repoRow.locator(".workspace-select").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Open worktree…", exact: true }).click();
   const openWorktree = page.getByRole("dialog", { name: /^Open worktree/ });
   await openWorktree.waitFor();
@@ -1351,6 +1351,15 @@ try {
   await page.keyboard.press("Escape");
   await rowMenu.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "Escape returns focus to the row's ⋯");
+  // a right-click on the row opens the same menu, under the same button
+  await page.locator(".pane-item.is-selected .pane-select").click({ button: "right" });
+  await rowMenu.waitFor();
+  assert.equal(await page.locator(".pane-item.is-selected .row-menu-toggle").getAttribute("aria-expanded"), "true", "a right-click opens the row's own menu");
+  // the press left the focus on the row; the menu takes it a frame later
+  await until(async () => await page.evaluate(() => document.activeElement?.getAttribute("role") === "menuitem"), "the menu takes the focus");
+  await page.keyboard.press("Escape");
+  await rowMenu.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "Escape after a right-click returns focus to the row's ⋯");
   await page.keyboard.press("Enter");
   await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
   const confirmClose = page.getByRole("alertdialog");

@@ -8,6 +8,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- A right-click on a workspace or pane row in the sidebar opens the row's menu, the one its `⋯`
+  button opens. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - The sidebar can be resized: drag its right edge, or focus the edge and use the arrow keys.
   A double-click returns to the default width. The width is remembered on each device, and the
   sidebar never takes more than half the window.
@@ -28,8 +30,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   an agent is ready. Agent rows name the agent, then the PC when there are several, the workspace
   and the tab. Sections are parted by space instead of rules, a row's menu button takes no room
   until the row is hovered or selected, and a linked worktree group folds from a chevron that
-  always shows; folded, it shows the most urgent state among its checkouts. A PC's header draws
-  its dot only while it is not connected; a pane herdr could not restore shows a warning glyph,
+  always shows; folded, it shows the most urgent state among its checkouts. A pane herdr could
+  not restore shows a warning glyph,
   and the background-task count sits on agent rows.
   Workspace rows keep their names, and agents open their panes directly. Tab and pane navigation
   stays in the tab strip and palette; saved folder grouping choices stay in effect.
