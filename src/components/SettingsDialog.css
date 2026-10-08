@@ -1,6 +1,6 @@
 /* The Settings shortcut can open it while a file preview still holds its history entry: only
    then is it raised, over the preview. On its own it stays on the layer every dialog shares, so
-   the palette and the file browser, later in the document, still open above it. */
+   the file browser, later in the document, still opens above it; the palette has a layer of its own. */
 .settings-over-preview {
   z-index: calc(var(--z-modal) + 2);
 }
