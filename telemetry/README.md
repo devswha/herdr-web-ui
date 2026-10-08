@@ -15,7 +15,7 @@ the address either.
 ```sh
 cd telemetry
 bunx wrangler login
-bunx wrangler d1 create herdr-web-ui-telemetry   # put the printed database_id into wrangler.toml
+bunx wrangler d1 create herdr-web-ui-telemetry   # done once: its database_id is in wrangler.toml; only a new account repeats it
 bunx wrangler d1 execute herdr-web-ui-telemetry --remote --file schema.sql
 bunx wrangler deploy
 ```
