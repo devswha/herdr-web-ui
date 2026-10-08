@@ -7,13 +7,71 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Secret input and the Codex follow-up fallback validate the live screen, so a password
+  prompt or collapsed question queue in scrollback cannot send input into the current program.
+  ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
+- The PC's Tailscale login is read from a real Tailscale user id. These ids are too large for a
+  JavaScript number, so the owner was not recognised and the owner's own devices had to pair. Two
+  logins with neighbouring ids are also no longer taken for one.
+  ([#572](https://github.com/devswha/herdr-web-ui/pull/572))
+- On Windows, a Claude Code pane started with its own `CLAUDE_CONFIG_DIR`, such as a second
+  account's `~/.claude-*` directory, shows its chat. Before, the pane fell back to `~/.claude`, so
+  the chat said **Conversation unavailable** and only the terminal worked. Windows does not let
+  the server read another process's environment, so the store is the one among `~/.claude` and
+  the `~/.claude-*` directories beside it that holds the Claude process's own record, checked
+  against the time the process started. Claude Code processes reported as `claude.exe` are
+  recognized too.
+  ([#563](https://github.com/devswha/herdr-web-ui/pull/563) by @David-Sousa-Web)
+- A long line of brackets, `\(` or underscores that never close, as an agent prints in a log or a
+  minified file, no longer freezes the chat: a megabyte of them took a minute or more to read, and
+  now takes milliseconds. What every message shows is unchanged.
+  ([#574](https://github.com/devswha/herdr-web-ui/pull/574))
+- On a mirrored pane (Windows, where herdr cannot attach a terminal), text typed while a message
+  was still being sent no longer reaches the pane once you have left it, or left it and opened it
+  again, before the text's turn came.
+  ([#576](https://github.com/devswha/herdr-web-ui/pull/576))
+- The plugin's `start` keeps the app on its port when the app's own server holds it but cannot
+  reach herdr. It used to move the app to another port beside the running one and blame another
+  program; now it says that the app runs there without herdr and exits, and the app answers
+  again on its port once herdr is back.
+  ([#577](https://github.com/devswha/herdr-web-ui/pull/577))
+- On Windows, a Codex pane shows its chat when Codex stored its paths with the `\\?\` prefix, as
+  it does for a canonical Windows path (`\\?\D:\work` for `D:\work`). Before, the chat said
+  **Conversation unavailable**: the session's file seemed to lie outside Codex's store, and none of
+  the threads matched the pane's directory as herdr reports it.
+  ([#582](https://github.com/devswha/herdr-web-ui/pull/582) by @David-Sousa-Web)
+- In a Claude Code pane, the chat shows what a slash command answered, so a `/goal` that Claude
+  Code refuses says why in the chat instead of only in the terminal. `/goal` is also among the
+  commands the message box suggests.
+  ([#583](https://github.com/devswha/herdr-web-ui/pull/583))
+- Settings opened over a file preview is visible above it; Escape and Back close Settings
+  first, preserving the preview and its history entry until the file itself is closed.
+  ([#568](https://github.com/devswha/herdr-web-ui/pull/568))
+- Command palette buttons keep their native Enter action; IME commit and cancel keys
+  stay with text input, and arrow navigation keeps the selected result visible.
+  ([#567](https://github.com/devswha/herdr-web-ui/pull/567))
+
+## [0.4.0] - 2026-10-08
+
 ### Added
-- An update tells what it brings before it is installed. **Settings → Updates** shows
+- An update tells what it brings before it is installed. **Settings → About** shows
   **What's new** under the version on offer: the changelog of every release the update installs,
   newest first, read from the release itself. The line under the header has a **What's new**
   button that opens Settings there. The notes come from the version that is running, so they
   appear from the update after this one.
   ([#535](https://github.com/devswha/herdr-web-ui/pull/535))
+- An update also tells what it brought once it is installed. After the reload, the line under
+  the header says which version now runs, with **What's new** and **Dismiss**, for a week or
+  until it is closed on that device, and **Settings → About** keeps the notes under
+  **What the last update brought**. These come from the new version itself, so they appear
+  with the first update to a version that has them.
+  ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
+- A release is told the way a game's patch notes are, before and after its install: a short
+  list under **New features**, **Improvements** and **Bug fixes**, in the app's language
+  (English, Korean, Japanese or Chinese). The changelog entries are folded under
+  **Show every change**. A release that wrote no such list shows its entries as before.
+  ([#560](https://github.com/devswha/herdr-web-ui/pull/560))
 - The one-line installers can give the GitHub star they mention. On a first install, when the gh
   CLI is signed in and that account has not starred the repository, `install.sh` and `install.ps1`
   ask once at the terminal and star only on `y`. An account that already starred hears nothing.
@@ -46,6 +104,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
+- The terminal's **Input held until the terminal is ready** notice appears only when there is
+  text to send or discard, or when text was too long to hold. It no longer counts "special
+  keys dropped": the count rose without a key being pressed, with every answer the terminal
+  gives a program by itself, and with nothing held the notice had only a dash to show. Text
+  past the 1,024 characters it holds is now told as left out, where it only raised that count.
+  ([#561](https://github.com/devswha/herdr-web-ui/pull/561))
+- Settings shows one page at a time. A list of pages (Appearance, Chat, Terminal, Alerts, Voice
+  input, Subscription usage, Shortcuts, Phone & devices, Remote PCs, About) stays beside the open
+  page; on a phone the list comes first and a page opens from it. Each page groups its settings
+  in cards, one control at the end of each row, and a phone no longer scrolls through every
+  setting to reach the last. What moved: the terminal's font, wheel speed, input mode and
+  **Key bar** from Appearance to **Terminal**; Composer and Quick replies into **Chat**; Phone,
+  Install and Devices into **Phone & devices**; Updates and herdr into **About**. Colors and
+  Language are menus now, and Language lists English, 简体中文, 日本語, 한국어 in that order after
+  System. Every setting keeps its value. The Back button of a phone or a browser
+  steps out of Settings (the key bar editor, the page, then the dialog) instead of leaving the app.
+  ([#562](https://github.com/devswha/herdr-web-ui/pull/562))
 - The mic button shows in a desktop's chat without being turned on. **Settings → Voice input →
   Microphone button** is now **Auto**, **On** or **Off**. Auto, the default, puts the mic in the
   chat's message box on a desktop, and only where dictation can work: over HTTPS, with an OpenAI
@@ -56,7 +131,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a phone, the sidebar's **Agents** list starts folded, leaving the drawer to the workspaces.
   A tap on its heading opens it. ([#559](https://github.com/devswha/herdr-web-ui/pull/559))
 - On a touch screen, the chip above the message box that takes Claude Code's suggested next
-  prompt is on again unless **Settings → Composer → Suggestion chip** turns it off.
+  prompt is on again unless **Settings → Chat → Suggestion chip** turns it off.
   ([#559](https://github.com/devswha/herdr-web-ui/pull/559))
 - Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
   work schedules a next-turn message; its explicit ↑ Send now action delivers it immediately,
@@ -72,13 +147,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   already did: with a mouse it is typed at the transcript's size, and on a touch screen it
   grows with a size above 16px (it stays at 16px or more, so iOS still does not zoom).
   ([#515](https://github.com/devswha/herdr-web-ui/pull/515) by @phirschybar)
-
 - Workspace rows no longer reserve a left column for a reorder grip. Rows can still be dragged
   directly or moved with Alt+Up/Down while focused.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
 - The sidebar follows herdr's separate workspace and agent lists, drawn on one quiet grid. Every
   row leads with the coding agent that runs in it (its mark, or a terminal for a shell and a
-  branch for a worktree without an agent) and ends in one status column, drawn by urgency (a filled red bubble waits for an answer, a
+  branch for a worktree without an agent) and ends in one status column, drawn by urgency (a red question mark waits for an answer, a
   green dot has finished and was not looked at yet, a dim arc runs), which stays empty while
   an agent is ready. Agent rows name the agent, then the PC when there are several, the workspace
   and the tab. Sections are parted by space instead of rules, a row's menu button takes no room
@@ -102,7 +176,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   from herdr's worktree API and keeping custom workspace names beside them. Creating or opening
   a worktree expands its group. The browser demo supports these worktree actions with fictional
   checkouts too. ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
-
 - A linked worktree's row in the sidebar is titled by its workspace name, the one its owner gave it
   or the one herdr made from the branch, instead of the branch; the branch follows in dim text
   where the name does not already say it, and in the row's tooltip and menu. The sidebar's mark
@@ -2244,7 +2317,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...v0.4.0
 [0.3.52]: https://github.com/devswha/herdr-web-ui/compare/v0.3.51...v0.3.52
 [0.3.51]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...v0.3.51
 [0.3.50]: https://github.com/devswha/herdr-web-ui/compare/v0.3.49...v0.3.50

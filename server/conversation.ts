@@ -36,7 +36,7 @@ import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPan
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
+import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { piTranscriptPath, unwrittenSession } from "./pi.ts";
@@ -75,6 +75,28 @@ function isCommandEntry(text: string): boolean {
 }
 
 /**
+ * What a slash command printed, from the `local_command` entry Claude Code records it in. The
+ * command's echo (`<command-name>…`) is a separate entry with no output tag, and reads as nothing.
+ */
+/** A command's answer is a notice, not a log: the rest of a long one stays in the terminal. */
+const LOCAL_COMMAND_MAX_CHARS = 4000;
+
+function localCommandOutput(content: unknown): string {
+  if (typeof content !== "string") return "";
+  // the whole entry is the output: a tag quoted inside an echo's arguments is not an answer
+  const match = /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>\s*$/.exec(content);
+  if (match === null) return "";
+  // the terminal's escape codes (colours, links, cursor moves) and other controls are not text
+  const text = match[2]!
+    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b./g, "")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
+    .trim();
+  return text.length > LOCAL_COMMAND_MAX_CHARS ? `${text.slice(0, LOCAL_COMMAND_MAX_CHARS)}\u2026` : text;
+}
+
+/**
  * Claude Code wraps a long paste in `<pasted_content id="…">` tags so the model can
  * tell it from typed text; its own TUI shows only the text, and so does the chat.
  */
@@ -92,6 +114,9 @@ export function unwrapPastes(text: string): string {
 /** A parsed JSONL line's message shape (only the fields we read). */
 interface TranscriptEntry {
   type?: string;
+  subtype?: string;
+  /** a `system` entry's own text; a message's is under `message` */
+  content?: unknown;
   timestamp?: string;
   uuid?: string;
   isMeta?: boolean;
@@ -155,6 +180,14 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
       if (typeof queued.prompt === "string" && queued.prompt.trim() && !isCommandEntry(queued.prompt.trim())) {
         turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(queued.prompt) }] });
       }
+      continue;
+    }
+
+    // A slash command answers in the terminal, not through the model: a refused /goal says why
+    // only here. It is the runtime speaking in the user's seat, so it reads as a notice.
+    if (entry.type === "system" && entry.subtype === "local_command") {
+      const output = localCommandOutput(entry.content);
+      if (output.length > 0) turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "notice", text: output, source: "local-command" }] });
       continue;
     }
 
@@ -750,13 +783,10 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
     const processInfo = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; name?: string; argv0?: string; argv?: string[] }[] } }>(
       "pane.process_info", { pane_id: paneId },
     );
-    processes = processInfo.process_info?.foreground_processes?.filter((entry) =>
-      // macOS keeps the executable name "node" for npm installs; the process title is argv0.
-      entry.name === "claude" || /(?:^|\/)claude$/.test(entry.argv0 ?? "") || /(?:^|\/)claude$/.test(entry.argv?.[0] ?? ""),
-    ) ?? [];
+    processes = processInfo.process_info?.foreground_processes?.filter(isClaudeProcess) ?? [];
   } catch { /* herdr busy: the default store */ }
   const only = processes.length === 1 ? processes[0] : undefined;
-  const configDir = (only && await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""])) || defaultClaudeConfigDir(home);
+  const configDir = (only && await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""], home)) || defaultClaudeConfigDir(home);
   if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) session = await claudeProcessSession(home, only.pid, configDir);
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
   const path = await claudeTranscriptFile(home, session, cwds, configDir);

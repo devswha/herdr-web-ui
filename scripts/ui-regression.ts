@@ -33,6 +33,7 @@ import { checkTerminalZoom } from "./terminal-zoom-regression.ts";
 import { checkFolderFilter } from "./folder-filter-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
@@ -114,24 +115,25 @@ try {
   const sockets: import("playwright-core").WebSocket[] = [];
   const inputs: Array<{ type: "input" | "submit"; pane_id: string; text: string; delivery?: "immediate" | "queue" }> = [];
   const pendingActions: Array<{ pane_id: string; pending_id: string; action: string }> = [];
-  const inputStates = new Map<string, { ready: boolean; at: number }>();
+  // keyed by pane, with the connection that said so: an earlier connection's input-ready says nothing about the current one
+  const inputStates = new Map<string, { ready: boolean; at: number; socket: import("playwright-core").WebSocket }>();
   const pendingReady = (pane: string) => until(() => {
     const state = inputStates.get(pane);
-    return state?.ready === true && Date.now() - state.at >= 500;
+    return state?.ready === true && state.socket === sockets.at(-1) && !state.socket.isClosed() && Date.now() - state.at >= 500;
   }, `stable pending attachment of ${pane}`);
   page.on("websocket", (socket) => {
     sockets.push(socket);
     socket.on("framereceived", ({ payload }) => {
       const message = JSON.parse(String(payload));
       if (message.type === "pty-data") painted.add(message.pane_id);
-      if (message.type === "input-ready") inputStates.set(message.pane_id, { ready: message.ready !== false, at: Date.now() });
+      if (message.type === "input-ready") inputStates.set(message.pane_id, { ready: message.ready !== false, at: Date.now(), socket });
     });
     socket.on("framesent", ({ payload }) => {
       const message = JSON.parse(String(payload));
       // composer messages go out as "submit" on servers that list it (#15), keystrokes as "input"
       if (message.type === "input" || message.type === "submit") inputs.push(message);
       if (message.type === "pending-action") pendingActions.push(message);
-      if (message.type === "attach" || message.type === "detach") inputStates.set(message.pane_id, { ready: false, at: Date.now() });
+      if (message.type === "attach" || message.type === "detach") inputStates.set(message.pane_id, { ready: false, at: Date.now(), socket });
     });
   });
   await page.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
@@ -148,6 +150,119 @@ try {
     "Spaces has no tab or pane tree");
   assert.equal(await agentRow(paneA).count(), 0, "a plain shell is absent from Agents");
   assert.equal(await agentRow(paneB).count(), 0, "another plain shell is absent from Agents");
+
+  // The search owns arrow/Enter navigation. Tab still reaches real buttons: Enter on Close
+  // must close without selecting the highlighted result, and Enter on a row runs that row.
+  const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+  const paletteSearch = palette.getByRole("searchbox", { name: "Search panes and actions", exact: true });
+  const selectedPane = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")?.pane_id as string | undefined);
+  const openPalette = async (): Promise<void> => {
+    await page.keyboard.press("ControlOrMeta+Shift+k");
+    await palette.waitFor();
+    await until(async () => await paletteSearch.evaluate((input) => document.activeElement === input), "palette search takes focus");
+  };
+  await openPalette();
+  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await until(async () => await palette.locator(".palette-pane").count() === 1, "the other pane is the palette's only result");
+  await page.keyboard.press("Tab");
+  assert.equal(await palette.getByRole("button", { name: "Close command palette", exact: true }).evaluate((button) => document.activeElement === button), true,
+    "Tab reaches the close button from search");
+  await page.keyboard.press("Enter");
+  await palette.waitFor({ state: "hidden" });
+  assert.equal(await selectedPane(), paneA, "Enter on Close leaves the pane selection alone");
+
+  await openPalette();
+  const otherPalettePane = palette.locator(".palette-pane").filter({ hasText: "herdr-web-ui-test-browser-b" });
+  // Walk the actual tab order instead of clicking: pointer hover must not pick the row for us.
+  for (const deadline = Date.now() + 5_000; ;) {
+    await page.keyboard.press("Tab");
+    if (await otherPalettePane.evaluate((button) => document.activeElement === button)) break;
+    assert.ok(Date.now() < deadline, "Tab reaches the other pane's option");
+  }
+  assert.equal(await otherPalettePane.getAttribute("aria-selected"), "true", "the focused option is highlighted");
+  await page.keyboard.press("Enter");
+  await palette.waitFor({ state: "hidden" });
+  await until(async () => await selectedPane() === paneB, "Enter on the focused option selects that pane");
+  await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await until(async () => await selectedPane() === paneA, "return to the first pane after palette selection");
+
+  await openPalette();
+  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await until(async () => await palette.locator(".palette-pane").count() === 1, "IME check has a matching result to avoid activating");
+  const paletteComposition = await paletteSearch.evaluate((input) => [
+    { key: "Enter", isComposing: true },
+    { key: "Enter", keyCode: 229 },
+    { key: "ArrowUp", isComposing: true },
+    { key: "ArrowDown", isComposing: true },
+    { key: "Escape", isComposing: true },
+    { key: "Escape", keyCode: 229 },
+  ].map((init) => input.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }))));
+  assert.deepEqual(paletteComposition, [true, true, true, true, true, true], "IME candidate, commit and cancel keys keep their default action");
+  assert.equal(await palette.isVisible(), true, "IME Enter and Escape leave the palette open");
+  assert.equal(await selectedPane(), paneA, "IME Enter never activates its matching pane");
+  assert.equal(await paletteSearch.inputValue(), "herdr-web-ui-test-browser-b", "IME cancellation leaves the query alone");
+  await paletteSearch.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+
+  // Short desktop and phone lists both overflow. Wrapping up from the first result and down
+  // from the last keeps the active option visible while typing focus stays in search.
+  const paletteViewport = page.viewportSize()!;
+  for (const viewport of [{ width: 1280, height: 400 }, { width: 390, height: 600 }]) {
+    await page.setViewportSize(viewport);
+    await openPalette();
+    await page.mouse.move(0, 0);
+    assert.equal(await palette.locator(".palette-results").evaluate((list) => list.scrollHeight > list.clientHeight), true,
+      "the short palette has a scrollable list");
+    const optionCount = await palette.getByRole("option").count();
+    const visibleActiveOption = () => palette.locator(".palette-results").evaluate((list) => {
+      const option = list.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!option) return false;
+      const row = option.getBoundingClientRect();
+      const bounds = list.getBoundingClientRect();
+      return row.top >= bounds.top - 1 && row.bottom <= bounds.bottom + 1;
+    });
+    await paletteSearch.press("ArrowUp");
+    await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === `palette-item-${optionCount - 1}` && await visibleActiveOption(),
+      "ArrowUp wraps to the last visible palette option");
+    if (process.env.UI_EVIDENCE_DIR) {
+      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `palette-arrow-${viewport.width <= 640 ? "mobile" : "desktop"}.png`) });
+    }
+    await paletteSearch.press("ArrowDown");
+    await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === "palette-item-0" && await visibleActiveOption(),
+      "ArrowDown wraps back to the first visible palette option");
+    assert.equal(await paletteSearch.evaluate((input) => document.activeElement === input), true, "arrow navigation keeps typing focus in search");
+    await paletteSearch.press("Escape");
+    await palette.waitFor({ state: "hidden" });
+  }
+  // A pointer resting over the list keeps still while the arrow scrolls rows under it: the
+  // browser's hover update after the scroll must not take the keyboard selection, and a real
+  // pointer move still does.
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await openPalette();
+  const restingOptionCount = await palette.getByRole("option").count();
+  const firstOption = (await palette.locator("#palette-item-0").boundingBox())!;
+  await page.mouse.move(firstOption.x + firstOption.width / 2, firstOption.y + firstOption.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === "palette-item-0", "the resting pointer is over the first option");
+  await palette.locator(".palette-results").evaluate((list) => {
+    const hovered: string[] = [];
+    (window as unknown as { paletteHovered: string[] }).paletteHovered = hovered;
+    list.addEventListener("mouseover", (event) => hovered.push((event.target as HTMLElement).closest("[role=option]")?.id ?? ""));
+  });
+  await paletteSearch.press("ArrowUp");
+  await until(async () => await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.some((id) => id !== "" && id !== "palette-item-0")),
+    "the scroll moves another option under the resting pointer");
+  assert.equal(await paletteSearch.getAttribute("aria-activedescendant"), `palette-item-${restingOptionCount - 1}`,
+    "a scroll under a resting pointer leaves the arrow's selection alone");
+  const hoveredId = await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.findLast((id) => id !== "")!);
+  const hoveredBox = (await palette.locator(`#${hoveredId}`).boundingBox())!;
+  await page.mouse.move(hoveredBox.x + hoveredBox.width / 2 + 4, hoveredBox.y + hoveredBox.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === hoveredId, "a real pointer move selects the option under it");
+  await paletteSearch.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await page.mouse.move(0, 0);
+  await page.setViewportSize(paletteViewport);
+  console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
 
   // Hold a real machines response, then deliver a newer status through herdr/SSE.
   const badge = page.locator(".pane-item.is-selected .badge");
@@ -366,6 +481,7 @@ try {
   // Add PC lives in Settings → Remote PCs, not in the sidebar; opening it closes Settings behind it
   assert.equal(await page.locator(".sidebar").getByRole("button", { name: "Add PC", exact: true }).count(), 0, "the sidebar has no Add PC button");
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Remote PCs");
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add PC", exact: true }).click();
   await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
@@ -454,6 +570,7 @@ try {
     assert.ok(Date.now() < deadline, "a hide and a show restart the update status poll");
   }
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "About");
   const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
   await checkUpdates.waitFor();
   await checkUpdates.click();
@@ -591,9 +708,13 @@ try {
   await composer.fill("");
   // a follow-up sent between a reconnect and its snapshot is the new connection's own row, not an unconfirmed copy
   const sentBeforeSnapshot = inputs.length;
+  const socketsBeforeReconnect = sockets.length;
   holdSnapshot = true;
   await routed.at(-1)!.close();
   await until(() => releaseSnapshot !== null, "the reconnect's snapshot was held back");
+  // the server can send its snapshot before the page has even sent its attach: the pane is
+  // ready only once the new connection says so, not by the closed one's last word
+  await until(() => sockets.length > socketsBeforeReconnect, "the page opened its new connection");
   await pendingReady(pendingPane);
   assert.equal(await page.locator('.pending-message[data-state="uncertain"]').count(), 2, "the lost connection's rows are no longer its own");
   await composer.fill("sent before the snapshot");
@@ -646,6 +767,7 @@ try {
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Chat");
     await page.getByRole("group", { name: "Chat width", exact: true }).getByRole("button", { name, exact: true }).click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
   };
@@ -724,6 +846,7 @@ try {
   // chosen in Settings, and the box has no button for it
   const quickRow = async (show: boolean): Promise<void> => {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Chat");
     const toggle = page.getByRole("switch", { name: "Show above the message box", exact: true });
     if ((await toggle.getAttribute("aria-checked")) !== String(show)) await toggle.click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();

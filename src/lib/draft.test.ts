@@ -3,7 +3,7 @@ import { applyToDraft, draftIsEmpty, EMPTY_DRAFT } from "./draft.ts";
 
 describe("applyToDraft", () => {
   it("appends a printable character to the draft", () => {
-    expect(applyToDraft(EMPTY_DRAFT, "a")).toEqual({ text: "a", droppedSpecial: 0 });
+    expect(applyToDraft(EMPTY_DRAFT, "a")).toEqual({ text: "a", truncated: false });
   });
 
   it("keeps the order of consecutive typed characters", () => {
@@ -11,39 +11,60 @@ describe("applyToDraft", () => {
     expect(draft.text).toBe("ls");
   });
 
-  it("counts a special key instead of drafting it", () => {
+  it("leaves a special key out of the draft", () => {
     const draft = applyToDraft(applyToDraft(EMPTY_DRAFT, "x"), "\r");
-    expect(draft).toEqual({ text: "x", droppedSpecial: 1 });
+    expect(draft).toEqual({ text: "x", truncated: false });
   });
 
-  it("counts escape sequences, arrows and control codes as special keys", () => {
-    for (const special of ["\u001b[A", "\u0003", "\u001b", "\t"]) {
-      expect(applyToDraft(EMPTY_DRAFT, special).droppedSpecial).toBe(1);
+  it("holds nothing for escape sequences, arrows, control codes and DEL: there is nothing to send or to tell", () => {
+    // also what xterm answers a program by itself: a cursor position, a focus or a mouse report
+    for (const special of ["\u001b[A", "\u0003", "\u001b", "\t", "\u007f", "\u001b[12;40R", "\u001b[I", "\u001b[<35;10;5M"]) {
+      const draft = applyToDraft(EMPTY_DRAFT, special);
+      expect(draft).toBe(EMPTY_DRAFT);
+      expect(draftIsEmpty(draft)).toBe(true);
     }
   });
 
-  it("caps the draft instead of growing without bound", () => {
+  it("caps the draft instead of growing without bound, and says that text was left out", () => {
     let draft = EMPTY_DRAFT;
-    for (let i = 0; i < 1100; i += 1) draft = applyToDraft(draft, "x");
-    expect(draft.text.length).toBe(1024);
-    expect(draft.droppedSpecial).toBe(1100 - 1024);
+    for (let i = 0; i < 1024; i += 1) draft = applyToDraft(draft, "x");
+    expect(draft).toEqual({ text: "x".repeat(1024), truncated: false });
+    for (let i = 0; i < 76; i += 1) draft = applyToDraft(draft, "y");
+    expect(draft).toEqual({ text: "x".repeat(1024), truncated: true });
   });
 
-  it("treats DEL and non-printable single characters as special", () => {
-    expect(applyToDraft(EMPTY_DRAFT, "\u007f").droppedSpecial).toBe(1);
+  it("leaves out whole a chunk the draft has no room for, and says so even with nothing held", () => {
+    // a paste that arrives as one chunk: half of a command is never held
+    const pasted = applyToDraft(EMPTY_DRAFT, "x".repeat(1025));
+    expect(pasted).toEqual({ text: "", truncated: true });
+    expect(draftIsEmpty(pasted)).toBe(false);
+    const after = applyToDraft(applyToDraft(EMPTY_DRAFT, "ls "), "x".repeat(1022));
+    expect(after).toEqual({ text: "ls ", truncated: true });
+    // what still fits is held, and the loss stays told
+    expect(applyToDraft(after, "-la")).toEqual({ text: "ls -la", truncated: true });
+  });
+
+  it("keeps a loss told when a special key follows it", () => {
+    const lost = applyToDraft(EMPTY_DRAFT, "x".repeat(1025));
+    expect(applyToDraft(lost, "\r")).toBe(lost);
   });
 });
 
 describe("draftIsEmpty", () => {
-  it("is true for the empty draft and false once anything is held", () => {
+  it("is true for the empty draft and false once text is held or was left out", () => {
     expect(draftIsEmpty(EMPTY_DRAFT)).toBe(true);
-    expect(draftIsEmpty({ text: "", droppedSpecial: 1 })).toBe(false);
-    expect(draftIsEmpty({ text: "a", droppedSpecial: 0 })).toBe(false);
+    expect(draftIsEmpty({ text: "a", truncated: false })).toBe(false);
+    expect(draftIsEmpty({ text: "", truncated: true })).toBe(false);
   });
 });
 
 it("holds multi-codepoint IME commits without splitting a surrogate at the limit", () => {
   for (const text of ["한글", "😀", "e\u0301", "abc"]) expect(applyToDraft(EMPTY_DRAFT, text).text).toBe(text);
-  expect(applyToDraft({ text: "a".repeat(1023), droppedSpecial: 0 }, "😀").text).toHaveLength(1023);
-  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text\x1b[201~").text).toBe("");
+  expect(applyToDraft({ text: "a".repeat(1023), truncated: false }, "😀")).toEqual({ text: "a".repeat(1023), truncated: true });
+  // a paste is held by its text, not lost with its frames; one of several lines holds controls and is not
+  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text\x1b[201~")).toEqual({ text: "text", truncated: false });
+  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~one\rtwo\x1b[201~")).toEqual(EMPTY_DRAFT);
+  expect(applyToDraft(EMPTY_DRAFT, `\x1b[200~${"a".repeat(1025)}\x1b[201~`)).toEqual({ text: "", truncated: true });
+  // a frame that never closes is a control chunk still
+  expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text")).toEqual(EMPTY_DRAFT);
 });

@@ -6,6 +6,7 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import { appFaces } from "./app-faces.ts";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 // The model label in the input card's last row, fitted to what is measured there, on the
 // unmodified app over the demo's fixture transport. The demo's panes name no context window and
@@ -369,7 +370,7 @@ try {
         const height = () => box.evaluate((node) => node.clientHeight);
         const chooseSize = async (size: number) => {
           await page.keyboard.press("ControlOrMeta+Shift+Comma");
-          await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
+          await openSettingsPage(page, "Chat");
           const current = Number.parseInt(await page.locator('.settings-stepper[aria-label="Chat font size"] output').innerText(), 10);
           const button = page.getByRole("button", { name: size > current ? "Increase chat font size" : "Decrease chat font size", exact: true });
           for (let step = 0; step < Math.abs(size - current); step++) await button.click();

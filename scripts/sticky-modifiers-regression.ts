@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { workspaceCreate, workspaceClose, paneSendText, paneSendKeys, paneRead } from "../server/herdr/client.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-sticky-qa-"));
 const owned: string[] = [];
@@ -206,6 +207,7 @@ try {
     // Removing the optional Alt button must not leave an invisible held modifier.
     await page.keyboard.press(settingsShortcut);
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    await openSettingsPage(page, "Terminal");
     await settings.getByRole("button", { name: "Edit key bar", exact: true }).tap();
     const keyBarSettings = page.getByRole("dialog", { name: "Key bar", exact: true });
     const heldModifierSettings = keyBarSettings.getByRole("group", { name: "Held modifiers", exact: true });
@@ -224,6 +226,7 @@ try {
     assert.equal(frames.at(-1).type, "input");
     assert.equal(frames.at(-1).text, "z");
     await page.keyboard.press(settingsShortcut);
+    await openSettingsPage(page, "Terminal");
     await settings.getByRole("button", { name: "Edit key bar", exact: true }).tap();
     await heldModifierSettings.getByRole("button", { name: "Alt", exact: true }).tap();
     await keyBarSettings.getByRole("button", { name: "Close settings", exact: true }).tap();
