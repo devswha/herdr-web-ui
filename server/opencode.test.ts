@@ -520,4 +520,26 @@ describe("what a page refers to", () => {
     expect(opencodeToolOutput(s.path, s.session, read.output_ref!)).toBeNull();
     expect(opencodeImage(s.path, s.session, `opencode:${pasted}:0`)).toBeNull();
   });
+
+  it("answers nothing for an output or a picture while the store is held, rather than failing", () => {
+    // as for the page itself: rollback-journal mode is held by any writer, WAL only while it recovers
+    const s = store();
+    s.prompt("look");
+    const step = s.add("assistant", {
+      time: { created: T0 }, finish: "tool-calls",
+      content: [tool("read", { status: "completed", input: { path: "big.log" }, content: [{ type: "text", text: "y".repeat(6000) }, { type: "file", uri: `data:image/png;base64,${PNG.toString("base64")}`, mime: "image/png" }] })],
+    });
+    s.db.exec("PRAGMA journal_mode = DELETE");
+    const writer = new Database(s.path);
+    opened.push(writer);
+    writer.exec("BEGIN EXCLUSIVE");
+    try {
+      expect(opencodeToolOutput(s.path, s.session, `${step}:0`)).toBeNull();
+      expect(opencodeImage(s.path, s.session, `opencode:${step}:0`)).toBeNull();
+    } finally {
+      writer.exec("ROLLBACK");
+    }
+    expect(opencodeToolOutput(s.path, s.session, `${step}:0`)).toBe("y".repeat(6000));
+    expect(opencodeImage(s.path, s.session, `opencode:${step}:0`)?.mediaType).toBe("image/png");
+  });
 });

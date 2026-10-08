@@ -554,7 +554,8 @@ function readRow<T>(path: string, sessionId: string, id: string, read: (row: { t
       return row === null ? null : read(row);
     });
   } catch (error) {
-    if (unusable(error)) return null;
+    // a store held for a moment has no answer now: the next request finds it, where a failure would stick
+    if (unusable(error) || busy(error)) return null;
     throw error;
   }
 }
