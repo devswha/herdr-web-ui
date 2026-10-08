@@ -54,6 +54,13 @@ describe("telemetry receiver", () => {
     expect(rows).toEqual([]);
   });
 
+  test("a prerelease version is one event too, so its sender is not refused at every start", async () => {
+    const { env, rows } = fakeDb();
+    expect((await handle(post(JSON.stringify({ ...event, version: "0.5.0-rc.1" })), env, now)).status).toBe(204);
+    expect(rows[0]!.values[3]).toBe("0.5.0-rc.1");
+    expect(readEvent({ ...event, version: "0.5.0-rc.1; DROP" }, now)).toBeNull();
+  });
+
   test("an install has no previous version", () => {
     expect(readEvent({ ...event, event: "install", previous_version: null }, now)).toMatchObject({ event: "install", previous_version: null });
   });

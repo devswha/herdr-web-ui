@@ -68,6 +68,7 @@ export function TelemetryControls() {
   const t = useT();
   const [status, setStatus] = useState<TelemetryStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     let live = true;
     fetchTelemetry().then((next) => { if (live) setStatus(next); }, (failure: unknown) => { if (live) setError(failure instanceof Error ? failure.message : String(failure)); });
@@ -75,15 +76,18 @@ export function TelemetryControls() {
   }, []);
   if (!status) return error ? <p className="settings-item settings-hint" role="alert">{error}</p> : null;
   const toggle = (enabled: boolean) => {
+    // one change at a time: two answers out of order would leave the switch showing what the server does not hold
+    if (saving) return;
+    setSaving(true);
     setError(null);
-    changeTelemetry({ enabled }).then(setStatus, (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)));
+    changeTelemetry({ enabled }).then(setStatus, (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure))).finally(() => setSaving(false));
   };
   return (
     <SettingsGroup title={t("Anonymous usage counts")} className="settings-telemetry">
       {status.blocked_by_env
         ? <p className="settings-item settings-hint">{t("Turned off on this PC by HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK or a CI environment.")}</p>
         : <SettingsRow label={t("Send install and update counts")} description={t("Once when the app is installed and once per update. No IP address is stored, and nothing about your terminals, agents or files is sent.")}>
-          <Toggle label={t("Send install and update counts")} checked={status.enabled} onChange={toggle} />
+          <Toggle label={t("Send install and update counts")} checked={status.enabled} onChange={toggle} disabled={saving} />
         </SettingsRow>}
       {error && <p className="settings-item settings-hint" role="alert">{error}</p>}
       <details className="settings-item">

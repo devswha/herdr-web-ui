@@ -22,7 +22,8 @@ export interface StoredEvent {
 
 const MAX_BODY_BYTES = 2048;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
+/** a release, or a prerelease of one (0.5.0-rc.1): the sender reports package.json's version as it is */
+const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9a-z.]{1,24})?$/;
 const WORD = /^[a-z0-9_]{1,16}$/;
 const EVENTS = new Set(["install", "update"]);
 const METHODS = new Set(["plugin", "managed", "source"]);
