@@ -39,6 +39,7 @@ import {
   statusNotificationBody,
 } from "../shared/notify-policy.ts";
 import { badRequest, jsonResponse } from "./http.ts";
+import { isLoopbackHost } from "./access.ts";
 
 /** A blocked agent is still blocked when the phone gets signal back; a newer push for the pane replaces it anyway. */
 const PUSH_TTL_SECONDS = 12 * 60 * 60;
@@ -133,7 +134,15 @@ export function parseSubscription(value: unknown): PushSubscriptionRecord | null
   if (typeof endpoint !== "string") return null;
   try {
     const url = new URL(endpoint);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    // https only. A browser never hands over an http: endpoint (push is https by
+    // definition), so one is never a subscription: it is only the shape that turns this
+    // server into a POST from inside the user's network at a host no browser page could
+    // reach — a link-local metadata address, a router admin page, another VLAN.
+    // Loopback over http is the one exception, and only because the fake push service the
+    // tests deliver to runs there (push.fake.ts); a driver or a watch device is not what
+    // reaches it: sending is refused to `watch`, and a drive client can already type the
+    // same POST into a terminal.
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopbackHost(url.hostname))) return null;
   } catch {
     return null;
   }

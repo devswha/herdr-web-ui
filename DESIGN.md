@@ -61,6 +61,11 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Drawer shadow | `--shadow-drawer` | `0 0 40px rgba(0, 0, 0, 0.6)` | `0 0 40px rgba(40, 32, 22, 0.22)` |
 | Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
 | Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
+| Document surface | `--pdf-page` | `#ffffff` | `#ffffff` |
+
+`--pdf-page` is the one color with the same value in both columns, on purpose: a PDF page is
+paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the theme. It is named in
+`src/styles.css` under the same note and no theme or palette block overrides it.
 
 ### Opt-in palettes
 
@@ -151,6 +156,7 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 | Title | `--fs-xl` | `18px` | `17px` | Markdown h1 |
 | Display | `--fs-display` | `22px` | `21px` | The empty chat's greeting |
 | Input | `--fs-input` | `16px` | `16px` | Mobile-safe text input |
+| Pairing | `--fs-pairing` | `32px` | `26px` | The pairing code in Settings → Devices |
 
 | Token | Value | Usage |
 |-------|-------|-------|
@@ -259,6 +265,7 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--chat-w` | `--content-w`, then the pane's lane as one length | — | Chat lane: transcript, composer column, held list. Settings → Chat width: Narrow `--content-w`; Default follows the pane (min 820px, max `60rem` = 960px, 71% of the pane between; the px floor wins where 60rem is under it); Wide `72rem` (1152px); Full `100%` |
 | `--palette-w` | `640px` | — | Command palette |
 | `--palette-top` | `12vh` | — | Palette top offset |
+| `--context-line` | `calc(var(--fs-lg) * var(--lh-base))` = `24px` | `21.75px`, through the scale | The selected pane's crumb row, min and max height. Scoped to `.context`, not `:root`, so it follows `--fs-lg`/`--lh-base` in either density |
 
 ### Focus and layers
 
@@ -270,7 +277,8 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--z-popover` | `10` | Composer completions |
 | `--z-scrim` | `15` | Mobile drawer scrim |
 | `--z-drawer` | `20` | Mobile drawer |
-| `--z-modal` | `30` | Dialog and palette scrims |
+| `--z-modal` | `30` | Dialog scrims |
+| `--z-palette` | `35` | Command palette scrim, over every scrim dialog (a `showModal()` dialog sits in the top layer above it) |
 | `--z-droplet` | `40` | In-app alert, over dialogs |
 
 ### In-app alert
@@ -907,8 +915,9 @@ One set for both themes: the card is island black wherever it shows.
   still `Discard`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;
   `@` completions query `GET /api/pane/files`. Arrow keys navigate, Enter/Tab accepts, Escape closes.
-- Paste, picker or drag/drop accepts up to four png/jpeg/gif/webp files per action. Each gets a local
-  preview, uploads through `POST /api/pane/image`, and inserts a removable editable `@path` mention.
+- Paste, picker or drag/drop accepts up to four files per action; an image is stored as a paste, any other
+  file under its own sanitised name. Each uploads through `POST /api/pane/image` and inserts a removable
+  editable `@path` mention.
 - While a phone's keyboard is up, a tap on the transcript or a drag down it (`32px`) puts the
   keyboard away. Each only blurs the field, so the draft stays. The prompt card, which can stand
   where the transcript was on a short screen, does the same: a tap on its text (never on an
@@ -934,11 +943,17 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
-  lead an empty query; arrows cycle, Enter activates and Escape closes.
+  lead an empty query; arrows in the search field cycle through visible results, Enter activates
+  and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
+  with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
 - Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
+- A Settings shortcut opened over a file preview places Settings above it (`--z-modal + 2`, one
+  above the preview). Settings owns Escape until it closes; the preview keeps its history entry
+  underneath for the next Back or close. With no preview open Settings stays at `--z-modal`. The
+  command palette opened from its shortcut shows above both (`--z-palette`).
 - One page at a time. From 641px the dialog is two columns at a fixed size (`--content-w` wide,
   `40rem` tall, so turning a page never moves its edge): a `13rem` list of pages on `--bg`
   (icon + name, the open one on `--bg-hover` with its glyph in `--accent`) and the open page

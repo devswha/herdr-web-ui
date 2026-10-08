@@ -15,17 +15,26 @@ const tailnet = (self: [number, string[] | undefined], peers: [number, string[] 
   User: Object.fromEntries([self[0], ...peers.map(([userId]) => userId)].map((userId) => [String(userId), { LoginName: `user${userId}@example.com` }])),
 });
 
+/** a status as Tailscale writes it, with ids past 2^53: this PC's user, and one peer owned by `peer` */
+const BIG_ID = "15633668397603135";
+const NEXT_ID = "15633668397603136";
+const bigIds = (peer: string) => `{"BackendState":"Running","Self":{"UserID":${BIG_ID}},"Peer":{"k":{"UserID":${peer}}},"User":{"${BIG_ID}":{"LoginName":"me@example.com"},"${NEXT_ID}":{"LoginName":"them@example.com"}}}`;
+
 describe("parseSoleTailnetLogin", () => {
   it("names the login a tailnet one login owns, phones and offline peers included", () => {
     // the shape of the reported tailnet: this Mac plus six of the owner's own untagged devices
     expect(parseSoleTailnetLogin(tailnet([7511875822626835, undefined], Array.from({ length: 6 }, () => [7511875822626835, undefined] as [number, undefined])))).toBe("user7511875822626835@example.com");
     expect(parseSoleTailnetLogin(tailnet([42, undefined]))).toBe("user42@example.com");
+    // an id past 2^53 names its login by the digits written, not by the double they round to
+    expect(parseSoleTailnetLogin(bigIds(BIG_ID))).toBe("me@example.com");
   });
 
   it("names no login where a second login or any tag exists", () => {
     expect(parseSoleTailnetLogin(tailnet([42, undefined], [[42, undefined], [43, undefined]]))).toBeNull();
     expect(parseSoleTailnetLogin(tailnet([42, undefined], [[42, undefined], [42, ["tag:ci"]]]))).toBeNull();
     expect(parseSoleTailnetLogin(tailnet([42, ["tag:server"]], [[42, undefined]]))).toBeNull();
+    // two logins whose ids round to the same double are still two logins
+    expect(parseSoleTailnetLogin(bigIds(NEXT_ID))).toBeNull();
     // a peer the status names no owner for is not proof of anything
     expect(parseSoleTailnetLogin(JSON.stringify({ BackendState: "Running", Self: { UserID: 42 }, Peer: { k: { DNSName: "p.example.ts.net." } } }))).toBeNull();
   });
