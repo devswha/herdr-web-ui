@@ -77,6 +77,16 @@ describe("live counters", () => {
     expect(shownStatus(pane("a", "done"), read, carrySeen(onDisk, fresh.promoted))).toBe("done");
   });
 
+  it("keeps herdr's counters for changes a roster read brings with their counters", () => {
+    const memory = newSeqMemory();
+    liveSeqs(snap({ a: "working", b: "working" }, { a: 5, b: 6 }), memory);
+    // both finish between two roster reads, a after b: herdr's counters say so, and stand
+    const read = liveSeqs(snap({ a: "done", b: "done" }, { a: 21, b: 20 }), memory);
+    expect([...read]).toEqual([["a", 21], ["b", 20]]);
+    expect(ids(activityOrder([pane("b", "done"), pane("a", "done")], (row) => row, read))).toEqual(["a", "b"]);
+    expect(memory.bumped.size).toBe(0);
+  });
+
   it("does not date a pane's first sighting, or a pane with no counter", () => {
     const memory = newSeqMemory();
     liveSeqs(snap({ a: "idle", shell: "unknown" }, { a: 5 }), memory);
@@ -113,9 +123,11 @@ describe("activity order", () => {
 describe("opened finishes", () => {
   const seqs = new Map([["a", 10], ["b", 12]]);
 
-  it("counts a DONE as looked at while its counter has not moved past the record", () => {
+  it("counts a DONE as looked at while its counter is still the one recorded", () => {
     expect(isSeenDone(pane("a", "done"), seqs, { a: 10 })).toBe(true);
     expect(isSeenDone(pane("a", "done"), seqs, { a: 9 })).toBe(false);
+    // a record above the live counter is from an earlier herdr session (herdr restarted, pane ids kept)
+    expect(isSeenDone(pane("a", "done"), seqs, { a: 500 })).toBe(false);
     expect(isSeenDone(pane("a", "idle"), seqs, { a: 10 })).toBe(false);
     // never recorded, or no counter (a shell): not looked at
     expect(isSeenDone(pane("b", "done"), seqs, {})).toBe(false);

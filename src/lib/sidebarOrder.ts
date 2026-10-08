@@ -30,10 +30,11 @@ export function stateSeqs(snapshot: Pick<SessionSnapshot, "agents"> | null | und
 /**
  * What `liveSeqs` remembers between snapshots: each pane's last status, the changes it dated
  * itself (`bumped`), and for each pane the last stand-in herdr's own counter replaced
- * (`promoted`, stand-in → counter), so a record made at the stand-in can follow it (`carrySeen`).
+ * (`promoted`, stand-in → counter), so a record made at the stand-in can follow it (`carrySeen`),
+ * and herdr's own counter per pane at the last call (`real`).
  */
-export interface SeqMemory { status: Map<string, unknown>; bumped: Map<string, number>; promoted: Map<string, { from: number; to: number }> }
-export const newSeqMemory = (): SeqMemory => ({ status: new Map(), bumped: new Map(), promoted: new Map() });
+export interface SeqMemory { status: Map<string, unknown>; bumped: Map<string, number>; promoted: Map<string, { from: number; to: number }>; real: Map<string, number> }
+export const newSeqMemory = (): SeqMemory => ({ status: new Map(), bumped: new Map(), promoted: new Map(), real: new Map() });
 
 /**
  * `stateSeqs`, kept in step with pushed statuses. A pane-status push lands in the snapshot at once
@@ -41,7 +42,9 @@ export const newSeqMemory = (): SeqMemory => ({ status: new Map(), bumped: new M
  * pane sent a message would sit in its old place, and a finish seen through that gap would count as
  * viewed at the old counter. So a status that changed since the last call is dated now, just above
  * every counter known; herdr's own counter for that change is higher and takes over when it comes,
- * and the swap is kept in `memory.promoted`. Mutates `memory`.
+ * and the swap is kept in `memory.promoted`. A change that arrives with a new counter of herdr's (a
+ * roster read that saw it first) keeps that counter, so herdr's order between changes stands.
+ * Mutates `memory`.
  */
 export function liveSeqs(snapshot: Pick<SessionSnapshot, "agents" | "panes"> | null | undefined, memory: SeqMemory): Map<string, number> {
   const seqs = stateSeqs(snapshot);
@@ -49,13 +52,18 @@ export function liveSeqs(snapshot: Pick<SessionSnapshot, "agents" | "panes"> | n
   let top = Math.max(0, ...seqs.values(), ...memory.bumped.values());
   for (const pane of panes) {
     const changed = memory.status.has(pane.pane_id) && memory.status.get(pane.pane_id) !== pane.agent_status;
-    if (changed && seqs.has(pane.pane_id)) memory.bumped.set(pane.pane_id, top += 0.001);
+    const real = seqs.get(pane.pane_id);
+    const before = memory.real.get(pane.pane_id);
+    // herdr's counter moved with the change: it already dates it
+    if (changed && real !== undefined && before !== undefined && real <= before) memory.bumped.set(pane.pane_id, top += 0.001);
     memory.status.set(pane.pane_id, pane.agent_status);
   }
+  for (const [id, real] of seqs) memory.real.set(id, real);
   const open = new Set(panes.map((pane) => pane.pane_id));
   if (panes.length > 0) {
     for (const id of memory.status.keys()) if (!open.has(id)) memory.status.delete(id);
     for (const id of memory.promoted.keys()) if (!open.has(id)) memory.promoted.delete(id);
+    for (const id of memory.real.keys()) if (!open.has(id)) memory.real.delete(id);
   }
   for (const [id, bump] of memory.bumped) {
     const real = seqs.get(id);
@@ -66,12 +74,16 @@ export function liveSeqs(snapshot: Pick<SessionSnapshot, "agents" | "panes"> | n
   return seqs;
 }
 
-/** A DONE pane looked at since it finished. A pane with no counter, or never recorded, was not. */
+/**
+ * A DONE pane looked at since it finished: its counter is still the one recorded. A pane with no
+ * counter, or never recorded, was not; nor one whose record is above its counter, which herdr's
+ * counter never goes below in one session, so the record is from an earlier one.
+ */
 export function isSeenDone(pane: Pick<PaneInfo, "pane_id" | "agent_status">, seqs: ReadonlyMap<string, number>, seen: SeenRecord): boolean {
   if (knownStatus(pane.agent_status) !== "done") return false;
   const seq = seqs.get(pane.pane_id);
   const at = seen[pane.pane_id];
-  return seq !== undefined && at !== undefined && seq <= at;
+  return seq !== undefined && seq === at;
 }
 
 /** The status to draw: a DONE already looked at here reads as ready, as herdr's own idle after a view. */
