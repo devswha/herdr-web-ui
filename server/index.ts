@@ -1,5 +1,4 @@
-import { readHerdrProfiles } from "./herdr-profiles.ts";
-import type { HerdrMachineProfile } from "../shared/machines.ts";
+import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { randomBytes } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";

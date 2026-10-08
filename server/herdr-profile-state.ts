@@ -6,6 +6,7 @@ import type { SessionSnapshot } from "../shared/protocol.ts";
 
 interface ProfileState { binding: string; approved: boolean; snapshot: SessionSnapshot | null }
 
+// Existing routes accept UUID-shaped machine IDs; deriving one keeps browser storage stable.
 export function herdrMachineId(profileId: string): string {
   const digest = createHash("sha256").update("herdr-profile:" + profileId).digest("hex");
   return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`;

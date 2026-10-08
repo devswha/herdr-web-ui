@@ -1,7 +1,16 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { HerdrMachineProfile, SshTarget } from "../shared/machines.ts";
+import type { SshTarget } from "../shared/machines.ts";
 import { validateTarget } from "./machine-security.ts";
+
+/** Saved by the local herdr client; reading its catalog never connects to a host. */
+export interface HerdrMachineProfile {
+  id: string;
+  label: string;
+  enabled: boolean;
+  /** null when herdr accepts an address this web client cannot represent safely. */
+  target: SshTarget | null;
+}
 
 const run = promisify(execFile);
 
@@ -46,7 +55,7 @@ export async function readHerdrProfiles(): Promise<HerdrMachineProfile[]> {
     });
     return parseHerdrProfiles(stdout);
   } catch {
-    // CLI stderr can include local paths. Keep the HTTP error bounded and actionable;
+    // CLI stderr can include local paths. Keep the discovery diagnostic bounded and actionable;
     // manual setup remains usable with old/missing herdr or an unreadable catalog.
     throw new Error("Could not read saved herdr machines. Check herdr machine list --json on this PC, or enter an SSH address manually.");
   }

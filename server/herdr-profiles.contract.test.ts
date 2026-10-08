@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
-import type { HerdrMachineProfile, Machine } from "../shared/machines.ts";
+import type { Machine } from "../shared/machines.ts";
+import type { HerdrMachineProfile } from "./herdr-profiles.ts";
 
 it("publishes inherited rows on the existing authenticated roster and refuses competing edits", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "herdr-profile-api-"));

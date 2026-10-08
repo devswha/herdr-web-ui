@@ -88,12 +88,14 @@ try {
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws?machine_id=${machine.id}`); sockets.push(ws);
   const frames: ServerMessage[] = [];
   ws.onmessage = (event) => { const m = JSON.parse(String(event.data)) as ServerMessage; frames.push(m); if (m.type === "pty-data" && m.flow) ws.send(JSON.stringify({ type: "pty-ack", pane_id: m.pane_id, stream_id: m.flow.stream_id, offset: m.flow.offset })); };
-  await new Promise<void>((resolve, reject) => { ws.onopen = () => resolve(); ws.onerror = () => reject(new Error("WebSocket failed")); });
+  await until(async () => ws.readyState, (state) => { assert.notEqual(state, WebSocket.CLOSED, "WebSocket failed"); return state === WebSocket.OPEN; }, "WebSocket open", 10_000);
   ws.send(JSON.stringify({ type: "role", mode: "interact" }));
   ws.send(JSON.stringify({ type: "attach", pane_id: created.pane_id, cols: 80, rows: 24, flow_control: "ack" }));
   await until(async () => frames, (f) => f.some((m) => m.type === "pty-data"), "terminal paint");
   ws.send(JSON.stringify({ type: "resize", pane_id: created.pane_id, cols: 90, rows: 28 }));
-  ws.send(JSON.stringify({ type: "input", pane_id: created.pane_id, text: "printf 'profile-input-ok\\n'\r" }));
+  await until(async () => frames, (f) => f.some((m) => m.type === "pane-geometry" && m.cols === 90 && m.rows === 28), "terminal resize");
+  // The marker is absent from the echoed command, so only executed input can satisfy the read.
+  ws.send(JSON.stringify({ type: "input", pane_id: created.pane_id, text: "printf 'profile-%s-ok\\n' input\r" }));
   await until(async () => api<{ read: { text: string } }>(path + `/pane/read?pane_id=${encodeURIComponent(created.pane_id)}&source=recent&format=text`), (v) => v.read.text.includes("profile-input-ok"), "terminal input");
   ws.close();
   console.log("PASS real remote terminal attach, resize and input");

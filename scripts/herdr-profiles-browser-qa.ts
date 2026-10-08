@@ -6,7 +6,8 @@ import { chromium } from "playwright-core";
 import { useTestHerdr } from "./test-herdr.ts";
 import { createServer } from "../server/index.ts";
 import { workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
-import type { HerdrMachineProfile, SetupRequest } from "../shared/machines.ts";
+import type { SetupRequest } from "../shared/machines.ts";
+import type { HerdrMachineProfile } from "../server/herdr-profiles.ts";
 
 await useTestHerdr();
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-profile-browser-"));
@@ -17,7 +18,7 @@ const workspace = await workspaceCreate({ label: "herdr-web-ui-test-profile-inhe
 const profile: HerdrMachineProfile = { id: "browser-fixture", label: "Build machine", enabled: true, target: { destination: "127.0.0.1", port: 1, session: "project-agents" } };
 let profiles = [profile];
 const server = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "", tailscaleOwner: null, herdrProfiles: async () => profiles });
-const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? chromium.executablePath(), headless: true, args: ["--no-sandbox"] });
 try {
   for (const phone of [false, true]) {
     profiles = [profile];
@@ -30,13 +31,12 @@ try {
       const submitted: SetupRequest[] = [];
       let delaySetup = false;
       let releaseSetup: (() => void) | undefined;
-      let reportSetup: (() => void) | undefined;
       let cancelled = 0;
       // The browser test stops at the installation approval: SSH behavior is tested separately.
       const job = () => ({ id: "qa-job", machine_id: submitted.at(-1)?.machine_id, phase: "approval", step: "Review the changes on this PC", challenge: null, installations: ["Install a web bridge"], error: null, ssh_output: null, target: submitted.at(-1) });
       await page.route("**/api/machines/setup", async (route) => {
         submitted.push(route.request().postDataJSON() as SetupRequest);
-        if (delaySetup) await new Promise<void>((resolve) => { releaseSetup = resolve; reportSetup?.(); });
+        if (delaySetup) await new Promise<void>((resolve) => { releaseSetup = resolve; });
         await route.fulfill({ json: job() });
       });
       await page.route("**/api/machines/setup/qa-job", async (route) => {
@@ -65,6 +65,7 @@ try {
       assert.deepEqual({ ...submitted[0], machine_id: "stable" }, { destination: "127.0.0.1", port: 1, session: "project-agents", name: "Build machine", machine_id: "stable" });
       assert.ok(submitted[0]?.machine_id);
       assert.equal(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth), true);
+      if (evidence) await page.screenshot({ path: join(evidence, phone ? "phone-approval.png" : "desktop-approval.png"), fullPage: true });
       await dialog.getByRole("button", { name: "Close PC setup" }).click();
       const waitCancelled = async (count: number) => {
         const deadline = Date.now() + 5000;
@@ -72,9 +73,9 @@ try {
       };
       await waitCancelled(1);
       delaySetup = true;
-      const requested = new Promise<void>((resolve) => { reportSetup = resolve; });
       await group.getByRole("button", { name: "Reconnect / setup", exact: true }).click();
-      await requested;
+      const requestDeadline = Date.now() + 5000;
+      while (!releaseSetup) { assert.ok(Date.now() < requestDeadline, "setup request started"); await Bun.sleep(10); }
       await dialog.getByRole("button", { name: "Close PC setup" }).click();
       releaseSetup!();
       await waitCancelled(2);

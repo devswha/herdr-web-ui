@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MachineManager } from "./machines.ts";
-import type { HerdrMachineProfile, Machine } from "../shared/machines.ts";
+import type { Machine } from "../shared/machines.ts";
+import type { HerdrMachineProfile } from "./herdr-profiles.ts";
 import type { CompletionTracker } from "./completion.ts";
 import type { PushService } from "./push.ts";
 import { HerdrProfileState } from "./herdr-profile-state.ts";

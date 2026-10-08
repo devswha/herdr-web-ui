@@ -130,6 +130,11 @@ macOS Codex discovery uses `lsof` for open rollout files instead of `/proc`; can
 
 ### Saved-machine SSH lifecycle fixture
 
+The saved-machine desktop/phone regression runs in the regular browser CI lane. To run it
+alone after a build, use `bun run check run bun scripts/herdr-profiles-browser-qa.ts` with
+`CHROME_PATH` pointing to an installed Chromium. Set `EVIDENCE_DIR` to save roster and
+installation-approval screenshots for both viewports.
+
 Build `docker build -t herdr-profile-ssh-qa scripts/fixtures/herdr-ssh`, then run
 `HERDR_SSH_QA_BUNDLE=/path/to/verified/linux-bundle.tgz bun scripts/herdr-profiles-ssh-qa.ts`.
 The Docker host and bundle architecture must match. The fixture uses a temporary container,
