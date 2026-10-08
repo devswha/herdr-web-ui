@@ -145,8 +145,47 @@ it("serves a cut tool output and a tool's picture by the refs the page gave them
   const image = await fetch(url("/api/pane/conversation/image", { ref: tool.images![0]!.ref }));
   expect(image.status).toBe(200);
   expect(image.headers.get("content-type")).toBe("image/png");
+  expect(image.headers.get("cache-control")).toBe("private, no-store");
   expect(Buffer.from(await image.arrayBuffer()).equals(PNG)).toBe(true);
   expect((await fetch(url("/api/pane/conversation/image", { ref: tool.images![0]!.ref.replace(/:0$/, ":3") }))).status).toBe(404);
+});
+
+it("does not cache OpenCode image refs while parallel tool results stream in", async () => {
+  const earlierImage = Buffer.from([...PNG, 0x01]);
+  const laterImage = Buffer.from([...PNG, 0x02]);
+  const file = (bytes: Buffer) => ({ type: "file", uri: `data:image/png;base64,${bytes.toString("base64")}`, mime: "image/png" });
+  add("user", { time: { created: Date.now() }, text: "read both images", files: [] });
+  const messageId = add("assistant", {
+    time: { created: Date.now() }, finish: "tool-calls",
+    content: [
+      { type: "tool", id: "call_early", name: "read", state: { status: "running", input: { path: "earlier.png" }, content: [] } },
+      { type: "tool", id: "call_later", name: "read", state: { status: "completed", input: { path: "later.png" }, content: [file(laterImage)] } },
+    ],
+  });
+  const firstConversation = await read();
+  const initialTools = firstConversation.turns.at(-1)!.parts.filter((part): part is Extract<ConversationPart, { kind: "tool" }> => part.kind === "tool");
+  expect(initialTools[1]!.images?.[0]!.ref).toBe(`opencode:${messageId}:0`);
+
+  const ref = initialTools[1]!.images![0]!.ref;
+  const firstImage = await fetch(url("/api/pane/conversation/image", { ref }));
+  expect(firstImage.headers.get("cache-control")).toBe("private, no-store");
+  expect(Buffer.from(await firstImage.arrayBuffer()).equals(laterImage)).toBe(true);
+
+  db.query("UPDATE session_message SET data = ?, time_updated = ? WHERE id = ?").run(JSON.stringify({
+    time: { created: Date.now() }, finish: "tool-calls",
+    content: [
+      { type: "tool", id: "call_early", name: "read", state: { status: "completed", input: { path: "earlier.png" }, content: [file(earlierImage)] } },
+      { type: "tool", id: "call_later", name: "read", state: { status: "completed", input: { path: "later.png" }, content: [file(laterImage)] } },
+    ],
+  }), Date.now() + 1, messageId);
+
+  const updatedConversation = await read();
+  const updatedTools = updatedConversation.turns.at(-1)!.parts.filter((part): part is Extract<ConversationPart, { kind: "tool" }> => part.kind === "tool");
+  expect(updatedTools.map((tool) => tool.images?.[0]?.ref)).toEqual([`opencode:${messageId}:0`, `opencode:${messageId}:1`]);
+
+  const updatedImage = await fetch(url("/api/pane/conversation/image", { ref }));
+  expect(updatedImage.headers.get("cache-control")).toBe("private, no-store");
+  expect(Buffer.from(await updatedImage.arrayBuffer()).equals(earlierImage)).toBe(true);
 });
 
 it("keeps the terminal for a session the store does not hold", async () => {

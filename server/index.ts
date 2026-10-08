@@ -1766,8 +1766,9 @@ export function createServer(
         try {
           const image = await conversationImage(paneId, ref, options.codexHome, options.opencodeDb);
           if (image === null) return jsonResponse({ error: { code: "image_not_found", message: "no such image in this pane's conversation" } }, 404);
-          // Claude embeds immutable bytes; a Codex attachment may name a local file that changes.
-          return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": ref.startsWith("codex-") ? "private, no-store" : "private, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
+          // Claude embeds immutable bytes; Codex files and OpenCode tool-image ordinals can change.
+          const cacheControl = ref.startsWith("codex-") || ref.startsWith("opencode:") ? "private, no-store" : "private, max-age=86400, immutable";
+          return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": cacheControl, "x-content-type-options": "nosniff" } });
         } catch (error) {
           return errorResponse(error);
         }
