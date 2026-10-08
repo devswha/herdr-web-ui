@@ -561,6 +561,43 @@ describe("typing without terminal attach, at the edges", () => {
     }
   }, 30_000);
 
+  it("sends nothing typed by a sender that left and rejoined a mirrored pane another client kept open, before its turn came", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "push-rejoin"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const originalSend = herdr.paneSendText;
+    // the message's text waits at herdr until the sender has left and rejoined: the typing queued behind it
+    // then finds the same attachment, kept open by the other client, with the sender a member again
+    const send = spyOn(herdr, "paneSendText").mockImplementation(async (paneId, text, socketPath) => {
+      if (paneId === shell.pane && text === "one") { entered.resolve(); await gate.promise; }
+      return originalSend(paneId, text, socketPath);
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, shell.pane);
+      const from = chunks(shell).length;
+      sender.send({ type: "submit", id: 51, pane_id: shell.pane, text: "one", payload: "one" });
+      await entered.promise;
+      sender.send({ type: "input", pane_id: shell.pane, text: "typed" });
+      sender.send({ type: "detach", pane_id: shell.pane });
+      const mark = await attached(sender, shell.pane);
+      gate.resolve();
+      expect(await sender.result(51)).toMatchObject({ ok: true });
+      await sender.waitFor((message) => sender.seen.indexOf(message) >= mark && message.type === "error" && message.code === "input_failed" && message.pane_id === shell.pane);
+      keeper.send({ type: "submit", id: 52, pane_id: shell.pane, text: "two", payload: "two" });
+      await keeper.result(52);
+      await received(shell, from, 2);
+      expect(typed(shell, from)).toBe("one\rtwo\r");
+    } finally {
+      gate.resolve();
+      send.mockRestore();
+      sender.close();
+      keeper.close();
+      bare.stop();
+    }
+  }, 30_000);
+
   it("enters no secret for a sender that left and rejoined a mirrored pane another client kept open, while the screen was read", async () => {
     const bare = createServer({ port: 0, stateDir: join(root, "push-rejoin-secret"), terminalAttach: false });
     const sender = await Socket.connect(bare.port);
