@@ -229,6 +229,7 @@ export const ZH: Record<string, string> = {
   "Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.": "将连接此电脑的应用更新到相同版本，或断开其他应用的连接，然后在此重新连接。会话会继续运行。",
   "{name} has a bridge connection conflict{others}.": "{name} 的桥接连接发生冲突{others}。",
   "Reconnect without updating": "不更新，直接重连",
+  "This PC is connected. Reconnecting closes its open terminals in this app and attaches them again; sessions keep running and nothing you typed is sent again. If the new connection fails, the PC stays offline until you retry.": "此 PC 已连接。重新连接会先关闭本应用中此 PC 已打开的终端，然后再次连接；会话会继续运行，已输入的内容不会被再次发送。如果新连接失败，在你重试之前此 PC 将保持离线。",
   "Reconnect / setup": "重新连接 / 设置",
   "Update bridge…": "更新 bridge…",
   "Confirm remove PC": "确认移除 PC",

@@ -65,6 +65,8 @@ export function MachineDialog({ machine, updateRemote = false, initialJob, initi
   return <dialog ref={dialog} className="modal machine-dialog" aria-labelledby="machine-dialog-title" onCancel={(e) => { e.preventDefault(); close(); }}>
     <header className="modal-header"><h2 id="machine-dialog-title" className="modal-title"><Monitor size={18} /> {t(updateRemote ? "Update remote bridge" : machine ? "Reconnect PC" : "Add PC")}</h2><button className="icon-button" aria-label={t("Close PC setup")} onClick={close}><X /></button></header>
     <div className="modal-body">
+      {/* setup() drops the PC's connection before the new one is proven: a healthy PC is told first */}
+      {!job && !updateRemote && machine?.state === "connected" && <p className="field-hint" role="status">{t("This PC is connected. Reconnecting closes its open terminals in this app and attaches them again; sessions keep running and nothing you typed is sent again. If the new connection fails, the PC stays offline until you retry.")}</p>}
       {(!job || finished && job.phase !== "connected") && <form id="machine-connect-form" onSubmit={(e) => { e.preventDefault(); void begin(conflict); }}>
         <label className="field"><span className="field-label">{t("SSH alias or user@address")}</span><input ref={destinationField} autoFocus className="input" required autoComplete="off" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="devbox or user@192.168.1.20" /></label>
         <label className="field"><span className="field-label">{t("PC name")}</span><input className="input" maxLength={100} value={name} placeholder={destination || t("Filled from the SSH address")} onChange={(e) => setName(e.target.value)} /></label>

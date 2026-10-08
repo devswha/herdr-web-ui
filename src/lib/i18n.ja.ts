@@ -227,6 +227,7 @@ export const JA: Record<string, string> = {
   "Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.": "この PC に接続するアプリを同じバージョンに更新するか、別のアプリの接続を解除してから、ここで再接続してください。セッションは実行を継続します。",
   "{name} has a bridge connection conflict{others}.": "{name} のブリッジ接続が競合しています{others}。",
   "Reconnect without updating": "更新せずに再接続",
+  "This PC is connected. Reconnecting closes its open terminals in this app and attaches them again; sessions keep running and nothing you typed is sent again. If the new connection fails, the PC stays offline until you retry.": "この PC は接続中です。再接続すると、このアプリで開いているこの PC の端末がいったん閉じて、もう一度接続されます。セッションは実行を継続し、入力済みの内容が再送信されることはありません。新しい接続に失敗した場合、再試行するまでこの PC はオフラインのままです。",
   "Reconnect / setup": "再接続 / セットアップ",
   "Update bridge…": "ブリッジを更新…",
   "Confirm remove PC": "PC の削除を確認",

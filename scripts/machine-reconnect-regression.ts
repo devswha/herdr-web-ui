@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright-core";
 import type { Machine, SetupJob, SetupRequest } from "../shared/machines.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 // A built client with a fictional PC and in-memory API; no SSH or user sessions.
 const snapshot = { version: "0.9.3", protocol: 22, focused_workspace_id: null, focused_tab_id: null, focused_pane_id: null, workspaces: [], tabs: [], panes: [], layouts: [], agents: [] };
@@ -46,6 +47,11 @@ try {
   await page.goto(server.url.href);
   await page.getByRole("button", { name: "Reconnect QA remote", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "Reconnect PC", exact: true });
+  // A connected PC: the dialog says what reconnecting does before anything is sent.
+  const warning = "This PC is connected. Reconnecting closes its open terminals in this app and attaches them again; sessions keep running and nothing you typed is sent again. If the new connection fails, the PC stays offline until you retry.";
+  await dialog.getByText(warning, { exact: true }).waitFor();
+  assert.equal(requests.length, 0);
+  await page.screenshot({ path: `${shots}/reconnect-warning.png` });
   await dialog.getByRole("button", { name: "Reconnect", exact: true }).click();
   await dialog.getByRole("button", { name: "Open PC", exact: true }).waitFor();
   assert.equal(requests.length, 1); assert.equal(requests[0]!.machine_id, pc.id); assert.equal(requests[0]!.update_remote, undefined);
@@ -75,6 +81,8 @@ try {
   await page.locator(".update-notice").getByRole("button", { name: "Reconnect", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "Reconnect PC", exact: true });
   await dialog.waitFor();
+  // nothing is attached on a PC that is not connected: no warning there
+  assert.equal(await dialog.getByText(warning, { exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: `${shots}/conflict-mobile.png` });
   await dialog.getByRole("button", { name: "Reconnect", exact: true }).click();
@@ -87,6 +95,7 @@ try {
   await page.reload();
   installing = true;
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsPage(page, "Remote PCs");
   await page.getByRole("button", { name: "Add PC", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "Add PC", exact: true });
   await dialog.getByLabel("SSH alias or user@address").fill("new-pc.invalid");
@@ -126,6 +135,7 @@ try {
   await status.waitFor({ state: "detached" });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsPage(page, "Remote PCs");
   await page.getByRole("button", { name: "Add PC", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "Add PC", exact: true });
   await dialog.getByLabel("SSH alias or user@address").fill("missing-job.invalid");

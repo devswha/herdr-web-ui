@@ -225,6 +225,7 @@ export const KO: Record<string, string> = {
   "Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.": "이 PC에 연결된 앱들을 같은 버전으로 업데이트하거나 다른 앱의 연결을 해제한 뒤 여기서 다시 연결하세요. 세션은 계속 실행됩니다.",
   "{name} has a bridge connection conflict{others}.": "{name}의 브리지 연결이 충돌합니다{others}.",
   "Reconnect without updating": "업데이트 없이 재연결",
+  "This PC is connected. Reconnecting closes its open terminals in this app and attaches them again; sessions keep running and nothing you typed is sent again. If the new connection fails, the PC stays offline until you retry.": "이 PC는 연결되어 있습니다. 다시 연결하면 이 앱에서 열어 둔 이 PC의 터미널이 닫혔다가 다시 연결됩니다. 세션은 계속 실행되고, 입력한 내용이 다시 전송되지 않습니다. 새 연결이 실패하면 다시 시도할 때까지 이 PC는 오프라인으로 남습니다.",
   "Reconnect / setup": "재연결 / 설정",
   "Update bridge…": "브리지 업데이트…",
   "Confirm remove PC": "PC 제거 확인",
