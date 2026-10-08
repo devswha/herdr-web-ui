@@ -16,6 +16,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   [Portal](https://github.com/gosuda/portal-tunnel) v2.6.1 or later, behind a long random token
   and with a visitor's `Tailscale-User-Login` header dropped.
   ([#229](https://github.com/devswha/herdr-web-ui/pull/229) by @rabbitson87)
+- **Settings → Appearance → Agents order → Activity** keeps a waiting agent on top of the Agents
+  list and orders the rest by their latest state change, as herdr's agents panel keeps the latest
+  work in view: the agent you just sent a message to stays on top while it runs and after it
+  finishes, and a new one starts there. herdr's own order and the workspace rows are unchanged.
+  **Workspaces** (herdr's order) remains the default.
+  ([#529](https://github.com/devswha/herdr-web-ui/pull/529) by @phirschybar)
+- **Settings → Appearance → Quiet opened finishes** (off by default): a finished agent you have
+  opened in the web UI loses its dot and reads as ready, as viewing it in herdr would make it.
+  herdr's DONE otherwise stands until herdr itself shows the pane. It is remembered per PC in
+  this browser. ([#529](https://github.com/devswha/herdr-web-ui/pull/529) by @phirschybar)
 
 ### Changed
 - A wrong access token is refused with a growing wait after five tries, up to a minute, whether it
