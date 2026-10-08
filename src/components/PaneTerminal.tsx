@@ -236,16 +236,6 @@ export function PaneTerminal({
     const key = `herdr-web-ui:terminal-draft:${draftState.owner}`;
     try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify({ ...draft, at: Date.now() })); } catch {}
   }, [draftState, paneId, machineId, draft]);
-  // a pane left behind keeps nothing on disk: nothing reads its entry again, and text typed at a
-  // prompt should not outlive the pane it was typed into
-  const draftOwnerRef = useRef<string | null>(null);
-  useEffect(() => {
-    const owner = paneId === null ? null : paneStorageId(machineId, paneId);
-    const previous = draftOwnerRef.current;
-    draftOwnerRef.current = owner;
-    if (previous === null || previous === owner) return;
-    try { localStorage.removeItem(`herdr-web-ui:terminal-draft:${previous}`); } catch {}
-  }, [machineId, paneId]);
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const clipboardTimerRef = useRef<number | null>(null);

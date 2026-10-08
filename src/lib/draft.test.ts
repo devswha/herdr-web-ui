@@ -81,8 +81,8 @@ describe("restoreDraft", () => {
     expect(restoreDraft(record(now - DRAFT_TTL_MS - 1), now)).toEqual(EMPTY_DRAFT);
   });
 
-  it("forgets an undated record: an unknown age is not a recent one", () => {
-    expect(restoreDraft(JSON.stringify({ text: "hunter2", truncated: false }), now)).toEqual(EMPTY_DRAFT);
+  it("keeps an undated record, written before the TTL existed: an update must not lose held input", () => {
+    expect(restoreDraft(JSON.stringify({ text: "hunter2", truncated: false }), now)).toEqual({ text: "hunter2", truncated: false });
   });
 
   it("holds nothing for a missing, malformed or hand-edited record", () => {

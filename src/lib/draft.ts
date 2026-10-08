@@ -18,8 +18,8 @@ const MAX_DRAFT_CHARS = 1024;
  * How long held input stays in the browser profile once it has been written there. The draft is
  * kept so a reload in the middle of a disconnect does not lose what the user typed; a day is far
  * longer than that, and short enough that text typed at a password prompt is not left lying
- * about afterwards. A record without a timestamp (one written before this) is dropped on read:
- * its age is unknown, and unknown is not "recent".
+ * about afterwards. A record without a timestamp was written before the TTL existed: it is kept,
+ * so an update in the middle of a disconnect loses nothing, and it is dated as it is restored.
  */
 export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -27,8 +27,8 @@ export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 interface StoredDraft extends InputDraft { at: number }
 
 /**
- * The draft a stored record restores, or the empty one: malformed, undated and expired records
- * all read as nothing held, so a hand-edited or stale entry cannot put text back on screen.
+ * The draft a stored record restores, or the empty one: malformed and expired records read as
+ * nothing held, so a hand-edited or stale entry cannot put text back on screen.
  * A record written by an earlier version counts the keys it left out instead of flagging them:
  * only its text is kept, and a record that held nothing but a count reads as empty.
  */
@@ -39,7 +39,7 @@ export function restoreDraft(raw: string | null, now: number): InputDraft {
   if (typeof value !== "object" || value === null) return EMPTY_DRAFT;
   const { text, truncated, at } = value as Partial<StoredDraft>;
   if (typeof text !== "string") return EMPTY_DRAFT;
-  if (typeof at !== "number" || !Number.isFinite(at) || now - at > DRAFT_TTL_MS) return EMPTY_DRAFT;
+  if (at !== undefined && (typeof at !== "number" || !Number.isFinite(at) || now - at > DRAFT_TTL_MS)) return EMPTY_DRAFT;
   return { text, truncated: truncated === true };
 }
 

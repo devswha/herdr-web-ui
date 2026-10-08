@@ -20,6 +20,7 @@ import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
+import { checkHeldDraftPaneSwitch } from "./terminal-draft-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
@@ -1535,6 +1536,7 @@ try {
   console.log("PASS a phone offers Claude's suggestion as a chip until Settings turns it off");
 
   await checkTerminalInput(browser, origin, paneA, paneB);
+  await checkHeldDraftPaneSwitch(browser, origin, paneA, paneB);
 
   // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
