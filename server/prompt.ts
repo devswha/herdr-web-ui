@@ -2189,7 +2189,13 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
   }
   if (selectionMenu) {
     const above = shown.filter((index) => index < selectionMenu.start).map((index) => cleanLine(lines[index]!));
-    const question = [...above].reverse().find((line) => ASKED_RE.test(line)) ?? above.at(-1);
+    // the selector's own heading: the block of lines right above its rows, never an earlier question
+    let headEnd = selectionMenu.start;
+    while (headEnd > 0 && (!cleanLine(lines[headEnd - 1]!) || isDivider(lines[headEnd - 1]!))) headEnd -= 1;
+    let headStart = headEnd;
+    while (headStart > 0 && cleanLine(lines[headStart - 1]!) && !isDivider(lines[headStart - 1]!)) headStart -= 1;
+    const heading = lines.slice(headStart, headEnd).map((line) => cleanLine(line));
+    const question = [...heading].reverse().find((line) => ASKED_RE.test(line)) ?? heading.at(-1);
     const choiceRows = new Set(selectionMenu.rows.map((row) => row.lineIndex));
     const choices = [
       ...selectionMenu.rows.map((row, index) => ({

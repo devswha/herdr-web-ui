@@ -1609,6 +1609,13 @@ Step 4: Credential source
     expect(labels(parseFallbackPrompt("claude", `Pick one:\n\n❯ Alpha\n  Beta\n${footer}\n`))).toEqual(generic);
   });
 
+  test("titles a GJC selector with its own heading, not an earlier question on the screen", () => {
+    const prompt = parseFallbackPrompt("gjc", "Delete your project?\nDone, it is kept.\n\nChoose a provider\n\n❯ Alpha\n  Beta\n[↑↓ to navigate, Enter to select, Esc to cancel]\n");
+    expect(prompt.question).toBe("Choose a provider");
+    expect(labels(prompt)).toEqual(["Alpha", "Beta", "Esc"]);
+    expect(parseFallbackPrompt("gjc", "Earlier text\n\nWhich one?\nPick the safe one\n\n❯ Alpha\n  Beta\n[↑↓ to navigate, Enter to select, Esc to cancel]\n").question).toBe("Which one?");
+  });
+
   test("answers a GJC selector whose labels start with numbers by moving, never by typing a number", () => {
     const prompt = parseFallbackPrompt("gjc", "Choose an approach\n\n❯ 1. Keep branch\n  2. Delete branch\nup/down navigate  enter select  esc cancel\n");
     expect(labels(prompt)).toEqual(["1. Keep branch", "2. Delete branch", "Esc"]);
