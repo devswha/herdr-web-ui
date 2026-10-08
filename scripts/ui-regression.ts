@@ -234,6 +234,32 @@ try {
     await paletteSearch.press("Escape");
     await palette.waitFor({ state: "hidden" });
   }
+  // A pointer resting over the list keeps still while the arrow scrolls rows under it: the
+  // browser's hover update after the scroll must not take the keyboard selection, and a real
+  // pointer move still does.
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await openPalette();
+  const restingOptionCount = await palette.getByRole("option").count();
+  const firstOption = (await palette.locator("#palette-item-0").boundingBox())!;
+  await page.mouse.move(firstOption.x + firstOption.width / 2, firstOption.y + firstOption.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === "palette-item-0", "the resting pointer is over the first option");
+  await palette.locator(".palette-results").evaluate((list) => {
+    const hovered: string[] = [];
+    (window as unknown as { paletteHovered: string[] }).paletteHovered = hovered;
+    list.addEventListener("mouseover", (event) => hovered.push((event.target as HTMLElement).closest("[role=option]")?.id ?? ""));
+  });
+  await paletteSearch.press("ArrowUp");
+  await until(async () => await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.some((id) => id !== "" && id !== "palette-item-0")),
+    "the scroll moves another option under the resting pointer");
+  assert.equal(await paletteSearch.getAttribute("aria-activedescendant"), `palette-item-${restingOptionCount - 1}`,
+    "a scroll under a resting pointer leaves the arrow's selection alone");
+  const hoveredId = await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.findLast((id) => id !== "")!);
+  const hoveredBox = (await palette.locator(`#${hoveredId}`).boundingBox())!;
+  await page.mouse.move(hoveredBox.x + hoveredBox.width / 2 + 4, hoveredBox.y + hoveredBox.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === hoveredId, "a real pointer move selects the option under it");
+  await paletteSearch.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await page.mouse.move(0, 0);
   await page.setViewportSize(paletteViewport);
   console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
 

@@ -138,6 +138,8 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
 
   // Arrow navigation keeps focus in the search field: aria-activedescendant alone does not
   // scroll its option into view, including when an arrow wraps to the other end of the list.
+  // Rows take hover from mousemove, not mouseenter: a scroll under a resting pointer sends the
+  // row now under it a mouseenter, which would replace the option the arrow picked.
   useLayoutEffect(() => {
     if (!open) return;
     resultsRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -192,7 +194,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
             const workspace = snapshot?.workspaces.find((item) => item.workspace_id === pane.workspace_id);
             const selected = pane.pane_id === selectedPaneId;
             return (
-              <button key={pane.pane_id} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-pane" aria-selected={activeIndex === index} onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => runPane(pane)}>
+              <button key={pane.pane_id} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-pane" aria-selected={activeIndex === index} onFocus={() => setActiveIndex(index)} onMouseMove={() => setActiveIndex(index)} onClick={() => runPane(pane)}>
                 <span className="palette-mark"><AgentMark agent={pane.agent ?? "shell"} /></span>
                 <span className="menu-item-main"><span className="palette-row-title">{displayPaneTitle(pane)}{selected && <span className="palette-selected">{t("Selected")}</span>}</span><span className="palette-row-subtitle">{placeLine(workspace?.label ?? t("Unknown workspace"), cwdBasename(pane.foreground_cwd ?? pane.cwd))}</span></span>
                 <StatusBadge status={pane.agent_status} />
@@ -203,7 +205,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
           {visibleActions.map((action, actionIndex) => {
             const index = panes.length + actionIndex;
             const Icon = action.icon;
-            return <button key={action.id} id={`palette-item-${index}`} type="button" role="option" className="menu-item" aria-selected={activeIndex === index} onFocus={() => setActiveIndex(index)} onMouseEnter={() => setActiveIndex(index)} onClick={() => runAction(action)}><Icon /><span className="menu-item-main">{action.label}</span><ShortcutHint shortcutId={action.shortcut} /></button>;
+            return <button key={action.id} id={`palette-item-${index}`} type="button" role="option" className="menu-item" aria-selected={activeIndex === index} onFocus={() => setActiveIndex(index)} onMouseMove={() => setActiveIndex(index)} onClick={() => runAction(action)}><Icon /><span className="menu-item-main">{action.label}</span><ShortcutHint shortcutId={action.shortcut} /></button>;
           })}
           {itemCount === 0 && <p className="palette-empty" role="status">{t("No matching panes or actions")}</p>}
         </div>
