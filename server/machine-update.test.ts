@@ -13,11 +13,11 @@ import type { PushService } from "./push.ts";
 // Real setup/approval/verification with a loopback identity endpoint and a fake SSH host.
 // No bundle is downloaded and no real process or user's herdr is touched.
 describe("approved bridge replacement", () => {
-  async function scenario(options: { identity?: Record<string, unknown>; unauthorized?: boolean; replacementProtocol?: number; initialBundle?: string; replacementBundle?: string; reconnect?: boolean; updateAgain?: boolean; repeatBundle?: string; repeatIdentity?: Record<string, unknown> } = {}) {
+  async function scenario(options: { identity?: Record<string, unknown>; unauthorized?: boolean; replacementProtocol?: number; initialBundle?: string; replacementBundle?: string; reconnect?: boolean; updateAgain?: boolean; repeatBundle?: string; repeatIdentity?: Record<string, unknown>; initialProtocol?: number; onlyFirst?: boolean } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "herdr-bridge-replacement-"));
     const socket = "/home/fixture/.config/herdr/herdr.sock";
     const token = "a".repeat(64);
-    let descriptor = { pid: 4242, port: 29431, token, socket_path: socket, managed_remote: true, bridge_protocol: BRIDGE_PROTOCOL + 1, bundle_version: options.initialBundle ?? "older" };
+    let descriptor = { pid: 4242, port: 29431, token, socket_path: socket, managed_remote: true, bridge_protocol: options.initialProtocol ?? BRIDGE_PROTOCOL + 1, bundle_version: options.initialBundle ?? "older" };
     let stopped = false;
     let replacementChecks = 0;
     const operations: string[] = [];
@@ -78,6 +78,10 @@ describe("approved bridge replacement", () => {
         relays.push(relay);
       };
       const first = await request("", { destination: "fixture-only" });
+      if (options.onlyFirst) {
+        const result = await until(first.id, ["connected", "failed"]);
+        return { result, operations: [...operations], registered: manager.list().filter((machine) => machine.kind === "ssh").length };
+      }
       expect(await until(first.id, ["failed"])).toMatchObject({ action_required: options.initialBundle ? "bridge_conflict" : "update_bridge" });
       expect(manager.list().map((machine) => machine.kind)).toEqual(["local"]);
       expect(operations).toEqual([]);
@@ -179,4 +183,24 @@ describe("approved bridge replacement", () => {
     expect(operations).toEqual(["install", "verify:4242", "stop:4242", "start", "verify:4243", "verify:4243"]);
   });
 
+
+  // the descriptor is what the bridge wrote; the identity it answers with is what runs. A newer
+  // bridge is never this app's to replace, whichever of the two says so
+  it("never stops a bridge whose live identity is newer, even when its descriptor looks older", async () => {
+    const { result, operations } = await scenario({ identity: { bridge_protocol: BRIDGE_PROTOCOL, bundle_version: String(Number(REMOTE_BUNDLE_VERSION) + 1) } });
+    expect(result).toMatchObject({ phase: "failed", action_required: "bridge_conflict" });
+    expect(operations).toEqual(["install", "verify:4242"]);
+  });
+  it("calls a newer live bridge a conflict on a plain connect, where an update cannot help", async () => {
+    const { result, operations } = await scenario({ onlyFirst: true, initialProtocol: BRIDGE_PROTOCOL, initialBundle: REMOTE_BUNDLE_VERSION, identity: { bundle_version: String(Number(REMOTE_BUNDLE_VERSION) + 1) } });
+    expect(result).toMatchObject({ phase: "failed", action_required: "bridge_conflict" });
+    expect(result.error).toContain("Update this app");
+    expect(operations).toEqual(["verify:4242"]);
+  });
+  it("sends an incompatible independently managed bridge to its own Settings, not to an update", async () => {
+    const { result, operations } = await scenario({ onlyFirst: true, initialProtocol: BRIDGE_PROTOCOL, initialBundle: REMOTE_BUNDLE_VERSION, identity: { bundle_version: "older", managed_remote: false } });
+    expect(result).toMatchObject({ phase: "failed", action_required: "setup" });
+    expect(result.error).toContain("independently managed");
+    expect(operations).toEqual(["verify:4242"]);
+  });
 });
