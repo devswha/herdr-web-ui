@@ -9,8 +9,9 @@ import { fileUriPath } from "./terminalFileLinks.ts";
 export function markdownImagePath(src: string, markdownPath: string): string | null {
   const target = src.trim().replace(/[?#].*$/s, "");
   if (target === "" || /^(?:https?:|data:|blob:|\/\/)/i.test(src.trim())) return null;
-  let path: string;
-  try { path = decodeURI(fileUriPath(target) ?? target); } catch { return null; }
+  let path = fileUriPath(target);
+  // a file URI comes decoded; any other path is decoded here, once
+  if (path === null) { try { path = decodeURI(target); } catch { return null; } }
   if (/^~|^[A-Za-z]:|\\/.test(path)) return null;
   if (!path.startsWith("/")) {
     const folder = markdownPath.slice(0, markdownPath.lastIndexOf("/") + 1);

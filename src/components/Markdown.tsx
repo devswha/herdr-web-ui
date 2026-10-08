@@ -57,14 +57,26 @@ function loadMermaid(): Promise<MermaidRender> {
   return mermaidLoad;
 }
 
+/** Whether the page is drawn dark (`data-theme` on <html>, which Settings keeps current). */
+function useDarkTheme(): boolean {
+  const [dark, setDark] = useState(() => document.documentElement.dataset.theme !== "light");
+  useEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => setDark(root.dataset.theme !== "light"));
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
+
 /** A ```mermaid fence drawn as a diagram. Until it parses (a reply still streaming, a syntax error) it shows as the code block it is. */
 function MermaidDiagram({ value }: { value: string }) {
   const t = useT();
   const [svg, setSvg] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState(false);
+  const dark = useDarkTheme();
   useEffect(() => {
     let live = true;
-    const dark = document.documentElement.dataset.theme !== "light";
     // the parse runs after a pause, so a streaming block is not re-parsed on every poll
     const timer = window.setTimeout(() => {
       loadMermaid().then((render) => render(value, dark)).then(
@@ -73,7 +85,7 @@ function MermaidDiagram({ value }: { value: string }) {
       );
     }, 300);
     return () => { live = false; window.clearTimeout(timer); };
-  }, [value]);
+  }, [value, dark]);
   if (svg === null) return <CodeBlock language="mermaid" value={value} />;
   return (
     <div className="markdown-mermaid-frame">
