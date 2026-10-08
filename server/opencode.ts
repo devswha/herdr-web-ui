@@ -17,8 +17,11 @@
  * A page is a range of `seq`, so a cursor names a row and stays valid while rows are appended.
  * A row is rewritten in place while its step streams (`time_updated` moves). `/undo` hides the
  * rows from a message on (`session_v2.revert`), which changes the history id, until the next
- * prompt deletes them; `seq` is never handed out again, so a cursor naming a deleted row is
- * refused, and a chat holding pages from before the deletion reloads.
+ * prompt deletes them. `seq` is never handed out again: a row's `seq` is its event's sequence
+ * number, which `Bus.publish` takes as `event_sequence.seq + 1` under a per-session lock and
+ * `Bus.reserveSequence` only raises, and the revert commit deletes `session_message` rows without
+ * touching `event_sequence` (read from 2.0.24). So a cursor naming a deleted row is refused, and a
+ * chat holding pages from before the deletion reloads.
  */
 
 import { Database } from "bun:sqlite";
@@ -64,10 +67,10 @@ export function opencodeDatabasePath(env: Record<string, string | undefined> = p
   return named ? resolve(data, named) : join(data, "opencode.db");
 }
 
-/** The session herdr's OpenCode integration reported for the pane, or null. */
+/** The session herdr's OpenCode integration reported for the pane, or null for any other report. */
 export function opencodeSessionId(pane: Pick<HerdrPane, "agent_session">): string | null {
   const session = pane.agent_session;
-  if (session?.agent !== "opencode" || session.kind !== "id" || !SESSION_ID.test(session.value)) return null;
+  if (session?.agent !== "opencode" || session.source !== "herdr:opencode" || session.kind !== "id" || !SESSION_ID.test(session.value)) return null;
   return session.value;
 }
 
@@ -271,6 +274,15 @@ export function forgetOpencodeState(): void {
   settings.clear();
 }
 
+/** What every cache here is keyed by: a pane's chat is remembered against it (conversation.ts `rememberPaneRead`). */
+export const opencodeReadKey = (path: string, sessionId: string): string => `${path}\0${sessionId}`;
+
+/** Drop what one session's chat kept, when the last pane reading it closes; any other key is not one of these. */
+export function forgetOpencodeRead(key: string): void {
+  newestRecords.delete(key);
+  for (const map of [answers, settings]) for (const entry of [...map.keys()]) if (entry.startsWith(`${key}\0`)) map.delete(entry);
+}
+
 /** The store, read-only; null when it cannot be opened (no file, not SQLite, not readable). */
 function openStore(path: string): Database | null {
   try {
@@ -290,6 +302,15 @@ function withStore<T>(path: string, read: (db: Database) => T): T | null {
 /** A store this reader cannot use (1.x tables, not a database at all), as opposed to one busy for a moment. */
 function unusable(error: unknown): boolean {
   return error instanceof Error && (/no such (table|column)/.test(error.message) || (error as { code?: unknown }).code === "SQLITE_NOTADB");
+}
+
+/**
+ * A store held past the busy timeout. OpenCode runs its store in WAL, where a reader waits only
+ * while the store recovers after a crash; a store in another journal mode waits on any writer.
+ */
+function busy(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED"));
 }
 
 interface SessionView {
@@ -327,7 +348,7 @@ const settings = new Map<string, { updated: number; model: string | null; varian
  * the newest and parsed here: JSON1 is not part of every SQLite Bun may run on (on macOS it uses the
  * system's own), so nothing is asked of SQL beyond the index.
  */
-function sessionMetadata(db: Database, sessionId: string, end: number): ConversationMetadata {
+function sessionMetadata(db: Database, key: string, sessionId: string, end: number): ConversationMetadata {
   const data = db.query<{ data: string }, [string, string]>("SELECT data FROM session_message WHERE id = ? AND session_id = ?");
   let setting: { model: string | null; variant: string | null } | null = null;
   let usage: Row | null = null;
@@ -336,7 +357,7 @@ function sessionMetadata(db: Database, sessionId: string, end: number): Conversa
     `SELECT id, type, time_updated AS updated FROM session_message
      WHERE session_id = ? AND type IN ('assistant', 'model-switched', 'compaction') AND seq < ? ORDER BY seq DESC`,
   ).iterate(sessionId, end)) {
-    let known = settings.get(row.id);
+    let known = settings.get(`${key}\0${row.id}`);
     if (known?.updated !== row.updated) {
       const found = data.get(row.id, sessionId);
       const parsed = found === null ? {} : parseData(found.data);
@@ -348,7 +369,7 @@ function sessionMetadata(db: Database, sessionId: string, end: number): Conversa
         tokens: parsed.tokens === undefined ? null : record(parsed.tokens),
         completed: parsed.status === "completed",
       };
-      remember(settings, row.id, known, 256);
+      remember(settings, `${key}\0${row.id}`, known, 256);
     }
     if (row.type === "compaction") {
       // the footer counts no step from before a compaction: its usage is gone with it
@@ -391,38 +412,43 @@ function cursorOf(db: Database, sessionId: string, historyId: string, cursor: st
 }
 
 /**
- * A row's size in bytes. `octet_length` (SQLite 3.43) answers without reading the row; on macOS
- * Bun runs the system's own SQLite, which can be older, and there the bytes are counted instead.
+ * How a row's size in bytes is read. `octet_length` (SQLite 3.43) answers without reading the row;
+ * on macOS Bun runs the system's own SQLite, which can be older, and there the bytes are counted.
  */
-let rowSize: string | null = null;
-function sizeOf(db: Database): string {
-  if (rowSize === null) {
-    try { db.query("SELECT octet_length('')").get(); rowSize = "octet_length(data)"; }
-    catch { rowSize = "length(CAST(data AS BLOB))"; }
+export const OPENCODE_ROW_SIZE = { octets: "octet_length(data)", bytes: "length(CAST(data AS BLOB))" } as const;
+export type OpencodeRowSize = (typeof OPENCODE_ROW_SIZE)[keyof typeof OPENCODE_ROW_SIZE];
+
+let supported: OpencodeRowSize | null = null;
+function supportedRowSize(db: Database): OpencodeRowSize {
+  if (supported === null) {
+    try { db.query("SELECT octet_length('')").get(); supported = OPENCODE_ROW_SIZE.octets; }
+    catch { supported = OPENCODE_ROW_SIZE.bytes; }
   }
-  return rowSize;
+  return supported;
 }
 
-const meta = (db: Database) => `SELECT id, seq, type, time_updated AS updated, ${sizeOf(db)} AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq`;
+const meta = (rowSize: OpencodeRowSize) => `SELECT id, seq, type, time_updated AS updated, ${rowSize} AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq`;
 
 /**
  * One page of the session's conversation (as conversation.ts's transcriptPage, over rows):
  * without `before` the newest page, from `from` while that start is still inside it; with
- * `before` the page ending there, never reaching back past `since`.
+ * `before` the page ending there, never reaching back past `since`. `rowSize` is how a row is
+ * measured, by default the cheapest way this SQLite has.
  */
-export function opencodeConversation(path: string, sessionId: string, page: OpencodePage = {}): OpencodeAnswer {
+export function opencodeConversation(path: string, sessionId: string, page: OpencodePage = {}, rowSize?: OpencodeRowSize): OpencodeAnswer {
   if (!SESSION_ID.test(sessionId)) return { kind: "unavailable", reason: "no_session_id" };
-  const key = `${path}\0${sessionId}`;
+  const key = opencodeReadKey(path, sessionId);
+  const cacheKey = `${key}\0${page.before ?? ""}\0${page.since ?? ""}\0${page.from ?? ""}`;
   try {
     const answer = withStore(path, (db): OpencodeAnswer => {
       const view = sessionView(db, sessionId);
       if (view === null) return { kind: "unavailable", reason: "session_not_found" };
-      const cacheKey = `${key}\0${page.before ?? ""}\0${page.since ?? ""}\0${page.from ?? ""}`;
       const cached = answers.get(cacheKey);
       if (cached?.signature === view.signature) return cached.answer;
 
       const end = view.end;
-      const descending = (from: number, to: number) => db.query<RowMeta, [string, number, number]>(`${meta(db)} DESC`).iterate(sessionId, from, to);
+      const measure = rowSize ?? supportedRowSize(db);
+      const descending = (from: number, to: number) => db.query<RowMeta, [string, number, number]>(`${meta(measure)} DESC`).iterate(sessionId, from, to);
       let start: number;
       let to = end;
       if (page.before !== undefined) {
@@ -446,7 +472,7 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
         const known = newestRecords.get(key) ?? new Map<string, { updated: number; record: OpencodeRecord | null }>();
         const kept = new Map<string, { updated: number; record: OpencodeRecord | null }>();
         const data = db.query<{ data: string }, [string, string]>("SELECT data FROM session_message WHERE id = ? AND session_id = ?");
-        for (const row of db.query<RowMeta, [string, number, number]>(meta(db)).iterate(sessionId, start, to)) {
+        for (const row of db.query<RowMeta, [string, number, number]>(meta(measure)).iterate(sessionId, start, to)) {
           let entry = known.get(row.id);
           if (entry?.updated !== row.updated) {
             const found = data.get(row.id, sessionId);
@@ -464,7 +490,7 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
       const result = {
         kind: "page" as const,
         turns: opencodeTurns(records),
-        metadata: sessionMetadata(db, sessionId, to),
+        metadata: sessionMetadata(db, key, sessionId, to),
         cursor: start > 0 ? `${view.historyId}:${start}` : null,
         history_id: view.historyId,
         signature: view.signature,
@@ -476,6 +502,9 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
   } catch (error) {
     // a 1.x store, or one OpenCode has not finished creating: the terminal stands in for it
     if (unusable(error)) return { kind: "unavailable", reason: "transcript_missing" };
+    // a store held for a moment: the chat keeps the page it shows, or the terminal stands in
+    // until the next poll, rather than an error in the chat
+    if (busy(error)) return answers.get(cacheKey)?.answer ?? { kind: "unavailable", reason: "store_busy" };
     throw error;
   }
 }

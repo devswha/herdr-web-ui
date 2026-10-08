@@ -42,7 +42,7 @@ import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
-import { forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
+import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
 import { piTranscriptPath, unwrittenSession } from "./pi.ts";
 import { forgetAllPiIndexes, forgetPiIndex, piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
@@ -834,6 +834,7 @@ export function forgetPaneTranscriptState(paneId: string): void {
     forgetCodexStateFor(path);
     forgetPiIndex(path);
     forgetClaudeSessionFile(path);
+    forgetOpencodeRead(path);
   }
 }
 
@@ -952,7 +953,7 @@ type ResolvedTranscript =
  * label: omo's own store is read only when omo is really running
  * in that pane, never on a matching cwd alone.
  */
-async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<ResolvedTranscript> {
+async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[], opencodeDb?: string): Promise<ResolvedTranscript> {
   const paneId = pane.pane_id;
   let agent = pane.agent ?? pane.agent_session?.agent ?? "";
   // herdr names no agent for this pane: a session report an earlier agent left behind says
@@ -998,7 +999,7 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
       // herdr's integration names the session the TUI shows; at its home screen there is none
       const session = opencodeSessionId(pane);
       if (session === null) throw new ConversationUnavailable("no_session_id");
-      const path = opencodeDatabasePath();
+      const path = opencodeDb ?? opencodeDatabasePath();
       if (path === null) throw new ConversationUnavailable("no_session_path");
       return { source: "opencode-transcript", path, session };
     }
@@ -1028,8 +1029,9 @@ async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[
  * Without `page` this is the newest page. `before` is the page ending at a
  * returned cursor; `from` is every turn after one, for a chat that already
  * shows the pages before it. A cursor from another file throws HistoryChanged.
+ * `opencodeDb` is OpenCode's store, unset where OpenCode itself would find it.
  */
-export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}): Promise<RecognizedConversation> {
+export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, opencodeDb?: string): Promise<RecognizedConversation> {
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
@@ -1037,7 +1039,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
 
   let resolved: ResolvedTranscript;
   try {
-    resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
+    resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb);
   } catch (error) {
     if (!(error instanceof ConversationNotStarted)) throw error;
     // a file read before and gone since is no conversation not begun: the terminal stands in for it
@@ -1052,6 +1054,8 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     return { source: error.source, turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
   }
   if (resolved.source === "opencode-transcript") {
+    // its caches are keyed by store and session, which is what the pane is remembered against
+    rememberPaneRead(paneId, opencodeReadKey(resolved.path, resolved.session));
     const answer = opencodeConversation(resolved.path, resolved.session, page);
     if (answer.kind === "history_changed") throw new HistoryChanged();
     if (answer.kind === "unavailable") throw new ConversationUnavailable(answer.reason);
@@ -1156,13 +1160,13 @@ export function transcriptPage(source: StreamSource, path: string, page: Convers
  * here rather than sent with every poll of the conversation. Null when there is no such
  * image. Codex uses a hash of the native attachment and searches only the bound history.
  */
-export async function conversationImage(paneId: string, ref: string, codexHome?: string): Promise<{ mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null> {
+export async function conversationImage(paneId: string, ref: string, codexHome?: string, opencodeDb?: string): Promise<{ mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null> {
   if (!IMAGE_REF.test(ref) && !CODEX_IMAGE_REF.test(ref) && !PI_IMAGE_REF.test(ref) && !OPENCODE_IMAGE_REF.test(ref)) return null;
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
   let resolved: ResolvedTranscript;
-  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
+  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   // OpenCode's store is read per request and keeps nothing for the pane to release
   if (resolved.source === "opencode-transcript") return opencodeImage(resolved.path, resolved.session, ref);
@@ -1202,13 +1206,13 @@ const TOOL_REF = /^[A-Za-z0-9_:.-]{1,128}$/;
 const TOOL_OUTPUT_MAX = 2_000_000;
 
 /** The whole output of a tool call whose page output was cut, by its id; null when there is none. */
-export async function toolOutput(paneId: string, ref: string, codexHome?: string): Promise<string | null> {
+export async function toolOutput(paneId: string, ref: string, codexHome?: string, opencodeDb?: string): Promise<string | null> {
   if (!TOOL_REF.test(ref)) return null;
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
   let resolved: ResolvedTranscript;
-  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
+  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   if (resolved.source === "opencode-transcript") {
     const output = opencodeToolOutput(resolved.path, resolved.session, ref);

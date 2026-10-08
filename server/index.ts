@@ -325,6 +325,8 @@ export function createServer(
     tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
+    /** OpenCode's database; defaults to where OpenCode finds it (OPENCODE_DB, XDG_DATA_HOME). Tests use an isolated store. */
+    opencodeDb?: string;
     updates?: UpdateService;
     /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
     herdrUpdate?: HerdrUpdater;
@@ -1728,7 +1730,7 @@ export function createServer(
         const ref = url.searchParams.get("ref");
         if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
         try {
-          const output = await toolOutput(paneId, ref, options.codexHome);
+          const output = await toolOutput(paneId, ref, options.codexHome, options.opencodeDb);
           if (output === null) return jsonResponse({ error: { code: "output_not_found", message: "no such tool call in this pane's conversation" } }, 404);
           return new Response(output, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "private, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
         } catch (error) {
@@ -1741,7 +1743,7 @@ export function createServer(
         const ref = url.searchParams.get("ref");
         if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
         try {
-          const image = await conversationImage(paneId, ref, options.codexHome);
+          const image = await conversationImage(paneId, ref, options.codexHome, options.opencodeDb);
           if (image === null) return jsonResponse({ error: { code: "image_not_found", message: "no such image in this pane's conversation" } }, 404);
           // Claude embeds immutable bytes; a Codex attachment may name a local file that changes.
           return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": ref.startsWith("codex-") ? "private, no-store" : "private, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
@@ -1759,7 +1761,7 @@ export function createServer(
           from: url.searchParams.get("from") ?? undefined,
         };
         try {
-          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page);
+          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.opencodeDb);
           // The chat polls every 2s: an unchanged conversation answers 304 with no body.
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
           const etag = `"${version}"`;

@@ -9,13 +9,12 @@ import { forgetTranscriptState } from "./conversation.ts";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationPart, ConversationResponse } from "../shared/protocol.ts";
 
-// Real herdr metadata + HTTP + an OpenCode store of the test's own (OPENCODE_DB).
+// Real herdr metadata + HTTP + an OpenCode store of the test's own, handed to the server (opencodeDb).
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-opencode-contract-"));
 const database = join(root, "opencode.db");
 const fakeOpencode = join(root, "bin", "opencode");
 const SESSION = "ses_contractTest01";
 const workspaces: string[] = [];
-const previousDb = process.env["OPENCODE_DB"];
 let paneId: string;
 let server: ReturnType<typeof createServer>;
 let db: Database;
@@ -55,7 +54,6 @@ beforeAll(async () => {
   `);
   db.query("INSERT INTO session_v2 (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES (?, 'global', 'contract', ?, 'Contract', '2.0.24', 0, 0)").run(SESSION, root);
   turn("Check chat", "Answer one");
-  process.env["OPENCODE_DB"] = database;
 
   // herdr takes a session report only from an agent holding the pane: a stand-in OpenCode
   mkdirSync(join(root, "bin"), { recursive: true });
@@ -72,14 +70,13 @@ beforeAll(async () => {
     await Bun.sleep(50);
   }
   await reportSession(SESSION);
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), opencodeDb: database });
 });
 
 afterAll(async () => {
   server?.stop();
   for (const workspaceId of workspaces) await workspaceClose(workspaceId);
   db?.close();
-  if (previousDb === undefined) delete process.env["OPENCODE_DB"]; else process.env["OPENCODE_DB"] = previousDb;
   forgetTranscriptState();
   rmSync(root, { recursive: true, force: true });
 });

@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { forgetOpencodeState, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeRecord, opencodeSessionId, opencodeToolOutput, opencodeTurns, pageStart, type OpencodeAnswer, type RowMeta } from "./opencode.ts";
+import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_ROW_SIZE, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeRecord, opencodeSessionId, opencodeToolOutput, opencodeTurns, pageStart, type OpencodeAnswer, type RowMeta } from "./opencode.ts";
 import type { ConversationPart, ConversationTurn } from "../shared/protocol.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-opencode-store-"));
@@ -86,6 +86,8 @@ describe("where OpenCode keeps its store", () => {
     expect(opencodeSessionId(session("ses_eea6b0be2ffef1CA3bgZXhfSW2"))).toBe("ses_eea6b0be2ffef1CA3bgZXhfSW2");
     expect(opencodeSessionId(session("ses_eea6b0be2ffef1CA3bgZXhfSW2", "pi"))).toBeNull();
     expect(opencodeSessionId(session("/home/u/session.jsonl", "opencode", "path"))).toBeNull();
+    // only herdr's own integration binds the pane
+    expect(opencodeSessionId({ agent_session: { agent: "opencode", kind: "id", source: "something-else", value: "ses_abc" } })).toBeNull();
     for (const value of ["ses_", "ses_../x", "ses_a b", "msg_abc", "ses_a'; DROP TABLE x"]) expect(opencodeSessionId(session(value))).toBeNull();
     expect(opencodeSessionId({ agent_session: null })).toBeNull();
     expect(opencodeSessionId({})).toBeNull();
@@ -349,6 +351,40 @@ describe("a page of an OpenCode session", () => {
     expect(page(opencodeConversation(s.path, s.session)).turns.at(-1)!.parts).toEqual([{ kind: "text", text: "again" }]);
   });
 
+  it("keeps the page it showed while the store is held, and the terminal before it showed one", () => {
+    // OpenCode runs its store in WAL, where a reader waits only while it recovers; a store in
+    // rollback-journal mode is held by any writer, which is the case reproduced here
+    const s = store();
+    s.prompt("hello"); s.answer("hi"); s.idle();
+    s.db.exec("PRAGMA journal_mode = DELETE");
+    const shown = page(opencodeConversation(s.path, s.session));
+    const writer = new Database(s.path);
+    opened.push(writer);
+    writer.exec("BEGIN EXCLUSIVE");
+    try {
+      expect(opencodeConversation(s.path, s.session)).toBe(shown);
+      forgetOpencodeState();
+      expect(opencodeConversation(s.path, s.session)).toEqual({ kind: "unavailable", reason: "store_busy" });
+    } finally {
+      writer.exec("ROLLBACK");
+    }
+    expect(page(opencodeConversation(s.path, s.session)).turns).toEqual(shown.turns);
+  });
+
+  it("lets go of a session's cached pages when its last pane closes, and only that session's", () => {
+    const a = store("ses_paneA");
+    a.prompt("a"); a.answer("one");
+    const b = store("ses_paneB");
+    b.prompt("b"); b.answer("two");
+    const first = page(opencodeConversation(a.path, a.session));
+    const other = page(opencodeConversation(b.path, b.session));
+    forgetOpencodeRead(opencodeReadKey(a.path, a.session));
+    const again = page(opencodeConversation(a.path, a.session));
+    expect(again).not.toBe(first);
+    expect(again.turns).toEqual(first.turns);
+    expect(page(opencodeConversation(b.path, b.session))).toBe(other);
+  });
+
   it("answers an unchanged session from memory, and a step streaming in place anew", () => {
     const s = store();
     s.prompt("go");
@@ -383,6 +419,22 @@ describe("a page of an OpenCode session", () => {
 });
 
 describe("where a page starts", () => {
+  it("pages a store the same way through the fallback that measures rows without octet_length", () => {
+    // three rows past the 16 MB window: the newest page starts mid-turn, the older one reaches back
+    const s = store();
+    s.prompt("big");
+    for (let n = 0; n < 3; n++) s.add("assistant", { time: { created: T0 }, content: [{ type: "text", text: `${n}${"é".repeat(3_000_000)}` }] });
+    const read = (rowSize: (typeof OPENCODE_ROW_SIZE)[keyof typeof OPENCODE_ROW_SIZE]) => {
+      forgetOpencodeState();
+      const newest = page(opencodeConversation(s.path, s.session, {}, rowSize));
+      const older = page(opencodeConversation(s.path, s.session, { before: newest.cursor! }, rowSize));
+      return { newest: [newest.cursor, newest.turns.length], older: [older.cursor, older.turns.map((turn) => turn.role)] };
+    };
+    const bytes = read(OPENCODE_ROW_SIZE.bytes);
+    expect(bytes.newest[0]).not.toBeNull();
+    expect(bytes).toEqual(read(OPENCODE_ROW_SIZE.octets));
+  });
+
   it("measures a row in bytes without octet_length too", () => {
     // macOS's own SQLite, which Bun uses there, can predate octet_length (3.43): the fallback must count bytes
     const s = store();

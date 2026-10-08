@@ -138,7 +138,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **omo** | Native session file, found through the pane's process tree | — use Terminal |
 | **gjc** | Native session file, from the session directory gjc keeps open | — use Terminal |
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
-| **OpenCode** | Native session in OpenCode 2's own database (`~/.local/share/opencode/opencode.db` on Linux, macOS and Windows alike, or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it), resolved through herdr | — use Terminal |
+| **OpenCode** | Native session in OpenCode 2's own database, resolved through herdr: `~/.local/share/opencode/opencode.db` (`%USERPROFILE%\.local\share\opencode\opencode.db` on Windows), or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
 When the last visible line is a familiar password, SSH passphrase or PIN request, both
