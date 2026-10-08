@@ -111,9 +111,18 @@ try {
         await waitStatus(page, INFRA, "idle");
         assert.equal(await workspaceStatus(page, "infra"), "idle", "its workspace row reads ready too");
         assert.equal(await agentStatus(page, API), "done", "a finish never opened keeps its dot");
+        // the run starts from an empty record: the opened finish is in it at herdr's counter for that
+        // finish (a look made at a stand-in is saved once a roster read brings the counter), the
+        // unopened one is not
+        const finishSeq = await page.evaluate(async (paneId) => {
+          const { snapshot } = await (await fetch("/api/session")).json() as { snapshot: { agents: { pane_id: string; state_change_seq?: number }[] } };
+          return snapshot.agents.find((entry) => entry.pane_id === paneId)?.state_change_seq;
+        }, panes.infra);
+        assert.ok(Number.isSafeInteger(finishSeq), `the finished agent carries a counter: ${finishSeq}`);
+        await page.waitForFunction(([paneId, seq]) => (JSON.parse(localStorage.getItem("herdr-web-ui:seen:local") ?? "{}") as Record<string, number>)[paneId] === seq,
+          [panes.infra, finishSeq!] as const, { timeout: 10_000 });
         const record = JSON.parse(await page.evaluate(() => localStorage.getItem("herdr-web-ui:seen:local") ?? "{}")) as Record<string, number>;
-        // the run starts from an empty record: the opened finish is in it, the unopened one is not
-        assert.ok(Number.isSafeInteger(record[panes.infra]) && record[panes.api] === undefined, `only the opened finish is recorded: ${JSON.stringify(record)}`);
+        assert.equal(record[panes.api], undefined, `the unopened finish is not recorded: ${JSON.stringify(record)}`);
 
         // a finish watched on screen stays quiet after another pane is opened before the roster
         // read brings herdr's counter for it (#529 review): the look follows the counter. Roster
