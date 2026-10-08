@@ -21,6 +21,8 @@ export interface FileViewerProps {
   path: string;
   paneId: string | null;
   onClose: () => void;
+  /** Settings can open above this preview; its Escape must not also close the file. */
+  keyboardActive?: boolean;
   /** a file chosen in a folder's listing: opened as the preview, so history and a reload keep it */
   onOpen?: (path: string) => void;
 }
@@ -29,7 +31,7 @@ export interface FileViewerProps {
  * A file an agent wrote, opened in the browser: images, video and audio (streamed, so they
  * play and seek at once), PDFs, and the start of a text file. Anything can be downloaded.
  */
-export function FileViewer({ path: asked, paneId, onClose, onOpen }: FileViewerProps) {
+export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActive = true }: FileViewerProps) {
   const t = useT();
   const { fetchFileInfo, fileUrl, fetchDirectories } = useMachineApi();
   // a remote PC's bridge reads a relative folder from the pane's folder only from its next bundle
@@ -74,12 +76,13 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen }: FileViewerP
   }, [path, paneId, fetchFileInfo, fileUrl, fetchDirectories, remote]);
 
   useEffect(() => {
+    if (!keyboardActive) return;
     // the FilesDialog beneath listens on window too (and stands down while this is open); this
     // one is the topmost overlay, so it takes the key
     const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, keyboardActive]);
 
   // the file found (a bare name may have been found deeper in the folder), else as asked
   const url = fileUrl(info?.path ?? path, paneId);

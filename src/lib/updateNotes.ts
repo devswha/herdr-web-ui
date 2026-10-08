@@ -1,4 +1,4 @@
-import type { UpdateNotes, UpdateStatus } from "../../shared/update.ts";
+import type { InstalledNotes, ReleaseHighlights, ReleaseNote, SummaryLanguage, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
 import { ApiError } from "./api.ts";
 
 /**
@@ -53,4 +53,69 @@ export function notesUnboundDelay(attempt: number): number | null {
 export function notesRetryDelay(error: unknown, attempt: number): number | null {
   if (error instanceof ApiError && error.status >= 400 && error.status < 500) return null;
   return retryDelay(attempt);
+}
+
+/**
+ * A release's highlights in the app's language, else in English; null for a release that wrote
+ * none, whose changelog section is then what there is to read.
+ */
+export function summaryFor(release: Pick<ReleaseNote, "summary">, language: SummaryLanguage): ReleaseHighlights | null {
+  return release.summary?.[language] ?? release.summary?.en ?? null;
+}
+
+/**
+ * What the last update brought, to show once it runs: the answer for the very commit the status
+ * reports, from one version to another. Null on a server no update installed.
+ */
+export function installedUpdate(
+  status: Pick<UpdateStatus, "current_revision"> | null,
+  installed: InstalledNotes | null,
+): InstalledNotes | null {
+  if (!status?.current_revision || !installed?.version || !installed.previous_version) return null;
+  return installed.revision === status.current_revision ? installed : null;
+}
+
+/** How long the app-wide line tells of an update. Settings keeps its notes after that. */
+export const ANNOUNCED_FOR_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Whether the app-wide line still tells of the installed update: until this device has closed
+ * it for that version, and for a week. A device that opens the app months later is told
+ * nothing, and an update whose time is not known is left to Settings. While a newer release is
+ * known the line is that release's, also during a check, which reports nothing available
+ * while it runs.
+ */
+export function announcesUpdate(
+  status: Pick<UpdateStatus, "current_revision" | "latest_revision"> | null,
+  installed: InstalledNotes | null,
+  dismissed: string | null,
+  now: number,
+): boolean {
+  if (!installed?.version || installed.version === dismissed || installed.installed_at === null) return false;
+  if (status?.latest_revision && status.latest_revision !== status.current_revision) return false;
+  const at = Date.parse(installed.installed_at);
+  // an install time in the future is a clock that was set back since: with a day's allowance for
+  // skew, such a line is not shown, or it would stay as long as the clock had been ahead
+  return Number.isFinite(at) && now - at >= -SKEW_ALLOWANCE_MS && now - at < ANNOUNCED_FOR_MS;
+}
+
+/** How far ahead of now an install time may be before it is read as a clock that was set back. */
+export const SKEW_ALLOWANCE_MS = 24 * 60 * 60 * 1000;
+
+const ANNOUNCED_KEY = "herdr-web-ui:update-announced";
+
+/** The version whose line this device closed. */
+export function readAnnounced(): string | null {
+  try { return window.localStorage.getItem(ANNOUNCED_KEY); } catch { return null; }
+}
+
+export function writeAnnounced(version: string): void {
+  try { window.localStorage.setItem(ANNOUNCED_KEY, version); } catch { /* storage blocked: closed until the page reloads */ }
+}
+
+/** Tells `listener` the version another tab of this device closed the line for; returns the unsubscribe. */
+export function watchAnnounced(listener: (version: string | null) => void): () => void {
+  const onStorage = (event: StorageEvent) => { if (event.key === ANNOUNCED_KEY || event.key === null) listener(event.newValue); };
+  window.addEventListener("storage", onStorage);
+  return () => window.removeEventListener("storage", onStorage);
 }

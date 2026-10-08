@@ -1283,7 +1283,8 @@ export function PaneTerminal({
     let saved = EMPTY_DRAFT;
     try {
       const value = paneId ? JSON.parse(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`) ?? "null") : null;
-      if (value && typeof value.text === "string" && Number.isInteger(value.droppedSpecial)) saved = value;
+      // a draft stored by an earlier version counts keys that were left out instead: only its text is kept
+      if (value && typeof value.text === "string") saved = { text: value.text, truncated: value.truncated === true };
     } catch {}
     setDraft(saved);
     draftPaneRef.current = paneId;
@@ -1685,16 +1686,15 @@ export function PaneTerminal({
         {paneId !== null && !chatView && !ended && !connected && (
           <div className="terminal-banner terminal-banner-warning" role="status">
             reconnecting to herdr web ui…
-            {!draftIsEmpty(draft) && <span className="draft-held"> input held: “{draft.text}”</span>}
+            {draft.text.length > 0 && <span className="draft-held"> input held: “{draft.text}”</span>}
           </div>
         )}
         {paneId !== null && !ended && connected && !draftIsEmpty(draft) && (
           <div className="terminal-banner terminal-banner-draft" role="status">
             <span className="draft-label">{t("Input held until the terminal is ready:")}</span>
-            <code className="draft-text">{draft.text.length > 0 ? draft.text : "—"}</code>
-            {draft.droppedSpecial > 0 && (
-              <span className="draft-dropped">{t(draft.droppedSpecial === 1 ? "{count} special key dropped" : "{count} special keys dropped", { count: draft.droppedSpecial })}</span>
-            )}
+            {draft.text.length > 0 && <code className="draft-text">{draft.text}</code>}
+            {/* the preview shows the start of the text: without this, a draft that lost its end looks whole */}
+            {draft.truncated && <span className="draft-truncated">{t("Some input was too long to hold and was left out.")}</span>}
             <span className="draft-actions">
               <button type="button" className="draft-send" disabled={draft.text.length === 0 || observing || secretActive || held} onClick={sendDraft}>
                 {t("Send")}

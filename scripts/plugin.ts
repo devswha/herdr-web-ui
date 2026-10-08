@@ -141,6 +141,29 @@ async function health(): Promise<boolean> {
   }
 }
 
+/** Whether the app holds the port: its bridge health answers without asking herdr. */
+async function appOnPort(): Promise<boolean> {
+  try {
+    const response = await fetch(`${origin}/api/health?scope=bridge`, { signal: AbortSignal.timeout(1500) });
+    return ((await response.json()) as { ok?: unknown }).ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Why the app's full health fails, as it says: herdr's error while herdr is away; null when it answers now (herdr came back). */
+async function healthError(): Promise<string | null> {
+  try {
+    // short, as health() is: the wait before this has already spent the start's deadline
+    const response = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(1500) });
+    const body = (await response.json()) as { ok?: unknown; error?: { message?: unknown } };
+    if (response.ok && body.ok === true) return null;
+    return typeof body.error?.message === "string" ? body.error.message : `its health check answered ${response.status}`;
+  } catch {
+    return "its health check did not answer";
+  }
+}
+
 function recordedPid(): number | null {
   if (!existsSync(PID_FILE)) return null;
   const pid = Number(readFileSync(PID_FILE, "utf8").trim());
@@ -192,6 +215,15 @@ async function settlePort(): Promise<"ready" | "running" | "failed"> {
     }
     if (await health()) return "running";
     await Bun.sleep(250);
+  }
+  // the app holds the port but cannot reach herdr: another port would put a second server beside it (#428)
+  if (await appOnPort()) {
+    if (await health()) return "running";
+    const why = await healthError();
+    if (why === null) return "running";
+    const pid = recordedPid();
+    failStart(`herdr web ui is running at ${origin}${pid === null ? "" : ` (pid ${pid})`} but cannot reach herdr: ${why}. It keeps this port and answers again once herdr is back.`);
+    return "failed";
   }
   const settings = CONFIG_FILES.at(-1) ?? join(CONFIG_DIR, "env");
   const blocked = platform() === "win32"

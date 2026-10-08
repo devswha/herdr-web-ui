@@ -84,8 +84,14 @@ function remoteExists(path: string): boolean {
 }
 async function startSshd(): Promise<void> {
   sshd = Bun.spawn([...(passwordMode ? ["sudo", "-n"] : []), "/usr/sbin/sshd", "-D", "-e", "-f", join(root, "sshd_config")], { stdout: "ignore", stderr: Bun.file(join(root, "sshd.log")) });
-  await Bun.sleep(300);
-  assert.equal(sshd.exitCode, null, readFileSync(join(root, "sshd.log"), "utf8"));
+  // sshd listens a moment after it starts, later on a loaded runner: wait for its port, not a guessed time
+  const accepts = () => Bun.connect({ hostname: "127.0.0.1", port, socket: { data() {}, open(socket) { socket.end(); } } }).then(() => true, () => false);
+  const deadline = Date.now() + 15_000;
+  while (!(await accepts())) {
+    assert.equal(sshd.exitCode, null, readFileSync(join(root, "sshd.log"), "utf8"));
+    if (Date.now() > deadline) throw new Error(`sshd did not listen on port ${port} within 15 s\n${readFileSync(join(root, "sshd.log"), "utf8")}`);
+    await Bun.sleep(100);
+  }
 }
 try {
   const listener = tcpServer(); await new Promise<void>((r) => listener.listen(0, "127.0.0.1", r)); port = (listener.address() as { port: number }).port; await new Promise<void>((r) => listener.close(() => r()));
