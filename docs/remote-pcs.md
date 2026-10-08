@@ -46,18 +46,15 @@ herdr 0.9.3). Older bridge bundles keep waiting until updated, and observe conne
 
 ## Disconnects and updates
 
-Use the **Reconnect** arrow in a remote PC's header even while it is connected. The dialog
-reuses its saved SSH target and refreshes the connection without restarting a compatible bridge.
 **Update bridge** also reuses a bridge whose live identity verifies as current; it does not
 download, install or restart the same version again.
 
 **Multiple apps connecting to one PC.** Keep those apps on the same version. An older app
-refuses to downgrade a newer bridge and asks you to update the app itself. If another app
+with this protection refuses to downgrade a newer bridge and asks you to update the app itself.
+Apps from before this version can still replace a newer bridge. If another app
 starts an incompatible bridge during an update, setup reports a **Bridge connection conflict**
-instead of offering an automatic update loop. Update the other app or disconnect its PC
-registration, then choose **Reconnect**. **Reconnect without updating** also lets a failed
-first connection reuse a bridge another app has already updated. These controls never take
-over a terminal or stop herdr sessions.
+instead of offering an automatic update loop. Update or disconnect the other app before retrying.
+The update path never takes over a terminal or stops herdr sessions.
 
 PC registrations and last snapshots persist in `<stateDir>/machines.json`; `HERDR_WEB_STATE_DIR` chooses the state directory. A disconnected PC retains its last roster with controls disabled. Retries back off from 1 second to 60 seconds. Other PCs keep working. Reconnection never changes a non-empty selection or sends held input. Composer drafts, held messages, terminal drafts, lenses, recent panes and notification identities include both machine and pane. Held messages have an explicit **Send now** action.
 
@@ -96,8 +93,6 @@ The default manifest is `https://github.com/devswha/herdr-web-ui/releases/downlo
 
 ## Verification
 
-- `bun run build && bun scripts/machine-reconnect-regression.ts`: fictional-PC browser checks for connected-PC reconnect and conflict recovery without reinstalling. Screenshots go to `evidence/machine-reconnect/`.
-
 - `bun test`, `bun run typecheck`, `bun run build`: contracts and existing behavior.
 - `bun run build:remote && bun scripts/remote-bundle-smoke.ts`: packaged startup, private daemon/socket, authenticated handshake.
 - `bun run test:ssh`: actual isolated sshd, fingerprint approval, encrypted-key askpass, app-key registration, first install, two independent herdr daemons with equal pane IDs, HTTP/WS routing, roles, ACK overload, reconnect/restart, cancellation, failed installation, explicit bridge update and host-key-change rejection. Tests write only to their own panes.
@@ -107,5 +102,3 @@ The default manifest is `https://github.com/devswha/herdr-web-ui/releases/downlo
 - `bun run test:ui`: existing composer/session/mobile browser regressions.
 
 macOS Codex discovery uses `lsof` for open rollout files instead of `/proc`; canonical-store validation and the unambiguous transcript matching rules are unchanged. Platform jobs must run on their corresponding runners before all-platform release readiness can be claimed. The Docker password test can run locally without sudo; macOS/arm64 binaries still require their corresponding runners.
-
-After **Continue in background**, the download icon beside **Settings** lists installations started in this browser tab, including new PCs not yet in the sidebar. Open it for progress or to reopen setup. Completed and failed jobs remain until opened or dismissed. Reloading the page clears this local list; the server-side install continues.

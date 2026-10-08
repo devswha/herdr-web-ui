@@ -32,4 +32,3 @@ bun scripts/composer-fit-demo-regression.ts
 bun scripts/held-rows-demo-regression.ts
 bun scripts/prompt-dock-demo-regression.ts
 bun scripts/machine-dialog-regression.ts
-bun scripts/machine-reconnect-regression.ts

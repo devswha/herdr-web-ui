@@ -187,9 +187,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#557](https://github.com/devswha/herdr-web-ui/pull/557))
 
 ### Fixed
-- Updating an already current remote bridge verifies and reuses it without downloading or restarting it again. ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
-- Development-server PC setup and bridge update approvals preserve the browser's origin,
-  avoiding a 403 when the UI on port 5173 uses the bridge on port 7317. ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
 - A pane whose agent has just started is listed as an agent's pane within a moment, where the
   list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
   time took it for a shell: it opened the terminal instead of the chat, and resized the

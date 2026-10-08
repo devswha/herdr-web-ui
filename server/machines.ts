@@ -453,14 +453,7 @@ export class MachineManager {
       }
       if (!descriptor) throw new Error(`Bridge did not start. Check ${host.logHint} on the PC.`);
     }
-    let verified: Awaited<ReturnType<MachineManager["verify"]>>;
-    try { verified = currentBridge ?? await this.verify(ssh, descriptor, expectedSocket); }
-    catch (error) {
-      if (job?.update && error instanceof MachineActionRequired && error.action === "update_bridge") {
-        throw new MachineActionRequired(`The bridge is still incompatible after this update (reported v${descriptor.bundle_version}, required v${REMOTE_BUNDLE_VERSION}). Another app may have reconnected with a different version. Update or disconnect the other app, then reconnect here.`, "bridge_conflict");
-      }
-      throw error;
-    }
+    const verified = currentBridge ?? await this.verify(ssh, descriptor, expectedSocket);
     if (runtime.generation !== generation || this.stopped || job?.abort.signal.aborted) throw new Error("Setup cancelled");
     runtime.endpoint = verified.endpoint;
     runtime.machine.herdr = verified.identity.herdr;

@@ -130,7 +130,7 @@ describe("approved bridge replacement", () => {
   }
   it("does not connect if the replacement still speaks another protocol", async () => {
     const { result, operations, registered } = await scenario({ replacementProtocol: BRIDGE_PROTOCOL + 1 });
-    expect(result).toMatchObject({ phase: "failed", action_required: "bridge_conflict" });
+    expect(result).toMatchObject({ phase: "failed", action_required: "update_bridge" });
     expect(operations).toContain("verify:4243");
     expect(registered).toBe(0);
   });
@@ -142,10 +142,10 @@ describe("approved bridge replacement", () => {
     expect(operations.filter((step) => step.startsWith("stop:"))).toHaveLength(1);
     expect(operations.filter((step) => step === "verify:4243")).toHaveLength(2);
   });
-  it("reports another app replacing the bridge instead of offering an update loop", async () => {
+  it("reports an incompatible bridge started by this update as an update failure", async () => {
     const { result, registered } = await scenario({ replacementBundle: "18" });
-    expect(result).toMatchObject({ phase: "failed", action_required: "bridge_conflict" });
-    expect(result.error).toContain("Another app may have reconnected");
+    expect(result).toMatchObject({ phase: "failed", action_required: "update_bridge" });
+    expect(result.error).not.toContain("Another app may have reconnected");
     expect(registered).toBe(0);
   });
   it("never downgrades a newer bridge even after an explicit update request", async () => {

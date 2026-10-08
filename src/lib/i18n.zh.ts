@@ -10,9 +10,6 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
-  "PC installations": "PC 安装",
-  "Open PC setup": "打开 PC 设置",
-  "You can close this; check the download icon next to Settings for progress.": "可以关闭此窗口。点击设置旁的下载图标查看进度。",
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Direct typing": "直接输入",
@@ -224,11 +221,6 @@ export const ZH: Record<string, string> = {
   "Rename": "重命名",
   "Disconnect": "断开连接",
   "Connect": "连接",
-  "Reconnect {name}": "重新连接 {name}",
-  "Bridge connection conflict": "桥接连接冲突",
-  "Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.": "将连接此电脑的应用更新到相同版本，或断开其他应用的连接，然后在此重新连接。会话会继续运行。",
-  "{name} has a bridge connection conflict{others}.": "{name} 的桥接连接发生冲突{others}。",
-  "Reconnect without updating": "不更新，直接重连",
   "Reconnect / setup": "重新连接 / 设置",
   "Update bridge…": "更新 bridge…",
   "Confirm remove PC": "确认移除 PC",
@@ -329,6 +321,7 @@ export const ZH: Record<string, string> = {
   "herdr session name": "herdr 会话名称",
   "Default session": "默认会话",
   "Uses the web server account’s SSH config and ssh-agent. Agent CLI tools and logins use the environment on the target PC.": "使用 Web 服务器账户的 SSH 配置和 ssh-agent。Agent CLI 工具和登录使用目标 PC 上的环境。",
+  "You can close this; the install keeps going and the sidebar shows it.": "可以关闭此窗口，安装会继续进行，并在侧边栏中显示进度。",
   "Installs into your home directory. Existing herdr sessions keep running.": "安装到你的主目录。现有 herdr 会话会继续运行。",
   "Compare this fingerprint with the PC before accepting it.": "接受前请将此指纹与 PC 上的指纹进行比对。",
   "SSH output": "SSH 输出",
