@@ -51,9 +51,9 @@ const openTraps: object[] = [];
 /**
  * A native modal (`showModal()`, as Add PC opens) the surface is not part of. It never joins
  * `openTraps`, but the browser puts it in the top layer and makes the rest of the page inert, so
- * while it is open it owns Tab and the focus, and every trap beneath stands down.
+ * while it is open it owns Tab, Escape and the focus, and every trap and overlay beneath stands down.
  */
-function nativeModalOver(surface: HTMLElement | null): boolean {
+export function nativeModalOver(surface: HTMLElement | null): boolean {
   for (const dialog of document.querySelectorAll("dialog")) {
     if (!dialog.matches(":modal")) continue;
     if (surface && (dialog.contains(surface) || surface.contains(dialog))) continue;

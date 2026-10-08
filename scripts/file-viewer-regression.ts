@@ -190,12 +190,15 @@ try {
   }
   assert.ok(addPcFocus.every((entry) => !entry.startsWith("outside")), `Tab stays inside Add PC over a preview: ${addPcFocus.join(" | ")}`);
   assert.ok(new Set(addPcFocus).size >= 2, `Tab moves through Add PC over a preview: ${addPcFocus.join(" | ")}`);
-  await addPc.getByRole("button", { name: "Close PC setup", exact: true }).click();
+  // Escape is Add PC's too: it closes Add PC alone, and the preview and its entry stay
+  const previewUnderAddPc = await page.evaluate(() => history.state["herdr-web-ui:file-preview"]);
+  await page.keyboard.press("Escape");
   await addPc.waitFor({ state: "hidden" });
-  await preview.waitFor();
+  assert.equal(await page.locator(".file-viewer").count(), 1, "Escape over Add PC leaves the preview beneath it");
+  assert.deepEqual(await page.evaluate(() => history.state["herdr-web-ui:file-preview"]), previewUnderAddPc, "Escape over Add PC preserves the preview entry");
   await preview.getByRole("button", { name: "Close file", exact: true }).click();
   await preview.waitFor({ state: "hidden" });
-  console.log("PASS Add PC opened from Settings over a preview keeps Tab inside Add PC");
+  console.log("PASS Add PC opened from Settings over a preview keeps Tab inside Add PC, and its Escape closes Add PC alone");
 
   // With no preview beneath it, Settings stays on the layer every dialog shares, so the palette
   // its shortcut opens is drawn above Settings instead of taking focus and Escape unseen.
