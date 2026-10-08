@@ -351,6 +351,21 @@ describe("a page of an OpenCode session", () => {
     expect(page(opencodeConversation(s.path, s.session)).turns.at(-1)!.parts).toEqual([{ kind: "text", text: "again" }]);
   });
 
+  it("sees a row rewritten twice in one millisecond once anything else is written", () => {
+    // every update moves a row's time_updated, to the millisecond: a second write in the same one
+    // leaves it where it was, and only the row's size says the row changed
+    const s = store();
+    s.prompt("go");
+    const step = s.answer("work", { finish: undefined });
+    const first = page(opencodeConversation(s.path, s.session));
+    s.db.query("UPDATE session_message SET data = ? WHERE id = ?")
+      .run(JSON.stringify({ time: { created: T0, completed: T0 + 9 }, content: [{ type: "text", text: "work, rewritten" }], finish: "stop" }), step);
+    s.idle();
+    const second = page(opencodeConversation(s.path, s.session));
+    expect(second.signature).not.toBe(first.signature);
+    expect(second.turns[1]!.parts).toEqual([{ kind: "text", text: "work, rewritten" }]);
+  });
+
   it("keeps the page it showed while the store is held, and the terminal before it showed one", () => {
     // OpenCode runs its store in WAL, where a reader waits only while it recovers; a store in
     // rollback-journal mode is held by any writer, which is the case reproduced here

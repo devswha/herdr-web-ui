@@ -256,8 +256,13 @@ export type OpencodeAnswer =
   | { kind: "history_changed" }
   | { kind: "page"; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; history_id: string; signature: string };
 
-/** Per session: the newest page's rows as records, kept by row id while their `time_updated` holds. */
-const newestRecords = new Map<string, Map<string, { updated: number; record: OpencodeRecord | null }>>();
+/**
+ * Per session: the newest page's rows as records, kept by row id while their `time_updated` and
+ * size hold. Every update of a row moves its `time_updated` (OpenCode's timestamp columns are
+ * `$onUpdate(Date.now)`), but two writes in one millisecond leave it where it was: the size tells
+ * those apart too.
+ */
+const newestRecords = new Map<string, Map<string, { updated: number; size: number; record: OpencodeRecord | null }>>();
 /** Per page asked for: the answer, while the session's signature holds. */
 const answers = new Map<string, { signature: string; answer: Extract<OpencodeAnswer, { kind: "page" }> }>();
 
@@ -340,30 +345,33 @@ function sessionView(db: Database, sessionId: string): SessionView | null {
   return { end, historyId, signature: `${historyId}:${stats.count}:${stats.last}:${stats.updated}` };
 }
 
-/** What a step or `/model` row says about the session's settings, kept while its `time_updated` holds. */
-const settings = new Map<string, { updated: number; model: string | null; variant: string | null; tokens: Row | null; completed: boolean }>();
+/** What a step or `/model` row says about the session's settings, kept while its `time_updated` and size hold. */
+const settings = new Map<string, { updated: number; size: number; model: string | null; variant: string | null; tokens: Row | null; completed: boolean }>();
 
 /**
  * Latest recorded settings at `end`, as OpenCode's own footer reads them. The rows are walked from
  * the newest and parsed here: JSON1 is not part of every SQLite Bun may run on (on macOS it uses the
  * system's own), so nothing is asked of SQL beyond the index.
  */
-function sessionMetadata(db: Database, key: string, sessionId: string, end: number): ConversationMetadata {
+function sessionMetadata(db: Database, key: string, sessionId: string, end: number, measure: OpencodeRowSize): ConversationMetadata {
   const data = db.query<{ data: string }, [string, string]>("SELECT data FROM session_message WHERE id = ? AND session_id = ?");
+  // asked of each row walked, not in the walk: it sorts what it selects, and the fallback reads the row
+  const sizeOf = db.query<{ size: number }, [string, string]>(ROW_QUERIES[measure].size);
   let setting: { model: string | null; variant: string | null } | null = null;
   let usage: Row | null = null;
   let compacted = false;
   for (const row of db.query<{ id: string; type: string; updated: number }, [string, number]>(
-    `SELECT id, type, time_updated AS updated FROM session_message
-     WHERE session_id = ? AND type IN ('assistant', 'model-switched', 'compaction') AND seq < ? ORDER BY seq DESC`,
+    "SELECT id, type, time_updated AS updated FROM session_message WHERE session_id = ? AND type IN ('assistant', 'model-switched', 'compaction') AND seq < ? ORDER BY seq DESC",
   ).iterate(sessionId, end)) {
     let known = settings.get(`${key}\0${row.id}`);
-    if (known?.updated !== row.updated) {
+    const size = sizeOf.get(row.id, sessionId)?.size ?? 0;
+    if (known?.updated !== row.updated || known.size !== size) {
       const found = data.get(row.id, sessionId);
       const parsed = found === null ? {} : parseData(found.data);
       const model = record(parsed.model);
       known = {
         updated: row.updated,
+        size,
         model: text(model.id),
         variant: text(model.variant),
         tokens: parsed.tokens === undefined ? null : record(parsed.tokens),
@@ -427,7 +435,19 @@ function supportedRowSize(db: Database): OpencodeRowSize {
   return supported;
 }
 
-const meta = (rowSize: OpencodeRowSize) => `SELECT id, seq, type, time_updated AS updated, ${rowSize} AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq`;
+/** The queries that read a row's size, whole for each way of measuring it: no SQL is assembled. */
+const ROW_QUERIES: Record<OpencodeRowSize, { page: string; pageDescending: string; size: string }> = {
+  [OPENCODE_ROW_SIZE.octets]: {
+    page: "SELECT id, seq, type, time_updated AS updated, octet_length(data) AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq",
+    pageDescending: "SELECT id, seq, type, time_updated AS updated, octet_length(data) AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq DESC",
+    size: "SELECT octet_length(data) AS size FROM session_message WHERE id = ? AND session_id = ?",
+  },
+  [OPENCODE_ROW_SIZE.bytes]: {
+    page: "SELECT id, seq, type, time_updated AS updated, length(CAST(data AS BLOB)) AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq",
+    pageDescending: "SELECT id, seq, type, time_updated AS updated, length(CAST(data AS BLOB)) AS size FROM session_message WHERE session_id = ? AND seq >= ? AND seq < ? ORDER BY seq DESC",
+    size: "SELECT length(CAST(data AS BLOB)) AS size FROM session_message WHERE id = ? AND session_id = ?",
+  },
+};
 
 /**
  * One page of the session's conversation (as conversation.ts's transcriptPage, over rows):
@@ -448,7 +468,7 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
 
       const end = view.end;
       const measure = rowSize ?? supportedRowSize(db);
-      const descending = (from: number, to: number) => db.query<RowMeta, [string, number, number]>(`${meta(measure)} DESC`).iterate(sessionId, from, to);
+      const descending = (from: number, to: number) => db.query<RowMeta, [string, number, number]>(ROW_QUERIES[measure].pageDescending).iterate(sessionId, from, to);
       let start: number;
       let to = end;
       if (page.before !== undefined) {
@@ -469,14 +489,14 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
       const records: (OpencodeRecord | null)[] = [];
       if (page.before === undefined) {
         // the newest page is read on every poll while the agent works: only rows that changed are parsed again
-        const known = newestRecords.get(key) ?? new Map<string, { updated: number; record: OpencodeRecord | null }>();
-        const kept = new Map<string, { updated: number; record: OpencodeRecord | null }>();
+        const known = newestRecords.get(key) ?? new Map<string, { updated: number; size: number; record: OpencodeRecord | null }>();
+        const kept = new Map<string, { updated: number; size: number; record: OpencodeRecord | null }>();
         const data = db.query<{ data: string }, [string, string]>("SELECT data FROM session_message WHERE id = ? AND session_id = ?");
-        for (const row of db.query<RowMeta, [string, number, number]>(meta(measure)).iterate(sessionId, start, to)) {
+        for (const row of db.query<RowMeta, [string, number, number]>(ROW_QUERIES[measure].page).iterate(sessionId, start, to)) {
           let entry = known.get(row.id);
-          if (entry?.updated !== row.updated) {
+          if (entry?.updated !== row.updated || entry.size !== row.size) {
             const found = data.get(row.id, sessionId);
-            entry = { updated: row.updated, record: found === null ? null : opencodeRecord(row.id, row.type, parseData(found.data)) };
+            entry = { updated: row.updated, size: row.size, record: found === null ? null : opencodeRecord(row.id, row.type, parseData(found.data)) };
           }
           kept.set(row.id, entry);
           records.push(entry.record);
@@ -490,7 +510,7 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
       const result = {
         kind: "page" as const,
         turns: opencodeTurns(records),
-        metadata: sessionMetadata(db, key, sessionId, to),
+        metadata: sessionMetadata(db, key, sessionId, to, measure),
         cursor: start > 0 ? `${view.historyId}:${start}` : null,
         history_id: view.historyId,
         signature: view.signature,
