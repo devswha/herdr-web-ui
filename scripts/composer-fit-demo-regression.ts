@@ -21,7 +21,7 @@ const LONG_MODEL = "gpt-5.6-sol-codex-preview-2026-10";
 // ids it names: "GPT-5.6" and "Opus 5.5"; null: the conversation names no model
 const NAMED = ["gpt-5.6", "claude-opus-5-5"] as const;
 
-interface Case { model: string | null; agent?: "claude" | "codex"; pending?: boolean; effort?: string | null; status?: "working" | "idle"; mic?: boolean; ring?: boolean; chatFontSize?: number | null; showUsage?: boolean; weeklyOnly?: boolean }
+interface Case { model: string | null; agent?: "claude" | "codex" | "pi" | "omo"; pending?: boolean; effort?: string | null; status?: "working" | "idle"; mic?: boolean; ring?: boolean; chatFontSize?: number | null; showUsage?: boolean; weeklyOnly?: boolean }
 type Draw = "full" | "no-effort" | "out";
 
 const measure = (page: Page) => page.evaluate(() => {
@@ -415,6 +415,7 @@ try {
           await box.fill(text);
           for (const zoom of [0.8, 1, 1.25, 1.5, 2, 1]) {
             await page.evaluate((scale) => { document.documentElement.style.zoom = String(scale); }, zoom);
+            await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
             // The width observer commits the automatic height after layout zoom rewraps text.
             await page.waitForFunction((short) => {
               const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
