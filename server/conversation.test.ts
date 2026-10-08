@@ -87,6 +87,31 @@ describe("parseClaudeTranscript", () => {
     expect(long.endsWith("\u2026")).toBe(true);
   });
 
+  it("strips an unterminated link, a charset switch, and shows both streams of one entry", () => {
+    const local = (content: string) => JSON.stringify({ type: "system", subtype: "local_command", timestamp: "2026-10-07T19:00:00.000Z", content });
+    const notices = (lines: string[]) => parseClaudeTranscript(lines.join("\n")).flatMap((turn) => turn.parts).filter((part) => part.kind === "notice").map((part) => (part as { text: string }).text);
+    // an OSC cut off before its BEL or ST still hides its address
+    expect(notices([local("<local-command-stdout>done \u001b]8;;https://example.test/?token=hidden</local-command-stdout>")])).toEqual(["done"]);
+    // ESC ( B is one sequence: no stray B
+    expect(notices([local("<local-command-stdout>\u001b(Bplain\u001b[m text</local-command-stdout>")])).toEqual(["plain text"]);
+    expect(notices([local("<local-command-stdout>out</local-command-stdout>\n<local-command-stderr>err</local-command-stderr>")])).toEqual(["out\nerr"]);
+  });
+
+  it("strips escapes in time linear in a malformed answer's length", () => {
+    const local = (n: number) => JSON.stringify({ type: "system", subtype: "local_command", timestamp: "2026-10-07T19:00:00.000Z", content: `<local-command-stdout>${"\u001b]x".repeat(n)}</local-command-stdout>` });
+    // best of several runs, so a scheduler hiccup does not count; doubling the input may not
+    // quadruple the time (a rescan from every unterminated opener did)
+    const time = (line: string) => Math.min(...Array.from({ length: 5 }, () => {
+      const start = performance.now();
+      parseClaudeTranscript(line);
+      return performance.now() - start;
+    }));
+    const small = local(20_000);
+    const large = local(40_000);
+    time(small);
+    expect(time(large) / Math.max(time(small), 0.05)).toBeLessThan(3);
+  });
+
   it("keeps thinking blocks in transcript order", () => {
     const assistant = parseClaudeTranscript(lines)[1];
     expect(assistant?.parts.map((part) => part.kind)).toEqual(["text", "tool", "thinking", "text"]);
