@@ -382,7 +382,9 @@ export class MachineManager {
       }
       update = false;
     }
-    if (descriptor && /^\d+$/.test(descriptor.bundle_version) && Number(descriptor.bundle_version) > Number(REMOTE_BUNDLE_VERSION)) {
+    // an independently managed web server is not this app's to update or to wait for: it keeps
+    // its own message below, whatever its version
+    if (descriptor && descriptor.managed_remote && /^\d+$/.test(descriptor.bundle_version) && Number(descriptor.bundle_version) > Number(REMOTE_BUNDLE_VERSION)) {
       throw new MachineActionRequired(`This PC uses a newer bridge (v${descriptor.bundle_version}); this app requires v${REMOTE_BUNDLE_VERSION}. Update this app, then reconnect. The remote bridge was left running.`, "bridge_conflict");
     }
     if (descriptor && (update || descriptor.bridge_protocol !== BRIDGE_PROTOCOL || descriptor.bundle_version !== REMOTE_BUNDLE_VERSION)) {
