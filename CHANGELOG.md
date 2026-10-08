@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- macOS Safari direct terminal input preserves Korean syllables when the input method
+  replaces text without emitting composition events, including after switching from English.
+  ([#524](https://github.com/devswha/herdr-web-ui/pull/524) by @suho-han)
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
@@ -184,9 +187,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#557](https://github.com/devswha/herdr-web-ui/pull/557))
 
 ### Fixed
-- macOS Safari direct terminal input preserves Korean syllables when the input method
-  replaces text without emitting composition events, including after switching from English.
-  ([#524](https://github.com/devswha/herdr-web-ui/pull/524) by @suho-han)
 - A pane whose agent has just started is listed as an agent's pane within a moment, where the
   list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
   time took it for a shell: it opened the terminal instead of the chat, and resized the

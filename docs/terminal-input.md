@@ -161,8 +161,22 @@ tracks the corrected DOM range through replacements and deletion, and commits it
 next syllable, ordinary key, paste or blur. Reset cancels pending text before a pane change.
 Native composition events and screen-reader mode retain their existing paths. The recorded
 event replay failed before the patch and passes after it; this is distinct from native IME QA.
-The patched build still needs a physical Safari IME retest and the remote shell/Codex/omp
-checks from #432 before the issue can be considered fully verified.
+
+The patched build was physically retested on macOS 27.2 with Safari 27.2 and the Korean
+2-set input source. In an isolated raw-mode PTY, switching from ABC and typing `abc한글\x20`
+delivered that text once and in order. While composing `한`, Backspace changed it to `하`;
+typing the final consonant again and Space delivered `한\x20` without a DEL byte or duplicate.
+The captured browser events were trusted native events and the terminal's `onData`, outgoing
+WebSocket text and PTY bytes agreed for the text input. Safari 27.2 used ordinary composition
+events for this run, while the replay above retains the no-composition replacement sequence
+captured from Safari 26.6.2. During the Backspace case Safari 27.2 emitted a composing
+`keydown` with `keyCode:229` after changing `한` to `하`; its later `keyup` reported
+`keyCode:8`. This matches the order covered by the replay.
+
+The replay also verifies that changing panes cancels a pending syllable instead of sending it
+to the newly selected pane. This pane-change case has not been repeated with the physical IME,
+and iPadOS Safari has not been tested. The older remote shell/Codex/omp matrix from #432 was
+not rerun, so this evidence is limited to the local owned raw-mode PTY path.
 
 #### Before/after PTY screenshots
 
