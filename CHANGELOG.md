@@ -91,6 +91,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Command palette buttons keep their native Enter action; IME commit and cancel keys
   stay with text input, and arrow navigation keeps the selected result visible.
   ([#567](https://github.com/devswha/herdr-web-ui/pull/567))
+- Long drafts in the message box wrap and keep a narrow scroll cue in reserved space, so the
+  scrollbar no longer covers text at fractional zoom.
+  ([#522](https://github.com/devswha/herdr-web-ui/pull/522) by @suho-han)
 - A secret sent from a pane you then left and opened again, while another browser kept the pane
   open, is no longer typed into the pane: you send it again from the pane you opened.
   ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
