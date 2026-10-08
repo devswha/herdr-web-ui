@@ -6,6 +6,7 @@ import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, 
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
+import { PANE_TABPANEL_ID, paneTabPanelLabel } from "./lib/paneRegion.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
@@ -28,6 +29,7 @@ import { rosterPanes } from "./lib/dagPane.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
 import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
+import { useMediaQuery } from "./lib/useMediaQuery.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
 import {
   notificationState,
@@ -190,6 +192,10 @@ export function App() {
   const [autoSelected, setAutoSelected] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
+  // from 769px the drawer is a plain sidebar column and its toggle is hidden, so a drawer a
+  // narrow window opened must not come back (with its scrim) the next time the window narrows
+  const wideScreen = useMediaQuery("(min-width: 769px)");
+  useEffect(() => { if (wideScreen) setDrawerOpen(false); }, [wideScreen]);
   const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
   selectionRef.current = { machineId: selectedMachineId, paneId: selectedPaneId };
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
@@ -553,6 +559,9 @@ export function App() {
     : null;
   const targetHerdr = selectedMachineId === "local" ? health?.herdr : selectedMachine?.herdr;
   const selectedTitle = selectedPane ? displayPaneTitle(selectedPane) : null;
+  // the tab that governs the pane region, so the strip's tabs and the pane they select are
+  // one thing to a screen reader (A4); null while no tab owns this pane
+  const tabPanelLabel = paneTabPanelLabel(snapshot, selectedPane, t);
   const selectedAgent = selectedPane?.agent ?? null;
   // unknown herdr (offline, or a server that predates the flag) counts as attach-capable
   // a server that repaints the pane's screen instead (terminal_mirror) has a terminal lens too
@@ -587,15 +596,15 @@ export function App() {
   // asked by the item; one that has answered gets a plain switch.
   const bell: { state: string; title: string; on: boolean; run: () => Promise<unknown> } =
     !alertsOn
-      ? { state: t("Off on this device"), title: t("Alerts off on this device — tap to turn them on"), on: false, run: enableNotifications }
+      ? { state: t("Off on this device"), title: t("Alerts off on this device. Tap to turn them on"), on: false, run: enableNotifications }
       : notifications !== "granted"
         ? !settings.alertInApp
           ? { state: t("Off on this device"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
           : notifications === "default"
-            ? { state: t("On in the app"), title: t("Alerts show while the app is open. Tap to allow them when it is closed too"), on: true, run: enableNotifications }
-            : { state: t("On in the app"), title: t("Alerts show while the app is open. Tap to turn them off"), on: true, run: disableNotifications }
+            ? { state: t("On in the app"), title: t("Alerts on in the app. Tap to allow them when it is closed too"), on: true, run: enableNotifications }
+            : { state: t("On in the app"), title: t("Alerts on in the app. Tap to turn them off"), on: true, run: disableNotifications }
         : pushOn
-          ? { state: t("On, pushed to this device"), title: t("Alerts on — pushed to this device, even with the app closed. Tap to turn them off"), on: true, run: disableNotifications }
+          ? { state: t("On, pushed to this device"), title: t("Alerts on, pushed to this device, even with the app closed. Tap to turn them off"), on: true, run: disableNotifications }
           : {
               state: t("On in this tab"),
               // turning them off and on again retries the push subscription
@@ -862,7 +871,11 @@ export function App() {
         {snapshot && selectedPane && selectedWorkspace && (
           <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} />
         )}
+        {/* the tab strip's panel: its id is what each tab's aria-controls points at. No tabIndex -
+            the terminal (PaneTerminal) and the composer are the focusable things inside it. */}
         <main className="terminal-host">
+          {/* the panel sits inside main, so the page keeps its main landmark; it draws no box */}
+          <div id={PANE_TABPANEL_ID} className="terminal-tabpanel" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
           <PaneTerminal
             key={selectedMachineId}
             paneId={selectedPane?.restore_error ? null : selectedPaneId}
@@ -884,6 +897,7 @@ export function App() {
             onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
             onServerMessage={handleServerMessage}
           />
+          </div>
         </main>
         </div>
         </OpenFileContext.Provider>

@@ -579,6 +579,21 @@ export function forgetHistoryChain(path: string): void {
   historyChains.delete(path);
 }
 
+/** Everything remembered about one rollout: its chain, its question scan and any scan in flight. */
+export function forgetCodexStateFor(path: string): void {
+  historyChains.delete(path);
+  questionScans.delete(path);
+  questionScansInFlight.delete(path);
+}
+
+/** Every remembered chain and question scan: the next read resolves each one again. */
+export function forgetAllCodexState(): void {
+  historyChains.clear();
+  questionScans.clear();
+  questionScansInFlight.clear();
+  linesBeforeCut.clear();
+}
+
 /** Lines before a cut, per file identity and cut: the bytes before a cut never change. */
 const linesBeforeCut = new Map<string, number>();
 

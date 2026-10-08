@@ -56,6 +56,9 @@ export interface Settings {
   terminalWheelSpeed: number;
   /** fonts tried before the built-in terminal stack, as a CSS font-family list; "" keeps the built-in one */
   terminalFontFamily: string;
+  /** let a pane's OSC 52 sequence write the clipboard (lib/osc52.ts); off until chosen: any process
+   *  in the pane could otherwise plant text the user pastes into a password field elsewhere */
+  terminalOsc52: boolean;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
   chatFontSize: number | null;
   /** fonts tried before the UI font in the chat's prose (code stays mono), as a CSS font-family list; "" keeps the UI font */
@@ -116,6 +119,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
+  terminalOsc52: false,
   chatFontSize: null,
   chatFontFamily: "",
   chatWidth: "default",
@@ -263,6 +267,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       ? Math.min(CHAT_FONT_MAX, Math.max(CHAT_FONT_MIN, Math.round(chatFont)))
       : DEFAULT_SETTINGS.chatFontSize,
     terminalFontFamily: sanitizeFontFamily(record["terminalFontFamily"]),
+    terminalOsc52: typeof record["terminalOsc52"] === "boolean" ? record["terminalOsc52"] : DEFAULT_SETTINGS.terminalOsc52,
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,

@@ -100,21 +100,56 @@ describe("parseClaudeTranscript", () => {
     expect(notices([local("<local-command-stdout>a </local-command-stdout> b</local-command-stdout>\n<local-command-stderr>err</local-command-stderr>")])).toEqual(["a </local-command-stdout> b\nerr"]);
   });
 
-  it("strips escapes in time linear in a malformed answer's length", () => {
+  it("strips escapes in work linear in a malformed answer's length", () => {
     const local = (n: number, unit: string) => JSON.stringify({ type: "system", subtype: "local_command", timestamp: "2026-10-07T19:00:00.000Z", content: `<local-command-stdout>${unit.repeat(n)}</local-command-stdout>` });
-    // best of several runs, so a scheduler hiccup does not count; doubling the input may not
-    // quadruple the time (a rescan from every unterminated opener did)
-    const time = (line: string) => Math.min(...Array.from({ length: 5 }, () => {
-      const start = performance.now();
-      parseClaudeTranscript(line);
-      return performance.now() - start;
-    }));
+    // Counted, not timed: the parse takes well under a millisecond, and two such timings divide
+    // into noise. It reads the answer through these primitives, each charged the characters it
+    // touches. A regex's backtracking cannot be counted, so a run is charged its worst case, the
+    // square of its input: a regex over one character costs one step, one over the answer fails.
+    const work = (line: string): number => {
+      let steps = 0;
+      const text = String.prototype;
+      const { charCodeAt, indexOf, startsWith, slice } = text;
+      const { exec } = RegExp.prototype;
+      text.charCodeAt = function (this: string, index: number) {
+        steps++;
+        return charCodeAt.call(this, index);
+      };
+      text.indexOf = function (this: string, search: string, from = 0) {
+        const found = indexOf.call(this, search, from);
+        steps += (found === -1 ? this.length : found) - from + search.length;
+        return found;
+      };
+      text.startsWith = function (this: string, search: string, from?: number) {
+        steps += search.length;
+        return startsWith.call(this, search, from);
+      };
+      text.slice = function (this: string, start?: number, end?: number) {
+        const part = slice.call(this, start, end);
+        steps += part.length;
+        return part;
+      };
+      RegExp.prototype.exec = function (this: RegExp, input: string) {
+        steps += input.length ** 2;
+        return exec.call(this, input);
+      };
+      try {
+        parseClaudeTranscript(line);
+      } finally {
+        text.charCodeAt = charCodeAt;
+        text.indexOf = indexOf;
+        text.startsWith = startsWith;
+        text.slice = slice;
+        RegExp.prototype.exec = exec;
+      }
+      return steps;
+    };
     // unterminated escapes, and closing tags the output prints itself
     for (const unit of ["\u001b]x", "</local-command-stdout> x"]) {
-      const small = local(20_000, unit);
-      const large = local(40_000, unit);
-      time(small);
-      expect(time(large) / Math.max(time(small), 0.05)).toBeLessThan(3);
+      // doubling the input doubles the work (2.00 measured for both); a rescan from every
+      // unterminated opener, or from every closing tag, quadruples it. No work counted at all
+      // is NaN here and fails too.
+      expect(work(local(40_000, unit)) / work(local(20_000, unit))).toBeLessThan(2.5);
     }
   });
 
