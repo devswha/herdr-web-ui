@@ -13,7 +13,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   address is stored. A line says so the first time you open the app, and
   **Settings → About → Anonymous usage counts** shows what is sent and turns it off;
   `HERDR_WEB_TELEMETRY=0` or `DO_NOT_TRACK=1` turns it off on the server.
-  ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts))
+  ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts),
+  [#599](https://github.com/devswha/herdr-web-ui/pull/599))
 
 ## [0.4.1] - 2026-10-08
 
