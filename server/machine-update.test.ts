@@ -130,7 +130,11 @@ describe("approved bridge replacement", () => {
   }
   it("does not connect if the replacement still speaks another protocol", async () => {
     const { result, operations, registered } = await scenario({ replacementProtocol: BRIDGE_PROTOCOL + 1 });
-    expect(result).toMatchObject({ phase: "failed", action_required: "bridge_conflict" });
+    // the bridge this update installed and started is the one that does not match: nobody else
+    // was involved, so the update stays on offer and no other app is blamed
+    expect(result).toMatchObject({ phase: "failed", action_required: "update_bridge" });
+    expect(result.error).toContain("this update started");
+    expect(result.error).not.toContain("Another app");
     expect(operations).toContain("verify:4243");
     expect(registered).toBe(0);
   });

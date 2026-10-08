@@ -74,7 +74,8 @@ async function freePort(): Promise<number> {
 
 /** A connection that retrying cannot fix: the PC waits for the user instead of reconnecting. */
 export class MachineActionRequired extends Error {
-  constructor(message: string, readonly action: MachineAction) { super(message); }
+  /** `live`: what the running bridge itself reported, when its version is what was wrong */
+  constructor(message: string, readonly action: MachineAction, readonly live?: { bridge_protocol: unknown; bundle_version: unknown }) { super(message); }
 }
 
 export class MachineManager {
@@ -382,7 +383,9 @@ export class MachineManager {
       }
       update = false;
     }
-    if (descriptor && /^\d+$/.test(descriptor.bundle_version) && Number(descriptor.bundle_version) > Number(REMOTE_BUNDLE_VERSION)) {
+    // an independently managed web server is not this app's to update or to wait for: it keeps
+    // its own message below, whatever its version
+    if (descriptor && descriptor.managed_remote && /^\d+$/.test(descriptor.bundle_version) && Number(descriptor.bundle_version) > Number(REMOTE_BUNDLE_VERSION)) {
       throw new MachineActionRequired(`This PC uses a newer bridge (v${descriptor.bundle_version}); this app requires v${REMOTE_BUNDLE_VERSION}. Update this app, then reconnect. The remote bridge was left running.`, "bridge_conflict");
     }
     if (descriptor && (update || descriptor.bridge_protocol !== BRIDGE_PROTOCOL || descriptor.bundle_version !== REMOTE_BUNDLE_VERSION)) {
@@ -457,7 +460,11 @@ export class MachineManager {
     try { verified = currentBridge ?? await this.verify(ssh, descriptor, expectedSocket); }
     catch (error) {
       if (job?.update && error instanceof MachineActionRequired && error.action === "update_bridge") {
-        throw new MachineActionRequired(`The bridge is still incompatible after this update (reported v${descriptor.bundle_version}, required v${REMOTE_BUNDLE_VERSION}). Another app may have reconnected with a different version. Update or disconnect the other app, then reconnect here.`, "bridge_conflict");
+        // This update installed and started bundle REMOTE_BUNDLE_VERSION. A running bridge that
+        // names that bundle and still does not match is this update's own failure: nobody else
+        // is to blame, and the update stays on offer. Any other bundle was started by another app.
+        if (error.live?.bundle_version === REMOTE_BUNDLE_VERSION) throw new MachineActionRequired("The bridge this update started still does not match this app. Retry the update; herdr sessions keep running.", "update_bridge");
+        throw new MachineActionRequired(`The bridge is still incompatible after this update (it reports v${String(error.live?.bundle_version)}, this app requires v${REMOTE_BUNDLE_VERSION}). Another app may have reconnected with a different version. Update or disconnect the other app, then reconnect here.`, "bridge_conflict");
       }
       throw error;
     }
@@ -475,7 +482,7 @@ export class MachineManager {
     const identity: BridgeIdentity = await response.json();
     // An approved replacement only reads this stable identity endpoint. It never uses the
     // old bridge's pane protocol; the new bridge must pass the strict version check below.
-    if (!forReplacement && (identity.bridge_protocol !== BRIDGE_PROTOCOL || identity.bundle_version !== REMOTE_BUNDLE_VERSION)) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    if (!forReplacement && (identity.bridge_protocol !== BRIDGE_PROTOCOL || identity.bundle_version !== REMOTE_BUNDLE_VERSION)) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge", { bridge_protocol: identity.bridge_protocol, bundle_version: identity.bundle_version });
     if (identity.socket_path !== expectedSocket || typeof identity.socket_id !== "string" || !identity.socket_id || !Number.isInteger(identity.herdr?.protocol) || identity.herdr.protocol < 22) throw new Error("Remote bridge/socket is incompatible; update it explicitly");
     return { endpoint, identity };
   }
