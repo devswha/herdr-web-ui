@@ -41,6 +41,13 @@ function tabStops(surface: HTMLElement): HTMLElement[] {
   });
 }
 
+/**
+ * The traps open now, oldest first. Dialogs stack (a file preview over Files, Settings over a
+ * preview) and every trap listens on the window: only the top one may move the focus, or the one
+ * beneath pulls it out of the dialog in front and the one in front sends it back to its start.
+ */
+const openTraps: object[] = [];
+
 export function useFocusTrap<T extends HTMLElement>(open: boolean, options: FocusTrapOptions = {}): MutableRefObject<T | null> {
   const surface = useRef<T | null>(null);
   // read in the listeners, so a dialog that changes its mind mid-life is not held to its first render
@@ -69,8 +76,10 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
 
   useEffect(() => {
     if (!open) return;
+    const trap = {};
+    openTraps.push(trap);
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Tab") return;
+      if (event.key !== "Tab" || openTraps.at(-1) !== trap) return;
       const node = surface.current;
       if (!node) return;
       const stops = tabStops(node);
@@ -87,7 +96,10 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
       next.focus({ preventScroll: true });
     };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      openTraps.splice(openTraps.indexOf(trap), 1);
+    };
   }, [open]);
 
   return surface;
