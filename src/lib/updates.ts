@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UpdateCommand, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
-import { fetchUpdateNotes, fetchUpdateStatus, requestUpdate } from "./api.ts";
-import { notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes } from "./updateNotes.ts";
+import type { InstalledNotes, UpdateCommand, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
+import { fetchInstalledNotes, fetchUpdateNotes, fetchUpdateStatus, requestUpdate } from "./api.ts";
+import { installedUpdate, notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes } from "./updateNotes.ts";
 import { usePageVisible } from "./visibility.ts";
 
 declare const __APP_REVISION__: string | null;
@@ -75,6 +75,39 @@ export function useUpdates(enabled: boolean) {
   }, [enabled, offer, revision, visible]);
   const notes = offeredNotes(status, fetched);
 
+  // what the last update brought, asked for once per running release: it changes with an install
+  const [brought, setBrought] = useState<InstalledNotes | null>(null);
+  const running = enabled && status?.managed ? status.current_revision : null;
+  const answered = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled) { setBrought(null); answered.current = null; return; }
+    if (!running || !visible || answered.current === running) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      const again = (delay: number | null) => {
+        if (delay === null) answered.current = running;
+        else timer = setTimeout(() => load(attempt + 1), delay);
+      };
+      fetchInstalledNotes().then((next) => {
+        if (!live) return;
+        // an answer for another commit, or for none, is not this release's: a bridge that
+        // restarted between the two requests, or one still run by the supervisor that installed
+        // it, which hands over to the release's own within seconds. A supervisor older than the
+        // question never names a commit, so the asking ends, after about a minute.
+        if (next.revision !== running) { again(notesUnboundDelay(attempt)); return; }
+        answered.current = running;
+        setBrought(next);
+      }, (error: unknown) => {
+        // a server older than the question has no answer: nothing is told
+        if (live) again(notesRetryDelay(error, attempt));
+      });
+    };
+    load(0);
+    return () => { live = false; clearTimeout(timer); };
+  }, [enabled, running, visible]);
+  const installed = installedUpdate(status, brought);
+
   const request = useCallback(async (command: UpdateCommand) => {
     setPending(true); setError(null);
     try {
@@ -90,7 +123,7 @@ export function useUpdates(enabled: boolean) {
   const busy = pending || status?.phase === "checking" || status?.phase === "building" || status?.phase === "restarting";
   const needsReload = typeof __APP_REVISION__ === "string" && !!status?.current_revision &&
     __APP_REVISION__ !== status.current_revision && !busy;
-  return { status, error, busy, needsReload, notes, request };
+  return { status, error, busy, needsReload, notes, installed, request };
 }
 
 export type UpdatesModel = ReturnType<typeof useUpdates>;
