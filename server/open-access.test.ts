@@ -19,12 +19,18 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 describe("this PC, with no token and no configuration", () => {
   let server: ReturnType<typeof createServer>;
   let base: string;
+  let rejectionListeners = 0;
   beforeAll(() => {
     forgetAuthAttempts();
+    rejectionListeners = process.listenerCount("unhandledRejection");
     server = createServer({ port: 0, stateDir: root });
     base = `http://127.0.0.1:${server.port}`;
   });
   afterAll(() => server.stop());
+
+  it("leaves an unhandled rejection to Bun, which exits so the supervisor sees the crash", () => {
+    expect(process.listenerCount("unhandledRejection")).toBe(rejectionListeners);
+  });
 
   it("is let in with nothing set up: the local-dev path", async () => {
     expect((await fetch(`${base}/api/devices`)).status).toBe(200);

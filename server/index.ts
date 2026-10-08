@@ -77,7 +77,6 @@ import { MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
-import { installRejectionLogging } from "./process-errors.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
 /**
@@ -357,7 +356,6 @@ export function createServer(
     sidecar?: boolean;
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
-  installRejectionLogging();
   const attachments = new Map<string, PaneAttachment>();
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
   /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
