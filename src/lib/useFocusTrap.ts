@@ -48,6 +48,20 @@ function tabStops(surface: HTMLElement): HTMLElement[] {
  */
 const openTraps: object[] = [];
 
+/**
+ * A native modal (`showModal()`, as Add PC opens) the surface is not part of. It never joins
+ * `openTraps`, but the browser puts it in the top layer and makes the rest of the page inert, so
+ * while it is open it owns Tab, Escape and the focus, and every trap and overlay beneath stands down.
+ */
+export function nativeModalOver(surface: HTMLElement | null): boolean {
+  for (const dialog of document.querySelectorAll("dialog")) {
+    if (!dialog.matches(":modal")) continue;
+    if (surface && (dialog.contains(surface) || surface.contains(dialog))) continue;
+    return true;
+  }
+  return false;
+}
+
 export function useFocusTrap<T extends HTMLElement>(open: boolean, options: FocusTrapOptions = {}): MutableRefObject<T | null> {
   const surface = useRef<T | null>(null);
   // read in the listeners, so a dialog that changes its mind mid-life is not held to its first render
@@ -59,7 +73,7 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const frame = window.requestAnimationFrame(() => {
       const node = surface.current;
-      if (!node) return;
+      if (!node || nativeModalOver(node)) return;
       // a surface that already placed the focus inside itself (Settings focuses its page's tab in
       // a layout effect after this one) keeps that placement: containment and return are ours to
       // add, not the start
@@ -70,7 +84,7 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
     return () => {
       window.cancelAnimationFrame(frame);
       // a dialog the owner unmounts on its own deed (ConfirmDialog's "done") has nowhere to go back to
-      if (latest.current.shouldRestore?.() !== false && opener?.isConnected) opener.focus({ preventScroll: true });
+      if (latest.current.shouldRestore?.() !== false && opener?.isConnected && !nativeModalOver(surface.current)) opener.focus({ preventScroll: true });
     };
   }, [open]);
 
@@ -81,7 +95,7 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== "Tab" || openTraps.at(-1) !== trap) return;
       const node = surface.current;
-      if (!node) return;
+      if (!node || nativeModalOver(node)) return;
       const stops = tabStops(node);
       // every control disabled (a deed that cannot be undone): Tab goes nowhere rather than out
       if (stops.length === 0) { event.preventDefault(); return; }
