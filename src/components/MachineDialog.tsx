@@ -7,7 +7,7 @@ import { BridgeUpdateProgress } from "./MachineSidebar.tsx";
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
 
-export function MachineDialog({ machine, updateRemote = false, initialJob, initialName, onBackground, onClose, onConnected }: { machine?: Machine; updateRemote?: boolean; initialJob?: SetupJob; initialName?: string; onBackground(job: SetupJob, name: string): void; onClose(): void; onConnected(id: string): void }) {
+export function MachineDialog({ machine, updateRemote = false, initialJob, initialName, sidebarShowsProgress = false, onBackground, onClose, onConnected }: { machine?: Machine; updateRemote?: boolean; initialJob?: SetupJob; initialName?: string; sidebarShowsProgress?: boolean; onBackground(job: SetupJob, name: string): void; onClose(): void; onConnected(id: string): void }) {
   const t = useT();
   const dialog = useRef<HTMLDialogElement>(null);
   const destinationField = useRef<HTMLInputElement>(null);
@@ -80,7 +80,7 @@ export function MachineDialog({ machine, updateRemote = false, initialJob, initi
       {job && <div className="machine-progress" role="status">{running && job.progress ? <BridgeUpdateProgress update={{ job_id: job.id, step: job.step, progress: job.progress }} /> : <strong>{job.step}</strong>}{job.error && <p>{job.error}</p>}{job.ssh_output && <pre className="machine-ssh-output" aria-label={t("SSH output")}>{sshOutputParts(job.ssh_output).map((part, i) => part.type === "link" ? <a key={i} href={part.href} target="_blank" rel="noopener noreferrer">{part.value}</a> : part.value)}</pre>}</div>}
       {conflict && <p className="field-hint">{t("Update the apps connected to this PC to the same version, or disconnect the other app, then reconnect here. Sessions keep running.")}</p>}
       {needsBridgeUpdate && <p className="field-hint">{t("This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.")}</p>}
-      {running && <p className="field-hint">{t("You can close this; check the download icon next to Settings for progress.")}</p>}
+      {running && <p className="field-hint">{t(sidebarShowsProgress ? "You can close this; the install keeps going and the sidebar shows it." : "You can close this; check the download icon next to Settings for progress.")}</p>}
       {job?.phase === "approval" && <><ul className="machine-install-list">{job.installations.map((item) => <li key={item}>{item}</li>)}</ul><p className="field-hint">{t("Installs into your home directory. Existing herdr sessions keep running.")}</p></>}
       {job?.challenge && <div className="machine-challenge"><pre>{job.challenge.prompt}</pre>{job.challenge.kind === "host_key" ? <p className="field-hint">{t("Compare this fingerprint with the PC before accepting it.")}</p> : <form onSubmit={(e) => { e.preventDefault(); void act({ action: "answer", challenge_id: job.challenge!.id, answer: secret }); }}>
         <label className="field"><span className="field-label">{t("Password or key passphrase")}</span><input autoFocus className="input" type="password" autoComplete="off" value={secret} disabled={!secretAllowed || pending} onChange={(e) => setSecret(e.target.value)} /></label>

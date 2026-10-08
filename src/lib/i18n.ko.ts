@@ -9,6 +9,7 @@ export const KO: Record<string, string> = {
   "PC installations": "PC 설치",
   "Open PC setup": "PC 설치 열기",
   "You can close this; check the download icon next to Settings for progress.": "창을 닫아도 됩니다. 설정 옆 다운로드 아이콘에서 진행 상황을 확인하세요.",
+  "You can close this; the install keeps going and the sidebar shows it.": "이 창을 닫아도 설치는 계속되고 사이드바에 진행이 보입니다.",
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Direct typing": "직접 입력",

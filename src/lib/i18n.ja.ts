@@ -11,6 +11,7 @@ export const JA: Record<string, string> = {
   "PC installations": "PC のインストール",
   "Open PC setup": "PC セットアップを開く",
   "You can close this; check the download icon next to Settings for progress.": "閉じてもかまいません。設定の横のダウンロードアイコンで進捗を確認できます。",
+  "You can close this; the install keeps going and the sidebar shows it.": "この画面を閉じてもインストールは続行され、進行状況はサイドバーに表示されます。",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Direct typing": "直接入力",

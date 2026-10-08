@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import type { Machine, SetupJob } from "../../shared/machines.ts";
 import { ApiError, fetchMachineSetup } from "../lib/api.ts";
@@ -8,14 +8,35 @@ import "./MachineSetupStatus.css";
 
 export interface BackgroundSetup { job: SetupJob; name: string; machine?: Machine; updateRemote: boolean }
 
-/** Keeps first-time installs visible before the PC joins the saved roster. */
+/**
+ * Keeps installs put in the background visible when no PC row shows them: a new PC before it
+ * joins the saved roster, or a PC whose bridge has to be installed again. A bridge update of a
+ * PC in the sidebar shows on that PC's row instead (App leaves it out of `entries`).
+ * The list stays mounted while closed, so each entry keeps polling its job.
+ */
 export function MachineSetupStatus({ entries, onOpen, onDismiss }: { entries: BackgroundSetup[]; onOpen(entry: BackgroundSetup): void; onDismiss(id: string): void }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  // closes as the plan meters' and the background tasks' popovers do: a press outside, or Escape
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent): void => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      if (root.current?.contains(document.activeElement)) toggle.current?.focus();
+      setOpen(false);
+    };
+    window.addEventListener("pointerdown", outside);
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("pointerdown", outside); window.removeEventListener("keydown", escape); };
+  }, [open]);
   if (!entries.length) return null;
-  return <div className="machine-setup-status">
-    <button className="icon-button" aria-label={t("PC installations")} title={t("PC installations")} aria-expanded={open} onClick={() => setOpen(!open)}><Download /><span className="machine-setup-count">{entries.length}</span></button>
-    <div className="machine-setup-list" hidden={!open} aria-label={t("PC installations")}>
+  return <div className="machine-setup-status" ref={root}>
+    <button ref={toggle} className="icon-button" aria-label={t("PC installations")} title={t("PC installations")} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}><Download /><span className="machine-setup-count" aria-hidden="true">{entries.length}</span></button>
+    <div id={id} className="machine-setup-list" role="dialog" hidden={!open} aria-label={t("PC installations")}>
       {entries.map((entry) => <SetupStatus key={entry.job.id} entry={entry} onOpen={onOpen} onDismiss={onDismiss} />)}
     </div>
   </div>;

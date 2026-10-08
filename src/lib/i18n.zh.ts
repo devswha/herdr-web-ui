@@ -13,6 +13,7 @@ export const ZH: Record<string, string> = {
   "PC installations": "PC 安装",
   "Open PC setup": "打开 PC 设置",
   "You can close this; check the download icon next to Settings for progress.": "可以关闭此窗口。点击设置旁的下载图标查看进度。",
+  "You can close this; the install keeps going and the sidebar shows it.": "可以关闭此窗口，安装会继续进行，并在侧边栏中显示进度。",
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Direct typing": "直接输入",

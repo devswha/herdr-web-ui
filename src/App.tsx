@@ -156,6 +156,8 @@ export function App() {
   const [machineDialog, setMachineDialog] = useState<Machine | "new" | null>(null);
   const [backgroundSetups, setBackgroundSetups] = useState<BackgroundSetup[]>([]);
   const [resumedSetup, setResumedSetup] = useState<BackgroundSetup | null>(null);
+  // the server mirrors a bridge update onto its PC (`updating`), and the sidebar row shows it
+  const sidebarShowsSetup = !!machineDialog && machineDialog !== "new" && !!machines.find((m) => m.id === machineDialog.id)?.updating;
   // Add PC from Settings or the palette leaves no trigger to return focus to once its dialog
   // closes (Settings closed when it opened): the header's workspace-list toggle stands in
   const addPcFocusReturn = useRef(false);
@@ -909,7 +911,9 @@ export function App() {
           void load();
         }}
       /></MachineContext.Provider>
-      {machineDialog && <MachineDialog initialJob={resumedSetup?.job} initialName={resumedSetup?.name} onBackground={(job, name) => {
+      {machineDialog && <MachineDialog initialJob={resumedSetup?.job} initialName={resumedSetup?.name} sidebarShowsProgress={sidebarShowsSetup} onBackground={(job, name) => {
+        // the PC's own row already shows this update's progress: no second entry for it
+        if (sidebarShowsSetup) { closeMachineDialog(); return; }
         setBackgroundSetups((entries) => [...entries.filter((entry) => entry.job.id !== job.id), { job, name, machine: machineDialog === "new" ? undefined : machineDialog, updateRemote }]);
         closeMachineDialog();
       }} updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={closeMachineDialog} onConnected={(id) => { closeMachineDialog(); selectTarget(id, null); void load(); }} />}

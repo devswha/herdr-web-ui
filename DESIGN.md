@@ -511,6 +511,13 @@ One set for both themes: the card is island black wherever it shows.
 - Footer holds the contextual **Install app** action and Settings with the plan meters beside it,
   as rows on the same grid with no rule above.
   It carries no product name or version: the running versions are read in Settings.
+- After **Continue in background**, an install whose progress no PC row shows (a new PC, a PC
+  whose bridge has to be installed again) puts a download icon between Settings and the plan
+  meters, in `--status-working`, with the number of installs as a `--fs-2xs` badge. It opens a
+  popover above the footer (`--shadow-pop`, `--radius-lg`, `--z-popover`) with one hairline-separated
+  section per install: the PC's name, its step or progress bar, an error in `.machine-error`, and
+  **Open PC setup**; a finished or failed install also gets Dismiss. A press outside or Escape
+  closes it. A bridge update of a PC in the sidebar shows on that PC's row instead.
 
 ### Plan meters (`.usage*`)
 - Beside Settings, one button holding up to four chips (three and `+N` past that), one per

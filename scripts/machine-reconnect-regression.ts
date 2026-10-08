@@ -94,6 +94,20 @@ try {
   delete pc.action_required; pc.state = "connected"; pc.error = null;
   await page.reload();
   installing = true;
+  // An update of a PC in the sidebar shows its progress on that PC's row: no entry of its own.
+  await page.locator(".machine-header").filter({ hasText: "QA remote" }).hover();
+  await page.getByRole("button", { name: "Manage QA remote", exact: true }).click();
+  await page.getByRole("button", { name: "Update bridge…", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Update remote bridge", exact: true });
+  await dialog.getByRole("button", { name: "Update bridge", exact: true }).click();
+  pc.updating = { job_id: "qa-job", step: "Downloading the bridge", progress: null };
+  await dialog.getByRole("button", { name: "Install and connect", exact: true }).click();
+  await dialog.getByText("You can close this; the install keeps going and the sidebar shows it.", { exact: true }).waitFor();
+  await dialog.getByRole("button", { name: "Continue in background", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(await page.getByRole("button", { name: "PC installations", exact: true }).count(), 0);
+  delete pc.updating;
+  await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await openSettingsPage(page, "Remote PCs");
   await page.getByRole("button", { name: "Add PC", exact: true }).click();
@@ -104,6 +118,8 @@ try {
   await dialog.getByRole("button", { name: "Continue in background", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   const status = page.getByRole("button", { name: "PC installations", exact: true });
+  // the list closes on a press outside it, as the other footer popovers do
+  const showList = async () => { if (await status.getAttribute("aria-expanded") === "false") await status.click(); };
   await status.click();
   const progress = page.locator(".machine-setup-list");
   await progress.getByRole("progressbar").waitFor();
@@ -116,11 +132,13 @@ try {
   await dialog.getByRole("button", { name: "Continue in background" }).waitFor();
   assert.equal(requests.length, beforeResume);
   await dialog.getByRole("button", { name: "Continue in background" }).click();
+  await showList();
   job = { ...job!, phase: "failed", step: "Connection failed", error: "Fixture download failed" };
   await progress.getByText("Fixture download failed", { exact: true }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Open workspace list", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("#workspace-drawer")!.getBoundingClientRect().left >= -0.5);
+  await showList();
   const panelBounds = await progress.boundingBox();
   assert.ok(panelBounds && panelBounds.x >= 0 && panelBounds.x + panelBounds.width <= 390);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -129,6 +147,7 @@ try {
   await dialog.getByRole("button", { name: "Retry connection", exact: true }).click();
   await dialog.getByRole("button", { name: "Install and connect" }).click();
   await dialog.getByRole("button", { name: "Continue in background" }).click();
+  await showList();
   job = { ...job!, phase: "connected", step: "Connected", error: null };
   await progress.getByText("Connected", { exact: true }).waitFor();
   await progress.getByRole("button", { name: "Dismiss", exact: true }).click();
@@ -143,8 +162,14 @@ try {
   await dialog.getByRole("button", { name: "Install and connect", exact: true }).click();
   await dialog.getByRole("button", { name: "Continue in background", exact: true }).click();
   jobMissing = true;
-  if (await status.getAttribute("aria-expanded") === "false") await status.click();
+  await showList();
   await progress.getByText(/Setup job not found/).waitFor();
+  // Escape closes the list and gives the focus back to its button
+  await progress.getByRole("button", { name: "Dismiss", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  assert.equal(await status.getAttribute("aria-expanded"), "false");
+  assert.equal(await status.evaluate((el) => el === document.activeElement), true);
+  await showList();
   await progress.getByRole("button", { name: "Dismiss", exact: true }).click();
   await status.waitFor({ state: "detached" });
   assert.deepEqual(errors, []);
