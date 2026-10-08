@@ -12,6 +12,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   pane can no longer put text on your clipboard unless you turn it on. Programs that copy this way
   (vim, tmux, Claude Code) copy again once it is on.
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
+- The guide's **Behind a reverse proxy** shows how to give the app a public HTTPS address with
+  [Portal](https://github.com/gosuda/portal-tunnel) v2.6.1 or later, behind a long random token
+  and with a visitor's `Tailscale-User-Login` header dropped.
+  ([#229](https://github.com/devswha/herdr-web-ui/pull/229) by @rabbitson87)
 - **Settings → Appearance → Agents order → Activity** keeps a waiting agent on top of the Agents
   list and orders the rest by their latest state change, as herdr's agents panel keeps the latest
   work in view: the agent you just sent a message to stays on top while it runs and after it
