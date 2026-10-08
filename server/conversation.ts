@@ -45,6 +45,7 @@ import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
 import { piTranscriptPath, unwrittenSession } from "./pi.ts";
 import { forgetAllPiIndexes, forgetPiIndex, piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
+import { defaultDevinDbPath, DevinHistoryUnavailable, devinConversation, forgetDevinState } from "./devin.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
@@ -113,8 +114,42 @@ function localCommandOutput(content: unknown): string {
     if (text.length > 0) streams.push(text);
     at = next;
   }
-  const text = streams.join("\n");
+  return capNotice(streams.join("\n"));
+}
+
+/** Lines of one notice Claude Code writes as separate entries, a moment apart. */
+const NOTICE_JOIN_MS = 1000;
+
+/** A notice Claude Code writes as plain text: no terminal codes, and not past a notice's length. */
+function noticeText(raw: string): string {
+  return capNotice(stripTerminalControls(raw).trim());
+}
+
+/** A notice is not a log: past the cap the rest stays in the terminal, also for lines joined into one. */
+function capNotice(text: string): string {
   return text.length > LOCAL_COMMAND_MAX_CHARS ? `${text.slice(0, LOCAL_COMMAND_MAX_CHARS)}\u2026` : text;
+}
+
+/** The notice a turn is, when it is nothing else. */
+function loneNotice(turn: ConversationTurn | undefined): Extract<ConversationPart, { kind: "notice" }> | null {
+  const part = turn?.parts.length === 1 ? turn.parts[0] : undefined;
+  return part?.kind === "notice" ? part : null;
+}
+
+/** Were these two entries written together? Never when either has no readable time. */
+function writtenTogether(a: string | null | undefined, b: string | null | undefined): boolean {
+  return a != null && b != null && Math.abs(Date.parse(a) - Date.parse(b)) <= NOTICE_JOIN_MS;
+}
+
+/**
+ * Claude Code versions differ in where a refused command goes: a `local_command` answer, an
+ * `informational` entry, and nothing says one never writes both. The same words from the other
+ * kind, written together, are one answer; a notice repeating its own kind is kept.
+ */
+function saidByOtherKind(turn: ConversationTurn | undefined, text: string, ts: string | null, kind: "local-command" | "informational"): boolean {
+  const said = loneNotice(turn);
+  if (said === null || said.source === kind || (said.source !== "local-command" && said.source !== "informational")) return false;
+  return writtenTogether(turn?.ts, ts) && (said.text === text || said.text.split("\n").includes(text));
 }
 
 /**
@@ -181,7 +216,7 @@ interface TranscriptEntry {
   uuid?: string;
   isMeta?: boolean;
   isCompactSummary?: boolean;
-  message?: { role?: string; content?: unknown };
+  message?: { role?: string; content?: unknown; stop_reason?: unknown };
   attachment?: { type?: unknown; prompt?: unknown; commandMode?: unknown; origin?: { kind?: unknown } };
 }
 
@@ -203,6 +238,10 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
   const turns: ConversationTurn[] = [];
   /** tool parts still waiting for their result, by tool_use id */
   const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
+  /** the agent's last entry called a tool: its turn is not over, whatever is written meanwhile */
+  let atWork = false;
+  /** where a notice goes: before the turn at work it was written in, else at the end */
+  const noticeAt = (): number => atWork && turns.at(-1)?.role === "assistant" ? turns.length - 1 : turns.length;
 
   const assistantTurn = (ts?: string): ConversationTurn => {
     const last = turns[turns.length - 1];
@@ -247,7 +286,29 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
     // only here. It is the runtime speaking in the user's seat, so it reads as a notice.
     if (entry.type === "system" && entry.subtype === "local_command") {
       const output = localCommandOutput(entry.content);
-      if (output.length > 0) turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "notice", text: output, source: "local-command" }] });
+      const at = noticeAt();
+      if (output.length > 0 && !saidByOtherKind(turns[at - 1], output, entry.timestamp ?? null, "local-command")) turns.splice(at, 0, { role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "notice", text: output, source: "local-command" }] });
+      continue;
+    }
+
+    // Claude Code's own notices: an unknown slash command and the arguments it dropped (2.1.29x
+    // writes these here, not as a local_command), a usage limit reached or reset. The message
+    // that drew one is not recorded, so without it a refused command just vanished from the chat.
+    // Lines written together read as one notice.
+    // Claude Code also writes them while the agent works (a message another session held, a
+    // stopped response): about half of the real ones. Such a notice does not end the turn: it
+    // goes before the turn it was written in, so the turn stays whole and stays the last one,
+    // which is what the chat reads as the turn still running.
+    if (entry.type === "system" && entry.subtype === "informational") {
+      const text = typeof entry.content === "string" ? noticeText(entry.content) : "";
+      if (text.length === 0) continue;
+      const ts = entry.timestamp ?? null;
+      const at = noticeAt();
+      const before = turns[at - 1];
+      if (saidByOtherKind(before, text, ts, "informational")) continue;
+      const said = loneNotice(before);
+      if (before && said?.source === "informational" && writtenTogether(before.ts, ts)) turns[at - 1] = { ...before, parts: [{ ...said, text: capNotice(`${said.text}\n${text}`) }] };
+      else turns.splice(at, 0, { role: "user", ts, parts: [{ kind: "notice", text, source: "informational" }] });
       continue;
     }
 
@@ -286,6 +347,9 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
 
     if (entry.type === "assistant" && Array.isArray(content)) {
       const turn = assistantTurn(entry.timestamp);
+      // an entry that names no stop reason is still at work when it calls a tool
+      const stop = entry.message?.stop_reason;
+      atWork = stop === "tool_use" || (stop == null && content.some((block: unknown) => typeof block === "object" && block !== null && (block as { type?: unknown }).type === "tool_use"));
       if (entry.timestamp) turn.end_ts = entry.timestamp;
       for (const block of content) {
         if (typeof block !== "object" || block === null) continue;
@@ -348,7 +412,7 @@ export class HistoryChanged extends Error {
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "opencode-transcript";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript";
   turns: ConversationTurn[];
   metadata: ConversationMetadata;
   /** the first turn's position, for the page before it; null at the conversation's beginning */
@@ -364,8 +428,8 @@ export type RecognizedConversation = {
   version: string;
 };
 
-/** The stores read as one append-only file: OpenCode's database is paged by opencode.ts. */
-type StreamSource = Exclude<RecognizedConversation["source"], "opencode-transcript">;
+/** The stores read as one append-only file: OpenCode's and Devin's databases are paged by opencode.ts and devin.ts. */
+type StreamSource = Exclude<RecognizedConversation["source"], "opencode-transcript" | "devin-transcript">;
 
 /** A restart may parse the same files differently: its answers never match an earlier ETag. */
 const PROCESS_VERSION = randomUUID();
@@ -642,20 +706,30 @@ function remember<T>(map: Map<string, T>, key: string, value: T, limit: number):
  * path (and by the written-session key), which is what the maps are keyed by, and each
  * reader keeps its own bound so an entry that outlives its pane is still capped.
  */
-interface PaneReads { paths: Set<string>; sessions: Set<string> }
+interface DevinPaneRead { sessionId: string; cwd: string; dbPath?: string }
+interface PaneReads { paths: Set<string>; sessions: Set<string>; devin: Map<string, DevinPaneRead> }
 const paneReads = new Map<string, PaneReads>();
 /** panes remembered; past this a pane that closed long ago is the one whose release is lost */
 const PANE_READS_MAX = 128;
 
+function emptyPaneReads(): PaneReads { return { paths: new Set<string>(), sessions: new Set<string>(), devin: new Map<string, DevinPaneRead>() }; }
+
 function rememberPaneRead(paneId: string, path: string): void {
-  const reads = paneReads.get(paneId) ?? { paths: new Set<string>(), sessions: new Set<string>() };
+  const reads = paneReads.get(paneId) ?? emptyPaneReads();
   reads.paths.add(path);
   remember(paneReads, paneId, reads, PANE_READS_MAX);
 }
 
 function rememberPaneSession(paneId: string, session: string): void {
-  const reads = paneReads.get(paneId) ?? { paths: new Set<string>(), sessions: new Set<string>() };
+  const reads = paneReads.get(paneId) ?? emptyPaneReads();
   reads.sessions.add(session);
+  remember(paneReads, paneId, reads, PANE_READS_MAX);
+}
+
+function rememberPaneDevin(paneId: string, sessionId: string, cwd: string, dbPath?: string): void {
+  const reads = paneReads.get(paneId) ?? emptyPaneReads();
+  const key = JSON.stringify([dbPath ?? defaultDevinDbPath(), sessionId, cwd]);
+  reads.devin.set(key, { sessionId, cwd, dbPath });
   remember(paneReads, paneId, reads, PANE_READS_MAX);
 }
 
@@ -805,6 +879,7 @@ export function forgetTranscriptState(): void {
   paneReads.clear();
   forgetAllCodexState();
   forgetAllPiIndexes();
+  forgetDevinState();
 }
 
 /**
@@ -823,6 +898,9 @@ export function forgetPaneTranscriptState(paneId: string): void {
   // still reads stays
   const shared = (pick: (other: PaneReads) => Set<string>, value: string): boolean => [...paneReads.values()].some((other) => pick(other).has(value));
   for (const session of reads.sessions) if (!shared((other) => other.sessions, session)) writtenSessions.delete(session);
+  for (const [key, session] of reads.devin) {
+    if (![...paneReads.values()].some((other) => other.devin.has(key))) forgetDevinState(session.sessionId, session.cwd, session.dbPath);
+  }
   for (const path of reads.paths) {
     if (shared((other) => other.paths, path)) continue;
     for (const key of [...cache.keys()]) if (key.startsWith(`${path}\0`)) cache.delete(key);
@@ -1017,6 +1095,47 @@ async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[
   return session.path;
 }
 
+/** A live Devin executable, not a command line which happens to mention one. */
+export function isDevinProcess(argv: readonly string[]): boolean {
+  const executable = argv[0] ?? "";
+  const exact = /(?:^|[\\/])devin(?:\.exe)?$/;
+  return process.platform === "win32" ? exact.test(executable.toLowerCase()) : exact.test(executable);
+}
+
+/** Resolves only a session explicitly named by this live Devin pane, never by directory contents. */
+export function devinSessionForPane(pane: HerdrPane, panes: HerdrPane[], argv: string[]): string {
+  if (pane.agent !== "devin") throw new ConversationUnavailable("no_session_id");
+  const reported = pane.agent_session?.agent === "devin" && pane.agent_session.kind === "id"
+    && typeof pane.agent_session.value === "string" && pane.agent_session.value.length > 0
+    ? pane.agent_session.value : null;
+  const resumed: string[] = [];
+  for (let index = 1; index < argv.length; index++) {
+    const arg = argv[index]!;
+    if (arg === "--") break;
+    if (arg.startsWith("--resume=")) {
+      const id = arg.slice("--resume=".length);
+      if (!id || id.startsWith("-")) throw new ConversationUnavailable("no_session_id");
+      resumed.push(id);
+    } else if (arg === "--resume" || arg === "-r") {
+      const id = argv[index + 1];
+      if (!id || id.startsWith("-")) throw new ConversationUnavailable("no_session_id");
+      resumed.push(id);
+      index++;
+    }
+  }
+  const named = resumed[0] ?? null;
+  if (resumed.some((id) => id !== named) || (reported !== null && named !== null && reported !== named)) {
+    throw new ConversationUnavailable("no_session_id");
+  }
+  const explicit = reported ?? named;
+  if (explicit === null) throw new ConversationUnavailable("no_session_id");
+  if (panes.some((other) => other.pane_id !== pane.pane_id && other.agent === "devin"
+    && other.agent_session?.agent === "devin" && other.agent_session.kind === "id" && other.agent_session.value === explicit)) {
+    throw new ConversationUnavailable("no_session_id");
+  }
+  return explicit;
+}
+
 /**
  * pane -> agent session -> transcript turns. Read-only, same-user files only.
  * Claude sessions are looked up by id under ~/.claude/projects; omp sessions
@@ -1031,11 +1150,37 @@ async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[
  * shows the pages before it. A cursor from another file throws HistoryChanged.
  * `opencodeDb` is OpenCode's store, unset where OpenCode itself would find it.
  */
-export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, opencodeDb?: string): Promise<RecognizedConversation> {
+export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, devinDbPath?: string, opencodeDb?: string): Promise<RecognizedConversation> {
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
   if (typeof pane.cwd !== "string" || pane.cwd.length === 0) throw new ConversationUnavailable("no_recognized_transcript");
+
+  if (pane.agent === "devin") {
+    const cwd = pane.foreground_cwd || pane.cwd;
+    const storePath = devinDbPath ?? defaultDevinDbPath();
+    const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: unknown }[] } }>(
+      "pane.process_info", { pane_id: paneId },
+    ).catch(() => null);
+    const processes = (info?.process_info?.foreground_processes ?? []).filter((process) =>
+      Array.isArray(process.argv) && process.argv.every((arg) => typeof arg === "string") &&
+      isDevinProcess(process.argv as string[]) && process.argv[1] !== "acp",
+    );
+    if (processes.length > 1) throw new ConversationUnavailable("transcript_missing");
+    // No Devin runs under the label: what does run is resolved below, as it was before this
+    // reader (an omo is found by its process tree, whatever herdr calls the pane).
+    if (processes.length === 1) {
+      const sessionId = devinSessionForPane(pane, snapshot.panes, processes[0]!.argv as string[]);
+      try {
+        const answer = devinConversation(sessionId, cwd, page, storePath);
+        rememberPaneDevin(paneId, sessionId, cwd, storePath);
+        return answer;
+      } catch (error) {
+        if (error instanceof DevinHistoryUnavailable) throw new ConversationUnavailable("transcript_missing");
+        throw error;
+      }
+    }
+  }
 
   let resolved: ResolvedTranscript;
   try {
