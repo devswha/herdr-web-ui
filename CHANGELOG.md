@@ -52,6 +52,21 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Command palette buttons keep their native Enter action; IME commit and cancel keys
   stay with text input, and arrow navigation keeps the selected result visible.
   ([#567](https://github.com/devswha/herdr-web-ui/pull/567))
+- A secret sent from a pane you then left and opened again, while another browser kept the pane
+  open, is no longer typed into the pane: you send it again from the pane you opened.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
+- A Claude Code slash command whose answer holds a long run of broken terminal escape codes no
+  longer stalls the server while the chat reads it. Its answer also drops a link cut off before
+  its end and a stray `B` after a charset switch, and an answer with both output and errors
+  shows both.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
+- The command palette opened over Settings and a file preview shows above both, instead of
+  taking the keyboard unseen beneath them.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
+- The plugin's `start` no longer takes another program on the app's port for the app because
+  its answer says `ok`: it treats it as any other program there, moving the app to a free port,
+  or saying the port is taken when `PORT` is set.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
 
 ## [0.4.0] - 2026-10-08
 
