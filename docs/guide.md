@@ -243,7 +243,7 @@ whether the test was sent or failed; a missing subscription offers **Turn alerts
 
 On a phone:
 - Agent panes open in the chat.
-- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, Alt, Shift, Enter, arrows, Ctrl+C).
+- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl+C, Ctrl, Alt, Shift, Enter, arrows).
   Ctrl, Alt and Shift stay held until tapped again and combine with each other.
   Enable direct terminal typing with the keyboard button to use them with letters and
   symbols. Herdr encodes each chord for the program's keyboard protocol; legacy
@@ -438,7 +438,7 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 
 ## Keyboard shortcuts
 
-`Mod` is **⌘** on macOS and **Ctrl** elsewhere. Every shortcut adds Shift, so the terminal keeps its own Ctrl keys.
+`Mod` is **⌘** on Apple platforms and **Ctrl** elsewhere. Global app shortcuts add Shift, so the terminal keeps its own Ctrl keys. These are the defaults:
 
 | Shortcut | Action |
 | --- | --- |
@@ -448,6 +448,20 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 | `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
+
+**Settings → Shortcuts** changes the final key of each app binding or turns it off. Settings
+are saved in this browser, not on the remote PC. The command palette shows the current bindings
+and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
+(`Mod+Shift+Space`) remains fixed.
+
+Known browser/OS reservations are marked, but other combinations can also be intercepted by
+your browser, OS or extensions. Installed-app mode may behave differently. While an IME is
+composing, keys stay with it. In text fields, Mod+Shift+arrows keep their text-selection behavior.
+List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
+
+On a phone, use the header and More menu for app actions; Command palette is available there
+without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
+An external keyboard uses the same app bindings as a desktop.
 
 Enter sends and Shift+Enter adds a line. Settings can switch sending to Mod+Enter.
 

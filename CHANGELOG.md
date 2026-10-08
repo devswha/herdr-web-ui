@@ -17,6 +17,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   [#599](https://github.com/devswha/herdr-web-ui/pull/599))
 
 ### Changed
+- The default mobile terminal key bar puts Esc, Tab and Ctrl+C first, before the held modifiers
+  and arrows. Saved layouts keep their order.
+- **Settings → Shortcuts** explains which keys control the app and marks known browser/OS
+  reservations without changing saved bindings.
 - **Settings → Terminal → Clipboard from a pane** is on again: vim, tmux and Claude Code copy to
   your clipboard from a pane without a trip to Settings. It is also on for anyone 0.4.1 left off
   without asking (it saved the switch with any other setting). Turn it off if a pane runs output
@@ -25,6 +29,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Bug fixes as an install shows them, with the full changelog folded underneath.
 
 ### Fixed
+- Command palette shortcut hints follow changed bindings and disappear for disabled ones.
+  App shortcuts also recognize physical letter keys on non-Latin layouts outside IME composition.
 - macOS Safari direct terminal input preserves Korean syllables when the input method
   replaces text without emitting composition events, including after switching from English.
   ([#524](https://github.com/devswha/herdr-web-ui/pull/524) by @suho-han)
