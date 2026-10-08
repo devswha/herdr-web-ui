@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-file-back-"));
 const codexHome = join(root, "codex-home");
@@ -162,6 +163,42 @@ try {
     assert.equal(await page.evaluate(() => (window as unknown as { testDocument: string }).testDocument), "same-document");
     console.log(`PASS Settings opens above the preview at ${width}px; Escape and Back preserve it, then X closes the file once`);
   }
+
+  // Add PC from Settings over a preview: Settings closes, the preview stays mounted beneath, and
+  // the native modal Add PC opens is on top. Tab walks Add PC's own controls; the preview's trap
+  // must not take it back to its own, now inert, controls.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await videoLink.click();
+  await preview.waitFor();
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  const settingsOverPreview = page.getByRole("dialog", { name: "Settings", exact: true });
+  await settingsOverPreview.waitFor();
+  await openSettingsPage(page, "Remote PCs");
+  await settingsOverPreview.getByRole("button", { name: "Add PC", exact: true }).click();
+  const addPc = page.locator("dialog.machine-dialog");
+  await addPc.waitFor();
+  await settingsOverPreview.waitFor({ state: "hidden" });
+  assert.equal(await page.locator(".file-viewer").count(), 1, "the preview stays beneath Add PC");
+  await page.waitForFunction(() => Boolean(document.activeElement?.closest("dialog.machine-dialog")));
+  const addPcFocus: string[] = [];
+  for (let press = 0; press < 3; press++) {
+    await page.keyboard.press("Tab");
+    addPcFocus.push(await page.evaluate(() => {
+      const active = document.activeElement;
+      return active?.closest("dialog.machine-dialog") ? active.outerHTML.slice(0, 120) : `outside: ${active?.outerHTML.slice(0, 80)}`;
+    }));
+  }
+  assert.ok(addPcFocus.every((entry) => !entry.startsWith("outside")), `Tab stays inside Add PC over a preview: ${addPcFocus.join(" | ")}`);
+  assert.ok(new Set(addPcFocus).size >= 2, `Tab moves through Add PC over a preview: ${addPcFocus.join(" | ")}`);
+  // Escape is Add PC's too: it closes Add PC alone, and the preview and its entry stay
+  const previewUnderAddPc = await page.evaluate(() => history.state["herdr-web-ui:file-preview"]);
+  await page.keyboard.press("Escape");
+  await addPc.waitFor({ state: "hidden" });
+  assert.equal(await page.locator(".file-viewer").count(), 1, "Escape over Add PC leaves the preview beneath it");
+  assert.deepEqual(await page.evaluate(() => history.state["herdr-web-ui:file-preview"]), previewUnderAddPc, "Escape over Add PC preserves the preview entry");
+  await preview.getByRole("button", { name: "Close file", exact: true }).click();
+  await preview.waitFor({ state: "hidden" });
+  console.log("PASS Add PC opened from Settings over a preview keeps Tab inside Add PC, and its Escape closes Add PC alone");
 
   // With no preview beneath it, Settings stays on the layer every dialog shares, so the palette
   // its shortcut opens is drawn above Settings instead of taking focus and Escape unseen.

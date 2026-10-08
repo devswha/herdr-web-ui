@@ -125,8 +125,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
 - A link printed in the terminal opens only if it is an http(s) address, on both link paths.
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
-- Two tabs open on one pane can no longer send the same message: the second sees the first's send on
-  its way.
+- A second tab open on one pane no longer sends a message the first tab is already sending: it
+  sees that send on its way and holds back. Two tabs that press Send at nearly the same moment can still
+  both send it.
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
 - A row's ⋯ menu is capped to the room its button leaves and scrolls instead of being cut off by the
   viewport, so the pane picker of a tab with many panes keeps every entry reachable with the pointer
