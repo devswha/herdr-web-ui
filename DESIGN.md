@@ -900,8 +900,9 @@ One set for both themes: the card is island black wherever it shows.
   still `Discard`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;
   `@` completions query `GET /api/pane/files`. Arrow keys navigate, Enter/Tab accepts, Escape closes.
-- Paste, picker or drag/drop accepts up to four png/jpeg/gif/webp files per action. Each gets a local
-  preview, uploads through `POST /api/pane/image`, and inserts a removable editable `@path` mention.
+- Paste, picker or drag/drop accepts up to four files per action; an image is stored as a paste, any other
+  file under its own sanitised name. Each uploads through `POST /api/pane/image` and inserts a removable
+  editable `@path` mention.
 - While a phone's keyboard is up, a tap on the transcript or a drag down it (`32px`) puts the
   keyboard away. Each only blurs the field, so the draft stays. The prompt card, which can stand
   where the transcript was on a short screen, does the same: a tap on its text (never on an
@@ -927,11 +928,17 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
-  lead an empty query; arrows cycle, Enter activates and Escape closes.
+  lead an empty query; arrows in the search field cycle through visible results, Enter activates
+  and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
+  with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
 - Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
+- A Settings shortcut opened over a file preview places Settings above it (`--z-modal + 2`, one
+  above the preview). Settings owns Escape until it closes; the preview keeps its history entry
+  underneath for the next Back or close. With no preview open Settings stays at `--z-modal`, so
+  the command palette opened from its shortcut shows above it.
 - One page at a time. From 641px the dialog is two columns at a fixed size (`--content-w` wide,
   `40rem` tall, so turning a page never moves its edge): a `13rem` list of pages on `--bg`
   (icon + name, the open one on `--bg-hover` with its glyph in `--accent`) and the open page
