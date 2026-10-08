@@ -835,6 +835,7 @@ export const ZH: Record<string, string> = {
   "herdr web ui sends an anonymous count when it is installed and updated: the version, the OS and a random ID. Nothing else.": "herdr web ui 会在安装和更新时发送一次匿名统计：仅包含版本、操作系统和一个随机 ID。",
   "What is sent": "发送的内容",
   "Turn off": "关闭统计",
+  "Could not turn it off. Try again.": "未能关闭，请重试。",
   "Anonymous usage counts": "匿名使用统计",
   "Turned off on this PC by HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK or a CI environment.": "此电脑因 HERDR_WEB_TELEMETRY=0、DO_NOT_TRACK 或 CI 环境而已关闭。",
   "Send install and update counts": "发送安装和更新统计",

@@ -833,6 +833,7 @@ export const JA: Record<string, string> = {
   "herdr web ui sends an anonymous count when it is installed and updated: the version, the OS and a random ID. Nothing else.": "herdr web ui はインストール時と更新時に匿名の集計を送ります。送るのはバージョン、OS、ランダムな ID だけです。",
   "What is sent": "送信内容",
   "Turn off": "オフにする",
+  "Could not turn it off. Try again.": "オフにできませんでした。もう一度お試しください。",
   "Anonymous usage counts": "匿名の利用集計",
   "Turned off on this PC by HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK or a CI environment.": "この PC では HERDR_WEB_TELEMETRY=0、DO_NOT_TRACK または CI 環境によりオフになっています。",
   "Send install and update counts": "インストールと更新の集計を送る",

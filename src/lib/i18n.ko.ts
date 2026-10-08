@@ -831,6 +831,7 @@ export const KO: Record<string, string> = {
   "herdr web ui sends an anonymous count when it is installed and updated: the version, the OS and a random ID. Nothing else.": "herdr web ui는 설치와 업데이트 때 익명 집계를 보냅니다. 버전, OS, 무작위 ID뿐이며 그 밖에는 보내지 않습니다.",
   "What is sent": "보내는 내용",
   "Turn off": "끄기",
+  "Could not turn it off. Try again.": "이 설정을 끄지 못했습니다. 다시 시도하세요.",
   "Anonymous usage counts": "익명 사용 집계",
   "Turned off on this PC by HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK or a CI environment.": "이 PC에서는 HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK 또는 CI 환경 때문에 꺼져 있습니다.",
   "Send install and update counts": "설치·업데이트 집계 보내기",

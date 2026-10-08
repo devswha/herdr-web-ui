@@ -7,32 +7,58 @@ import { SettingsGroup, SettingsRow, Toggle } from "./SettingsControls.tsx";
 
 /**
  * The one-time line about anonymous install and update counts. Showing it is what lets the
- * server send (shared/telemetry.ts), so it is recorded as soon as it is drawn; closing it only
- * hides it in this tab.
+ * server send (shared/telemetry.ts), so it is recorded once it has been painted in a visible
+ * tab, and the server still waits a while before the first event so Turn off here stops it.
+ * Closing it only hides it in this tab.
  */
 export function TelemetryNotice({ enabled, onOpen }: { enabled: boolean; onOpen: () => void }) {
   const t = useT();
   const [shown, setShown] = useState(false);
   const [closed, setClosed] = useState(false);
+  const [turningOff, setTurningOff] = useState(false);
+  const [offFailed, setOffFailed] = useState(false);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
     fetchTelemetry().then((status) => {
-      if (!live || !status || status.notice_seen || !status.enabled || status.blocked_by_env) return;
-      setShown(true);
-      changeTelemetry({ notice_seen: true }).catch((error: unknown) => console.error("telemetry notice", error));
+      if (live && status && !status.notice_seen && status.enabled && !status.blocked_by_env) setShown(true);
     }, (error: unknown) => console.error("telemetry status", error));
     return () => { live = false; };
   }, [enabled]);
+  useEffect(() => {
+    if (!shown) return;
+    let recorded = false;
+    let frame = 0;
+    // two frames after the commit the line has been painted; a hidden tab paints nothing
+    const afterPaint = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => { frame = requestAnimationFrame(record); });
+    };
+    const record = () => {
+      if (recorded || document.visibilityState !== "visible") return;
+      recorded = true;
+      changeTelemetry({ notice_seen: true }).catch((error: unknown) => console.error("telemetry notice", error));
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible") afterPaint(); };
+    afterPaint();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { recorded = true; cancelAnimationFrame(frame); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [shown]);
   if (!shown || closed) return null;
   const turnOff = () => {
-    setClosed(true);
-    changeTelemetry({ enabled: false }).catch((error: unknown) => console.error("telemetry off", error));
+    setTurningOff(true);
+    setOffFailed(false);
+    // the line stays until the server has the switch off, so a failure is seen and can be retried
+    changeTelemetry({ enabled: false }).then(() => setClosed(true), (error: unknown) => {
+      console.error("telemetry off", error);
+      setOffFailed(true);
+    }).finally(() => setTurningOff(false));
   };
   return <div className="update-notice" role="status">
     <span>{t("herdr web ui sends an anonymous count when it is installed and updated: the version, the OS and a random ID. Nothing else.")}</span>
+    {offFailed && <span role="alert">{t("Could not turn it off. Try again.")}</span>}
     <button type="button" className="btn btn-ghost" onClick={() => { setClosed(true); onOpen(); }}>{t("What is sent")}</button>
-    <button type="button" className="btn btn-ghost" onClick={turnOff}>{t("Turn off")}</button>
+    <button type="button" className="btn btn-ghost" onClick={turnOff} disabled={turningOff}>{t("Turn off")}</button>
     <button type="button" className="btn btn-ghost" onClick={() => setClosed(true)}>{t("Dismiss")}</button>
   </div>;
 }
