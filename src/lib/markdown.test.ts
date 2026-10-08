@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadKatex, Markdown } from "../components/Markdown.tsx";
 import { SettingsProvider } from "./settings.ts";
-import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, isTableSeparator, mathNestsTooDeep, parseInline, parseMarkdown, safeMarkdownHref, trimUrl, type InlineNode, type ListBlock } from "./markdown.ts";
+import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, inlineMarks, isTableSeparator, mathNestsTooDeep, parseInline, parseMarkdown, safeMarkdownHref, trimUrl, type InlineNode, type ListBlock } from "./markdown.ts";
 
 describe("parseMarkdown", () => {
   it("renders inline and display math while leaving fenced code untouched", async () => {
@@ -285,6 +285,29 @@ describe("text no one wrote by hand", () => {
     // the search ends at a fence: what opens after it is looked for again
     expect(parseMarkdown("\\[ a\n\\[ b\n```\ncode\n```\n\\[ c \\]\n\\[ d").map((block) => block.type))
       .toEqual(["paragraph", "paragraph", "code", "math", "paragraph"]);
+  });
+
+  it("looks once for what closes a bracket, an inline formula or an underscore", () => {
+    // a megabyte of each took from one minute to four: every one was searched from to the line's end
+    for (const part of ["[a", "\\(", "_a ", "__a "]) {
+      const line = part.repeat(Math.ceil(1_000_000 / part.length));
+      within(1000, () => expect(parseInline(line)).toEqual([{ type: "text", value: line }]));
+    }
+    // a label closed with an address that is not, and a `__` that only a `_` closes
+    within(1000, () => expect(parseInline("[a](b".repeat(200_000))).toHaveLength(1));
+    within(1000, () => expect(parseInline("__a b_ ".repeat(150_000))).toHaveLength(300_000));
+    // the marks are the ones it found as one pattern, searching the whole line
+    const asBefore = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
+    const found = (marks: Iterable<RegExpMatchArray>): string => [...marks].map((mark) => `${mark.index}:${mark[0]}`).join("\n");
+    const lines = everyLine(["_", "a", " ", "[", "](", ")", "\\(", "\\)", "\n"], 5);
+    expect(lines.length).toBeGreaterThan(66_000);
+    let marked = 0;
+    for (const line of lines) {
+      const marks = found(inlineMarks(line));
+      expect(`${line}: ${marks}`).toBe(`${line}: ${found(line.matchAll(asBefore))}`);
+      if (marks !== "") marked += 1;
+    }
+    expect(marked).toBeGreaterThan(1000);
   });
 
   it("adds an item's lines to it without copying the item at every line", () => {

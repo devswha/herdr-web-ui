@@ -107,6 +107,73 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   console.log("PASS Forward restores the viewer; X, Escape and scrim close consume its entry");
 
+  // The Settings shortcut must open a visible dialog above the preview. Its history entries
+  // retain the file beneath it, so only Settings may handle Escape until those entries land.
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await videoLink.click();
+    await preview.waitFor();
+    const previewEntry = await page.evaluate(() => history.state["herdr-web-ui:file-preview"]);
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    await settings.waitFor();
+    await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] !== undefined);
+    const settingsClose = settings.getByRole("button", { name: "Close settings", exact: true });
+    assert.equal(await settingsClose.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      return Boolean(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest(".settings-dialog"));
+    }), true, `Settings is above the preview at ${width}px`);
+    if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `settings-over-preview-${width}.png`) });
+    await page.keyboard.press("Escape");
+    await settings.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] === undefined);
+    await preview.waitFor();
+    assert.deepEqual(await page.evaluate(() => history.state["herdr-web-ui:file-preview"]), previewEntry, "Escape closes only Settings and preserves the preview entry");
+    await preview.getByRole("button", { name: "Close file", exact: true }).click();
+    await preview.waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "one click on Close file consumes the preview entry");
+    assert.equal(await composer.inputValue(), "Keep my mobile draft");
+
+    // System Back follows the same order, preserving the document instead of closing the file.
+    await videoLink.click();
+    await preview.waitFor();
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await settings.waitFor();
+    await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] !== undefined);
+    await page.goBack();
+    await settings.waitFor({ state: "hidden" });
+    await preview.waitFor();
+    await preview.getByRole("button", { name: "Close file", exact: true }).click();
+    await preview.waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => (window as unknown as { testDocument: string }).testDocument), "same-document");
+    console.log(`PASS Settings opens above the preview at ${width}px; Escape and Back preserve it, then X closes the file once`);
+  }
+
+  // With no preview beneath it, Settings stays on the layer every dialog shares, so the palette
+  // its shortcut opens is drawn above Settings instead of taking focus and Escape unseen.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  const settingsAlone = page.getByRole("dialog", { name: "Settings", exact: true });
+  await settingsAlone.waitFor();
+  await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] !== undefined);
+  await page.keyboard.press("ControlOrMeta+Shift+K");
+  const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+  const paletteSearch = palette.getByRole("searchbox", { name: "Search panes and actions", exact: true });
+  await paletteSearch.waitFor();
+  assert.equal(await paletteSearch.evaluate((input) => {
+    const rect = input.getBoundingClientRect();
+    return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === input;
+  }), true, "the command palette is above Settings");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "palette-over-settings-1280.png") });
+  await page.keyboard.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await settingsAlone.waitFor();
+  await page.keyboard.press("Escape");
+  await settingsAlone.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] === undefined);
+  console.log("PASS the command palette opens above Settings; Escape closes the palette, then Settings");
+  await page.setViewportSize({ width: 390, height: 844 });
+
   await page.getByRole("button", { name: "notes", exact: true }).click();
   const notes = page.getByRole("dialog", { name: "notes.txt", exact: true });
   await notes.getByText("File preview history regression", { exact: true }).waitFor();
