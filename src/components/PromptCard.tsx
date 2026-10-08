@@ -103,6 +103,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     setPending(false);
     return choice.cancel ? succeeded : true;
   };
+  const answerRef = useRef(answer);
+  answerRef.current = answer;
 
   // Dismiss model menus through the same checked server route as a choice. Other questions
   // and approvals remain on screen until answered, and outside clicks keep their native focus.
@@ -110,16 +112,20 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     if (!prompt.model_menu) return;
     const escape = (event: KeyboardEvent): void => {
       if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      const active = document.activeElement;
+      const trigger = [...document.querySelectorAll<HTMLButtonElement>('[data-menu-trigger="true"]')].find((button) => button.dataset.paneId === paneId);
+      const focusFellBackAfterDisable = active === document.body && trigger !== undefined;
+      if (cardRef.current?.contains(active) !== true && trigger?.closest(".composer")?.contains(active) !== true && !focusFellBackAfterDisable) return;
       event.preventDefault();
       event.stopPropagation();
-      void answer({ cancel: true }).then((active) => {
+      void answerRef.current({ cancel: true }).then((active) => {
         const button = document.querySelector<HTMLButtonElement>('[data-menu-trigger="true"]');
         if (active && button?.dataset.paneId === paneId) button.focus({ preventScroll: true });
       });
     };
     const outside = (event: PointerEvent): void => {
       if (event.button !== 0 || cardRef.current?.contains(event.target as Node)) return;
-      void answer({ cancel: true });
+      void answerRef.current({ cancel: true });
     };
     document.addEventListener("keydown", escape, true);
     document.addEventListener("pointerdown", outside, true);
@@ -127,7 +133,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       document.removeEventListener("keydown", escape, true);
       document.removeEventListener("pointerdown", outside, true);
     };
-  }, [prompt.model_menu, answer]);
+  }, [prompt.model_menu, paneId]);
 
   const toggle = (index: number): void => {
     setSelected((current) => {

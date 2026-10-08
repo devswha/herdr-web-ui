@@ -1543,7 +1543,7 @@ function parseCodexModel(screen: string): ParsedPrompt | null {
  * there saves a default, so nothing that ends in Enter is typed while one is open.
  */
 export function modelListWaits(agent: string, screen: string): boolean {
-  return claudeModelListWaits(screen) || (agent === "codex" && codexModelListWaits(screen));
+  return claudeModelListWaits(screen) || (agent === "claude" && claudeEffortWaits(screen)) || (agent === "codex" && codexModelListWaits(screen));
 }
 
 /**
@@ -1570,6 +1570,11 @@ function claudeModelListWaits(screen: string): boolean {
 // Claude Code's /effort slider: levels are read from its labels, never from a catalogue.
 // Its triangle is aligned with the centre of the selected label; s applies only this session.
 const CLAUDE_EFFORT_HINT_RE = /(?:←|left).*to adjust.*enter to confirm.*s for this session only.*esc to cancel/i;
+function claudeEffortWaits(screen: string): boolean {
+  const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter(Boolean);
+  return [1, 2, 3, 4, 5, 6].some((span) => CLAUDE_EFFORT_HINT_RE.test(visible.slice(-span).join(" "))
+    && (span === 1 || !CLAUDE_EFFORT_HINT_RE.test(visible.slice(0, -1).slice(-(span - 1)).join(" "))));
+}
 function parseClaudeEffort(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hint = findLastIndex(lines, (_, at) => CLAUDE_EFFORT_HINT_RE.test(wrapped(lines, at)));
@@ -2533,7 +2538,7 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   // Codex's collapsed question queue reads blocked while its main prompt takes a message; a
   // model list of Claude Code's or Codex's that no reader could read is left to the terminal
   // (claudeModelListWaits, codexModelListWaits)
-  if ((agent === "codex" && (codexQuestionsCollapsed(screen) || codexModelListWaits(screen))) || claudeModelListWaits(screen)) {
+  if (agent === "codex" && codexQuestionsCollapsed(screen) || modelListWaits(agent, screen)) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: asked(paneId, null, turns), pane, panes };
   }

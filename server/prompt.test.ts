@@ -3182,6 +3182,11 @@ Low Medium High Max Low
 `;
     // Max and the trailing Low have centres at 17 and 21; column 19 is equally near both.
     expect(parseInteractivePrompt("claude", slider(19))).toBeNull();
+    expect(modelListWaits("claude", slider(19))).toBe(true);
+    expect(modelListWaits("claude", `${slider(19)}Later output\n`)).toBe(false);
+    await withPane("claude", "blocked", slider(19), async () => {
+      expect(await card()).toBeNull();
+    });
     const unique = parseInteractivePrompt("claude", slider(21))!;
     expect(unique.options.map((option) => option.label)).toEqual(["Low", "Medium", "High", "Max", "Low"]);
     expect(answerKeys(unique, {option_index:3})).toEqual([{keys:["left"]}, {text:"s"}]);
