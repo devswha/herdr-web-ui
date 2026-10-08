@@ -551,7 +551,7 @@ function AboutPage({ updates, herdrVersion, bridgesFollow }: { updates: UpdatesM
         <div className="settings-row">
           <div className="settings-row-text">
             <span className="settings-label">herdr web ui</span>
-            <a className="settings-link" href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
+            <a className="settings-link" href="https://herdrweb.dev/" target="_blank" rel="noreferrer">herdrweb.dev</a>
           </div>
           <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
         </div>

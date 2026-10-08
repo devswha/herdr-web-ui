@@ -90,6 +90,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
 - A web-push subscription must be an https endpoint.
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
+- The website moved to <https://herdrweb.dev/>, and the install commands with it:
+  `curl -fsSL https://herdrweb.dev/install.sh | sh` and
+  `irm https://herdrweb.dev/install.ps1 | iex`. Every address under
+  `devswha.github.io/herdr-web-ui/`, the old install commands included, still leads to the same page
+  or file there. The website can also be read in Simplified Chinese, at <https://herdrweb.dev/zh/>.
 
 ### Fixed
 - Gajae Code's selection menus show their choices instead of only arrow-key buttons, including
