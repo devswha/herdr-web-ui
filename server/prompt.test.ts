@@ -2418,6 +2418,72 @@ const codexModels = (at: number, footer: (row: number) => string = () => CODEX_O
 /** the levels of a model: every level picks, and the last row opens the list of the advanced ones */
 const codexLevels = (at: number, model = "GPT-6-Astra") => codexList(`Select Reasoning Level for ${model}`, CODEX_LEVELS, at, (row) => row === 4 ? CODEX_OPENS : CODEX_PICKS);
 
+// Claude Code 2.1.294's `/effort` slider with ▲ over level `at` (low, medium, high, xhigh, max),
+// as it draws it under the command that opened it
+const CLAUDE_EFFORT_ARROW = [0, 10, 20, 30, 41];
+const CLAUDE_EFFORT_HINT = "  ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel";
+function claudeEffort(at: number, hint = CLAUDE_EFFORT_HINT): string {
+  const pad = " ".repeat(29);
+  const track = `${"─".repeat(CLAUDE_EFFORT_ARROW[at]!)}▲${"─".repeat(41 - CLAUDE_EFFORT_ARROW[at]!)}`;
+  return `❯ /effort\n${"─".repeat(120)}\n  Effort\n\n${pad}Faster${" ".repeat(29)}Smarter\n${pad}${track}      Ultracode  off\n${pad}low     medium     high     xhigh      max      Tab to toggle\n\n\n${hint}\n`;
+}
+// what the slider leaves once `s` picked a level
+const CLAUDE_EFFORT_SET = `❯ /effort\n  ⎿  Set effort level to medium (this session only): Balanced approach with standard implementation and testing\n${"─".repeat(120)}\n❯\n${"─".repeat(120)}\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n`;
+
+describe("Claude Code's effort slider", () => {
+  test("reads the levels it draws, whatever level ▲ stands over", () => {
+    // the capture itself, so that the drawing above is checked against what Claude drew
+    const captured = `❯ /effort
+${"─".repeat(120)}
+  Effort
+
+                             Faster                             Smarter
+                             ──────────▲───────────────────────────────      Ultracode  off
+                             low     medium     high     xhigh      max      Tab to toggle
+
+
+  ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
+`;
+    expect(claudeEffort(1)).toBe(captured);
+    const prompt = parseInteractivePrompt("claude", captured)!;
+    expect(prompt).toMatchObject({ agent: "claude", kind: "question", title: "", question: "Set effort for this session", body: null, multi_select: false, custom_option_index: null });
+    expect(labels(prompt)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    // one card wherever ▲ stands
+    for (const at of [0, 2, 3, 4]) expect(parseInteractivePrompt("claude", claudeEffort(at))!.id).toBe(prompt.id);
+    // herdr reports the pane idle while the slider waits: no other agent's reader takes it for its own
+    for (const agent of ["codex", "omp", "pi", "omo", ""]) expect(parseInteractivePrompt(agent, captured)).toBeNull();
+  });
+
+  test("moves with ←/→ from the level ▲ is over and picks with s, never with Enter", () => {
+    const prompt = parseInteractivePrompt("claude", claudeEffort(2))!;
+    expect(answerKeys(prompt, { option_index: 2 })).toEqual([{ text: "s" }]);
+    expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["left"] }, { keys: ["left"] }, { text: "s" }]);
+    expect(answerKeys(prompt, { option_index: 4 })).toEqual([{ keys: ["right"] }, { keys: ["right"] }, { text: "s" }]);
+    expect(answerKeys(parseInteractivePrompt("claude", claudeEffort(4))!, { option_index: 3 })).toEqual([{ keys: ["left"] }, { text: "s" }]);
+    expect(() => answerKeys(prompt, { custom_text: "high" })).toThrow();
+    expect(() => answerKeys(prompt, { option_index: 5 })).toThrow();
+  });
+
+  test("offers no card for a slider that is not waiting, or that it cannot read", () => {
+    expect(parseInteractivePrompt("claude", CLAUDE_EFFORT_SET)).toBeNull();
+    // the slider's text left above later output takes no key any more, and holds no message back
+    expect(parseInteractivePrompt("claude", `${claudeEffort(2)}Some later output\nand more\n`)).toBeNull();
+    expect(modelListWaits("claude", `${claudeEffort(2)}Some later output\nand more\n`)).toBe(false);
+    expect(modelListWaits("claude", claudeEffort(2))).toBe(true);
+    expect(modelListWaits("claude", CLAUDE_EFFORT_SET)).toBe(false);
+    // a slider that takes Enter alone would save the level as the default: not this card's to press
+    expect(parseInteractivePrompt("claude", claudeEffort(2, "  ←/→ to adjust · Enter to confirm · Esc to cancel"))).toBeNull();
+    // level names a narrow pane wrapped: no card, and the slider still holds the screen
+    const wrapped = claudeEffort(2).replace("low     medium     high     xhigh      max      Tab to toggle", "low     medium     high\n  xhigh      max");
+    expect(parseInteractivePrompt("claude", wrapped)).toBeNull();
+    expect(modelListWaits("claude", wrapped)).toBe(true);
+    // ▲ between two levels stands over neither
+    const between = claudeEffort(2).replace(`${"─".repeat(20)}▲${"─".repeat(21)}`, `${"─".repeat(15)}▲${"─".repeat(26)}`);
+    expect(between).not.toBe(claudeEffort(2));
+    expect(parseInteractivePrompt("claude", between)).toBeNull();
+  });
+});
+
 describe("Codex's model lists", () => {
   test("reads the list of models, whose rows open the next list", () => {
     // the capture itself, so that the drawing above is checked against what Codex drew
@@ -3292,6 +3358,27 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   });
 
+  test("sets Claude's effort with ←/→ and s only where the slider still stands over that level", async () => {
+    await withPane("claude", "idle", claudeEffort(2), async (pane) => {
+      let at = 2;
+      pane.onSent = (sent) => {
+        if (sent === "right") at = Math.min(4, at + 1);
+        if (sent === "left") at = Math.max(0, at - 1);
+        pane.screen = claudeEffort(at);
+      };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 0 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["left", "left", "text:s"]);
+    });
+    // a key typed in the terminal at the same moment: ▲ over another level, so no letter
+    await withPane("claude", "idle", claudeEffort(2), async (pane) => {
+      pane.onSent = (sent) => { if (sent === "right") pane.screen = claudeEffort(4); };
+      const prompt = (await card())!;
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["right"]);
+    });
+  }, 20_000);
+
   // each refusal waits out the answer's own 1.5 s for the list to show the row
   test("types no s, and no further arrow, once Claude's model list is not the one that was tapped", async () => {
     // closed in the terminal right after the answer read it, with no move to wait on: the look
@@ -3524,6 +3611,25 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["down", "text:s"]);
     });
+  });
+
+  test("offers no fallback card, and holds pending input, over an effort slider whose hint the reader cannot take", async () => {
+    // a hint cut inside a word, and one without the session-only key: the slider's Enter still
+    // saves the level as the default, so neither the fallback card nor a pending message may press it
+    const unread = [
+      claudeEffort(2, "  ←/→ to adjust · Enter to confirm · s for this ses\n  sion only · Esc to cancel"),
+      claudeEffort(2, "  ←/→ to adjust · Enter to confirm · Esc to cancel"),
+    ];
+    for (const screen of unread) {
+      expect(parseInteractivePrompt("claude", screen)).toBeNull();
+      expect(parseFallbackPrompt("claude", screen).options.map((option) => option.label)).toContain("Enter");
+      expect(modelListWaits("claude", screen)).toBe(true);
+      await withPane("claude", "blocked", screen, async () => {
+        expect(await card()).toBeNull();
+      });
+    }
+    // the same hint above later output belongs to an answered slider
+    expect(modelListWaits("claude", `${unread[1]}Some later output\n`)).toBe(false);
   });
 
   test("a screen read that comes back after the wait authorises no key", async () => {
