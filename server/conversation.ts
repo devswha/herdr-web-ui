@@ -34,13 +34,13 @@ import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
-import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
+import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, forgetAllCodexState, forgetCodexStateFor, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
-import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
+import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
+import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { piTranscriptPath, unwrittenSession } from "./pi.ts";
-import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
+import { forgetAllPiIndexes, forgetPiIndex, piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
@@ -83,17 +83,73 @@ const LOCAL_COMMAND_MAX_CHARS = 4000;
 
 function localCommandOutput(content: unknown): string {
   if (typeof content !== "string") return "";
-  // the whole entry is the output: a tag quoted inside an echo's arguments is not an answer
-  const match = /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>\s*$/.exec(content);
-  if (match === null) return "";
-  // the terminal's escape codes (colours, links, cursor moves) and other controls are not text
-  const text = match[2]!
-    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, "")
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\u001b./g, "")
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
-    .trim();
+  // the whole entry is the output, one stream after another: a tag quoted inside an echo's
+  // arguments is not an answer
+  const streams: string[] = [];
+  let at = 0;
+  for (;;) {
+    while (at < content.length && /\s/.test(content[at]!)) at++;
+    if (at === content.length) break;
+    const stream = content.startsWith("<local-command-stdout>", at) ? "stdout" : content.startsWith("<local-command-stderr>", at) ? "stderr" : null;
+    if (stream === null) return "";
+    const start = at + `<local-command-${stream}>`.length;
+    // a closing tag the output prints itself ends nothing: the stream's own one is at the end of
+    // the entry or before the next stream. Each candidate looks only at the whitespace after it.
+    const close = `</local-command-${stream}>`;
+    let end = content.indexOf(close, start);
+    let next = 0;
+    while (end !== -1) {
+      next = end + close.length;
+      while (next < content.length && /\s/.test(content[next]!)) next++;
+      if (next === content.length || content.startsWith("<local-command-stdout>", next) || content.startsWith("<local-command-stderr>", next)) break;
+      end = content.indexOf(close, end + close.length);
+    }
+    if (end === -1) return "";
+    const text = stripTerminalControls(content.slice(start, end)).trim();
+    if (text.length > 0) streams.push(text);
+    at = next;
+  }
+  const text = streams.join("\n");
   return text.length > LOCAL_COMMAND_MAX_CHARS ? `${text.slice(0, LOCAL_COMMAND_MAX_CHARS)}\u2026` : text;
+}
+
+/**
+ * The text of terminal output without its escape codes (colours, links, cursor moves, charset
+ * switches) and other controls, in one pass: a sequence cut off by the end swallows the rest,
+ * and malformed input never makes it rescan what follows.
+ */
+function stripTerminalControls(input: string): string {
+  let out = "";
+  let i = 0;
+  while (i < input.length) {
+    const code = input.charCodeAt(i);
+    if (code !== 0x1b) {
+      // tab and newline are text; every other C0 control and DEL is not
+      if (code === 0x09 || code === 0x0a || (code >= 0x20 && code !== 0x7f)) out += input[i];
+      i++;
+      continue;
+    }
+    const kind = input[i + 1];
+    if (kind === "]" || kind === "P" || kind === "X" || kind === "^" || kind === "_") {
+      // a string (OSC, DCS, SOS, PM, APC) ends at BEL or ST; another ESC ends it too
+      i += 2;
+      while (i < input.length && input.charCodeAt(i) !== 0x07 && input.charCodeAt(i) !== 0x1b) i++;
+      if (input.charCodeAt(i) === 0x07) i++;
+      else if (input[i + 1] === "\\") i += 2;
+    } else if (kind === "[") {
+      // CSI: parameters, intermediates, one final byte
+      i += 2;
+      while (i < input.length && input.charCodeAt(i) >= 0x30 && input.charCodeAt(i) <= 0x3f) i++;
+      while (i < input.length && input.charCodeAt(i) >= 0x20 && input.charCodeAt(i) <= 0x2f) i++;
+      if (i < input.length && input.charCodeAt(i) >= 0x40 && input.charCodeAt(i) <= 0x7e) i++;
+    } else {
+      // ESC, intermediates (as in ESC ( B), then one final byte
+      i++;
+      while (i < input.length && input.charCodeAt(i) >= 0x20 && input.charCodeAt(i) <= 0x2f) i++;
+      if (i < input.length && input.charCodeAt(i) >= 0x30 && input.charCodeAt(i) <= 0x7e) i++;
+    }
+  }
+  return out;
 }
 
 /**
@@ -571,6 +627,31 @@ function remember<T>(map: Map<string, T>, key: string, value: T, limit: number):
   if (map.size > limit) map.delete(map.keys().next().value!);
 }
 
+/**
+ * What a pane's chat has read, so its parsed state can be released when the pane closes.
+ *
+ * Every cache below is keyed by file, not by pane, and a bridge runs for weeks: without
+ * this, everything a pane ever read stays for the life of the process. The release is by
+ * path (and by the written-session key), which is what the maps are keyed by, and each
+ * reader keeps its own bound so an entry that outlives its pane is still capped.
+ */
+interface PaneReads { paths: Set<string>; sessions: Set<string> }
+const paneReads = new Map<string, PaneReads>();
+/** panes remembered; past this a pane that closed long ago is the one whose release is lost */
+const PANE_READS_MAX = 128;
+
+function rememberPaneRead(paneId: string, path: string): void {
+  const reads = paneReads.get(paneId) ?? { paths: new Set<string>(), sessions: new Set<string>() };
+  reads.paths.add(path);
+  remember(paneReads, paneId, reads, PANE_READS_MAX);
+}
+
+function rememberPaneSession(paneId: string, session: string): void {
+  const reads = paneReads.get(paneId) ?? { paths: new Set<string>(), sessions: new Set<string>() };
+  reads.sessions.add(session);
+  remember(paneReads, paneId, reads, PANE_READS_MAX);
+}
+
 /** The newest page's start and every turn start in it (pageBefore without widening), or null when it starts mid-turn. */
 function newestPage(path: string, stream: TranscriptStream, source: RecognizedConversation["source"]): { start: number; starts: number[] } | null {
   const from = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
@@ -713,6 +794,39 @@ export function forgetTranscriptState(): void {
   codexTurns.clear();
   transcriptRevisions.clear();
   clearScans.clear();
+  paneReads.clear();
+  forgetAllCodexState();
+  forgetAllPiIndexes();
+}
+
+/**
+ * Drop everything one pane's chat parsed, the caches here and in the readers below.
+ *
+ * The maps are keyed by file, so the pane is remembered against what it read
+ * (`rememberPaneRead`). Every delete is a memo of a file that still exists: the next read
+ * of a live pane re-derives it, and a file nobody reads again costs nothing to forget.
+ */
+export function forgetPaneTranscriptState(paneId: string): void {
+  const reads = paneReads.get(paneId);
+  paneReads.delete(paneId);
+  forgetGjcPane(paneId);
+  if (reads === undefined) return;
+  // two panes can read one transcript (a resumed session, a shared store): what another pane
+  // still reads stays
+  const shared = (pick: (other: PaneReads) => Set<string>, value: string): boolean => [...paneReads.values()].some((other) => pick(other).has(value));
+  for (const session of reads.sessions) if (!shared((other) => other.sessions, session)) writtenSessions.delete(session);
+  for (const path of reads.paths) {
+    if (shared((other) => other.paths, path)) continue;
+    for (const key of [...cache.keys()]) if (key.startsWith(`${path}\0`)) cache.delete(key);
+    transcriptRevisions.delete(path);
+    liveScans.delete(path);
+    for (const key of [...settledTurns.keys()]) if (key.startsWith(`${path}\0`)) settledTurns.delete(key);
+    codexTurns.delete(path);
+    clearScans.delete(path);
+    forgetCodexStateFor(path);
+    forgetPiIndex(path);
+    forgetClaudeSessionFile(path);
+  }
 }
 
 function formatCursor(stream: TranscriptStream, offset: number): string | null {
@@ -918,8 +1032,9 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   }
   const identity = resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
     : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
+  rememberPaneRead(paneId, resolved.path);
   const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
-  if (identity !== null) writtenSessions.add(`${resolved.source}\0${identity}`);
+  if (identity !== null) { writtenSessions.add(`${resolved.source}\0${identity}`); rememberPaneSession(paneId, `${resolved.source}\0${identity}`); }
   return answer;
 }
 
@@ -1020,6 +1135,7 @@ export async function conversationImage(paneId: string, ref: string, codexHome?:
   let resolved: Awaited<ReturnType<typeof resolveTranscript>>;
   try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
+  rememberPaneRead(paneId, resolved.path);
   if (resolved.source === "codex-transcript") return codexTranscriptImage(codexHistorySegments(resolved.path, resolved.codexHome ?? codexHome), ref, pane.cwd);
   if (resolved.source === "pi-transcript") return piTranscriptImage(resolved.path, ref);
   return resolved.source === "claude-transcript" ? transcriptImage(resolved.path, ref) : null;
@@ -1063,6 +1179,7 @@ export async function toolOutput(paneId: string, ref: string, codexHome?: string
   let resolved: Awaited<ReturnType<typeof resolveTranscript>>;
   try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
+  rememberPaneRead(paneId, resolved.path);
   return transcriptToolOutput(resolved.source, resolved.path, ref, resolved.codexHome ?? codexHome);
 }
 

@@ -9,7 +9,7 @@ import "./PaneTerminal.css";
 import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
-import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
+import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
@@ -36,8 +36,9 @@ import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fo
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
-import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
+import { fileUriPath, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -91,19 +92,6 @@ function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
 }
 
-/** Follows a media query: the layout rules that CSS alone cannot apply. */
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
-  useEffect(() => {
-    const media = window.matchMedia?.(query);
-    if (!media) return;
-    const onChange = (): void => setMatches(media.matches);
-    onChange();
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
-}
 export function PaneTerminal({
   paneId,
   restoreError = null,
@@ -210,6 +198,9 @@ export function PaneTerminal({
   // what the terminal effect says in a banner, in the language chosen since it was set up
   const tRef = useRef(t);
   tRef.current = t;
+  /** read by the OSC 52 handler, which is attached once for the terminal's life */
+  const osc52AllowedRef = useRef(settings.terminalOsc52);
+  osc52AllowedRef.current = settings.terminalOsc52;
   // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
   // the transcript, the composer column, the held list and the menus all inherit: a percentage
   // would resolve against each one's own box and leave them a gutter apart. The other steps are
@@ -243,7 +234,7 @@ export function PaneTerminal({
   useEffect(() => {
     if (!paneId || draftState.owner !== paneStorageId(machineId, paneId)) return;
     const key = `herdr-web-ui:terminal-draft:${draftState.owner}`;
-    try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(draft)); } catch {}
+    try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify({ ...draft, at: Date.now() })); } catch {}
   }, [draftState, paneId, machineId, draft]);
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
@@ -365,7 +356,7 @@ export function PaneTerminal({
           if (!linkPressed(event)) return;
           const path = fileUriPath(uri);
           if (path !== null) openFileRef.current?.(path);
-          else if (/^https?:\/\//i.test(uri)) window.open(uri, "_blank", "noopener,noreferrer");
+          else if (isWebLink(uri)) window.open(uri, "_blank", "noopener,noreferrer");
         },
         allowNonHttpProtocols: true,
       },
@@ -375,8 +366,8 @@ export function PaneTerminal({
     const fit = new FitAddon();
     term.loadAddon(fit);
     matchHerdrWidths(term);
-    // an address in the terminal opens in a new tab; the page never navigates away from the pane
-    term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
+    // the same policy as the linkHandler above: an http(s) address or nothing (S10)
+    term.loadAddon(new WebLinksAddon((_event, uri) => { if (isWebLink(uri)) window.open(uri, "_blank", "noopener,noreferrer"); }));
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
     let compositionEndTimer: number | null = null;
@@ -752,15 +743,19 @@ export function PaneTerminal({
     window.addEventListener("mouseup", onMouseUp);
 
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty
-    // cannot reach the browser clipboard, so xterm hands us the sequence and
-    // navigator.clipboard completes the hop (text only; queries are ignored)
+    // cannot reach the browser clipboard by itself, so xterm hands us the sequence and
+    // navigator.clipboard completes the hop (text only; queries are ignored).
+    // Off until the user turns it on in Settings -> Appearance: any process in the pane, an
+    // agent's tool calls included, could plant text the user then pastes somewhere else.
     const osc52 = term.parser.registerOscHandler(52, (payload) => {
-      const text = parseOsc52(payload);
-      if (text !== null) {
-        void navigator.clipboard?.writeText(text).then(
-          () => noteClipboard("copied to clipboard"),
-          () => noteClipboard("clipboard write blocked by the browser"),
-        );
+      if (osc52AllowedRef.current) {
+        const text = parseOsc52(payload);
+        if (text !== null) {
+          void navigator.clipboard?.writeText(text).then(
+            () => noteClipboard("copied to clipboard"),
+            () => noteClipboard("clipboard write blocked by the browser"),
+          );
+        }
       }
       return true;
     });
@@ -1280,11 +1275,10 @@ export function PaneTerminal({
     secretRef.current = null;
     setSecret(null);
     term.options.disableStdin = observeRef.current;
+    // a record past its TTL, an undated one, and a hand-edited one all restore as nothing held
     let saved = EMPTY_DRAFT;
     try {
-      const value = paneId ? JSON.parse(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`) ?? "null") : null;
-      // a draft stored by an earlier version counts keys that were left out instead: only its text is kept
-      if (value && typeof value.text === "string") saved = { text: value.text, truncated: value.truncated === true };
+      saved = paneId ? restoreDraft(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`), Date.now()) : EMPTY_DRAFT;
     } catch {}
     setDraft(saved);
     draftPaneRef.current = paneId;
@@ -1358,6 +1352,8 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!socket || !pane || draft.text.length === 0 || !socket.connected || secretRef.current !== null || heldRef.current) return;
+    // a frame the socket refuses (input not ready yet) keeps the draft, on screen and on disk, for
+    // another try or Discard; it is never queued
     if (socket.sendInput(pane, draft.text)) setDraft(EMPTY_DRAFT);
   }, [draft]);
 

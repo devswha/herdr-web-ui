@@ -20,6 +20,7 @@ import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
+import { checkHeldDraftPaneSwitch } from "./terminal-draft-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
@@ -33,6 +34,8 @@ import { checkFolderFilter } from "./folder-filter-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
 import { openSettingsPage } from "./settings-page.ts";
+import { assertCspClean, watchCsp } from "./csp-violations.ts";
+import type { CspWatch } from "./csp-violations.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
@@ -41,6 +44,8 @@ const worktreeWorkspaces: string[] = [];
 let repo: string | null = null;
 const releases: Array<() => void> = [];
 const errors: string[] = [];
+/** One entry per page that loaded the app through the real server, and so saw the real policy. */
+const csp: CspWatch[] = [];
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 /** WebKit's IME commit: an Enter keydown after compositionend, isComposing false, key code 229 */
@@ -84,6 +89,9 @@ try {
   const workspaceGroup = (workspaceId: string) => page.locator(`.workspace-group[data-workspace="${workspaceId}"]`);
   const workspaceHeader = (workspaceId: string) => workspaceGroup(workspaceId).locator(":scope > .workspace-header");
   const agentRow = (paneId: string) => page.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneId}"]`);
+  // the header under test is the app's own (server/static.ts), so this is where a broken
+  // directive shows up: every page below loads through this same server
+  csp.push(await watchCsp(page));
   let holdSubmitResult = false;
   let releaseSubmitResult: (() => void) | null = null;
   // a connection's first frame held back: what the page does between a reconnect and its snapshot
@@ -149,6 +157,119 @@ try {
     "Spaces has no tab or pane tree");
   assert.equal(await agentRow(paneA).count(), 0, "a plain shell is absent from Agents");
   assert.equal(await agentRow(paneB).count(), 0, "another plain shell is absent from Agents");
+
+  // The search owns arrow/Enter navigation. Tab still reaches real buttons: Enter on Close
+  // must close without selecting the highlighted result, and Enter on a row runs that row.
+  const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+  const paletteSearch = palette.getByRole("searchbox", { name: "Search panes and actions", exact: true });
+  const selectedPane = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")?.pane_id as string | undefined);
+  const openPalette = async (): Promise<void> => {
+    await page.keyboard.press("ControlOrMeta+Shift+k");
+    await palette.waitFor();
+    await until(async () => await paletteSearch.evaluate((input) => document.activeElement === input), "palette search takes focus");
+  };
+  await openPalette();
+  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await until(async () => await palette.locator(".palette-pane").count() === 1, "the other pane is the palette's only result");
+  await page.keyboard.press("Tab");
+  assert.equal(await palette.getByRole("button", { name: "Close command palette", exact: true }).evaluate((button) => document.activeElement === button), true,
+    "Tab reaches the close button from search");
+  await page.keyboard.press("Enter");
+  await palette.waitFor({ state: "hidden" });
+  assert.equal(await selectedPane(), paneA, "Enter on Close leaves the pane selection alone");
+
+  await openPalette();
+  const otherPalettePane = palette.locator(".palette-pane").filter({ hasText: "herdr-web-ui-test-browser-b" });
+  // Walk the actual tab order instead of clicking: pointer hover must not pick the row for us.
+  for (const deadline = Date.now() + 5_000; ;) {
+    await page.keyboard.press("Tab");
+    if (await otherPalettePane.evaluate((button) => document.activeElement === button)) break;
+    assert.ok(Date.now() < deadline, "Tab reaches the other pane's option");
+  }
+  assert.equal(await otherPalettePane.getAttribute("aria-selected"), "true", "the focused option is highlighted");
+  await page.keyboard.press("Enter");
+  await palette.waitFor({ state: "hidden" });
+  await until(async () => await selectedPane() === paneB, "Enter on the focused option selects that pane");
+  await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await until(async () => await selectedPane() === paneA, "return to the first pane after palette selection");
+
+  await openPalette();
+  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await until(async () => await palette.locator(".palette-pane").count() === 1, "IME check has a matching result to avoid activating");
+  const paletteComposition = await paletteSearch.evaluate((input) => [
+    { key: "Enter", isComposing: true },
+    { key: "Enter", keyCode: 229 },
+    { key: "ArrowUp", isComposing: true },
+    { key: "ArrowDown", isComposing: true },
+    { key: "Escape", isComposing: true },
+    { key: "Escape", keyCode: 229 },
+  ].map((init) => input.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }))));
+  assert.deepEqual(paletteComposition, [true, true, true, true, true, true], "IME candidate, commit and cancel keys keep their default action");
+  assert.equal(await palette.isVisible(), true, "IME Enter and Escape leave the palette open");
+  assert.equal(await selectedPane(), paneA, "IME Enter never activates its matching pane");
+  assert.equal(await paletteSearch.inputValue(), "herdr-web-ui-test-browser-b", "IME cancellation leaves the query alone");
+  await paletteSearch.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+
+  // Short desktop and phone lists both overflow. Wrapping up from the first result and down
+  // from the last keeps the active option visible while typing focus stays in search.
+  const paletteViewport = page.viewportSize()!;
+  for (const viewport of [{ width: 1280, height: 400 }, { width: 390, height: 600 }]) {
+    await page.setViewportSize(viewport);
+    await openPalette();
+    await page.mouse.move(0, 0);
+    assert.equal(await palette.locator(".palette-results").evaluate((list) => list.scrollHeight > list.clientHeight), true,
+      "the short palette has a scrollable list");
+    const optionCount = await palette.getByRole("option").count();
+    const visibleActiveOption = () => palette.locator(".palette-results").evaluate((list) => {
+      const option = list.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!option) return false;
+      const row = option.getBoundingClientRect();
+      const bounds = list.getBoundingClientRect();
+      return row.top >= bounds.top - 1 && row.bottom <= bounds.bottom + 1;
+    });
+    await paletteSearch.press("ArrowUp");
+    await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === `palette-item-${optionCount - 1}` && await visibleActiveOption(),
+      "ArrowUp wraps to the last visible palette option");
+    if (process.env.UI_EVIDENCE_DIR) {
+      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `palette-arrow-${viewport.width <= 640 ? "mobile" : "desktop"}.png`) });
+    }
+    await paletteSearch.press("ArrowDown");
+    await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === "palette-item-0" && await visibleActiveOption(),
+      "ArrowDown wraps back to the first visible palette option");
+    assert.equal(await paletteSearch.evaluate((input) => document.activeElement === input), true, "arrow navigation keeps typing focus in search");
+    await paletteSearch.press("Escape");
+    await palette.waitFor({ state: "hidden" });
+  }
+  // A pointer resting over the list keeps still while the arrow scrolls rows under it: the
+  // browser's hover update after the scroll must not take the keyboard selection, and a real
+  // pointer move still does.
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await openPalette();
+  const restingOptionCount = await palette.getByRole("option").count();
+  const firstOption = (await palette.locator("#palette-item-0").boundingBox())!;
+  await page.mouse.move(firstOption.x + firstOption.width / 2, firstOption.y + firstOption.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === "palette-item-0", "the resting pointer is over the first option");
+  await palette.locator(".palette-results").evaluate((list) => {
+    const hovered: string[] = [];
+    (window as unknown as { paletteHovered: string[] }).paletteHovered = hovered;
+    list.addEventListener("mouseover", (event) => hovered.push((event.target as HTMLElement).closest("[role=option]")?.id ?? ""));
+  });
+  await paletteSearch.press("ArrowUp");
+  await until(async () => await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.some((id) => id !== "" && id !== "palette-item-0")),
+    "the scroll moves another option under the resting pointer");
+  assert.equal(await paletteSearch.getAttribute("aria-activedescendant"), `palette-item-${restingOptionCount - 1}`,
+    "a scroll under a resting pointer leaves the arrow's selection alone");
+  const hoveredId = await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.findLast((id) => id !== "")!);
+  const hoveredBox = (await palette.locator(`#${hoveredId}`).boundingBox())!;
+  await page.mouse.move(hoveredBox.x + hoveredBox.width / 2 + 4, hoveredBox.y + hoveredBox.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === hoveredId, "a real pointer move selects the option under it");
+  await paletteSearch.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await page.mouse.move(0, 0);
+  await page.setViewportSize(paletteViewport);
+  console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
 
   // Hold a real machines response, then deliver a newer status through herdr/SSE.
   const badge = page.locator(".pane-item.is-selected .badge");
@@ -498,6 +619,7 @@ try {
     Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" });
   });
   const blockedPage = await blocked.newPage();
+  csp.push(await watchCsp(blockedPage));
   await blockedPage.goto(origin);
   await blockedPage.locator(".header-more-button").waitFor();
   assert.equal(await alertsState(blockedPage), "On in the app");
@@ -1145,6 +1267,7 @@ try {
   // on a touch screen the open tab carries a chevron in place of the x: the same menu, as a sheet
   const tabPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const tabPhonePage = await tabPhone.newPage();
+  csp.push(await watchCsp(tabPhonePage));
   tabPhonePage.on("pageerror", (error) => errors.push(error.message));
   await tabPhonePage.goto(`${origin}/?pane=${encodeURIComponent(createdTab.pane_id)}`);
   const phoneStrip = tabPhonePage.locator(".tab-strip");
@@ -1341,6 +1464,7 @@ try {
     Storage.prototype.getItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };
   });
   const mobilePage = await mobile.newPage();
+  csp.push(await watchCsp(mobilePage));
   mobilePage.on("pageerror", (error) => errors.push(error.message));
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
   await mobilePage.locator(".conn-live").waitFor();
@@ -1357,6 +1481,7 @@ try {
   assert.equal(await mobilePage.getByRole("button", { name: "Hide keyboard", exact: true }).count(), 0, "no keyboard button on a phone");
   await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "the chat, the composer and the phone views load with no CSP violation");
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 
   // a phone reads a pane before it answers: a pane picked from the drawer raises no keyboard,
@@ -1396,6 +1521,7 @@ try {
   const plainPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await plainPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: false })); });
   const plainPage = await plainPhone.newPage();
+  csp.push(await watchCsp(plainPage));
   plainPage.on("pageerror", (error) => errors.push(error.message));
   await plainPage.route(promptRoute, (route) => route.fulfill(suggest));
   await plainPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
@@ -1406,13 +1532,16 @@ try {
   assert.equal(await plainPage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip once Settings turns it off");
   await plainPhone.close();
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "the suggestion chip loads with no CSP violation");
   console.log("PASS a phone offers Claude's suggestion as a chip until Settings turns it off");
 
   await checkTerminalInput(browser, origin, paneA, paneB);
+  await checkHeldDraftPaneSwitch(browser, origin, paneA, paneB);
 
   // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const touchPage = await touch.newPage();
+  csp.push(await watchCsp(touchPage));
   touchPage.on("pageerror", (error) => errors.push(error.message));
   const touchSent: Array<Record<string, unknown>> = [];
   touchPage.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
@@ -1465,6 +1594,7 @@ try {
   await line.fill("");
   assert.equal(await touchPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "touch terminal input loads with no CSP violation");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await touchPage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-input-mobile.png") });
@@ -1529,6 +1659,8 @@ try {
     return selected?.pane_id && selected.pane_id !== "obsolete-pane";
   }, "obsolete saved selection recovered");
   console.log("PASS closed and obsolete saved panes recover their selection");
+  // the desktop page ran past the phone steps above: close it on the same gate
+  assertCspClean(csp, "the desktop shell, the file viewer and the pane close load with no CSP violation");
   await page.close();
 
   const secured = createServer({ port: 0, hostname: "127.0.0.1", token: "browser-test-token", stateDir: join(root, "secured"), tailscaleOwner: null });
@@ -1539,6 +1671,7 @@ try {
   const securedWorkspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-browser-signout" });
   workspaces.push(securedWorkspace.workspace.workspace_id);
   const securedPage = await securedContext.newPage();
+  csp.push(await watchCsp(securedPage));
   await securedContext.request.post(`${securedOrigin}/api/auth`, { data: { token: "browser-test-token" } });
   await securedPage.goto(`${securedOrigin}/?pane=${encodeURIComponent(securedWorkspace.root_pane.pane_id)}`);
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).waitFor();
@@ -1559,6 +1692,7 @@ try {
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
   await securedContext.close();
+  assertCspClean(csp, "the token gate loads with no CSP violation");
   console.log("PASS token and paired-device sign out return to the access gate");
 } finally {
   for (const release of releases) release();
