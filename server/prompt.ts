@@ -2160,7 +2160,9 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const shown = lines.flatMap((line, index) => cleanLine(line) && !isDivider(line) ? [index] : []);
   const steady = steadyReader(agent, shown.map((index) => cleanLine(lines[index]!)));
-  const menu = fallbackMenu(lines, shown);
+  // GJC's exact selector first: a label of its that starts with a number is still moved to, never typed
+  const selectionMenu = fallbackGjcSelectionMenu(agent, lines, shown);
+  const menu = selectionMenu ? null : fallbackMenu(lines, shown);
   if (menu) {
     const above = shown.filter((index) => index < menu.start).map((index) => cleanLine(lines[index]!));
     const question = [...above].reverse().find((line) => ASKED_RE.test(line)) ?? above.at(-1);
@@ -2185,7 +2187,6 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       optionSteps: choices.map(({ steps }) => steps),
     }, steadyFields(question, body, steady.read)));
   }
-  const selectionMenu = fallbackGjcSelectionMenu(agent, lines, shown);
   if (selectionMenu) {
     const above = shown.filter((index) => index < selectionMenu.start).map((index) => cleanLine(lines[index]!));
     const question = [...above].reverse().find((line) => ASKED_RE.test(line)) ?? above.at(-1);

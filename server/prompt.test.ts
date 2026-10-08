@@ -1609,6 +1609,12 @@ Step 4: Credential source
     expect(labels(parseFallbackPrompt("claude", `Pick one:\n\n❯ Alpha\n  Beta\n${footer}\n`))).toEqual(generic);
   });
 
+  test("answers a GJC selector whose labels start with numbers by moving, never by typing a number", () => {
+    const prompt = parseFallbackPrompt("gjc", "Choose an approach\n\n❯ 1. Keep branch\n  2. Delete branch\nup/down navigate  enter select  esc cancel\n");
+    expect(labels(prompt)).toEqual(["1. Keep branch", "2. Delete branch", "Esc"]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
   test("joins the lines the last row wraps onto into its label", () => {
     const prompt = parseFallbackPrompt("gjc", "Trust this folder?\n\n❯ 1. No, exit\n  2. Yes, trust folder and\n     allow all commands without asking\n\n Enter to confirm\n");
     expect(labels(prompt)).toEqual(["No, exit", "Yes, trust folder and allow all commands without asking", "Enter", "Esc"]);
