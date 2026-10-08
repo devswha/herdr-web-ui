@@ -34,6 +34,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   you do not trust.
 - A GitHub release opens with its patch notes, short lines under New features, Improvements and
   Bug fixes as an install shows them, with the full changelog folded underneath.
+- The website moved to <https://herdrweb.dev/>, and the install commands with it:
+  `curl -fsSL https://herdrweb.dev/install.sh | sh` and
+  `irm https://herdrweb.dev/install.ps1 | iex`. Every address under
+  `devswha.github.io/herdr-web-ui/`, the old install commands included, still leads to the same page
+  or file there. The website can also be read in Simplified Chinese, at <https://herdrweb.dev/zh/>.
+  ([#610](https://github.com/devswha/herdr-web-ui/pull/610))
 
 ### Fixed
 - macOS Safari direct terminal input preserves Korean syllables when the input method
