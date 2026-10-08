@@ -21,6 +21,13 @@ test("release notes are the English patch-note lists in order, then the changelo
   const empty = JSON.stringify({ "1.2.3": { ...told, en: { new: [], improved: ["Speed."] } } });
   expect(releaseNotes("1.2.3", "1.2.3", manifest, changelog, empty)).toStartWith("### Improvements\n\n- Speed.\n\n<details>");
 });
+test("a summary line stays one line of text: no break and no tag can hide the changelog fold", () => {
+  const tagged = JSON.stringify({ "1.2.3": { ...told, en: { fixed: ["Copy <!-- markers."] } } });
+  expect(releaseNotes("1.2.3", "1.2.3", manifest, changelog, tagged)).toStartWith("### Bug fixes\n\n- Copy &lt;!-- markers.\n\n<details>");
+  for (const ja of ["入力。\n\n<!--", "入\r力。"]) {
+    expect(() => releaseNotes("1.2.3", "1.2.3", manifest, changelog, JSON.stringify({ "1.2.3": { ...told, ja: { fixed: [ja] } } }))).toThrow("one line");
+  }
+});
 test("invalid versions and mismatched metadata cannot be released", () => {
   for (const version of ["v1.2.3", "1.2.3-rc.1", "01.2.3", "1.2.3\n", "1.2.3; echo bad", ""]) {
     expect(() => releaseNotes(version, version, manifest, changelog, summaries)).toThrow();

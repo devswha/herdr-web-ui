@@ -24,10 +24,13 @@ export function releaseNotes(version: string, packageVersion: string, manifest: 
   const summary = releaseSummaries(summaries).get(version);
   const untold = SUMMARY_LANGUAGES.filter((language) => !summary?.[language]);
   if (untold.length > 0) throw new Error(`${SUMMARIES_FILE} must tell this version in: ${untold.join(", ")}`);
+  const lines = SUMMARY_LANGUAGES.flatMap((language) => SUMMARY_GROUPS.flatMap((group) => summary![language]![group] ?? []));
+  if (lines.some((line) => /[\r\n]/.test(line))) throw new Error(`${SUMMARIES_FILE} lines must each be one line`);
   const english = summary!.en!;
   const lists = SUMMARY_GROUPS.flatMap((group) => {
-    const lines = english[group];
-    return lines ? [`### ${GROUP_HEADINGS[group]}\n\n${lines.map((line) => `- ${line}`).join("\n")}`] : [];
+    const written = english[group];
+    // plain text, as the app shows it: no `<` may open a tag or a comment that hides the fold
+    return written ? [`### ${GROUP_HEADINGS[group]}\n\n${written.map((line) => `- ${line.replaceAll("<", "&lt;")}`).join("\n")}`] : [];
   });
   // the blank lines inside <details> are what make GitHub render the markdown there
   return [...lists, `<details><summary>Full changelog</summary>\n\n${notes}\n\n</details>`].join("\n\n");
