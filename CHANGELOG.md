@@ -51,6 +51,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Command palette buttons keep their native Enter action; IME commit and cancel keys
   stay with text input, and arrow navigation keeps the selected result visible.
   ([#567](https://github.com/devswha/herdr-web-ui/pull/567))
+- Long drafts in the message box wrap and keep a narrow scroll cue in reserved space, so the
+  scrollbar no longer covers text at fractional zoom.
+  ([#522](https://github.com/devswha/herdr-web-ui/pull/522) by @suho-han)
 
 ## [0.4.0] - 2026-10-08
 
@@ -184,9 +187,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#557](https://github.com/devswha/herdr-web-ui/pull/557))
 
 ### Fixed
-- Terminal rows leave room above enlarged Korean and accented letters, preventing their tops from being clipped when changing font size.
-- Zoom keys and modified wheel gestures inside the terminal change its font size without enlarging the rest of the page.
-- The message box hides scrollbars at every zoom level while keeping long drafts scrollable and wrapping long lines.
 - A pane whose agent has just started is listed as an agent's pane within a moment, where the
   list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
   time took it for a shell: it opened the terminal instead of the chat, and resized the

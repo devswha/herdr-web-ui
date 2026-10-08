@@ -29,7 +29,6 @@ import { checkChatKeepsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
-import { checkTerminalZoom } from "./terminal-zoom-regression.ts";
 import { checkFolderFilter } from "./folder-filter-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
@@ -447,7 +446,6 @@ try {
   await checkCommandBackspace(browser, origin, paneA);
   await checkCtrlEnter(browser, origin, paneA);
   await checkCommandArrows(browser, origin, paneA);
-  await checkTerminalZoom(browser, origin, paneA);
   // a pane shortcut switches panes and types nothing: xterm used to send ESC[1;6B / ESC[1;6A too
   const selectedTitle = () => page.locator(".pane-item.is-selected .pane-select").getAttribute("title");
   // A pane just picked shows the lens of the pane before it for a moment, and the message box

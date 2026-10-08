@@ -31,8 +31,7 @@ import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { chatLaneLength, DEFAULT_SETTINGS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
-import { terminalZoomKey, terminalZoomWheel } from "../lib/terminalZoom.ts";
+import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -208,44 +207,6 @@ export function PaneTerminal({
   }, [availableModifiers]);
   const shortcutSettings = useRef(settings.shortcutOverrides);
   shortcutSettings.current = settings.shortcutOverrides;
-  const zoomFontSize = useRef(terminalFontSize);
-  zoomFontSize.current = terminalFontSize;
-  // Browser zoom belongs to the page outside this host. Inside it, resize the terminal using
-  // the same setting as the stepper, which also refits the grid and informs herdr below.
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || chatView) return;
-    let wheelRemainder = 0;
-    const change = (step: number): void => {
-      const size = Math.min(TERMINAL_FONT_MAX, Math.max(TERMINAL_FONT_MIN,
-        step === 0 ? DEFAULT_SETTINGS.terminalFontSize : zoomFontSize.current + step));
-      if (size === zoomFontSize.current) return;
-      zoomFontSize.current = size;
-      updateSettings({ terminalFontSize: size });
-    };
-    const onZoomKey = (event: KeyboardEvent): void => {
-      if (isAppShortcut(event, shortcutSettings.current)) return;
-      const step = terminalZoomKey(event);
-      if (step === null) return;
-      event.preventDefault();
-      event.stopPropagation();
-      change(step);
-    };
-    const onZoomWheel = (event: WheelEvent): void => {
-      if ((!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const next = terminalZoomWheel(wheelRemainder, event.deltaY, event.deltaMode);
-      wheelRemainder = next.remainder;
-      if (next.steps) change(next.steps);
-    };
-    host.addEventListener("keydown", onZoomKey, { capture: true });
-    host.addEventListener("wheel", onZoomWheel, { capture: true, passive: false });
-    return () => {
-      host.removeEventListener("keydown", onZoomKey, { capture: true });
-      host.removeEventListener("wheel", onZoomWheel, { capture: true });
-    };
-  }, [chatView, updateSettings]);
   // what the terminal effect says in a banner, in the language chosen since it was set up
   const tRef = useRef(t);
   tRef.current = t;
@@ -396,9 +357,6 @@ export function PaneTerminal({
       scrollback: 0,
       allowProposedApi: true,
       fontSize: terminalFontSize,
-      // The DOM renderer clips each row. Leave room for accent ascenders and the CJK
-      // glyphs adjustTerminalGlyphs enlarges by up to 20%, including at fractional zoom.
-      lineHeight: 1.35,
       // a chosen family follows in the font effect below, once its faces have loaded
       fontFamily: TERMINAL_FONT_STACK,
       theme: terminalTheme(theme, palette),

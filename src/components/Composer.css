@@ -520,8 +520,9 @@
   overflow-x: hidden;
   overflow-y: auto;
   overflow-wrap: anywhere;
-  /* Keep long drafts scrollable without drawing bars over the message at fractional zoom. */
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--surface);
   background: transparent;
   border: 0;
   outline: 0;
@@ -543,7 +544,16 @@
 }
 
 .composer-text::-webkit-scrollbar {
-  display: none;
+  width: var(--space-2);
+}
+
+.composer-text::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+.composer-text::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
 }
 
 .composer-text:focus-visible {

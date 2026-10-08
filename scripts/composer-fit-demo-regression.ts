@@ -422,10 +422,10 @@ try {
             }, text === drafts[0] || text === drafts[1], { timeout: 5_000 });
             const metrics = await box.evaluate((node) => {
               const style = getComputedStyle(node);
-              return { scrollbar: style.scrollbarWidth, fallback: getComputedStyle(node, "::-webkit-scrollbar").display, overflowY: style.overflowY, height: node.clientHeight, scrollHeight: node.scrollHeight };
+              return { scrollbar: style.scrollbarWidth, gutter: style.scrollbarGutter, overflowY: style.overflowY, height: node.clientHeight, scrollHeight: node.scrollHeight };
             });
-            assert.equal(metrics.scrollbar, "none", `${width}px at ${zoom}: scrollbar stays hidden`);
-            assert.equal(metrics.fallback, "none", "WebKit scrollbar fallback stays hidden");
+            assert.equal(metrics.scrollbar, "thin", `${width}px at ${zoom}: long drafts keep a narrow scroll cue`);
+            assert.equal(metrics.gutter, "stable", "the scroll cue keeps reserved room beside the draft");
             assert.equal(metrics.overflowY, "auto", "long drafts remain scrollable");
             assert.equal(await box.inputValue(), text, "changing zoom preserves the draft");
             if (text === drafts[0] || text === drafts[1]) assert.ok(metrics.scrollHeight <= metrics.height + 1, "empty and short drafts fit without vertical clipping");
@@ -459,7 +459,7 @@ try {
         assert.equal(await box.inputValue(), drafts[3], "wheel and keyboard scrolling preserve the draft");
         if (width === 1440 && process.env.COMPOSER_FIT_SCREENSHOT) await page.locator(".composer").screenshot({ path: process.env.COMPOSER_FIT_SCREENSHOT });
       });
-      console.log("PASS hidden scrollbars, wrapped drafts and wheel/keyboard scrolling at 80–200% CSS layout zoom");
+      console.log("PASS stable thin scrollbars, wrapped drafts and wheel/keyboard scrolling at 80–200% CSS layout zoom");
     } finally {
       await browser.close();
     }
