@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- `/effort` sent from a Claude Code chat opens a card with the effort levels, low to max, so the
+  level no longer has to be set in the terminal. A pick applies to this session only, as a pick
+  from the `/model` card does, and leaves the default for new sessions alone. `/effort` is also in
+  the chat's command list now.
 - Settings → Terminal has a **Clipboard from a pane** switch, off by default: a program running in a
   pane can no longer put text on your clipboard unless you turn it on. Programs that copy this way
   (vim, tmux, Claude Code) copy again once it is on.
