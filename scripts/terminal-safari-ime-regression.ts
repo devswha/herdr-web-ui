@@ -41,19 +41,26 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
     await input.focus();
     sent.length = 0;
   };
-  // Safari edits the DOM BEFORE keydown 229, with no composition events. Each
+  // Safari 26.6.2 edits the DOM BEFORE keydown 229, with no composition events. Each
   // beforeinput selection is the range Safari replaces, including final consonants.
-  const edit = async (type: string, data: string, start: number, end = start) => {
-    await input.evaluate(async (element, { type, data, start, end }) => {
+  // The keyCode and the keydown's place (before or after the edit) are parameters: the
+  // recorded trace fixes them for typing, not for Backspace, Delete or punctuation.
+  const edit = async (type: string, data: string, start: number, end = start, keyCode = 229, order: "after" | "before" = "after") => {
+    await input.evaluate(async (element, { type, data, start, end, keyCode, order }) => {
       const box = element as HTMLTextAreaElement;
-      box.setSelectionRange(start, end);
-      box.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, composed: true, inputType: type, data, isComposing: false }));
-      box.setRangeText(data, start, end, "end");
-      box.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: type, data, isComposing: false }));
-      box.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: data, keyCode: 229, isComposing: false }));
-      box.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: data, keyCode: 71, isComposing: false }));
+      const key = keyCode === 8 ? "Backspace" : keyCode === 46 ? "Delete" : data;
+      const keydown = () => box.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key, keyCode, isComposing: false }));
+      // A browser makes no DOM edit for a keydown that was cancelled before it.
+      if (order === "after" || keydown()) {
+        box.setSelectionRange(start, end);
+        box.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, composed: true, inputType: type, data, isComposing: false }));
+        box.setRangeText(data, start, end, "end");
+        box.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: type, data, isComposing: false }));
+        if (order === "after") keydown();
+      }
+      box.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key, keyCode: keyCode === 229 ? 71 : keyCode, isComposing: false }));
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    }, { type, data, start, end });
+    }, { type, data, start, end, keyCode, order });
   };
   const syllable = async (parts: string[], at = 0) => {
     await edit("insertText", parts[0]!, at);
@@ -93,6 +100,41 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
     await edit("deleteContentBackward", "", 0, 1);
     await input.press("a");
     await check("a", "deleting uncommitted Hangul sends no partial syllable or DEL");
+
+    // Backspace and Delete may report their own keyCode, before or after Safari's edit.
+    // Every case runs and every failure is reported together.
+    const failures: string[] = [];
+    const variant = async (run: () => Promise<void>) => {
+      try { await run(); } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    };
+    for (const order of ["after", "before"] as const) {
+      await variant(async () => {
+        await reset(); await syllable(["ㅎ", "하", "한"]);
+        await edit("insertReplacementText", "하", 0, 1, 8, order);
+        await edit("insertReplacementText", "한", 0, 1);
+        await input.press("Space");
+        await check("한 ", `Backspace keyCode 8 ${order} the edit stays inside the syllable`);
+      });
+      await variant(async () => {
+        await reset(); await syllable(["ㅎ"]);
+        await edit("deleteContentBackward", "", 0, 1, 8, order);
+        await input.press("b");
+        await check("b", `Backspace keyCode 8 ${order} emptying the preedit sends nothing`);
+      });
+      await variant(async () => {
+        await reset(); await syllable(["ㅎ", "하", "한"]);
+        await edit("deleteContentForward", "", 0, 1, 46, order);
+        await input.press("b");
+        await check("b", `Delete ${order} removing the preedit sends nothing`);
+      });
+      await variant(async () => {
+        await reset(); await syllable(["ㅎ", "하", "한"]);
+        await edit("insertText", ".", 1, 1, 229, order);
+        await input.press("Space");
+        await check("한. ", `punctuation with keydown 229 ${order} the edit follows the syllable`);
+      });
+    }
+    assert.deepEqual(failures, [], failures.join("\n"));
 
     await reset(); await syllable(["ㅎ", "하", "한"]);
     await input.evaluate((box) => (box as HTMLTextAreaElement).blur());

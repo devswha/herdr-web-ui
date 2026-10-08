@@ -171,7 +171,9 @@ WebSocket text and PTY bytes agreed for the text input. Safari 27.2 used ordinar
 events for this run, while the replay above retains the no-composition replacement sequence
 captured from Safari 26.6.2. During the Backspace case Safari 27.2 emitted a composing
 `keydown` with `keyCode:229` after changing `한` to `하`; its later `keyup` reported
-`keyCode:8`. This matches the order covered by the replay.
+`keyCode:8`. The key Safari 26.6.2 reports for Backspace on its replacement path was not
+recorded, so the replay also covers Backspace and Delete reporting their own key codes, before
+or after Safari's edit, and punctuation whose keydown 229 arrives before its insertion.
 
 The replay also verifies that changing panes cancels a pending syllable instead of sending it
 to the newly selected pane. This pane-change case has not been repeated with the physical IME,
