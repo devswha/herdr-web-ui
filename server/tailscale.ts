@@ -36,6 +36,14 @@ function parseJson<T>(text: string | null): T | null {
   try { return JSON.parse(text) as T; } catch { return null; }
 }
 
+/**
+ * `tailscale status --json` with every `UserID` kept as the digits written. Tailscale's user ids
+ * pass 2^53, so as a double an id stops matching its key in `User`, and two ids can become one.
+ */
+function parseStatus(status: string | null): StatusJson | null {
+  return parseJson<StatusJson>(status === null ? null : status.replace(/("UserID"\s*:\s*)(\d+)/g, '$1"$2"'));
+}
+
 /** Does this `serve` proxy target point at the web ui on this machine, at its root? */
 function proxiesTo(target: string | undefined, port: number): boolean {
   if (!target) return false;
@@ -111,7 +119,7 @@ export function isTaggedNode(status: string | null): boolean {
 
 /** The login this PC's Tailscale node belongs to, from `tailscale status --json`; null when it does not say, or the node is tagged. */
 export function parseTailscaleOwner(status: string | null): string | null {
-  const parsed = parseJson<StatusJson>(status);
+  const parsed = parseStatus(status);
   const id = parsed?.Self?.UserID;
   if (id === undefined || id === null || isTaggedNode(status)) return null;
   return parsed?.User?.[String(id)]?.LoginName || null;
@@ -138,7 +146,7 @@ export function parseSoleTailnetLogin(status: string | null): string | null {
  */
 function readSoleLogin(status: string | null): { login: string | null; settled: boolean } {
   // "every node" is every node this PC's Tailscale lists: a node an ACL hides is not in its network map
-  const parsed = parseJson<StatusJson>(status);
+  const parsed = parseStatus(status);
   if (parsed === null || parsed.BackendState !== "Running") return { login: null, settled: false };
   const self = parsed.Self;
   if (self === undefined || self.UserID === undefined || self.UserID === null) return { login: null, settled: false };
