@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The app sends an anonymous count when it is installed and each time it is updated: the version,
+  the OS, how it was installed and a random ID, nothing about your terminals or files, and no IP
+  address is stored. A line says so the first time you open the app, and
+  **Settings → About → Anonymous usage counts** shows what is sent and turns it off;
+  `HERDR_WEB_TELEMETRY=0` or `DO_NOT_TRACK=1` turns it off on the server.
+  ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts))
+
 ## [0.4.1] - 2026-10-08
 
 ### Added
