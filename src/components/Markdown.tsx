@@ -36,9 +36,11 @@ function MathExpression({ value, displayMode = false }: { value: string; display
   if (!katex || mathNestsTooDeep(value)) return <span>{source}</span>;
   try {
     // KaTeX escapes text and rejects untrusted commands by default, and an unknown command
-    // throws - the catch below then draws the source form, so the guard costs nothing here.
-    // `trust` stays at its default, which is what keeps \href and \includegraphics refused.
-    const html = katex.renderToString(value, { displayMode, strict: true });
+    // throws - the catch below then draws the source form. `trust` stays at its default, which
+    // is what keeps \href and \includegraphics refused. `strict` only governs input LaTeX would
+    // not accept: "ignore" draws Korean, Japanese or Chinese text inside an expression, which
+    // `strict: true` throws on.
+    const html = katex.renderToString(value, { displayMode, strict: "ignore" });
     return <span className={displayMode ? "markdown-math-display" : "markdown-math"} dangerouslySetInnerHTML={{ __html: html }} />;
   } catch {
     return <span>{source}</span>;

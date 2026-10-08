@@ -21,6 +21,19 @@ describe("parseMarkdown", () => {
       else Reflect.deleteProperty(navigator, "languages");
     }
   });
+  it("draws Korean, Japanese or Chinese text written straight into an expression", async () => {
+    await loadKatex();
+    const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
+    Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
+    try {
+      const html = renderToStaticMarkup(createElement(SettingsProvider, { children: createElement(Markdown, { children: "\\(가 + 1\\) and \\(日本 = x\\)" }) }));
+      expect(html.match(/class="katex"/g)?.length).toBe(2);
+      expect(html).not.toContain("\\(가");
+    } finally {
+      if (languages) Object.defineProperty(navigator, "languages", languages);
+      else Reflect.deleteProperty(navigator, "languages");
+    }
+  });
   it("parses level one through three headings", () => {
     expect(parseMarkdown("# One\n## Two\n### Three").map((block) => block.type === "heading" ? block.level : null)).toEqual([1, 2, 3]);
   });
