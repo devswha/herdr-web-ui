@@ -156,6 +156,7 @@
   --z-scrim: 15;
   --z-drawer: 20;
   --z-modal: 30;
+  --z-palette: 35;
   --z-droplet: 40;
 
   /* in-app alert (components/Droplet.css): island black in either theme, so one set */
