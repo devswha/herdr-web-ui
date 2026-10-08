@@ -109,11 +109,17 @@ export class ComposerDraftStore {
   }
 }
 export const composerDrafts = new ComposerDraftStore();
+/**
+ * The draft a `storage` event from another tab concerns, or null. A send is begun and ended as
+ * well as edited, so both keys reconcile the one draft: a sending key names it after its prefix,
+ * a draft key is the draft's own.
+ */
+export function storageEventDraft(key: string | null): string | null {
+  if (key === null) return null;
+  if (key.startsWith(SENDING_PREFIX)) return key.slice(SENDING_PREFIX.length);
+  return key.startsWith("herdr-web-ui:composer-draft:") ? key : null;
+}
 if (typeof window !== "undefined") window.addEventListener("storage", (event) => {
-  const key = event.key;
-  if (key === null) return;
-  // a send is begun and ended as well as edited, so both keys reconcile the one draft
-  if (key.startsWith("herdr-web-ui:composer-draft:") || key.startsWith(SENDING_PREFIX)) {
-    composerDrafts.refresh(key.slice(SENDING_PREFIX.length));
-  }
+  const key = storageEventDraft(event.key);
+  if (key !== null) composerDrafts.refresh(key);
 });

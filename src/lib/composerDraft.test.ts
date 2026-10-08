@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { ComposerDraftStore, SEND_LEASE_MS } from "./composerDraft.ts";
+import { ComposerDraftStore, SEND_LEASE_MS, storageEventDraft } from "./composerDraft.ts";
 function fixture() {
   const data = new Map<string, string>();
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
@@ -102,4 +102,12 @@ it("still reconciles another tab's text when no send is in flight", () => {
   data.set("a", "theirs");
   store.refresh("a");
   expect(store.read("a").text).toBe("theirs");
+});
+
+it("names the draft another tab's edit or send concerns, and nothing else", () => {
+  const key = "herdr-web-ui:composer-draft:local:w1:p1";
+  expect(storageEventDraft(key)).toBe(key);
+  expect(storageEventDraft(`herdr-web-ui:composer-sending:${key}`)).toBe(key);
+  expect(storageEventDraft("herdr-web-ui:settings")).toBeNull();
+  expect(storageEventDraft(null)).toBeNull();
 });
