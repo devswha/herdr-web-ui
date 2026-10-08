@@ -575,6 +575,7 @@
    shrinks the viewport, so the saved height comes back once there is room again */
 .composer-text.is-sized {
   max-height: min(50vh, 480px);
+  /* biome-ignore lint/suspicious/noDuplicateProperties: keep the vh fallback when dvh is unsupported */
   max-height: min(calc(var(--app-height, 100dvh) / 2), 480px);
 }
 
@@ -1285,10 +1286,6 @@
 .composer-model-change:hover:not(:disabled) { color: var(--text-strong); }
 .composer-model-change:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .composer-model-change:disabled { cursor: default; color: var(--text-dim); }
-.composer-status[data-model="out"] .composer-model-info.is-switchable { display: contents; }
-.composer-status[data-model="out"] .is-switchable .composer-model-change { flex: none; min-width: var(--control-h); justify-content: center; }
-.composer-status[data-model="out"] .is-switchable .composer-model-label,
-.composer-status[data-model="out"] .is-switchable .composer-reasoning:not(.is-switchable) { display: none; }
 .composer-reasoning.is-switchable { display: inline-flex; flex: none; align-items: center; gap: var(--space-1); }
 .composer-effort-change {
   display: inline-flex;
