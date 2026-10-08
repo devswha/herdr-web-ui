@@ -148,6 +148,30 @@ try {
     assert.equal(await page.evaluate(() => (window as unknown as { testDocument: string }).testDocument), "same-document");
     console.log(`PASS Settings opens above the preview at ${width}px; Escape and Back preserve it, then X closes the file once`);
   }
+
+  // With no preview beneath it, Settings stays on the layer every dialog shares, so the palette
+  // its shortcut opens is drawn above Settings instead of taking focus and Escape unseen.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  const settingsAlone = page.getByRole("dialog", { name: "Settings", exact: true });
+  await settingsAlone.waitFor();
+  await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] !== undefined);
+  await page.keyboard.press("ControlOrMeta+Shift+K");
+  const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+  const paletteSearch = palette.getByRole("searchbox", { name: "Search panes and actions", exact: true });
+  await paletteSearch.waitFor();
+  assert.equal(await paletteSearch.evaluate((input) => {
+    const rect = input.getBoundingClientRect();
+    return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === input;
+  }), true, "the command palette is above Settings");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "palette-over-settings-1280.png") });
+  await page.keyboard.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await settingsAlone.waitFor();
+  await page.keyboard.press("Escape");
+  await settingsAlone.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] === undefined);
+  console.log("PASS the command palette opens above Settings; Escape closes the palette, then Settings");
   await page.setViewportSize({ width: 390, height: 844 });
 
   await page.getByRole("button", { name: "notes", exact: true }).click();

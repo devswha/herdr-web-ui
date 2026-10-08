@@ -1,5 +1,7 @@
-.settings-scrim {
-  /* The Settings shortcut can open it while a file preview still holds its history entry. */
+/* The Settings shortcut can open it while a file preview still holds its history entry: only
+   then is it raised, over the preview. On its own it stays on the layer every dialog shares, so
+   the palette and the file browser, later in the document, still open above it. */
+.settings-over-preview {
   z-index: calc(var(--z-modal) + 2);
 }
 
