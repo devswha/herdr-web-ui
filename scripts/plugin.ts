@@ -145,7 +145,11 @@ async function health(): Promise<boolean> {
 async function appOnPort(): Promise<boolean> {
   try {
     const response = await fetch(`${origin}/api/health?scope=bridge`, { signal: AbortSignal.timeout(1500) });
-    return ((await response.json()) as { ok?: unknown }).ok === true;
+    if (!response.ok) return false;
+    // another program's JSON can say ok too: only the app's own answer (server/index.ts) counts
+    const body = (await response.json()) as { ok?: unknown; auth?: { required?: unknown; authenticated?: unknown } | null; bridge_protocol?: unknown };
+    return body.ok === true && Number.isInteger(body.bridge_protocol)
+      && typeof body.auth?.required === "boolean" && typeof body.auth.authenticated === "boolean";
   } catch {
     return false;
   }

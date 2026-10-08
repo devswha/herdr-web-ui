@@ -71,6 +71,9 @@ describe("plugin settings files", () => {
   });
 });
 
+/** What the app's bridge health answers (server/index.ts): it holds the port whether herdr answers or not. */
+const BRIDGE_HEALTH = { ok: true, auth: { required: false, authenticated: true }, bridge_protocol: 1 };
+
 describe("port", () => {
   const keep = (port: number) => {
     mkdirSync(join(scratch, ".config", "herdr-web-ui"), { recursive: true });
@@ -114,6 +117,25 @@ describe("port", () => {
     } finally { await stranger.stop(true); }
   });
 
+  it("does not take another program's JSON, or the app's shape with a failing status, for the app's bridge health", async () => {
+    for (const bridge of [Response.json({ ok: true }), Response.json(BRIDGE_HEALTH, { status: 503 })]) {
+      const stranger = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch: (request) => new URL(request.url).searchParams.get("scope") === "bridge"
+          ? bridge.clone()
+          : Response.json({ error: { code: "unavailable", message: "not us" } }, { status: 503 }),
+      });
+      try {
+        writeFileSync(join(configDir, ".env"), `PORT=${stranger.port}\n`);
+        const started = await run("start");
+        expect(started.err).not.toContain("herdr web ui is running");
+        expect(started.exitCode).toBe(1);
+        expect(started.err).toContain(`port ${stranger.port} on 127.0.0.1 cannot be opened`);
+      } finally { await stranger.stop(true); }
+    }
+  });
+
   it("follows a start that is coming up on another port instead of opening a second server", async () => {
     // the app answers on the port the other start fell back to
     const ours = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) });
@@ -137,7 +159,7 @@ describe("port", () => {
       hostname: "127.0.0.1",
       port: 0,
       fetch: (request) => new URL(request.url).searchParams.get("scope") === "bridge"
-        ? Response.json({ ok: true })
+        ? Response.json(BRIDGE_HEALTH)
         : Response.json({ error: { code: "connect_failed", message: "herdr socket unreachable" } }, { status: 502 }),
     });
     try {
@@ -161,7 +183,7 @@ describe("port", () => {
       hostname: "127.0.0.1",
       port: 0,
       fetch: (request) => {
-        if (new URL(request.url).searchParams.get("scope") === "bridge") { afterBridge = 0; return Response.json({ ok: true }); }
+        if (new URL(request.url).searchParams.get("scope") === "bridge") { afterBridge = 0; return Response.json(BRIDGE_HEALTH); }
         if (afterBridge >= 0 && afterBridge++ >= 1) return Response.json({ ok: true });
         return Response.json({ error: { code: "connect_failed", message: "herdr socket unreachable" } }, { status: 502 });
       },
