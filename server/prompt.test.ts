@@ -2846,6 +2846,23 @@ ${omoRule}
     });
   });
 
+  test("checks a GJC selector after each move and stops once it is gone", async () => {
+    const rows = ["First", "Second", "Third", "Fourth"];
+    await withPane("gjc", "blocked", gjcSelector(0, rows), async (pane) => {
+      let at = 0;
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = gjcSelector(++at, rows); };
+      expect(await answer((await card())!.id, { option_index: 3 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "down", "enter"]);
+    });
+    await withPane("gjc", "blocked", gjcSelector(0, rows), async (pane) => {
+      const prompt = (await card())!;
+      // the selector dismissed after the first move: the composer takes the keys now
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = "Ready\n\n❯ \n"; };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  });
+
   test("moves to the row and confirms it while the menu stays the card's", async () => {
     await withPane("codex", "blocked", menu(RESUME), async (pane) => {
       moving(pane, RESUME);

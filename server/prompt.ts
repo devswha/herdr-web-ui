@@ -2868,7 +2868,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           // A model list can be nine rows from the cursor, and an Esc in the terminal hands its
           // keys to the agent's own prompt, where an arrow walks the prompt's history: each move
           // after the first goes only once the list shows the one before it
-          if (move && walked && list && !(await onRow())) return promptChanged();
+          // GJC's selector the same: dismissed under the answer, its composer would take the moves
+          if (move && walked && (list || responder === "fallback-gjc-menu") && !(await onRow())) return promptChanged();
           if (!move && !committed) {
             // An answer is only as good as the menu and the cursor it moves from, and both are
             // as old as the read above by the time its moves are done: the menu answered in the
