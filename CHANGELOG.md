@@ -8,10 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
-- **Settings → Voice → Dictation language** picks the language dictation listens for. On Auto it
-  follows the browser's language, so a speaker whose language the app is not translated into
+- **Settings → Voice input → Dictation language** picks the language dictation listens for. On Auto
+  it follows the browser's language, so a speaker whose language the app is not translated into
   (Hungarian, German, …) is heard in it rather than in English; a hand-picked app language is
-  still followed as before.
+  still followed as before. ([#612](https://github.com/devswha/herdr-web-ui/pull/612) by @kratam)
 - Devin CLI panes with an explicitly identified native session show their active conversation
   branch and tool activity in Chat. Unresolved or unreadable sessions keep the terminal-text
   fallback. ([#438](https://github.com/devswha/herdr-web-ui/pull/438) by @Haeminway1)
