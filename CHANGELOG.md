@@ -39,6 +39,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
 
 ### Fixed
+- Gajae Code's selection menus show their choices instead of only arrow-key buttons, including
+  startup selectors shown before the pane reports that it is waiting. Answers move to the selected
+  row and recheck the menu before confirming.
+  ([#593](https://github.com/devswha/herdr-web-ui/pull/593))
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))

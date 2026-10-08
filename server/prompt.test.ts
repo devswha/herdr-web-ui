@@ -1553,6 +1553,75 @@ describe("the fallback card for a blocked pane no reader knows", () => {
     expect(answerKeys(prompt, { option_index: 3 })).toEqual([{ keys: ["esc"] }]);
   });
 
+  test("reads GJC's unnumbered selection rows and answers with cursor navigation", () => {
+    // gjc v0.18.7's custom-provider selector: active row uses the navigation cursor, other rows
+    // start with two spaces, and the footer names Up/Down, Enter, and Esc.
+    const compatibility = (selected: 0 | 1) => `
+Step 1: Compatibility
+
+${selected === 0 ? "❯" : " "} OpenAI-compatible
+${selected === 1 ? "❯" : " "} Anthropic-compatible
+[↑↓ to navigate, Enter to select, Esc to cancel]
+`;
+    const prompt = parseFallbackPrompt("gjc", compatibility(0));
+    expect(prompt.kind).toBe("menu");
+    expect(prompt.fallback).toBe(true);
+    expect(labels(prompt)).toEqual(["OpenAI-compatible", "Anthropic-compatible", "Esc"]);
+    expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    expect(answerKeys(prompt, { option_index: 2 })).toEqual([{ keys: ["esc"] }]);
+    expect(parseFallbackPrompt("gjc", compatibility(1)).id).toBe(prompt.id);
+    expect(parseFallbackPrompt("gjc", compatibility(1).replace("Anthropic-compatible", "Local endpoint")).id).not.toBe(prompt.id);
+
+    const selectedSecond = parseFallbackPrompt("gjc", `
+Step 4: Credential source
+
+  Environment variable
+❯ Paste API key
+[↑↓ to navigate, Enter to select, Esc to go back]
+`);
+    expect(labels(selectedSecond)).toEqual(["Environment variable", "Paste API key", "Esc"]);
+    expect(answerKeys(selectedSecond, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
+  test("reads GJC's standard and outlined question selectors", () => {
+    for (const footer of [
+      "up/down navigate  enter select  esc cancel",
+      "up/down navigate  enter select  ←/→ question  esc cancel",
+      "↑/↓ select  enter  esc  PgUp/PgDn/Ctrl+u/d: question · Wheel: transcript",
+      "↑/↓ select  enter  ←/→ question  esc  PgUp/PgDn/Ctrl+u/d: question · Wheel: transcript",
+    ]) {
+      const screen = `Choose an approach\n\n──────────────\n│❯ First     │\n│  Second    │\n──────────────\n\n${footer}\n\n──────────────\n`;
+      const prompt = parseFallbackPrompt("gjc", screen);
+      expect(labels(prompt)).toEqual(["First", "Second", "Esc"]);
+      expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+      expect(labels(parseFallbackPrompt("gjc", screen.replace("│  Second    │", "│  (1/12)    │")))).not.toContain("First");
+      expect(labels(parseFallbackPrompt("gjc", `${screen}\n❯ message input\n`))).not.toContain("First");
+    }
+  });
+
+  test("does not infer GJC choices without the exact footer, a selected row, or the GJC agent", () => {
+    const footer = "[↑↓ to navigate, Enter to select, Esc to cancel]";
+    const generic = ["↑", "↓", "Enter", "Esc"];
+    expect(labels(parseFallbackPrompt("gjc", `Pick one:\n\nAlpha\nBeta\n${footer}\n`))).toEqual(generic);
+    expect(labels(parseFallbackPrompt("gjc", `Pick one:\n❯ Alpha\n  Beta\n${footer}\n`))).toEqual(generic);
+    expect(labels(parseFallbackPrompt("gjc", `Pick one:\n❯ Alpha\n  Beta\n↑/↓ to move · Enter to choose · Esc to cancel\n`))).toEqual(generic);
+    expect(labels(parseFallbackPrompt("claude", `Pick one:\n\n❯ Alpha\n  Beta\n${footer}\n`))).toEqual(generic);
+  });
+
+  test("titles a GJC selector with its own heading, not an earlier question on the screen", () => {
+    const prompt = parseFallbackPrompt("gjc", "Delete your project?\nDone, it is kept.\n\nChoose a provider\n\n❯ Alpha\n  Beta\n[↑↓ to navigate, Enter to select, Esc to cancel]\n");
+    expect(prompt.question).toBe("Choose a provider");
+    expect(labels(prompt)).toEqual(["Alpha", "Beta", "Esc"]);
+    expect(parseFallbackPrompt("gjc", "Earlier text\n\nWhich one?\nPick the safe one\n\n❯ Alpha\n  Beta\n[↑↓ to navigate, Enter to select, Esc to cancel]\n").question).toBe("Which one?");
+  });
+
+  test("answers a GJC selector whose labels start with numbers by moving, never by typing a number", () => {
+    const prompt = parseFallbackPrompt("gjc", "Choose an approach\n\n❯ 1. Keep branch\n  2. Delete branch\nup/down navigate  enter select  esc cancel\n");
+    expect(labels(prompt)).toEqual(["1. Keep branch", "2. Delete branch", "Esc"]);
+    expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
   test("joins the lines the last row wraps onto into its label", () => {
     const prompt = parseFallbackPrompt("gjc", "Trust this folder?\n\n❯ 1. No, exit\n  2. Yes, trust folder and\n     allow all commands without asking\n\n Enter to confirm\n");
     expect(labels(prompt)).toEqual(["No, exit", "Yes, trust folder and allow all commands without asking", "Enter", "Esc"]);
@@ -2743,6 +2812,8 @@ ${omoRule}
     `${above}\n\n${rows.map((row, index) => `${index === at ? "›" : " "} ${index + 1}. ${row}`).join("\n")}\n\nPress enter to continue\n`;
   const RESUME = ["Resume the task", "Start over", "Quit"];
   const DELETE = ["Keep the branch", "Delete the branch", "Quit"];
+  const gjcSelector = (at = 0, rows = ["OpenAI-compatible", "Anthropic-compatible"]) =>
+    `Step 1: Compatibility\n\n${rows.map((row, index) => `${index === at ? "❯" : " "} ${row}`).join("\n")}\n[↑↓ to navigate, Enter to select, Esc to cancel]\n`;
 
   /** the pane as a menu would run it: ↓ and ↑ move the cursor, and the screen shows it */
   function moving(pane: Pane, rows: string[], draw: (at: number) => string = (at) => menu(rows, at), start = 0): void {
@@ -2754,6 +2825,56 @@ ${omoRule}
       pane.screen = draw(at) + (sent.startsWith("text:") ? `\n${sent.slice(5)}\n` : "");
     };
   }
+
+  test("shows a GJC startup selector even before the pane is reported blocked", async () => {
+    await withPane("gjc", "idle", gjcSelector().replace("[↑↓ to navigate, Enter to select, Esc to cancel]", "up/down navigate  enter select  esc cancel"), async () => {
+      const prompt = (await card())!;
+      expect(labels(prompt)).toEqual(["OpenAI-compatible", "Anthropic-compatible", "Esc"]);
+      expect(await answer(prompt.id, { option_index: 0 })).toEqual({ status: 200, code: undefined });
+    });
+  });
+
+  test("answers GJC's unnumbered selector after confirming its moved cursor", async () => {
+    await withPane("gjc", "blocked", gjcSelector(), async (pane) => {
+      let at = 0;
+      pane.onSent = (sent) => {
+        if (sent === "down") at = Math.min(1, at + 1);
+        if (sent === "up") at = Math.max(0, at - 1);
+        pane.screen = gjcSelector(at);
+      };
+      const prompt = (await card())!;
+      expect(prompt.fallback).toBe(true);
+      expect(labels(prompt)).toEqual(["OpenAI-compatible", "Anthropic-compatible", "Esc"]);
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "enter"]);
+    });
+  });
+
+  test("does not confirm a changed GJC selector after moving its cursor", async () => {
+    await withPane("gjc", "blocked", gjcSelector(), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = gjcSelector(1, ["Resume", "Delete"]); };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  });
+
+  test("checks a GJC selector after each move and stops once it is gone", async () => {
+    const rows = ["First", "Second", "Third", "Fourth"];
+    await withPane("gjc", "blocked", gjcSelector(0, rows), async (pane) => {
+      let at = 0;
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = gjcSelector(++at, rows); };
+      expect(await answer((await card())!.id, { option_index: 3 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "down", "down", "enter"]);
+    });
+    await withPane("gjc", "blocked", gjcSelector(0, rows), async (pane) => {
+      const prompt = (await card())!;
+      // the selector dismissed after the first move: the composer takes the keys now
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = "Ready\n\n❯ \n"; };
+      expect(await answer(prompt.id, { option_index: 3 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  });
 
   test("moves to the row and confirms it while the menu stays the card's", async () => {
     await withPane("codex", "blocked", menu(RESUME), async (pane) => {

@@ -104,6 +104,7 @@ type Responder =
   | "pi-input"
   | "pi-model"
   | "fallback-menu"
+  | "fallback-gjc-menu"
   | "fallback-keys";
 
 type ParsedPrompt = InteractivePrompt & {
@@ -2092,10 +2093,10 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
 /**
  * The last resort, for a pane herdr reports blocked that none of the readers above know (a
  * menu a new agent version draws differently, an agent without a reader): the chat must never
- * leave the user without a way to answer. It guesses as little as it can. Only a numbered menu
- * that still owns the screen's end becomes options, each answered by typing its number, so no
- * cursor position is guessed, plus Enter and Esc. Anything else shows the screen's last lines
- * with the keys its hint lines name, plus Enter and Esc.
+ * leave the user without a way to answer. It guesses as little as it can: a numbered menu that
+ * still owns the screen's end becomes options answered by number, and GJC's exact unnumbered
+ * selector becomes options answered by its cursor keys. Anything else shows the screen's last
+ * lines with the keys its hint lines name, plus Enter and Esc.
  */
 /** a question, allowing a trailing choice hint such as "(y/n)" */
 const ASKED_RE = /\?\s*(?:[([][^)\]]*[)\]])?\s*$/;
@@ -2108,6 +2109,7 @@ const ARROWS_RE = /[↑↓]|\barrow keys\b/i;
  * ("Enter recovery code", "Enter your phone number", "Press any key").
  */
 const MENU_HINT_RE = /\b(?:select|choose|pick|confirm|navigate|move|esc|cancel)\b|[↑↓↵⏎]|\b(?:enter|type)\s+(?:(?:a|an|the)\s+)?number\b|\b\d\s*[-–]\s*\d\b/i;
+const GJC_SELECT_HINT_RE = /^(?:\[↑↓ to navigate, enter to select, esc to (?:cancel|go back)\]|up\/down navigate\s+enter select(?:\s+←\/→ question)?\s+esc cancel|↑\/↓ select\s+enter(?:\s+←\/→ question)?\s+esc\s+PgUp\/PgDn\/Ctrl\+u\/d: question · Wheel: transcript)$/i;
 /** an input field waiting at a line's end ("Password:", "Choice: 2") */
 const INPUT_FIELD_RE = /:\s*\S{0,3}$/;
 /** a line that reads as a hint of its own, not a label's wrapped words ("…the selected number", "choose one") */
@@ -2158,7 +2160,9 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const shown = lines.flatMap((line, index) => cleanLine(line) && !isDivider(line) ? [index] : []);
   const steady = steadyReader(agent, shown.map((index) => cleanLine(lines[index]!)));
-  const menu = fallbackMenu(lines, shown);
+  // GJC's exact selector first: a label of its that starts with a number is still moved to, never typed
+  const selectionMenu = fallbackGjcSelectionMenu(agent, lines, shown);
+  const menu = selectionMenu ? null : fallbackMenu(lines, shown);
   if (menu) {
     const above = shown.filter((index) => index < menu.start).map((index) => cleanLine(lines[index]!));
     const question = [...above].reverse().find((line) => ASKED_RE.test(line)) ?? above.at(-1);
@@ -2182,6 +2186,35 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
       optionSteps: choices.map(({ steps }) => steps),
     }, steadyFields(question, body, steady.read)));
+  }
+  if (selectionMenu) {
+    const above = shown.filter((index) => index < selectionMenu.start).map((index) => cleanLine(lines[index]!));
+    // the selector's own heading: the block of lines right above its rows, never an earlier question
+    let headEnd = selectionMenu.start;
+    while (headEnd > 0 && (!cleanLine(lines[headEnd - 1]!) || isDivider(lines[headEnd - 1]!))) headEnd -= 1;
+    let headStart = headEnd;
+    while (headStart > 0 && cleanLine(lines[headStart - 1]!) && !isDivider(lines[headStart - 1]!)) headStart -= 1;
+    const heading = lines.slice(headStart, headEnd).map((line) => cleanLine(line));
+    const question = [...heading].reverse().find((line) => ASKED_RE.test(line)) ?? heading.at(-1);
+    const choiceRows = new Set(selectionMenu.rows.map((row) => row.lineIndex));
+    const choices = [
+      ...selectionMenu.rows.map((row, index) => ({
+        label: row.label,
+        steps: keySteps([...navigationKeys(index - selectionMenu.selectedIndex), KEY.enter]),
+      })),
+      { label: "Esc", steps: keySteps([KEY.escape]) },
+    ];
+    const body = withoutLine(above, question);
+    return screenCard(lines, shown, steady, finishPrompt(agent, {
+      kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? "The agent is waiting for your answer.",
+      body,
+      options: choices.map(({ label }) => ({ label, description: null })),
+      multi_select: false, custom_option_index: null,
+    }, {
+      responder: "fallback-gjc-menu", menuLabels: choices.map(({ label }) => label), selectedIndex: selectionMenu.selectedIndex,
+      checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+      optionSteps: choices.map(({ steps }) => steps),
+    }, steadyFields(question, body, steady.read)), choiceRows);
   }
   const last = shown.slice(-16).map((index) => cleanLine(lines[index]!));
   // letters and arrows only for the prompt's own last lines, never while an input box ends the
@@ -2220,8 +2253,12 @@ function steadyFields(question: string | undefined, body: string | null, steady:
  * command, footer or wrapped label anywhere on it makes an answer to the old card stale. A working
  * line's spinner, time and token count are the one thing it leaves out (steadyReader).
  */
-function screenCard(lines: string[], shown: number[], steady: SteadyReader, parsed: ParsedPrompt): InteractivePrompt {
-  const screen = shown.map((index) => steady.read(cleanLine(lines[index]!))).join("\n");
+function screenCard(lines: string[], shown: number[], steady: SteadyReader, parsed: ParsedPrompt, cursorRows?: ReadonlySet<number>): InteractivePrompt {
+  const screen = shown.map((index) => {
+    const line = cleanLine(lines[index]!);
+    // GJC moves its cursor within the same menu; the selectedIndex is checked separately on reread.
+    return steady.read(cursorRows?.has(index) ? line.replace(SELECTED_RE, "") : line);
+  }).join("\n");
   parsed.id = createHash("sha256").update(JSON.stringify({ card: parsed.id, screen, ...(steady.working === null ? {} : { working: steady.working }) })).digest("hex").slice(0, 12);
   return publicPrompt(parsed);
 }
@@ -2268,6 +2305,40 @@ function fallbackMenu(lines: string[], shown: number[]): { start: number; rows: 
     row.label = [row.label, ...wrapped].join(" ");
   }
   return { start, rows };
+}
+
+/** GJC's unnumbered selector: a cursor-marked row, two-space rows, and its own selection footer. */
+function fallbackGjcSelectionMenu(agent: string, lines: string[], shown: number[]): { start: number; rows: MenuRow[]; selectedIndex: number } | null {
+  if (agent !== "gjc" || shown.length === 0) return null;
+  let hintStart = -1;
+  for (let length = 1; length <= Math.min(3, shown.length); length += 1) {
+    const suffix = shown.slice(-length).map((index) => cleanLine(lines[index]!)).join(" ");
+    if (GJC_SELECT_HINT_RE.test(suffix)) {
+      hintStart = shown[shown.length - length]!;
+      break;
+    }
+  }
+  if (hintStart < 0) return null;
+
+  // GJC's standard selector separates the footer with a spacer and can outline its rows.
+  // The provider wizard puts its footer directly below them.
+  let end = hintStart;
+  while (end > 0 && (!cleanLine(lines[end - 1]!) || isDivider(lines[end - 1]!))) end -= 1;
+  let start = end;
+  while (start > 0 && cleanLine(lines[start - 1]!) && !isDivider(lines[start - 1]!)) start -= 1;
+  if (start === 0 || (cleanLine(lines[start - 1]!) && !isDivider(lines[start - 1]!))) return null;
+  const rows: MenuRow[] = [];
+  for (let index = start; index < end; index += 1) {
+    const text = cleanLine(lines[index]!);
+    const selected = SELECTED_RE.test(text);
+    const label = normalizeText(text.replace(SELECTED_RE, ""));
+    // A windowed/truncated list is not a complete set of choices. Keep its manual keys.
+    if (!label || /^\(\d+\/\d+\)$/.test(label) || /…|\.\.\./.test(label)) return null;
+    rows.push({ label, selected, checked: false, lineIndex: index });
+  }
+  const selectedIndex = rows.findIndex((row) => row.selected);
+  if (rows.length < 2 || selectedIndex < 0 || rows.filter((row) => row.selected).length !== 1) return null;
+  return { start, rows, selectedIndex };
 }
 
 /**
@@ -2501,7 +2572,7 @@ async function readKnownPrompt(
   codexHome?: string,
   panes: HerdrPane[] = [],
 ): Promise<{ prompt: InteractivePrompt | null; screen?: string }> {
-  if (!["claude", "omp", "codex", "omo", "pi", ""].includes(agent)) return { prompt: null };
+  if (!["claude", "omp", "codex", "omo", "pi", "gjc", ""].includes(agent)) return { prompt: null };
   const screen = await liveScreen(paneId);
   // omo's form reads its text from the session's call, the screen showing where the form stands
   const omoAsks = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)
@@ -2510,6 +2581,10 @@ async function readKnownPrompt(
   // on the user, or the session's pending call is the form on screen
   const omoTrusted = (agent !== "claude" && agent !== "") || pane.agent_status === "blocked";
   const prompt = parseInteractivePrompt(agent, screen, omoAsks[0] ?? null, omoTrusted, omoAsks);
+  if (!prompt && agent === "gjc") {
+    const fallback = parseFallbackPrompt(agent, screen);
+    if (parsedByPublicPrompt.get(fallback)?.responder === "fallback-gjc-menu") return { prompt: fallback, screen };
+  }
   const count = agent === "codex" && prompt === null ? queuedQuestionCount(screen) : 0;
   if (count === 0 || !pane.cwd) return { prompt, screen };
   let rollout = queueRollouts.get(paneId);
@@ -2742,7 +2817,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         // Claude's unnumbered rows and pi's models are read with no number to aim at: looked at
         // again before the Enter even when it needs no move. So is Claude's model list, picked
         // with a letter: typed after the list has gone, it would stand in the agent's own prompt
-        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question" || responder === "claude-model" || responder === "codex-model";
+        let moved = responder === "claude-confirm" || responder === "pi-model" || responder === "omo-question" || responder === "claude-model" || responder === "codex-model" || responder === "fallback-gjc-menu";
         // Claude's and Codex's model lists: a window on a list, picked with a letter
         const list = responder === "claude-model" || responder === "codex-model";
         /** the menu as the last look before a key showed it */
@@ -2800,7 +2875,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           // A model list can be nine rows from the cursor, and an Esc in the terminal hands its
           // keys to the agent's own prompt, where an arrow walks the prompt's history: each move
           // after the first goes only once the list shows the one before it
-          if (move && walked && list && !(await onRow())) return promptChanged();
+          // GJC's selector the same: dismissed under the answer, its composer would take the moves
+          if (move && walked && (list || responder === "fallback-gjc-menu") && !(await onRow())) return promptChanged();
           if (!move && !committed) {
             // An answer is only as good as the menu and the cursor it moves from, and both are
             // as old as the read above by the time its moves are done: the menu answered in the
