@@ -44,7 +44,7 @@ const BUSY_TIMEOUT_MS = 250;
 const SESSION_ID = /^ses_[A-Za-z0-9]{1,64}$/;
 const MESSAGE_ID = /^msg_[A-Za-z0-9]{1,64}$/;
 /** A tool call's whole output: the message holding it and the call's place in its content. */
-const TOOL_REF = /^(msg_[A-Za-z0-9]{1,64}):(\d{1,4})$/;
+export const OPENCODE_TOOL_REF = /^(msg_[A-Za-z0-9]{1,64}):(\d{1,4})$/;
 /** An image in a message, by its place among that message's images. */
 export const OPENCODE_IMAGE_REF = /^opencode:(msg_[A-Za-z0-9]{1,64}):(\d{1,3})$/;
 /** The image types a chat shows; anything else stays out of the page. */
@@ -562,7 +562,7 @@ function readRow<T>(path: string, sessionId: string, id: string, read: (row: { t
 
 /** The whole output of a tool call whose page output was cut (ref `<message id>:<place in its content>`). */
 export function opencodeToolOutput(path: string, sessionId: string, ref: string): string | null {
-  const match = TOOL_REF.exec(ref);
+  const match = OPENCODE_TOOL_REF.exec(ref);
   if (match === null) return null;
   return readRow(path, sessionId, match[1]!, (row) => {
     if (row.type !== "assistant" || !Array.isArray(row.data.content)) return null;

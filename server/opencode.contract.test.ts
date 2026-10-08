@@ -139,6 +139,8 @@ it("serves a cut tool output and a tool's picture by the refs the page gave them
   expect(tool.output_size).toBe(5000);
   const output = await fetch(url("/api/pane/conversation/tool-output", { ref: tool.output_ref! }));
   expect(output.status).toBe(200);
+  // the ref names a place in a row OpenCode rewrites in place: its output is never pinned
+  expect(output.headers.get("cache-control")).toBe("private, no-store");
   expect(await output.text()).toBe("z".repeat(5000));
   expect((await fetch(url("/api/pane/conversation/tool-output", { ref: `${tool.output_ref!.split(":")[0]}:7` }))).status).toBe(404);
 
