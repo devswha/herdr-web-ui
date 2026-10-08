@@ -1,0 +1,153 @@
+/* Agents takes the height of its rows, at most half the sidebar, docked above the footer; the
+   workspace list has the rest. Parted from it by space, not a rule. */
+.agents-sidebar {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 50%;
+  padding: var(--space-2) var(--side-gutter) 0;
+}
+
+.agents-sidebar.is-collapsed,
+.agents-sidebar.is-empty { flex: 0 0 auto; }
+
+/* positioned: a row's visually hidden label is absolute, and must not size the page instead */
+.agent-list-contents {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: var(--space-4);
+}
+
+.agents-sidebar.is-empty .agent-list-contents { flex: 0 0 auto; }
+
+/* a list that is cut fades out; at the end of its scroll the fade lies over its own spare space */
+.agent-list-contents::after {
+  content: "";
+  position: sticky;
+  bottom: 0;
+  display: block;
+  height: var(--space-4);
+  background: linear-gradient(transparent, var(--bg-panel));
+  pointer-events: none;
+}
+
+.agents-sidebar.is-empty .agent-list-contents::after { display: none; }
+
+.agent-section-toggle {
+  flex: 0 0 auto;
+  width: 100%;
+  cursor: pointer;
+}
+
+/* the fold's caret hangs in the leading cell and shows when it is of use */
+.agent-section-caret {
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  margin-inline: calc((var(--side-box) - var(--space-4)) / 2);
+  opacity: 0;
+}
+
+.agent-section-toggle:focus-visible .agent-section-caret,
+.agents-sidebar.is-collapsed .agent-section-caret { opacity: 1; }
+
+@media (hover: hover) {
+  .agent-section-toggle:hover .agent-section-caret { opacity: 1; }
+}
+
+/* a folded list still says how many agents it holds */
+.agent-section-count {
+  width: var(--side-box);
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.agent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* an agent's row */
+.agent-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--side-row-2);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.agent-row:focus-visible { outline-offset: calc(var(--ring-offset) * -1); }
+.agent-row:disabled { cursor: default; }
+
+@media (hover: hover) {
+  .agent-row:enabled:hover { background: var(--side-hover); }
+}
+
+.agent-item.is-selected > .agent-row { background: var(--side-selected); }
+
+.agent-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.agent-title,
+.agent-context {
+  overflow: hidden;
+  line-height: var(--lh-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-title {
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-regular);
+}
+
+.agent-item.is-selected .agent-title { color: var(--text-strong); }
+
+.agent-context {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.agent-row-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.agent-item.is-offline { opacity: 0.5; }
+
+.agent-empty {
+  margin: 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--side-box);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+@media (pointer: coarse) {
+  .agent-section-caret { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-row { transition: none; }
+}

@@ -59,6 +59,11 @@
   --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 
+  /* document surfaces: NOT theme-driven. A PDF page is paper, not UI — it is white in either
+     theme, so it is named here and never overridden by the theme blocks below
+     (FileViewer's .file-viewer-pdf) */
+  --pdf-page: #ffffff;
+
   /* terminal theme: mirrored verbatim in src/lib/settings.ts terminalTheme() */
   --term-bg: #181613;
   --term-fg: #d8d0c3;
@@ -78,6 +83,8 @@
   --fs-lg: 16px;
   --fs-xl: 18px;
   --fs-display: 22px;
+  /* the pairing code: a size of its own, still on the density scale (compact overrides it) */
+  --fs-pairing: 32px;
   --fs-input: 16px; /* the one size iOS Safari does not zoom on focus */
   --lh-tight: 1.2;
   --lh-base: 1.5;
@@ -131,6 +138,7 @@
      pane not measured yet. Never a percentage here: each column would resolve it against its
      own box and the columns would differ by their gutters */
   --chat-w: var(--content-w);
+  --pending-max-h: min(20dvh, 12rem);
   --palette-w: 640px;
   --palette-top: 12vh;
 
@@ -155,6 +163,7 @@
   --z-scrim: 15;
   --z-drawer: 20;
   --z-modal: 30;
+  --z-palette: 35;
   --z-droplet: 40;
 
   /* in-app alert (components/Droplet.css): island black in either theme, so one set */
@@ -408,6 +417,80 @@
   --term-selection: #d2d4dc;
 }
 
+/* Lilac: one quiet lavender. Light is the look it was drawn for: a lavender canvas (`--bg`)
+   under paler lavender chrome (`--bg-panel`: sidebar, header, tabs), indigo ink, and an indigo
+   accent for the user's own action. Dark is the same hue at night: an indigo-black canvas, violet
+   chrome and a pale lilac accent. No gradient and no translucency: every surface is flat. */
+[data-theme="dark"][data-palette="lilac"] {
+  --bg: #16152b;
+  --bg-panel: #1c1b34;
+  --bg-elevated: #23223f;
+  --bg-hover: #2c2a4f;
+  --bg-input: #13122a;
+  --border: #2f2d52;
+  --border-strong: #423f6e;
+  --text: #dcdaf4;
+  --text-dim: #a5a2cc;
+  --text-strong: #f2f1ff;
+  --accent: #b3abff;
+  --accent-tint: rgba(179, 171, 255, 0.13);
+  --primary: #b3abff;
+  --primary-hover: #c5bfff;
+  --primary-text: #17163a;
+  --primary-tint: rgba(179, 171, 255, 0.16);
+  --status-idle: #a5a2cc;
+  --status-working: #85b8ff;
+  --status-blocked: #ff94ad;
+  --status-done: #92d9ab;
+  --status-working-tint: rgba(133, 184, 255, 0.14);
+  --status-blocked-tint: rgba(255, 148, 173, 0.14);
+  --status-done-tint: rgba(146, 217, 171, 0.14);
+  --danger-tint: rgba(255, 148, 173, 0.12);
+  --danger-text: #ffd6df;
+  --scrim: rgba(9, 8, 22, 0.6);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --term-bg: #18172f;
+  --term-fg: #dcdaf4;
+  --term-cursor: #b3abff;
+  --term-selection: #3a3768;
+}
+
+[data-theme="light"][data-palette="lilac"] {
+  --bg: #f0eefc;
+  --bg-panel: #f6f5fe;
+  --bg-elevated: #fbfaff;
+  --bg-hover: #e8e5f8;
+  --bg-input: #fdfcff;
+  --border: #e0dcf4;
+  --border-strong: #c8c2ea;
+  --text: #2b2d4d;
+  --text-dim: #545779;
+  --text-strong: #17193a;
+  --accent: #4a42c2;
+  --accent-tint: rgba(74, 66, 194, 0.12);
+  --primary: #4a42c2;
+  --primary-hover: #5951d0;
+  --primary-text: #ffffff;
+  --primary-tint: rgba(74, 66, 194, 0.14);
+  --status-idle: #545779;
+  --status-working: #1f4aa6;
+  --status-blocked: #9c2044;
+  --status-done: #1f5c39;
+  --status-working-tint: rgba(31, 74, 166, 0.12);
+  --status-blocked-tint: rgba(156, 32, 68, 0.12);
+  --status-done-tint: rgba(31, 92, 57, 0.12);
+  --danger-tint: rgba(156, 32, 68, 0.1);
+  --danger-text: #8c1f3a;
+  --scrim: rgba(43, 35, 100, 0.32);
+  --shadow-drawer: 0 0 40px rgba(60, 50, 130, 0.22);
+  --shadow-pop: 0 16px 48px rgba(60, 50, 130, 0.16), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(60, 50, 130, 0.08);
+  --term-bg: #f8f7fe;
+  --term-fg: #2b2d4d;
+  --term-cursor: #4a42c2;
+  --term-selection: #dcd7f8;
+}
+
 [data-chat-width="narrow"] {
   --chat-w: var(--content-w);
 }
@@ -430,6 +513,7 @@
   --fs-lg: 15px;
   --fs-xl: 17px;
   --fs-display: 21px;
+  --fs-pairing: 26px;
   --lh-base: 1.45;
   --header-h: 46px;
   --sidebar-w: 300px;
@@ -508,6 +592,9 @@ button {
 /* ---------- shell ---------- */
 
 .app {
+  /* the sidebar column's width: the one the user dragged its edge to (--sidebar-user-w, written
+     by App), else the density's; never more than half the window */
+  --sidebar-shown-w: min(var(--sidebar-user-w, var(--sidebar-w)), 50vw);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -537,10 +624,12 @@ button {
 }
 
 .sidebar {
+  /* positioned for its resize grip (SidebarResizer.css) */
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: var(--sidebar-w);
-  flex: 0 0 var(--sidebar-w);
+  width: var(--sidebar-shown-w);
+  flex: 0 0 var(--sidebar-shown-w);
   min-height: 0;
   background: var(--bg-panel);
   border-right: var(--hairline) solid var(--border);
@@ -580,6 +669,11 @@ button {
    well, it stacked under the composer's own padding as a band of another colour */
 .terminal-host:has(.composer) {
   padding-bottom: 0;
+}
+
+/* the tab strip's panel inside .terminal-host: a role for screen readers, no box of its own */
+.terminal-tabpanel {
+  display: contents;
 }
 
 /* ---------- header ---------- */
@@ -820,7 +914,7 @@ button {
      one piece from the window's top down */
   .app:not(.sidebar-collapsed) .header-side {
     display: flex;
-    flex: 0 0 var(--sidebar-w);
+    flex: 0 0 var(--sidebar-shown-w);
     align-items: center;
     align-self: stretch;
     justify-content: space-between;
@@ -1044,12 +1138,6 @@ button {
 .badge-done {
   color: var(--status-done);
   background: var(--status-done-tint);
-}
-
-/* a pane herdr could not restore: no status to show, and nothing runs in it */
-.badge-restore-error {
-  color: var(--danger-text);
-  background: var(--danger-tint);
 }
 
 /* unknown keeps the dim text color (contrast) and is told apart by the dashed edge */

@@ -70,6 +70,100 @@ function entries(text: string): RecordValue[] {
   });
 }
 
+/** Memory blocks are metadata unless the answer quotes them in Markdown code. */
+function withoutMemoryCitations(text: string): string {
+  const opening = "<oai-mem-citation>";
+  const closing = "</oai-mem-citation>";
+  if (!text.includes(opening)) return text.trimEnd();
+
+  type Line = { kind: "line"; index: number; quoteDepth: number; indent: number; listIndent?: number; blank: boolean };
+  type Token = Line | { kind: "fence"; index: number; marker: string; info: string; line: Line }
+    | { kind: "ticks"; index: number; size: number } | { kind: "citation"; index: number };
+  const tokens: Token[] = [];
+  const quote = /[ \t]*>[ \t]?/y;
+  for (const match of text.matchAll(/([^\r\n]*)(?:\r\n?|\n|$)/g)) {
+    const source = match[1]!;
+    let offset = 0;
+    let quoteDepth = 0;
+    quote.lastIndex = 0;
+    while (quote.exec(source)) { offset = quote.lastIndex; quoteDepth++; }
+    const indent = /^[ \t]*/.exec(source.slice(offset))![0].length;
+    const content = source.slice(offset + indent);
+    const list = /^(?:[-+*]|\d+[.)])[ \t]+/.exec(content);
+    const line: Line = { kind: "line", index: match.index!, quoteDepth, indent,
+      ...(list ? { listIndent: indent + list[0].length } : {}), blank: content.trim() === "" };
+    tokens.push(line);
+    const body = content.slice(list?.[0].length ?? 0);
+    const marker = /^(`{3,}|~{3,})/.exec(body)?.[0];
+    const info = marker ? body.slice(marker.length) : "";
+    // A backtick fence's info string cannot contain backticks.
+    if (marker && (marker[0] !== "`" || !info.includes("`"))) tokens.push({ kind: "fence",
+      index: match.index! + offset + indent + (list?.[0].length ?? 0), marker, info, line });
+    for (const token of source.matchAll(/`+|<oai-mem-citation>/g)) {
+      tokens.push(token[0] === opening ? { kind: "citation", index: match.index! + token.index! }
+        : { kind: "ticks", index: match.index! + token.index!, size: token[0].length });
+    }
+  }
+  const closes = new Map<number, number>();
+  const pairs: number[] = [];
+  // Index matching runs once: unmatched delimiters must not repeatedly scan the tail.
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const token = tokens[i]!;
+    if (token.kind !== "ticks") {
+      if (token.kind === "line") closes.clear();
+      continue;
+    }
+    let backslashes = 0;
+    for (let at = token.index - 1; at >= 0 && text[at] === "\\"; at--) backslashes++;
+    const length = token.size - (backslashes % 2);
+    pairs[i] = length > 0 ? closes.get(length) ?? -1 : -1;
+    // Inside a code span a backslash does not escape its closing backticks.
+    closes.set(token.size, i);
+  }
+  const parts: string[] = [];
+  const listIndents: number[] = [];
+  let quoteDepth = 0;
+  let kept = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token.kind === "line") {
+      if (token.quoteDepth !== quoteDepth) { listIndents.length = 0; quoteDepth = token.quoteDepth; }
+      if (token.blank) continue;
+      while (listIndents.length > 0 && listIndents.at(-1)! > token.indent) listIndents.pop();
+      if (token.listIndent !== undefined) listIndents.push(token.listIndent);
+      continue;
+    }
+    if (token.kind === "fence") {
+      const within = token.line.listIndent ?? listIndents.at(-1) ?? 0;
+      const indent = token.line.listIndent === undefined ? token.line.indent - within : 0;
+      if (indent < 0 || indent > 3) continue;
+      // An unfinished fence remains code until its quote/list container ends.
+      for (i++; i < tokens.length; i++) {
+        const end = tokens[i]!;
+        if (end.kind === "line" && (end.quoteDepth < token.line.quoteDepth
+          || (within > 0 && end.quoteDepth === token.line.quoteDepth && !end.blank && end.indent < within))) { i--; break; }
+        if (end.kind === "fence" && end.line.quoteDepth === token.line.quoteDepth && end.marker[0] === token.marker[0]
+          && end.marker.length >= token.marker.length && /^[ \t]*$/.test(end.info)) {
+          // Skip the closing line's raw backtick/citation tokens too.
+          while (i + 1 < tokens.length && tokens[i + 1]!.kind !== "line") i++;
+          break;
+        }
+      }
+      continue;
+    }
+    const pair = pairs[i];
+    if (pair !== undefined && pair >= 0) { i = pair; continue; }
+    if (token.kind !== "citation") continue;
+    parts.push(text.slice(kept, token.index));
+    const close = text.indexOf(closing, token.index + opening.length);
+    kept = close === -1 ? text.length : close + closing.length;
+    // Metadata contents cannot open code spans or fences in the surrounding answer.
+    while (i + 1 < tokens.length && tokens[i + 1]!.index < kept) i++;
+  }
+  parts.push(text.slice(kept));
+  return parts.join("").trimEnd();
+}
+
 
 /**
  * Whether a Codex tool output says the call failed. Codex records no flag: its command
@@ -106,7 +200,8 @@ export function createCodexTranscriptParser(state: CodexParseState = { turns: []
     return turn;
   };
   const message = (role: "user" | "assistant", text: string, source: string, ts: string, phase?: "commentary" | "final_answer", images: ConversationPart[] = []): void => {
-    const body = role === "user" ? questionReply(text) ?? text : text;
+    const body = role === "user" ? questionReply(text) ?? text
+      : withoutMemoryCitations(text);
     if (!body.trim() && images.length === 0) return;
     const duplicate = messages.slice(-8).reverse().find((other) => !other.paired && other.role === role && other.text === body
       && other.source !== source && (other.ts === ts || Math.abs(Date.parse(other.ts) - Date.parse(ts)) <= 1000));
@@ -337,10 +432,31 @@ function rolloutHeader(path: string): RecordValue | null {
   } finally { closeSync(fd); }
 }
 
+/**
+ * A Windows path without the `\\?\` prefix that Codex on Windows stores in `threads` (`cwd`,
+ * `rollout_path`), as Rust's canonical paths carry it: `\\?\D:\x` is `D:\x` and
+ * `\\?\UNC\host\share` is `\\host\share` (#518). Any other path, `\\?\Volume{…}\` included, is
+ * returned as it is: without its prefix it would read as a relative path.
+ */
+export function withoutVerbatimPrefix(path: string): string {
+  if (!path.startsWith("\\\\?\\")) return path;
+  const rest = path.slice(4);
+  if (/^UNC\\/i.test(rest)) return `\\\\${rest.slice(4)}`;
+  return /^[A-Za-z]:\\/.test(rest) ? rest : path;
+}
+
+/** The `cwd` values Codex may have stored for a directory: as given, and on Windows also with `\\?\`. */
+export function storedCwds(cwd: string): [string, string] {
+  const plain = withoutVerbatimPrefix(cwd);
+  if (/^[A-Za-z]:\\/.test(plain)) return [plain, `\\\\?\\${plain}`];
+  if (/^\\\\[^\\?.]/.test(plain)) return [plain, `\\\\?\\UNC\\${plain.slice(2)}`];
+  return [cwd, cwd];
+}
+
 /** File access is constrained by canonical paths, including symlink targets. */
 export function codexRolloutPath(path: string, codexHome: string): string | null {
   try {
-    const canonical = realpathSync(path);
+    const canonical = realpathSync(withoutVerbatimPrefix(path));
     const rel = relative(realpathSync(join(codexHome, "sessions")), canonical);
     if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !canonical.endsWith(".jsonl")) return null;
     if (!statSync(canonical).isFile()) return null;
@@ -461,6 +577,21 @@ export function forgetHistoryChains(): void {
 /** Drops one rollout's remembered chain: its next read resolves it again. */
 export function forgetHistoryChain(path: string): void {
   historyChains.delete(path);
+}
+
+/** Everything remembered about one rollout: its chain, its question scan and any scan in flight. */
+export function forgetCodexStateFor(path: string): void {
+  historyChains.delete(path);
+  questionScans.delete(path);
+  questionScansInFlight.delete(path);
+}
+
+/** Every remembered chain and question scan: the next read resolves each one again. */
+export function forgetAllCodexState(): void {
+  historyChains.clear();
+  questionScans.clear();
+  questionScansInFlight.clear();
+  linesBeforeCut.clear();
 }
 
 /** Lines before a cut, per file identity and cut: the bytes before a cut never change. */
@@ -754,9 +885,9 @@ const boundRollouts = new Map<string, { processes: string; path: string; at: num
  */
 function newerThreads(db: Database, cwd: string, since: number, except: string | null, paneId: string, home: string, firsts?: Map<string, string>): string[] {
   const first = db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : "";
-  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, [string, number]>(
-    `SELECT id, rollout_path${first} FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
-  ).all(cwd, since);
+  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, [string, string, number]>(
+    `SELECT id, rollout_path${first} FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
+  ).all(...storedCwds(cwd), since);
   return theirs(rows.flatMap((row) => {
     if (row.id === except) return [];
     const path = codexRolloutPath(row.rollout_path, home) ?? row.rollout_path;
@@ -991,10 +1122,10 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // the same guard for a match: after /new the process writes a thread begun since
     // (created_at has whole seconds, so one begun in the match's second counts too)
     if (boundHere !== undefined) boundNewer = newerThreads(db, cwd, Math.floor(boundHere.at / 1000), null, paneId, home, firsts);
-    const rows = db.query<{ rollout_path: string }, [string]>(
+    const rows = db.query<{ rollout_path: string }, [string, string]>(
       // a burst of `codex exec` runs must not push the pane's own thread out of the 32
-      `SELECT rollout_path FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
-    ).all(cwd);
+      `SELECT rollout_path FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
+    ).all(...storedCwds(cwd));
     const rollouts = rows.slice(0, 32).map((row) => codexRolloutPath(row.rollout_path, home));
     // a thread whose rollout is gone or outside the store is still a conversation of this cwd
     listed = rows.length <= 32 && !rollouts.includes(null);

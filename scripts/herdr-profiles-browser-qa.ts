@@ -12,7 +12,7 @@ await useTestHerdr();
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-profile-browser-"));
 const evidence = process.env.EVIDENCE_DIR;
 if (evidence) mkdirSync(evidence, { recursive: true });
-const workspace = await workspaceCreate({ label: "herdr-web-ui-test-profile-inheritance", cwd: stateDir });
+const workspace = await workspaceCreate({ label: "herdr-web-ui-test-profile-inheritance", cwd: stateDir, focus: false });
 // The only automatic SSH target is a closed loopback port, never a user's machine.
 const profile: HerdrMachineProfile = { id: "browser-fixture", label: "Build machine", enabled: true, target: { destination: "127.0.0.1", port: 1, session: "project-agents" } };
 let profiles = [profile];
@@ -62,7 +62,7 @@ try {
       await dialog.getByRole("button", { name: "Install and connect", exact: true }).waitFor();
       assert.equal(await dialog.getByLabel("SSH alias or user@address").count(), 0, "inherited setup requires no repeated address entry");
       assert.equal(submitted.length, 1);
-      assert.deepEqual({ ...submitted[0], machine_id: "stable" }, { destination: "127.0.0.1", port: 1, session: "project-agents", name: "Build machine", machine_id: "stable", update_remote: false });
+      assert.deepEqual({ ...submitted[0], machine_id: "stable" }, { destination: "127.0.0.1", port: 1, session: "project-agents", name: "Build machine", machine_id: "stable" });
       assert.ok(submitted[0]?.machine_id);
       assert.equal(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth), true);
       await dialog.getByRole("button", { name: "Close PC setup" }).click();

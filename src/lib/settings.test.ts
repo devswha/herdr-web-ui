@@ -3,7 +3,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
+import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
@@ -19,13 +20,37 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
-it("defaults legacy records to workspace grouping and accepts only supported modes", () => {
-  expect(sanitizeSettings({}).sidebarGrouping).toBe("workspace");
-  expect(sanitizeSettings({ sidebarGrouping: "workspace" }).sidebarGrouping).toBe("workspace");
-  expect(sanitizeSettings({ sidebarGrouping: "directory" }).sidebarGrouping).toBe("directory");
-  for (const sidebarGrouping of [null, true, "folder", 1]) {
-    expect(sanitizeSettings({ sidebarGrouping }).sidebarGrouping).toBe("workspace");
+it("keeps sidebar rows on two lines unless one line was chosen", () => {
+  expect(sanitizeSettings({}).sidebarRows).toBe("two");
+  expect(sanitizeSettings({ sidebarRows: "one" }).sidebarRows).toBe("one");
+  for (const sidebarRows of [null, true, "three", 2]) {
+    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("two");
   }
+});
+
+describe("clipboard from a pane", () => {
+  it("is on in a fresh install", () => {
+    expect(DEFAULT_SETTINGS.paneClipboard).toBe(true);
+    expect(sanitizeSettings({}).paneClipboard).toBe(true);
+  });
+
+  it("turns on for a 0.4.1 record, whose false was saved with any other change", () => {
+    const loaded = sanitizeSettings(JSON.parse(JSON.stringify({ theme: "light", terminalOsc52: false })));
+    expect(loaded.paneClipboard).toBe(true);
+    expect(loaded).not.toHaveProperty("terminalOsc52");
+  });
+
+  it("stays off once turned off, across a save and a reload", () => {
+    const chosen = sanitizeSettings({ ...sanitizeSettings({ terminalOsc52: false }), paneClipboard: false });
+    const reloaded = sanitizeSettings(JSON.parse(JSON.stringify(chosen)));
+    expect(reloaded.paneClipboard).toBe(false);
+    expect(sanitizeSettings({ ...reloaded, theme: "dark" }).paneClipboard).toBe(false);
+    expect(sanitizeSettings({ paneClipboard: "false" }).paneClipboard).toBe(true);
+  });
+});
+
+it("drops the folder grouping an older version stored", () => {
+  expect(sanitizeSettings({ sidebarGrouping: "directory" })).not.toHaveProperty("sidebarGrouping");
 });
 
 describe("chat font size", () => {
@@ -38,6 +63,15 @@ describe("chat font size", () => {
     expect(sanitizeSettings({ chatFontSize: 15.6 }).chatFontSize).toBe(16);
     expect(sanitizeSettings({ chatFontSize: "18" }).chatFontSize).toBeNull();
     expect(sanitizeSettings({ terminalFontSize: 15 }).chatFontSize).toBeNull();
+  });
+
+  it("sizes the message box too: with a mouse at the transcript's size, on touch never under --fs-input", () => {
+    const css = readFileSync(join(import.meta.dir, "..", "components", "Composer.css"), "utf8");
+    const sizes = [...css.matchAll(/\.composer-text \{[^}]*?font-size: ([^;]+);/g)].map((match) => match[1]);
+    expect(sizes).toEqual([
+      "max(var(--fs-input), calc(var(--fs-chat) * var(--chat-scale, 1)))",
+      "calc(var(--fs-chat) * var(--chat-scale, 1))",
+    ]);
   });
 });
 
@@ -268,12 +302,36 @@ describe("quick replies", () => {
   });
 });
 
+describe("microphone button", () => {
+  it("is automatic until chosen, and reads a record from before it had three places", () => {
+    expect(DEFAULT_SETTINGS.voiceInput).toBe("auto");
+    expect(sanitizeSettings({}).voiceInput).toBe("auto");
+    for (const voiceInput of VOICE_BUTTONS) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe(voiceInput);
+    // the old toggle: on was a choice, off was also what an untouched device stored
+    expect(sanitizeSettings({ voiceInput: true }).voiceInput).toBe("on");
+    expect(sanitizeSettings({ voiceInput: false }).voiceInput).toBe("auto");
+    for (const voiceInput of [null, 1, "yes", "ON"]) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe("auto");
+  });
+
+  it("is asked for in the chat off a phone on auto, everywhere when on and nowhere when off", () => {
+    expect(wantsVoiceInput("auto", "chat", false)).toBe(true);
+    expect(wantsVoiceInput("auto", "chat", true)).toBe(false);
+    expect(wantsVoiceInput("auto", "terminal", false)).toBe(false);
+    for (const mode of ["chat", "terminal"] as const) {
+      for (const phone of [false, true]) {
+        expect(wantsVoiceInput("on", mode, phone)).toBe(true);
+        expect(wantsVoiceInput("off", mode, phone)).toBe(false);
+      }
+    }
+  });
+});
+
 describe("suggestion chip", () => {
-  it("stays off until chosen in settings", () => {
-    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(false);
-    expect(sanitizeSettings({}).showSuggestionChip).toBe(false);
-    expect(sanitizeSettings({ showSuggestionChip: true }).showSuggestionChip).toBe(true);
-    expect(sanitizeSettings({ showSuggestionChip: "yes" }).showSuggestionChip).toBe(false);
+  it("stays on until turned off in settings", () => {
+    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(true);
+    expect(sanitizeSettings({}).showSuggestionChip).toBe(true);
+    expect(sanitizeSettings({ showSuggestionChip: false }).showSuggestionChip).toBe(false);
+    expect(sanitizeSettings({ showSuggestionChip: "no" }).showSuggestionChip).toBe(true);
   });
 });
 
@@ -305,6 +363,7 @@ describe("palette", () => {
     expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
     expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
     expect(sanitizeSettings({ palette: "catppuccin" }).palette).toBe("catppuccin");
+    expect(sanitizeSettings({ palette: "lilac" }).palette).toBe("lilac");
     expect(sanitizeSettings({ palette: "pink" }).palette).toBe("amber");
   });
 
@@ -325,6 +384,8 @@ describe("palette", () => {
     { theme: "light", palette: "charcoal", layers: ['[data-theme="light"][data-palette="charcoal"]', paper, '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "catppuccin", layers: ['[data-theme="dark"][data-palette="catppuccin"]', ":root"] },
     { theme: "light", palette: "catppuccin", layers: ['[data-theme="light"][data-palette="catppuccin"]', '[data-theme="light"]', ":root"] },
+    { theme: "dark", palette: "lilac", layers: ['[data-theme="dark"][data-palette="lilac"]', ":root"] },
+    { theme: "light", palette: "lilac", layers: ['[data-theme="light"][data-palette="lilac"]', '[data-theme="light"]', ":root"] },
   ] as const;
   const tokens = (layers: readonly string[]) => (name: string): string =>
     layers.map((selector) => block(selector).match(new RegExp(`--${name}: ([^;]+);`))?.[1]).find((value) => value !== undefined)!;
@@ -395,6 +456,28 @@ it("sanitizes input modes and shortcut overrides without accepting arbitrary com
   expect(sanitizeSettings({ terminalInputMode: "bad" }).terminalInputMode).toBe("auto");
   expect(sanitizeSettings({ terminalInputMode: "line" }).terminalInputMode).toBe("line");
   expect(sanitizeSettings({ shortcutOverrides: { palette: "p", settings: null, voice: "x", unknown: "x", "next-pane": "rm -rf" } }).shortcutOverrides).toEqual({ palette: "p", settings: null });
+});
+
+describe("key bar settings", () => {
+  it("migrates existing optional keys without restoring keys a new layout removed", () => {
+    expect(DEFAULT_SETTINGS.keyBarItems).toEqual(DEFAULT_KEY_BAR_ITEMS);
+    expect(sanitizeSettings({}).keyBarItems).toEqual(DEFAULT_KEY_BAR_ITEMS);
+    expect(sanitizeSettings({ keyBarExtras: ["home-end", "slash", "unknown"] }).keyBarItems).toEqual(migrateKeyBarItems(["home-end", "slash"]));
+    expect(sanitizeSettings({ keyBarExtras: [], keyBarItems: [] }).keyBarItems).toEqual([]);
+    expect(sanitizeSettings({ keyBarExtras: ["alt"], keyBarItems: [] }).keyBarItems).toEqual([]);
+    expect(sanitizeSettings({ keyBarExtras: [], keyBarItems: "bad" }).keyBarItems).toEqual(migrateKeyBarItems([]));
+  });
+
+  it("preserves a custom chord and new order through a saved settings round-trip and unrelated edits", () => {
+    const settings = sanitizeSettings({ keyBarExtras: ["alt"], keyBarItems: [
+      { type: "key", key: "ArrowLeft", modifiers: { ctrl: true, alt: true, shift: false } },
+      { type: "modifier", modifier: "shift" }, { type: "key", key: "Enter" },
+    ] });
+    const reloaded = sanitizeSettings(JSON.parse(JSON.stringify(settings)));
+    expect(reloaded.keyBarItems).toEqual(settings.keyBarItems);
+    expect(sanitizeSettings({ ...reloaded, theme: "light" }).keyBarItems).toEqual(settings.keyBarItems);
+    expect(settings.keyBarItems.map((item) => item.type === "modifier" ? item.modifier : item.key)).toEqual(["ArrowLeft", "shift", "Enter"]);
+  });
 });
 
 describe("default lens", () => {
