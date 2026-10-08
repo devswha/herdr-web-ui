@@ -39,6 +39,8 @@ export interface SettingsDialogProps {
   /** the herdr this app's server talks to, from the last health check */
   herdrVersion: string | null;
   onEnableNotifications: () => Promise<boolean>;
+  /** a file preview is open beneath: the dialog is drawn above it */
+  overPreview?: boolean;
 }
 
 function compactKeys(keys: readonly string[]): string {
@@ -551,7 +553,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
   return props.open ? <OpenSettingsDialog {...props} /> : null;
 }
 
-function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
+function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, herdrVersion, onEnableNotifications, overPreview = false }: SettingsDialogProps) {
   const t = useT();
   const narrow = useNarrow();
   // opened by Forward, the dialog shows what that entry of the history showed
@@ -663,7 +665,7 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
   const focusable = page ?? PAGES[0]!.id;
 
   return (
-    <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className={overPreview ? "modal-scrim settings-over-preview" : "modal-scrim"} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       {/* named Settings on every page: the page's own name is the visible title */}
       <section className="modal settings-dialog" role="dialog" aria-modal="true" aria-label={keyBarOpen ? t("Key bar") : t("Settings")}>
         <header className="modal-header settings-header">
