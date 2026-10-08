@@ -32,7 +32,7 @@ socket and no file. The run stops its herdr servers and removes the directory wh
 when it is interrupted; `CHECK_DIR=<path>` keeps it there instead. Only one run with a lane at a
 time on a PC: the contract and browser tests are bound by timing, and a second run names the
 first and exits (the lock is loopback port 41737, which a run listens on while it runs). One run per checkout: `fast` rewrites the generated types file while it
-checks it, and every mode builds into `dist/`.
+checks it, and `fast` and the browser lane build into `dist/` (`check run` runs only its command).
 
 A local pass is not CI's: the PC has its own Node (CI pins 22), its own cores and its own system
 libraries. The browser lane uses the lockfile's Chromium, which it downloads into Playwright's

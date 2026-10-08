@@ -8,6 +8,11 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - Never hardcode a color in component CSS: the light theme is only token overrides.
 - `term.reset()` fires only in the paneId effect, never mid-stream.
 - Output ACKs run in xterm's write callback and capture the connection and pane subscription; never queue them across reconnects or pane switches. A 4008 overload close stops automatic reconnect and shows a notice; selecting another pane explicitly reconnects. Normal reconnect replays stored role/attach/geometry once, without a second control-frame queue.
+- A WS receipt matches the request type, the captured pane and (for a pending action) the pending ID on its own connection, never an ID alone. A submit unanswered for 90 s gives up and keeps the text in the box; the client never sends it again.
+- SecretInput keeps the secret in the DOM input only: never React state, a draft, a queue or a retry copy. It clears on submit, cancel, unmount, `pagehide` and a hidden document.
+- Dictation (lib/voice.ts) only hands text to the caller to insert at the caret; it never sends.
+- An alert chime before the first tap or key (`unlockAlertSound`) is skipped, never queued to sound late.
+- Never import KaTeX statically: Markdown.tsx loads lib/katex.ts with the first expression (it is a fifth of the app's script).
 
 ## REMOTE TARGET OWNERSHIP
 - `MachineContext` binds every pane/workspace API call to a PC; PaneTerminal and CommandPalette remount on machine changes. Never use a mutable global target for async work.
@@ -17,8 +22,19 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 ## CONVENTIONS
 - main.tsx owns the side-effect imports: `./styles.css` and `./lib/viewport.ts` load there, never inside components. `./styles.css` is imported BEFORE `./App.tsx`: Vite emits CSS in import order, and a component stylesheet's single-class override of a primitive (`.sidebar-footer-action` over `.btn`) only wins when the primitive comes first (2026-09-21: the reversed order silently centered footer buttons and centered the palette).
 - Component CSS is colocated (`X.css` next to `X.tsx`); new component styles go there, not into styles.css. Override primitives at the same specificity and rely on order, never on `!important` or selector stacking.
-- Status surfaces (conn pill, banners, tree states) use `role="status"`; only the sidebar error block uses `role="alert"`.
+- Status surfaces (conn pill, banners, tree states) use `role="status"`; `role="alert"` is for error text (the App and sidebar error blocks, dialog and form errors, the prompt card's confirm).
 - index.html owns document meta (`interactive-widget=resizes-content`, `theme-color`, manifest link); client code never re-declares it.
+- xterm runs Unicode version `15-herdr` (`matchHerdrWidths`, lib/terminalWidths.ts) so the cursor advances exactly as herdr laid out the screen; xterm's default Unicode 6 widths shift every line holding emoji. `adjustTerminalGlyphs` reworks the DOM renderer's spans after drawing; copy reads xterm's buffer, so it still returns what the pane wrote.
+- xterm sizes every cell from the first matching font (lib/fontFamily.ts): "Symbols Nerd Font Mono" (private use area only) stays first, a proportional fallback stays behind `monospace`, a user's font list goes in front of the built-ins, never in place of them, and the bundled code face is named "JetBrains Mono Web" so it never claims the terminal's "JetBrains Mono".
+- main.tsx imports fonts/fonts.css before styles.css. Pretendard's unicode-range chunks are cached by public/sw.js as the browser fetches them; never precache them (3 MB on every device).
+- `src/motion.test.ts` scans every .css under src/ and allows one smooth endless animation, `bridge-progress-slide` (Machines.css).
+- Settings are one localStorage record (`herdr-web-ui:settings`) that passes `sanitizeSettings` on load and on every update: a new setting needs its default and type check there, or it is dropped. Storage access can throw where it is blocked; keep it inside `try`.
+- `history.state` may hold another script's data: read Settings entries only through `settingsEntry` (lib/settingsHistory.ts).
+- Chat turns render inside `RenderBoundary` with `resetKey={turnRevision(turn)}` (a content hash), because each poll parses every turn into new objects; one turn the chat cannot draw shows an inline notice instead of blanking the app.
+- Snapshot reads in App go through `SnapshotRequests`: an event or a newer read supersedes an in-flight fetch, its error included.
+- Chat path links (lib/filePaths.ts, ASCII `[\w@.+-]` names) and terminal path links (lib/terminalFileLinks.ts, Unicode letters) are separate matchers; a change to path recognition checks both.
+- Helpers outside React call the module-level `t`; components take `useT()`, whose identity changes with the language, so a memo that formats text lists it.
+- Work-block counts skip todo tools (`isTodoTool`: `TodoWrite` would match the write category). The Agents list never includes a shell just because it reports working or blocked. Pane-status pushes never trigger a worktree inventory poll.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |

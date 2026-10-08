@@ -515,6 +515,36 @@ describe("typing without terminal attach, at the edges", () => {
       bare.stop();
     }
   }, 30_000);
+
+  it("sends nothing typed into a mirrored pane that was left, or left and attached again, before its turn came (#546)", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "push-left"), terminalAttach: false, submitDelayMs: 1000 });
+    const socket = await Socket.connect(bare.port);
+    const since = (mark: number, predicate: (message: any) => boolean) =>
+      socket.waitFor((message) => socket.seen.indexOf(message) >= mark && predicate(message));
+    try {
+      for (const [id, again] of [[41, false], [43, true]] as const) {
+        const mark = socket.seen.length;
+        socket.send({ type: "attach", pane_id: shell.pane, cols: 80, rows: 24 });
+        await since(mark, (message) => message.type === "pty-data" && message.pane_id === shell.pane);
+        const from = chunks(shell).length;
+        // the message holds the pane's turn while the typing waits behind it and the pane is left
+        socket.send({ type: "submit", id, pane_id: shell.pane, text: "one", payload: "one" });
+        socket.send({ type: "input", pane_id: shell.pane, text: "typed" });
+        socket.send({ type: "detach", pane_id: shell.pane });
+        if (again) socket.send({ type: "attach", pane_id: shell.pane, cols: 80, rows: 24 });
+        expect(await socket.result(id)).toMatchObject({ ok: true });
+        socket.send({ type: "submit", id: id + 1, pane_id: shell.pane, text: "two", payload: "two" });
+        await socket.result(id + 1);
+        await received(shell, from, 2);
+        expect(typed(shell, from)).toBe("one\rtwo\r");
+        await since(mark, (message) => message.type === "error" && message.code === "input_failed" && message.pane_id === shell.pane);
+        if (again) socket.send({ type: "detach", pane_id: shell.pane });
+      }
+    } finally {
+      socket.close();
+      bare.stop();
+    }
+  }, 30_000);
 });
 
 describe("herdr unreachable when a terminal is asked for", () => {
