@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { forgetAuthAttempts, handleAuthRequest, isSecureRequest } from "./auth.ts";
+import { authClient, forgetAuthAttempts, handleAuthRequest, isSecureRequest } from "./auth.ts";
 import { sameOrigin } from "./machine-security.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "herdr-auth-"));
@@ -45,6 +45,18 @@ describe("POST /api/auth", () => {
       expect((await handleAuthRequest(new Request("http://h/api/auth", { method: "POST", body: "{}" }), TOKEN, null)).status).toBe(400);
     }
     expect((await handleAuthRequest(new Request("http://h/api/auth", { method: "POST", body: "{}" }), "", "10.0.0.5")).status).toBe(204);
+  });
+});
+
+describe("authClient", () => {
+  it("takes the address a proxy on this PC saw, and nobody else's word for it", () => {
+    const via = (value: string): Headers => new Headers({ "x-forwarded-for": value });
+    expect(authClient("127.0.0.1", via("100.64.0.9"))).toBe("100.64.0.9");
+    // the proxy appends what it saw: an entry the client wrote in front of it is not believed
+    expect(authClient("::1", via("1.2.3.4, 100.64.0.9"))).toBe("100.64.0.9");
+    expect(authClient("127.0.0.1", new Headers())).toBe("127.0.0.1");
+    expect(authClient("192.168.0.20", via("100.64.0.9"))).toBe("192.168.0.20");
+    expect(authClient(null, via("100.64.0.9"))).toBeNull();
   });
 });
 

@@ -87,3 +87,36 @@ describe("a paired watch device", () => {
     expect((await posted.json() as { error: { code: string } }).error.code).toBe("method_not_allowed");
   });
 });
+describe("a token set: guessing it", () => {
+  const TOKEN = "the-right-token-for-this-test";
+  let server: ReturnType<typeof createServer>;
+  let base: string;
+  beforeAll(() => {
+    forgetAuthAttempts();
+    server = createServer({ port: 0, stateDir: mkdtempSync(join(root, "token-")), token: TOKEN });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+  afterAll(() => server.stop());
+  const devices = (bearer: string, via?: string): Promise<Response> =>
+    fetch(`${base}/api/devices`, { headers: { authorization: `Bearer ${bearer}`, ...(via ? { "x-forwarded-for": via } : {}) } });
+
+  it("holds a run of wrong Bearer tokens back on every route, not only the sign-in form", async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) expect((await devices(`wrong-${attempt}`, "100.64.0.1")).status).toBe(401);
+    // inside the wait even the right token is not compared, so a guess learns nothing
+    const held = await devices(TOKEN, "100.64.0.1");
+    expect(held.status).toBe(429);
+    expect(Number(held.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
+
+  it("keeps each visitor behind a proxy on this PC apart, by the address the proxy saw", async () => {
+    expect((await devices(TOKEN, "100.64.0.2")).status).toBe(200);
+  });
+
+  it("lets the owner sign in while their cookie's wait runs, and the sign-in spends it", async () => {
+    const cookie = { cookie: "herdr_web_token=stale-token", "x-forwarded-for": "100.64.0.3" };
+    for (let attempt = 0; attempt < 6; attempt += 1) await fetch(`${base}/api/health`, { headers: cookie });
+    const signIn = await fetch(`${base}/api/auth`, { method: "POST", headers: { origin: base, "content-type": "application/json", "x-forwarded-for": "100.64.0.3" }, body: JSON.stringify({ token: TOKEN }) });
+    expect(signIn.status).toBe(204);
+    expect((await devices(TOKEN, "100.64.0.3")).status).toBe(200);
+  });
+});

@@ -15,6 +15,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 
+import { isLoopbackAddress } from "./access.ts";
 import { badRequest, jsonResponse } from "./http.ts";
 
 export const TOKEN_COOKIE = "herdr_web_token";
@@ -23,11 +24,16 @@ export const DEVICE_COOKIE = "herdr_web_device";
 const COOKIE_MAX_AGE_SECONDS = 31536000;
 
 /**
- * Guessing budget for POST /api/auth, per client address. A token is meant to be a long
- * random string, but an owner who picked a short one would otherwise be guessable without
- * bound, so a run of wrong tokens costs the address a wait that doubles with every
- * further failure and is spent again by one right token. The comparison itself stays
- * constant-time; this only makes it expensive to keep asking.
+ * Guessing budgets, per client address. A token is meant to be a long random string, but an
+ * owner who picked a short one would otherwise be guessable without bound, so a run of wrong
+ * tokens costs the address a wait that doubles with every further failure. The comparison
+ * itself stays constant-time; this only makes it expensive to keep asking.
+ *
+ * There are two budgets per address: one for POST /api/auth (the sign-in form) and one for a
+ * token presented with any other request (`Authorization: Bearer` or the token cookie). Every
+ * page load and poll of a browser holding a stale cookie spends the second; keeping them apart
+ * means that never stops its owner from signing in with the right token, and a right sign-in
+ * spends both waits.
  */
 const AUTH_FAILURE_BUDGET = 5;
 const AUTH_BACKOFF_MS = 1_000;
@@ -116,6 +122,50 @@ function authWaitLeft(client: string | null): number {
   return left <= 0 ? 0 : Math.ceil(left / 1000);
 }
 
+/**
+ * The address a budget is kept for. A proxy on this PC (`tailscale serve`, a local reverse
+ * proxy) is the peer of every request it forwards, so without this every visitor would share
+ * the one 127.0.0.1 budget and five wrong tries from anyone would lock the owner out. Such a
+ * proxy appends the address it saw to X-Forwarded-For, so the last entry is its word; earlier
+ * entries are whatever the client sent. A peer that is not loopback is never taken on its word.
+ */
+export function authClient(peer: string | null, headers: Headers): string | null {
+  if (peer === null || !isLoopbackAddress(peer)) return peer;
+  const forwarded = headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
+  return forwarded ? forwarded : peer;
+}
+
+const signInKey = (client: string | null): string | null => (client === null ? null : `sign-in ${client}`);
+const presentedKey = (client: string | null): string | null => (client === null ? null : `presented ${client}`);
+
+/**
+ * What the token presented with a request (Bearer or cookie) says: nothing presented, the
+ * right token, a wrong one, or `held` while the address is inside its wait, when it is not
+ * compared at all, so a guess made during the wait learns nothing.
+ */
+export function presentedToken(request: Request, token: string, client: string | null): "none" | "match" | "wrong" | "held" {
+  if (token === "") return "none";
+  const authorization = request.headers.get("authorization") ?? "";
+  const bearer = authorization.slice(0, BEARER_PREFIX.length).toLowerCase() === BEARER_PREFIX;
+  if (!bearer && !parseCookies(request.headers.get("cookie")).has(TOKEN_COOKIE)) return "none";
+  if (authWaitLeft(presentedKey(client)) > 0) return "held";
+  return isAuthenticated(request, token) ? "match" : "wrong";
+}
+
+/** Counts a wrong token presented with a request the server then refused. */
+export function recordPresentedTokenFailure(client: string | null): void {
+  recordAuthFailure(presentedKey(client));
+}
+
+/** The answer to a request whose Bearer token was not compared because its address is waiting. */
+export function presentedTokenHeld(client: string | null): Response {
+  return tooManyAttempts(authWaitLeft(presentedKey(client)));
+}
+
+function tooManyAttempts(wait: number): Response {
+  return jsonResponse({ error: { code: "too_many_attempts", message: `too many wrong tokens: wait ${wait}s` } }, 429, { "retry-after": String(wait) });
+}
+
 function recordAuthFailure(client: string | null): void {
   if (client === null) return;
   const failures = (authAttempts.get(client)?.failures ?? 0) + 1;
@@ -145,10 +195,8 @@ export async function handleAuthRequest(request: Request, token: string, client:
   if (request.method !== "POST") return badRequest("method_not_allowed", "use POST or DELETE");
   // Gate off: answering 204 without a cookie lets one client flow work either way.
   if (token === "") return noContent();
-  const wait = authWaitLeft(client);
-  if (wait > 0) {
-    return jsonResponse({ error: { code: "too_many_attempts", message: `too many wrong tokens: wait ${wait}s` } }, 429, { "retry-after": String(wait) });
-  }
+  const wait = authWaitLeft(signInKey(client));
+  if (wait > 0) return tooManyAttempts(wait);
 
   let payload: unknown;
   try {
@@ -162,9 +210,10 @@ export async function handleAuthRequest(request: Request, token: string, client:
   const offered = payload.token;
   if (typeof offered !== "string") return badRequest("missing_token", "token is required");
   if (!matches(offered, token)) {
-    recordAuthFailure(client);
+    recordAuthFailure(signInKey(client));
     return jsonResponse({ error: { code: "invalid_token", message: "token does not match" } }, 401);
   }
-  authAttempts.delete(client ?? "");
+  // the right token, typed in: both waits are spent, a stale cookie's included
+  for (const key of [signInKey(client), presentedKey(client)]) if (key !== null) authAttempts.delete(key);
   return noContent(sessionCookie(token, isSecureRequest(request)));
 }

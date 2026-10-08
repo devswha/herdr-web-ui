@@ -7,7 +7,7 @@ import type { ServerWebSocket } from "bun";
 import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
-import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
+import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isServeOwnerRequest } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
@@ -1201,7 +1201,10 @@ export function createServer(
       const funnel = request.headers.has("tailscale-funnel-request");
       const tailscaleLogin = request.headers.get("tailscale-user-login");
       const requestHost = request.headers.get("host");
-      const tokenMatched = token !== "" && isAuthenticated(request, token);
+      // the guessing budget of the address that asks (auth.ts): a token presented while it waits is not compared
+      const client = authClient(ip?.address ?? null, request.headers);
+      const presented = presentedToken(request, token, client);
+      const tokenMatched = presented === "match";
       const pairedDevice = devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE));
       const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
       const identity = await identityOf(token === "" && pairedDevice === null && isServeOwnerRequest(requestShape) && (pathname === "/ws" || pathname.startsWith("/api/")), requestHost);
@@ -1215,8 +1218,13 @@ export function createServer(
         gated: devices.gated,
       });
       const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
+      // a wrong token spends the budget wherever it is presented, /api/health and static files
+      // included (each answers whether it matched); the connection server's own bridge token does not
+      if (presented === "wrong" && !authenticated && !bridgeAuthorized) recordPresentedTokenFailure(client);
 
       if (requiresAuth(pathname) && !authenticated) {
+        // a script's Bearer guess is told to wait; a browser's cookie gets the usual 401 and its sign-in form
+        if (presented === "held" && pathname !== "/ws" && request.headers.has("authorization")) return presentedTokenHeld(client);
         // The WS client never parses a body, so the upgrade refusal stays plain text.
         return pathname === "/ws" ? new Response("unauthorized", { status: 401 }) : unauthorizedJson(access.level === "none" ? access.reason : "token_required");
       }
@@ -1287,7 +1295,7 @@ export function createServer(
         return new Response("websocket upgrade required", { status: 426 });
       }
 
-      if (pathname === "/api/auth") return handleAuthRequest(request, token, ip?.address ?? null);
+      if (pathname === "/api/auth") return handleAuthRequest(request, token, client);
       if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
         try {
           const response = await handleDeviceRequest(request, pathname, devices, access);
