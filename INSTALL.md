@@ -40,7 +40,7 @@ git --version
 
 | Method | When | Updates |
 | --- | --- | --- |
-| **A. herdr plugin** (default) | The user wants it to start with herdr | In-app: Settings → Updates |
+| **A. herdr plugin** (default) | The user wants it to start with herdr | In-app: Settings → About |
 | **B. Source checkout** | The user wants to develop it, or asks for a clone | In-app, while the checkout stays on a clean `main` |
 | **C. One-line installer** | The user agrees to install what is missing (herdr, Bun, Node) and to let Tailscale serve the app | In-app, like A |
 
@@ -152,7 +152,7 @@ tailscale serve --bg --https=443 http://127.0.0.1:7317
 Or run the one-line installer (method C) again, which installs nothing when the app is there, or
 `bun scripts/plugin.ts phone` from a source checkout: it runs that command on the first
 free HTTPS port when Tailscale runs and does not serve the app yet, says how to undo it, and prints the
-address as a QR code. **Settings → Phone** in the app shows this step's state: the address that already works as a QR
+address as a QR code. **Settings → Phone & devices** in the app shows this step's state: the address that already works as a QR
 code, or the exact command still to run. Who gets in:
 
 - The user's own Tailscale devices get in as the user: `tailscale serve` states the login, and the
@@ -160,7 +160,7 @@ code, or the exact command still to run. Who gets in:
   tagged devices (no person's login) need pairing. If the user's own phone is asked to pair anyway,
   `HERDR_WEB_TAILSCALE_SERVE_ONLY=1` lets it in without a code on a tailnet one login owns
   ([Access and safety](docs/guide.md#access-and-safety)).
-- Any other device (someone else's, or a LAN or public address) is paired: **Settings → Devices**
+- Any other device (someone else's, or a LAN or public address) is paired: **Settings → Phone & devices**
   on the PC shows a six-digit code and a QR code; the device enters it once. On a headless PC with
   no browser, `bun "$(ls -d ~/.config/herdr/plugins/github/devswha.herdr-web-ui-* | head -1)/scripts/plugin.ts" pair`
   prints the code in the terminal. Do this with the user present; never read a code aloud into a log.
@@ -197,7 +197,7 @@ The [user guide](docs/guide.md#configuration) lists the rest.
 
 ## Update
 
-- Settings → **Updates** → **Update and restart** when a new release (`vX.Y.Z`) is out. It works for
+- Settings → **About** → **Update and restart** when a new release (`vX.Y.Z`) is out. It works for
   both install methods. The new
   version is built separately and the app restarts only if the build and health check pass.
 - Plugin alternative: `herdr plugin install devswha/herdr-web-ui --yes` again. It replaces the

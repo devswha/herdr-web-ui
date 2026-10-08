@@ -471,7 +471,8 @@ export function createServer(
   async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> {
     const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
     if ((pane?.agent ?? pane?.agent_session?.agent) !== "codex") return false;
-    return codexQuestionsCollapsed((await paneRead({ paneId, source: "visible", format: "text" })).text);
+    // A collapsed queue in scrollback must not bypass an approval on the live screen.
+    return codexQuestionsCollapsed((await paneRead({ paneId, source: "detection", format: "text" })).text);
   }
 
   const pendingIdentity = (pane: HerdrPane): PendingIdentity => ({
@@ -1993,11 +1994,16 @@ export function createServer(
               // that answer is on its way must not overtake the typing.
               if (terminalAttachKnown === false || (!attachment && terminalAttachKnown === null)) {
                 const text = message.text;
+                // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
+                const origin = attachment?.clients.has(client) ? attachment : undefined;
+                const claim = client.data.attached.get(message.pane_id);
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) { inputFailed(); return; }
                   // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
                   const shaped = await mirrorInput(text, async () => (await paneContext(message.pane_id)).agent);
+                  if (client.data.attached.get(message.pane_id) !== claim
+                    || (origin && (attachments.get(message.pane_id) !== origin || !origin.clients.has(client)))) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
@@ -2120,7 +2126,9 @@ export function createServer(
                 if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); break; }
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
                 await serialize(message.pane_id, async () => {
-                  const screen = await paneRead({ paneId: message.pane_id, source: "visible", format: "text" });
+                  // A viewport scrolled into history can still show an old password prompt.
+                  // Validate the live screen before typing a secret into the current program.
+                  const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
                   if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
                   authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }

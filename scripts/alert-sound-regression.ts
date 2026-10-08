@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, Page } from "playwright-core";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 /**
  * The alert sound: real herdr status changes make the open tab chime, once a tap let the page
@@ -134,6 +135,7 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     console.log("PASS a pane that waits chimes, the one in front does not");
 
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettingsPage(page, "Alerts");
     const sound = page.getByRole("switch", { name: "Sound", exact: true });
     await sound.click();
     assert.equal(await sound.getAttribute("aria-checked"), "false");
