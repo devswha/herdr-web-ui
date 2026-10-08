@@ -17,6 +17,7 @@ import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
+import { DevinHistoryChanged } from "./devin.ts";
 import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
@@ -54,7 +55,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest, modelListWaits, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -326,6 +327,8 @@ export function createServer(
     tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
+    /** Native Devin store; tests pass an isolated SQLite database. */
+    devinDbPath?: string;
     updates?: UpdateService;
     /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
     herdrUpdate?: HerdrUpdater;
@@ -452,6 +455,7 @@ export function createServer(
     // answer into an open menu included, where agent.prompt would refuse
     if (!fromTerminal) try {
       await agentPrompt(paneId, text);
+      noteSubmitted(paneId, text);
       return;
     } catch (error) {
       if (!(error instanceof HerdrError)) throw error;
@@ -468,6 +472,7 @@ export function createServer(
     await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
     authorize();
     await paneSendKeys(paneId, ["Enter"]);
+    noteSubmitted(paneId, text);
   }
 
   function authorizeSocket(client: Client): void {
@@ -525,7 +530,7 @@ export function createServer(
     if (attachment !== lease.attachment || attachment.pty !== lease.pty || !owner.data.attached.has(paneId)
       || !attachment.clients.has(owner) || !attachment.ready) throw new HerdrError("input_not_ready", "The pending message's pane connection changed");
   }
-  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean }> {
+  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean }> {
     authorizePending(owner, paneId, lease);
     // The same normalized snapshot the client sees includes a known Codex finish that
     // herdr reports as unknown. Nothing is inferred from a bare unknown state.
@@ -542,7 +547,15 @@ export function createServer(
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
-    if (current.agent && (parseInteractivePrompt(current.agent, screen) !== null || modelListWaits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
+    // a message Claude Code holds for its invisible characters is a card to answer first, also once its hint has gone.
+    // Not so with this delivery's own paste in the box (`pasted`), which the check before the paste found
+    // free of a held message: the same words as the message noted before would be taken for that one,
+    // and so would any paste under a hint left up from it (typing does not take Claude's hint down)
+    const held = !pasted && current.agent === "claude" ? heldCandidate(paneId) : null;
+    const prompt = current.agent ? parseInteractivePrompt(current.agent, screen, null, true, [], held) : null;
+    // as the card's own reader decides it: Claude's grey text under a hint left behind is no held message
+    const waits = prompt !== null && !(pasted && isClaudeHeld(prompt)) && !(await claudeHeldIsGrey(paneId, prompt));
+    if (current.agent && (waits || modelListWaits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
       throw new HerdrError("agent_blocked", "The agent is waiting for an answer in the terminal");
     }
     if (current.agent && !["working", "idle", "done"].includes(pane.agent_status) && !collapsed) {
@@ -576,11 +589,12 @@ export function createServer(
       wrote = true;
       await paneSendText(paneId, `\u001b[200~${text}\u001b[201~`);
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
-      const beforeEnter = await pendingContext(owner, paneId, lease, identity);
+      const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
       if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
       authorizePending(owner, paneId, lease);
       committing(!automatic && beforeEnter.working);
       await paneSendKeys(paneId, ["Enter"]);
+      noteSubmitted(paneId, text);
       return { ok: true };
     } catch (error) {
       const fault = wrote ? { code: "submit_changed", message: "Pending-message delivery could not be confirmed. Check the terminal before sending again." } : pendingFault(error);
@@ -1766,7 +1780,7 @@ export function createServer(
           from: url.searchParams.get("from") ?? undefined,
         };
         try {
-          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page);
+          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath);
           // The chat polls every 2s: an unchanged conversation answers 304 with no body.
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
           const etag = `"${version}"`;
@@ -1774,7 +1788,7 @@ export function createServer(
           if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
           return jsonResponse(conversation, 200, headers);
         } catch (error) {
-          if (error instanceof HistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
+          if (error instanceof HistoryChanged || error instanceof DevinHistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
           // an unrecognized pane is not an error: the client falls back to the
           // scrollback transcript, exactly like chatmux's terminal fallback
           if (error instanceof ConversationUnavailable) return jsonResponse({ source: "scrollback", turns: [] });

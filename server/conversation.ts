@@ -41,6 +41,7 @@ import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, 
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { piTranscriptPath, unwrittenSession } from "./pi.ts";
 import { forgetAllPiIndexes, forgetPiIndex, piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
+import { defaultDevinDbPath, DevinHistoryUnavailable, devinConversation, forgetDevinState } from "./devin.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
@@ -407,7 +408,7 @@ export class HistoryChanged extends Error {
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript";
   turns: ConversationTurn[];
   metadata: ConversationMetadata;
   /** the first turn's position, for the page before it; null at the conversation's beginning */
@@ -581,6 +582,7 @@ const TURN_MARK: Record<RecognizedConversation["source"], Buffer> = {
   "omo-transcript": Buffer.from('"user"'),
   "gjc-transcript": Buffer.from('"user"'),
   "pi-transcript": Buffer.from('"user"'),
+  "devin-transcript": Buffer.alloc(0), // SQLite sessions use their own pager.
 };
 
 /**
@@ -698,20 +700,30 @@ function remember<T>(map: Map<string, T>, key: string, value: T, limit: number):
  * path (and by the written-session key), which is what the maps are keyed by, and each
  * reader keeps its own bound so an entry that outlives its pane is still capped.
  */
-interface PaneReads { paths: Set<string>; sessions: Set<string> }
+interface DevinPaneRead { sessionId: string; cwd: string; dbPath?: string }
+interface PaneReads { paths: Set<string>; sessions: Set<string>; devin: Map<string, DevinPaneRead> }
 const paneReads = new Map<string, PaneReads>();
 /** panes remembered; past this a pane that closed long ago is the one whose release is lost */
 const PANE_READS_MAX = 128;
 
+function emptyPaneReads(): PaneReads { return { paths: new Set<string>(), sessions: new Set<string>(), devin: new Map<string, DevinPaneRead>() }; }
+
 function rememberPaneRead(paneId: string, path: string): void {
-  const reads = paneReads.get(paneId) ?? { paths: new Set<string>(), sessions: new Set<string>() };
+  const reads = paneReads.get(paneId) ?? emptyPaneReads();
   reads.paths.add(path);
   remember(paneReads, paneId, reads, PANE_READS_MAX);
 }
 
 function rememberPaneSession(paneId: string, session: string): void {
-  const reads = paneReads.get(paneId) ?? { paths: new Set<string>(), sessions: new Set<string>() };
+  const reads = paneReads.get(paneId) ?? emptyPaneReads();
   reads.sessions.add(session);
+  remember(paneReads, paneId, reads, PANE_READS_MAX);
+}
+
+function rememberPaneDevin(paneId: string, sessionId: string, cwd: string, dbPath?: string): void {
+  const reads = paneReads.get(paneId) ?? emptyPaneReads();
+  const key = JSON.stringify([dbPath ?? defaultDevinDbPath(), sessionId, cwd]);
+  reads.devin.set(key, { sessionId, cwd, dbPath });
   remember(paneReads, paneId, reads, PANE_READS_MAX);
 }
 
@@ -860,6 +872,7 @@ export function forgetTranscriptState(): void {
   paneReads.clear();
   forgetAllCodexState();
   forgetAllPiIndexes();
+  forgetDevinState();
 }
 
 /**
@@ -878,6 +891,9 @@ export function forgetPaneTranscriptState(paneId: string): void {
   // still reads stays
   const shared = (pick: (other: PaneReads) => Set<string>, value: string): boolean => [...paneReads.values()].some((other) => pick(other).has(value));
   for (const session of reads.sessions) if (!shared((other) => other.sessions, session)) writtenSessions.delete(session);
+  for (const [key, session] of reads.devin) {
+    if (![...paneReads.values()].some((other) => other.devin.has(key))) forgetDevinState(session.sessionId, session.cwd, session.dbPath);
+  }
   for (const path of reads.paths) {
     if (shared((other) => other.paths, path)) continue;
     for (const key of [...cache.keys()]) if (key.startsWith(`${path}\0`)) cache.delete(key);
@@ -1002,7 +1018,7 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
  * label: omo's own store is read only when omo is really running
  * in that pane, never on a matching cwd alone.
  */
-async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: RecognizedConversation["source"]; path: string; codexHome?: string }> {
+async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: Exclude<RecognizedConversation["source"], "devin-transcript">; path: string; codexHome?: string }> {
   const paneId = pane.pane_id;
   let agent = pane.agent ?? pane.agent_session?.agent ?? "";
   // herdr names no agent for this pane: a session report an earlier agent left behind says
@@ -1058,6 +1074,47 @@ async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[
   return session.path;
 }
 
+/** A live Devin executable, not a command line which happens to mention one. */
+export function isDevinProcess(argv: readonly string[]): boolean {
+  const executable = argv[0] ?? "";
+  const exact = /(?:^|[\\/])devin(?:\.exe)?$/;
+  return process.platform === "win32" ? exact.test(executable.toLowerCase()) : exact.test(executable);
+}
+
+/** Resolves only a session explicitly named by this live Devin pane, never by directory contents. */
+export function devinSessionForPane(pane: HerdrPane, panes: HerdrPane[], argv: string[]): string {
+  if (pane.agent !== "devin") throw new ConversationUnavailable("no_session_id");
+  const reported = pane.agent_session?.agent === "devin" && pane.agent_session.kind === "id"
+    && typeof pane.agent_session.value === "string" && pane.agent_session.value.length > 0
+    ? pane.agent_session.value : null;
+  const resumed: string[] = [];
+  for (let index = 1; index < argv.length; index++) {
+    const arg = argv[index]!;
+    if (arg === "--") break;
+    if (arg.startsWith("--resume=")) {
+      const id = arg.slice("--resume=".length);
+      if (!id || id.startsWith("-")) throw new ConversationUnavailable("no_session_id");
+      resumed.push(id);
+    } else if (arg === "--resume" || arg === "-r") {
+      const id = argv[index + 1];
+      if (!id || id.startsWith("-")) throw new ConversationUnavailable("no_session_id");
+      resumed.push(id);
+      index++;
+    }
+  }
+  const named = resumed[0] ?? null;
+  if (resumed.some((id) => id !== named) || (reported !== null && named !== null && reported !== named)) {
+    throw new ConversationUnavailable("no_session_id");
+  }
+  const explicit = reported ?? named;
+  if (explicit === null) throw new ConversationUnavailable("no_session_id");
+  if (panes.some((other) => other.pane_id !== pane.pane_id && other.agent === "devin"
+    && other.agent_session?.agent === "devin" && other.agent_session.kind === "id" && other.agent_session.value === explicit)) {
+    throw new ConversationUnavailable("no_session_id");
+  }
+  return explicit;
+}
+
 /**
  * pane -> agent session -> transcript turns. Read-only, same-user files only.
  * Claude sessions are looked up by id under ~/.claude/projects; omp sessions
@@ -1071,11 +1128,37 @@ async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[
  * returned cursor; `from` is every turn after one, for a chat that already
  * shows the pages before it. A cursor from another file throws HistoryChanged.
  */
-export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}): Promise<RecognizedConversation> {
+export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, devinDbPath?: string): Promise<RecognizedConversation> {
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
   if (typeof pane.cwd !== "string" || pane.cwd.length === 0) throw new ConversationUnavailable("no_recognized_transcript");
+
+  if (pane.agent === "devin") {
+    const cwd = pane.foreground_cwd || pane.cwd;
+    const storePath = devinDbPath ?? defaultDevinDbPath();
+    const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: unknown }[] } }>(
+      "pane.process_info", { pane_id: paneId },
+    ).catch(() => null);
+    const processes = (info?.process_info?.foreground_processes ?? []).filter((process) =>
+      Array.isArray(process.argv) && process.argv.every((arg) => typeof arg === "string") &&
+      isDevinProcess(process.argv as string[]) && process.argv[1] !== "acp",
+    );
+    if (processes.length > 1) throw new ConversationUnavailable("transcript_missing");
+    // No Devin runs under the label: what does run is resolved below, as it was before this
+    // reader (an omo is found by its process tree, whatever herdr calls the pane).
+    if (processes.length === 1) {
+      const sessionId = devinSessionForPane(pane, snapshot.panes, processes[0]!.argv as string[]);
+      try {
+        const answer = devinConversation(sessionId, cwd, page, storePath);
+        rememberPaneDevin(paneId, sessionId, cwd, storePath);
+        return answer;
+      } catch (error) {
+        if (error instanceof DevinHistoryUnavailable) throw new ConversationUnavailable("transcript_missing");
+        throw error;
+      }
+    }
+  }
 
   let resolved: Awaited<ReturnType<typeof resolveTranscript>>;
   try {
@@ -1102,7 +1185,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
 }
 
 /** One page of a resolved transcript (paneConversation's `page`). */
-export function transcriptPage(source: RecognizedConversation["source"], path: string, page: ConversationPage = {}, codexHome?: string): RecognizedConversation {
+export function transcriptPage(source: Exclude<RecognizedConversation["source"], "devin-transcript">, path: string, page: ConversationPage = {}, codexHome?: string): RecognizedConversation {
   let stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number };
   try {
     stat = statSync(path);
