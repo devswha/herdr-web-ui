@@ -93,11 +93,21 @@ function localCommandOutput(content: unknown): string {
     const stream = content.startsWith("<local-command-stdout>", at) ? "stdout" : content.startsWith("<local-command-stderr>", at) ? "stderr" : null;
     if (stream === null) return "";
     const start = at + `<local-command-${stream}>`.length;
-    const end = content.indexOf(`</local-command-${stream}>`, start);
+    // a closing tag the output prints itself ends nothing: the stream's own one is at the end of
+    // the entry or before the next stream. Each candidate looks only at the whitespace after it.
+    const close = `</local-command-${stream}>`;
+    let end = content.indexOf(close, start);
+    let next = 0;
+    while (end !== -1) {
+      next = end + close.length;
+      while (next < content.length && /\s/.test(content[next]!)) next++;
+      if (next === content.length || content.startsWith("<local-command-stdout>", next) || content.startsWith("<local-command-stderr>", next)) break;
+      end = content.indexOf(close, end + close.length);
+    }
     if (end === -1) return "";
     const text = stripTerminalControls(content.slice(start, end)).trim();
     if (text.length > 0) streams.push(text);
-    at = end + `</local-command-${stream}>`.length;
+    at = next;
   }
   const text = streams.join("\n");
   return text.length > LOCAL_COMMAND_MAX_CHARS ? `${text.slice(0, LOCAL_COMMAND_MAX_CHARS)}\u2026` : text;
