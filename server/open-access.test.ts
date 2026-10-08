@@ -91,9 +91,14 @@ describe("a token set: guessing it", () => {
   const TOKEN = "the-right-token-for-this-test";
   let server: ReturnType<typeof createServer>;
   let base: string;
+  const stateDir = mkdtempSync(join(root, "token-"));
+  let watchToken = "";
   beforeAll(() => {
     forgetAuthAttempts();
-    server = createServer({ port: 0, stateDir: mkdtempSync(join(root, "token-")), token: TOKEN });
+    // paired before the server starts, so its own store holds the device
+    const store = new DeviceStore(stateDir);
+    watchToken = store.pair(store.startPairing().code, "Watch", "watch")!.token;
+    server = createServer({ port: 0, stateDir, token: TOKEN });
     base = `http://127.0.0.1:${server.port}`;
   });
   afterAll(() => server.stop());
@@ -106,6 +111,23 @@ describe("a token set: guessing it", () => {
     const held = await devices(TOKEN, "100.64.0.1");
     expect(held.status).toBe(429);
     expect(Number(held.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
+
+  it("counts guesses that arrive together", async () => {
+    const statuses = (await Promise.all(Array.from({ length: 12 }, (_, attempt) => devices(`together-${attempt}`, "100.64.0.4")))).map((response) => response.status);
+    expect(statuses.filter((status) => status === 401).length).toBe(5);
+    expect(statuses.filter((status) => status === 429).length).toBe(7);
+  });
+
+  it("counts a paired watch device's guesses, so it cannot guess its way up to drive", async () => {
+    const watcher = (bearer: string): Promise<Response> => fetch(`${base}/api/push/test`, {
+      method: "POST",
+      headers: { cookie: `herdr_web_device=${encodeURIComponent(watchToken)}`, authorization: `Bearer ${bearer}`, origin: base, "content-type": "application/json", "x-forwarded-for": "100.64.0.5" },
+      body: "{}",
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) expect((await watcher(`guess-${attempt}`)).status).toBe(403);
+    // inside its wait the right token is not compared: the device stays a watcher
+    expect((await watcher(TOKEN)).status).toBe(403);
   });
 
   it("keeps each visitor behind a proxy on this PC apart, by the address the proxy saw", async () => {

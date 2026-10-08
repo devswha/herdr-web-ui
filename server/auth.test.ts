@@ -40,6 +40,22 @@ describe("POST /api/auth", () => {
     expect((await offer(TOKEN, "10.0.0.7")).status).toBe(429);
   });
 
+  it("holds concurrent guesses back too: the budget is read again after the body arrives", async () => {
+    const statuses = (await Promise.all(Array.from({ length: 12 }, () => offer("wrong", "10.0.0.11")))).map((response) => response.status);
+    expect(statuses.filter((status) => status === 401).length).toBe(5);
+    expect(statuses.filter((status) => status === 429).length).toBe(7);
+  });
+
+  it("gives a client that writes its own X-Forwarded-For a fresh address, but not a fresh share of its proxy's budget", async () => {
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const client = authClient("127.0.0.1", new Headers({ "x-forwarded-for": `claimed-${attempt}` }));
+      statuses.push((await handleAuthRequest(new Request("http://h/api/auth", { method: "POST", body: JSON.stringify({ token: "wrong" }) }), TOKEN, client)).status);
+    }
+    expect(statuses.filter((status) => status === 401).length).toBe(50);
+    expect(statuses.at(-1)).toBe(429);
+  });
+
   it("holds nobody back when the address is unknown, and stays open with no token set", async () => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       expect((await handleAuthRequest(new Request("http://h/api/auth", { method: "POST", body: "{}" }), TOKEN, null)).status).toBe(400);
@@ -51,9 +67,9 @@ describe("POST /api/auth", () => {
 describe("authClient", () => {
   it("takes the address a proxy on this PC saw, and nobody else's word for it", () => {
     const via = (value: string): Headers => new Headers({ "x-forwarded-for": value });
-    expect(authClient("127.0.0.1", via("100.64.0.9"))).toBe("100.64.0.9");
+    expect(authClient("127.0.0.1", via("100.64.0.9"))).toBe("100.64.0.9 via 127.0.0.1");
     // the proxy appends what it saw: an entry the client wrote in front of it is not believed
-    expect(authClient("::1", via("1.2.3.4, 100.64.0.9"))).toBe("100.64.0.9");
+    expect(authClient("::1", via("1.2.3.4, 100.64.0.9"))).toBe("100.64.0.9 via ::1");
     expect(authClient("127.0.0.1", new Headers())).toBe("127.0.0.1");
     expect(authClient("192.168.0.20", via("100.64.0.9"))).toBe("192.168.0.20");
     expect(authClient(null, via("100.64.0.9"))).toBeNull();

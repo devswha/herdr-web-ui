@@ -115,9 +115,8 @@ export function noContent(...setCookies: string[]): Response {
  * to remember (a unix socket, a proxy that hid it) is never held back: the budget is there
  * to make guessing expensive, not to lock anyone out.
  */
-function authWaitLeft(client: string | null): number {
-  if (client === null) return 0;
-  const entry = authAttempts.get(client);
+function authWaitLeft(key: string): number {
+  const entry = authAttempts.get(key);
   const left = entry === undefined ? 0 : entry.until - Date.now();
   return left <= 0 ? 0 : Math.ceil(left / 1000);
 }
@@ -128,15 +127,39 @@ function authWaitLeft(client: string | null): number {
  * the one 127.0.0.1 budget and five wrong tries from anyone would lock the owner out. Such a
  * proxy appends the address it saw to X-Forwarded-For, so the last entry is its word; earlier
  * entries are whatever the client sent. A peer that is not loopback is never taken on its word.
+ * A forwarded address is named `<address> via <peer>`: see `budgets`.
  */
 export function authClient(peer: string | null, headers: Headers): string | null {
   if (peer === null || !isLoopbackAddress(peer)) return peer;
   const forwarded = headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
-  return forwarded ? forwarded : peer;
+  return forwarded ? `${forwarded} via ${peer}` : peer;
 }
 
-const signInKey = (client: string | null): string | null => (client === null ? null : `sign-in ${client}`);
-const presentedKey = (client: string | null): string | null => (client === null ? null : `presented ${client}`);
+type Channel = "sign-in" | "presented";
+/** what every visitor through one proxy shares: a fresh forwarded address never buys a fresh share */
+const SHARED_FAILURE_BUDGET = AUTH_FAILURE_BUDGET * 10;
+
+/**
+ * The budgets a failure spends and a wait is read from. A forwarded visitor has its own and,
+ * ten times as large, the one everyone through that peer shares: a client that writes its own
+ * X-Forwarded-For (a direct local connection, a plain TCP tunnel) gets a fresh own budget per
+ * guess, but not a fresh shared one. An unknown address (a unix socket) has none: the budget is
+ * there to make guessing expensive, not to lock anyone out.
+ */
+function budgets(channel: Channel, client: string | null): Array<{ key: string; budget: number }> {
+  if (client === null) return [];
+  const own = { key: `${channel} ${client}`, budget: AUTH_FAILURE_BUDGET };
+  const via = client.indexOf(" via ");
+  return via < 0 ? [own] : [own, { key: `${channel} via ${client.slice(via + " via ".length)}`, budget: SHARED_FAILURE_BUDGET }];
+}
+
+function waitLeft(channel: Channel, client: string | null): number {
+  return Math.max(0, ...budgets(channel, client).map(({ key }) => authWaitLeft(key)));
+}
+
+function recordFailure(channel: Channel, client: string | null): void {
+  for (const { key, budget } of budgets(channel, client)) recordAuthFailure(key, budget);
+}
 
 /**
  * What the token presented with a request (Bearer or cookie) says: nothing presented, the
@@ -148,29 +171,31 @@ export function presentedToken(request: Request, token: string, client: string |
   const authorization = request.headers.get("authorization") ?? "";
   const bearer = authorization.slice(0, BEARER_PREFIX.length).toLowerCase() === BEARER_PREFIX;
   if (!bearer && !parseCookies(request.headers.get("cookie")).has(TOKEN_COOKIE)) return "none";
-  if (authWaitLeft(presentedKey(client)) > 0) return "held";
+  if (waitLeft("presented", client) > 0) return "held";
   return isAuthenticated(request, token) ? "match" : "wrong";
 }
 
-/** Counts a wrong token presented with a request the server then refused. */
+/**
+ * Counts a wrong token presented with a request. Call it in the same synchronous step as
+ * `presentedToken`: an await between them lets concurrent guesses all pass the check.
+ */
 export function recordPresentedTokenFailure(client: string | null): void {
-  recordAuthFailure(presentedKey(client));
+  recordFailure("presented", client);
 }
 
 /** The answer to a request whose Bearer token was not compared because its address is waiting. */
 export function presentedTokenHeld(client: string | null): Response {
-  return tooManyAttempts(authWaitLeft(presentedKey(client)));
+  return tooManyAttempts(waitLeft("presented", client));
 }
 
 function tooManyAttempts(wait: number): Response {
   return jsonResponse({ error: { code: "too_many_attempts", message: `too many wrong tokens: wait ${wait}s` } }, 429, { "retry-after": String(wait) });
 }
 
-function recordAuthFailure(client: string | null): void {
-  if (client === null) return;
+function recordAuthFailure(client: string, budget: number): void {
   const failures = (authAttempts.get(client)?.failures ?? 0) + 1;
   // the budget is spent first: the failures under it cost nothing but the answer they got
-  const wait = failures < AUTH_FAILURE_BUDGET ? 0 : Math.min(AUTH_BACKOFF_MS * 2 ** (failures - AUTH_FAILURE_BUDGET), AUTH_BACKOFF_MAX_MS);
+  const wait = failures < budget ? 0 : Math.min(AUTH_BACKOFF_MS * 2 ** (failures - budget), AUTH_BACKOFF_MAX_MS);
   authAttempts.set(client, { failures, until: wait === 0 ? 0 : Date.now() + wait });
   if (authAttempts.size <= AUTH_CLIENTS_MAX) return;
   // over the cap: an address whose wait is over first, else the oldest
@@ -195,7 +220,7 @@ export async function handleAuthRequest(request: Request, token: string, client:
   if (request.method !== "POST") return badRequest("method_not_allowed", "use POST or DELETE");
   // Gate off: answering 204 without a cookie lets one client flow work either way.
   if (token === "") return noContent();
-  const wait = authWaitLeft(signInKey(client));
+  const wait = waitLeft("sign-in", client);
   if (wait > 0) return tooManyAttempts(wait);
 
   let payload: unknown;
@@ -209,11 +234,14 @@ export async function handleAuthRequest(request: Request, token: string, client:
   }
   const offered = payload.token;
   if (typeof offered !== "string") return badRequest("missing_token", "token is required");
+  // read again after the await: concurrent guesses all passed the check above before any failed
+  const waitNow = waitLeft("sign-in", client);
+  if (waitNow > 0) return tooManyAttempts(waitNow);
   if (!matches(offered, token)) {
-    recordAuthFailure(signInKey(client));
+    recordFailure("sign-in", client);
     return jsonResponse({ error: { code: "invalid_token", message: "token does not match" } }, 401);
   }
   // the right token, typed in: both waits are spent, a stale cookie's included
-  for (const key of [signInKey(client), presentedKey(client)]) if (key !== null) authAttempts.delete(key);
+  for (const channel of ["sign-in", "presented"] as const) authAttempts.delete(budgets(channel, client)[0]?.key ?? "");
   return noContent(sessionCookie(token, isSecureRequest(request)));
 }

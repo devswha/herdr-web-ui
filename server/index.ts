@@ -1204,6 +1204,10 @@ export function createServer(
       // the guessing budget of the address that asks (auth.ts): a token presented while it waits is not compared
       const client = authClient(ip?.address ?? null, request.headers);
       const presented = presentedToken(request, token, client);
+      // counted at once, before any await below lets a concurrent guess pass the same check. Every
+      // wrong token counts, a paired watch device's too (a right one would upgrade it to drive);
+      // the connection server's own bridge token does not
+      if (presented === "wrong" && !bridgeAuthorized) recordPresentedTokenFailure(client);
       const tokenMatched = presented === "match";
       const pairedDevice = devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE));
       const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
@@ -1218,9 +1222,6 @@ export function createServer(
         gated: devices.gated,
       });
       const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
-      // a wrong token spends the budget wherever it is presented, /api/health and static files
-      // included (each answers whether it matched); the connection server's own bridge token does not
-      if (presented === "wrong" && !authenticated && !bridgeAuthorized) recordPresentedTokenFailure(client);
 
       if (requiresAuth(pathname) && !authenticated) {
         // a script's Bearer guess is told to wait; a browser's cookie gets the usual 401 and its sign-in form
