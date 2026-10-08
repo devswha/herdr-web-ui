@@ -1352,14 +1352,10 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!socket || !pane || draft.text.length === 0 || !socket.connected || secretRef.current !== null || heldRef.current) return;
-    // the click is the user's decision about this text either way, so it leaves the browser
-    // profile either way. A frame the socket refuses keeps the text on screen (they retry or
-    // copy it) and is never queued; it just does not stay on disk behind them.
+    // a frame the socket refuses (input not ready yet) keeps the draft, on screen and on disk, for
+    // another try or Discard; it is never queued
     if (socket.sendInput(pane, draft.text)) setDraft(EMPTY_DRAFT);
-    else {
-      try { localStorage.removeItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, pane)}`); } catch {}
-    }
-  }, [draft, machineId]);
+  }, [draft]);
 
   const discardDraft = useCallback(() => {
     setDraft(EMPTY_DRAFT);

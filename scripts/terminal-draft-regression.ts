@@ -29,4 +29,34 @@ export async function checkHeldDraftPaneSwitch(browser: Browser, origin: string,
   } finally {
     await context.close();
   }
+  // connected, but the pane's input never says it is ready: Send is refused, and the refused
+  // draft must still be there after a pane switch
+  const notReady = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    await notReady.addInitScript((ids) => {
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false, terminalInputMode: "direct" }));
+      for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal");
+    }, [paneA, paneB]);
+    await notReady.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+      const server = socket.connectToServer();
+      server.onMessage((message) => { if (!String(message).includes('"input-ready"')) socket.send(message); });
+    });
+    const page = await notReady.newPage();
+    const held = page.locator(".terminal-banner-draft .draft-text");
+    const select = (paneId: string) => page.locator(`.pane-select[title^="${paneId} —"]`).click();
+    await page.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
+    await page.locator(".conn-live").waitFor();
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("echo held-b");
+    await held.filter({ hasText: "echo held-b" }).waitFor({ timeout: 10_000 });
+    await page.locator(".terminal-banner-draft .draft-send").click();
+    await held.filter({ hasText: "echo held-b" }).waitFor({ timeout: 10_000 });
+    await select(paneB);
+    await held.waitFor({ state: "detached", timeout: 10_000 });
+    await select(paneA);
+    await held.filter({ hasText: "echo held-b" }).waitFor({ timeout: 10_000 });
+    console.log("PASS a held draft whose send was refused survives a pane switch");
+  } finally {
+    await notReady.close();
+  }
 }
