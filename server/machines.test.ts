@@ -195,6 +195,8 @@ describe("SSH output during setup", () => {
 // never see the swapped PATH), so setup() fails inside its own catch — where the action is set.
 describe("a first connect that finds a bridge of another version", () => {
   const socket = "/home/u/.config/herdr/herdr.sock";
+  // "0" is an older bundle: this app offers to update it. A newer one (it was "999" here) is now
+  // refused instead, which machine-update.test.ts covers.
   const descriptor = { pid: 4242, port: 29431, token: "a".repeat(64), socket_path: socket, bridge_protocol: 1, bundle_version: "0", managed_remote: true };
   const real = { start: SshConnection.prototype.start, run: SshConnection.prototype.run, close: SshConnection.prototype.close };
   afterEach(() => { Object.assign(SshConnection.prototype, real); });
