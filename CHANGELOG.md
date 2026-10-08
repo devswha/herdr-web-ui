@@ -15,12 +15,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   JavaScript number, so the owner was not recognised and the owner's own devices had to pair. Two
   logins with neighbouring ids are also no longer taken for one.
   ([#572](https://github.com/devswha/herdr-web-ui/pull/572))
-- On Windows, a Claude Code pane started with its own `CLAUDE_CONFIG_DIR`, such as a second
-  account's `~/.claude-*` directory, shows its chat. Before, the pane fell back to `~/.claude`, so
-  the chat said **Conversation unavailable** and only the terminal worked. Windows does not let
-  the server read another process's environment, so the store is the one among `~/.claude` and
-  the `~/.claude-*` directories beside it that holds the Claude process's own record, checked
-  against the time the process started. Claude Code processes reported as `claude.exe` are
+- On Windows, a Claude Code pane started with a second account's `~/.claude-*` directory as its
+  `CLAUDE_CONFIG_DIR` shows its chat. Before, the pane fell back to `~/.claude`, so the chat said
+  **Conversation unavailable** and only the terminal worked. Windows does not let the server read
+  another process's environment, so the store is the one among the server's own
+  `CLAUDE_CONFIG_DIR`, `~/.claude` and the `~/.claude-*` directories beside it that holds the
+  Claude process's own record, checked against the time the process started. A directory
+  elsewhere is not looked in. Claude Code processes reported as `claude.exe` are
   recognized too.
   ([#563](https://github.com/devswha/herdr-web-ui/pull/563) by @David-Sousa-Web)
 - A long line of brackets, `\(` or underscores that never close, as an agent prints in a log or a
