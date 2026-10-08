@@ -764,7 +764,7 @@ export function forgetPaneTranscriptState(paneId: string): void {
     for (const key of [...cache.keys()]) if (key.startsWith(`${path}\0`)) cache.delete(key);
     transcriptRevisions.delete(path);
     liveScans.delete(path);
-    settledTurns.delete(path);
+    for (const key of [...settledTurns.keys()]) if (key.startsWith(`${path}\0`)) settledTurns.delete(key);
     codexTurns.delete(path);
     clearScans.delete(path);
     forgetCodexStateFor(path);
