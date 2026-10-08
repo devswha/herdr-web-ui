@@ -1,4 +1,4 @@
-import { expect, it } from "bun:test";
+import { expect, it, setSystemTime } from "bun:test";
 import { ComposerDraftStore, SEND_LEASE_MS, storageEventDraft } from "./composerDraft.ts";
 function fixture() {
   const data = new Map<string, string>();
@@ -110,4 +110,33 @@ it("names the draft another tab's edit or send concerns, and nothing else", () =
   expect(storageEventDraft(`herdr-web-ui:composer-sending:${key}`)).toBe(key);
   expect(storageEventDraft("herdr-web-ui:settings")).toBeNull();
   expect(storageEventDraft(null)).toBeNull();
+});
+
+it("lets a tab send again once another tab's abandoned lease runs out, and tells its composer", () => {
+  const data = new Map<string, string>();
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
+  const wakeUps: Array<{ run: () => void; ms: number }> = [];
+  const closed = new ComposerDraftStore(() => storage);
+  const other = new ComposerDraftStore(() => storage, (run, ms) => { wakeUps.push({ run, ms }); return 0; });
+  const key = "herdr-web-ui:composer-draft:local:w1:p1";
+  const start = Date.now();
+  try {
+    setSystemTime(start);
+    expect(closed.begin(key, "hello")).toBe(true);
+    // the other tab hears of the lease; the sending tab then closes without ending it
+    other.refresh(key);
+    expect(other.read(key).sending).toBe(true);
+    expect(other.begin(key, "hello")).toBe(false);
+    expect(wakeUps.length).toBe(1);
+    expect(wakeUps[0]!.ms).toBeGreaterThan(SEND_LEASE_MS - 1000);
+    let told = 0;
+    other.subscribe(() => { told += 1; });
+    setSystemTime(start + SEND_LEASE_MS + 1);
+    wakeUps[0]!.run();
+    expect(other.read(key).sending).toBe(false);
+    expect(told).toBe(1);
+    expect(other.begin(key, "hello")).toBe(true);
+  } finally {
+    setSystemTime();
+  }
 });
