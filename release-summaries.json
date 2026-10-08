@@ -2,6 +2,7 @@
   "0.4.1": {
     "en": {
       "new": [
+        "Typing /effort in a Claude Code chat opens a card to pick the effort for this session",
         "Settings → Appearance can keep waiting and the latest agents on top of the Agents list",
         "A finished agent you opened in the web UI can lose its dot, as it would in herdr (opt-in)",
         "The guide shows how to give the app a public HTTPS address with Portal"
@@ -28,6 +29,7 @@
     },
     "ko": {
       "new": [
+        "Claude Code 채팅에 /effort를 입력하면 이 세션의 effort를 고르는 카드가 열립니다",
         "설정 → 모양에서 기다리는 에이전트와 최근 에이전트를 Agents 목록 맨 위에 둘 수 있습니다",
         "웹 UI에서 열어 본 끝난 에이전트는 herdr에서처럼 점이 사라지게 할 수 있습니다(옵션)",
         "가이드에 Portal로 앱에 공개 HTTPS 주소를 주는 방법이 추가됐습니다"
@@ -54,6 +56,7 @@
     },
     "ja": {
       "new": [
+        "Claude Code のチャットで /effort と打つと、このセッションの effort を選ぶカードが開きます",
         "設定 → 外観で、待機中と最新のエージェントを Agents 一覧の先頭に置けます",
         "Web UI で開いた完了済みエージェントの点を、herdr と同じように消せます(任意)",
         "ガイドに Portal でアプリに公開 HTTPS アドレスを与える方法が加わりました"
@@ -80,6 +83,7 @@
     },
     "zh": {
       "new": [
+        "在 Claude Code 聊天中输入 /effort 会打开卡片，为本次会话选择 effort",
         "设置 → 外观可以把等待中和最新的代理放在 Agents 列表顶部",
         "在网页界面中打开过的已完成代理可以像在 herdr 中一样去掉圆点（可选）",
         "指南新增了用 Portal 为应用提供公共 HTTPS 地址的方法"

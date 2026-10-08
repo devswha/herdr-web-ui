@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-08
+
 ### Added
 - `/effort` sent from a Claude Code chat opens a card with the effort levels, low to max, so the
   level no longer has to be set in the terminal. A pick applies to this session only, as a pick
@@ -177,6 +179,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A PC that waits on such a conflict says so in the sidebar and under the header, with a
   **Reconnect** button, instead of asking for setup approval.
   ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
+- A wrong access token sent through a proxy on this PC with a made-up `X-Forwarded-For` address
+  that itself says " via " now counts against the limit every visitor through that proxy shares,
+  like any other wrong token. Before, each such try started a fresh count.
+  ([#592](https://github.com/devswha/herdr-web-ui/pull/592))
+- A web-push subscription must be an https address, with no exception for this PC, and an alert is
+  never sent on where a push service redirects it, so an alert can never be posted to a service
+  running on this PC. ([#592](https://github.com/devswha/herdr-web-ui/pull/592))
+- In the **Add PC** dialog opened over a file preview, Tab moves through the dialog's own controls
+  and Escape closes the dialog alone, leaving the preview beneath it open.
+  ([#592](https://github.com/devswha/herdr-web-ui/pull/592))
 
 ## [0.4.0] - 2026-10-08
 
@@ -2440,7 +2452,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...v0.4.0
 [0.3.52]: https://github.com/devswha/herdr-web-ui/compare/v0.3.51...v0.3.52
 [0.3.51]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...v0.3.51
