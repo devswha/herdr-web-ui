@@ -511,7 +511,7 @@ export const JA: Record<string, string> = {
   "Conversation unavailable — show terminal output": "会話を読み取れません。ターミナルの出力を表示",
   "Last checked {when}": "最終確認: {when}",
   "Clipboard from a pane": "ペインからクリップボードへ",
-  "Off: nothing running in a pane can set this device's clipboard. On: a program in a pane that asks to copy has its text put there, as a copy you made yourself would.": "オフの場合、ペインで動いているものは何もこのデバイスのクリップボードを変更できません。オンの場合、ペインのプログラムがコピーを要求すると、自分でコピーしたときと同じようにテキストが入ります。",
+  "A program in a pane that copies (vim, tmux, Claude Code) puts its text on this device's clipboard, as a copy you made yourself would. Turn it off if a pane runs output you do not trust: it could replace what you paste next.": "ペインでコピーするプログラム（vim、tmux、Claude Code）は、自分でコピーしたときと同じようにこのデバイスのクリップボードにテキストを入れます。信頼できない出力を実行するペインがある場合はオフにしてください。次に貼り付ける内容が置き換えられることがあります。",
   "What should {agent} do in {folder}?": "{folder} で {agent} に何を頼みますか？",
   "No conversation yet — say something below": "まだ会話はありません。下から話しかけてください",
   "terminal ended": "ターミナルが終了しました",

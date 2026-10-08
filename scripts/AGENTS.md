@@ -22,7 +22,7 @@ Build, code generation, CI orchestration and the browser QA harness. Only `build
 ## GENERATED TYPES AND RELEASE GATES
 - `generate-protocol-types.ts` emits only the herdr types this repo consumes plus their transitive closure, and widens string enums with `(string & {})`: herdr gives no value-stability guarantee, so a value from a newer herdr has to flow through instead of failing to typecheck. `--check` fails on a stale committed file, `--refresh` re-reads `herdr api schema --json`, and `HERDR_WEB_HERDR_BIN` picks the binary.
 - `build-xterm.ts` exists because xterm's source declares `const enum`s in `.d.ts` files, which TypeScript has to inline before Vite sees them. The patch in `patches/` therefore targets xterm's readable source, never its minified `dist`.
-- `release-notes.ts` is the gate that runs before a tag is published: it refuses a release whose three version sources disagree, whose notes are empty, or whose `release-summaries.json` entry is missing one of the app's languages.
+- `release-notes.ts` is the gate that runs before a tag is published: it refuses a release whose three version sources disagree, whose notes are empty, or whose `release-summaries.json` entry is missing one of the app's languages. What it prints is the GitHub release body: the English patch-note lists, then the changelog section in a `<details>` fold.
 - A remote bundle for another platform fetches that platform's `@lydell/node-pty` package from the registry, because bun installs only the host's prebuild; the pinned tarball digests in `build-remote-bundle.ts` must be updated with the version bump. A win32 bundle is Bun alone and therefore mirrors panes.
 
 ## PLUGIN

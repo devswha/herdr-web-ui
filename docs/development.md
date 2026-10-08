@@ -175,6 +175,9 @@ after changing the staged session. Files, images, push and remote PCs are not pa
    an install shows before and after the update, with the changelog section folded under it,
    so a line names what changes for the people who use the app and leaves out PR numbers and
    internals. The unit suite and the release workflow fail without all four languages.
+   The GitHub release is written from the same files by `scripts/release-notes.ts`: the
+   English lists under New features, Improvements and Bug fixes, then the version's whole
+   changelog section folded under **Full changelog**.
 2. Merge it after CI passes.
 3. Run **Actions → Release → Run workflow**, select `main`, and enter `X.Y.Z` without `v`.
    The CLI equivalent is `gh workflow run release.yml --ref main -f version=X.Y.Z`.

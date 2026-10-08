@@ -513,7 +513,7 @@ export const ZH: Record<string, string> = {
   "Conversation unavailable — show terminal output": "对话不可用。显示终端输出",
   "Last checked {when}": "上次检查：{when}",
   "Clipboard from a pane": "从窗格写入剪贴板",
-  "Off: nothing running in a pane can set this device's clipboard. On: a program in a pane that asks to copy has its text put there, as a copy you made yourself would.": "关闭时，窗格中运行的任何程序都无法设置此设备的剪贴板。开启后，窗格中请求复制的程序会像你自己复制一样把文本写入剪贴板。",
+  "A program in a pane that copies (vim, tmux, Claude Code) puts its text on this device's clipboard, as a copy you made yourself would. Turn it off if a pane runs output you do not trust: it could replace what you paste next.": "窗格中执行复制的程序（vim、tmux、Claude Code）会像你自己复制一样把文本写入此设备的剪贴板。如果窗格运行你不信任的输出，请关闭它：它可能替换你下次粘贴的内容。",
   "What should {agent} do in {folder}?": "要让 {agent} 在 {folder} 做什么？",
   "No conversation yet — say something below": "暂无对话。在下方说点什么吧",
   "terminal ended": "终端已结束",
