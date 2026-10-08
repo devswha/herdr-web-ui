@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, setSystemTime } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -95,13 +95,15 @@ describe("a token set: guessing it", () => {
   let watchToken = "";
   beforeAll(() => {
     forgetAuthAttempts();
+    // a held answer is a wait of one second: the clock stands still, so a slow run cannot outlast it
+    setSystemTime(Date.now());
     // paired before the server starts, so its own store holds the device
     const store = new DeviceStore(stateDir);
     watchToken = store.pair(store.startPairing().code, "Watch", "watch")!.token;
     server = createServer({ port: 0, stateDir, token: TOKEN });
     base = `http://127.0.0.1:${server.port}`;
   });
-  afterAll(() => server.stop());
+  afterAll(() => { server.stop(); setSystemTime(); });
   const devices = (bearer: string, via?: string): Promise<Response> =>
     fetch(`${base}/api/devices`, { headers: { authorization: `Bearer ${bearer}`, ...(via ? { "x-forwarded-for": via } : {}) } });
 

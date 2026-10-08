@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,9 @@ const offer = (token: string, ip: string): Promise<Response> => handleAuthReques
 );
 
 describe("POST /api/auth", () => {
+  // a held answer is a wait of one second: the clock stands still, so a slow run cannot outlast it
+  beforeEach(() => { setSystemTime(Date.now()); });
+  afterEach(() => { setSystemTime(); });
   it("answers a wrong token, and a right one, as it always did", async () => {
     expect((await offer("wrong", "10.0.0.1")).status).toBe(401);
     expect((await offer(TOKEN, "10.0.0.2")).status).toBe(204);
