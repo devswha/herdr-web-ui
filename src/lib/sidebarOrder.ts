@@ -43,19 +43,30 @@ export const newSeqMemory = (): SeqMemory => ({ status: new Map(), bumped: new M
  * viewed at the old counter. So a status that changed since the last call is dated now, just above
  * every counter known; herdr's own counter for that change is higher and takes over when it comes,
  * and the swap is kept in `memory.promoted`. A change that arrives with a new counter of herdr's (a
- * roster read that saw it first) keeps that counter, so herdr's order between changes stands.
- * Mutates `memory`.
+ * roster read that saw it first) keeps that counter, so herdr's order between changes stands, and
+ * drops the pane's earlier stand-in, which dated an older change. A counter that went back means
+ * herdr restarted: every stand-in is dropped. Mutates `memory`.
  */
 export function liveSeqs(snapshot: Pick<SessionSnapshot, "agents" | "panes"> | null | undefined, memory: SeqMemory): Map<string, number> {
   const seqs = stateSeqs(snapshot);
   const panes = snapshot?.panes ?? [];
+  if ([...seqs].some(([id, real]) => real < (memory.real.get(id) ?? real))) {
+    memory.bumped.clear();
+    memory.promoted.clear();
+  }
   let top = Math.max(0, ...seqs.values(), ...memory.bumped.values());
   for (const pane of panes) {
     const changed = memory.status.has(pane.pane_id) && memory.status.get(pane.pane_id) !== pane.agent_status;
     const real = seqs.get(pane.pane_id);
     const before = memory.real.get(pane.pane_id);
-    // herdr's counter moved with the change: it already dates it
-    if (changed && real !== undefined && before !== undefined && real <= before) memory.bumped.set(pane.pane_id, top += 0.001);
+    if (changed && real !== undefined) {
+      if (before !== undefined && real <= before) memory.bumped.set(pane.pane_id, top += 0.001);
+      else {
+        // herdr's counter moved with the change: it dates it, and a stand-in from before is stale
+        memory.bumped.delete(pane.pane_id);
+        memory.promoted.delete(pane.pane_id);
+      }
+    }
     memory.status.set(pane.pane_id, pane.agent_status);
   }
   for (const [id, real] of seqs) memory.real.set(id, real);
@@ -134,11 +145,15 @@ export function persistableSeen(record: SeenRecord, stored: SeenRecord | null): 
   return next;
 }
 
-/** The record without panes that closed; the same object when none did. An empty roster keeps it (herdr restarting). */
-export function pruneSeen(record: SeenRecord, panes: readonly Pick<PaneInfo, "pane_id">[]): SeenRecord {
+/**
+ * The record without panes that closed, nor entries above the pane's live counter (`seqs`): herdr's
+ * counter never goes below a look in one session, so such an entry is from before a restart that
+ * kept the pane id. The same object when none went. An empty roster keeps it (herdr restarting).
+ */
+export function pruneSeen(record: SeenRecord, panes: readonly Pick<PaneInfo, "pane_id">[], seqs: ReadonlyMap<string, number> = new Map()): SeenRecord {
   if (panes.length === 0) return record;
   const open = new Set(panes.map((pane) => pane.pane_id));
-  const gone = Object.keys(record).filter((id) => !open.has(id));
+  const gone = Object.keys(record).filter((id) => !open.has(id) || record[id]! > (seqs.get(id) ?? Infinity));
   if (gone.length === 0) return record;
   const next: Record<string, number> = { ...record };
   for (const id of gone) delete next[id];
@@ -170,7 +185,7 @@ export function loadSeen(machineId: string): SeenRecord | null {
     if (raw === null) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])));
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, number] => Number.isSafeInteger(entry[1]) && (entry[1] as number) >= 0));
   } catch {
     return null;
   }

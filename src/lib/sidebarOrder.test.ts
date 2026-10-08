@@ -87,6 +87,27 @@ describe("live counters", () => {
     expect(memory.bumped.size).toBe(0);
   });
 
+  it("does not carry a look at an earlier stand-in onto a finish a roster read brought (#529 review)", () => {
+    // a is on screen when it starts working (a stand-in), then left; the read brings its DONE at 11
+    const memory = newSeqMemory();
+    liveSeqs(snap({ a: "idle", b: "done" }, { a: 5, b: 9 }), memory);
+    const working = liveSeqs(snap({ a: "working", b: "done" }, { a: 5, b: 9 }), memory);
+    const seen = markSeen({}, "a", working.get("a")!);
+    const read = liveSeqs(snap({ a: "done", b: "done" }, { a: 11, b: 9 }), memory);
+    expect(read.get("a")).toBe(11);
+    expect(shownStatus(pane("a", "done"), read, carrySeen(seen, memory.promoted))).toBe("done");
+  });
+
+  it("drops its stand-ins when herdr's counters go back (herdr restarted)", () => {
+    const memory = newSeqMemory();
+    liveSeqs(snap({ a: "idle", b: "done" }, { a: 50, b: 49 }), memory);
+    liveSeqs(snap({ a: "working", b: "done" }, { a: 50, b: 49 }), memory);
+    expect(memory.bumped.size).toBe(1);
+    const restarted = liveSeqs(snap({ a: "working", b: "done" }, { a: 2, b: 1 }), memory);
+    expect([...restarted]).toEqual([["a", 2], ["b", 1]]);
+    expect(memory.bumped.size + memory.promoted.size).toBe(0);
+  });
+
   it("does not date a pane's first sighting, or a pane with no counter", () => {
     const memory = newSeqMemory();
     liveSeqs(snap({ a: "idle", shell: "unknown" }, { a: 5 }), memory);
@@ -155,6 +176,16 @@ describe("opened finishes", () => {
     expect(pruneSeen({ a: 10 }, [pane("a", "done")])).toEqual({ a: 10 });
     expect(pruneSeen(record, [])).toBe(record);
   });
+
+  it("forgets a record above the pane's live counter, one from before a herdr restart (#529 review)", () => {
+    const panes = [pane("a", "done"), pane("b", "done")];
+    const pruned = pruneSeen({ a: 12, b: 3 }, panes, new Map([["a", 2], ["b", 3]]));
+    expect(pruned).toEqual({ b: 3 });
+    // the new session's counter reaching the old record later does not quiet an unopened finish
+    expect(shownStatus(pane("a", "done"), new Map([["a", 12]]), pruned)).toBe("done");
+    const kept = { a: 2, b: 3 };
+    expect(pruneSeen(kept, panes, new Map([["a", 2], ["b", 3]]))).toBe(kept);
+  });
 });
 
 it("defaults to herdr's order and herdr's DONE, and accepts only known values", () => {
@@ -197,6 +228,9 @@ describe("records in storage", () => {
     data.set("herdr-web-ui:seen:local", "not json");
     expect(loadSeen("local")).toBeNull();
     data.set("herdr-web-ui:seen:local", JSON.stringify({ a: 3, b: "x", c: null }));
+    expect(loadSeen("local")).toEqual({ a: 3 });
+    // herdr's counters are whole numbers: a stand-in or a negative one is not taken from storage
+    data.set("herdr-web-ui:seen:local", JSON.stringify({ a: 3, b: 9.001, c: -1 }));
     expect(loadSeen("local")).toEqual({ a: 3 });
   });
 });

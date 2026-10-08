@@ -57,7 +57,7 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
         record = carrySeen(record, memories.current.get(machine.id)?.promoted ?? new Map());
         const seq = machine.id === selectedMachineId && selectedPaneId && pageVisible ? seqs.get(selectedPaneId) : undefined;
         if (selectedPaneId && seq !== undefined) record = markSeen(record, selectedPaneId, seq);
-        record = pruneSeen(record, machine.snapshot.panes);
+        record = pruneSeen(record, machine.snapshot.panes, seqs);
         if (record !== before) (next ??= new Map(current)).set(machine.id, record);
       }
       return next ?? current;
