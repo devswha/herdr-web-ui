@@ -96,6 +96,21 @@ class Socket {
 }
 
 const paste = (text: string) => `\u001b[200~${text}\u001b[201~`;
+
+/** A promise the test settles itself: it orders a server's step against the test's own. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
+
+/** Attaches `socket` to `pane` and waits until it may type there; the frames from then on start at the returned mark. */
+async function attached(socket: Socket, pane: string): Promise<number> {
+  const mark = socket.seen.length;
+  socket.send({ type: "attach", pane_id: pane, cols: 80, rows: 24 });
+  await socket.waitFor((message) => socket.seen.indexOf(message) >= mark && message.type === "input-ready" && message.pane_id === pane);
+  return mark;
+}
 const collapsedCodexScreen = "\n• Queued follow-up inputs\n  ? 1 question\n    alt+↑ to answer\n› Ask Codex to do anything\n";
 
 beforeAll(async () => {
@@ -542,6 +557,82 @@ describe("typing without terminal attach, at the edges", () => {
       }
     } finally {
       socket.close();
+      bare.stop();
+    }
+  }, 30_000);
+
+  it("sends nothing typed by a sender that left and rejoined a mirrored pane another client kept open, before its turn came", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "push-rejoin"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const originalSend = herdr.paneSendText;
+    // the message's text waits at herdr until the sender has left and rejoined: the typing queued behind it
+    // then finds the same attachment, kept open by the other client, with the sender a member again
+    const send = spyOn(herdr, "paneSendText").mockImplementation(async (paneId, text, socketPath) => {
+      if (paneId === shell.pane && text === "one") { entered.resolve(); await gate.promise; }
+      return originalSend(paneId, text, socketPath);
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, shell.pane);
+      const from = chunks(shell).length;
+      sender.send({ type: "submit", id: 51, pane_id: shell.pane, text: "one", payload: "one" });
+      await entered.promise;
+      sender.send({ type: "input", pane_id: shell.pane, text: "typed" });
+      sender.send({ type: "detach", pane_id: shell.pane });
+      const mark = await attached(sender, shell.pane);
+      gate.resolve();
+      expect(await sender.result(51)).toMatchObject({ ok: true });
+      await sender.waitFor((message) => sender.seen.indexOf(message) >= mark && message.type === "error" && message.code === "input_failed" && message.pane_id === shell.pane);
+      keeper.send({ type: "submit", id: 52, pane_id: shell.pane, text: "two", payload: "two" });
+      await keeper.result(52);
+      await received(shell, from, 2);
+      expect(typed(shell, from)).toBe("one\rtwo\r");
+    } finally {
+      gate.resolve();
+      send.mockRestore();
+      sender.close();
+      keeper.close();
+      bare.stop();
+    }
+  }, 30_000);
+
+  it("enters no secret for a sender that left and rejoined a mirrored pane another client kept open, while the screen was read", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "push-rejoin-secret"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const originalRead = herdr.paneRead;
+    let held = false;
+    // the secret's live-screen check waits until the sender has left and rejoined, then finds the prompt
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const screen = await originalRead(options, socketPath);
+      if (held || options.paneId !== shell.pane || options.source !== "detection" || options.format !== "text") return screen;
+      held = true;
+      entered.resolve();
+      await gate.promise;
+      return { ...screen, text: "Password:" };
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, shell.pane);
+      const from = chunks(shell).length;
+      sender.send({ type: "secret", id: 61, pane_id: shell.pane, prompt: "Password:", secret: "sensitive" });
+      await entered.promise;
+      sender.send({ type: "detach", pane_id: shell.pane });
+      await attached(sender, shell.pane);
+      gate.resolve();
+      expect(await sender.waitFor((message) => message.type === "secret-result" && message.id === 61)).toMatchObject({ ok: false, code: "not_attached" });
+      keeper.send({ type: "submit", id: 62, pane_id: shell.pane, text: "two", payload: "two" });
+      await keeper.result(62);
+      await received(shell, from, 1);
+      expect(typed(shell, from)).toBe("two\r");
+    } finally {
+      gate.resolve();
+      read.mockRestore();
+      sender.close();
+      keeper.close();
       bare.stop();
     }
   }, 30_000);

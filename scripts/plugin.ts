@@ -133,9 +133,10 @@ async function health(): Promise<boolean> {
   try {
     const response = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(1500) });
     if (!response.ok) return false;
-    // the port may hold another program's 200 (a kept port that went stale): only the app's answer counts
-    const body = await response.json() as { ok?: unknown };
-    return body.ok === true;
+    // the port may hold another program's 200 (a kept port that went stale): only the app's answer
+    // counts, in the shape every release has sent (server/index.ts)
+    const body = await response.json() as { ok?: unknown; herdr?: unknown; auth?: unknown };
+    return body.ok === true && typeof body.herdr === "object" && body.herdr !== null && appAuth(body.auth);
   } catch {
     return false;
   }
@@ -145,10 +146,19 @@ async function health(): Promise<boolean> {
 async function appOnPort(): Promise<boolean> {
   try {
     const response = await fetch(`${origin}/api/health?scope=bridge`, { signal: AbortSignal.timeout(1500) });
-    return ((await response.json()) as { ok?: unknown }).ok === true;
+    if (!response.ok) return false;
+    // another program's JSON can say ok too: only the app's own answer (server/index.ts) counts
+    const body = (await response.json()) as { ok?: unknown; auth?: unknown; bridge_protocol?: unknown };
+    return body.ok === true && Number.isInteger(body.bridge_protocol) && appAuth(body.auth);
   } catch {
     return false;
   }
+}
+
+/** The `auth` the app's health answers carry: whether a token is required and whether this request got in. */
+function appAuth(auth: unknown): boolean {
+  const fields = auth as { required?: unknown; authenticated?: unknown } | null | undefined;
+  return typeof fields?.required === "boolean" && typeof fields.authenticated === "boolean";
 }
 
 /** Why the app's full health fails, as it says: herdr's error while herdr is away; null when it answers now (herdr came back). */

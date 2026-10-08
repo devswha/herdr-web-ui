@@ -2125,13 +2125,16 @@ export function createServer(
                 if (!attachment?.clients.has(client)) { result(false, "not_attached"); break; }
                 if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); break; }
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
+                // the attach this secret was sent from: leaving it (even joining again) takes the secret back
+                const claim = client.data.attached.get(message.pane_id);
                 await serialize(message.pane_id, async () => {
                   // A viewport scrolled into history can still show an old password prompt.
                   // Validate the live screen before typing a secret into the current program.
                   const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
                   if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
                   authorizeSocket(client);
-                  if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }
+                  if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment
+                    || client.data.attached.get(message.pane_id) !== claim) { result(false, "not_attached"); return; }
                   if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); return; }
                   if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
                   if (attachment.mirror) {
