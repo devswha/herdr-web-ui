@@ -270,7 +270,8 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--z-popover` | `10` | Composer completions |
 | `--z-scrim` | `15` | Mobile drawer scrim |
 | `--z-drawer` | `20` | Mobile drawer |
-| `--z-modal` | `30` | Dialog and palette scrims |
+| `--z-modal` | `30` | Dialog scrims |
+| `--z-palette` | `35` | Command palette scrim, over every scrim dialog (a `showModal()` dialog sits in the top layer above it) |
 | `--z-droplet` | `40` | In-app alert, over dialogs |
 
 ### In-app alert
@@ -930,8 +931,8 @@ One set for both themes: the card is island black wherever it shows.
 ### Settings dialog
 - A Settings shortcut opened over a file preview places Settings above it (`--z-modal + 2`, one
   above the preview). Settings owns Escape until it closes; the preview keeps its history entry
-  underneath for the next Back or close. With no preview open Settings stays at `--z-modal`, so
-  the command palette opened from its shortcut shows above it.
+  underneath for the next Back or close. With no preview open Settings stays at `--z-modal`. The
+  command palette opened from its shortcut shows above both (`--z-palette`).
 - One page at a time. From 641px the dialog is two columns at a fixed size (`--content-w` wide,
   `40rem` tall, so turning a page never moves its edge): a `13rem` list of pages on `--bg`
   (icon + name, the open one on `--bg-hover` with its glyph in `--accent`) and the open page

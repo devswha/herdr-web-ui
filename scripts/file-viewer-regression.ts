@@ -172,6 +172,37 @@ try {
   await settingsAlone.waitFor({ state: "hidden" });
   await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] === undefined);
   console.log("PASS the command palette opens above Settings; Escape closes the palette, then Settings");
+
+  // Over Settings raised above a preview, too, the palette it opens is the top layer: it takes
+  // focus and Escape, so it must not be drawn beneath either of them.
+  await videoLink.click();
+  await preview.waitFor();
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await settingsAlone.waitFor();
+  await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] !== undefined);
+  await page.keyboard.press("ControlOrMeta+Shift+K");
+  await paletteSearch.waitFor();
+  const topmost = (input: Element) => {
+    const rect = input.getBoundingClientRect();
+    return { above: document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === input, focused: document.activeElement === input };
+  };
+  // the palette takes focus once it has mounted: wait for that, then say which part is missing
+  await page.waitForFunction((input) => {
+    const rect = input!.getBoundingClientRect();
+    return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === input && document.activeElement === input;
+  }, await paletteSearch.elementHandle(), { timeout: 5000 }).catch(() => undefined);
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "palette-over-settings-over-preview-1280.png") });
+  assert.deepEqual(await paletteSearch.evaluate(topmost), { above: true, focused: true }, "the command palette is above Settings and the preview, and has focus");
+  await page.keyboard.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await settingsAlone.waitFor();
+  await preview.waitFor();
+  await page.keyboard.press("Escape");
+  await settingsAlone.waitFor({ state: "hidden" });
+  await preview.waitFor();
+  await preview.getByRole("button", { name: "Close file", exact: true }).click();
+  await preview.waitFor({ state: "hidden" });
+  console.log("PASS the command palette opens above Settings over a preview; Escape closes the palette, then Settings, then X the file");
   await page.setViewportSize({ width: 390, height: 844 });
 
   await page.getByRole("button", { name: "notes", exact: true }).click();
