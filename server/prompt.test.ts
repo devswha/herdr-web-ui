@@ -3492,6 +3492,25 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     });
   });
 
+  test("offers no fallback card, and holds pending input, over an effort slider whose hint the reader cannot take", async () => {
+    // a hint cut inside a word, and one without the session-only key: the slider's Enter still
+    // saves the level as the default, so neither the fallback card nor a pending message may press it
+    const unread = [
+      claudeEffort(2, "  ←/→ to adjust · Enter to confirm · s for this ses\n  sion only · Esc to cancel"),
+      claudeEffort(2, "  ←/→ to adjust · Enter to confirm · Esc to cancel"),
+    ];
+    for (const screen of unread) {
+      expect(parseInteractivePrompt("claude", screen)).toBeNull();
+      expect(parseFallbackPrompt("claude", screen).options.map((option) => option.label)).toContain("Enter");
+      expect(modelListWaits("claude", screen)).toBe(true);
+      await withPane("claude", "blocked", screen, async () => {
+        expect(await card()).toBeNull();
+      });
+    }
+    // the same hint above later output belongs to an answered slider
+    expect(modelListWaits("claude", `${unread[1]}Some later output\n`)).toBe(false);
+  });
+
   test("a screen read that comes back after the wait authorises no key", async () => {
     await withPane("codex", "blocked", menu(RESUME), async (pane) => {
       moving(pane, RESUME);

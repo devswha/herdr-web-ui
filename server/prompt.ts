@@ -34,6 +34,10 @@ const CLAUDE_MODEL_HINT_RE = /enter to set as default.*\bs to use this session o
 // Claude Code's `/effort` slider (2.1.294), the same two keys in other words: Enter saves the level
 // as the default for new sessions, `s` keeps it to this session
 const CLAUDE_EFFORT_HINT_RE = /←\/→ to adjust\s*·\s*enter to confirm\s*·\s*s for this session only\s*·\s*esc to cancel/i;
+// The slider by its keys alone, for the guard that keeps the fallback card and pending input off
+// it: a hint cut inside a word, or drawn without `s`, is still a slider whose Enter saves a default
+const CLAUDE_EFFORT_GUARD_RE = new RegExp(["←/→ to adjust · Enter to confirm", "Esc to cancel"]
+  .map((part) => [...part.replace(/\s+/g, "")].map((char) => char.replace(/[/.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*")).join(".*"), "i");
 // Codex's `/model` lists, by the footer of the row under the cursor (its keymap's own words): a
 // row that only opens the next list takes Enter, a row that picks takes `s` for this session and
 // Enter to save the pick as the default (`enter apply` on Ultra)
@@ -1543,7 +1547,7 @@ function parseCodexModel(screen: string): ParsedPrompt | null {
  * there saves a default, so nothing that ends in Enter is typed while one is open.
  */
 export function modelListWaits(agent: string, screen: string): boolean {
-  return claudeModelListWaits(screen) || claudeModelListWaits(screen, CLAUDE_EFFORT_HINT_RE) || (agent === "codex" && codexModelListWaits(screen));
+  return claudeModelListWaits(screen) || claudeModelListWaits(screen, CLAUDE_EFFORT_GUARD_RE) || (agent === "codex" && codexModelListWaits(screen));
 }
 
 /**
@@ -2532,7 +2536,7 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   // Codex's collapsed question queue reads blocked while its main prompt takes a message; a
   // model list of Claude Code's or Codex's that no reader could read is left to the terminal
   // (claudeModelListWaits, codexModelListWaits)
-  if ((agent === "codex" && (codexQuestionsCollapsed(screen) || codexModelListWaits(screen))) || claudeModelListWaits(screen) || claudeModelListWaits(screen, CLAUDE_EFFORT_HINT_RE)) {
+  if ((agent === "codex" && (codexQuestionsCollapsed(screen) || codexModelListWaits(screen))) || claudeModelListWaits(screen) || claudeModelListWaits(screen, CLAUDE_EFFORT_GUARD_RE)) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: asked(paneId, null, turns), pane, panes };
   }
