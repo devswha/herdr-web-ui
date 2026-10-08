@@ -21,7 +21,7 @@ const LONG_MODEL = "gpt-5.6-sol-codex-preview-2026-10";
 // ids it names: "GPT-5.6" and "Opus 5.5"; null: the conversation names no model
 const NAMED = ["gpt-5.6", "claude-opus-5-5"] as const;
 
-interface Case { model: string | null; agent?: "claude" | "codex"; pending?: boolean; effort?: string | null; status?: "working" | "idle"; mic?: boolean; ring?: boolean; chatFontSize?: number | null; showUsage?: boolean; weeklyOnly?: boolean }
+interface Case { model: string | null; agent?: "claude" | "codex" | "pi" | "omo"; pending?: boolean; effort?: string | null; status?: "working" | "idle"; mic?: boolean; ring?: boolean; chatFontSize?: number | null; showUsage?: boolean; weeklyOnly?: boolean }
 type Draw = "full" | "no-effort" | "out";
 
 const measure = (page: Page) => page.evaluate(() => {
@@ -406,6 +406,67 @@ try {
       });
       console.log("PASS changing Chat font size grows and shrinks an existing draft's automatic box and preserves a chosen height");
 
+      // CSS layout zoom exercises fractional geometry and rewrapping; it is not native browser
+      // zoom or mobile pinch zoom. Keep one draft mounted while changing each scale.
+      for (const width of [390, 1440]) await withCard(browser, width, { model: "gpt-5.6-sol", status: "idle" }, async (page) => {
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        const drafts = ["", "A short message. 짧은 메시지", "long_unbroken_text_".repeat(100), Array.from({ length: 40 }, (_, i) => `Line ${i + 1}: a long draft`).join("\n")];
+        for (const text of drafts) {
+          await box.fill(text);
+          for (const zoom of [0.8, 1, 1.25, 1.5, 2, 1]) {
+            await page.evaluate((scale) => { document.documentElement.style.zoom = String(scale); }, zoom);
+            await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            // The width observer commits the automatic height after layout zoom rewraps text.
+            await page.waitForFunction((short) => {
+              const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+              return node.scrollWidth <= node.clientWidth + 1 && (!short || node.scrollHeight <= node.clientHeight + 1);
+            }, text === drafts[0] || text === drafts[1], { timeout: 5_000 });
+            const metrics = await box.evaluate((node) => {
+              const style = getComputedStyle(node);
+              const probe = document.body.appendChild(document.createElement("span"));
+              probe.style.color = "var(--border-strong)";
+              const thumb = getComputedStyle(probe).color;
+              probe.remove();
+              return { scrollbar: style.scrollbarWidth, color: style.scrollbarColor, thumb, gutter: style.scrollbarGutter, overflowY: style.overflowY, height: node.clientHeight, scrollHeight: node.scrollHeight };
+            });
+            // a token that does not exist drops the whole declaration: the colour is then "auto"
+            assert.equal(metrics.color, `${metrics.thumb} rgba(0, 0, 0, 0)`, "the scroll cue is drawn in the theme's border colour on the card's own fill");
+            assert.equal(metrics.scrollbar, "thin", `${width}px at ${zoom}: long drafts keep a narrow scroll cue`);
+            assert.equal(metrics.gutter, "stable", "the scroll cue keeps reserved room beside the draft");
+            assert.equal(metrics.overflowY, "auto", "long drafts remain scrollable");
+            assert.equal(await box.inputValue(), text, "changing zoom preserves the draft");
+            if (text === drafts[0] || text === drafts[1]) assert.ok(metrics.scrollHeight <= metrics.height + 1, "empty and short drafts fit without vertical clipping");
+          }
+        }
+        const endKey = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
+        await box.press(endKey);
+        await page.waitForFunction(() => {
+          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return node.selectionStart === node.value.length && node.scrollTop > 0;
+        }, undefined, { timeout: 5_000 });
+        const endScroll = await box.evaluate((node) => node.scrollTop);
+        await box.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+        // Native caret scrolling trims different amounts of padding/leading across platforms.
+        // Check keyboard movement independently from reaching the absolute wheel boundary.
+        await page.waitForFunction((end) => {
+          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return node.selectionStart === 0 && node.scrollTop < end;
+        }, endScroll, { timeout: 5_000 });
+        await box.hover();
+        await page.mouse.wheel(0, -2000);
+        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop <= 1, undefined, { timeout: 5_000 });
+        await page.mouse.wheel(0, 400);
+        await page.waitForFunction(() => document.querySelector(".composer-text")!.scrollTop > 1, undefined, { timeout: 5_000 });
+        const wheelScroll = await box.evaluate((node) => node.scrollTop);
+        await box.press(endKey);
+        await page.waitForFunction((before) => {
+          const node = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
+          return node.selectionStart === node.value.length && node.scrollTop > before;
+        }, wheelScroll, { timeout: 5_000 });
+        assert.equal(await box.inputValue(), drafts[3], "wheel and keyboard scrolling preserve the draft");
+        if (width === 1440 && process.env.COMPOSER_FIT_SCREENSHOT) await page.locator(".composer").screenshot({ path: process.env.COMPOSER_FIT_SCREENSHOT });
+      });
+      console.log("PASS stable thin scrollbars, wrapped drafts and wheel/keyboard scrolling at 80–200% CSS layout zoom");
     } finally {
       await browser.close();
     }

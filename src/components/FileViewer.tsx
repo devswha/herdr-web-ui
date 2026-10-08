@@ -9,7 +9,7 @@ import { formatBytes } from "../lib/bridgeProgress.ts";
 import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
-import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 
 /** Bigger images are offered as a download: a phone decodes an image whole. */
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -79,8 +79,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   useEffect(() => {
     if (!keyboardActive) return;
     // the FilesDialog beneath listens on window too (and stands down while this is open); this
-    // one is the topmost overlay, so it takes the key
-    const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape") onClose(); };
+    // one is the topmost overlay, so it takes the key, unless a native modal (Add PC) is over it
+    const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape" && !nativeModalOver(surface.current)) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, keyboardActive]);

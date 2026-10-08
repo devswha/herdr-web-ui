@@ -16,6 +16,7 @@ import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, shortPathTitle, taskRowLines } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
+import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
 import { useSettings } from "../lib/settings.ts";
 import { useWorktreeBranches } from "../lib/useWorktreeBranches.ts";
 import { worktreeLabel } from "../lib/worktreeName.ts";
@@ -134,6 +135,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const { settings } = useSettings();
   const twoLine = settings.sidebarRows === "two";
   const machineId = useMachineId();
+  // a DONE looked at here reads as ready with Quiet opened finishes on (lib/sidebarActivity.tsx)
+  const activity = useSidebarActivity();
   const { branches, rememberOpened } = useWorktreeBranches(snapshot, online);
   const { closeWorkspace, moveWorkspace, removeWorktree, renamePane, renameWorkspace } = useMachineApi();
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -578,7 +581,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           </span>}
           <span className="sidebar-pane-meta">
             <span className="visually-hidden">{markName(pane)}</span>
-            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => candidate.agent_status)) : undefined} />}
+            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => activity.status(machineId, candidate))) : undefined} />}
           </span>
         </div>
         <div className="workspace-actions">

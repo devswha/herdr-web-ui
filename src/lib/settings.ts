@@ -17,6 +17,8 @@ export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
 /** One line names the workspace; two lines say what its pane is doing, with the workspace under it. */
 export type SidebarRows = "one" | "two";
+/** the Agents list's order: herdr's workspace order, or a waiting agent first and then the latest change */
+export type AgentOrder = "workspace" | "activity";
 /** what the plan meters count: the share of a limit used, or what is left of it */
 export type UsageCount = "used" | "left";
 /** the limit a plan meter shows: the plan's week, or its short session (5 hours on Claude and Codex) */
@@ -48,6 +50,10 @@ export interface Settings {
   density: Density;
   /** How much a workspace row says: its name, or its pane's title over its place. */
   sidebarRows: SidebarRows;
+  /** The Agents list's order. Activity is display-only: herdr's own order never changes. */
+  agentOrder: AgentOrder;
+  /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
+  quietOpenedDone: boolean;
   /** the chrome color family, keyed as data-palette in src/styles.css */
   palette: Palette;
   /** xterm font size in px */
@@ -115,6 +121,8 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   density: "comfortable",
   sidebarRows: "two",
+  agentOrder: "workspace",
+  quietOpenedDone: false,
   palette: "amber",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
@@ -258,6 +266,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarRows: record["sidebarRows"] === "one" || record["sidebarRows"] === "two" ? record["sidebarRows"] : DEFAULT_SETTINGS.sidebarRows,
+    agentOrder: record["agentOrder"] === "workspace" || record["agentOrder"] === "activity" ? record["agentOrder"] : DEFAULT_SETTINGS.agentOrder,
+    quietOpenedDone: record["quietOpenedDone"] === true,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])

@@ -483,6 +483,22 @@ One set for both themes: the card is island black wherever it shows.
   then its own workspace name. The folder, the mark, the status cell, the menu and the fold
   count stay where they are, and the menu and rename still act on the workspace. The choice
   is per device and applies at once.
+- Appearance's **Agents order** is **Workspaces** by default: the Agents list in herdr's
+  workspace, tab and pane order. **Activity** pins a blocked agent on top and orders the rest by
+  their most recent state change (herdr's `state_change_seq`, read from the snapshot's `agents`),
+  within each PC, so the agent just worked in stays on top while it runs and after it finishes.
+  It changes only the Agents list; herdr's order and the workspace rows stay as they are.
+- Appearance's **Quiet opened finishes** is off by default. herdr reports DONE until one of its
+  own clients shows the pane, so an agent opened here would keep its finished dot. On, a DONE
+  opened here (selected while the page is visible) since it finished draws as ready in the
+  Agents list and in its workspace's roll-up. "Opened" is kept per PC in this browser
+  (`herdr-web-ui:seen:<pc>`) and dropped with the PC. The first time it is turned on in a
+  browser, everything open on the connected PCs counts as opened, so the lists start quiet; a PC
+  first seen later starts with nothing opened, so its finishes keep their dots until opened.
+  Storage holds herdr's own counters only, so a page reloaded within the poll window after
+  leaving a finish it watched shows that finish's dot again rather than guess. herdr's counter
+  only goes up within a session, so a look recorded above it is from before a herdr restart and
+  is dropped.
 - Each workspace row holds its folder (top-level rows), a leading glyph, the name (on two lines,
   the title over the place) and the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
   shell shows the terminal glyph, and a linked worktree without an agent the branch glyph. The
