@@ -47,9 +47,10 @@ function cacheControlFor(pathname: string): string {
 }
 
 /**
- * The app's own Content-Security-Policy, sent as a header so it also governs the file
- * viewer (`/api/fs/*` renders a PDF in a frame and images in an <img>). Every directive
- * is here for a reason, and none of them is a guess:
+ * The app's own Content-Security-Policy, sent with the shell and every static file. The file
+ * viewer's own answers (`/api/fs/*`, a PDF in a frame, images in an <img>) do not pass through
+ * here: `fileResponse` (file-view.ts) sends them its own, stricter `sandbox; default-src 'none'`.
+ * Every directive is here for a reason, and none of them is a guess:
  *
  * - `default-src 'self'`: the fallback for anything not named below. Nothing is fetched
  *   from another host: the API, the terminal socket, the machines event stream, the

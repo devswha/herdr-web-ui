@@ -1244,9 +1244,9 @@ export function createServer(
       const fileRead = /^\/api\/(?:machines\/[^/]+\/)?fs\//.test(pathname);
       const directoryListing = /^\/api\/(?:machines\/[^/]+\/)?workspace\/directories$/.test(pathname);
       // Signing a device's own alerts in is a preference of that device, so `watch` keeps
-      // it; the endpoint it registers is https-only (server/push.ts), which is what makes
-      // that safe. Sending one is not: /api/push/test makes the server POST to whatever a
-      // caller put in the store, so it stays with a session that can drive.
+      // it. The endpoint it registers is https-only (server/push.ts), and that is the
+      // protection: a watch device's subscription is delivered every status change anyway.
+      // /api/push/test stays with a session that can drive only because it is a mutation.
       const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe";
       if (readOnly && (fileRead || directoryListing || mutating && !ownPreferences)) {
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
