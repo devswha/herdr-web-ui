@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TelemetryEvent } from "../shared/telemetry.ts";
@@ -8,19 +8,21 @@ import { handleTelemetryRequest, installMethod, Telemetry, telemetryBlocked } fr
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-function setup(options: { version?: string; env?: Record<string, string>; status?: number; previous?: string | null; stateDir?: string } = {}) {
+function setup(options: { version?: string; env?: Record<string, string>; status?: number; previous?: string | null; stateDir?: string; grace?: number; fetch?: typeof fetch } = {}) {
   const stateDir = options.stateDir ?? mkdtempSync(join(tmpdir(), "telemetry-"));
   if (!options.stateDir) dirs.push(stateDir);
   const sent: TelemetryEvent[] = [];
-  const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
+  const fake = options.fetch ?? (async (_url: string | URL | Request, init?: RequestInit) => {
     sent.push(JSON.parse(String(init?.body)) as TelemetryEvent);
     return new Response(null, { status: options.status ?? 204 });
   }) as typeof fetch;
+  const clock = { now: Date.parse("2026-10-08T12:00:00Z") };
   const telemetry = new Telemetry({
     stateDir, version: options.version ?? "0.4.1", env: options.env ?? {}, fetch: fake,
     platform: "linux", arch: "x64", previousVersion: () => options.previous ?? null,
+    now: () => clock.now, noticeGraceMs: options.grace ?? 0,
   });
-  return { telemetry, sent, stateDir };
+  return { telemetry, sent, stateDir, clock };
 }
 
 describe("telemetry events", () => {
@@ -93,6 +95,65 @@ describe("telemetry events", () => {
     const retry = setup({ stateDir: failing.stateDir });
     await retry.telemetry.report();
     expect(retry.sent).toHaveLength(1);
+  });
+
+  test("the first event waits after the notice, so Turn off on the notice sends nothing", async () => {
+    const off = setup({ grace: 600_000 });
+    off.telemetry.change({ notice_seen: true });
+    await off.telemetry.report();
+    expect(off.sent).toEqual([]);
+    off.telemetry.change({ enabled: false });
+    off.clock.now += 600_000;
+    await off.telemetry.report();
+    expect(off.sent).toEqual([]);
+
+    const kept = setup({ grace: 600_000 });
+    kept.telemetry.change({ notice_seen: true });
+    kept.clock.now += 599_999;
+    await kept.telemetry.report();
+    expect(kept.sent).toEqual([]);
+    kept.clock.now += 1;
+    await kept.telemetry.report();
+    expect(kept.sent.map((event) => event.event)).toEqual(["install"]);
+  });
+
+  test("turning the switch off stops an event already on its way", async () => {
+    let signal: AbortSignal | undefined;
+    const pending = (async (_url: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal?.reason)));
+    }) as typeof fetch;
+    const { telemetry, stateDir } = setup({ fetch: pending });
+    telemetry.change({ notice_seen: true });
+    const sending = telemetry.report();
+    expect(signal?.aborted).toBe(false);
+    telemetry.change({ enabled: false });
+    expect(signal?.aborted).toBe(true);
+    await sending;
+    expect(JSON.parse(readFileSync(join(stateDir, "telemetry.json"), "utf8"))).toMatchObject({ enabled: false, reported_version: null });
+  });
+
+  test("a switch turned off by another server on the same state directory holds", async () => {
+    const first = setup();
+    first.telemetry.change({ notice_seen: true });
+    await first.telemetry.report();
+    const plugin = setup({ stateDir: first.stateDir, version: "0.4.2" });
+    const source = setup({ stateDir: first.stateDir, version: "0.4.2" });
+    plugin.telemetry.change({ enabled: false });
+    await source.telemetry.report();
+    expect(source.sent).toEqual([]);
+    expect(source.telemetry.status().enabled).toBe(false);
+    expect(JSON.parse(readFileSync(join(first.stateDir, "telemetry.json"), "utf8")).enabled).toBe(false);
+  });
+
+  test("a state directory that cannot be written leaves the app running and sends nothing", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "telemetry-"));
+    dirs.push(parent);
+    writeFileSync(join(parent, "file"), "");
+    const { telemetry, sent } = setup({ stateDir: join(parent, "file", "state") });
+    await telemetry.report();
+    expect(sent).toEqual([]);
+    expect(telemetry.status().enabled).toBe(true);
   });
 
   test("the install method follows how the app was started", () => {

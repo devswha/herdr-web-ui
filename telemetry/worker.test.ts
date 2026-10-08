@@ -45,6 +45,15 @@ describe("telemetry receiver", () => {
     expect(rows).toEqual([]);
   });
 
+  test("refuses an oversized body before it ends", async () => {
+    const { env, rows } = fakeDb();
+    // 4 KB arrive and the stream never closes: the answer must not wait for the rest
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array(4096).fill(0x20)); } });
+    const request = new Request("https://receiver.test/v1/events", { method: "POST", headers: { "content-type": "application/json" }, body, duplex: "half" } as RequestInit);
+    expect((await handle(request, env, now)).status).toBe(413);
+    expect(rows).toEqual([]);
+  });
+
   test("an install has no previous version", () => {
     expect(readEvent({ ...event, event: "install", previous_version: null }, now)).toMatchObject({ event: "install", previous_version: null });
   });

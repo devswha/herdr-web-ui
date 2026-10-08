@@ -46,13 +46,32 @@ export function readEvent(body: unknown, now: Date): StoredEvent | null {
   };
 }
 
+/** the body as text, or null as soon as it passes MAX_BODY_BYTES (without waiting for the rest) */
+async function readBody(request: Request): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY_BYTES) { void reader.cancel().catch(() => undefined); return null; }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
 export async function handle(request: Request, env: Env, now = new Date()): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname !== "/v1/events") return new Response(null, { status: 404 });
   if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return new Response(null, { status: 415 });
-  const text = await request.text();
-  if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) return new Response(null, { status: 413 });
+  const text = await readBody(request);
+  if (text === null) return new Response(null, { status: 413 });
   let body: unknown;
   try { body = JSON.parse(text); } catch { return new Response(null, { status: 400 }); }
   const stored = readEvent(body, now);

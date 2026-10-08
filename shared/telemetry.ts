@@ -1,7 +1,7 @@
 /**
  * Anonymous install and update counts (server/telemetry.ts). On by default after a one-time
- * notice in the app; nothing is sent before that notice was shown, and nothing between an
- * install and an update.
+ * notice in the app; nothing is sent before that notice was shown (and a grace period after it,
+ * server/telemetry.ts NOTICE_GRACE_MS), and nothing between an install and an update.
  *
  *  GET  /api/telemetry  -> TelemetryStatus, no-store
  *  POST /api/telemetry  { enabled?: boolean, notice_seen?: true } -> TelemetryStatus

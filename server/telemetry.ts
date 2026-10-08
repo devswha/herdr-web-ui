@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InstallMethod, TelemetryEvent, TelemetryStatus } from "../shared/telemetry.ts";
-import { badRequest, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, errorResponse, isJsonObject, jsonResponse } from "./http.ts";
 import { updateRequestAllowed } from "./update-api.ts";
 
 export const TELEMETRY_URL = "https://herdr-web-ui-telemetry.devswha.workers.dev/v1/events";
@@ -17,6 +17,8 @@ const FILE = "telemetry.json";
 const SEND_TIMEOUT_MS = 10_000;
 /** after a start, long enough for the supervisor to have told what the update replaced */
 const START_DELAY_MS = 15_000;
+/** after the notice was shown, time to read it and press Turn off before the first event goes */
+export const NOTICE_GRACE_MS = 10 * 60_000;
 
 interface Saved {
   install_id: string;
@@ -57,8 +59,11 @@ function readSaved(file: string): Saved | null {
 export class Telemetry {
   private saved: Saved;
   private sending: Promise<void> | null = null;
+  private abort?: AbortController;
   private timer?: ReturnType<typeof setTimeout>;
   private readonly file: string;
+  /** false when the state file could not be written: then nothing is sent (it could not be remembered) */
+  private writable = true;
 
   constructor(private readonly options: {
     stateDir: string;
@@ -70,17 +75,42 @@ export class Telemetry {
     arch?: string;
     /** the version the running release replaced, as the supervisor told it; null when none did */
     previousVersion?: () => string | null;
+    /** tests move the clock; the notice's grace is measured with it */
+    now?: () => number;
+    noticeGraceMs?: number;
   }) {
     this.file = join(options.stateDir, FILE);
     const saved = readSaved(this.file);
     this.saved = saved ?? { install_id: randomUUID(), enabled: true, notice_seen_at: null, reported_version: null };
-    if (!saved) this.persist();
+    if (!saved) {
+      try { this.persist(); } catch (error) {
+        // the app still starts; telemetry just stays silent
+        this.writable = false;
+        console.error(`telemetry: ${this.file} could not be written, so nothing will be sent (${error instanceof Error ? error.message : String(error)})`);
+      }
+    }
+  }
+
+  private now(): number { return this.options.now?.() ?? Date.now(); }
+
+  /** another server on the same state directory may have changed the switch: its file wins */
+  private refresh(): void {
+    const latest = readSaved(this.file);
+    if (latest) this.saved = latest;
   }
 
   private persist(): void {
     mkdirSync(this.options.stateDir, { recursive: true, mode: 0o700 });
-    writeFileSync(`${this.file}.tmp`, JSON.stringify(this.saved), { mode: 0o600 });
-    renameSync(`${this.file}.tmp`, this.file);
+    const temp = `${this.file}.${process.pid}.tmp`;
+    writeFileSync(temp, JSON.stringify(this.saved), { mode: 0o600 });
+    renameSync(temp, this.file);
+    this.writable = true;
+  }
+
+  private schedule(ms: number): void {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.report(), ms);
+    this.timer.unref?.();
   }
 
   private blocked(): boolean { return telemetryBlocked(this.options.env); }
@@ -104,6 +134,7 @@ export class Telemetry {
   }
 
   status(): TelemetryStatus {
+    this.refresh();
     return {
       enabled: this.saved.enabled,
       blocked_by_env: this.blocked(),
@@ -113,35 +144,49 @@ export class Telemetry {
   }
 
   change(patch: { enabled?: boolean; notice_seen?: true }): TelemetryStatus {
+    this.refresh();
     if (patch.enabled !== undefined) this.saved.enabled = patch.enabled;
-    if (patch.notice_seen && this.saved.notice_seen_at === null) this.saved.notice_seen_at = new Date().toISOString();
+    if (patch.notice_seen && this.saved.notice_seen_at === null) this.saved.notice_seen_at = new Date(this.now()).toISOString();
     this.persist();
+    // turned off while an event is on its way: stop it rather than let it land
+    if (patch.enabled === false) this.abort?.abort();
     void this.report();
     return this.status();
   }
 
-  start(): void { this.timer = setTimeout(() => void this.report(), START_DELAY_MS); }
-  stop(): void { clearTimeout(this.timer); }
+  start(): void { this.schedule(START_DELAY_MS); }
+  stop(): void { clearTimeout(this.timer); this.abort?.abort(); }
 
-  /** sends the owed event once; a failure is logged and tried again at the next start or change */
+  /**
+   * Sends the owed event once, no sooner than NOTICE_GRACE_MS after the notice was shown; a
+   * failure is logged and tried again at the next start or change.
+   */
   report(): Promise<void> {
     if (this.sending) return this.sending;
+    if (!this.writable) return Promise.resolve();
+    this.refresh();
     const event = this.pending();
-    if (!event || !this.saved.enabled || this.saved.notice_seen_at === null || this.blocked()) return Promise.resolve();
+    const seen = this.saved.notice_seen_at === null ? NaN : Date.parse(this.saved.notice_seen_at);
+    if (!event || !this.saved.enabled || Number.isNaN(seen) || this.blocked()) return Promise.resolve();
+    const wait = seen + (this.options.noticeGraceMs ?? NOTICE_GRACE_MS) - this.now();
+    if (wait > 0) { this.schedule(wait); return Promise.resolve(); }
+    const abort = new AbortController();
+    this.abort = abort;
     this.sending = (async () => {
       try {
         const response = await this.options.fetch(this.options.url ?? TELEMETRY_URL, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(event),
-          signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+          signal: AbortSignal.any([abort.signal, AbortSignal.timeout(SEND_TIMEOUT_MS)]),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        this.refresh();
         this.saved.reported_version = event.version;
         this.persist();
       } catch (error) {
-        console.error(`telemetry: the ${event.event} event was not delivered (${error instanceof Error ? error.message : String(error)})`);
-      } finally { this.sending = null; }
+        if (!abort.signal.aborted) console.error(`telemetry: the ${event.event} event was not delivered (${error instanceof Error ? error.message : String(error)})`);
+      } finally { this.sending = null; this.abort = undefined; }
     })();
     return this.sending;
   }
@@ -159,5 +204,6 @@ export async function handleTelemetryRequest(request: Request, telemetry?: Telem
   const { enabled, notice_seen } = body;
   if (enabled !== undefined && typeof enabled !== "boolean") return badRequest("invalid_body", "enabled is a boolean");
   if (notice_seen !== undefined && notice_seen !== true) return badRequest("invalid_body", "notice_seen can only be true");
-  return reply(telemetry.change({ ...(enabled !== undefined ? { enabled } : {}), ...(notice_seen ? { notice_seen } : {}) }));
+  try { return reply(telemetry.change({ ...(enabled !== undefined ? { enabled } : {}), ...(notice_seen ? { notice_seen } : {}) })); }
+  catch (error) { return errorResponse(error); }
 }
