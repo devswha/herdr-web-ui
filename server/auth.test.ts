@@ -1,9 +1,9 @@
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { authClient, forgetAuthAttempts, handleAuthRequest, isSecureRequest } from "./auth.ts";
+import { authClient, forgetAuthAttempts, handleAuthRequest, isSecureRequest, presentedToken, recordPresentedTokenFailure } from "./auth.ts";
 import { sameOrigin } from "./machine-security.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "herdr-auth-"));
@@ -73,6 +73,40 @@ describe("authClient", () => {
     expect(authClient("127.0.0.1", new Headers())).toBe("127.0.0.1");
     expect(authClient("192.168.0.20", via("100.64.0.9"))).toBe("192.168.0.20");
     expect(authClient(null, via("100.64.0.9"))).toBeNull();
+  });
+});
+
+describe("the budget visitors behind one proxy share", () => {
+  const cookie = (value: string): Request => new Request("http://h/api/health", { headers: { cookie: `herdr_web_token=${value}` } });
+  const ask = (value: string, client: string): ReturnType<typeof presentedToken> => {
+    const answer = presentedToken(cookie(value), TOKEN, client);
+    if (answer === "wrong") recordPresentedTokenFailure(client);
+    return answer;
+  };
+
+  it("is never filled by one browser left polling with an old cookie", () => {
+    const start = Date.now();
+    try {
+      // a locked page polls /api/health every 5 s for three hours with the token it had before
+      for (let second = 0; second <= 3 * 3600; second += 5) {
+        setSystemTime(start + second * 1000);
+        ask("old-token", "100.64.0.9 via 127.0.0.1");
+        if (second % 600 === 0) expect(presentedToken(cookie(TOKEN), TOKEN, `100.64.1.${second / 600} via 127.0.0.1`)).toBe("match");
+      }
+    } finally { setSystemTime(); }
+  });
+
+  it("holds new addresses while it is full, never one that got in lately, and empties on its own", () => {
+    const start = Date.now();
+    try {
+      setSystemTime(start);
+      expect(ask(TOKEN, "100.64.0.30 via 127.0.0.1")).toBe("match");
+      for (let attempt = 0; attempt < 60; attempt += 1) ask("guess", `rotated-${attempt} via 127.0.0.1`);
+      expect(presentedToken(cookie(TOKEN), TOKEN, "100.64.0.31 via 127.0.0.1")).toBe("held");
+      expect(presentedToken(cookie(TOKEN), TOKEN, "100.64.0.30 via 127.0.0.1")).toBe("match");
+      setSystemTime(start + 10 * 60_000 + 1000);
+      expect(presentedToken(cookie(TOKEN), TOKEN, "100.64.0.31 via 127.0.0.1")).toBe("match");
+    } finally { setSystemTime(); }
   });
 });
 

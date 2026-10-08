@@ -136,29 +136,60 @@ export function authClient(peer: string | null, headers: Headers): string | null
 }
 
 type Channel = "sign-in" | "presented";
-/** what every visitor through one proxy shares: a fresh forwarded address never buys a fresh share */
-const SHARED_FAILURE_BUDGET = AUTH_FAILURE_BUDGET * 10;
 
 /**
- * The budgets a failure spends and a wait is read from. A forwarded visitor has its own and,
- * ten times as large, the one everyone through that peer shares: a client that writes its own
- * X-Forwarded-For (a direct local connection, a plain TCP tunnel) gets a fresh own budget per
- * guess, but not a fresh shared one. An unknown address (a unix socket) has none: the budget is
- * there to make guessing expensive, not to lock anyone out.
+ * What every visitor through one proxy shares: at most SHARED_FAILURES wrong tokens in any
+ * SHARED_WINDOW_MS, so a client that writes its own X-Forwarded-For (a direct local connection,
+ * a plain TCP tunnel) gets a fresh own budget per guess but no fresh share. It is a window, not
+ * a run: a browser left polling with an old cookie (one failure a minute once its own wait is at
+ * its cap) never fills it, and it empties on its own. Full, it holds back only addresses that
+ * have not got in lately (`admitted`), so the owner's devices keep working through an attack.
  */
-function budgets(channel: Channel, client: string | null): Array<{ key: string; budget: number }> {
-  if (client === null) return [];
-  const own = { key: `${channel} ${client}`, budget: AUTH_FAILURE_BUDGET };
-  const via = client.indexOf(" via ");
-  return via < 0 ? [own] : [own, { key: `${channel} via ${client.slice(via + " via ".length)}`, budget: SHARED_FAILURE_BUDGET }];
+const SHARED_FAILURES = AUTH_FAILURE_BUDGET * 10;
+const SHARED_WINDOW_MS = 10 * 60_000;
+const sharedFailures = new Map<string, number[]>();
+/** addresses that presented the right token, and when: the shared hold passes them */
+const ADMITTED_FOR_MS = 30 * 24 * 60 * 60_000;
+const admitted = new Map<string, number>();
+
+function sharedKey(channel: Channel, client: string | null): string | null {
+  const via = client?.indexOf(" via ") ?? -1;
+  return client === null || via < 0 ? null : `${channel} via ${client.slice(via + " via ".length)}`;
 }
 
+function sharedWaitLeft(channel: Channel, client: string | null): number {
+  const key = sharedKey(channel, client);
+  if (key === null) return 0;
+  const at = admitted.get(client!);
+  if (at !== undefined && Date.now() - at < ADMITTED_FOR_MS) return 0;
+  const recent = (sharedFailures.get(key) ?? []).filter((time) => Date.now() - time < SHARED_WINDOW_MS);
+  if (recent.length < SHARED_FAILURES) return 0;
+  return Math.ceil((recent[recent.length - SHARED_FAILURES]! + SHARED_WINDOW_MS - Date.now()) / 1000);
+}
+
+/** An unknown address (a unix socket) has no budget: it is there to make guessing expensive, not to lock anyone out. */
 function waitLeft(channel: Channel, client: string | null): number {
-  return Math.max(0, ...budgets(channel, client).map(({ key }) => authWaitLeft(key)));
+  if (client === null) return 0;
+  return Math.max(authWaitLeft(`${channel} ${client}`), sharedWaitLeft(channel, client));
 }
 
 function recordFailure(channel: Channel, client: string | null): void {
-  for (const { key, budget } of budgets(channel, client)) recordAuthFailure(key, budget);
+  if (client === null) return;
+  recordAuthFailure(`${channel} ${client}`, AUTH_FAILURE_BUDGET);
+  const key = sharedKey(channel, client);
+  if (key === null) return;
+  const recent = (sharedFailures.get(key) ?? []).filter((time) => Date.now() - time < SHARED_WINDOW_MS);
+  recent.push(Date.now());
+  sharedFailures.set(key, recent.slice(-SHARED_FAILURES));
+}
+
+/** The right token from `client`: its own waits are spent, and the shared hold passes it from now on. */
+function admit(client: string | null): void {
+  if (client === null) return;
+  for (const channel of ["sign-in", "presented"] as const) authAttempts.delete(`${channel} ${client}`);
+  admitted.delete(client);
+  admitted.set(client, Date.now());
+  if (admitted.size > AUTH_CLIENTS_MAX) admitted.delete(admitted.keys().next().value!);
 }
 
 /**
@@ -172,7 +203,9 @@ export function presentedToken(request: Request, token: string, client: string |
   const bearer = authorization.slice(0, BEARER_PREFIX.length).toLowerCase() === BEARER_PREFIX;
   if (!bearer && !parseCookies(request.headers.get("cookie")).has(TOKEN_COOKIE)) return "none";
   if (waitLeft("presented", client) > 0) return "held";
-  return isAuthenticated(request, token) ? "match" : "wrong";
+  if (!isAuthenticated(request, token)) return "wrong";
+  admit(client);
+  return "match";
 }
 
 /**
@@ -210,6 +243,8 @@ function recordAuthFailure(client: string, budget: number): void {
 /** Forget every address's budget (tests share this module's state). */
 export function forgetAuthAttempts(): void {
   authAttempts.clear();
+  sharedFailures.clear();
+  admitted.clear();
 }
 
 export async function handleAuthRequest(request: Request, token: string, client: string | null = null): Promise<Response> {
@@ -242,6 +277,6 @@ export async function handleAuthRequest(request: Request, token: string, client:
     return jsonResponse({ error: { code: "invalid_token", message: "token does not match" } }, 401);
   }
   // the right token, typed in: both waits are spent, a stale cookie's included
-  for (const channel of ["sign-in", "presented"] as const) authAttempts.delete(budgets(channel, client)[0]?.key ?? "");
+  admit(client);
   return noContent(sessionCookie(token, isSecureRequest(request)));
 }
