@@ -46,8 +46,7 @@ function SetupStatus({ entry, onOpen, onDismiss }: { entry: BackgroundSetup; onO
   const t = useT();
   const [job, setJob] = useState(entry.job);
   const [error, setError] = useState<string | null>(null);
-  const [gone, setGone] = useState(false);
-  const finished = gone || ["connected", "failed", "cancelled"].includes(job.phase);
+  const finished = ["connected", "failed", "cancelled"].includes(job.phase);
   useEffect(() => {
     if (finished) return;
     let disposed = false;
@@ -56,8 +55,11 @@ function SetupStatus({ entry, onOpen, onDismiss }: { entry: BackgroundSetup; onO
       try { const next = await fetchMachineSetup(entry.job.id); if (!disposed) { setJob(next); setError(null); } }
       catch (e) {
         if (disposed) return;
-        setError(e instanceof Error ? e.message : String(e));
-        if (e instanceof ApiError && e.code === "job_not_found") { setGone(true); return; }
+        const message = e instanceof Error ? e.message : String(e);
+        // The server no longer has the job (it restarted): the job ends here as a failed one, so
+        // its dialog offers a retry instead of waiting on an id that will never answer.
+        if (e instanceof ApiError && e.code === "job_not_found") { setJob((last) => ({ ...last, phase: "failed", step: "Connection failed", error: message, challenge: null, progress: null, ssh_output: null })); setError(null); return; }
+        setError(message);
       }
       if (!disposed) timer = window.setTimeout(poll, 750);
     };

@@ -43,7 +43,8 @@ const shots = resolve("evidence/machine-reconnect"); mkdirSync(shots, { recursiv
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors: string[] = []; page.on("pageerror", (e) => errors.push(e.message));
-  await page.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
+  // the sidebar at its narrowest: the installs list has to fit inside it
+  await page.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })); localStorage.setItem("herdr-web-ui:sidebar-width", "240"); });
   await page.goto(server.url.href);
   await page.getByRole("button", { name: "Reconnect QA remote", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "Reconnect PC", exact: true });
@@ -124,6 +125,9 @@ try {
   const progress = page.locator(".machine-setup-list");
   await progress.getByRole("progressbar").waitFor();
   assert.equal(await progress.getByRole("progressbar").getAttribute("aria-valuenow"), "25");
+  const side = await page.locator("#workspace-drawer").boundingBox();
+  const listBox = await progress.boundingBox();
+  assert.ok(side && listBox && listBox.x >= side.x && listBox.x + listBox.width <= side.x + side.width, `the installs list stays inside the sidebar: ${JSON.stringify({ side, listBox })}`);
   job = { ...job!, progress: { ...job!.progress!, done: 75 } };
   await page.waitForFunction(() => document.querySelector('.machine-setup-list [role="progressbar"]')?.getAttribute("aria-valuenow") === "75");
   await page.screenshot({ path: `${shots}/background-install.png` });
@@ -170,7 +174,10 @@ try {
   assert.equal(await status.getAttribute("aria-expanded"), "false");
   assert.equal(await status.evaluate((el) => el === document.activeElement), true);
   await showList();
-  await progress.getByRole("button", { name: "Dismiss", exact: true }).click();
+  // a job the server no longer has reopens as a failed one: a retry, not an endless wait
+  await progress.getByRole("button", { name: "Open PC setup" }).click();
+  await dialog.getByRole("button", { name: "Retry connection", exact: true }).waitFor({ timeout: 10_000 });
+  await dialog.getByRole("button", { name: "Close PC setup" }).click();
   await status.waitFor({ state: "detached" });
   assert.deepEqual(errors, []);
   console.log("PASS: reconnect, conflicts, background progress, resume, failure, retry, completion, missing job and mobile layout; screenshots:", shots);
