@@ -62,9 +62,11 @@ export interface Settings {
   terminalWheelSpeed: number;
   /** fonts tried before the built-in terminal stack, as a CSS font-family list; "" keeps the built-in one */
   terminalFontFamily: string;
-  /** let a pane's OSC 52 sequence write the clipboard (lib/osc52.ts); off until chosen: any process
-   *  in the pane could otherwise plant text the user pastes into a password field elsewhere */
-  terminalOsc52: boolean;
+  /** let a pane's OSC 52 sequence write the clipboard (lib/osc52.ts), as vim, tmux and Claude Code copy;
+   *  on unless chosen off, since any process in the pane can then plant text the user pastes elsewhere.
+   *  Stored under this key, not 0.4.1's `terminalOsc52`: settings are saved whole, so a `false` there
+   *  was written by any change at all, not chosen, and is ignored. */
+  paneClipboard: boolean;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
   chatFontSize: number | null;
   /** fonts tried before the UI font in the chat's prose (code stays mono), as a CSS font-family list; "" keeps the UI font */
@@ -127,7 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
-  terminalOsc52: false,
+  paneClipboard: true,
   chatFontSize: null,
   chatFontFamily: "",
   chatWidth: "default",
@@ -277,7 +279,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       ? Math.min(CHAT_FONT_MAX, Math.max(CHAT_FONT_MIN, Math.round(chatFont)))
       : DEFAULT_SETTINGS.chatFontSize,
     terminalFontFamily: sanitizeFontFamily(record["terminalFontFamily"]),
-    terminalOsc52: typeof record["terminalOsc52"] === "boolean" ? record["terminalOsc52"] : DEFAULT_SETTINGS.terminalOsc52,
+    paneClipboard: typeof record["paneClipboard"] === "boolean" ? record["paneClipboard"] : DEFAULT_SETTINGS.paneClipboard,
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,

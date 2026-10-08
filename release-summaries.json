@@ -1,4 +1,114 @@
 {
+  "0.4.1": {
+    "en": {
+      "new": [
+        "Typing /effort in a Claude Code chat opens a card to pick the effort for this session",
+        "Settings → Appearance can keep waiting and the latest agents on top of the Agents list",
+        "A finished agent you opened in the web UI can lose its dot, as it would in herdr (opt-in)",
+        "The guide shows how to give the app a public HTTPS address with Portal"
+      ],
+      "improved": [
+        "A wrong access token waits longer after five tries, up to a minute",
+        "A program in a pane copies to your clipboard only once you allow it in Settings → Terminal",
+        "Dialogs keep Tab inside them, and screen readers announce tabs, panes and status lines",
+        "Add PC, Reconnect PC and Update remote bridge open as a bottom sheet on a phone",
+        "Updating a remote PC that is already current reuses its bridge without a new download",
+        "Alerts go only to https push services and never follow a redirect",
+        "Long drafts wrap, and the scrollbar no longer covers text when the page is zoomed"
+      ],
+      "fixed": [
+        "A long line of unclosed brackets or broken escape codes no longer freezes the chat",
+        "On Windows, more Claude Code and Codex panes show their chat instead of an error",
+        "Your own devices are recognised by their Tailscale login again, without pairing",
+        "A Claude Code chat shows what a slash command answered, and /goal is suggested",
+        "Settings, the palette, Add PC and file previews stack in order; Escape closes the top one",
+        "The plugin's start keeps the app on its port while herdr is away",
+        "A secret or typed text no longer reaches a pane you have already left",
+        "Gajae Code's selection and startup menus show their choices, not only arrow keys"
+      ]
+    },
+    "ko": {
+      "new": [
+        "Claude Code 채팅에 /effort를 입력하면 이 세션의 effort를 고르는 카드가 열립니다",
+        "설정 → 모양에서 기다리는 에이전트와 최근 에이전트를 Agents 목록 맨 위에 둘 수 있습니다",
+        "웹 UI에서 열어 본 끝난 에이전트는 herdr에서처럼 점이 사라지게 할 수 있습니다(옵션)",
+        "가이드에 Portal로 앱에 공개 HTTPS 주소를 주는 방법이 추가됐습니다"
+      ],
+      "improved": [
+        "잘못된 접근 토큰은 다섯 번 이후 대기 시간이 최대 1분까지 늘어납니다",
+        "pane 안 프로그램은 설정 → 터미널에서 허용해야만 클립보드에 복사할 수 있습니다",
+        "대화 상자가 Tab을 안에 가두고, 스크린 리더가 탭·pane·상태 줄을 읽어 줍니다",
+        "Add PC, Reconnect PC, Update remote bridge가 폰에서 바텀 시트로 열립니다",
+        "이미 최신인 원격 PC를 업데이트하면 다시 받지 않고 기존 브리지를 그대로 씁니다",
+        "알림은 https 푸시 서비스로만 가고, 리다이렉트를 따라가지 않습니다",
+        "긴 초안이 줄바꿈되고, 확대한 화면에서 스크롤바가 글자를 가리지 않습니다"
+      ],
+      "fixed": [
+        "닫히지 않은 괄호나 깨진 이스케이프 코드가 긴 줄로 와도 채팅이 멈추지 않습니다",
+        "Windows에서 더 많은 Claude Code·Codex pane이 오류 대신 채팅을 보여 줍니다",
+        "본인 기기가 다시 Tailscale 로그인으로 인식되어 페어링이 필요 없습니다",
+        "Claude Code 채팅에 슬래시 명령의 응답이 보이고, /goal이 제안됩니다",
+        "설정, 팔레트, Add PC, 파일 미리보기가 올바른 순서로 겹치고, Escape는 맨 위 것만 닫습니다",
+        "herdr가 꺼져 있어도 플러그인의 start가 앱을 원래 포트에 둡니다",
+        "이미 떠난 pane에 비밀번호나 입력한 텍스트가 들어가지 않습니다",
+        "Gajae Code의 선택 메뉴와 시작 메뉴가 화살표 키만이 아니라 선택지를 보여 줍니다"
+      ]
+    },
+    "ja": {
+      "new": [
+        "Claude Code のチャットで /effort と打つと、このセッションの effort を選ぶカードが開きます",
+        "設定 → 外観で、待機中と最新のエージェントを Agents 一覧の先頭に置けます",
+        "Web UI で開いた完了済みエージェントの点を、herdr と同じように消せます(任意)",
+        "ガイドに Portal でアプリに公開 HTTPS アドレスを与える方法が加わりました"
+      ],
+      "improved": [
+        "誤ったアクセストークンは5回を超えると待ち時間が延び、最長1分になります",
+        "ペイン内のプログラムは、設定 → ターミナルで許可した時だけクリップボードにコピーできます",
+        "ダイアログが Tab を内側に保ち、スクリーンリーダーがタブ・ペイン・状態行を読み上げます",
+        "Add PC、Reconnect PC、Update remote bridge がスマートフォンでボトムシートとして開きます",
+        "すでに最新のリモート PC を更新すると、再ダウンロードせず今のブリッジを使い続けます",
+        "通知は https のプッシュサービスにだけ送られ、リダイレクトには従いません",
+        "長い下書きが折り返され、拡大表示でスクロールバーが文字を隠さなくなりました"
+      ],
+      "fixed": [
+        "閉じない括弧や壊れたエスケープコードの長い行でも、チャットが固まらなくなりました",
+        "Windows で、より多くの Claude Code・Codex のペインがエラーではなくチャットを表示します",
+        "自分の端末が再び Tailscale ログインで認識され、ペアリングが不要になりました",
+        "Claude Code のチャットにスラッシュコマンドの応答が表示され、/goal が候補に出ます",
+        "設定、パレット、Add PC、ファイルプレビューが正しい順に重なり、Escape は一番上だけを閉じます",
+        "herdr が止まっていても、プラグインの start はアプリを元のポートに保ちます",
+        "離れたペインに秘密の入力や打ったテキストが届かなくなりました",
+        "Gajae Code の選択メニューと起動メニューが、矢印キーだけでなく選択肢を表示します"
+      ]
+    },
+    "zh": {
+      "new": [
+        "在 Claude Code 聊天中输入 /effort 会打开卡片，为本次会话选择 effort",
+        "设置 → 外观可以把等待中和最新的代理放在 Agents 列表顶部",
+        "在网页界面中打开过的已完成代理可以像在 herdr 中一样去掉圆点（可选）",
+        "指南新增了用 Portal 为应用提供公共 HTTPS 地址的方法"
+      ],
+      "improved": [
+        "访问令牌错误五次后，等待时间逐渐延长，最长一分钟",
+        "窗格中的程序只有在设置 → 终端中允许后才能复制到剪贴板",
+        "对话框会把 Tab 留在其中，屏幕阅读器会朗读标签页、窗格和状态行",
+        "Add PC、Reconnect PC 和 Update remote bridge 在手机上以底部面板打开",
+        "更新已是最新的远程 PC 时，直接沿用现有桥接，无需重新下载",
+        "提醒只发往 https 推送服务，且不跟随重定向",
+        "长草稿会自动换行，页面缩放时滚动条不再遮住文字"
+      ],
+      "fixed": [
+        "一长串未闭合的括号或损坏的转义码不再让聊天卡住",
+        "在 Windows 上，更多 Claude Code 和 Codex 窗格会显示聊天而不是错误",
+        "本人设备再次通过 Tailscale 登录被识别，无需配对",
+        "Claude Code 聊天会显示斜杠命令的回答，并会建议 /goal",
+        "设置、命令面板、Add PC 和文件预览按正确顺序叠放，Escape 只关闭最上层",
+        "herdr 不在时，插件的 start 仍让应用留在原端口",
+        "秘密输入或已输入的文本不会再进入你已离开的窗格",
+        "Gajae Code 的选择菜单和启动菜单会显示选项，而不只是方向键"
+      ]
+    }
+  },
   "0.4.0": {
     "en": {
       "new": [
