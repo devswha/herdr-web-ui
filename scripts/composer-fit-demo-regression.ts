@@ -423,8 +423,14 @@ try {
             }, text === drafts[0] || text === drafts[1], { timeout: 5_000 });
             const metrics = await box.evaluate((node) => {
               const style = getComputedStyle(node);
-              return { scrollbar: style.scrollbarWidth, gutter: style.scrollbarGutter, overflowY: style.overflowY, height: node.clientHeight, scrollHeight: node.scrollHeight };
+              const probe = document.body.appendChild(document.createElement("span"));
+              probe.style.color = "var(--border-strong)";
+              const thumb = getComputedStyle(probe).color;
+              probe.remove();
+              return { scrollbar: style.scrollbarWidth, color: style.scrollbarColor, thumb, gutter: style.scrollbarGutter, overflowY: style.overflowY, height: node.clientHeight, scrollHeight: node.scrollHeight };
             });
+            // a token that does not exist drops the whole declaration: the colour is then "auto"
+            assert.equal(metrics.color, `${metrics.thumb} rgba(0, 0, 0, 0)`, "the scroll cue is drawn in the theme's border colour on the card's own fill");
             assert.equal(metrics.scrollbar, "thin", `${width}px at ${zoom}: long drafts keep a narrow scroll cue`);
             assert.equal(metrics.gutter, "stable", "the scroll cue keeps reserved room beside the draft");
             assert.equal(metrics.overflowY, "auto", "long drafts remain scrollable");

@@ -522,7 +522,7 @@
   overflow-wrap: anywhere;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) var(--surface);
+  scrollbar-color: var(--border-strong) transparent;
   background: transparent;
   border: 0;
   outline: 0;
@@ -548,7 +548,7 @@
 }
 
 .composer-text::-webkit-scrollbar-track {
-  background: var(--surface);
+  background: transparent;
 }
 
 .composer-text::-webkit-scrollbar-thumb {
