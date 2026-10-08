@@ -152,8 +152,13 @@ const sharedFailures = new Map<string, number[]>();
 const ADMITTED_FOR_MS = 30 * 24 * 60 * 60_000;
 const admitted = new Map<string, number>();
 
+/**
+ * The proxy a forwarded address came through. The forwarded part is whatever the client wrote,
+ * ` via ` included, so the peer is read from the end: it is this socket's address, which never
+ * holds a space.
+ */
 function sharedKey(channel: Channel, client: string | null): string | null {
-  const via = client?.indexOf(" via ") ?? -1;
+  const via = client?.lastIndexOf(" via ") ?? -1;
   return client === null || via < 0 ? null : `${channel} via ${client.slice(via + " via ".length)}`;
 }
 

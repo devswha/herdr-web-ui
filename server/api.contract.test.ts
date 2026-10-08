@@ -27,7 +27,7 @@ let server: { port: number; stop: () => void };
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-contract-"));
 
 beforeAll(() => {
-  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushLoopbackHttp: true });
 });
 
 afterAll(() => {
@@ -1656,7 +1656,7 @@ describe("web push", () => {
       const device = await startFakePushService();
       cleanupDevice = device;
       await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "unknown" });
-      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false,
+      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false, pushLoopbackHttp: true,
         alertTiming: { short: 0, long: 0, longTurn: 0 } });
       const origin = `http://127.0.0.1:${bridge.port}`;
       watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
@@ -1748,7 +1748,7 @@ describe("web push", () => {
       const before = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
       expect(before.panes.find((pane) => pane.pane_id === watchedId)?.agent_status).toBe("working");
 
-      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushLoopbackHttp: true });
       const subscribe = await fetch(`http://localhost:${restarted.port}/api/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json" },

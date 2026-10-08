@@ -9,7 +9,7 @@ import { AgentPicker, rememberAgent, rememberedAgent } from "./AgentPicker.tsx";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
-import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 
 /** The dialog as New tab: the workspace the tab joins, whose folder it uses, and the number herdr will give it. */
 export interface NewTabTarget {
@@ -79,7 +79,8 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
+      // a native modal over it (Add PC, from the palette) takes its own Escape
+      if (event.key !== "Escape" || nativeModalOver(surface.current)) return;
       event.preventDefault();
       if (!pending) onClose();
     };
