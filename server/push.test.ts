@@ -455,6 +455,19 @@ it("keeps a subscription made through the open LAN only while the LAN stays open
   expect(fake.received).toHaveLength(1);
 });
 
+it("never follows a redirect: an https endpoint cannot send the alert on to a local service", async () => {
+  // a push service never redirects; one that does is an endpoint pointing the POST elsewhere
+  const redirector = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(null, { status: 307, headers: { location: fake.subscription.endpoint } }) });
+  try {
+    const push = createPushService({ loopbackHttp: true, stateDir });
+    const endpoint = `http://127.0.0.1:${redirector.port}/push/1`;
+    push.subscribe({ ...fake.subscription, endpoint });
+    const delivery = await push.sendTest(endpoint);
+    expect(delivery?.ok).toBe(false);
+    expect(fake.received).toHaveLength(0);
+  } finally { redirector.stop(true); }
+});
+
 describe("push resync after lost status events", () => {
   it("calls off the waiting alert of a pane that closed while events were lost", async () => {
     const push = createPushService({ loopbackHttp: true, stateDir, timing: { short: 50, long: 50, longTurn: 0 } });

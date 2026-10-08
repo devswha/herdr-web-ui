@@ -227,6 +227,9 @@ export function createPushService(options: PushServiceOptions): PushService {
         method: details.method,
         headers,
         body: new Uint8Array(details.body),
+        // a push service answers, it never redirects: following one would send the alert to
+        // wherever the endpoint points, past the https-only check (a local service, over http)
+        redirect: "error",
         signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
       });
       if (response.ok) return { ok: true };
