@@ -1190,7 +1190,7 @@
   padding: 0 var(--space-3);
   overflow: hidden;
   border: var(--hairline) solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-elevated);
   color: var(--text);
   font: inherit;

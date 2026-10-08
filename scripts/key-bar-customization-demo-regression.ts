@@ -6,6 +6,7 @@ import { chromium, type Locator, type Page } from "playwright-core";
 import { appFaces } from "./app-faces.ts";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 // Production client over the demo's synthetic transport. Editing and typing stay in this
 // disposable, loopback-only app; no herdr session or user terminal is opened.
@@ -34,7 +35,8 @@ const openMainSettings = async (page: Page): Promise<Locator> => {
   await page.keyboard.press(`${mac ? "Meta" : "Control"}+Shift+Comma`);
   const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
   await dialog.waitFor();
-  assert.equal(await dialog.locator(".key-bar-settings").count(), 0, "the main Settings screen keeps the key-bar editor behind its compact row");
+  await openSettingsPage(page, "Terminal");
+  assert.equal(await dialog.locator(".key-bar-settings").count(), 0, "the Terminal page keeps the key-bar editor behind its compact row");
   return dialog;
 };
 const openSettings = async (page: Page): Promise<Locator> => {

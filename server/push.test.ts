@@ -67,6 +67,12 @@ describe("parseSubscription", () => {
     expect(parseSubscription({ endpoint, keys: { ...keys, auth: "AAAA" } })).toBeNull();
     expect(parseSubscription({ endpoint })).toBeNull();
     expect(parseSubscription("subscription")).toBeNull();
+    // a plain-http endpoint is never a browser subscription, and it is the shape that
+    // would turn the sender into a POST from inside the user's network
+    expect(parseSubscription({ endpoint: "http://169.254.169.254/latest/meta-data/", keys })).toBeNull();
+    // loopback over http stays possible only for the fake push service the tests deliver to
+    expect(parseSubscription({ endpoint: "http://127.0.0.1:9000/push/1", keys })).not.toBeNull();
+    expect(parseSubscription({ endpoint: "http://192.168.0.10:9000/push/1", keys })).toBeNull();
   });
 });
 

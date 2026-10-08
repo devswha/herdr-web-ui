@@ -20,6 +20,7 @@ import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
+import { checkHeldDraftPaneSwitch } from "./terminal-draft-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
@@ -32,6 +33,9 @@ import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkFolderFilter } from "./folder-filter-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
+import { openSettingsPage } from "./settings-page.ts";
+import { assertCspClean, watchCsp } from "./csp-violations.ts";
+import type { CspWatch } from "./csp-violations.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
@@ -40,6 +44,8 @@ const worktreeWorkspaces: string[] = [];
 let repo: string | null = null;
 const releases: Array<() => void> = [];
 const errors: string[] = [];
+/** One entry per page that loaded the app through the real server, and so saw the real policy. */
+const csp: CspWatch[] = [];
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 /** WebKit's IME commit: an Enter keydown after compositionend, isComposing false, key code 229 */
@@ -75,7 +81,7 @@ try {
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
-    // only the first load: a reload must keep what Settings stored, such as the sidebar grouping
+    // only the first load: a reload must keep what Settings stored, such as the language
     if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
     for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
   }, panes);
@@ -83,6 +89,9 @@ try {
   const workspaceGroup = (workspaceId: string) => page.locator(`.workspace-group[data-workspace="${workspaceId}"]`);
   const workspaceHeader = (workspaceId: string) => workspaceGroup(workspaceId).locator(":scope > .workspace-header");
   const agentRow = (paneId: string) => page.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneId}"]`);
+  // the header under test is the app's own (server/static.ts), so this is where a broken
+  // directive shows up: every page below loads through this same server
+  csp.push(await watchCsp(page));
   let holdSubmitResult = false;
   let releaseSubmitResult: (() => void) | null = null;
   // a connection's first frame held back: what the page does between a reconnect and its snapshot
@@ -113,24 +122,25 @@ try {
   const sockets: import("playwright-core").WebSocket[] = [];
   const inputs: Array<{ type: "input" | "submit"; pane_id: string; text: string; delivery?: "immediate" | "queue" }> = [];
   const pendingActions: Array<{ pane_id: string; pending_id: string; action: string }> = [];
-  const inputStates = new Map<string, { ready: boolean; at: number }>();
+  // keyed by pane, with the connection that said so: an earlier connection's input-ready says nothing about the current one
+  const inputStates = new Map<string, { ready: boolean; at: number; socket: import("playwright-core").WebSocket }>();
   const pendingReady = (pane: string) => until(() => {
     const state = inputStates.get(pane);
-    return state?.ready === true && Date.now() - state.at >= 500;
+    return state?.ready === true && state.socket === sockets.at(-1) && !state.socket.isClosed() && Date.now() - state.at >= 500;
   }, `stable pending attachment of ${pane}`);
   page.on("websocket", (socket) => {
     sockets.push(socket);
     socket.on("framereceived", ({ payload }) => {
       const message = JSON.parse(String(payload));
       if (message.type === "pty-data") painted.add(message.pane_id);
-      if (message.type === "input-ready") inputStates.set(message.pane_id, { ready: message.ready !== false, at: Date.now() });
+      if (message.type === "input-ready") inputStates.set(message.pane_id, { ready: message.ready !== false, at: Date.now(), socket });
     });
     socket.on("framesent", ({ payload }) => {
       const message = JSON.parse(String(payload));
       // composer messages go out as "submit" on servers that list it (#15), keystrokes as "input"
       if (message.type === "input" || message.type === "submit") inputs.push(message);
       if (message.type === "pending-action") pendingActions.push(message);
-      if (message.type === "attach" || message.type === "detach") inputStates.set(message.pane_id, { ready: false, at: Date.now() });
+      if (message.type === "attach" || message.type === "detach") inputStates.set(message.pane_id, { ready: false, at: Date.now(), socket });
     });
   });
   await page.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
@@ -138,6 +148,8 @@ try {
   await until(() => painted.has(paneA), "owned pane paint");
   const composer = page.getByRole("textbox", { name: "Message", exact: true });
   await composer.waitFor();
+  await page.locator(".composer .voice-mic").waitFor();
+  console.log("PASS a desktop's chat offers the mic before Settings is asked");
   assert.equal(await workspaceHeader(workspaces[0]!).locator(".workspace-name").textContent(), "herdr-web-ui-test-browser-a",
     "Spaces names the workspace rather than its current pane");
   assert.equal(await workspaceGroup(workspaces[0]!).locator(".pane-select").count(), 1, "a workspace has one representative selector");
@@ -145,6 +157,119 @@ try {
     "Spaces has no tab or pane tree");
   assert.equal(await agentRow(paneA).count(), 0, "a plain shell is absent from Agents");
   assert.equal(await agentRow(paneB).count(), 0, "another plain shell is absent from Agents");
+
+  // The search owns arrow/Enter navigation. Tab still reaches real buttons: Enter on Close
+  // must close without selecting the highlighted result, and Enter on a row runs that row.
+  const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+  const paletteSearch = palette.getByRole("searchbox", { name: "Search panes and actions", exact: true });
+  const selectedPane = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")?.pane_id as string | undefined);
+  const openPalette = async (): Promise<void> => {
+    await page.keyboard.press("ControlOrMeta+Shift+k");
+    await palette.waitFor();
+    await until(async () => await paletteSearch.evaluate((input) => document.activeElement === input), "palette search takes focus");
+  };
+  await openPalette();
+  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await until(async () => await palette.locator(".palette-pane").count() === 1, "the other pane is the palette's only result");
+  await page.keyboard.press("Tab");
+  assert.equal(await palette.getByRole("button", { name: "Close command palette", exact: true }).evaluate((button) => document.activeElement === button), true,
+    "Tab reaches the close button from search");
+  await page.keyboard.press("Enter");
+  await palette.waitFor({ state: "hidden" });
+  assert.equal(await selectedPane(), paneA, "Enter on Close leaves the pane selection alone");
+
+  await openPalette();
+  const otherPalettePane = palette.locator(".palette-pane").filter({ hasText: "herdr-web-ui-test-browser-b" });
+  // Walk the actual tab order instead of clicking: pointer hover must not pick the row for us.
+  for (const deadline = Date.now() + 5_000; ;) {
+    await page.keyboard.press("Tab");
+    if (await otherPalettePane.evaluate((button) => document.activeElement === button)) break;
+    assert.ok(Date.now() < deadline, "Tab reaches the other pane's option");
+  }
+  assert.equal(await otherPalettePane.getAttribute("aria-selected"), "true", "the focused option is highlighted");
+  await page.keyboard.press("Enter");
+  await palette.waitFor({ state: "hidden" });
+  await until(async () => await selectedPane() === paneB, "Enter on the focused option selects that pane");
+  await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await until(async () => await selectedPane() === paneA, "return to the first pane after palette selection");
+
+  await openPalette();
+  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await until(async () => await palette.locator(".palette-pane").count() === 1, "IME check has a matching result to avoid activating");
+  const paletteComposition = await paletteSearch.evaluate((input) => [
+    { key: "Enter", isComposing: true },
+    { key: "Enter", keyCode: 229 },
+    { key: "ArrowUp", isComposing: true },
+    { key: "ArrowDown", isComposing: true },
+    { key: "Escape", isComposing: true },
+    { key: "Escape", keyCode: 229 },
+  ].map((init) => input.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }))));
+  assert.deepEqual(paletteComposition, [true, true, true, true, true, true], "IME candidate, commit and cancel keys keep their default action");
+  assert.equal(await palette.isVisible(), true, "IME Enter and Escape leave the palette open");
+  assert.equal(await selectedPane(), paneA, "IME Enter never activates its matching pane");
+  assert.equal(await paletteSearch.inputValue(), "herdr-web-ui-test-browser-b", "IME cancellation leaves the query alone");
+  await paletteSearch.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+
+  // Short desktop and phone lists both overflow. Wrapping up from the first result and down
+  // from the last keeps the active option visible while typing focus stays in search.
+  const paletteViewport = page.viewportSize()!;
+  for (const viewport of [{ width: 1280, height: 400 }, { width: 390, height: 600 }]) {
+    await page.setViewportSize(viewport);
+    await openPalette();
+    await page.mouse.move(0, 0);
+    assert.equal(await palette.locator(".palette-results").evaluate((list) => list.scrollHeight > list.clientHeight), true,
+      "the short palette has a scrollable list");
+    const optionCount = await palette.getByRole("option").count();
+    const visibleActiveOption = () => palette.locator(".palette-results").evaluate((list) => {
+      const option = list.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!option) return false;
+      const row = option.getBoundingClientRect();
+      const bounds = list.getBoundingClientRect();
+      return row.top >= bounds.top - 1 && row.bottom <= bounds.bottom + 1;
+    });
+    await paletteSearch.press("ArrowUp");
+    await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === `palette-item-${optionCount - 1}` && await visibleActiveOption(),
+      "ArrowUp wraps to the last visible palette option");
+    if (process.env.UI_EVIDENCE_DIR) {
+      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `palette-arrow-${viewport.width <= 640 ? "mobile" : "desktop"}.png`) });
+    }
+    await paletteSearch.press("ArrowDown");
+    await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === "palette-item-0" && await visibleActiveOption(),
+      "ArrowDown wraps back to the first visible palette option");
+    assert.equal(await paletteSearch.evaluate((input) => document.activeElement === input), true, "arrow navigation keeps typing focus in search");
+    await paletteSearch.press("Escape");
+    await palette.waitFor({ state: "hidden" });
+  }
+  // A pointer resting over the list keeps still while the arrow scrolls rows under it: the
+  // browser's hover update after the scroll must not take the keyboard selection, and a real
+  // pointer move still does.
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await openPalette();
+  const restingOptionCount = await palette.getByRole("option").count();
+  const firstOption = (await palette.locator("#palette-item-0").boundingBox())!;
+  await page.mouse.move(firstOption.x + firstOption.width / 2, firstOption.y + firstOption.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === "palette-item-0", "the resting pointer is over the first option");
+  await palette.locator(".palette-results").evaluate((list) => {
+    const hovered: string[] = [];
+    (window as unknown as { paletteHovered: string[] }).paletteHovered = hovered;
+    list.addEventListener("mouseover", (event) => hovered.push((event.target as HTMLElement).closest("[role=option]")?.id ?? ""));
+  });
+  await paletteSearch.press("ArrowUp");
+  await until(async () => await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.some((id) => id !== "" && id !== "palette-item-0")),
+    "the scroll moves another option under the resting pointer");
+  assert.equal(await paletteSearch.getAttribute("aria-activedescendant"), `palette-item-${restingOptionCount - 1}`,
+    "a scroll under a resting pointer leaves the arrow's selection alone");
+  const hoveredId = await page.evaluate(() => (window as unknown as { paletteHovered: string[] }).paletteHovered.findLast((id) => id !== "")!);
+  const hoveredBox = (await palette.locator(`#${hoveredId}`).boundingBox())!;
+  await page.mouse.move(hoveredBox.x + hoveredBox.width / 2 + 4, hoveredBox.y + hoveredBox.height / 2);
+  await until(async () => await paletteSearch.getAttribute("aria-activedescendant") === hoveredId, "a real pointer move selects the option under it");
+  await paletteSearch.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await page.mouse.move(0, 0);
+  await page.setViewportSize(paletteViewport);
+  console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
 
   // Hold a real machines response, then deliver a newer status through herdr/SSE.
   const badge = page.locator(".pane-item.is-selected .badge");
@@ -362,6 +487,7 @@ try {
   // Add PC lives in Settings → Remote PCs, not in the sidebar; opening it closes Settings behind it
   assert.equal(await page.locator(".sidebar").getByRole("button", { name: "Add PC", exact: true }).count(), 0, "the sidebar has no Add PC button");
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Remote PCs");
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add PC", exact: true }).click();
   await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
@@ -404,16 +530,18 @@ try {
   assert.deepEqual(await sidebarWidths(), defaultWidths, "a double-click goes back to the default width and forgets the stored one");
   console.log("PASS the sidebar's edge drags, steps from the keyboard, remembers its width and resets on a double-click");
 
-  // Settings → Sidebar rows → Two lines: a workspace row says what its pane is doing over its
-  // place, on a taller row; One line gives the workspace its name back
-  const oneLineHeight = await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height);
-  assert.equal(await page.locator(".workspace-copy.is-two-line").count(), 0, "rows are one line until two are chosen");
+  // Sidebar rows: a workspace row says what its pane is doing over its place, on a taller row,
+  // until Settings → Sidebar rows → One line gives the workspace its name back
+  const twoLineHeight = await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height);
+  assert.ok(await page.locator(".workspace-copy.is-two-line").count() > 0, "rows are two lines until one is chosen");
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   const rowsSetting = page.locator('.settings-dialog .segmented[aria-label="Sidebar rows"]');
+  await rowsSetting.getByRole("button", { name: "One line", exact: true }).click();
+  await page.locator(".workspace-copy.is-two-line").first().waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "one");
+  assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) < twoLineHeight, "a one-line row is shorter");
   await rowsSetting.getByRole("button", { name: "Two lines", exact: true }).click();
   await page.locator(".workspace-copy.is-two-line").first().waitFor();
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "two");
-  assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) > oneLineHeight, "a two-line row is taller");
   await rowsSetting.getByRole("button", { name: "One line", exact: true }).click();
   await page.locator(".workspace-copy.is-two-line").first().waitFor({ state: "detached" });
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
@@ -448,6 +576,7 @@ try {
     assert.ok(Date.now() < deadline, "a hide and a show restart the update status poll");
   }
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "About");
   const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
   await checkUpdates.waitFor();
   await checkUpdates.click();
@@ -490,6 +619,7 @@ try {
     Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" });
   });
   const blockedPage = await blocked.newPage();
+  csp.push(await watchCsp(blockedPage));
   await blockedPage.goto(origin);
   await blockedPage.locator(".header-more-button").waitFor();
   assert.equal(await alertsState(blockedPage), "On in the app");
@@ -585,9 +715,13 @@ try {
   await composer.fill("");
   // a follow-up sent between a reconnect and its snapshot is the new connection's own row, not an unconfirmed copy
   const sentBeforeSnapshot = inputs.length;
+  const socketsBeforeReconnect = sockets.length;
   holdSnapshot = true;
   await routed.at(-1)!.close();
   await until(() => releaseSnapshot !== null, "the reconnect's snapshot was held back");
+  // the server can send its snapshot before the page has even sent its attach: the pane is
+  // ready only once the new connection says so, not by the closed one's last word
+  await until(() => sockets.length > socketsBeforeReconnect, "the page opened its new connection");
   await pendingReady(pendingPane);
   assert.equal(await page.locator('.pending-message[data-state="uncertain"]').count(), 2, "the lost connection's rows are no longer its own");
   await composer.fill("sent before the snapshot");
@@ -640,6 +774,7 @@ try {
   // than the pane and the column is the pane less its gutters. A larger window grows the lane
   const chatWidth = async (name: string): Promise<void> => {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Chat");
     await page.getByRole("group", { name: "Chat width", exact: true }).getByRole("button", { name, exact: true }).click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
   };
@@ -718,6 +853,7 @@ try {
   // chosen in Settings, and the box has no button for it
   const quickRow = async (show: boolean): Promise<void> => {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Chat");
     const toggle = page.getByRole("switch", { name: "Show above the message box", exact: true });
     if ((await toggle.getAttribute("aria-checked")) !== String(show)) await toggle.click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
@@ -816,44 +952,6 @@ try {
   await composer.fill("draft for A");
   console.log("PASS successful sends settle after switching panes and preserve edits made after returning");
 
-  // Every directory has a fold caret, even with one pane; opening a pane reveals its folder.
-  const split = await herdrRpc<{ pane: { pane_id: string } }>("pane.split", { target_pane_id: paneB, direction: "down", focus: false });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  const sectionB = page.locator(`.directory-group[data-directory="${join(root, "b")}"]`);
-  const toggleB = sectionB.locator(".directory-header");
-  await toggleB.waitFor();
-  assert.equal(await page.locator(".directory-group", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".directory-header").count(), 1, "a lone pane keeps its folder header");
-  await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
-  assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
-  await page.reload();
-  await page.locator(".conn-live").waitFor();
-  const foldedB = page.locator(".directory-group.is-collapsed", { has: page.locator(".directory-header[aria-expanded='false']") });
-  await foldedB.waitFor();
-  assert.equal(await foldedB.locator(`.pane-select[title^="${paneB} —"]`).count(), 0, "the fold survives a reload");
-  await page.goto(`${origin}/?pane=${encodeURIComponent(split.pane.pane_id)}`);
-  await page.locator(".conn-live").waitFor();
-  await page.locator(`.pane-item.is-selected .pane-select[title^="${split.pane.pane_id} —"]`).waitFor();
-  assert.equal(await page.locator(".directory-group.is-collapsed").count(), 0);
-  // Status snapshots do not undo a deliberate fold of the selected folder.
-  await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
-  await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "blocked" });
-  await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge[data-status="blocked"]`).waitFor();
-  await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
-  await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge:not([data-status="blocked"])`).waitFor();
-  assert.equal(await sectionB.locator(".workspace-list").count(), 0, "a snapshot update keeps the selected pane's workspace folded");
-  assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
-  await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor();
-  await herdrRpc("pane.close", { pane_id: split.pane.pane_id });
-  await page.locator(`.pane-select[title^="${split.pane.pane_id} —"]`).waitFor({ state: "detached" });
-  await selectPane(paneA);
-  await composer.fill("draft for A");
-  console.log("PASS a folder folds from its caret, stays folded across reloads, and unfolds for a pane opened inside it");
-
   let releaseImage!: () => void;
   const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
   releases.push(releaseImage);
@@ -917,9 +1015,6 @@ try {
   assert.equal(git("commit", "-q", "-m", "fixture").exitCode, 0, "git commit");
   const repoWorkspace = await workspaceCreate({ cwd: repo, label: "herdr-web-ui-test-repo" });
   workspaces.push(repoWorkspace.workspace.workspace_id);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By workspace", exact: true }).click();
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
   const repoRow = workspaceHeader(repoWorkspace.workspace.workspace_id);
   await repoRow.waitFor();
   const initialResponse = await fetch(`${origin}/api/worktree/create`, {
@@ -930,8 +1025,8 @@ try {
   const initialWorktree = await initialResponse.json() as WorktreeOpened;
   worktreeWorkspaces.push(initialWorktree.workspace_id);
   const initialRow = page.locator(`.worktree-children .workspace-group[data-workspace="${initialWorktree.workspace_id}"]`);
-  await until(async () => await initialRow.locator(".workspace-name").textContent() === "browser/initial", "the list API discovers an existing worktree's exact branch");
-  assert.equal(await initialRow.locator(".worktree-workspace-label").textContent(), "Existing checkout", "the workspace label is secondary to its branch");
+  await until(async () => await initialRow.locator(".workspace-name").textContent() === "Existing checkout", "a named worktree's row is titled by its workspace name");
+  assert.equal(await initialRow.locator(".worktree-workspace-label").textContent(), "browser/initial", "the list API discovers an existing worktree's exact branch, said after the name");
   assert.equal(await repoRow.locator(".workspace-name").textContent(), "herdr-web-ui-test-repo", "the parent keeps its workspace name");
   // A list read from before creation must not erase the branch supplied by the create response.
   let releaseWorktreeList!: () => void;
@@ -988,8 +1083,8 @@ try {
   assert.equal(await childHeader.locator(".sidebar-drag-handle").count(), 0, "the branch workspace has no reorder grip column");
   assert.equal(await repoRow.locator(".workspace-select").getAttribute("draggable"), "true", "the parent workspace row supports dragging");
   assert.equal(await childHeader.locator(".workspace-select").getAttribute("draggable"), "true", "the branch workspace row supports dragging");
-  await until(async () => await childHeader.locator(".workspace-name").textContent() === "browser/sidebar", "a newly created child uses its exact branch including the slash");
-  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "Sidebar redesign");
+  await until(async () => await childHeader.locator(".workspace-name").textContent() === "Sidebar redesign", "a newly created child is titled by the name it was given");
+  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "browser/sidebar", "its exact branch, slash included, follows the name");
   assert.equal(await repoRow.locator(".workspace-toggle").getAttribute("aria-expanded"), "true", "creation expands a previously folded parent");
   assert.equal(await page.locator(`.workspace-group[data-workspace="${repoWorkspace.workspace.workspace_id}"] + .worktree-children > .workspace-list > .workspace-group`).count(), 2,
     "existing and newly created branches share their repository workspace");
@@ -997,7 +1092,8 @@ try {
   assert.equal(staleWorktreeListFinished, false, "the create response displays the branch before the pending list finishes");
   releaseWorktreeList();
   await until(() => staleWorktreeListFinished && freshWorktreeListFinished, "the stale inventory is followed by a fresh one");
-  assert.equal(await childHeader.locator(".workspace-name").textContent(), "browser/sidebar", "a pre-create inventory cannot erase the new branch");
+  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "browser/sidebar", "a pre-create inventory cannot erase the new branch");
+  assert.equal(await childHeader.locator(".workspace-name").textContent(), "Sidebar redesign", "nor the name it was given");
   await page.unroute("**/api/worktree/list?*");
   await childHeader.hover();
   await childHeader.locator(".row-menu-toggle").click();
@@ -1006,9 +1102,9 @@ try {
   assert.equal(await childHeader.locator(".workspace-select").getAttribute("draggable"), "false", "an editing field disables row dragging");
   await worktreeRename.fill("Sidebar renamed");
   await worktreeRename.press("Enter");
-  await until(async () => await childHeader.locator(".worktree-workspace-label").textContent() === "Sidebar renamed", "the child workspace label is renamed");
+  await until(async () => await childHeader.locator(".workspace-name").textContent() === "Sidebar renamed", "the child workspace is renamed in its row title");
   assert.equal(await childHeader.locator(".workspace-select").getAttribute("draggable"), "true", "row dragging returns after editing finishes");
-  assert.equal(await childHeader.locator(".workspace-name").textContent(), "browser/sidebar", "renaming a workspace preserves its actual git branch");
+  assert.equal(await childHeader.locator(".worktree-workspace-label").textContent(), "browser/sidebar", "renaming a workspace preserves its actual git branch");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "worktree-branches-sidebar.png") });
   // a workspace row's menu also opens from a right-click on the row
   await repoRow.locator(".workspace-select").click({ button: "right" });
@@ -1031,7 +1127,7 @@ try {
   await initialRow.waitFor({ state: "detached" });
   worktreeWorkspaces.splice(worktreeWorkspaces.indexOf(initialWorktree.workspace_id), 1);
 
-  // In the By workspace view the worktree's row sits under its repository's, as herdr packs them.
+  // The worktree's row sits under its repository's, as herdr packs them.
   // Its menu deletes the checkout: a dirty one is refused in git's words first, then deleted anyway.
   const repoHeader = repoRow;
   await childRow.waitFor();
@@ -1171,6 +1267,7 @@ try {
   // on a touch screen the open tab carries a chevron in place of the x: the same menu, as a sheet
   const tabPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const tabPhonePage = await tabPhone.newPage();
+  csp.push(await watchCsp(tabPhonePage));
   tabPhonePage.on("pageerror", (error) => errors.push(error.message));
   await tabPhonePage.goto(`${origin}/?pane=${encodeURIComponent(createdTab.pane_id)}`);
   const phoneStrip = tabPhonePage.locator(".tab-strip");
@@ -1221,9 +1318,6 @@ try {
   assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current"), "true", "the open pane stays");
   await until(async () => await page.evaluate(() => document.activeElement?.matches(".app-header .drawer-toggle, .app-header .sidebar-toggle") === true), "the focus is not left on the page");
   console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its x and Delete, asking first while its agent works");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.
@@ -1370,6 +1464,7 @@ try {
     Storage.prototype.getItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };
   });
   const mobilePage = await mobile.newPage();
+  csp.push(await watchCsp(mobilePage));
   mobilePage.on("pageerror", (error) => errors.push(error.message));
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
   await mobilePage.locator(".conn-live").waitFor();
@@ -1386,6 +1481,7 @@ try {
   assert.equal(await mobilePage.getByRole("button", { name: "Hide keyboard", exact: true }).count(), 0, "no keyboard button on a phone");
   await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "the chat, the composer and the phone views load with no CSP violation");
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 
   // a phone reads a pane before it answers: a pane picked from the drawer raises no keyboard,
@@ -1406,38 +1502,46 @@ try {
   await until(() => typing(mobilePage), "a tap on the message box takes the keyboard");
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).blur();
   await mobilePage.locator('button[aria-controls="workspace-drawer"]').click();
+  assert.equal(await mobilePage.locator(".agents-sidebar .agent-section-toggle").getAttribute("aria-expanded"), "false", "a phone's drawer opens with Agents folded");
   await mobilePage.locator(`.pane-select[title^="${paneB} —"]`).click();
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
   console.log("PASS a pane picked on a phone waits for a tap before raising the keyboard");
 
-  // Claude's suggestion on a phone is the placeholder only, until Settings turns its chip on
+  // Claude's suggestion on a phone is the placeholder and a chip that fills the box, until Settings turns the chip off
   const promptRoute = `**/api/pane/prompt?pane_id=${encodeURIComponent(paneB)}`;
   const suggest = { json: { prompt: null, suggestion: "run the tests" } };
   const mobileComposer = mobilePage.getByRole("textbox", { name: "Message", exact: true });
   await mobilePage.route(promptRoute, (route) => route.fulfill(suggest));
   await mobileComposer.fill("");
   await until(async () => await mobileComposer.getAttribute("placeholder") === "run the tests", "a phone shows the suggestion as the placeholder");
-  assert.equal(await mobilePage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip until Settings turns it on");
+  assert.equal(await mobilePage.locator(".voice-mic").count(), 0, "a phone's chat has no mic until Settings asks for it");
+  await mobilePage.getByTitle("Use the suggestion", { exact: true }).click();
+  assert.equal(await mobileComposer.inputValue(), "run the tests", "the chip puts the suggestion in the box");
   await mobilePage.unroute(promptRoute);
-  const chipPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-  await chipPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: true })); });
-  const chipPage = await chipPhone.newPage();
-  chipPage.on("pageerror", (error) => errors.push(error.message));
-  await chipPage.route(promptRoute, (route) => route.fulfill(suggest));
-  await chipPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
-  await chipPage.locator(".conn-live").waitFor();
-  await chipPage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
-  await chipPage.getByTitle("Use the suggestion", { exact: true }).click();
-  assert.equal(await chipPage.getByRole("textbox", { name: "Message", exact: true }).inputValue(), "run the tests", "the chip puts the suggestion in the box");
-  await chipPhone.close();
+  const plainPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await plainPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: false })); });
+  const plainPage = await plainPhone.newPage();
+  csp.push(await watchCsp(plainPage));
+  plainPage.on("pageerror", (error) => errors.push(error.message));
+  await plainPage.route(promptRoute, (route) => route.fulfill(suggest));
+  await plainPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
+  await plainPage.locator(".conn-live").waitFor();
+  await plainPage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  const plainComposer = plainPage.getByRole("textbox", { name: "Message", exact: true });
+  await until(async () => await plainComposer.getAttribute("placeholder") === "run the tests", "the suggestion stays the placeholder with the chip off");
+  assert.equal(await plainPage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip once Settings turns it off");
+  await plainPhone.close();
   assert.deepEqual(errors, []);
-  console.log("PASS a phone offers Claude's suggestion as a chip only once Settings turns it on");
+  assertCspClean(csp, "the suggestion chip loads with no CSP violation");
+  console.log("PASS a phone offers Claude's suggestion as a chip until Settings turns it off");
 
   await checkTerminalInput(browser, origin, paneA, paneB);
+  await checkHeldDraftPaneSwitch(browser, origin, paneA, paneB);
 
   // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const touchPage = await touch.newPage();
+  csp.push(await watchCsp(touchPage));
   touchPage.on("pageerror", (error) => errors.push(error.message));
   const touchSent: Array<Record<string, unknown>> = [];
   touchPage.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
@@ -1490,6 +1594,7 @@ try {
   await line.fill("");
   assert.equal(await touchPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
+  assertCspClean(csp, "touch terminal input loads with no CSP violation");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await touchPage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-input-mobile.png") });
@@ -1501,7 +1606,7 @@ try {
   // is automatic, so it must not offer a sign-out action that cannot lock the app.
   assert.equal(await page.getByRole("button", { name: "Sign out", exact: true }).count(), 0);
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
-  // closed from the row's ⋯ menu; its last pane takes the workspace with it, so a confirm asks first
+  // closed from the row's ⋯ menu; the workspace's pane goes with it, so a confirm asks first
   await page.locator(".pane-item.is-selected .row-menu-toggle").click();
   const rowMenu = page.getByRole("menu");
   await rowMenu.waitFor();
@@ -1519,7 +1624,7 @@ try {
   await rowMenu.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "Escape after a right-click returns focus to the row's ⋯");
   await page.keyboard.press("Enter");
-  await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await rowMenu.getByRole("menuitem", { name: "Close workspace", exact: true }).click();
   const confirmClose = page.getByRole("alertdialog");
   await confirmClose.waitFor();
   await until(async () => await page.evaluate(() => document.activeElement?.textContent === "Cancel"), "the confirm starts on Cancel");
@@ -1530,7 +1635,7 @@ try {
   await confirmClose.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "cancelling the confirm returns focus to the row's ⋯");
   await page.keyboard.press("Enter");
-  await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await rowMenu.getByRole("menuitem", { name: "Close workspace", exact: true }).click();
   await confirmClose.waitFor();
   await confirmClose.getByRole("button", { name: "Close", exact: true }).click();
   workspaces.splice(workspaces.indexOf(created.workspace_id), 1);
@@ -1554,6 +1659,8 @@ try {
     return selected?.pane_id && selected.pane_id !== "obsolete-pane";
   }, "obsolete saved selection recovered");
   console.log("PASS closed and obsolete saved panes recover their selection");
+  // the desktop page ran past the phone steps above: close it on the same gate
+  assertCspClean(csp, "the desktop shell, the file viewer and the pane close load with no CSP violation");
   await page.close();
 
   const secured = createServer({ port: 0, hostname: "127.0.0.1", token: "browser-test-token", stateDir: join(root, "secured"), tailscaleOwner: null });
@@ -1564,6 +1671,7 @@ try {
   const securedWorkspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-browser-signout" });
   workspaces.push(securedWorkspace.workspace.workspace_id);
   const securedPage = await securedContext.newPage();
+  csp.push(await watchCsp(securedPage));
   await securedContext.request.post(`${securedOrigin}/api/auth`, { data: { token: "browser-test-token" } });
   await securedPage.goto(`${securedOrigin}/?pane=${encodeURIComponent(securedWorkspace.root_pane.pane_id)}`);
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).waitFor();
@@ -1584,6 +1692,7 @@ try {
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
   await securedContext.close();
+  assertCspClean(csp, "the token gate loads with no CSP violation");
   console.log("PASS token and paired-device sign out return to the access gate");
 } finally {
   for (const release of releases) release();
