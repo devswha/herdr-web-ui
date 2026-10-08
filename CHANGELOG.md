@@ -15,12 +15,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   JavaScript number, so the owner was not recognised and the owner's own devices had to pair. Two
   logins with neighbouring ids are also no longer taken for one.
   ([#572](https://github.com/devswha/herdr-web-ui/pull/572))
-- On Windows, a Claude Code pane started with its own `CLAUDE_CONFIG_DIR`, such as a second
-  account's `~/.claude-*` directory, shows its chat. Before, the pane fell back to `~/.claude`, so
-  the chat said **Conversation unavailable** and only the terminal worked. Windows does not let
-  the server read another process's environment, so the store is the one among `~/.claude` and
-  the `~/.claude-*` directories beside it that holds the Claude process's own record, checked
-  against the time the process started. Claude Code processes reported as `claude.exe` are
+- On Windows, a Claude Code pane started with a second account's `~/.claude-*` directory as its
+  `CLAUDE_CONFIG_DIR` shows its chat. Before, the pane fell back to `~/.claude`, so the chat said
+  **Conversation unavailable** and only the terminal worked. Windows does not let the server read
+  another process's environment, so the store is the one among the server's own
+  `CLAUDE_CONFIG_DIR`, `~/.claude` and the `~/.claude-*` directories beside it that holds the
+  Claude process's own record, checked against the time the process started. A directory
+  elsewhere is not looked in. Claude Code processes reported as `claude.exe` are
   recognized too.
   ([#563](https://github.com/devswha/herdr-web-ui/pull/563) by @David-Sousa-Web)
 - A long line of brackets, `\(` or underscores that never close, as an agent prints in a log or a
@@ -54,6 +55,21 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Long drafts in the message box wrap and keep a narrow scroll cue in reserved space, so the
   scrollbar no longer covers text at fractional zoom.
   ([#522](https://github.com/devswha/herdr-web-ui/pull/522) by @suho-han)
+- A secret sent from a pane you then left and opened again, while another browser kept the pane
+  open, is no longer typed into the pane: you send it again from the pane you opened.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
+- A Claude Code slash command whose answer holds a long run of broken terminal escape codes no
+  longer stalls the server while the chat reads it. Its answer also drops a link cut off before
+  its end and a stray `B` after a charset switch, and an answer with both output and errors
+  shows both.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
+- The command palette opened over Settings and a file preview shows above both, instead of
+  taking the keyboard unseen beneath them.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
+- The plugin's `start` no longer takes another program on the app's port for the app because
+  its answer says `ok`: it treats it as any other program there, moving the app to a free port,
+  or saying the port is taken when `PORT` is set.
+  ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
 
 ## [0.4.0] - 2026-10-08
 
