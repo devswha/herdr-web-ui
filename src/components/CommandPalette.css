@@ -1,4 +1,6 @@
+/* the top layer whenever it is open: it takes focus and Escape, even over Settings raised above a preview */
 .palette-scrim {
+  z-index: var(--z-palette);
   align-items: flex-start;
   padding-top: var(--palette-top);
 }
