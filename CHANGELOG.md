@@ -69,6 +69,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
 - Updating an already current remote bridge verifies and reuses it without downloading or
   restarting it again, while a bridge from a newer app is left running instead of downgraded.
+  A PC that waits on such a conflict says so in the sidebar and under the header, with a
+  **Reconnect** button, instead of asking for setup approval.
   ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
 
 ## [0.4.0] - 2026-10-08
