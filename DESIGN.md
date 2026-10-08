@@ -271,7 +271,7 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--z-scrim` | `15` | Mobile drawer scrim |
 | `--z-drawer` | `20` | Mobile drawer |
 | `--z-modal` | `30` | Dialog scrims |
-| `--z-palette` | `35` | Command palette scrim, over every dialog |
+| `--z-palette` | `35` | Command palette scrim, over every scrim dialog (a `showModal()` dialog sits in the top layer above it) |
 | `--z-droplet` | `40` | In-app alert, over dialogs |
 
 ### In-app alert
