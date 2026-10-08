@@ -34,6 +34,17 @@ export const CHAT_WIDTHS: readonly ChatWidth[] = ["narrow", "default", "wide", "
  *  on: there, on a phone and in the terminal input line, disabled with its reason where it cannot work; off: nowhere */
 export type VoiceButton = "auto" | "on" | "off";
 export const VOICE_BUTTONS: readonly VoiceButton[] = ["auto", "on", "off"];
+/**
+ * The languages dictation can be set to, as BCP 47 tags (SpeechRecognition.lang; the transcribe
+ * route takes the first subtag). Auto follows the browser's language, so one outside this list
+ * still works without a choice here.
+ */
+export const DICTATION_LANGUAGES = [
+  "ar-SA", "cs-CZ", "da-DK", "de-DE", "el-GR", "en-GB", "en-US", "es-ES", "fi-FI", "fr-FR", "he-IL", "hi-IN",
+  "hu-HU", "id-ID", "it-IT", "ja-JP", "ko-KR", "nb-NO", "nl-NL", "pl-PL", "pt-BR", "pt-PT", "ro-RO", "ru-RU",
+  "sk-SK", "sv-SE", "th-TH", "tr-TR", "uk-UA", "vi-VN", "zh-CN", "zh-TW",
+] as const;
+export type DictationLanguage = "auto" | (typeof DICTATION_LANGUAGES)[number];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -110,6 +121,8 @@ export interface Settings {
   usageHidden: string[];
   /** the microphone button in the composer and the terminal input line; nothing is recorded until it is pressed */
   voiceInput: VoiceButton;
+  /** the language dictation listens for; auto follows the browser (src/lib/voice.ts dictationLocale) */
+  voiceLanguage: DictationLanguage;
   voicePolishChat: boolean;
   /** off by default: a terminal line is usually a command, kept as spoken */
   voicePolishTerminal: boolean;
@@ -152,6 +165,7 @@ export const DEFAULT_SETTINGS: Settings = {
   usageOrder: [],
   usageHidden: [],
   voiceInput: "auto",
+  voiceLanguage: "auto",
   voicePolishChat: true,
   voicePolishTerminal: false,
 };
@@ -304,6 +318,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     usageOrder: usageKeys(record["usageOrder"]),
     usageHidden: usageKeys(record["usageHidden"]),
     voiceInput: voiceButton(record["voiceInput"]),
+    voiceLanguage: DICTATION_LANGUAGES.includes(record["voiceLanguage"] as (typeof DICTATION_LANGUAGES)[number]) ? record["voiceLanguage"] as DictationLanguage : DEFAULT_SETTINGS.voiceLanguage,
     voicePolishChat: typeof record["voicePolishChat"] === "boolean" ? record["voicePolishChat"] : DEFAULT_SETTINGS.voicePolishChat,
     voicePolishTerminal: typeof record["voicePolishTerminal"] === "boolean" ? record["voicePolishTerminal"] : DEFAULT_SETTINGS.voicePolishTerminal,
   };
