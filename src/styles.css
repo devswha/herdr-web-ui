@@ -670,6 +670,11 @@ button {
   padding-bottom: 0;
 }
 
+/* the tab strip's panel inside .terminal-host: a role for screen readers, no box of its own */
+.terminal-tabpanel {
+  display: contents;
+}
+
 /* ---------- header ---------- */
 
 .brand {

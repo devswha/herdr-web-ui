@@ -873,7 +873,9 @@ export function App() {
         )}
         {/* the tab strip's panel: its id is what each tab's aria-controls points at. No tabIndex -
             the terminal (PaneTerminal) and the composer are the focusable things inside it. */}
-        <main id={PANE_TABPANEL_ID} className="terminal-host" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
+        <main className="terminal-host">
+          {/* the panel sits inside main, so the page keeps its main landmark; it draws no box */}
+          <div id={PANE_TABPANEL_ID} className="terminal-tabpanel" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
           <PaneTerminal
             key={selectedMachineId}
             paneId={selectedPane?.restore_error ? null : selectedPaneId}
@@ -895,6 +897,7 @@ export function App() {
             onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
             onServerMessage={handleServerMessage}
           />
+          </div>
         </main>
         </div>
         </OpenFileContext.Provider>

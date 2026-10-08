@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { fetchPaneConversation } from "./api.ts";
+import { fetchPaneConversation, conversationAnswerBytes } from "./api.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -65,4 +65,11 @@ describe("conversation polling", () => {
     await fetchPaneConversation("big:p0");
     expect([...asked.values()]).toEqual([null]);
   });
+});
+
+it("counts a compressed answer by its parsed body, not the bytes on the wire", () => {
+  const body = { turns: [{ text: "x".repeat(5000) }] } as unknown as Parameters<typeof conversationAnswerBytes>[0];
+  expect(conversationAnswerBytes(body, "300")).toBe(300);
+  expect(conversationAnswerBytes(body, "300", "identity")).toBe(300);
+  expect(conversationAnswerBytes(body, "300", "gzip")).toBe(JSON.stringify(body).length);
 });

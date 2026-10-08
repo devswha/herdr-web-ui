@@ -53,9 +53,10 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
     const frame = window.requestAnimationFrame(() => {
       const node = surface.current;
       if (!node) return;
-      // a surface whose opener already placed the focus (Settings opens on the page a button
-      // pointed at) keeps that placement: containment and return are ours to add, not the start
-      if (opener !== null && node.contains(opener)) return;
+      // a surface that already placed the focus inside itself (Settings focuses its page's tab in
+      // a layout effect after this one) keeps that placement: containment and return are ours to
+      // add, not the start
+      if (node.contains(document.activeElement)) return;
       const wanted = latest.current.initialFocus?.current;
       (wanted && wanted.isConnected ? wanted : tabStops(node)[0] ?? node).focus({ preventScroll: true });
     });

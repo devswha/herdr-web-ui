@@ -169,10 +169,14 @@ const CONVERSATION_ANSWERS_KEPT = 16;
 /** …and this much of them, about four ordinary conversation pages each. */
 const CONVERSATION_ANSWERS_BYTES = 8 * 1024 * 1024;
 
-/** The body a cache entry carries: the server's own count when it sends one, else the JSON we parsed. */
-function conversationAnswerBytes(body: ConversationResponse, contentLength: string | null): number {
+/**
+ * The body a cache entry carries: the server's own count when it sends one for the body as it is,
+ * else the JSON we parsed. A compressed answer's length counts the bytes on the wire, not these.
+ */
+export function conversationAnswerBytes(body: ConversationResponse, contentLength: string | null, contentEncoding: string | null = null): number {
   const declared = Number(contentLength);
-  if (Number.isFinite(declared) && declared > 0) return declared;
+  const identity = contentEncoding === null || contentEncoding.trim().toLowerCase() === "identity";
+  if (identity && Number.isFinite(declared) && declared > 0) return declared;
   return JSON.stringify(body)?.length ?? 0;
 }
 
@@ -210,7 +214,7 @@ export async function fetchPaneConversation(paneId: string, machineId = "local",
   if (!polled) return body;
   conversationAnswers.delete(url);
   if (etag !== null) {
-    conversationAnswers.set(url, { etag, body, bytes: conversationAnswerBytes(body, response.headers.get("content-length")) });
+    conversationAnswers.set(url, { etag, body, bytes: conversationAnswerBytes(body, response.headers.get("content-length"), response.headers.get("content-encoding")) });
     trimConversationAnswers(url);
   }
   return body;

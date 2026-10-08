@@ -755,8 +755,12 @@ export function forgetPaneTranscriptState(paneId: string): void {
   paneReads.delete(paneId);
   forgetGjcPane(paneId);
   if (reads === undefined) return;
-  for (const session of reads.sessions) writtenSessions.delete(session);
+  // two panes can read one transcript (a resumed session, a shared store): what another pane
+  // still reads stays
+  const shared = (pick: (other: PaneReads) => Set<string>, value: string): boolean => [...paneReads.values()].some((other) => pick(other).has(value));
+  for (const session of reads.sessions) if (!shared((other) => other.sessions, session)) writtenSessions.delete(session);
   for (const path of reads.paths) {
+    if (shared((other) => other.paths, path)) continue;
     for (const key of [...cache.keys()]) if (key.startsWith(`${path}\0`)) cache.delete(key);
     transcriptRevisions.delete(path);
     liveScans.delete(path);

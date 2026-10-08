@@ -352,6 +352,10 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     setPaneLabel(pane.label ?? "");
   };
 
+  // a rename's failure is answered after later renders: it asks the roster as it is then
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+
   const savePaneRename = (pane: PaneInfo): void => {
     const typed = paneLabel;
     const label = typed.trim();
@@ -359,7 +363,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     void renamePane(pane.pane_id, label).catch((reason: unknown) => {
       // the field comes back with what was typed: a failed request is not a reason to make the
       // user write the name again. Not for a pane that has since closed
-      if (snapshot?.panes.some((candidate) => candidate.pane_id === pane.pane_id)) {
+      if (snapshotRef.current?.panes.some((candidate) => candidate.pane_id === pane.pane_id)) {
         setEditingPaneId(pane.pane_id);
         setPaneLabel(typed);
       }
@@ -378,7 +382,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     setEditingWorkspaceId(null);
     void renameWorkspace(workspaceId, label).catch((reason: unknown) => {
       // as for a pane: the typed name survives a failed request, for as long as the workspace does
-      if (snapshot?.workspaces.some((candidate) => candidate.workspace_id === workspaceId)) {
+      if (snapshotRef.current?.workspaces.some((candidate) => candidate.workspace_id === workspaceId)) {
         setEditingWorkspaceId(workspaceId);
         setWorkspaceLabel(typed);
       }
