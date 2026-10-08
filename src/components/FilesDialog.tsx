@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import { useT } from "../lib/i18n.ts";
-import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 
 export interface FilesDialogProps {
   /** the folder to open at: the pane's own */
@@ -20,7 +20,8 @@ export function FilesDialog({ start, viewing, onOpenFile, onClose }: FilesDialog
   const surface = useFocusTrap<HTMLElement>(true);
   useEffect(() => {
     if (viewing) return;
-    const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape") onClose(); };
+    // a native modal over it (Add PC, from the palette) takes its own Escape
+    const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape" && !nativeModalOver(surface.current)) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, viewing]);
