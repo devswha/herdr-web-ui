@@ -73,6 +73,8 @@ describe("plugin settings files", () => {
 
 /** What the app's bridge health answers (server/index.ts): it holds the port whether herdr answers or not. */
 const BRIDGE_HEALTH = { ok: true, auth: { required: false, authenticated: true }, bridge_protocol: 1 };
+/** What the app's full health answers while herdr does (every release since v0.1.0 has sent these). */
+const APP_HEALTH = { ok: true, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } };
 
 describe("port", () => {
   const keep = (port: number) => {
@@ -136,9 +138,20 @@ describe("port", () => {
     }
   });
 
+  it("does not take another program answering ok on both health URLs for the app", async () => {
+    const stranger = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) });
+    try {
+      writeFileSync(join(configDir, ".env"), `PORT=${stranger.port}\n`);
+      const started = await run("start");
+      expect(started.out).not.toContain("already running");
+      expect(started.exitCode).toBe(1);
+      expect(started.err).toContain(`port ${stranger.port} on 127.0.0.1 cannot be opened`);
+    } finally { await stranger.stop(true); }
+  });
+
   it("follows a start that is coming up on another port instead of opening a second server", async () => {
     // the app answers on the port the other start fell back to
-    const ours = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) });
+    const ours = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json(APP_HEALTH) });
     // the kept port is held by someone else; its first health probe is the moment the other start writes its choice
     const stranger = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { keep(ours.port!); return new Response(null, { status: 404 }); } });
     try {
@@ -184,7 +197,7 @@ describe("port", () => {
       port: 0,
       fetch: (request) => {
         if (new URL(request.url).searchParams.get("scope") === "bridge") { afterBridge = 0; return Response.json(BRIDGE_HEALTH); }
-        if (afterBridge >= 0 && afterBridge++ >= 1) return Response.json({ ok: true });
+        if (afterBridge >= 0 && afterBridge++ >= 1) return Response.json(APP_HEALTH);
         return Response.json({ error: { code: "connect_failed", message: "herdr socket unreachable" } }, { status: 502 });
       },
     });
