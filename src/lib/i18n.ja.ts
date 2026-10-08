@@ -579,7 +579,7 @@ export const JA: Record<string, string> = {
   "Microphone button": "マイクボタン",
   "Microphone permission was denied": "マイクの使用が許可されませんでした",
   "Dictation language": "音声入力の言語",
-  "Auto listens for the browser's language, or for the app's language when you chose one": "自動ではブラウザの言語を聞き取ります。アプリの言語を選んだ場合はその言語を聞き取ります",
+  "Auto listens for the app's language, or for the browser's when the app is not translated into it": "自動ではアプリの言語を聞き取ります。ブラウザの言語にアプリが翻訳されていない場合は、ブラウザの言語を聞き取ります",
   "Auto ({language})": "自動（{language}）",
   "No OpenAI key: the browser's speech recognition is used": "OpenAI キーがないため、ブラウザーの音声認識を使用します",
   "No microphone found": "マイクが見つかりません",

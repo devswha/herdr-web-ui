@@ -577,7 +577,7 @@ export const KO: Record<string, string> = {
   "Microphone button": "마이크 버튼",
   "Microphone permission was denied": "마이크 권한이 거부되었습니다",
   "Dictation language": "받아쓰기 언어",
-  "Auto listens for the browser's language, or for the app's language when you chose one": "자동은 브라우저 언어를 알아듣고, 앱 언어를 직접 골랐다면 그 언어를 알아듣습니다",
+  "Auto listens for the app's language, or for the browser's when the app is not translated into it": "자동은 앱 언어를 알아듣고, 브라우저 언어로 번역된 앱이 없으면 브라우저 언어를 알아듣습니다",
   "Auto ({language})": "자동 ({language})",
   "No OpenAI key: the browser's speech recognition is used": "OpenAI 키가 없어 브라우저의 음성 인식을 사용합니다",
   "No microphone found": "마이크를 찾을 수 없습니다",

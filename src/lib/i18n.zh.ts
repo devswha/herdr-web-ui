@@ -581,7 +581,7 @@ export const ZH: Record<string, string> = {
   "Microphone button": "麦克风按钮",
   "Microphone permission was denied": "麦克风权限已被拒绝",
   "Dictation language": "听写语言",
-  "Auto listens for the browser's language, or for the app's language when you chose one": "自动时识别浏览器的语言；若手动选择了应用语言，则识别该语言",
+  "Auto listens for the app's language, or for the browser's when the app is not translated into it": "自动时识别应用的语言；若应用没有浏览器语言的译文，则识别浏览器的语言",
   "Auto ({language})": "自动（{language}）",
   "No OpenAI key: the browser's speech recognition is used": "未设置 OpenAI 密钥，将使用浏览器的语音识别",
   "No microphone found": "未找到麦克风",

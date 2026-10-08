@@ -36,8 +36,8 @@ export type VoiceButton = "auto" | "on" | "off";
 export const VOICE_BUTTONS: readonly VoiceButton[] = ["auto", "on", "off"];
 /**
  * The languages dictation can be set to, as BCP 47 tags (SpeechRecognition.lang; the transcribe
- * route takes the first subtag). Auto follows the browser's language, so one outside this list
- * still works without a choice here.
+ * route takes the first subtag). On Auto a browser language the UI is not translated into is
+ * heard as is, so one outside this list still works without a choice here.
  */
 export const DICTATION_LANGUAGES = [
   "ar-SA", "cs-CZ", "da-DK", "de-DE", "el-GR", "en-GB", "en-US", "es-ES", "fi-FI", "fr-FR", "he-IL", "hi-IN",
@@ -121,7 +121,7 @@ export interface Settings {
   usageHidden: string[];
   /** the microphone button in the composer and the terminal input line; nothing is recorded until it is pressed */
   voiceInput: VoiceButton;
-  /** the language dictation listens for; auto follows the browser (src/lib/voice.ts dictationLocale) */
+  /** the language dictation listens for; auto: the UI language's, or the browser's the UI lacks (src/lib/voice.ts dictationLocale) */
   voiceLanguage: DictationLanguage;
   voicePolishChat: boolean;
   /** off by default: a terminal line is usually a command, kept as spoken */
