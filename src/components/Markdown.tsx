@@ -1,10 +1,11 @@
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, Copy } from "lucide-react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Check, Copy, Maximize2 } from "lucide-react";
 
 import { foldCode, mathNestsTooDeep, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { useT } from "../lib/i18n.ts";
+import { MermaidLightbox } from "./MermaidLightbox.tsx";
 
 type Katex = typeof import("katex").default;
 /** KaTeX is a fifth of the app's script: the first expression loads it (lib/katex.ts), and every later one has it at once. */
@@ -47,6 +48,47 @@ function MathExpression({ value, displayMode = false }: { value: string; display
   }
 }
 
+type MermaidRender = typeof import("../lib/mermaid.ts").renderMermaid;
+let mermaidLoad: Promise<MermaidRender> | null = null;
+
+/** Mermaid, fetched once with the first diagram (lib/mermaid.ts); offline before that, a diagram stays a code block. */
+function loadMermaid(): Promise<MermaidRender> {
+  mermaidLoad ??= import("../lib/mermaid.ts").then((module) => module.renderMermaid);
+  return mermaidLoad;
+}
+
+/** A ```mermaid fence drawn as a diagram. Until it parses (a reply still streaming, a syntax error) it shows as the code block it is. */
+function MermaidDiagram({ value }: { value: string }) {
+  const t = useT();
+  const [svg, setSvg] = useState<string | null>(null);
+  const [zoomed, setZoomed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const dark = document.documentElement.dataset.theme !== "light";
+    // the parse runs after a pause, so a streaming block is not re-parsed on every poll
+    const timer = window.setTimeout(() => {
+      loadMermaid().then((render) => render(value, dark)).then(
+        (markup) => { if (live) setSvg(markup); },
+        () => { if (live) setSvg(null); },
+      );
+    }, 300);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [value]);
+  if (svg === null) return <CodeBlock language="mermaid" value={value} />;
+  return (
+    <div className="markdown-mermaid-frame">
+      <div className="markdown-mermaid" onClick={() => setZoomed(true)} dangerouslySetInnerHTML={{ __html: svg }} />
+      <button type="button" className="icon-button markdown-mermaid-zoom" onClick={() => setZoomed(true)} aria-label={t("Enlarge diagram")} title={t("Enlarge diagram")}>
+        <Maximize2 aria-hidden="true" />
+      </button>
+      {zoomed && <MermaidLightbox svg={svg} onClose={() => setZoomed(false)} />}
+    </div>
+  );
+}
+
+/** Turns an image's `src` into a URL the page can load; null leaves the image as the link or text it was before. Null context: chat draws no images. */
+export const MarkdownImageContext = createContext<((src: string) => string | null) | null>(null);
+
 /** A file path the viewer opens: a button that reads as the text or code it replaced. */
 function FilePath({ path, code, open }: { path: string; code: boolean; open: (path: string) => void }) {
   const t = useT();
@@ -59,6 +101,7 @@ function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactiv
   const context = useContext(OpenFileContext);
   const open = interactive ? context : null;
   const t = useT();
+  const imageUrl = useContext(MarkdownImageContext);
   return <>{nodes.map((node, index) => {
     const key = `${node.type}-${index}`;
     switch (node.type) {
@@ -73,6 +116,12 @@ function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactiv
         return open !== null && codeIsFilePath(node.value) ? <FilePath key={key} path={node.value} code open={open} /> : <code key={key}>{node.value}</code>;
       }
       case "math": return <MathExpression key={key} value={node.value} />;
+      case "image": {
+        const url = imageUrl?.(node.src) ?? null;
+        return url === null
+          ? <Inline key={key} nodes={node.fallback} interactive={interactive} />
+          : <img key={key} className="markdown-image" src={url} alt={node.alt} loading="lazy" />;
+      }
       case "strong": return <strong key={key}><Inline nodes={node.children} interactive={interactive} /></strong>;
       case "em": return <em key={key}><Inline nodes={node.children} interactive={interactive} /></em>;
       case "del": return <del key={key}><Inline nodes={node.children} interactive={interactive} /></del>;
@@ -159,7 +208,9 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
         return <p key={key}>{block.lines.map((line, lineIndex) => <span key={lineIndex}><Inline nodes={line} />{lineIndex < block.lines.length - 1 && <br />}</span>)}</p>;
       case "list": return <List key={key} block={block} />;
       case "blockquote": return <blockquote key={key}><Blocks blocks={block.blocks} /></blockquote>;
-      case "code": return <CodeBlock key={key} language={block.language} value={block.value} />;
+      case "code": return block.language === "mermaid"
+        ? <MermaidDiagram key={key} value={block.value} />
+        : <CodeBlock key={key} language={block.language} value={block.value} />;
       case "math": return <MathExpression key={key} value={block.value} displayMode />;
       case "hr": return <hr key={key} />;
       case "table": return (

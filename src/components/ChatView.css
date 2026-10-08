@@ -250,6 +250,35 @@
   margin-bottom: var(--space-3);
 }
 
+.markdown-image {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-mermaid-frame {
+  position: relative;
+  margin-bottom: var(--space-3);
+}
+
+.markdown-mermaid {
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.markdown-mermaid svg {
+  max-width: 100%;
+  max-height: 24rem;
+  height: auto;
+}
+
+.markdown-mermaid-zoom {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+}
+
 .markdown p,
 .markdown-h1,
 .markdown-h2,
