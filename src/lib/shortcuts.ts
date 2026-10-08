@@ -67,7 +67,10 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, 
   // Shift+Comma produces "<" on common keyboard layouts.
   const code = event.code ?? "";
   // Share the terminal's letter-position convention, but never turn a typed symbol into an app action.
-  const letter = /^\p{L}$/u.test(event.key) ? physicalKey(event.key, code) : event.key;
+  // A Latin layout's own letter stays as typed, accented ones included: BÉPO's É sits on KeyW and
+  // Turkish F's Ç on KeyB, and neither is that binding.
+  const nonLatinLetter = /^\p{L}$/u.test(event.key) && !/^\p{Script=Latin}$/u.test(event.key);
+  const letter = nonLatinLetter ? physicalKey(event.key, code) : event.key;
   const key = code === "Comma"
     ? ","
     : /^Digit[0-9]$/.test(code)

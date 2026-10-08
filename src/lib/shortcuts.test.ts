@@ -93,6 +93,13 @@ describe("non-Latin keyboard layouts", () => {
     expect(matchShortcut(keyEvent("🙂", { ctrlKey: true, code: "KeyK" }), false, { palette: "k" })).toBeNull();
   });
 
+  it("leaves an accented Latin letter to the terminal, whatever key position it sits on", () => {
+    // BÉPO: É is on KeyW; Turkish F: Ç is on KeyB, the default sidebar key's position
+    expect(matchShortcut(keyEvent("É", { ctrlKey: true, code: "KeyW" }), false, { "toggle-sidebar": "w" })).toBeNull();
+    expect(matchShortcut(keyEvent("Ç", { ctrlKey: true, code: "KeyB" }), false)).toBeNull();
+    expect(matchShortcut(keyEvent("ı", { ctrlKey: true, code: "KeyI" }), false, { palette: "i" })).toBeNull();
+  });
+
   it("keeps IME guards and Comma/Digit code normalization ahead of layout fallback", () => {
     expect(matchShortcut(keyEvent("한", { ctrlKey: true, code: "KeyK", isComposing: true }), false, { palette: "k" })).toBeNull();
     expect(matchShortcut(keyEvent("한", { ctrlKey: true, code: "KeyK", keyCode: 229 }), false, { palette: "k" })).toBeNull();
