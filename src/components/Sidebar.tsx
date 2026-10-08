@@ -352,10 +352,25 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     setPaneLabel(pane.label ?? "");
   };
 
+  // a rename's failure is answered after later renders: it asks the roster as it is then, and
+  // reopens nothing over an editor the user opened since
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const editingRef = useRef({ pane: editingPaneId, workspace: editingWorkspaceId });
+  editingRef.current = { pane: editingPaneId, workspace: editingWorkspaceId };
+  const editorOpen = (): boolean => editingRef.current.pane !== null || editingRef.current.workspace !== null;
+
   const savePaneRename = (pane: PaneInfo): void => {
-    const label = paneLabel.trim();
+    const typed = paneLabel;
+    const label = typed.trim();
     setEditingPaneId(null);
     void renamePane(pane.pane_id, label).catch((reason: unknown) => {
+      // the field comes back with what was typed: a failed request is not a reason to make the
+      // user write the name again. Not for a pane that has since closed
+      if (!editorOpen() && snapshotRef.current?.panes.some((candidate) => candidate.pane_id === pane.pane_id)) {
+        setEditingPaneId(pane.pane_id);
+        setPaneLabel(typed);
+      }
       noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), pane.workspace_id);
     });
   };
@@ -366,9 +381,15 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   };
 
   const saveWorkspaceRename = (workspaceId: string): void => {
-    const label = workspaceLabel.trim();
+    const typed = workspaceLabel;
+    const label = typed.trim();
     setEditingWorkspaceId(null);
     void renameWorkspace(workspaceId, label).catch((reason: unknown) => {
+      // as for a pane: the typed name survives a failed request, for as long as the workspace does
+      if (!editorOpen() && snapshotRef.current?.workspaces.some((candidate) => candidate.workspace_id === workspaceId)) {
+        setEditingWorkspaceId(workspaceId);
+        setWorkspaceLabel(typed);
+      }
       noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), workspaceId);
     });
   };
@@ -384,7 +405,9 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     next.splice(boundedIndex, 0, workspaceId);
     setWorkspaceOrder(next);
     void moveWorkspace(workspaceId, boundedIndex).catch((reason: unknown) => {
-      setWorkspaceOrder(previous);
+      // only this move's own optimistic order is rolled back: if a later reorder has landed in
+      // the meantime, its order is the newer one and reverting to `previous` would undo it
+      setWorkspaceOrder((current) => (current.length === next.length && current.every((id, index) => id === next[index]) ? previous : current));
       noteError(t("Reorder failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }));
     });
   };

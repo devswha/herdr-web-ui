@@ -1050,7 +1050,7 @@ export function Composer({
           already in the state the words describe. Not a block — the text still goes, and pi runs the
           command in the terminal the way its own palette would */}
       {!note && terminalOnly !== null && (
-        <div className="composer-hint">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
+        <div className="composer-hint" role="status">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
       )}
       {/* above the whole composer: inside the surface it would cover the text being dictated */}
       {dictation.shown && <VoiceRecordingPill dictation={dictation} align="start" />}

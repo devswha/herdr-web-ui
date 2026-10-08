@@ -171,6 +171,11 @@ async function darwinProcessStart(pid: number): Promise<string | null> {
   } finally { clearTimeout(timer); }
 }
 
+/** Drops what a project scan remembered about one transcript file: the scan runs again if it is ever asked for. */
+export function forgetClaudeSessionFile(path: string): void {
+  for (const [key, value] of found) if (value === path) found.delete(key);
+}
+
 /** Windows: Claude records the start as FILETIME (100 ns since 1601), the process table in ms since 1970. */
 function fileTimeMs(text: string): number | null {
   return /^\d+$/.test(text) ? Number(BigInt(text) / 10_000n - 11_644_473_600_000n) : null;

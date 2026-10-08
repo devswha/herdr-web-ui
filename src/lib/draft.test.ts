@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { applyToDraft, draftIsEmpty, EMPTY_DRAFT } from "./draft.ts";
+import { applyToDraft, draftIsEmpty, DRAFT_TTL_MS, EMPTY_DRAFT, restoreDraft } from "./draft.ts";
 
 describe("applyToDraft", () => {
   it("appends a printable character to the draft", () => {
@@ -67,4 +67,43 @@ it("holds multi-codepoint IME commits without splitting a surrogate at the limit
   expect(applyToDraft(EMPTY_DRAFT, `\x1b[200~${"a".repeat(1025)}\x1b[201~`)).toEqual({ text: "", truncated: true });
   // a frame that never closes is a control chunk still
   expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text")).toEqual(EMPTY_DRAFT);
+});
+
+describe("restoreDraft", () => {
+  const now = 1_800_000_000_000;
+  const record = (at: number) => JSON.stringify({ text: "hunter2", truncated: false, at });
+
+  it("restores a draft written inside the TTL", () => {
+    expect(restoreDraft(record(now - 1000), now)).toEqual({ text: "hunter2", truncated: false });
+  });
+
+  it("forgets a draft past the TTL", () => {
+    expect(restoreDraft(record(now - DRAFT_TTL_MS - 1), now)).toEqual(EMPTY_DRAFT);
+  });
+
+  it("keeps an undated record, written before the TTL existed: an update must not lose held input", () => {
+    expect(restoreDraft(JSON.stringify({ text: "hunter2", truncated: false }), now)).toEqual({ text: "hunter2", truncated: false });
+  });
+
+  it("holds nothing for a missing, malformed or hand-edited record", () => {
+    expect(restoreDraft(null, now)).toEqual(EMPTY_DRAFT);
+    expect(restoreDraft("not json", now)).toEqual(EMPTY_DRAFT);
+    expect(restoreDraft(JSON.stringify({ text: 7, truncated: false, at: now }), now)).toEqual(EMPTY_DRAFT);
+    expect(restoreDraft(JSON.stringify({ text: "a", truncated: false, at: "soon" }), now)).toEqual(EMPTY_DRAFT);
+  });
+
+  it("reads a flag it does not recognise as no loss told, and keeps the text", () => {
+    expect(restoreDraft(JSON.stringify({ text: "a", truncated: "yes", at: now }), now)).toEqual({ text: "a", truncated: false });
+  });
+
+  it("keeps a loss it told, and forgets it with the text", () => {
+    expect(restoreDraft(JSON.stringify({ text: "ls", truncated: true, at: now - DRAFT_TTL_MS - 1 }), now)).toEqual(EMPTY_DRAFT);
+    expect(restoreDraft(JSON.stringify({ text: "ls", truncated: true, at: now }), now)).toEqual({ text: "ls", truncated: true });
+  });
+
+  it("keeps the text of a record an earlier version wrote, and nothing but a count it held", () => {
+    const legacy = JSON.stringify({ text: "ls", droppedSpecial: 3, at: now });
+    expect(restoreDraft(legacy, now)).toEqual({ text: "ls", truncated: false });
+    expect(restoreDraft(JSON.stringify({ text: "", droppedSpecial: 3, at: now }), now)).toEqual(EMPTY_DRAFT);
+  });
 });

@@ -124,6 +124,20 @@ try {
       return Boolean(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest(".settings-dialog"));
     }), true, `Settings is above the preview at ${width}px`);
     if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `settings-over-preview-${width}.png`) });
+    // two traps are open: only the one in front moves the focus, so Tab walks Settings' controls
+    // instead of being sent back to its first one by the preview's trap beneath
+    const focused: string[] = [];
+    for (let press = 0; press < 3; press++) {
+      await page.keyboard.press("Tab");
+      focused.push(await page.evaluate(() => {
+        const active = document.activeElement;
+        return active?.closest(".settings-dialog") ? active.outerHTML.slice(0, 120) : `outside: ${active?.outerHTML.slice(0, 80)}`;
+      }));
+    }
+    assert.ok(focused.every((entry) => !entry.startsWith("outside")), `Tab stays inside Settings at ${width}px: ${focused.join(" | ")}`);
+    // Settings has two stops on a phone (Close, and the one focusable tab of its roving list): Tab
+    // moves between them; the trap beneath held it on the first
+    assert.ok(new Set(focused).size >= 2 && focused[0] !== focused[1], `Tab moves through Settings at ${width}px: ${focused.join(" | ")}`);
     await page.keyboard.press("Escape");
     await settings.waitFor({ state: "hidden" });
     await page.waitForFunction(() => history.state?.["herdr-web-ui:settings"] === undefined);
