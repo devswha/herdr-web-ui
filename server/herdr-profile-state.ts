@@ -32,10 +32,12 @@ export class HerdrProfileState {
       this.entries.set(item.profile_id, { binding: item.binding, approved: item.approved, snapshot: item.snapshot });
     }
   }
-  reconcile(id: string, target: SshTarget | null): boolean {
+  reconcile(id: string, target: SshTarget | null, retire?: () => void): boolean {
     const next = binding(target);
     const previous = this.entries.get(id);
     if (previous?.binding === next) return false;
+    // Keep the old binding until its credentials are gone, so failures remain retryable.
+    if (previous) retire?.();
     this.entries.set(id, { binding: next, approved: false, snapshot: null }); this.dirty = true;
     return !!previous;
   }
@@ -52,9 +54,9 @@ export class HerdrProfileState {
     const entry = this.entries.get(id);
     if (entry && entry.snapshot !== snapshot) { entry.snapshot = snapshot; this.dirty = true; }
   }
-  prune(ids: Set<string>): string[] {
+  prune(ids: Set<string>, retire?: (id: string) => void): string[] {
     const removed: string[] = [];
-    for (const id of this.entries.keys()) if (!ids.has(id)) { this.entries.delete(id); removed.push(id); this.dirty = true; }
+    for (const id of this.entries.keys()) if (!ids.has(id)) { retire?.(id); this.entries.delete(id); removed.push(id); this.dirty = true; }
     return removed;
   }
   flush(): void {

@@ -161,14 +161,23 @@ export class MachineManager {
     let changed = false;
     for (const profile of profiles) {
       const id = herdrMachineId(profile.id);
-      if (this.profileState.reconcile(profile.id, profile.target)) this.removeKey(id);
+      this.profileState.reconcile(profile.id, profile.target, () => {
+        // Stop old authority before fallible cleanup; no setup or reconnect may reuse its key.
+        const runtime = this.machines.get(id);
+        if (runtime) {
+          runtime.machine.enabled = false; this.disconnect(runtime);
+          for (const [jobId, job] of this.jobs) if (job.public.machine_id === id) this.cancelJob(jobId);
+          this.machines.delete(id);
+          this.emit();
+        }
+        this.removeKey(id);
+      });
       // Manual registrations keep their identity and credentials. Exact matches already have a row.
       if (profile.target && [...this.machines.values()].some(({ machine }) => !machine.herdr_profile_id && machine.target && sameSshSession(profile.target!, machine.target))) continue;
       wanted.add(id);
       let runtime = this.machines.get(id);
       const enabled = profile.enabled && !!profile.target;
-      const targetChanged = !!runtime && (runtime.machine.target && profile.target ? !sameSshSession(runtime.machine.target, profile.target) : !!runtime.machine.target !== !!profile.target);
-      const reconnect = !runtime || targetChanged || runtime.machine.enabled !== enabled;
+      const reconnect = !runtime || runtime.machine.enabled !== enabled;
       if (!runtime) {
         runtime = this.runtime({ id, herdr_profile_id: profile.id, name: profile.label, kind: "ssh", target: profile.target ?? undefined, enabled, state: "disconnected", error: null, snapshot: this.profileState.snapshot(profile.id) });
         this.machines.set(id, runtime);
@@ -176,8 +185,6 @@ export class MachineManager {
       } else if (reconnect) {
         this.disconnect(runtime);
         for (const [jobId, job] of this.jobs) if (job.public.machine_id === id) this.cancelJob(jobId);
-        // A new destination/session cannot inherit the previous target's pane snapshot.
-        if (targetChanged) runtime.machine.snapshot = null;
         changed = true;
       }
       if (runtime.machine.name !== profile.label) { runtime.machine.name = profile.label; changed = true; }
@@ -195,9 +202,9 @@ export class MachineManager {
       this.machines.delete(id);
       changed = true;
     }
-    for (const profileId of this.profileState.prune(new Set(profiles.map((p) => p.id)))) this.removeKey(herdrMachineId(profileId));
-    this.profileState.flush();
     if (changed) this.emit();
+    this.profileState.prune(new Set(profiles.map((p) => p.id)), (profileId) => this.removeKey(herdrMachineId(profileId)));
+    this.profileState.flush();
   }
   private mayManageBridge(runtime: Runtime): boolean {
     const machine = runtime.machine;

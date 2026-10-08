@@ -164,6 +164,58 @@ describe("automatic herdr machine inheritance", () => {
     expect(existsSync(key)).toBe(false); expect(existsSync(key + ".pub")).toBe(false);
     expect(JSON.parse(readFileSync(join(dir, "herdr-profile-state.json"), "utf8"))).toEqual([]);
   });
+  for (const change of ["retarget", "remove"] as const) {
+    it(`retries failed key cleanup on ${change}, including after restart, before reconnecting`, async () => {
+      const start = spyOn(SshConnection.prototype, "start").mockImplementation(async function (challenge) { await challenge!("Fixture passphrase", false); });
+      cleanups.push(() => start.mockRestore());
+      const { manager, internals, reconnect, dir } = fixture();
+      manager.syncHerdrProfiles([profile]);
+      const id = manager.list()[1]!.id;
+      const runtime = internals.machines.get(id)!;
+      internals.profileState.approve(profile.id, profile.target!);
+      internals.persist();
+      const job = manager.setup({ ...profile.target!, machine_id: id });
+      await until(() => job.phase === "authentication");
+      let closed = 0;
+      runtime.terminals.add(() => closed++);
+      const key = join(dir, "ssh", id);
+      mkdirSync(join(dir, "ssh"), { recursive: true });
+      writeFileSync(key, "fixture key");
+      // Deleting the private key succeeds, but unlink cannot delete this public-key directory.
+      mkdirSync(key + ".pub");
+      const next = change === "retarget" ? [{ ...profile, target: { destination: "replacement" } }] : [];
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(() => manager.syncHerdrProfiles(next)).toThrow();
+        expect(manager.list().map((m) => m.id)).toEqual(["local"]);
+        expect(reconnect).toHaveBeenCalledTimes(1);
+        expect(job.phase).toBe("cancelled");
+        expect(runtime.machine.enabled).toBe(false);
+        expect(existsSync(key)).toBe(false);
+        expect(existsSync(key + ".pub")).toBe(true);
+      }
+      expect(closed).toBe(1);
+      manager.stop();
+      const restored = new MachineManager(dir, {} as PushService, {} as CompletionTracker, async () => { throw new Error("offline"); });
+      const restoredInternals = restored as unknown as Internals;
+      const restoredReconnect = spyOn(restoredInternals, "reconnect").mockImplementation(async () => {});
+      cleanups.push(() => { restored.stop(); restoredReconnect.mockRestore(); });
+      expect(() => restored.syncHerdrProfiles(next)).toThrow();
+      expect(restoredReconnect).not.toHaveBeenCalled();
+      rmSync(key + ".pub", { recursive: true });
+      writeFileSync(key + ".pub", "fixture public key");
+      restored.syncHerdrProfiles(next);
+      expect(existsSync(key + ".pub")).toBe(false);
+      expect(restoredInternals.profileState.approved(profile.id, profile.target!)).toBe(false);
+      if (change === "retarget") {
+        expect(restoredReconnect).toHaveBeenCalledTimes(1);
+        expect(restored.list()[1]).toMatchObject({ target: next[0]!.target, snapshot: null });
+        expect(restoredInternals.mayManageBridge(restoredInternals.machines.get(id)!)).toBe(false);
+      } else {
+        expect(restoredReconnect).not.toHaveBeenCalled();
+        expect(JSON.parse(readFileSync(join(dir, "herdr-profile-state.json"), "utf8"))).toEqual([]);
+      }
+    });
+  }
   it("rejects key overrides and keeps an unchanged profile's interactive setup alive across polls", async () => {
     const start = spyOn(SshConnection.prototype, "start").mockImplementation(async function (challenge) { await challenge!("Fixture passphrase", false); });
     cleanups.push(() => start.mockRestore());
