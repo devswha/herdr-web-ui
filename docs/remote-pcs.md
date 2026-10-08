@@ -46,15 +46,21 @@ herdr 0.9.3). Older bridge bundles keep waiting until updated, and observe conne
 
 ## Disconnects and updates
 
-Use the **Reconnect** arrow in a remote PC's header even while it is connected. The dialog
-reuses its saved SSH target and refreshes the connection without restarting a compatible bridge.
+Use the **Reconnect** arrow in a remote PC's header to open its connection again with the saved
+SSH target; a compatible bridge is not restarted. On a PC that is connected, reconnecting closes
+its open terminals in this app and attaches them again: the dialog says so before anything is
+sent. A re-attach waits for whoever holds the terminal, nothing typed is sent again, and a new
+connection that fails leaves the PC offline until you retry.
 **Update bridge** also reuses a bridge whose live identity verifies as current; it does not
 download, install or restart the same version again.
 
-**Multiple apps connecting to one PC.** Keep those apps on the same version. An older app
-refuses to downgrade a newer bridge and asks you to update the app itself. If another app
-starts an incompatible bridge during an update, setup reports a **Bridge connection conflict**
-instead of offering an automatic update loop. Update the other app or disconnect its PC
+**Multiple apps connecting to one PC.** Keep those apps on the same version. From this version
+on, an app refuses to downgrade a newer bridge and asks you to update the app itself; an app on
+an earlier release still restarts its own older bridge over a newer one, so the two stop
+replacing each other's bridge only once every app that connects to the PC has this version. If
+another app starts an incompatible bridge during an update, setup reports a **Bridge connection
+conflict** instead of offering an automatic update loop. When the bridge this app's own update
+started is the one that does not match, no other app is involved and the update stays on offer. Update the other app or disconnect its PC
 registration, then choose **Reconnect**. **Reconnect without updating** also lets a failed
 first connection reuse a bridge another app has already updated. These controls never take
 over a terminal or stop herdr sessions.
