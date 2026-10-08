@@ -77,6 +77,7 @@ bun scripts/droplet-demo-regression.ts        # real-app alerts below the header
 bun scripts/chat-greeting-demo-regression.ts  # an empty chat's greeting: centred on a desktop, docked on a phone
 bun scripts/composer-fit-demo-regression.ts   # one Send/Stop control, pending Send now actions, context/label fit and Chat font sizing
 bun scripts/held-rows-demo-regression.ts      # held messages: the fold under an approval card, its button, a row's error
+bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quiet opened finishes: blocked pinned, recency, an opened DONE drawn as ready
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
 ```

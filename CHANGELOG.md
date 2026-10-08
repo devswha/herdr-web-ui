@@ -7,7 +7,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- macOS Safari direct terminal input preserves Korean syllables when the input method
+  replaces text without emitting composition events, including after switching from English.
+  ([#524](https://github.com/devswha/herdr-web-ui/pull/524) by @suho-han)
+
+## [0.4.1] - 2026-10-08
+
 ### Added
+- `/effort` sent from a Claude Code chat opens a card with the effort levels, low to max, so the
+  level no longer has to be set in the terminal. A pick applies to this session only, as a pick
+  from the `/model` card does, and leaves the default for new sessions alone. `/effort` is also in
+  the chat's command list now.
+  ([#594](https://github.com/devswha/herdr-web-ui/pull/594),
+  [#523](https://github.com/devswha/herdr-web-ui/pull/523) by @suho-han)
 - Settings → Terminal has a **Clipboard from a pane** switch, off by default: a program running in a
   pane can no longer put text on your clipboard unless you turn it on. Programs that copy this way
   (vim, tmux, Claude Code) copy again once it is on.
@@ -16,6 +29,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   [Portal](https://github.com/gosuda/portal-tunnel) v2.6.1 or later, behind a long random token
   and with a visitor's `Tailscale-User-Login` header dropped.
   ([#229](https://github.com/devswha/herdr-web-ui/pull/229) by @rabbitson87)
+- **Settings → Appearance → Agents order → Activity** keeps a waiting agent on top of the Agents
+  list and orders the rest by their latest state change, as herdr's agents panel keeps the latest
+  work in view: the agent you just sent a message to stays on top while it runs and after it
+  finishes, and a new one starts there. herdr's own order and the workspace rows are unchanged.
+  **Workspaces** (herdr's order) remains the default.
+  ([#529](https://github.com/devswha/herdr-web-ui/pull/529) by @phirschybar)
+- **Settings → Appearance → Quiet opened finishes** (off by default): a finished agent you have
+  opened in the web UI loses its dot and reads as ready, as viewing it in herdr would make it.
+  herdr's DONE otherwise stands until herdr itself shows the pane. It is remembered per PC in
+  this browser. ([#529](https://github.com/devswha/herdr-web-ui/pull/529) by @phirschybar)
 
 ### Changed
 - A wrong access token is refused with a growing wait after five tries, up to a minute, whether it
@@ -29,9 +52,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
 
 ### Fixed
-- macOS Safari direct terminal input preserves Korean syllables when the input method
-  replaces text without emitting composition events, including after switching from English.
-  ([#524](https://github.com/devswha/herdr-web-ui/pull/524) by @suho-han)
+- Gajae Code's selection menus show their choices instead of only arrow-key buttons, including
+  startup selectors shown before the pane reports that it is waiting. Answers move to the selected
+  row and recheck the menu before confirming.
+  ([#593](https://github.com/devswha/herdr-web-ui/pull/593))
 - Secret input and the Codex follow-up fallback validate the live screen, so a password
   prompt or collapsed question queue in scrollback cannot send input into the current program.
   ([#566](https://github.com/devswha/herdr-web-ui/pull/566))
@@ -76,6 +100,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Command palette buttons keep their native Enter action; IME commit and cancel keys
   stay with text input, and arrow navigation keeps the selected result visible.
   ([#567](https://github.com/devswha/herdr-web-ui/pull/567))
+- Long drafts in the message box wrap and keep a narrow scroll cue in reserved space, so the
+  scrollbar no longer covers text at fractional zoom.
+  ([#522](https://github.com/devswha/herdr-web-ui/pull/522) by @suho-han)
 - A secret sent from a pane you then left and opened again, while another browser kept the pane
   open, is no longer typed into the pane: you send it again from the pane you opened.
   ([#588](https://github.com/devswha/herdr-web-ui/pull/588))
@@ -115,8 +142,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
 - A link printed in the terminal opens only if it is an http(s) address, on both link paths.
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
-- Two tabs open on one pane can no longer send the same message: the second sees the first's send on
-  its way.
+- A second tab open on one pane no longer sends a message the first tab is already sending: it
+  sees that send on its way and holds back. Two tabs that press Send at nearly the same moment can still
+  both send it.
   ([#570](https://github.com/devswha/herdr-web-ui/pull/570) by @radicor)
 - A row's ⋯ menu is capped to the room its button leaves and scrolls instead of being cut off by the
   viewport, so the pane picker of a tab with many panes keeps every entry reachable with the pointer
@@ -156,6 +184,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A PC that waits on such a conflict says so in the sidebar and under the header, with a
   **Reconnect** button, instead of asking for setup approval.
   ([#519](https://github.com/devswha/herdr-web-ui/pull/519) by @suho-han)
+- A wrong access token sent through a proxy on this PC with a made-up `X-Forwarded-For` address
+  that itself says " via " now counts against the limit every visitor through that proxy shares,
+  like any other wrong token. Before, each such try started a fresh count.
+  ([#592](https://github.com/devswha/herdr-web-ui/pull/592))
+- A web-push subscription must be an https address, with no exception for this PC, and an alert is
+  never sent on where a push service redirects it, so an alert can never be posted to a service
+  running on this PC. ([#592](https://github.com/devswha/herdr-web-ui/pull/592))
+- In the **Add PC** dialog opened over a file preview, Tab moves through the dialog's own controls
+  and Escape closes the dialog alone, leaving the preview beneath it open.
+  ([#592](https://github.com/devswha/herdr-web-ui/pull/592))
 
 ## [0.4.0] - 2026-10-08
 
@@ -2419,7 +2457,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...v0.4.0
 [0.3.52]: https://github.com/devswha/herdr-web-ui/compare/v0.3.51...v0.3.52
 [0.3.51]: https://github.com/devswha/herdr-web-ui/compare/v0.3.50...v0.3.51

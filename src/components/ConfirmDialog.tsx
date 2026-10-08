@@ -13,7 +13,7 @@ import "./ConfirmDialog.css";
 
 import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
-import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 
 interface Props {
   title: string;
@@ -44,7 +44,8 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, escalation
   // Escape is this dialog's while it is up, even while the deed runs and cannot be undone
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
+      // a native modal over it (Add PC, from the palette) takes its own Escape
+      if (event.key !== "Escape" || nativeModalOver(surface.current)) return;
       event.stopPropagation();
       event.preventDefault();
       if (!pending) onClose();

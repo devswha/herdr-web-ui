@@ -59,6 +59,16 @@ describe("POST /api/auth", () => {
     expect(statuses.at(-1)).toBe(429);
   });
 
+  it("keeps the shared budget on the real peer when the forwarded address itself says ' via '", async () => {
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const client = authClient("127.0.0.1", new Headers({ "x-forwarded-for": `claimed via ${attempt}` }));
+      statuses.push((await handleAuthRequest(new Request("http://h/api/auth", { method: "POST", body: JSON.stringify({ token: "wrong" }) }), TOKEN, client)).status);
+    }
+    expect(statuses.filter((status) => status === 401).length).toBe(50);
+    expect(statuses.at(-1)).toBe(429);
+  });
+
   it("holds nobody back when the address is unknown, and stays open with no token set", async () => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       expect((await handleAuthRequest(new Request("http://h/api/auth", { method: "POST", body: "{}" }), TOKEN, null)).status).toBe(400);
