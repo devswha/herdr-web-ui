@@ -414,7 +414,7 @@ export function createServer(
   /** panes whose last pty keystroke ended in an ESC, which herdr holds ~150ms: a key waits TYPED_SETTLE_MS there */
   const typedEscape = new Set<string>();
   /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
-  const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; run: Promise<unknown> | null; sent: boolean }>();
+  const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; roles: number; run: Promise<unknown> | null; sent: boolean }>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
@@ -2204,6 +2204,9 @@ export function createServer(
               // answers (a slow herdr, a busy PC) never queue up an RPC each, and keep their order.
               const waiting = waitingKeys.get(message.pane_id);
               if (waiting && !waiting.sent && waiting.client === client && waiting.origin === origin && waiting.pty === pty && waiting.claim === claim
+                // a key pressed after the sender watched and came back is checked on its own: joined, the
+                // batch's older role would refuse it with the rest
+                && waiting.roles === roles
                 && waiting.run !== null && paneQueues.get(message.pane_id) === waiting.run) {
                 // a herdr that stopped answering does not collect keys without end: past this, they are refused
                 if (waiting.keys.length + message.keys.length > MAX_WAITING_KEYS) {
@@ -2213,7 +2216,7 @@ export function createServer(
                 waiting.keys.push(...message.keys);
                 break;
               }
-              const batch = { keys: [...message.keys], client: client as unknown, origin: origin as unknown, pty: pty as unknown, claim: claim as unknown, run: null as Promise<unknown> | null, sent: false };
+              const batch = { keys: [...message.keys], client: client as unknown, origin: origin as unknown, pty: pty as unknown, claim: claim as unknown, roles, run: null as Promise<unknown> | null, sent: false };
               const run = serialize(message.pane_id, async () => { try {
                 // A key goes through herdr's RPC, around the attach pty that typing just went into: it
                 // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
