@@ -30,7 +30,7 @@
  * This module turns those files into the conversation the chat lens renders;
  * the pty stays the input path. Pure parsing lives in parseClaudeTranscript /
  * parseOmpTranscript (unit-tested); pane/session/file resolution is
- * integration and lives in paneConversation.
+ * integration and lives in paneTranscript.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -654,9 +654,10 @@ function pageBefore(stream: TranscriptStream, source: StreamSource, to: number, 
 }
 
 /**
- * The newest page is asked for on every poll while an agent works, and between polls its
- * file only grows. Rescanning its whole window (16 MB on a long session) and reparsing
- * the page each time held the event loop 50-110 ms every 2 s, so per live file:
+ * The newest page is read again after each transcript change while an agent works (at most
+ * every 2 s per chat), and between reads its file only grows. Rescanning its whole window
+ * (16 MB on a long session) and reparsing the page each time held the event loop 50-110 ms
+ * per read, so per live file:
  * - the turn starts found so far are kept, and only the bytes appended since are scanned;
  * - the turns before the page's last turn start are kept (a later append cannot change a
  *   turn that another has followed), and only the last turn is parsed again.
@@ -1044,6 +1045,11 @@ type ResolvedTranscript =
   | { source: StreamSource; path: string; codexHome?: string }
   | { source: "opencode-transcript"; path: string; session: string };
 
+/** A native file or database session, resolved without parsing conversation turns. */
+export type NativeTranscript =
+  | ResolvedTranscript
+  | { source: "devin-transcript"; path: string; session: string; cwd: string };
+
 /**
  * The store a pane's transcript lives in. herdr's agent label follows the
  * pane's foreground processes, so an omo pane reads as `pi` while it waits and
@@ -1057,7 +1063,7 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
   let agent = pane.agent ?? pane.agent_session?.agent ?? "";
   // herdr names no agent for this pane: a session report an earlier agent left behind says
   // nothing about what runs now, so the pane's processes are asked before it is followed.
-  // A pane herdr does label is not asked: the lookup would cost every chat poll an RPC (and
+  // A pane herdr does label is not asked: the lookup would cost every transcript lookup an RPC (and
   // a process-table read on Windows), and a gjc below another agent would take its chat.
   if (!pane.agent) {
     const info = await herdrRpc<{ process_info?: { shell_pid?: number; foreground_processes?: { argv?: unknown }[] } }>(
@@ -1156,22 +1162,10 @@ export function devinSessionForPane(pane: HerdrPane, panes: HerdrPane[], argv: s
   return explicit;
 }
 
-/**
- * pane -> agent session -> transcript turns. Read-only, same-user files only.
- * Claude sessions are looked up by id under ~/.claude/projects; omp sessions
- * come from herdr or the pane's omp process (ompTranscriptPath); omo sessions are resolved from its own store by
- * process/session evidence (omoTranscriptForPane). Throws ConversationUnavailable when the pane has
- * no recognized agent store (the caller falls back to the scrollback
- * transcript view, like chatmux).
- *
- * Without `page` this is the newest page. `before` is the page ending at a
- * returned cursor; `from` is every turn after one, for a chat that already
- * shows the pages before it. A cursor from another file throws HistoryChanged.
- * `opencodeDb` is OpenCode's store, unset where OpenCode itself would find it.
- */
-export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, devinDbPath?: string, opencodeDb?: string): Promise<RecognizedConversation> {
-  const snapshot = await sessionSnapshot();
-  const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
+/** Resolve the native live file or database session without reading conversation turns. */
+export async function paneTranscript(paneId: string, codexHome?: string, snapshot?: SessionSnapshot, devinDbPath?: string, opencodeDb?: string): Promise<NativeTranscript> {
+  const panes = (snapshot ?? await sessionSnapshot()).panes;
+  const pane = panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
   if (typeof pane.cwd !== "string" || pane.cwd.length === 0) throw new ConversationUnavailable("no_recognized_transcript");
 
@@ -1189,21 +1183,33 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     // No Devin runs under the label: what does run is resolved below, as it was before this
     // reader (an omo is found by its process tree, whatever herdr calls the pane).
     if (processes.length === 1) {
-      const sessionId = devinSessionForPane(pane, snapshot.panes, processes[0]!.argv as string[]);
-      try {
-        const answer = devinConversation(sessionId, cwd, page, storePath);
-        rememberPaneDevin(paneId, sessionId, cwd, storePath);
-        return answer;
-      } catch (error) {
-        if (error instanceof DevinHistoryUnavailable) throw new ConversationUnavailable("transcript_missing");
-        throw error;
-      }
+      const session = devinSessionForPane(pane, panes, processes[0]!.argv as string[]);
+      return { source: "devin-transcript", path: storePath, session, cwd };
     }
   }
 
-  let resolved: ResolvedTranscript;
+  return resolveTranscript(pane, pane.cwd, codexHome, panes, opencodeDb);
+}
+
+/**
+ * pane -> agent session -> transcript turns. Read-only, same-user files only.
+ * Claude sessions are looked up by id under ~/.claude/projects; omp sessions
+ * come from herdr or the pane's omp process (ompTranscriptPath); omo sessions are resolved from its own store by
+ * process/session evidence (omoTranscriptForPane). Throws ConversationUnavailable when the pane has
+ * no recognized agent store (the caller falls back to the scrollback
+ * transcript view, like chatmux).
+ *
+ * Without `page` this is the newest page. `before` is the page ending at a
+ * returned cursor; `from` is every turn after one, for a chat that already
+ * shows the pages before it. A cursor from another file throws HistoryChanged.
+ * `opencodeDb` is OpenCode's store, unset where OpenCode itself would find it.
+ */
+export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, devinDbPath?: string, opencodeDb?: string): Promise<RecognizedConversation> {
+  const snapshot = await sessionSnapshot();
+  let resolved: NativeTranscript;
+
   try {
-    resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb);
+    resolved = await paneTranscript(paneId, codexHome, snapshot, devinDbPath, opencodeDb);
   } catch (error) {
     if (!(error instanceof ConversationNotStarted)) throw error;
     // a file read before and gone since is no conversation not begun: the terminal stands in for it
@@ -1211,11 +1217,22 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     // nothing comes before a conversation not begun: a cursor into it is another one's
     if (page.before !== undefined || page.since !== undefined || page.from !== undefined) throw new HistoryChanged();
     // an agent at work on its first turn has written nothing yet, but its terminal shows the turn
-    if (pane.agent_status === "working" || pane.agent_status === "blocked") throw error;
+    const status = snapshot.panes.find((pane) => pane.pane_id === paneId)?.agent_status;
+    if (status === "working" || status === "blocked") throw error;
     // the chat says there is nothing yet; the session's first prompt writes the file and
-    // the next poll's history_id differs, so the chat takes it whole
+    // the next refresh's history_id differs, so the chat takes it whole
     const id = `unwritten:${error.sessionId}`;
     return { source: error.source, turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
+  }
+  if (resolved.source === "devin-transcript") {
+    try {
+      const answer = devinConversation(resolved.session, resolved.cwd, page, resolved.path);
+      rememberPaneDevin(paneId, resolved.session, resolved.cwd, resolved.path);
+      return answer;
+    } catch (error) {
+      if (error instanceof DevinHistoryUnavailable) throw new ConversationUnavailable("transcript_missing");
+      throw error;
+    }
   }
   if (resolved.source === "opencode-transcript") {
     // its caches are keyed by store and session, which is what the pane is remembered against

@@ -1,0 +1,97 @@
+/** A lost push or an older bridge still gets a full conversation read. */
+const BACKSTOP_MS = 10_000;
+
+/** Pushes never start newest-page reads faster than the former 2s polling cadence. */
+const INVALIDATION_MS = 2000;
+
+/** One serial lane for newest pages, their gap fills and explicitly requested older pages. */
+export class ConversationRefresh {
+  private read: (() => Promise<void>) | null = null;
+  private pending = false;
+  private invalidated = false;
+  private running = false;
+  private timer: number | undefined;
+  private newestAt = -Infinity;
+  private readonly pages: (() => Promise<void>)[] = [];
+
+  /** Replace a cancelled reader without letting its still-pending REST request overlap this one. */
+  setRead(read: () => Promise<void>): void {
+    this.clearTimer();
+    this.pending = false;
+    this.invalidated = false;
+    this.newestAt = -Infinity;
+    this.read = read;
+  }
+
+  refresh(): void {
+    if (this.read === null) return;
+    this.clearTimer();
+    this.pending = true;
+    this.invalidated = false;
+    void this.drain();
+  }
+
+  /** The first push after idle reads immediately; further pushes share a fixed trailing deadline. */
+  invalidate(): void {
+    if (this.read === null || this.invalidated) return;
+    this.invalidated = true;
+    this.clearTimer();
+    void this.drain();
+  }
+
+  /** An explicitly requested older page uses the same lane as the newest page and its gap fills. */
+  page<T>(read: () => Promise<T>): Promise<T> {
+    const { promise, resolve, reject } = Promise.withResolvers<T>();
+    this.pages.push(async () => {
+      try { resolve(await read()); }
+      catch (cause) { reject(cause); }
+    });
+    this.clearTimer();
+    void this.drain();
+    return promise;
+  }
+
+  /** Hidden/unmounted readers leave no timer or pending refresh; an in-flight read finishes first. */
+  stop(): void {
+    this.read = null;
+    this.pending = false;
+    this.invalidated = false;
+    this.clearTimer();
+  }
+
+  private clearTimer(): void {
+    window.clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  private async drain(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+    try {
+      while (true) {
+        const page = this.pages.shift();
+        if (page !== undefined) {
+          await page();
+          continue;
+        }
+        if (this.read === null || (!this.pending && !this.invalidated)) break;
+        if (!this.pending && performance.now() < this.newestAt + INVALIDATION_MS) break;
+        this.pending = false;
+        this.invalidated = false;
+        // Monotonic elapsed time keeps wall-clock corrections out of the rate bound.
+        this.newestAt = performance.now();
+        await this.read();
+      }
+    } finally {
+      this.running = false;
+      if (this.read !== null) {
+        this.timer = this.invalidated
+          ? window.setTimeout(() => {
+            this.timer = undefined;
+            void this.drain();
+          }, Math.max(0, this.newestAt + INVALIDATION_MS - performance.now()))
+          : window.setTimeout(() => this.refresh(), BACKSTOP_MS);
+      }
+    }
+  }
+}

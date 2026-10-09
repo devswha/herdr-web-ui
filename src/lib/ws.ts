@@ -22,6 +22,8 @@ interface AttachState {
   rows: number;
   /** the chat lens covers the grid: attaches (a reconnect's too) leave the shared pty's size alone */
   keepSize: boolean;
+  /** Only a mounted, visible chat asks for transcript invalidations. */
+  conversation: boolean;
 }
 
 function defaultUrl(): string {
@@ -116,6 +118,13 @@ export class HerdrSocket {
         this.features = new Set(message.features ?? []);
         this.snapshotKnown = true;
         if (!this.features.has("input-ready")) for (const pane of this.outputSeen) if (this.attached.has(pane)) this.inputReady.add(pane);
+        // Capabilities arrive after open's role/attach replay. Restore only current interest,
+        // never send an unknown frame to an older bridge or replay a hidden/detached chat.
+        if (this.features.has("conversation-watch")) {
+          for (const [paneId, state] of this.attached) {
+            if (state.conversation) this.rawSend({ type: "conversation-watch", pane_id: paneId, enabled: true });
+          }
+        }
         this.markSnapshot();
       }
       if (message.type === "pty-data") this.outputSeen.add(message.pane_id);
@@ -203,11 +212,25 @@ export class HerdrSocket {
   attach(paneId: string, cols: number, rows: number, keepSize = false): void {
     this.outputSeen.delete(paneId);
     this.inputReady.delete(paneId);
-    this.attached.set(paneId, { cols, rows, keepSize });
+    const conversation = this.attached.get(paneId)?.conversation ?? false;
+    this.attached.set(paneId, { cols, rows, keepSize, conversation });
     this.send({ type: "attach", pane_id: paneId, cols, rows, flow_control: "ack", ...(keepSize ? { keep_size: true } : {}) });
+    if (conversation && this.features.has("conversation-watch")) {
+      this.send({ type: "conversation-watch", pane_id: paneId, enabled: true });
+    }
     if (this.outputStopped) {
       this.outputStopped = false;
       this.connect();
+    }
+  }
+
+  /** Retained control state, not queued input; detach discards it with its attachment. */
+  watchConversation(paneId: string, enabled: boolean): void {
+    const state = this.attached.get(paneId);
+    if (!state || state.conversation === enabled) return;
+    state.conversation = enabled;
+    if (this.features.has("conversation-watch")) {
+      this.send({ type: "conversation-watch", pane_id: paneId, enabled });
     }
   }
 

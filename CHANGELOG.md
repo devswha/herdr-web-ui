@@ -32,6 +32,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   letters such as `KR`, worked out by the receiver's host, and nothing finer. No IP address is
   stored and the message itself is unchanged. The notice, Settings → About and the guide say so.
   ([#663](https://github.com/devswha/herdr-web-ui/pull/663))
+- Chat updates follow native transcript changes pushed through the existing WebSocket.
+  Only visible Chat views subscribe; Terminal views and hidden tabs release conversation
+  monitoring. Continuous pushes coalesce into at most one newest-page refresh every 2 seconds,
+  with a 10-second fallback. Initial display, sends, reconnect and returning to the tab refresh
+  immediately without overlapping reads or dropping held history. A Chat that shows the
+  terminal's text because no native transcript exists yet rereads on the pane's output instead.
+  Conversation responses use negotiated gzip locally, and through a remote PC once its bridge
+  runs a bundle with this change, while retaining conditional reads and pagination.
+  Approval-card polling remains independent.
 
 ### Fixed
 - The working arc in the sidebar is drawn thirty times a second instead of five, so a working
