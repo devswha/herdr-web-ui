@@ -14,7 +14,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   after you leave the tab, it lets go of the pane so herdr's window keeps the pane at its own size,
   and it keeps showing the pane read-only (drawn at herdr's size) until you click it to type again.
   A server older than this one pauses the tab instead.
-  ([#699](https://github.com/devswha/herdr-web-ui/pull/699))
+  ([#699](https://github.com/devswha/herdr-web-ui/pull/699), [#700](https://github.com/devswha/herdr-web-ui/pull/700))
 
 ## [0.4.4] - 2026-10-09
 
