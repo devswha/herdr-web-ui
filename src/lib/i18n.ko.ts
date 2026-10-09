@@ -496,6 +496,7 @@ export const KO: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "복사됨",
+  "Couldn't copy. Select the text and copy it manually.": "복사하지 못했습니다. 텍스트를 선택해 직접 복사하세요.",
   "Output": "출력",
   "thinking": "생각",
   "Working…": "작업 중…",
