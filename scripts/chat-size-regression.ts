@@ -242,10 +242,35 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     const nextPane = next.root_pane.pane_id;
     const size = shellSize(paneId);
     const nextSize = shellSize(nextPane);
-    const open = (options: Parameters<Browser["newContext"]>[0], settings: object = {}) => openRecording(browser, contexts, origin, paneId, options, { language: "en", defaultView: "terminal", ...settings });
+    // the pause in another window is a setting this check turns on; the first window below keeps the default
+    const open = (options: Parameters<Browser["newContext"]>[0], settings: object = {}) => openRecording(browser, contexts, origin, paneId, options, { language: "en", defaultView: "terminal", releasePaneAway: true, ...settings });
     // what the page sent that sizes the grid: attaches and resizes
     const sizing = async (page: Page) => (await framesOf(page)).filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
     const paused = (page: Page) => page.locator(".terminal-banner", { hasText: "Paused while you use another window" });
+
+    // by default a window out of use keeps its pane: no detach, no paused banner, and the pane's output still arrives
+    const keeping = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 1280, height: 800 } }, { language: "en", defaultView: "terminal" });
+    await attached(keeping);
+    // freeze timers after the real attach; only the release delay is advanced below
+    await keeping.clock.install();
+    await keeping.clock.pauseAt(new Date());
+    await keeping.evaluate(() => {
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+      window.dispatchEvent(new Event("blur"));
+    });
+    // past the moment a window that pauses lets go of its pane
+    await keeping.clock.runFor(2_000);
+    assert.ok(!(await framesOf(keeping)).some((f) => f.dir === "out" && f.type === "detach"), "a window out of use keeps its pane by default");
+    assert.equal(await paused(keeping).count(), 0, "a window out of use is not paused by default");
+    await keeping.clock.resume();
+    const outputCount = async () => (await framesOf(keeping)).filter((f) => f.dir === "in" && f.type === "pty-data").length;
+    const output = await outputCount();
+    await size();
+    const arrives = Date.now() + 10_000;
+    while (await outputCount() <= output && Date.now() < arrives) await Bun.sleep(100);
+    assert.ok(await outputCount() > output, "a window out of use still gets the pane's output by default");
+    await keeping.context().close();
+    console.log("PASS by default a desktop window out of use keeps its pane and its output");
 
     // a font the user chose loads after every attach and refits the grid: one no device has falls
     // back to the built-in fonts, so the grid keeps its size
@@ -446,7 +471,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           try { await ready.promise; } finally { clearTimeout(deadline); }
         }
         page = await openRecording(browser, contexts, origin, scenario === "held" ? heldPane : first,
-          { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal" },
+          { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal", releasePaneAway: true },
           scenario === "mount", queueScenario || scenario === "writes" ? setup : undefined);
         if (scenario === "held") {
           await page.getByText("Another app has this pane open.", { exact: false }).waitFor();

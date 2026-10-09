@@ -528,6 +528,8 @@ export const JA: Record<string, string> = {
   "Last checked {when}": "最終確認: {when}",
   "Clipboard from a pane": "ペインからクリップボードへ",
   "A program in a pane that copies (vim, tmux, Claude Code) puts its text on this device's clipboard, as a copy you made yourself would. Turn it off if a pane runs output you do not trust: it could replace what you paste next.": "ペインでコピーするプログラム（vim、tmux、Claude Code）は、自分でコピーしたときと同じようにこのデバイスのクリップボードにテキストを入れます。信頼できない出力を実行するペインがある場合はオフにしてください。次に貼り付ける内容が置き換えられることがあります。",
+  "Pause in another window": "別のウィンドウでは一時停止",
+  "A second after you switch to another window, this tab lets go of the pane, so herdr's own view gets the pane's size back. The terminal here stops updating until you come back. Off, it keeps updating and keeps the pane at this window's size.": "別のウィンドウに切り替えて 1 秒たつと、このタブがペインを手放し、herdr 自身の画面がペインのサイズを取り戻します。戻るまでここの端末は更新されません。オフにすると更新を続け、ペインはこのウィンドウのサイズのままです。",
   "What should {agent} do in {folder}?": "{folder} で {agent} に何を頼みますか？",
   "No conversation yet — say something below": "まだ会話はありません。下から話しかけてください",
   "terminal ended": "ターミナルが終了しました",

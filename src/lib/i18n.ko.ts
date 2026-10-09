@@ -526,6 +526,8 @@ export const KO: Record<string, string> = {
   "Last checked {when}": "마지막 확인: {when}",
   "Clipboard from a pane": "패널에서 클립보드로 복사",
   "A program in a pane that copies (vim, tmux, Claude Code) puts its text on this device's clipboard, as a copy you made yourself would. Turn it off if a pane runs output you do not trust: it could replace what you paste next.": "패널에서 복사하는 프로그램(vim, tmux, Claude Code)은 직접 복사한 것과 같이 이 기기의 클립보드에 텍스트를 넣습니다. 믿을 수 없는 출력을 실행하는 패널이 있다면 끄세요. 다음에 붙여 넣을 내용이 바뀔 수 있습니다.",
+  "Pause in another window": "다른 창에 있을 때 일시 정지",
+  "A second after you switch to another window, this tab lets go of the pane, so herdr's own view gets the pane's size back. The terminal here stops updating until you come back. Off, it keeps updating and keeps the pane at this window's size.": "다른 창으로 옮기고 1초가 지나면 이 탭이 패널을 놓아 herdr 자체 화면이 패널 크기를 되찾습니다. 돌아올 때까지 여기 터미널은 갱신되지 않습니다. 끄면 계속 갱신되고 패널은 이 창의 크기로 유지됩니다.",
   "What should {agent} do in {folder}?": "{folder}에서 {agent}에게 무엇을 맡길까요?",
   "No conversation yet — say something below": "아직 대화가 없습니다. 아래에 말을 걸어 보세요",
   "terminal ended": "터미널 종료됨",

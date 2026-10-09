@@ -231,6 +231,9 @@ export function PaneTerminal({
   /** read by the OSC 52 handler, which is attached once for the terminal's life */
   const osc52AllowedRef = useRef(settings.paneClipboard);
   osc52AllowedRef.current = settings.paneClipboard;
+  // Settings → Pause in another window: off (the default), a tab out of use keeps its pane and its updates
+  const releaseAwayRef = useRef(settings.releasePaneAway);
+  releaseAwayRef.current = settings.releasePaneAway;
   // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
   // the transcript, the composer column, the held list and the menus all inherit: a percentage
   // would resolve against each one's own box and leave them a gutter apart. The other steps are
@@ -1249,7 +1252,7 @@ export function PaneTerminal({
     const release = (): void => {
       cancelLeave();
       const current = paneRef.current;
-      if (!current || releasedRef.current || inUse() || embedded || fixedGridRef.current || endedRef.current) return;
+      if (!current || !releaseAwayRef.current || releasedRef.current || inUse() || embedded || fixedGridRef.current || endedRef.current) return;
       if (queueWaits(current)) {
         queueHeld = true;
         return;
@@ -1290,7 +1293,7 @@ export function PaneTerminal({
     const leave = (): void => {
       const current = paneRef.current;
       if (current && !observeRef.current && !fixedGridRef.current) socket.keepSize(current);
-      if (releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(() => {
+      if (releaseAwayRef.current && releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(() => {
         if (paneRef.current === current) release();
       }, RELEASE_AFTER_MS);
     };

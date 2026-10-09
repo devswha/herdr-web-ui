@@ -530,6 +530,8 @@ export const ZH: Record<string, string> = {
   "Last checked {when}": "上次检查：{when}",
   "Clipboard from a pane": "从窗格写入剪贴板",
   "A program in a pane that copies (vim, tmux, Claude Code) puts its text on this device's clipboard, as a copy you made yourself would. Turn it off if a pane runs output you do not trust: it could replace what you paste next.": "窗格中执行复制的程序（vim、tmux、Claude Code）会像你自己复制一样把文本写入此设备的剪贴板。如果窗格运行你不信任的输出，请关闭它：它可能替换你下次粘贴的内容。",
+  "Pause in another window": "切换到其他窗口时暂停",
+  "A second after you switch to another window, this tab lets go of the pane, so herdr's own view gets the pane's size back. The terminal here stops updating until you come back. Off, it keeps updating and keeps the pane at this window's size.": "切换到其他窗口一秒后，此标签页会释放窗格，herdr 自己的界面随即恢复窗格的尺寸。回来之前，这里的终端不会更新。关闭时，终端持续更新，窗格保持此窗口的尺寸。",
   "What should {agent} do in {folder}?": "要让 {agent} 在 {folder} 做什么？",
   "No conversation yet — say something below": "暂无对话。在下方说点什么吧",
   "terminal ended": "终端已结束",
