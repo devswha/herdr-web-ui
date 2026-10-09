@@ -339,6 +339,8 @@ interface Work {
   hungry: boolean;
   firstAt: number | null;
   lastAt: number | null;
+  /** latest instruction to this agent, not a result of a tool it called */
+  dispatchAt: number | null;
   model: string | null;
   turns: number;
   toolCalls: number;
@@ -355,7 +357,7 @@ function scanWork(path: string, budget: { left: number }): Work | null {
   if (stat === null) return null;
   let work = works.get(path);
   if (!work || work.id !== stat.id || work.offset > stat.size) {
-    work = { id: stat.id, offset: 0, skipping: false, behind: false, hungry: false, firstAt: null, lastAt: null, model: null, turns: 0, toolCalls: 0, tokens: null, lastMessage: null, turnEndedAt: null, commands: noCommands() };
+    work = { id: stat.id, offset: 0, skipping: false, behind: false, hungry: false, firstAt: null, lastAt: null, dispatchAt: null, model: null, turns: 0, toolCalls: 0, tokens: null, lastMessage: null, turnEndedAt: null, commands: noCommands() };
   }
   remember(works, path, work, 4096);
   if (work.offset >= stat.size) { work.behind = false; work.hungry = false; return work; }
@@ -369,6 +371,7 @@ function scanWork(path: string, budget: { left: number }): Work | null {
     if (entry === null) return;
     const at = stamp(entry["timestamp"]);
     if (at !== null) { state.firstAt ??= at; state.lastAt = at; }
+    if (at !== null && isDispatch(entry)) state.dispatchAt = at;
     // attachments and bookkeeping say nothing of its turn
     state.turnEndedAt = turnAfter(entry, at, state.turnEndedAt);
     const notices = line.includes("<task-notification>") ? blocksIn(entry).flatMap((block) => taskNotification(block) ?? []) : [];
@@ -396,6 +399,16 @@ function scanWork(path: string, budget: { left: number }): Work | null {
   return state;
 }
 
+/** A new instruction resumes an agent; a tool result only continues its existing dispatch. */
+function isDispatch(entry: Row): boolean {
+  if (entry["type"] !== "user" || entry["isMeta"] === true || entry["isCompactSummary"] === true) return false;
+  if (blocksIn(entry).some((block) => block.trimStart().startsWith("<task-notification>"))) return false;
+  const content = row(entry["message"])?.["content"];
+  return typeof content === "string" ? content.trim().length > 0
+    : Array.isArray(content) && content.some((block) => row(block)?.["type"] === "text")
+      && !content.some((block) => row(block)?.["type"] === "tool_result");
+}
+
 /** A message to an agent or a result for it starts its turn again; its own answer ends it, unless it goes on (streamed blocks, a tool call). */
 function turnAfter(entry: Row, at: number | null, turnEndedAt: number | null): number | null {
   if (entry["type"] === "user") return null;
@@ -419,7 +432,7 @@ function readBytes(path: string, from: number, length: number): Buffer | null {
 }
 
 /** What the end of an agent's file says of it: when it was last written, and whether its turn ended. */
-interface Tail { known: boolean; firstAt: number | null; lastAt: number | null; turnEndedAt: number | null }
+interface Tail { known: boolean; firstAt: number | null; lastAt: number | null; dispatchAt: number | null; turnEndedAt: number | null }
 const tails = new Map<string, { id: string; key: string; tail: Tail }>();
 
 /**
@@ -432,7 +445,7 @@ function readTail(path: string, stat: { size: number; mtimeMs: number; id: strin
   const key = `${stat.size}:${stat.mtimeMs}`;
   const kept = tails.get(path);
   if (kept?.id === stat.id && kept.key === key) return kept.tail;
-  const tail: Tail = { known: false, firstAt: kept?.id === stat.id ? kept.tail.firstAt : null, lastAt: null, turnEndedAt: null };
+  const tail: Tail = { known: false, firstAt: kept?.id === stat.id ? kept.tail.firstAt : null, lastAt: null, dispatchAt: null, turnEndedAt: null };
   if (stat.size === 0) { tail.known = true; return tail; }
   const from = Math.max(0, stat.size - TAIL_BYTES);
   const chunk = readBytes(path, from, stat.size - from);
@@ -449,6 +462,7 @@ function readTail(path: string, stat: { size: number; mtimeMs: number; id: strin
       lines += 1;
       const at = stamp(entry["timestamp"]);
       if (at !== null) { if (from === 0) tail.firstAt ??= at; tail.lastAt = at; }
+      if (at !== null && isDispatch(entry)) tail.dispatchAt = at;
       if (entry["type"] === "user" || entry["type"] === "assistant") decisive = true;
       tail.turnEndedAt = turnAfter(entry, at, tail.turnEndedAt);
     }
@@ -544,6 +558,8 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   const budget = { left: READ_BUDGET };
   const running: OmoTask[] = [];
   const ended: OmoTask[] = [];
+  const promptAt = parent?.promptAt ?? null;
+  let turnRunning = 0;
   const all = new Map<string, OmoTask>();
   const sources: Commands[] = parent === null ? [] : [parent.commands];
   let settled = parent !== null && !parent.behind;
@@ -598,7 +614,7 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
       tool_calls: counted ? work.toolCalls : null,
       tokens: counted ? work.tokens : null,
     };
-    keep(task);
+    keep(task, Math.max(tail.dispatchAt ?? 0, work.dispatchAt ?? 0, firstAt ?? 0));
   }
   // a command ends once, in whichever transcript was told first
   const ends = new Map<string, { at: number; status: OmoTask["status"] }>();
@@ -616,14 +632,14 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   // a command lost with its process has no end of its own: its start stands for it
   const last = (task: OmoTask): number => time(task.ended_at) || time(task.started_at);
   ended.sort((a, b) => last(b) - last(a));
-  // what runs of the turn going on, or last ended: what it started since the person's prompt (any, when none is in reach)
-  const promptAt = parent?.promptAt ?? null;
-  const turnRunning = running.filter((task) => promptAt === null || time(task.started_at) >= promptAt).length;
   return { tasks: [...running, ...ended.slice(0, RECENT_LIMIT)], settled, watch: files.map(({ id }) => id), running: running.length, turnRunning, promptAt };
 
-  function keep(task: OmoTask): void {
+  function keep(task: OmoTask, dispatched = time(task.started_at)): void {
     all.set(task.id, task);
-    if (task.status === "running") running.push(task);
+    if (task.status === "running") {
+      running.push(task);
+      if (promptAt === null || dispatched >= promptAt) turnRunning += 1;
+    }
     else {
       const at = time(task.ended_at) || time(task.started_at);
       if (at !== 0 && now - at <= RECENT_MS) ended.push(task);

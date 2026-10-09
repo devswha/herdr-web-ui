@@ -711,6 +711,47 @@ describe("claudeSubagents, an agent's own turn", () => {
 describe("claudeSubagents, background commands", () => {
   const command = (summary: string) => ({ summary: `Background command "${summary}`, carriers: ["queue" as const] });
 
+  it("counts a resumed subagent for the new prompt without changing its original start", () => {
+    const s = session();
+    s.prompt(1);
+    s.agent("review", { steps: [[2, 1]] });
+    s.notify("review", 3);
+    expect(claudeSubagentState(s.path, true, NOW).turnRunning).toBe(0);
+    s.prompt(10);
+    s.work("review", 11, 1);
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({
+      running: 1, turnRunning: 1, tasks: [{ id: "review", started_at: at(2), status: "running" }],
+    });
+    forgetSubagents();
+    expect(claudeSubagentState(s.path, true, NOW).turnRunning).toBe(1);
+  });
+
+  it("does not count an old subagent's tool result as a new dispatch", () => {
+    const s = session();
+    s.prompt(1);
+    const file = s.agent("review", { steps: [[2, 1]] });
+    s.prompt(10);
+    appendFileSync(file, json({ isSidechain: true, type: "user", timestamp: at(11), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "read complete" }] } }));
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 1, turnRunning: 0 });
+  });
+
+  it.each(["compaction", "task notification"])("does not treat an old subagent's %s as a new dispatch on warm or cold reads", (kind) => {
+    const s = session();
+    s.prompt(1);
+    const file = s.agent("review", { steps: [[2, 1]] });
+    s.prompt(10);
+    expect(claudeSubagentState(s.path, true, NOW).turnRunning).toBe(0);
+    appendFileSync(file, json({
+      isSidechain: true, type: "user", timestamp: at(11),
+      ...(kind === "compaction" ? { isCompactSummary: true } : {}),
+      message: { role: "user", content: kind === "compaction" ? "Earlier context summarized"
+        : "<task-notification>\n<task-id>shell</task-id>\n<status>completed</status>\n<summary>Background command finished</summary>\n</task-notification>" },
+    }));
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 1, turnRunning: 0 });
+    forgetSubagents();
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 1, turnRunning: 0 });
+  });
+
   it("keeps running after garbled lines or a failed stop, then accepts repeated successful stops once", () => {
     const s = session();
     s.prompt(1);
