@@ -10,6 +10,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - Open tabs take turns chiming for the same alert. A waiting question is still heard if the
   tab that claimed it closes or never plays it, including on plain-HTTP LAN addresses.
+  ([#632](https://github.com/devswha/herdr-web-ui/pull/632))
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
   ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)
