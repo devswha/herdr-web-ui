@@ -112,6 +112,30 @@ try {
           }
           assert.deepEqual(errors, []);
           await page.getByRole("button", { name: label("Close settings"), exact: true }).tap();
+          if (language === "en") {
+            const composer = page.locator(".composer textarea");
+            await composer.fill("/");
+            const menu = page.getByRole("listbox", { name: "Slash commands" });
+            await menu.getByRole("option").last().waitFor();
+            await composer.press("ArrowUp");
+            await page.waitForFunction(() => {
+              const menu = document.querySelector(".composer-menu");
+              const active = menu?.querySelector('[aria-selected="true"]');
+              if (!menu || !active) return false;
+              const box = menu.getBoundingClientRect(), row = active.getBoundingClientRect();
+              return active.textContent?.includes("vim") && row.top >= box.top && row.bottom <= box.bottom;
+            });
+            await composer.fill("/comments");
+            await menu.getByRole("option").filter({ hasText: "pr-comments" }).waitFor();
+            assert.equal(await menu.getByRole("option").count(), 1);
+            await composer.press("Tab");
+            assert.equal(await composer.inputValue(), "/pr-comments ");
+            await composer.fill("/rln");
+            await menu.getByRole("option").filter({ hasText: "release-notes" }).waitFor();
+            assert.equal(await menu.getByRole("option").count(), 1);
+            await composer.fill("");
+            console.log(`PASS fuzzy commands and offscreen keyboard selection (${width}px)`);
+          }
           console.log(`PASS every Settings page and key bar fit a ${width}px phone (${language}); ${(performance.now() - started).toFixed(0)}ms`);
         } finally {
           await context.close();
