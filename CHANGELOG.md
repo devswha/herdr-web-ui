@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- `HERDR_WEB_APP_NAME` names the installed app, so the apps of two PCs on one phone no longer
+  both read `herdr`. Unset, nothing changes.
+
 ### Changed
 - A size under 10 MB shows one decimal (`1.3 MB`), in the file viewer, the Files list and a bridge
   update's progress: a 1.3 MB file no longer reads as 1 MB.
