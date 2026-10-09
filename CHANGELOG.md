@@ -24,6 +24,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Delayed Claude transcript discovery preserves an observed turn's background wait and original
   deadline; a replacement session does not inherit the old session's wait. ([#703](https://github.com/devswha/herdr-web-ui/pull/703))
 - Claude background badges expire day-old subagent files even when no transcript changes. ([#706](https://github.com/devswha/herdr-web-ui/pull/706))
+- Claude completion cards deduplicate consistently within each chat page, whether its turns
+  were read incrementally or loaded from scratch.
 
 ## [0.4.4] - 2026-10-09
 
