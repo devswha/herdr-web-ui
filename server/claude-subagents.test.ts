@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -229,6 +229,42 @@ describe("taskNotification", () => {
 
 describe("ClaudeSubagentStatus", () => {
   const pane = (id: string, agent: string | null, session = "s1"): HerdrPane => ({ pane_id: id, agent, agent_session: { agent: agent ?? "", kind: "id", source: "hook", value: session }, cwd: "/work", agent_status: "idle", focused: false, revision: 1 }) as HerdrPane;
+
+  it("rereads a same-size replaced parent and a replaced subagent directory", async () => {
+    const s = session();
+    const old = new Date(Date.now() - 5000);
+    const now = Date.now() + 5000;
+    const launch = (id: string) => json({ type: "user", timestamp: at(1), toolUseResult: { backgroundTaskId: id }, message: { content: [] } });
+    writeFileSync(s.path, launch("one"));
+    utimesSync(s.path, old, old);
+    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: null }), onChange: () => {}, now: () => now });
+    await status.refresh([pane("p1", "claude")]);
+    status.poll();
+    expect(status.countOf("p1")).toBe(1);
+    writeFileSync(`${s.path}.new`, launch("two"));
+    utimesSync(`${s.path}.new`, old, old);
+    renameSync(`${s.path}.new`, s.path);
+    status.poll();
+    s.notify("two", 3, { summary: "Background command ended" });
+    status.poll();
+    expect(status.countOf("p1")).toBe(0);
+    const dir = join(s.path.replace(/\.jsonl$/, ""), "subagents");
+    s.agent("a1");
+    utimesSync(dir, old, old);
+    status.poll();
+    status.poll();
+    expect(status.countOf("p1")).toBe(1);
+    renameSync(dir, `${dir}.old`);
+    mkdirSync(dir);
+    s.agent("a2");
+    s.agent("a3");
+    utimesSync(dir, old, old);
+    status.poll();
+    expect(status.countOf("p1")).toBe(2);
+    rmSync(join(dir, "agent-a2.meta.json"));
+    status.poll();
+    expect(status.countOf("p1")).toBe(1);
+  });
 
   it("counts a Claude pane's running subagents and says only when the count changes", async () => {
     const s = session();

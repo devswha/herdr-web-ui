@@ -16,6 +16,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A server older than this one pauses the tab instead.
   ([#699](https://github.com/devswha/herdr-web-ui/pull/699), [#700](https://github.com/devswha/herdr-web-ui/pull/700))
 
+### Fixed
+- Claude background counts reread concurrent transcript appends and replaced transcript files
+  instead of keeping a stale count until another write.
+
 ## [0.4.4] - 2026-10-09
 
 ### Added

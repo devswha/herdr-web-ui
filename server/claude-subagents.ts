@@ -479,18 +479,25 @@ function readTail(path: string, stat: { size: number; mtimeMs: number; id: strin
 
 const subagentsDir = (parentPath: string): string => join(parentPath.replace(/\.jsonl$/, ""), "subagents");
 
+function folderVersion(dir: string): { sig: string; latestMs: number } {
+  try {
+    const stat = lstatSync(dir);
+    return { sig: `${stat.dev}:${stat.ino}:${stat.mtimeMs}:${stat.ctimeMs}`, latestMs: Math.max(stat.mtimeMs, stat.ctimeMs) };
+  } catch { return { sig: "-", latestMs: 0 }; }
+}
+
 /**
  * The folder's listing, read again only when the folder changed. A folder's time is coarse: one
  * that changed within a second of the read may have changed again with the same time, so only a
  * listing read after the folder had been quiet for a second is kept.
  */
-const listings = new Map<string, { mtimeMs: number; readAt: number; ids: string[] }>();
+const listings = new Map<string, { sig: string; readAt: number; ids: string[] }>();
 function agentIds(parentPath: string): string[] {
   const dir = subagentsDir(parentPath);
-  let mtimeMs: number;
-  try { mtimeMs = lstatSync(dir).mtimeMs; } catch { listings.delete(dir); return []; }
+  const { sig, latestMs } = folderVersion(dir);
+  if (sig === "-") { listings.delete(dir); return []; }
   const known = listings.get(dir);
-  if (known?.mtimeMs === mtimeMs && known.readAt - mtimeMs >= 1000) return known.ids;
+  if (known?.sig === sig && known.readAt - latestMs >= 1000) return known.ids;
   let ids: string[];
   try {
     ids = readdirSync(dir).slice(0, MAX_NAMES).flatMap((name) => {
@@ -498,19 +505,19 @@ function agentIds(parentPath: string): string[] {
       return id !== undefined && AGENT_ID.test(id) ? [id] : [];
     });
   } catch { return []; }
-  remember(listings, dir, { mtimeMs, readAt: Date.now(), ids }, 256);
+  remember(listings, dir, { sig, readAt: Date.now(), ids }, 256);
   return ids;
 }
 
 /** What changes when a session's subagents may have: the folder, parent transcript and every watched agent's own file. */
 export function subagentsSignature(parentPath: string, watch: readonly string[] = []): { sig: string; latestMs: number } {
   const dir = subagentsDir(parentPath);
-  const folderMs = (() => { try { return lstatSync(dir).mtimeMs; } catch { return 0; } })();
+  const folder = folderVersion(dir);
   // A file may grow in the same coarse mtime tick, or be replaced with one of the same size.
-  const watched = watch.map((id) => plain(join(dir, `agent-${id}.jsonl`)));
+  const watched = [plain(parentPath), ...watch.map((id) => plain(join(dir, `agent-${id}.jsonl`)))];
   return {
-    sig: `${folderMs}:${plain(parentPath)?.size ?? -1}:${watched.map((stat) => stat ? `${stat.id}:${stat.size}:${stat.mtimeMs}` : "-").join(",")}`,
-    latestMs: Math.max(folderMs, ...watched.map((stat) => stat?.mtimeMs ?? 0)),
+    sig: `${folder.sig}:${watch.join(",")}:${watched.map((stat) => stat ? `${stat.id}:${stat.size}:${stat.mtimeMs}` : "-").join(",")}`,
+    latestMs: Math.max(folder.latestMs, ...watched.map((stat) => stat?.mtimeMs ?? 0)),
   };
 }
 
@@ -796,13 +803,17 @@ export class ClaudeSubagentStatus {
       let turnRunning = 0;
       let promptAt: number | null = null;
       if (tracked.path !== null && tracked.live) {
-        if (`${subagentsSignature(tracked.path, tracked.watch).sig}:${tracked.startedAt}` === tracked.sig) continue;
+        const before = subagentsSignature(tracked.path, tracked.watch);
+        const scanAt = this.now();
+        if (`${before.sig}:${tracked.startedAt}` === tracked.sig) continue;
         const state = claudeSubagentState(tracked.path, true, this.now(), tracked.startedAt);
         ({ running, turnRunning, promptAt } = state);
         tracked.watch = state.watch;
-        const { sig, latestMs } = subagentsSignature(tracked.path, tracked.watch);
-        // file times are coarse: only a signature of files quiet for a second says nothing changed when it reads the same
-        tracked.sig = state.settled && this.now() - latestMs >= 1000 ? `${sig}:${tracked.startedAt}` : null;
+        const after = subagentsSignature(tracked.path, tracked.watch);
+        // Certify only the versions and dependency set read, never a concurrent append's newer signature.
+        // Coarse file clocks require every input to have been quiet before the scan began.
+        tracked.sig = state.settled && before.sig === after.sig && scanAt - before.latestMs >= 1000
+          ? `${after.sig}:${tracked.startedAt}` : null;
       }
       if (running === tracked.running && turnRunning === tracked.turnRunning && promptAt === tracked.promptAt) continue;
       tracked.running = running;
