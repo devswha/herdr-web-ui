@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
+import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
@@ -840,6 +841,7 @@ export function PaneTerminal({
         const generation = outputGeneration;
         term.write(message.data, () => {
           acknowledge?.();
+          if (disposed) return;
           if (paneRef.current !== owner || generation !== outputGeneration) {
             // output of a pane left behind, or of a dropped connection, was still queued in xterm
             // when the switch reset the level: whatever its parse just set, the level is off again
@@ -1211,6 +1213,7 @@ export function PaneTerminal({
 
     return () => {
       disposed = true;
+      term.options.disableStdin = true;
       if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
       pendingScopeRef.current = null;
       window.clearInterval(poll);
@@ -1249,7 +1252,9 @@ export function PaneTerminal({
       host.removeEventListener("compositionend", compositionEnd);
       if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);
       compositionCommitPendingRef.current = false;
-      term.dispose();
+      // A replacement mount must not share its host with the retiring terminal.
+      term.element?.remove();
+      disposeAfterPendingFrame(term);
       termRef.current = null;
       socketRef.current = null;
     };

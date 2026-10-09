@@ -14,6 +14,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#663](https://github.com/devswha/herdr-web-ui/pull/663))
 
 ### Fixed
+- Codex Chat can read a new session with one short answer when its complete submitted
+  first prompt and answer identify it unambiguously. Older conversations, unreadable
+  candidates and competing panes keep the terminal fallback; process age alone never
+  selects a conversation. Complete directory-less injected AGENTS.md instructions are
+  hidden without hiding user messages that continue after the instructions.
+  ([#650](https://github.com/devswha/herdr-web-ui/pull/650) by @od-studio-webagency)
+- Terminal cleanup waits for xterm's pending frame and task before disposing its renderer,
+  preventing a dimensions console error on development reloads or when switching PCs or
+  signing out immediately after a pane reset.
+  ([#649](https://github.com/devswha/herdr-web-ui/pull/649) by @od-studio-webagency)
+- Immediate chat sends to Claude Code are refused when its input box contains a draft or is in
+  bash mode, preserving the existing terminal input.
+  ([#677](https://github.com/devswha/herdr-web-ui/pull/677))
+
+## [0.4.3] - 2026-10-09
+
+### Fixed
 - A web UI tab you are not using no longer resizes the pane you are using elsewhere. A window
   left open behind another app turned visible again when the screen woke, or reconnected,
   reloaded or moved on to the next pane in the background, and fitted the pane to itself: herdr
@@ -2598,7 +2615,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/devswha/herdr-web-ui/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/devswha/herdr-web-ui/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...v0.4.0
