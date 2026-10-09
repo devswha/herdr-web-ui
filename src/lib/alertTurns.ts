@@ -3,6 +3,8 @@ import type { AlertSoundKind } from "./alertSound.ts";
 const WINDOW_MS = 150;
 const LOOKBACK_MS = 1_500;
 const RESCUE_MS = 600;
+/** a chime another tab played this long before this tab heard the alert was for the same one */
+const CHIMED_BEFORE_MS = 400;
 const CHANNEL = "herdr-web-ui:alert-turns";
 
 export interface AlertTurnMessage {
@@ -23,7 +25,10 @@ export class AlertTurns {
 
   start(key: string, kind: AlertSoundKind, now: number): AlertTurnMessage[] {
     this.prune(now);
-    if (this.pending.has(key) || this.chimed.has(key)) return [];
+    // Only a chime just before this alert told it: the same pane can ask again soon after,
+    // when the tab that chimed the first question no longer takes part.
+    const chimedAt = this.chimed.get(key);
+    if (this.pending.has(key) || (chimedAt !== undefined && now - chimedAt <= CHIMED_BEFORE_MS)) return [];
     this.pending.set(key, { kind, due: now + WINDOW_MS, rescue: false });
     return [{ type: "claim", tab: this.tab, key, kind }];
   }
@@ -40,6 +45,8 @@ export class AlertTurns {
       }
       case "chimed":
         this.chimed.set(message.key, now);
+        // that alert is settled: its claims must not defer the pane's next one
+        this.claims.delete(message.key);
         // Cancel the actual pending turn, not just its short-lived lookback. A suspended
         // tab may not get its timer back until long after the lookback has expired.
         this.pending.delete(message.key);
@@ -60,7 +67,8 @@ export class AlertTurns {
       if (pending.due > now) continue;
       if (!pending.rescue && this.lowerClaim(key)) {
         if (pending.kind === "done") this.pending.delete(key);
-        else { pending.rescue = true; pending.due = now + RESCUE_MS; }
+        // each lower claimant gets its own turn first, so two deferring tabs never rescue together
+        else { pending.rescue = true; pending.due = now + RESCUE_MS * this.lowerClaims(key); }
         continue;
       }
       pending.due = Infinity; // awaiting the local player's result
@@ -91,7 +99,11 @@ export class AlertTurns {
   }
 
   private lowerClaim(key: string): boolean {
-    return [...(this.claims.get(key)?.keys() ?? [])].some((tab) => tab < this.tab);
+    return this.lowerClaims(key) > 0;
+  }
+
+  private lowerClaims(key: string): number {
+    return [...(this.claims.get(key)?.keys() ?? [])].filter((tab) => tab < this.tab).length;
   }
 
   private prune(now: number): void {
@@ -105,7 +117,7 @@ export class AlertTurns {
 
 function isMessage(value: unknown): value is AlertTurnMessage {
   if (!value || typeof value !== "object") return false;
-  return "type" in value && ["claim", "chimed", "withdraw"].includes(String(value.type))
+  return "type" in value && typeof value.type === "string" && ["claim", "chimed", "withdraw"].includes(value.type)
     && "tab" in value && typeof value.tab === "string"
     && "key" in value && typeof value.key === "string"
     && "kind" in value && (value.kind === "blocked" || value.kind === "done");

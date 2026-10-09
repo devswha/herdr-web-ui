@@ -90,6 +90,36 @@ describe("alert turns with a local clock", () => {
     expect(tab.tick(10_000)).toEqual([]);
   });
 
+  it("tells a second question on the same pane that comes after the first one's chime", () => {
+    const tab = new AlertTurns("b");
+    tab.receive(claim, 1);
+    tab.receive(chimed, 151);
+    // the tab that chimed the first question no longer takes part (its pane is in front now)
+    expect(tab.start(key, "blocked", 800)).toEqual([{ ...claim, tab: "b" }]);
+    expect(tab.tick(950)).toEqual([play]);
+  });
+
+  it("lets a third tab wait for the second one's rescue instead of chiming with it", () => {
+    const c = new AlertTurns("c");
+    c.start(key, "blocked", 0);
+    c.receive(claim, 1);
+    c.receive({ ...claim, tab: "b" }, 1);
+    expect(c.tick(150)).toEqual([]);
+    expect(c.tick(750)).toEqual([]);
+    c.receive({ ...chimed, tab: "b" }, 760);
+    expect(c.tick(10_000)).toEqual([]);
+  });
+
+  it("still rescues a question when every lower tab is gone", () => {
+    const c = new AlertTurns("c");
+    c.start(key, "blocked", 0);
+    c.receive(claim, 1);
+    c.receive({ ...claim, tab: "b" }, 1);
+    c.tick(150);
+    expect(c.tick(1_349)).toEqual([]);
+    expect(c.tick(1_350)).toEqual([play]);
+  });
+
   it("keeps other machines and panes independent", () => {
     const tab = new AlertTurns("b");
     tab.receive(chimed, 0);
