@@ -56,7 +56,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { claudeHeldIsGrey, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -139,6 +139,15 @@ export const SUBMIT_DELAY_MS = 120;
  * Stop tapped just before Send still reaches the pane first.
  */
 const TYPED_SETTLE_MS = 300;
+/**
+ * A terminal key (WS `keys`) goes through herdr's RPC, around the attach pty: it waits this long
+ * after the pane's last pty keystroke so it never overtakes typing on its way through the
+ * sidecar and the attach, and the whole TYPED_SETTLE_MS when that keystroke ended in an ESC
+ * herdr may still be holding. Short enough that a held arrow between typed letters shows no lag.
+ */
+const KEY_SETTLE_MS = 40;
+/** Keys that may wait to join one `pane.send_keys` while herdr answers the one before (a held arrow repeats ~30/s). */
+const MAX_WAITING_KEYS = 256;
 /**
  * Nothing of a composer message is typed once this long has passed since it reached the
  * server (it can wait behind a stalled one in the pane's queue): it answers submit_timeout
@@ -400,6 +409,10 @@ export function createServer(
   const paneQueues = new Map<string, Promise<unknown>>();
   /** when each pane last got keystrokes through its attach pty */
   const lastTyped = new Map<string, number>();
+  /** panes whose last pty keystroke ended in an ESC, which herdr holds ~150ms: a key waits TYPED_SETTLE_MS there */
+  const typedEscape = new Set<string>();
+  /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
+  const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; run: Promise<unknown> | null; sent: boolean }>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
@@ -443,6 +456,19 @@ export function createServer(
    * the bytes, so the pane sees the whole gap. So does a Codex "blocked" only by questions
    * waiting collapsed in its queue: its main prompt still takes the message.
    */
+  /**
+   * A message whose last word is an `@file` mention leaves the agent's file suggestions open over
+   * it, and the Enter after the paste takes the suggestion instead of sending: the message stays in
+   * the input box (Claude Code 2.1.295, #404). A space after the mention closes them first; a
+   * payload already in bracketed-paste markers gets it inside them.
+   */
+  const closeMention = (text: string): string => {
+    const open = text.startsWith("\u001b[200~") ? "\u001b[200~" : "";
+    const close = open && text.endsWith("\u001b[201~") ? "\u001b[201~" : "";
+    const body = text.slice(open.length, text.length - close.length);
+    return /(?:^|\s)@\S+$/.test(body) ? `${open}${body} ${close}` : text;
+  };
+
   async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {}): Promise<void> {
     const inTime = (): void => {
       authorize();
@@ -457,7 +483,7 @@ export function createServer(
     // the terminal's input line stands in for the keyboard: it types what the user wrote, an
     // answer into an open menu included, where agent.prompt would refuse
     if (!fromTerminal) try {
-      await agentPrompt(paneId, text);
+      await agentPrompt(paneId, closeMention(text));
       noteSubmitted(paneId, text);
       return;
     } catch (error) {
@@ -469,7 +495,7 @@ export function createServer(
     // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
     // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
     // asked only for such a block, so a one-line message never waits on it.
-    const shaped = await mirrorInput(payload, async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
+    const shaped = await mirrorInput(closeMention(payload), async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
     inTime();
     await paneSendText(paneId, shaped);
     await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
@@ -571,6 +597,21 @@ export function createServer(
     code: error instanceof HerdrError || error instanceof PendingInputError ? error.code : "submit_failed",
     message: error instanceof Error ? error.message : String(error),
   });
+  /**
+   * The live screen for claudeInputDraft, and the viewport's colors when viewportShowsLive verifies
+   * they show it. Read last, the live screen holds anything typed meanwhile. An empty box (or none)
+   * needs no colors.
+   */
+  async function claudeBoxReads(paneId: string): Promise<[string, string | null]> {
+    const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    if (!claudeInputDraft(before, null)) return [before, null];
+    const scrollBefore = await paneScrollInfo(paneId);
+    const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
+    const scrollAfter = await paneScrollInfo(paneId);
+    const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
+  }
+
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
@@ -585,12 +626,18 @@ export function createServer(
         pending.observe(paneId, "working", mark);
         throw new HerdrError("pending_wait", "The agent is working again; this message still waits for its next turn");
       }
+      // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
+      // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
+      // read comes after the colors, so text typed between the two is in the box and holds the message.
+      if (context.identity.agent === "claude" && claudeInputDraft(...await claudeBoxReads(paneId))) {
+        throw new HerdrError("input_draft", "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message");
+      }
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
       wrote = true;
-      await paneSendText(paneId, `\u001b[200~${text}\u001b[201~`);
+      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`);
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
       const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
       if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
@@ -2089,8 +2136,9 @@ export function createServer(
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
                 lastTyped.set(message.pane_id, Date.now());
+                if (message.text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
                 if (lastTyped.size > 64) {
-                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) lastTyped.delete(pane);
+                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
                 }
               }
               break;
@@ -2137,7 +2185,30 @@ export function createServer(
                 send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                 break;
               }
-              await serialize(message.pane_id, async () => {
+              // A key behind keys of the same sender that have not gone out yet joins them, as long as
+              // nothing else was queued since: one RPC carries them all, so keys held faster than herdr
+              // answers (a slow herdr, a busy PC) never queue up an RPC each, and keep their order.
+              const waiting = waitingKeys.get(message.pane_id);
+              if (waiting && !waiting.sent && waiting.client === client && waiting.origin === origin && waiting.pty === pty && waiting.claim === claim
+                && waiting.run !== null && paneQueues.get(message.pane_id) === waiting.run) {
+                // a herdr that stopped answering does not collect keys without end: past this, they are refused
+                if (waiting.keys.length + message.keys.length > MAX_WAITING_KEYS) {
+                  send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
+                  break;
+                }
+                waiting.keys.push(...message.keys);
+                break;
+              }
+              const batch = { keys: [...message.keys], client: client as unknown, origin: origin as unknown, pty: pty as unknown, claim: claim as unknown, run: null as Promise<unknown> | null, sent: false };
+              const run = serialize(message.pane_id, async () => { try {
+                // A key goes through herdr's RPC, around the attach pty that typing just went into: it
+                // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
+                // held there ~150ms). The checks below run after the wait.
+                if (origin && !origin.mirror) {
+                  const settle = typedEscape.has(message.pane_id) ? TYPED_SETTLE_MS : KEY_SETTLE_MS;
+                  const typed = Date.now() - (lastTyped.get(message.pane_id) ?? 0);
+                  if (typed < settle) await Bun.sleep(settle - typed);
+                }
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
                 // pane's readiness, and the attach it holds by now has already been told it is ready
@@ -2158,9 +2229,16 @@ export function createServer(
                 // a key pressed by a connection that has gone since is not pressed
                 if (!clients.has(client)) return;
                 authorizeSocket(client);
-                await paneSendKeys(message.pane_id, message.keys);
+                batch.sent = true;
+                await paneSendKeys(message.pane_id, batch.keys);
                 attachments.get(message.pane_id)?.mirror?.poke();
-              });
+              } finally {
+                batch.sent = true;
+                if (waitingKeys.get(message.pane_id) === batch) waitingKeys.delete(message.pane_id);
+              } });
+              batch.run = run;
+              waitingKeys.set(message.pane_id, batch);
+              await run;
               break;
             }
             case "secret": {
