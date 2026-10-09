@@ -92,7 +92,9 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     return () => window.removeEventListener("keydown", dismiss, true);
   }, [open, onClose]);
 
-  useEffect(() => {
+  // Before the first paint: a passive effect leaves one frame of the last search's results, where a
+  // quick Tab focuses a row at an index the full list then gives to another row (#608).
+  useLayoutEffect(() => {
     if (!open) return;
     setQuery("");
     setActiveIndex(0);

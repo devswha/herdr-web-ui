@@ -181,7 +181,21 @@ try {
   await palette.waitFor({ state: "hidden" });
   assert.equal(await selectedPane(), paneA, "Enter on Close leaves the pane selection alone");
 
+  // A reopened palette starts from an empty search in its first frame: a frame of the last search's
+  // results lets a quick Tab focus a row at an index the full list then gives to another row (#608).
+  await page.evaluate(() => {
+    const frames: string[] = [];
+    (window as unknown as { paletteFirstFrame: string[] }).paletteFirstFrame = frames;
+    new MutationObserver((_, observer) => {
+      const search = document.querySelector<HTMLInputElement>(".command-palette input[type=search]");
+      if (!search) return;
+      frames.push(search.value);
+      observer.disconnect();
+    }).observe(document.body, { childList: true, subtree: true });
+  });
   await openPalette();
+  assert.deepEqual(await page.evaluate(() => (window as unknown as { paletteFirstFrame: string[] }).paletteFirstFrame), [""],
+    "a reopened palette shows no frame of the last search's results");
   const otherPalettePane = palette.locator(".palette-pane").filter({ hasText: "herdr-web-ui-test-browser-b" });
   // Walk the actual tab order instead of clicking: pointer hover must not pick the row for us.
   for (const deadline = Date.now() + 5_000; ;) {
