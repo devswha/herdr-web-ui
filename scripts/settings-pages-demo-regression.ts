@@ -130,6 +130,16 @@ try {
               const box = menu.getBoundingClientRect(), row = active.getBoundingClientRect();
               return active.textContent?.includes("vim") && row.top >= box.top && row.bottom <= box.bottom;
             });
+            // Enter right after the keystroke that narrows the list, before React's next render, completes the row
+            await page.evaluate(async () => {
+              const box = document.querySelector<HTMLTextAreaElement>(".composer textarea")!;
+              Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "/comments");
+              box.selectionStart = box.selectionEnd = box.value.length;
+              box.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+              await Promise.resolve(); await Promise.resolve();
+              box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+            });
+            await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>(".composer textarea")?.value === "/pr-comments ");
             await composer.fill("/comments");
             await menu.getByRole("option").filter({ hasText: "pr-comments" }).waitFor();
             assert.equal(await menu.getByRole("option").count(), 1);

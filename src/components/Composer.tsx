@@ -258,7 +258,7 @@ export function Composer({
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [files, setFiles] = useState<string[]>([]);
   const [slashUsage, setSlashUsage] = useState<Record<string, number>>(readSlashUsage);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [storedIndex, setSelectedIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -520,10 +520,9 @@ export function Composer({
   );
   const choices: readonly (SlashCommand | string)[] = trigger?.kind === "slash" ? orderedCommands : files;
   const menuOpen = !menuDismissed && trigger !== null && choices.length > 0;
-
-  useEffect(() => {
-    if (selectedIndex >= choices.length) setSelectedIndex(Math.max(0, choices.length - 1));
-  }, [choices.length, selectedIndex]);
+  // clamped as the list is drawn, not by an effect after it: a Tab or Enter typed before that
+  // effect's render found no row at the old index and did nothing
+  const selectedIndex = Math.min(storedIndex, Math.max(0, choices.length - 1));
 
   // dictation lands at the caret without taking focus (a phone's keyboard stays as it was)
   const dictation = useDictation({
@@ -714,7 +713,7 @@ export function Composer({
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
           const direction = event.key === "ArrowDown" ? 1 : -1;
-          setSelectedIndex((current) => (current + direction + choices.length) % choices.length);
+          setSelectedIndex((current) => (Math.min(current, choices.length - 1) + direction + choices.length) % choices.length);
           return;
         }
         if (event.key === "Enter" || event.key === "Tab") {
