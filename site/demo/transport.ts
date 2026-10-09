@@ -318,6 +318,7 @@ function usageReport(): UsageReport {
   ] };
 }
 
+/** Answers demo API requests from fictional panes, workspaces and conversations. */
 async function route(url: URL, method: string, init: RequestInit | undefined, input: RequestInfo | URL): Promise<Response> {
   const path = url.pathname;
   const query = url.searchParams;
@@ -411,7 +412,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const chat = key ? chats.get(key) : undefined;
     const agent = agentOf(paneId);
     if (!chat) return json({ source: "scrollback", turns: [] });
-    const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : agent === "devin" ? "devin-transcript" : "omp-transcript";
+    const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : agent === "devin" ? "devin-transcript" : agent === "hermes" ? "hermes-transcript" : "omp-transcript";
     return json({ source, turns: chat.turns, metadata: chat.metadata, cursor: null });
   }
   if (path === "/api/pane/prompt") return json({ prompt: keyOfPane.get(paneId) === "web" && promptOpen ? { ...PROMPT, id: promptId } : null });

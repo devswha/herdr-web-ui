@@ -8,6 +8,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Native conversation transcripts for Hermes Agent: turns, thinking blocks, and tool calls are read directly from its SQLite session store. ([#604](https://github.com/devswha/herdr-web-ui/pull/604) by @RikiSanjayaa)
 - **Settings → Voice input → Dictation language** picks the language dictation listens for. On Auto,
   a browser whose first language the app is not translated into (Hungarian, German, …) is heard in
   that language rather than in English; every other case listens for the app's language as before.
@@ -196,7 +197,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   is, also when the pane is kept on the terminal. The pane's own view is not changed: pick the
   pane or a view yourself and it is back. A shell's notification opens its terminal as before.
   ([#605](https://github.com/devswha/herdr-web-ui/pull/605) by @Xianbei233)
-
 ## [0.4.1] - 2026-10-08
 
 ### Added
