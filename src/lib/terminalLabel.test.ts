@@ -19,5 +19,7 @@ describe("the terminal's accessible name", () => {
     expect(terminalLabel("p_1a2b3c4d", null, t)).toBe("Terminal");
     expect(terminalLabel("p_1a2b3c4d", "", t)).toBe("Terminal");
     expect(terminalLabel("p_1a2b3c4d", "   ", t)).toBe("Terminal");
+    // a pane with no label or title: the sidebar's title falls back to its id, which is no name
+    expect(terminalLabel("w1:p2", "w1:p2", t)).toBe("Terminal");
   });
 });
