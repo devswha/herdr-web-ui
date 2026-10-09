@@ -375,6 +375,46 @@ describe("claudeSubagents reading", () => {
 describe("ClaudeSubagentStatus upkeep", () => {
   const pane = (agent: string | null, session = "s1"): HerdrPane => ({ pane_id: "p1", agent, agent_session: { agent: agent ?? "", kind: "id", source: "hook", value: session }, cwd: "/work", agent_status: "idle", focused: false, revision: 1 }) as HerdrPane;
 
+  it("looks up new panes from the newest snapshot after an in-flight refresh", async () => {
+    const one = session();
+    const latest = session();
+    latest.agent("a1");
+    const lookup = Promise.withResolvers<{ path: string; startedAt: null }>();
+    const looked: string[] = [];
+    const status = new ClaudeSubagentStatus({
+      resolve: (p) => {
+        looked.push(p.pane_id);
+        return p.pane_id === "p1" ? lookup.promise : Promise.resolve({ path: latest.path, startedAt: null });
+      },
+      onChange: () => undefined, now: () => NOW,
+    });
+    const original = pane("claude");
+    const pending = status.refresh([original]);
+    const superseded = status.refresh([original, { ...pane("claude", "s2"), pane_id: "p2" }]);
+    const current = status.refresh([original, { ...pane("claude", "s3"), pane_id: "p3" }]);
+    lookup.resolve({ path: one.path, startedAt: null });
+    await Promise.all([pending, superseded, current]);
+    expect(looked).toEqual(["p1", "p3"]);
+    expect(status.sessionOf("p2")).toBeNull();
+    expect(status.sessionOf("p3")?.path).toBe(latest.path);
+    expect(status.countOf("p3")).toBe(1);
+  });
+
+  it("discards queued snapshots when the tracker stops", async () => {
+    const s = session();
+    const lookup = Promise.withResolvers<{ path: string; startedAt: null }>();
+    const looked: string[] = [];
+    const status = new ClaudeSubagentStatus({ resolve: (p) => { looked.push(p.pane_id); return lookup.promise; }, onChange: () => undefined });
+    const pending = status.refresh([pane("claude")]);
+    const queued = status.refresh([{ ...pane("claude", "s2"), pane_id: "p2" }]);
+    status.stop();
+    lookup.resolve({ path: s.path, startedAt: null });
+    await Promise.all([pending, queued]);
+    expect(looked).toEqual(["p1"]);
+    expect(status.sessionOf("p1")).toBeNull();
+    expect(status.sessionOf("p2")).toBeNull();
+  });
+
   it("does not let an older lookup overwrite a newer session", async () => {
     const old = session();
     const current = session();

@@ -583,6 +583,7 @@ export class ClaudeSubagentStatus {
   private readonly lookups = new Map<string, { key: string }>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private refreshing: Promise<void> | null = null;
+  private queued: HerdrPane[] | null = null;
   private readonly now: () => number;
   private readonly refreshMs: number;
 
@@ -599,6 +600,7 @@ export class ClaudeSubagentStatus {
 
   stop(): void {
     this.lookups.clear();
+    this.queued = null;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
   }
@@ -626,11 +628,16 @@ export class ClaudeSubagentStatus {
         if (tracked) tracked.live = false;
       }
     }
-    if (this.refreshing) return this.refreshing;
+    if (this.refreshing) { this.queued = panes; return this.refreshing; }
     this.refreshing = (async () => {
-      await Promise.all(panes.map((pane) => this.ensure(pane)));
-      this.poll();
-    })().finally(() => { this.refreshing = null; });
+      try {
+        for (let next: HerdrPane[] | null = panes; next !== null; next = this.queued) {
+          this.queued = null;
+          await Promise.all(next.map((pane) => this.ensure(pane)));
+          this.poll();
+        }
+      } finally { this.refreshing = null; }
+    })();
     return this.refreshing;
   }
 
