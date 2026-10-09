@@ -27,7 +27,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Claude completion cards deduplicate consistently within each chat page, whether its turns
   were read incrementally or loaded from scratch. ([#708](https://github.com/devswha/herdr-web-ui/pull/708))
 - Chat code blocks preserve trailing source newlines in manual text selections, with highlighting
-  on or off. The Copy code button continues to copy the original source.
+  on or off. The Copy code button continues to copy the original source. ([#710](https://github.com/devswha/herdr-web-ui/pull/710))
 
 ## [0.4.4] - 2026-10-09
 
