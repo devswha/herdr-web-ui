@@ -8,9 +8,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A web UI tab you are not using no longer resizes the pane you are using elsewhere. A window
+  left open behind another app turned visible again when the screen woke, or reconnected,
+  reloaded or moved on to the next pane in the background, and fitted the pane to itself: herdr
+  in your terminal, or your phone, then showed the pane at that window's size, cut off at its
+  edge. The tab takes the pane back once its window has the focus.
+  ([#658](https://github.com/devswha/herdr-web-ui/pull/658) by @jiunshinn)
 - Open tabs take turns chiming for the same alert. A question or a finish is still heard if
   the tab that claimed it closes or cannot play it, including on plain-HTTP LAN addresses.
   ([#632](https://github.com/devswha/herdr-web-ui/pull/632))
+- Plugin installation and Unix launch commands find Bun in common installation locations
+  when herdr starts with a bare PATH, such as from a GUI app. An existing install gets this once
+  the plugin is installed again through herdr: Settings → Updates does not change the commands
+  herdr runs. ([#648](https://github.com/devswha/herdr-web-ui/pull/648) by @od-studio-webagency)
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
   ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)
@@ -63,6 +73,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A page that opened the pane meanwhile took it for a shell: it opened the terminal and fitted the
   shared terminal to itself. Needs the remote PC's runtime from the next release.
   ([#625](https://github.com/devswha/herdr-web-ui/pull/625))
+- Chat reads a Claude pane's conversation on a Mac set to a time format other than US English,
+  such as English (UK), German, French, Japanese or Korean, when herdr's Claude integration is not
+  installed. Every Claude pane there showed "Conversation unavailable" and only the terminal text.
+  ([#646](https://github.com/devswha/herdr-web-ui/pull/646) by @jiunshinn)
 
 ## [0.4.2] - 2026-10-09
 
