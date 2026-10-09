@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **Settings → Voice input → Dictation language** picks the language dictation listens for. On Auto,
+  a browser whose first language the app is not translated into (Hungarian, German, …) is heard in
+  that language rather than in English; every other case listens for the app's language as before.
+  ([#612](https://github.com/devswha/herdr-web-ui/pull/612) by @kratam)
+
 ### Changed
 - The chat's `/` command list also matches a word of a command's name, any part of it, its letters
   in order and its description, so a plugin command is found without typing its prefix. Prefix
@@ -122,10 +128,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [0.4.2] - 2026-10-09
 
 ### Added
-- **Settings → Voice input → Dictation language** picks the language dictation listens for. On Auto,
-  a browser whose first language the app is not translated into (Hungarian, German, …) is heard in
-  that language rather than in English; every other case listens for the app's language as before.
-  ([#612](https://github.com/devswha/herdr-web-ui/pull/612) by @kratam)
 - Devin CLI panes with an explicitly identified native session show their active conversation
   branch and tool activity in Chat. Unresolved or unreadable sessions keep the terminal-text
   fallback. ([#438](https://github.com/devswha/herdr-web-ui/pull/438) by @Haeminway1)
