@@ -766,6 +766,9 @@ class DemoSocket extends EventTarget {
       case "take-over":
         this.push({ type: "error", code: "unsupported", message: "The demo has no competing terminal attachments.", pane_id: message.pane_id });
         break;
+      // Nor a read-only view: the site's page never lets go of its pane, and a watch ends at once.
+      case "watch": if (message.pane_id) this.push({ type: "watch-end", pane_id: message.pane_id }); break;
+      case "unwatch": break;
       case "detach":
         if (message.pane_id) {
           this.attached.delete(message.pane_id);

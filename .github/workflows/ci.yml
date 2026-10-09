@@ -28,7 +28,22 @@ jobs:
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - run: bun test ./scripts/windows-plugin.test.ts ./scripts/plugin-runtime.test.ts ./scripts/phone-setup.test.ts
+      - run: bun test ./scripts/windows-plugin.test.ts ./scripts/plugin-runtime.test.ts ./scripts/phone-setup.test.ts ./server/windows-native.test.ts
+  macos-session:
+    name: Native macOS session identity
+    runs-on: macos-15
+    timeout-minutes: 5
+    env:
+      HERDR_TEST_MODE: unit
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun test ./server/claude-store.test.ts ./server/process-start.test.ts
   fast:
     name: Fast checks
     runs-on: ubuntu-24.04
