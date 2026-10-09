@@ -20,7 +20,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Claude background counts reread concurrent transcript appends and replaced transcript files
   instead of keeping a stale count until another write. ([#701](https://github.com/devswha/herdr-web-ui/pull/701))
 - Claude process identity lookups recover after transient failures, so tasks left by an earlier
-  process stop counting as running when the process boundary becomes available.
+  process stop counting as running when the process boundary becomes available. ([#702](https://github.com/devswha/herdr-web-ui/pull/702))
 
 ## [0.4.4] - 2026-10-09
 
