@@ -128,6 +128,10 @@ revue (`git status --short` vide).
   pour le message utilisateur. Une image collée dans le **prompt** utilisateur
   (part `file` côté 1.x) ne serait pas reprise ; le cas n'existe pas dans la base
   du patron et n'est pas couvert par un test. Signalé, sans préjuger d'un besoin.
+  → **Corrigé depuis** (`b51e10e`) : `adaptMessage1` remonte les parts `file` de
+  l'utilisateur (`url` côté 1.x → `uri` lu par `rowImages`), couvert par le test
+  « keeps a picture pasted in a 1.x prompt, and serves it by the ref the page gave
+  it » (revue CodeRabbit de la PR #690, 2026-10-09).
 - **`session_message` existe mais reste vide** : le routage regarde `session_v2`
   en premier, donc un store 1.x qui aurait en plus une `session_message` vide
   continue d'être lu par le 1.x — c'est le cas réel.
@@ -162,5 +166,5 @@ revue (`git status --short` vide).
 - Objet : en mode chat, herdr web UI lisait un store opencode 2.x (`session_v2`) et renvoyait le terminal pour un store 1.x ; la tranche rend les tours d'un store 1.x.
 - Livré : `server/opencode.ts` lit `session`/`message`/`part` quand `session_v2` est absent, adapte chaque message à la forme `opencodeRecord` (tours user/assistant, outils tronqués, images d'outils, erreurs, modèle/usage) ; tests 1.x neufs ; ligne `server/AGENTS.md` à jour.
 - Preuve : `bun test ./server/opencode.test.ts` → 32 pass/0 fail ; sans le correctif → 28 pass/4 fail ; `test:unit` → 2217 pass/7 skip/1 fail (le seul échec, `voice.test.ts`, est préexistant sur `main`) ; base réelle `ses_edeb86431ffeNINbKVswqfgH5Q` → 2 tours, 1 user, premier texte « Tu es MANAGER de la tranche tur-74… », là où elle rendait `turns: []`.
-- Verdict : VALIDE. Écarts signalés : échec `voice.test.ts` préexistant ; images de prompt utilisateur non reprises (absentes de la base réelle).
+- Verdict : VALIDE. Écarts signalés : échec `voice.test.ts` préexistant ; images de prompt utilisateur non reprises (absentes de la base réelle), corrigées depuis (`b51e10e`).
 - Merge : `--no-ff` **`3dfa8fc`** dans `main` (`182ec4e` → `3dfa8fc`), rapport committé d'abord sur la branche puis absorbé ; un second `--no-ff` **`a14c90e`** absorbé la copie de branche du rapport complet. Branche et worktree conservés. Push `origin` `182ec4e..main` **OK** ; push `upstream` **impossible (403)** — `okcedric` n'a pas le droit d'écriture, l'amont se rejoint par PR [#690](https://github.com/devswha/herdr-web-ui/pull/690) (`OPEN`, `MERGEABLE`).

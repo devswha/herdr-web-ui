@@ -49,8 +49,8 @@ Contrôle du chef, après le verdict **VALIDE** du manager. Ticket
   prouvée par le lecteur (point 3) ; la preuve live par un volet opencode 1.x
   (point 4, `w22:p3`).
 - Écarts signalés par le manager : images d'un prompt **utilisateur** (`part`
-  `file` en 1.x) non reprises, absentes de la base réelle ; échec `voice.test.ts`
-  préexistant.
+  `file` en 1.x) non reprises, absentes de la base réelle, **corrigées depuis**
+  (`b51e10e`) ; échec `voice.test.ts` préexistant.
 
 ## Reste
 

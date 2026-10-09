@@ -35,6 +35,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   longer than 2 s, or is over 100 KB, stays plain and says so. **Settings → Chat → Highlight code**
   turns it off.
   ([#671](https://github.com/devswha/herdr-web-ui/pull/671) by @aNNdii)
+- An OpenCode pane on a 1.x store (`session`/`message`/`part`) reads as a conversation again, where
+  the chat used to keep the terminal's text: prompts with the pictures pasted in them, each answer's
+  steps with their tool calls and outputs, and the turns an `/undo` took back.
+  ([#690](https://github.com/devswha/herdr-web-ui/pull/690) by @okcedric)
 
 ### Changed
 - The chat's `/` command list also matches a word of a command's name, any part of it, its letters
