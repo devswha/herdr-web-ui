@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   0.4.4 started doing: it keeps updating, as before 0.4.4. **Settings → Terminal → Pause in another
   window** turns that pause back on, for when herdr's own view should get the pane's size back
   while you work there.
+  ([#699](https://github.com/devswha/herdr-web-ui/pull/699))
 
 ## [0.4.4] - 2026-10-09
 
