@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
+import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
@@ -20,12 +20,33 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
-it("keeps sidebar rows on one line unless two lines were chosen", () => {
-  expect(sanitizeSettings({}).sidebarRows).toBe("one");
-  expect(sanitizeSettings({ sidebarRows: "two" }).sidebarRows).toBe("two");
+it("keeps sidebar rows on two lines unless one line was chosen", () => {
+  expect(sanitizeSettings({}).sidebarRows).toBe("two");
+  expect(sanitizeSettings({ sidebarRows: "one" }).sidebarRows).toBe("one");
   for (const sidebarRows of [null, true, "three", 2]) {
-    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("one");
+    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("two");
   }
+});
+
+describe("clipboard from a pane", () => {
+  it("is on in a fresh install", () => {
+    expect(DEFAULT_SETTINGS.paneClipboard).toBe(true);
+    expect(sanitizeSettings({}).paneClipboard).toBe(true);
+  });
+
+  it("turns on for a 0.4.1 record, whose false was saved with any other change", () => {
+    const loaded = sanitizeSettings(JSON.parse(JSON.stringify({ theme: "light", terminalOsc52: false })));
+    expect(loaded.paneClipboard).toBe(true);
+    expect(loaded).not.toHaveProperty("terminalOsc52");
+  });
+
+  it("stays off once turned off, across a save and a reload", () => {
+    const chosen = sanitizeSettings({ ...sanitizeSettings({ terminalOsc52: false }), paneClipboard: false });
+    const reloaded = sanitizeSettings(JSON.parse(JSON.stringify(chosen)));
+    expect(reloaded.paneClipboard).toBe(false);
+    expect(sanitizeSettings({ ...reloaded, theme: "dark" }).paneClipboard).toBe(false);
+    expect(sanitizeSettings({ paneClipboard: "false" }).paneClipboard).toBe(true);
+  });
 });
 
 it("drops the folder grouping an older version stored", () => {
@@ -281,12 +302,43 @@ describe("quick replies", () => {
   });
 });
 
+describe("microphone button", () => {
+  it("is automatic until chosen, and reads a record from before it had three places", () => {
+    expect(DEFAULT_SETTINGS.voiceInput).toBe("auto");
+    expect(sanitizeSettings({}).voiceInput).toBe("auto");
+    for (const voiceInput of VOICE_BUTTONS) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe(voiceInput);
+    // the old toggle: on was a choice, off was also what an untouched device stored
+    expect(sanitizeSettings({ voiceInput: true }).voiceInput).toBe("on");
+    expect(sanitizeSettings({ voiceInput: false }).voiceInput).toBe("auto");
+    for (const voiceInput of [null, 1, "yes", "ON"]) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe("auto");
+  });
+
+  it("listens for the browser's language until another is chosen from the list", () => {
+    expect(DEFAULT_SETTINGS.voiceLanguage).toBe("auto");
+    expect(sanitizeSettings({}).voiceLanguage).toBe("auto");
+    for (const voiceLanguage of DICTATION_LANGUAGES) expect(sanitizeSettings({ voiceLanguage }).voiceLanguage).toBe(voiceLanguage);
+    for (const voiceLanguage of [null, 1, "", "hu", "hu-hu", "xx-XX", "auto "]) expect(sanitizeSettings({ voiceLanguage }).voiceLanguage).toBe("auto");
+  });
+
+  it("is asked for in the chat off a phone on auto, everywhere when on and nowhere when off", () => {
+    expect(wantsVoiceInput("auto", "chat", false)).toBe(true);
+    expect(wantsVoiceInput("auto", "chat", true)).toBe(false);
+    expect(wantsVoiceInput("auto", "terminal", false)).toBe(false);
+    for (const mode of ["chat", "terminal"] as const) {
+      for (const phone of [false, true]) {
+        expect(wantsVoiceInput("on", mode, phone)).toBe(true);
+        expect(wantsVoiceInput("off", mode, phone)).toBe(false);
+      }
+    }
+  });
+});
+
 describe("suggestion chip", () => {
-  it("stays off until chosen in settings", () => {
-    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(false);
-    expect(sanitizeSettings({}).showSuggestionChip).toBe(false);
-    expect(sanitizeSettings({ showSuggestionChip: true }).showSuggestionChip).toBe(true);
-    expect(sanitizeSettings({ showSuggestionChip: "yes" }).showSuggestionChip).toBe(false);
+  it("stays on until turned off in settings", () => {
+    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(true);
+    expect(sanitizeSettings({}).showSuggestionChip).toBe(true);
+    expect(sanitizeSettings({ showSuggestionChip: false }).showSuggestionChip).toBe(false);
+    expect(sanitizeSettings({ showSuggestionChip: "no" }).showSuggestionChip).toBe(true);
   });
 });
 
@@ -414,9 +466,11 @@ it("sanitizes input modes and shortcut overrides without accepting arbitrary com
 });
 
 describe("key bar settings", () => {
-  it("migrates existing optional keys without restoring keys a new layout removed", () => {
+  it("uses the new default for fresh partial records and migrates explicit legacy records", () => {
     expect(DEFAULT_SETTINGS.keyBarItems).toEqual(DEFAULT_KEY_BAR_ITEMS);
     expect(sanitizeSettings({}).keyBarItems).toEqual(DEFAULT_KEY_BAR_ITEMS);
+    expect(sanitizeSettings({ theme: "light" }).keyBarItems).toEqual(DEFAULT_KEY_BAR_ITEMS);
+    expect(sanitizeSettings({ keyBarExtras: ["alt"] }).keyBarItems).toEqual(migrateKeyBarItems(["alt"]));
     expect(sanitizeSettings({ keyBarExtras: ["home-end", "slash", "unknown"] }).keyBarItems).toEqual(migrateKeyBarItems(["home-end", "slash"]));
     expect(sanitizeSettings({ keyBarExtras: [], keyBarItems: [] }).keyBarItems).toEqual([]);
     expect(sanitizeSettings({ keyBarExtras: ["alt"], keyBarItems: [] }).keyBarItems).toEqual([]);

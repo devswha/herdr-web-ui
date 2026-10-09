@@ -32,7 +32,7 @@ socket and no file. The run stops its herdr servers and removes the directory wh
 when it is interrupted; `CHECK_DIR=<path>` keeps it there instead. Only one run with a lane at a
 time on a PC: the contract and browser tests are bound by timing, and a second run names the
 first and exits (the lock is loopback port 41737, which a run listens on while it runs). One run per checkout: `fast` rewrites the generated types file while it
-checks it, and every mode builds into `dist/`.
+checks it, and `fast` and the browser lane build into `dist/` (`check run` runs only its command).
 
 A local pass is not CI's: the PC has its own Node (CI pins 22), its own cores and its own system
 libraries. The browser lane uses the lockfile's Chromium, which it downloads into Playwright's
@@ -49,6 +49,7 @@ bun test                        # needs herdr installed; creates and removes its
 bun run test:ui                 # browser regression against isolated test servers
 bun scripts/sticky-modifiers-regression.ts # mobile held keys through real legacy/Kitty PTYs
 bun scripts/key-bar-customization-demo-regression.ts # mobile key layout, saved combinations and migration on demo fixtures
+bun scripts/settings-pages-demo-regression.ts # every Settings page on a 390px and a 320px phone, and Back stepping out of the dialog
 bun scripts/chat-browser-qa.ts  # chat lens end to end
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
@@ -76,6 +77,7 @@ bun scripts/droplet-demo-regression.ts        # real-app alerts below the header
 bun scripts/chat-greeting-demo-regression.ts  # an empty chat's greeting: centred on a desktop, docked on a phone
 bun scripts/composer-fit-demo-regression.ts   # one Send/Stop control, pending Send now actions, context/label fit and Chat font sizing
 bun scripts/held-rows-demo-regression.ts      # held messages: the fold under an approval card, its button, a row's error
+bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quiet opened finishes: blocked pinned, recency, an opened DONE drawn as ready
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
 ```
@@ -91,7 +93,7 @@ bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on
 - `compose.ts` draws every output frame on a canvas: a backdrop, a browser window or a phone, the frame under an eased camera, and a vector cursor with click ripples or touch rings. It writes `demo-*.mp4` (1920×1200 and 1080×1920, 30 fps) and a GIF of each. Stills get the same window or phone on a transparent background.
 
 The MP4s are not committed: GitHub plays a README video only from an upload (`github.com/user-attachments/…`), so drop them into an issue or PR comment and use the link it gives.
-The website's page is built from the README's own artifacts: it downloads the README's top video (listed in `scripts/build-site.ts`, `videos`, so a new top video needs its link changed there as well), shows the feature grid's clips linking to their uploads (the same list of links is in `site/index.html`), and uses `docs/screenshots/install.png`.
+The website's page is built from the README's own artifacts: it downloads the README's top video (listed in `scripts/build-site.ts`, `videos`, so a new top video needs its link changed there as well), shows the feature grid's clips linking to their uploads (the same list of links is in `site/index.html` and `site/zh/index.html`), and uses `docs/screenshots/install.png`.
 The README's feature grid shows a looping ~7-second cut of each feature video (`docs/media/readme/*.webp`, 800×450, 15 fps), each linking to its upload. Cut one with
 `ffmpeg -ss <start> -t <seconds> -i clip.mp4 -vf "fps=15,scale=800:450:force_original_aspect_ratio=increase:flags=lanczos,crop=800:450" -c:v libwebp_anim -loop 0 -quality 72 -compression_level 6 -an out.webp`;
 the scale and crop fill 800×450 from any source aspect. Start on a sharp frame, not mid camera move. The top video stays a GitHub upload so it plays at full quality.
@@ -133,8 +135,10 @@ bun scripts/film/render.ts check                # acceptance frame grabs, sizes,
 
 ## Website
 
-<https://devswha.github.io/herdr-web-ui/> is `site/index.html`, a static page with desktop and phone
-demos, a screenshot gallery, supported agents, phone setup and a comparison table. `bun run build:site`
+<https://herdrweb.dev/> is `site/index.html`, a static page with desktop and phone
+demos, a screenshot gallery, supported agents, phone setup and a comparison table. `site/zh/index.html`
+is the same page in Simplified Chinese at `/zh/`, linked from the header; a change to one page belongs in
+the other. `bun run build:site`
 assembles it into `_site/` with icons, the social preview and scaled screenshots from `docs/screenshots/`.
 The two demo videos come from local `docs/screenshots/*.mp4` when present, otherwise the README's uploads;
 ffmpeg creates their poster frames. Without ffmpeg, the page omits unavailable posters.
@@ -151,7 +155,7 @@ every push to `main`.
 
 ### The browser demo
 
-<https://devswha.github.io/herdr-web-ui/demo/> is the real client on a fictional session, no server.
+<https://herdrweb.dev/demo/> is the real client on a fictional session, no server.
 `build-site.ts` builds the client a second time with `vite build --base ./` into `_site/demo/app/`,
 bundles `site/demo/transport.ts` in front of it and frames it with `site/demo/index.html`. The
 transport answers the app's `fetch("/api/…")`, the machines event stream and the `/ws` terminal
@@ -165,7 +169,17 @@ after changing the staged session. Files, images, push and remote PCs are not pa
 ## Releasing
 
 1. Open a release PR that bumps `version` in `package.json` and `herdr-plugin.toml`,
-   and moves the `Unreleased` notes in [CHANGELOG.md](../CHANGELOG.md) under the new version.
+   moves the `Unreleased` notes in [CHANGELOG.md](../CHANGELOG.md) under the new version,
+   and tells the release in [release-summaries.json](../release-summaries.json) the way a
+   game's patch notes do: under the version, for each of `en`, `ko`, `ja` and `zh`, the lists
+   `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
+   plain text, 90 characters at most, the same number of lines in every language. It is what
+   an install shows before and after the update, with the changelog section folded under it,
+   so a line names what changes for the people who use the app and leaves out PR numbers and
+   internals. The unit suite and the release workflow fail without all four languages.
+   The GitHub release is written from the same files by `scripts/release-notes.ts`: the
+   English lists under New features, Improvements and Bug fixes, then the version's whole
+   changelog section folded under **Full changelog**.
 2. Merge it after CI passes.
 3. Run **Actions → Release → Run workflow**, select `main`, and enter `X.Y.Z` without `v`.
    The CLI equivalent is `gh workflow run release.yml --ref main -f version=X.Y.Z`.
@@ -204,6 +218,17 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
   Missing herdr fails the run. Its herdr servers are stopped even on failure.
   Integration tests have a 15-second default timeout so their bounded process-startup
   probes can finish; individual tests can still specify a longer timeout.
+
+The browser lane prints each script's wall seconds and exit code, including the shared demo
+build, then a summary on success or failure. The first failing script stops the lane.
+Under `CI` or with `CHECK_DIR` set, it creates `UI_EVIDENCE_DIR` at
+`${CHECK_DIR:-.ci}/browser-evidence`. Only the existing sticky-modifier and file-viewer captures
+are enabled automatically: the UI suite and key-bar demo have evidence branches that add
+assertions, viewport changes or font waits, so those remain disabled in the lane. Outside
+`CI`/`CHECK_DIR`, an explicit `UI_EVIDENCE_DIR` still works as before.
+On CI failure, **Preserve failure logs** uploads those PNGs alongside herdr's `test-server.log`.
+These are checkpoints from isolated test fixtures, not captures of every open page at the
+failure point. Playwright traces and timestamps on the web UI test servers' lines are not added.
 
 `scripts/ci-tests.ts` discovers all `.test.ts` files under src/shared/server/scripts.
 Files named `*.contract.test.ts`, tests under `server/herdr/` and `server/pty/`, and

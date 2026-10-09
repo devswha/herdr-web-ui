@@ -7,9 +7,10 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
+import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
-import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
+import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
@@ -36,11 +37,18 @@ import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fo
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
-import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
+import { fileUriPath, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
+
+// Only a tab the user is in drives the shared grid. A window left open behind another app
+// still turns visible when the screen wakes, and reconnects, reloads or moves on to the next pane
+// in the background: taking the pane then sized it for nobody, and herdr's own TUI drew it cut
+// off at its split's edge
+const inUse = (): boolean => document.visibilityState === "visible" && document.hasFocus();
 
 export interface PaneTerminalProps {
   /** The pane this terminal attaches to; null renders the placeholder. */
@@ -50,6 +58,8 @@ export interface PaneTerminalProps {
    * terminal to attach, so App passes a null paneId and the placeholder says why.
    */
   restoreError?: string | null;
+  /** the pane's own name (App's header shows it): the region around the grid announces it */
+  title?: string | null;
   /** the pane's agent name — the chat lens labels the assistant's voice with it */
   agent?: string | null;
   /** the pane's live agent status: `working` turns composer sends into the queue */
@@ -91,23 +101,11 @@ function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
 }
 
-/** Follows a media query: the layout rules that CSS alone cannot apply. */
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
-  useEffect(() => {
-    const media = window.matchMedia?.(query);
-    if (!media) return;
-    const onChange = (): void => setMatches(media.matches);
-    onChange();
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
-}
 export function PaneTerminal({
   paneId,
   restoreError = null,
   agent = null,
+  title = null,
   agentStatus,
   backgroundTasks = 0,
   cwd = null,
@@ -135,6 +133,8 @@ export function PaneTerminal({
   const chatView = view === "chat";
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
+  // what the grid's region announces: the pane's own name, or the grid's kind while none is open
+  const terminalName = paneId === null ? t("Terminal") : t("Terminal for {title}", { title: title ?? paneId });
   /** read by the wheel handler, which is attached once for the terminal's life */
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
@@ -210,6 +210,9 @@ export function PaneTerminal({
   // what the terminal effect says in a banner, in the language chosen since it was set up
   const tRef = useRef(t);
   tRef.current = t;
+  /** read by the OSC 52 handler, which is attached once for the terminal's life */
+  const osc52AllowedRef = useRef(settings.paneClipboard);
+  osc52AllowedRef.current = settings.paneClipboard;
   // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
   // the transcript, the composer column, the held list and the menus all inherit: a percentage
   // would resolve against each one's own box and leave them a gutter apart. The other steps are
@@ -243,7 +246,7 @@ export function PaneTerminal({
   useEffect(() => {
     if (!paneId || draftState.owner !== paneStorageId(machineId, paneId)) return;
     const key = `herdr-web-ui:terminal-draft:${draftState.owner}`;
-    try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(draft)); } catch {}
+    try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify({ ...draft, at: Date.now() })); } catch {}
   }, [draftState, paneId, machineId, draft]);
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
@@ -365,7 +368,7 @@ export function PaneTerminal({
           if (!linkPressed(event)) return;
           const path = fileUriPath(uri);
           if (path !== null) openFileRef.current?.(path);
-          else if (/^https?:\/\//i.test(uri)) window.open(uri, "_blank", "noopener,noreferrer");
+          else if (isWebLink(uri)) window.open(uri, "_blank", "noopener,noreferrer");
         },
         allowNonHttpProtocols: true,
       },
@@ -375,8 +378,8 @@ export function PaneTerminal({
     const fit = new FitAddon();
     term.loadAddon(fit);
     matchHerdrWidths(term);
-    // an address in the terminal opens in a new tab; the page never navigates away from the pane
-    term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
+    // the same policy as the linkHandler above: an http(s) address or nothing (S10)
+    term.loadAddon(new WebLinksAddon((_event, uri) => { if (isWebLink(uri)) window.open(uri, "_blank", "noopener,noreferrer"); }));
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
     let compositionEndTimer: number | null = null;
@@ -544,10 +547,10 @@ export function PaneTerminal({
     });
 
     // herdr's attach stream turns mouse reporting on, so xterm hands every click to the
-    // pty and selects only with Shift (Option on macOS) held. `herdr terminal attach`
-    // ignores left clicks and drags - selection lives in herdr's own TUI client - so a
-    // left drag here selects as if the modifier were held, and letting go copies, as the
-    // herdr TUI does. Touch keeps its drag-to-scroll.
+    // pty and selects only with Shift (Option on macOS) held. Selection lives in herdr's
+    // own TUI client, not in `herdr terminal attach`, so a left drag here selects as if the
+    // modifier were held, and letting go copies, as the herdr TUI does; a press let go in
+    // place is a click and goes to the program (forwardClick). Touch keeps its drag-to-scroll.
     //
     // xterm keeps no scrollback (herdr owns it), so a drag that outlives one screen is
     // tracked in herdr's history rows: a wheel, or dragging past the top or bottom edge,
@@ -575,7 +578,10 @@ export function PaneTerminal({
       wheelPixels: number;
       sentOffset: number;
       sending: boolean;
+      /** a press the program would have had but for the forced selection, with the keys the user held: let go in place, it is a click */
+      click: ClickKeys | null;
     }
+    interface ClickKeys { ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     let drag: Drag | null = null;
     let edgeTimer: number | null = null;
@@ -642,18 +648,26 @@ export function PaneTerminal({
       edgeTimer = null;
     };
     const onMouseDown = (event: MouseEvent): void => {
-      if (event.button !== 0) return;
+      // a click handed on to the program (forwardClick) is not a new drag
+      if (event.button !== 0 || !event.isTrusted) return;
       if ((event as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities?.firesTouchEvents) return;
       if (!term.element?.contains(event.target as Node)) return;
       // with reporting off xterm already selects on a plain drag; only the history tracking is ours
-      if (term.modes.mouseTrackingMode !== "none") Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
+      const reporting = term.modes.mouseTrackingMode !== "none";
+      // the modifier that asks xterm for a selection, held by the user rather than added here
+      const selecting = isMac ? event.altKey : event.shiftKey;
+      // a press that clears a selection, or opens a link, is not the program's click
+      const onLink = term.element?.querySelector(".xterm-screen")?.classList.contains("xterm-cursor-pointer") === true;
+      const click: ClickKeys | null = reporting && !selecting && !onLink && !term.hasSelection()
+        ? { ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey } : null;
+      if (reporting) Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
       copiedText = null;
       selectionGeneration++;
       const pane = paneRef.current;
       const { cell } = cellAt(event);
       const d: Drag = {
         pane: pane ?? "", anchor: cell, cursor: cell, top: null, anchorRow: 0, offset: 0, maxOffset: 0,
-        scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false,
+        scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false, click,
       };
       drag = d;
       if (!pane || !navigator.clipboard || observeRef.current) return;
@@ -671,6 +685,11 @@ export function PaneTerminal({
       const d = drag;
       if (!d) return;
       const { cell, edge } = cellAt(event);
+      // a press that left its cell is a drag, even one that comes back: it is no click (cellAt clamps
+      // a pointer beside the grid to the edge column, so leaving sideways counts too)
+      const grid = term.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
+      const beside = grid !== undefined && (event.clientX < grid.left || event.clientX >= grid.right);
+      if (beside || edge !== 0 || cell.row !== d.anchor.row || cell.col !== d.anchor.col) d.click = null;
       // past an edge the edge row is taken whole, as xterm does
       d.cursor = edge < 0 ? { row: 0, col: 0 } : edge > 0 ? { row: term.rows - 1, col: term.cols - 1 } : cell;
       if (d.top === null) return;
@@ -686,6 +705,18 @@ export function PaneTerminal({
         repaint(d);
       }
     };
+    // A press that became no selection was a click, and a program that reads the mouse (a
+    // close button in Claude Code's diff, a TUI's menu) expects it: herdr's attach forwards
+    // left clicks to it, as a phone's tap already showed (#621). The press and release are
+    // replayed without the selection modifier so xterm encodes them in the reporting mode
+    // herdr asked for; xterm sends nothing while stdin is disabled (observing, a held pane).
+    const forwardClick = (event: MouseEvent, keys: ClickKeys): void => {
+      const target = event.target;
+      if (!(target instanceof Element) || !term.element?.contains(target)) return;
+      const init = { ...keys, bubbles: true, cancelable: true, view: window, button: 0, detail: 1, clientX: event.clientX, clientY: event.clientY, screenX: event.screenX, screenY: event.screenY };
+      target.dispatchEvent(new MouseEvent("mousedown", { ...init, buttons: 1 }));
+      target.dispatchEvent(new MouseEvent("mouseup", { ...init, buttons: 0 }));
+    };
     // a release outside the window never arrives: stop scrolling the shared pane
     const onBlur = (): void => {
       stopEdge();
@@ -699,6 +730,13 @@ export function PaneTerminal({
       // Window bubble runs after xterm's document listener, still inside the
       // release gesture. A timer here loses clipboard permission in some browsers.
       if (d.scrolled) repaint(d);
+      const released = cellAt(event).cell;
+      // released on the pane it was pressed on: a pane switched meanwhile gets no click of this press
+      if (d.click && d.pane !== "" && d.pane === paneRef.current && !d.scrolled && !term.hasSelection()
+        && released.row === d.anchor.row && released.col === d.anchor.col) {
+        forwardClick(event, d.click);
+        return;
+      }
       if (!term.hasSelection()) return;
       const visibleText = term.getSelection();
       copiedText = visibleText;
@@ -752,15 +790,20 @@ export function PaneTerminal({
     window.addEventListener("mouseup", onMouseUp);
 
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty
-    // cannot reach the browser clipboard, so xterm hands us the sequence and
-    // navigator.clipboard completes the hop (text only; queries are ignored)
+    // cannot reach the browser clipboard by itself, so xterm hands us the sequence and
+    // navigator.clipboard completes the hop (text only; queries are ignored).
+    // On unless turned off in Settings -> Terminal -> Clipboard from a pane: vim, tmux and Claude Code
+    // copy this way, but any process in the pane, an agent's tool calls included, can plant text the
+    // user then pastes somewhere else.
     const osc52 = term.parser.registerOscHandler(52, (payload) => {
-      const text = parseOsc52(payload);
-      if (text !== null) {
-        void navigator.clipboard?.writeText(text).then(
-          () => noteClipboard("copied to clipboard"),
-          () => noteClipboard("clipboard write blocked by the browser"),
-        );
+      if (osc52AllowedRef.current) {
+        const text = parseOsc52(payload);
+        if (text !== null) {
+          void navigator.clipboard?.writeText(text).then(
+            () => noteClipboard("copied to clipboard"),
+            () => noteClipboard("clipboard write blocked by the browser"),
+          );
+        }
       }
       return true;
     });
@@ -803,6 +846,7 @@ export function PaneTerminal({
         const generation = outputGeneration;
         term.write(message.data, () => {
           acknowledge?.();
+          if (disposed) return;
           if (paneRef.current !== owner || generation !== outputGeneration) {
             // output of a pane left behind, or of a dropped connection, was still queued in xterm
             // when the switch reset the level: whatever its parse just set, the level is off again
@@ -835,13 +879,14 @@ export function PaneTerminal({
         if (message.pane_id === paneRef.current) { setEnded(true); term.options.disableStdin = true; }
       } else if (message.type === "role-ack") {
         // the server is the authority on the role; only after this ack may an
-        // interact client reclaim the shared grid it stopped owning
+        // interact client reclaim the shared grid it stopped owning (a tab out of use
+        // reclaims it when the user comes back: the refit below)
         const nowObserving = message.mode === "observe";
         observeRef.current = nowObserving;
         setObserving(nowObserving);
         term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
         onRoleAckRef.current?.(message.mode);
-        if (!nowObserving && !fixedGridRef.current && !chatViewRef.current) {
+        if (!nowObserving && !fixedGridRef.current && !chatViewRef.current && inUse()) {
           try {
             fit.fit();
           } catch {
@@ -979,6 +1024,13 @@ export function PaneTerminal({
         : null;
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.
+      // herdr's attach stream never tells xterm that the program asked for application cursor
+      // keys (DECCKM), so xterm's `ESC [ A` misses in less, git log and other full-screen
+      // programs. herdr encodes a named key in the program's own mode (#621). A key the socket
+      // cannot take now goes the way typing does below, as an arrow always did.
+      const arrow = chord === null && !pasting && !composingRef.current && !compositionCommitPendingRef.current && key?.startsWith("Arrow")
+        ? terminalChord(key, NO_STICKY_MODIFIERS) : null;
+      if (arrow !== null && socket.sendKeys(current, [arrow])) return;
       if (chord !== null) {
         // Shortcuts are never retained as offline text or replayed later: a chord the
         // terminal cannot take now (not ready, disconnected) is told, not dropped in silence
@@ -1080,8 +1132,9 @@ export function PaneTerminal({
         } catch {
           return;
         }
+        // a window the system moves or resizes in the background fits its own grid only
         const current = paneRef.current;
-        if (current) socket.resize(current, term.cols, term.rows);
+        if (current && inUse()) socket.resize(current, term.cols, term.rows);
       }, RESIZE_SETTLE_MS);
     });
     observer.observe(host);
@@ -1136,7 +1189,8 @@ export function PaneTerminal({
     // The pty is shared per pane: a client on another device (typically a phone)
     // resizes it to its own geometry, and this tab's viewport never changed, so
     // the ResizeObserver above stays silent and the pane is left at the other
-    // device's size. Re-assert our geometry whenever this tab comes back. Observe
+    // device's size. Re-assert our geometry whenever the user comes back to this
+    // tab: its window takes the focus, or it turns visible with the focus. Observe
     // connections never do this: they own no geometry to re-assert.
     const refit = (): void => {
       const current = paneRef.current;
@@ -1148,14 +1202,23 @@ export function PaneTerminal({
       }
       socket.resize(current, term.cols, term.rows, true);
     };
-    const onVisible = (): void => {
-      if (document.visibilityState === "visible") refit();
+    // out of use, a reconnect attaches at the size the pane has instead of taking it
+    // (keepSize, as under the chat lens); the refit takes it back once the user is here
+    const leave = (): void => {
+      const current = paneRef.current;
+      if (current && !observeRef.current && !fixedGridRef.current) socket.keepSize(current);
+    };
+    const onVisibility = (): void => {
+      if (inUse()) refit();
+      else leave();
     };
     window.addEventListener("focus", refit);
-    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("blur", leave);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       disposed = true;
+      term.options.disableStdin = true;
       if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
       pendingScopeRef.current = null;
       window.clearInterval(poll);
@@ -1172,7 +1235,8 @@ export function PaneTerminal({
       stopEdge();
       selectionChange.dispose();
       window.removeEventListener("focus", refit);
-      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("blur", leave);
+      document.removeEventListener("visibilitychange", onVisibility);
       onModifiedEnter.dispose();
       onCommandBackspace.dispose();
       host.removeEventListener("keydown", onCommandArrow);
@@ -1193,7 +1257,9 @@ export function PaneTerminal({
       host.removeEventListener("compositionend", compositionEnd);
       if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);
       compositionCommitPendingRef.current = false;
-      term.dispose();
+      // A replacement mount must not share its host with the retiring terminal.
+      term.element?.remove();
+      disposeAfterPendingFrame(term);
       termRef.current = null;
       socketRef.current = null;
     };
@@ -1227,8 +1293,10 @@ export function PaneTerminal({
       } catch {
         return;
       }
+      // a chosen font loads after every attach: out of use (a reload behind another app), only
+      // this grid fits, and the refit takes the pane once the user is here
       const pane = paneRef.current;
-      if (pane) socketRef.current?.resize(pane, term.cols, term.rows, true);
+      if (pane && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
     };
     if (fontFamily === TERMINAL_FONT_STACK) apply();
     else void loadFontStack(fontFamily, terminalFontSize).then(apply);
@@ -1254,8 +1322,10 @@ export function PaneTerminal({
     } catch {
       return;
     }
+    // this runs on every load too, right after the attach: out of use (a reload behind another
+    // app), only this grid fits, and the refit takes the pane once the user is here
     const pane = paneRef.current;
-    if (pane && term) socketRef.current?.resize(pane, term.cols, term.rows, true);
+    if (pane && term && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
     if (!autoSelected && !coarseRef.current) term?.focus();
   }, [chatView]);
 
@@ -1280,10 +1350,10 @@ export function PaneTerminal({
     secretRef.current = null;
     setSecret(null);
     term.options.disableStdin = observeRef.current;
+    // a record past its TTL, an undated one, and a hand-edited one all restore as nothing held
     let saved = EMPTY_DRAFT;
     try {
-      const value = paneId ? JSON.parse(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`) ?? "null") : null;
-      if (value && typeof value.text === "string" && Number.isInteger(value.droppedSpecial)) saved = value;
+      saved = paneId ? restoreDraft(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`), Date.now()) : EMPTY_DRAFT;
     } catch {}
     setDraft(saved);
     draftPaneRef.current = paneId;
@@ -1295,7 +1365,9 @@ export function PaneTerminal({
     } catch {
       /* not laid out yet; the ResizeObserver will follow up */
     }
-    socket.attach(paneId, term.cols, term.rows, chatViewRef.current);
+    // out of use (the pane closed in herdr and the app moved on to the next one, or a reload behind
+    // another app), the attach adopts the pane's size; the refit takes it once the user is here
+    socket.attach(paneId, term.cols, term.rows, chatViewRef.current || !inUse());
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
     if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();
@@ -1357,6 +1429,8 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!socket || !pane || draft.text.length === 0 || !socket.connected || secretRef.current !== null || heldRef.current) return;
+    // a frame the socket refuses (input not ready yet) keeps the draft, on screen and on disk, for
+    // another try or Discard; it is never queued
     if (socket.sendInput(pane, draft.text)) setDraft(EMPTY_DRAFT);
   }, [draft]);
 
@@ -1685,16 +1759,15 @@ export function PaneTerminal({
         {paneId !== null && !chatView && !ended && !connected && (
           <div className="terminal-banner terminal-banner-warning" role="status">
             reconnecting to herdr web ui…
-            {!draftIsEmpty(draft) && <span className="draft-held"> input held: “{draft.text}”</span>}
+            {draft.text.length > 0 && <span className="draft-held"> input held: “{draft.text}”</span>}
           </div>
         )}
         {paneId !== null && !ended && connected && !draftIsEmpty(draft) && (
           <div className="terminal-banner terminal-banner-draft" role="status">
             <span className="draft-label">{t("Input held until the terminal is ready:")}</span>
-            <code className="draft-text">{draft.text.length > 0 ? draft.text : "—"}</code>
-            {draft.droppedSpecial > 0 && (
-              <span className="draft-dropped">{t(draft.droppedSpecial === 1 ? "{count} special key dropped" : "{count} special keys dropped", { count: draft.droppedSpecial })}</span>
-            )}
+            {draft.text.length > 0 && <code className="draft-text">{draft.text}</code>}
+            {/* the preview shows the start of the text: without this, a draft that lost its end looks whole */}
+            {draft.truncated && <span className="draft-truncated">{t("Some input was too long to hold and was left out.")}</span>}
             <span className="draft-actions">
               <button type="button" className="draft-send" disabled={draft.text.length === 0 || observing || secretActive || held} onClick={sendDraft}>
                 {t("Send")}
@@ -1717,7 +1790,11 @@ export function PaneTerminal({
         )}
       </div>
       <div className="terminal-surface">
-        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} />
+        {/* xterm hides its rendered rows from assistive technology, so the region around the
+            visible grid carries the pane's name: a screen reader announces which pane
+            this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
+            stop on the wrapper would only be an empty one ahead of it. */}
+        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
         {paneId !== null && chatView && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">

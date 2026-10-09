@@ -5,6 +5,7 @@ import { foldCode, mathNestsTooDeep, parseMarkdown, type InlineNode, type ListBl
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { useT } from "../lib/i18n.ts";
+import { copyText } from "../lib/clipboard.ts";
 
 type Katex = typeof import("katex").default;
 /** KaTeX is a fifth of the app's script: the first expression loads it (lib/katex.ts), and every later one has it at once. */
@@ -35,7 +36,11 @@ function MathExpression({ value, displayMode = false }: { value: string; display
   const source = displayMode ? `\\[${value}\\]` : `\\(${value}\\)`;
   if (!katex || mathNestsTooDeep(value)) return <span>{source}</span>;
   try {
-    // KaTeX escapes text and rejects untrusted commands by default.
+    // KaTeX escapes text and rejects untrusted commands by default, and an unknown command
+    // throws - the catch below then draws the source form. `trust` stays at its default, which
+    // is what keeps \href and \includegraphics refused. `strict` only governs input LaTeX would
+    // not accept: "ignore" draws Korean, Japanese or Chinese text inside an expression, which
+    // `strict: true` throws on.
     const html = katex.renderToString(value, { displayMode, strict: "ignore" });
     return <span className={displayMode ? "markdown-math-display" : "markdown-math"} dangerouslySetInnerHTML={{ __html: html }} />;
   } catch {
@@ -101,14 +106,16 @@ function List({ block }: { block: ListBlock }) {
 function CodeBlock({ language, value }: { language: string; value: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const block = useRef<HTMLDivElement>(null);
   // no inner scroll: a long block folds, with a visible "Show all" row
   const fold = useMemo(() => foldCode(value), [value]);
   const copy = async (): Promise<void> => {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    const ok = await copyText(value);
+    setCopied(ok);
+    setCopyFailed(!ok);
+    if (ok) window.setTimeout(() => setCopied(false), 1500);
   };
   const folding = useRef(false);
   const toggle = (): void => {
@@ -132,6 +139,7 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
           {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
         </button>
       </div>
+      {copyFailed && <p className="markdown-code-error" role="alert">{t("Couldn't copy. Select the text and copy it manually.")}</p>}
       <pre><code>{fold !== null && !expanded ? fold.head : value}</code></pre>
       {fold !== null && (
         <button type="button" className="markdown-code-more" aria-expanded={expanded} onClick={toggle}>
@@ -146,10 +154,11 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
   return <>{blocks.map((block, index): ReactNode => {
     const key = `${block.type}-${index}`;
     switch (block.type) {
-      case "heading": {
-        const Tag = `h${block.level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-        return <Tag key={key}><Inline nodes={block.content} /></Tag>;
-      }
+      case "heading":
+        // agent headings are h3 whatever the agent wrote: the app's own h1/h2 (Brand, the dialog
+        // titles) stay the outline above them. The level rides on a class, so the stylesheet
+        // keeps drawing each level as it did (ChatView.css `.markdown h1`...`.markdown h6`).
+        return <h3 key={key} className={`markdown-h${block.level}`}><Inline nodes={block.content} /></h3>;
       case "paragraph":
         return <p key={key}>{block.lines.map((line, lineIndex) => <span key={lineIndex}><Inline nodes={line} />{lineIndex < block.lines.length - 1 && <br />}</span>)}</p>;
       case "list": return <List key={key} block={block} />;

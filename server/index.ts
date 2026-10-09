@@ -1,13 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
-import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
+import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isServeOwnerRequest } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
@@ -16,7 +16,9 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
+import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
+import { OPENCODE_TOOL_REF } from "./opencode.ts";
+import { DevinHistoryChanged } from "./devin.ts";
 import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
@@ -55,7 +57,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest, modelListWaits, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -69,12 +71,13 @@ import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, Re
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
+import { handleTelemetryRequest, Telemetry } from "./telemetry.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
 import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
-import { MachineManager } from "./machines.ts";
+import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
@@ -138,6 +141,15 @@ export const SUBMIT_DELAY_MS = 120;
  */
 const TYPED_SETTLE_MS = 300;
 /**
+ * A terminal key (WS `keys`) goes through herdr's RPC, around the attach pty: it waits this long
+ * after the pane's last pty keystroke so it never overtakes typing on its way through the
+ * sidecar and the attach, and the whole TYPED_SETTLE_MS when that keystroke ended in an ESC
+ * herdr may still be holding. Short enough that a held arrow between typed letters shows no lag.
+ */
+const KEY_SETTLE_MS = 40;
+/** Keys that may wait to join one `pane.send_keys` while herdr answers the one before (a held arrow repeats ~30/s). */
+const MAX_WAITING_KEYS = 256;
+/**
  * Nothing of a composer message is typed once this long has passed since it reached the
  * server (it can wait behind a stalled one in the pane's queue): it answers submit_timeout
  * instead. A send that starts in time ends within two more 10s RPCs, before the client
@@ -145,10 +157,14 @@ const TYPED_SETTLE_MS = 300;
  * reaches the pane later.
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
+const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
 const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+/** pane.read's own enums; a read outside them is refused here rather than sent to herdr as a guess (the generated types are open-ended) */
+const READ_SOURCES = new Set<ReadSource>(["detection", "recent", "recent_unwrapped", "visible"]);
+const READ_FORMATS = new Set<ReadFormat>(["ansi", "text"]);
 
 const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -255,6 +271,8 @@ interface SocketData {
   closing: boolean;
   /** the connection's authority: observe connections cannot type or resize */
   mode: ClientRole;
+  /** how often `mode` changed: a switch away and back during an await is still a change */
+  roles: number;
 }
 
 type Client = ServerWebSocket<SocketData>;
@@ -323,9 +341,15 @@ export function createServer(
     tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
+    /** OpenCode's database; defaults to where OpenCode finds it (OPENCODE_DB, XDG_DATA_HOME). Tests use an isolated store. */
+    opencodeDb?: string;
+    /** Native Devin store; tests pass an isolated SQLite database. */
+    devinDbPath?: string;
     updates?: UpdateService;
     /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
     herdrUpdate?: HerdrUpdater;
+    /** anonymous install and update counts (server/telemetry.ts); unset, the server sends none and answers 404. Only the real entrypoint passes one. */
+    telemetry?: Telemetry;
     /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
     usage?: UsageService;
     /** voice input's key, provider and models; tests pass one with their own env and fetch */
@@ -340,6 +364,8 @@ export function createServer(
     pendingStartTimeoutMs?: number;
     /** how long a push alert waits for the pane to change first (server/push.ts); tests send at once */
     alertTiming?: Partial<AlertTiming>;
+    /** accept plain-http loopback push endpoints (server/push.ts); only tests delivering to push.fake.ts set it */
+    pushLoopbackHttp?: boolean;
     /** ATTACH_RETRY_FOR_MS; tests shorten it */
     attachRetryForMs?: number;
     /** ATTACH_HELD_RETRY_MS; tests shorten it */
@@ -387,6 +413,10 @@ export function createServer(
   const paneQueues = new Map<string, Promise<unknown>>();
   /** when each pane last got keystrokes through its attach pty */
   const lastTyped = new Map<string, number>();
+  /** panes whose last pty keystroke ended in an ESC, which herdr holds ~150ms: a key waits TYPED_SETTLE_MS there */
+  const typedEscape = new Set<string>();
+  /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
+  const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; roles: number; run: Promise<unknown> | null; sent: boolean }>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
@@ -430,6 +460,19 @@ export function createServer(
    * the bytes, so the pane sees the whole gap. So does a Codex "blocked" only by questions
    * waiting collapsed in its queue: its main prompt still takes the message.
    */
+  /**
+   * A message whose last word is an `@file` mention leaves the agent's file suggestions open over
+   * it, and the Enter after the paste takes the suggestion instead of sending: the message stays in
+   * the input box (Claude Code 2.1.295, #404). A space after the mention closes them first; a
+   * payload already in bracketed-paste markers gets it inside them.
+   */
+  const closeMention = (text: string): string => {
+    const open = text.startsWith("\u001b[200~") ? "\u001b[200~" : "";
+    const close = open && text.endsWith("\u001b[201~") ? "\u001b[201~" : "";
+    const body = text.slice(open.length, text.length - close.length);
+    return /(?:^|\s)@\S+$/.test(body) ? `${open}${body} ${close}` : text;
+  };
+
   async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {}): Promise<void> {
     const inTime = (): void => {
       authorize();
@@ -443,25 +486,40 @@ export function createServer(
     inTime();
     // the terminal's input line stands in for the keyboard: it types what the user wrote, an
     // answer into an open menu included, where agent.prompt would refuse
-    if (!fromTerminal) try {
-      await agentPrompt(paneId, text);
-      return;
-    } catch (error) {
-      if (!(error instanceof HerdrError)) throw error;
-      const queuedOnly = error.code === "agent_blocked" && await blockedOnlyByCodexQueue(paneId);
-      if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
+    if (!fromTerminal) {
+      const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+      inTime();
+      if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
+        const [live, colors] = await claudeBoxReads(paneId);
+        inTime();
+        if (claudeInputDraft(live, colors)) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+      }
+      try {
+        await agentPrompt(paneId, closeMention(text));
+        noteSubmitted(paneId, text);
+        return;
+      } catch (error) {
+        if (!(error instanceof HerdrError)) throw error;
+        const queuedOnly = error.code === "agent_blocked" && await blockedOnlyByCodexQueue(paneId);
+        if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
+      }
     }
     inTime();
     // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
     // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
     // asked only for such a block, so a one-line message never waits on it.
-    const shaped = await mirrorInput(payload, async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
+    const shaped = await mirrorInput(closeMention(payload), async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
     inTime();
     await paneSendText(paneId, shaped);
     await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
     authorize();
     await paneSendKeys(paneId, ["Enter"]);
+    noteSubmitted(paneId, text);
   }
+
+  /** authorizeSocket as a test: may this connection type now? */
+  const mayType = (client: Client): boolean => clients.has(client) && !client.data.closing && !client.data.revoked
+    && !client.data.readOnly && client.data.mode !== "observe";
 
   function authorizeSocket(client: Client): void {
     if (client.data.revoked) throw new HerdrError("device_revoked", "this device's access was revoked");
@@ -472,7 +530,8 @@ export function createServer(
   async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> {
     const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
     if ((pane?.agent ?? pane?.agent_session?.agent) !== "codex") return false;
-    return codexQuestionsCollapsed((await paneRead({ paneId, source: "visible", format: "text" })).text);
+    // A collapsed queue in scrollback must not bypass an approval on the live screen.
+    return codexQuestionsCollapsed((await paneRead({ paneId, source: "detection", format: "text" })).text);
   }
 
   const pendingIdentity = (pane: HerdrPane): PendingIdentity => ({
@@ -517,7 +576,7 @@ export function createServer(
     if (attachment !== lease.attachment || attachment.pty !== lease.pty || !owner.data.attached.has(paneId)
       || !attachment.clients.has(owner) || !attachment.ready) throw new HerdrError("input_not_ready", "The pending message's pane connection changed");
   }
-  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean }> {
+  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean }> {
     authorizePending(owner, paneId, lease);
     // The same normalized snapshot the client sees includes a known Codex finish that
     // herdr reports as unknown. Nothing is inferred from a bare unknown state.
@@ -534,7 +593,15 @@ export function createServer(
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
-    if (current.agent && (parseInteractivePrompt(current.agent, screen) !== null || modelListWaits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
+    // a message Claude Code holds for its invisible characters is a card to answer first, also once its hint has gone.
+    // Not so with this delivery's own paste in the box (`pasted`), which the check before the paste found
+    // free of a held message: the same words as the message noted before would be taken for that one,
+    // and so would any paste under a hint left up from it (typing does not take Claude's hint down)
+    const held = !pasted && current.agent === "claude" ? heldCandidate(paneId) : null;
+    const prompt = current.agent ? parseInteractivePrompt(current.agent, screen, null, true, [], held) : null;
+    // as the card's own reader decides it: Claude's grey text under a hint left behind is no held message
+    const waits = prompt !== null && !(pasted && isClaudeHeld(prompt)) && !(await claudeHeldIsGrey(paneId, prompt));
+    if (current.agent && (waits || modelListWaits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
       throw new HerdrError("agent_blocked", "The agent is waiting for an answer in the terminal");
     }
     if (current.agent && !["working", "idle", "done"].includes(pane.agent_status) && !collapsed) {
@@ -547,6 +614,21 @@ export function createServer(
     code: error instanceof HerdrError || error instanceof PendingInputError ? error.code : "submit_failed",
     message: error instanceof Error ? error.message : String(error),
   });
+  /**
+   * The live screen for claudeInputDraft, and the viewport's colors when viewportShowsLive verifies
+   * they show it. Read last, the live screen holds anything typed meanwhile. An empty box (or none)
+   * needs no colors.
+   */
+  async function claudeBoxReads(paneId: string): Promise<[string, string | null]> {
+    const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    if (!claudeInputDraft(before, null)) return [before, null];
+    const scrollBefore = await paneScrollInfo(paneId);
+    const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
+    const scrollAfter = await paneScrollInfo(paneId);
+    const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
+  }
+
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
@@ -561,18 +643,25 @@ export function createServer(
         pending.observe(paneId, "working", mark);
         throw new HerdrError("pending_wait", "The agent is working again; this message still waits for its next turn");
       }
+      // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
+      // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
+      // read comes after the colors, so text typed between the two is in the box and holds the message.
+      if (context.identity.agent === "claude" && claudeInputDraft(...await claudeBoxReads(paneId))) {
+        throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+      }
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
       wrote = true;
-      await paneSendText(paneId, `\u001b[200~${text}\u001b[201~`);
+      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`);
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
-      const beforeEnter = await pendingContext(owner, paneId, lease, identity);
+      const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
       if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
       authorizePending(owner, paneId, lease);
       committing(!automatic && beforeEnter.working);
       await paneSendKeys(paneId, ["Enter"]);
+      noteSubmitted(paneId, text);
       return { ok: true };
     } catch (error) {
       const fault = wrote ? { code: "submit_changed", message: "Pending-message delivery could not be confirmed. Check the terminal before sending again." } : pendingFault(error);
@@ -657,6 +746,7 @@ export function createServer(
   const push = createPushService({
     stateDir: options.stateDir ?? defaultStateDir(),
     timing: options.alertTiming,
+    loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
     lookupTitle: async (paneId) => {
       const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
@@ -1135,6 +1225,9 @@ export function createServer(
     if (status !== undefined) broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: running });
   }
 
+  // a bridge (no roster of its own) tells its connection server instead (#555)
+  const bridgeAgents = machines ? null : bridgeAgentNews(() => broadcastAll({ type: "session-changed" }));
+
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
       // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
@@ -1144,7 +1237,8 @@ export function createServer(
       if (omo.named(paneId, agent)) completions.forget(paneId);
       // the frame below names no agent: one herdr names anew is read into the roster now. An OmO
       // pane is `omo` in every snapshot, whatever herdr calls it in an event
-      machines?.localAgents([{ pane_id: paneId, agent: omo.runs(paneId) ? "omo" : agent }]);
+      const named = [{ pane_id: paneId, agent: omo.runs(paneId) ? "omo" : agent }];
+      if (machines) machines.localAgents(named); else bridgeAgents!.status(named);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
       // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
@@ -1178,7 +1272,7 @@ export function createServer(
     },
     // a pane created a moment ago got its agent after the roster's own read of it. After the
     // snapshot's replays: a roster read before them could show a finish ahead of its status frame
-    onReconciled: (panes) => machines?.localAgents(panes),
+    onReconciled: (panes) => { if (machines) machines.localAgents(panes); else bridgeAgents!.reconciled(panes); },
     // the tracker first: what it makes of each pane (a finish after work is done, not idle) is
     // what the alerts are measured against from here, or the next event would alert of it
     onResync: (panes, newer) => {
@@ -1190,6 +1284,9 @@ export function createServer(
       holdPendingPane(paneId, { code: "pane_not_found", message: "The pane ended; its pending messages were not sent" });
       pending.forget(paneId);
       completions.forget(paneId);
+      // the terminal is gone, so is whatever its chat parsed (server/conversation.ts)
+      forgetPaneTranscriptState(paneId);
+      bridgeAgents?.ended(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);
     },
@@ -1214,7 +1311,14 @@ export function createServer(
       const funnel = request.headers.has("tailscale-funnel-request");
       const tailscaleLogin = request.headers.get("tailscale-user-login");
       const requestHost = request.headers.get("host");
-      const tokenMatched = token !== "" && isAuthenticated(request, token);
+      // the guessing budget of the address that asks (auth.ts): a token presented while it waits is not compared
+      const client = authClient(ip?.address ?? null, request.headers);
+      const presented = presentedToken(request, token, client);
+      // counted at once, before any await below lets a concurrent guess pass the same check. Every
+      // wrong token counts, a paired watch device's too (a right one would upgrade it to drive);
+      // the connection server's own bridge token does not
+      if (presented === "wrong" && !bridgeAuthorized) recordPresentedTokenFailure(client);
+      const tokenMatched = presented === "match";
       const pairedDevice = devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE));
       const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
       const identity = await identityOf(token === "" && pairedDevice === null && isServeOwnerRequest(requestShape) && (pathname === "/ws" || pathname.startsWith("/api/")), requestHost);
@@ -1230,6 +1334,8 @@ export function createServer(
       const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
 
       if (requiresAuth(pathname) && !authenticated) {
+        // a script's Bearer guess is told to wait; a browser's cookie gets the usual 401 and its sign-in form
+        if (presented === "held" && pathname !== "/ws" && request.headers.has("authorization")) return presentedTokenHeld(client);
         // The WS client never parses a body, so the upgrade refusal stays plain text.
         return pathname === "/ws" ? new Response("unauthorized", { status: 401 }) : unauthorizedJson(access.level === "none" ? access.reason : "token_required");
       }
@@ -1242,10 +1348,18 @@ export function createServer(
       // An empty segment ("//") reads as another route to the checks below, while the PC proxy
       // drops it before forwarding: `/api/machines/<id>//fs/file` would pass as not a file read.
       if (pathname.startsWith("/api/") && pathname.includes("//")) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
-      // Watching a terminal grants no arbitrary filesystem access: those files include credentials.
+      // What a watching device must not reach, spelled out rather than inferred from the
+      // method: file contents (those files include credentials) and a directory listing
+      // (names and sizes are the shape of a repository the terminals never print), plus
+      // every mutation except the two below.
       const fileRead = /^\/api\/(?:machines\/[^/]+\/)?fs\//.test(pathname);
-      const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe" || pathname === "/api/push/test";
-      if (readOnly && (fileRead || mutating && !ownPreferences)) {
+      const directoryListing = /^\/api\/(?:machines\/[^/]+\/)?workspace\/directories$/.test(pathname);
+      // Signing a device's own alerts in is a preference of that device, so `watch` keeps
+      // it. The endpoint it registers is https-only (server/push.ts), and that is the
+      // protection: a watch device's subscription is delivered every status change anyway.
+      // /api/push/test stays with a session that can drive only because it is a mutation.
+      const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe";
+      if (readOnly && (fileRead || directoryListing || mutating && !ownPreferences)) {
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
@@ -1281,18 +1395,18 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
 
-      if (pathname === "/api/auth") return handleAuthRequest(request, token);
+      if (pathname === "/api/auth") return handleAuthRequest(request, token, client);
       if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
         try {
           const response = await handleDeviceRequest(request, pathname, devices, access);
@@ -1308,6 +1422,7 @@ export function createServer(
         return handleUpdateRequest(request, pathname, options.updates);
       }
       if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
+      if (pathname === "/api/telemetry") return handleTelemetryRequest(request, options.telemetry);
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
       // a long clip can keep the provider silent past Bun's 10 s idle limit before the first line
@@ -1666,6 +1781,7 @@ export function createServer(
       }
 
       if (pathname === "/api/pane/read") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         const paneId = url.searchParams.get("pane_id");
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
         const linesRaw = url.searchParams.get("lines");
@@ -1673,13 +1789,14 @@ export function createServer(
         if (lines !== undefined && !Number.isFinite(lines)) {
           return badRequest("invalid_lines", "lines must be a number");
         }
+        // herdr knows these enums and has its own answer for a wrong one, but a read this
+        // route never meant to make is refused here rather than sent on as a guess
+        const source = url.searchParams.get("source") ?? "visible";
+        if (!READ_SOURCES.has(source)) return badRequest("invalid_source", `source must be one of ${[...READ_SOURCES].join(", ")}`);
+        const format = url.searchParams.get("format") ?? "text";
+        if (!READ_FORMATS.has(format)) return badRequest("invalid_format", `format must be one of ${[...READ_FORMATS].join(", ")}`);
         try {
-          const read = await paneRead({
-            paneId,
-            source: (url.searchParams.get("source") ?? "visible") as never,
-            format: (url.searchParams.get("format") ?? "text") as never,
-            ...(lines === undefined ? {} : { lines }),
-          });
+          const read = await paneRead({ paneId, source: source as ReadSource, format: format as ReadFormat, ...(lines === undefined ? {} : { lines }) });
           return jsonResponse({ read });
         } catch (error) {
           return errorResponse(error);
@@ -1734,9 +1851,11 @@ export function createServer(
         const ref = url.searchParams.get("ref");
         if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
         try {
-          const output = await toolOutput(paneId, ref, options.codexHome);
+          const output = await toolOutput(paneId, ref, options.codexHome, options.opencodeDb);
           if (output === null) return jsonResponse({ error: { code: "output_not_found", message: "no such tool call in this pane's conversation" } }, 404);
-          return new Response(output, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "private, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
+          // a tool call's id names its output for good; OpenCode's ref names a place in a row it rewrites in place
+          const cacheControl = OPENCODE_TOOL_REF.test(ref) ? "private, no-store" : "private, max-age=86400, immutable";
+          return new Response(output, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": cacheControl, "x-content-type-options": "nosniff" } });
         } catch (error) {
           return errorResponse(error);
         }
@@ -1747,10 +1866,11 @@ export function createServer(
         const ref = url.searchParams.get("ref");
         if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
         try {
-          const image = await conversationImage(paneId, ref, options.codexHome);
+          const image = await conversationImage(paneId, ref, options.codexHome, options.opencodeDb);
           if (image === null) return jsonResponse({ error: { code: "image_not_found", message: "no such image in this pane's conversation" } }, 404);
-          // Claude embeds immutable bytes; a Codex attachment may name a local file that changes.
-          return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": ref.startsWith("codex-") ? "private, no-store" : "private, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
+          // Claude embeds immutable bytes; Codex files and OpenCode tool-image ordinals can change.
+          const cacheControl = ref.startsWith("codex-") || ref.startsWith("opencode:") ? "private, no-store" : "private, max-age=86400, immutable";
+          return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": cacheControl, "x-content-type-options": "nosniff" } });
         } catch (error) {
           return errorResponse(error);
         }
@@ -1765,7 +1885,7 @@ export function createServer(
           from: url.searchParams.get("from") ?? undefined,
         };
         try {
-          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page);
+          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb);
           // The chat polls every 2s: an unchanged conversation answers 304 with no body.
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
           const etag = `"${version}"`;
@@ -1773,7 +1893,7 @@ export function createServer(
           if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
           return jsonResponse(conversation, 200, headers);
         } catch (error) {
-          if (error instanceof HistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
+          if (error instanceof HistoryChanged || error instanceof DevinHistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
           // an unrecognized pane is not an error: the client falls back to the
           // scrollback transcript, exactly like chatmux's terminal fallback
           if (error instanceof ConversationUnavailable) return jsonResponse({ source: "scrollback", turns: [] });
@@ -1819,6 +1939,8 @@ export function createServer(
           // herdr emits pane.closed -> the collector broadcasts session-changed, so
           // every client refetches and the pane leaves sidebars on its own
           await paneClose(payload.pane_id);
+          // the pane is gone: whatever its chat parsed is released with it (server/conversation.ts)
+          forgetPaneTranscriptState(payload.pane_id);
           return jsonResponse({ ok: true });
         } catch (error) {
           return errorResponse(error);
@@ -2024,15 +2146,24 @@ export function createServer(
               // that answer is on its way must not overtake the typing.
               if (terminalAttachKnown === false || (!attachment && terminalAttachKnown === null)) {
                 const text = message.text;
+                // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
+                const origin = attachment?.clients.has(client) ? attachment : undefined;
+                const claim = client.data.attached.get(message.pane_id);
+                const roles = client.data.roles;
+                // checked again right before herdr is written to: its connect is awaited (#545)
+                const allowed = () => mayType(client) && client.data.roles === roles && client.data.attached.get(message.pane_id) === claim
+                  && (!origin || (attachments.get(message.pane_id) === origin && origin.clients.has(client)));
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) { inputFailed(); return; }
                   // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
                   const shaped = await mirrorInput(text, async () => (await paneContext(message.pane_id)).agent);
+                  if (client.data.attached.get(message.pane_id) !== claim
+                    || (origin && (attachments.get(message.pane_id) !== origin || !origin.clients.has(client)))) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
-                  await paneSendText(message.pane_id, shaped);
+                  await paneSendText(message.pane_id, shaped, undefined, allowed);
                   // the echo is read at once, not at the mirror's next idle read
                   attachments.get(message.pane_id)?.mirror?.poke();
                 }).catch(inputFailed);
@@ -2048,6 +2179,9 @@ export function createServer(
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
                 const claim = client.data.attached.get(message.pane_id);
+                const roles = client.data.roles;
+                const allowed = () => mayType(client) && client.data.roles === roles && attachments.get(message.pane_id) === attachment && attachment.pty === pty
+                  && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client) && attachment.ready && !attachment.held;
                 void serialize(message.pane_id, () => {
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
                   if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty
@@ -2056,13 +2190,14 @@ export function createServer(
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
-                  return paneSendText(message.pane_id, text);
+                  return paneSendText(message.pane_id, text, undefined, allowed);
                 }).catch(inputFailed);
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
                 lastTyped.set(message.pane_id, Date.now());
+                if (message.text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
                 if (lastTyped.size > 64) {
-                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) lastTyped.delete(pane);
+                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
                 }
               }
               break;
@@ -2099,6 +2234,7 @@ export function createServer(
               const origin = attachment?.clients.has(client) ? attachment : undefined;
               const pty = origin?.pty;
               const claim = client.data.attached.get(message.pane_id);
+              const roles = client.data.roles;
               if (attachment?.held) {
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
@@ -2109,7 +2245,33 @@ export function createServer(
                 send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                 break;
               }
-              await serialize(message.pane_id, async () => {
+              // A key behind keys of the same sender that have not gone out yet joins them, as long as
+              // nothing else was queued since: one RPC carries them all, so keys held faster than herdr
+              // answers (a slow herdr, a busy PC) never queue up an RPC each, and keep their order.
+              const waiting = waitingKeys.get(message.pane_id);
+              if (waiting && !waiting.sent && waiting.client === client && waiting.origin === origin && waiting.pty === pty && waiting.claim === claim
+                // a key pressed after the sender watched and came back is checked on its own: joined, the
+                // batch's older role would refuse it with the rest
+                && waiting.roles === roles
+                && waiting.run !== null && paneQueues.get(message.pane_id) === waiting.run) {
+                // a herdr that stopped answering does not collect keys without end: past this, they are refused
+                if (waiting.keys.length + message.keys.length > MAX_WAITING_KEYS) {
+                  send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
+                  break;
+                }
+                waiting.keys.push(...message.keys);
+                break;
+              }
+              const batch = { keys: [...message.keys], client: client as unknown, origin: origin as unknown, pty: pty as unknown, claim: claim as unknown, roles, run: null as Promise<unknown> | null, sent: false };
+              const run = serialize(message.pane_id, async () => { try {
+                // A key goes through herdr's RPC, around the attach pty that typing just went into: it
+                // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
+                // held there ~150ms). The checks below run after the wait.
+                if (origin && !origin.mirror) {
+                  const settle = typedEscape.has(message.pane_id) ? TYPED_SETTLE_MS : KEY_SETTLE_MS;
+                  const typed = Date.now() - (lastTyped.get(message.pane_id) ?? 0);
+                  if (typed < settle) await Bun.sleep(settle - typed);
+                }
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
                 // pane's readiness, and the attach it holds by now has already been told it is ready
@@ -2130,9 +2292,26 @@ export function createServer(
                 // a key pressed by a connection that has gone since is not pressed
                 if (!clients.has(client)) return;
                 authorizeSocket(client);
-                await paneSendKeys(message.pane_id, message.keys);
+                // the same checks once more right before herdr is written to: its connect is awaited (#545)
+                const allowed = () => mayType(client) && client.data.roles === roles && !attachments.get(message.pane_id)?.held
+                  && (!origin || (attachments.get(message.pane_id) === origin && origin.pty === pty && origin.ready
+                    && client.data.attached.get(message.pane_id) === claim && origin.clients.has(client)));
+                batch.sent = true;
+                try {
+                  await paneSendKeys(message.pane_id, batch.keys, undefined, allowed);
+                } catch (error) {
+                  if (!(error instanceof HerdrError && error.code === "cancelled")) throw error;
+                  if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
+                  return;
+                }
                 attachments.get(message.pane_id)?.mirror?.poke();
-              });
+              } finally {
+                batch.sent = true;
+                if (waitingKeys.get(message.pane_id) === batch) waitingKeys.delete(message.pane_id);
+              } });
+              batch.run = run;
+              waitingKeys.set(message.pane_id, batch);
+              await run;
               break;
             }
             case "secret": {
@@ -2150,18 +2329,36 @@ export function createServer(
                 if (!attachment?.clients.has(client)) { result(false, "not_attached"); break; }
                 if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); break; }
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
+                // the attach this secret was sent from: leaving it (even joining again) takes the secret back
+                const claim = client.data.attached.get(message.pane_id);
+                // and the pty it saw, and the role it had: a live handoff or a switch away and back
+                // during the screen read takes the secret back too (#589)
+                const pty = attachment.pty;
+                const roles = client.data.roles;
                 await serialize(message.pane_id, async () => {
-                  const screen = await paneRead({ paneId: message.pane_id, source: "visible", format: "text" });
-                  if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
+                  // A viewport scrolled into history can still show an old password prompt.
+                  // Validate the live screen before typing a secret into the current program.
+                  const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
+                  if (client.data.closing || client.data.mode === "observe" || client.data.roles !== roles) { result(false, "read_only"); return; }
                   authorizeSocket(client);
-                  if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }
-                  if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); return; }
+                  if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment
+                    || client.data.attached.get(message.pane_id) !== claim) { result(false, "not_attached"); return; }
+                  if (!attachment.ready || attachment.held || attachment.pty !== pty) { result(false, "input_not_ready"); return; }
                   if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
                   if (attachment.mirror) {
                     // A mirrored pane has no pty to type into: the secret is herdr's text, then the
                     // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,
                     // so a send herdr refused is answered as failed, not as entered.
-                    await paneSendText(message.pane_id, message.secret);
+                    const allowed = () => mayType(client) && client.data.roles === roles && attachments.get(message.pane_id) === attachment
+                      && attachment.pty === pty && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client);
+                    try {
+                      await paneSendText(message.pane_id, message.secret, undefined, allowed);
+                    } catch (error) {
+                      if (error instanceof HerdrError && error.code === "cancelled") { result(false, "not_attached"); return; }
+                      throw error;
+                    }
+                    // Once the text is in, its Enter follows unchecked: withheld, it would leave the
+                    // secret on the prompt line for the next Enter anyone presses (#589).
                     await paneSendKeys(message.pane_id, ["Enter"]);
                   } else {
                     // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
@@ -2278,6 +2475,7 @@ export function createServer(
               }
               if (client.data.readOnly) message.mode = "observe";
               if (message.mode === "observe") holdPending(client);
+              if (client.data.mode !== message.mode) client.data.roles++;
               client.data.mode = message.mode;
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {
@@ -2336,11 +2534,16 @@ export function createServer(
 }
 
 if (import.meta.main) {
-  const instance = createServer({ updates: connectUpdater(), herdrUpdate: new HerdrUpdater(), registerBridge: true });
+  const updates = connectUpdater();
+  const version = (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as { version: string }).version;
+  const telemetry = new Telemetry({ stateDir: defaultStateDir(), version, env: process.env, fetch, previousVersion: () => updates.installed().previous_version });
+  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), telemetry, registerBridge: true });
+  telemetry.start();
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
+    telemetry.stop();
     instance.stop();
     // Attach sidecars need ~1.2s to release herdr's exclusive client slot.
     setTimeout(() => process.exit(0), 2000);
@@ -2349,9 +2552,18 @@ if (import.meta.main) {
   process.on("SIGINT", shutdown);
   if (process.env["HERDR_WEB_MANAGED"] === "1") process.on("disconnect", shutdown);
   console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
-  if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "" && !LOOPBACK_HOSTNAMES.has(instance.hostname)) {
-    console.error(
-      `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
-    );
+  if (!LOOPBACK_HOSTNAMES.has(instance.hostname)) {
+    if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "") {
+      console.error(
+        `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
+      );
+    }
+    // The bind address says nothing about the transport: a token cookie and every keystroke
+    // travel in the clear on plain http, so a listener on the same network gets them.
+    if ((process.env["HERDR_WEB_TOKEN"] ?? "") !== "") {
+      console.error(
+        `WARNING: listening on http://${instance.hostname}:${instance.port} - HERDR_WEB_TOKEN is not confidential over cleartext http; on an untrusted network anyone who can read the traffic has the token and everything you type. Reach this PC over Tailscale, put it behind a TLS-terminating proxy, or keep HOST=127.0.0.1.`,
+      );
+    }
   }
 }

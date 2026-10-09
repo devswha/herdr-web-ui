@@ -28,8 +28,9 @@ import type {
   WorktreeRemoved,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
-import { readUpdateNotes, type HerdrUpdateStatus, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
+import { readInstalledNotes, readUpdateNotes, type HerdrUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
+import type { TelemetryStatus } from "../../shared/telemetry.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
@@ -53,6 +54,11 @@ export async function fetchUpdateNotes(): Promise<UpdateNotes> {
   return readUpdateNotes(await getJson<unknown>("/api/updates/notes"));
 }
 
+/** What the last update brought. A server older than the question answers with an error. */
+export async function fetchInstalledNotes(): Promise<InstalledNotes> {
+  return readInstalledNotes(await getJson<unknown>("/api/updates/installed"));
+}
+
 export async function requestUpdate(command: UpdateCommand): Promise<void> {
   const url = `/api/updates/${command}`;
   const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
@@ -68,6 +74,19 @@ export async function requestHerdrUpdate(): Promise<void> {
   const url = "/api/herdr/update";
   const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
   if (!response.ok) throw await errorFrom(url, response);
+}
+
+/** Anonymous install and update counts; null from a server that sends none (404). */
+export async function fetchTelemetry(): Promise<TelemetryStatus | null> {
+  try { return await getJson<TelemetryStatus>("/api/telemetry"); }
+  catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error; }
+}
+
+export async function changeTelemetry(change: { enabled?: boolean; notice_seen?: true }): Promise<TelemetryStatus> {
+  const url = "/api/telemetry";
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify(change) });
+  if (!response.ok) throw await errorFrom(url, response);
+  return (await response.json()) as TelemetryStatus;
 }
 
 /**
@@ -147,9 +166,45 @@ export type ConversationPageQuery = { before?: string; since?: string; from?: st
  * and a newest page can be megabytes: an unchanged one comes back as a bodyless 304,
  * and the chat gets the very same object back, which tells it nothing changed. An
  * older page (`before`) is asked for once, so it keeps no ETag and takes no slot.
+ *
+ * A count alone does not bound what a tab holds: sixteen polled panes is a small number of
+ * bodies, each as large as the server makes it, so the cache also gives up its oldest entries
+ * once the answers together pass a byte budget. The answer just fetched is never given up for
+ * that (it is the one the caller is about to read), the panes after it go first.
  */
-const conversationAnswers = new Map<string, { etag: string; body: ConversationResponse }>();
+interface ConversationAnswer {
+  etag: string;
+  body: ConversationResponse;
+  /** the body's rough size: what the count cap alone cannot bound */
+  bytes: number;
+}
+const conversationAnswers = new Map<string, ConversationAnswer>();
 const CONVERSATION_ANSWERS_KEPT = 16;
+/** …and this much of them, about four ordinary conversation pages each. */
+const CONVERSATION_ANSWERS_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The body a cache entry carries: the server's own count when it sends one for the body as it is,
+ * else the JSON we parsed. A compressed answer's length counts the bytes on the wire, not these.
+ */
+export function conversationAnswerBytes(body: ConversationResponse, contentLength: string | null, contentEncoding: string | null = null): number {
+  const declared = Number(contentLength);
+  const identity = contentEncoding === null || contentEncoding.trim().toLowerCase() === "identity";
+  if (identity && Number.isFinite(declared) && declared > 0) return declared;
+  return JSON.stringify(body)?.length ?? 0;
+}
+
+/** Drops the least recently used answers until the cache is back inside both caps. */
+function trimConversationAnswers(keep: string): void {
+  let total = 0;
+  for (const answer of conversationAnswers.values()) total += answer.bytes;
+  while (conversationAnswers.size > CONVERSATION_ANSWERS_KEPT || total > CONVERSATION_ANSWERS_BYTES) {
+    const oldest = conversationAnswers.keys().next().value;
+    if (oldest === undefined || oldest === keep) break;
+    total -= conversationAnswers.get(oldest)!.bytes;
+    conversationAnswers.delete(oldest);
+  }
+}
 
 /** GET /api/pane/conversation: structured turns, or scrollback fallback; `page` as ConversationResponse.cursor describes. */
 export async function fetchPaneConversation(paneId: string, machineId = "local", page: ConversationPageQuery = {}): Promise<ConversationResponse> {
@@ -173,8 +228,8 @@ export async function fetchPaneConversation(paneId: string, machineId = "local",
   if (!polled) return body;
   conversationAnswers.delete(url);
   if (etag !== null) {
-    conversationAnswers.set(url, { etag, body });
-    if (conversationAnswers.size > CONVERSATION_ANSWERS_KEPT) conversationAnswers.delete(conversationAnswers.keys().next().value!);
+    conversationAnswers.set(url, { etag, body, bytes: conversationAnswerBytes(body, response.headers.get("content-length"), response.headers.get("content-encoding")) });
+    trimConversationAnswers(url);
   }
   return body;
 }

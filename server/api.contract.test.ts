@@ -1,13 +1,16 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+import { Database } from "bun:sqlite";
 import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
-import { unmanagedUpdateStatus, type HerdrUpdateStatus, type UpdateNotes } from "../shared/update.ts";
+import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
 import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
+import { Telemetry } from "./telemetry.ts";
+import type { TelemetryStatus } from "../shared/telemetry.ts";
 import { herdrRpc, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
@@ -27,7 +30,7 @@ let server: { port: number; stop: () => void };
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-contract-"));
 
 beforeAll(() => {
-  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushLoopbackHttp: true });
 });
 
 afterAll(() => {
@@ -36,6 +39,36 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
+
+describe("Devin conversation API", () => {
+  it("keeps the terminal fallback rather than guessing a shell pane's session", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-devin-contract-"));
+    const created = await workspaceCreate({ cwd: state, label: "herdr-web-ui-test-devin-identity" });
+    const dbPath = join(state, "sessions.db");
+    let bridge: ReturnType<typeof createServer> | undefined;
+    try {
+      const paneId = created.root_pane.pane_id;
+      const snapshot = await sessionSnapshot();
+      const pane = snapshot.panes.find((entry) => entry.pane_id === paneId)!;
+      const cwd = pane.foreground_cwd || pane.cwd;
+      if (!cwd) throw new Error("test pane has no working directory");
+      const db = new Database(dbPath);
+      try {
+        db.exec("CREATE TABLE sessions(id TEXT, working_directory TEXT, main_chain_id INTEGER, hidden INTEGER, model TEXT)");
+        db.query("INSERT INTO sessions VALUES ('synthetic', ?, NULL, 0, NULL)").run(cwd);
+      } finally { db.close(); }
+      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "devin", state: "idle" });
+      bridge = createServer({ port: 0, stateDir: state, devinDbPath: dbPath });
+      const response = await fetch(`http://localhost:${bridge.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ source: "scrollback", turns: [] });
+    } finally {
+      bridge?.stop();
+      await workspaceClose(created.workspace.workspace_id);
+      rmSync(state, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("usage API", () => {
   it("returns OpenCode Go windows without exposing its credential", async () => {
@@ -150,9 +183,26 @@ describe("update API", () => {
     const notes: UpdateNotes = { revision: "b".repeat(40), releases: [{ version: "9.9.9", date: "2026-10-07", notes: "### Added\n- A thing." }], omitted: 2 };
     const managedState = mkdtempSync(join(tmpdir(), "herdr-update-notes-"));
     const managed = createServer({ port: 0, stateDir: managedState,
-      updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true, available: true }), notes: () => notes, request() {} } });
+      updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true, available: true }), notes: () => notes, installed: noInstalledNotes, request() {} } });
     try {
       expect(await (await fetch(`http://localhost:${managed.port}/api/updates/notes`)).json()).toEqual(notes);
+    } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
+  });
+
+  it("answers what the last update brought, and nothing where no update was installed", async () => {
+    const none = await fetch(`${base()}/api/updates/installed`);
+    expect(none.status).toBe(200);
+    expect(none.headers.get("cache-control")).toBe("no-store");
+    expect(await none.json()).toEqual({ revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 });
+    expect((await fetch(`${base()}/api/updates/installed`, { method: "POST", headers: { "x-herdr-update": "1" } })).status).toBe(405);
+
+    const installed: InstalledNotes = { revision: "c".repeat(40), version: "9.9.9", previous_version: "9.9.8", installed_at: "2026-10-07T00:00:00.000Z",
+      releases: [{ version: "9.9.9", date: "2026-10-07", notes: "### Added\n- A thing.", summary: { en: { new: ["A thing."] }, ko: { new: ["기능 하나."] } } }], omitted: 0 };
+    const managedState = mkdtempSync(join(tmpdir(), "herdr-update-installed-"));
+    const managed = createServer({ port: 0, stateDir: managedState,
+      updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true }), notes: () => ({ revision: null, releases: [], omitted: 0 }), installed: () => installed, request() {} } });
+    try {
+      expect(await (await fetch(`http://localhost:${managed.port}/api/updates/installed`)).json()).toEqual(installed);
     } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
   });
 
@@ -171,9 +221,9 @@ describe("update API", () => {
     const protectedState = mkdtempSync(join(tmpdir(), "herdr-update-auth-"));
     const protectedServer = createServer({ port: 0, stateDir: protectedState, token: "test-update-token" });
     try {
-      for (const path of ["/api/updates", "/api/updates/notes", "/api/updates/check", "/api/updates/install"]) {
+      for (const path of ["/api/updates", "/api/updates/notes", "/api/updates/installed", "/api/updates/check", "/api/updates/install"]) {
         const response = await fetch(`http://localhost:${protectedServer.port}${path}`, {
-          method: path === "/api/updates" || path === "/api/updates/notes" ? "GET" : "POST", headers: { "x-herdr-update": "1" },
+          method: path === "/api/updates/check" || path === "/api/updates/install" ? "POST" : "GET", headers: { "x-herdr-update": "1" },
         });
         expect(response.status).toBe(401);
       }
@@ -226,6 +276,49 @@ describe("update API", () => {
       }
       expect(status).toMatchObject({ phase: "idle", output: "already up to date (0.9.3)" });
       expect(readFileSync(join(state, "calls"), "utf8")).toContain("update --handoff");
+    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
+  });
+});
+
+describe("telemetry API", () => {
+  it("answers 404 on a server started without telemetry", async () => {
+    for (const method of ["GET", "POST"]) {
+      const response = await fetch(`${base()}/api/telemetry`, { method, headers: { "x-herdr-update": "1", "content-type": "application/json" }, ...(method === "POST" ? { body: "{}" } : {}) });
+      expect(response.status).toBe(404);
+      expect((await response.json() as ApiError).error.code).toBe("not_found");
+    }
+  });
+
+  it("tells the switch and the next event, and takes the notice and the switch from the app", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-telemetry-api-"));
+    const sent: unknown[] = [];
+    const telemetry = new Telemetry({ stateDir: state, version: "9.9.9", env: {}, url: "http://receiver.invalid/v1/events", noticeGraceMs: 0,
+      fetch: (async (_url: string | URL | Request, init?: RequestInit) => { sent.push(JSON.parse(String(init?.body))); return new Response(null, { status: 204 }); }) as typeof fetch });
+    const server = createServer({ port: 0, stateDir: state, token: "", telemetry });
+    const url = `http://localhost:${server.port}/api/telemetry`;
+    try {
+      const first = await fetch(url);
+      expect(first.headers.get("cache-control")).toBe("no-store");
+      expect(await first.json() as TelemetryStatus).toMatchObject({ enabled: true, notice_seen: false, blocked_by_env: false, next: { event: "install", version: "9.9.9" } });
+      expect((await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ notice_seen: true }) })).status).toBe(403);
+      const seen = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify({ notice_seen: true }) });
+      expect(await seen.json() as TelemetryStatus).toMatchObject({ notice_seen: true });
+      await telemetry.report();
+      expect(sent).toEqual([expect.objectContaining({ event: "install", version: "9.9.9" })]);
+      expect(await (await fetch(url)).json() as TelemetryStatus).toMatchObject({ next: null });
+      const off = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify({ enabled: false }) });
+      expect(await off.json() as TelemetryStatus).toMatchObject({ enabled: false });
+    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
+  });
+
+  it("keeps telemetry behind the token gate", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-telemetry-auth-"));
+    const telemetry = new Telemetry({ stateDir: state, version: "9.9.9", env: {}, fetch: (async () => new Response(null, { status: 204 })) as unknown as typeof fetch });
+    const server = createServer({ port: 0, stateDir: state, token: "test-telemetry-token", telemetry });
+    try {
+      for (const method of ["GET", "POST"]) {
+        expect((await fetch(`http://localhost:${server.port}/api/telemetry`, { method, headers: { "x-herdr-update": "1" } })).status).toBe(401);
+      }
     } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
   });
 });
@@ -1639,7 +1732,7 @@ describe("web push", () => {
       const device = await startFakePushService();
       cleanupDevice = device;
       await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "unknown" });
-      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false,
+      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false, pushLoopbackHttp: true,
         alertTiming: { short: 0, long: 0, longTurn: 0 } });
       const origin = `http://127.0.0.1:${bridge.port}`;
       watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
@@ -1731,7 +1824,7 @@ describe("web push", () => {
       const before = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
       expect(before.panes.find((pane) => pane.pane_id === watchedId)?.agent_status).toBe("working");
 
-      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushLoopbackHttp: true });
       const subscribe = await fetch(`http://localhost:${restarted.port}/api/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json" },
