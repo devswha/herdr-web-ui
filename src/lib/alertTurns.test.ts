@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, jest } from "bun:test";
 import { AlertTurns, createAlertTurnPlayer, type AlertTurnMessage } from "./alertTurns.ts";
 
 const key = JSON.stringify(["local", "pane-1", "blocked"]);
@@ -160,5 +160,35 @@ describe("alert turns with a local clock", () => {
     player.chime(key, "blocked");
     expect(heard).toEqual(["blocked"]);
     player.dispose();
+  });
+  it("still tells the pane's next question after a peer's chime came while its own was queued", async () => {
+    jest.useFakeTimers();
+    const channel = { onmessage: null as ((event: MessageEvent<unknown>) => void) | null, postMessage() {}, close() {} };
+    const heard: string[] = [];
+    let release: (played: boolean) => void = () => {};
+    const results: (boolean | Promise<boolean>)[] = [true, new Promise<boolean>((resolve) => { release = resolve; }), true];
+    const player = createAlertTurnPlayer({
+      channel: channel as unknown as BroadcastChannel,
+      play: (kind) => { heard.push(kind); return results.shift() ?? true; },
+    });
+    try {
+      player.chime(key, "blocked");
+      jest.advanceTimersByTime(150);
+      // the pane asks again; this chime waits behind another sound of the tab
+      player.chime(key, "blocked");
+      jest.advanceTimersByTime(150);
+      expect(heard).toEqual(["blocked", "blocked"]);
+      // another tab's chime of the first question arrives meanwhile
+      channel.onmessage?.({ data: { ...chimed, tab: "b" } } as MessageEvent<unknown>);
+      release(true);
+      await Promise.resolve();
+      jest.advanceTimersByTime(2_000);
+      player.chime(key, "blocked");
+      jest.advanceTimersByTime(150);
+      expect(heard).toEqual(["blocked", "blocked", "blocked"]);
+    } finally {
+      player.dispose();
+      jest.useRealTimers();
+    }
   });
 });

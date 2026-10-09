@@ -101,6 +101,10 @@ export class AlertTurns {
     return messages;
   }
 
+  has(key: string): boolean {
+    return this.pending.has(key);
+  }
+
   get deadline(): number {
     return Math.min(...[...this.pending.values()].map((pending) => pending.due));
   }
@@ -170,8 +174,11 @@ export function createAlertTurnPlayer(options: {
   const listen = () => {
     if (channel) channel.onmessage = (event: MessageEvent<unknown>) => {
       if (!isMessage(event.data)) return;
-      if (event.data.type === "chimed") playing.delete(event.data.key);
-      run(turns.receive(event.data, performance.now()));
+      const plays = turns.receive(event.data, performance.now());
+      // Only a chime that settled the alert ends this tab's attempt. An ignored late duplicate
+      // leaves it, or its result could never clear the pending alert and the pane went silent.
+      if (event.data.type === "chimed" && !turns.has(event.data.key)) playing.delete(event.data.key);
+      run(plays);
     };
   };
   listen();
