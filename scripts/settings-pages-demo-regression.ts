@@ -71,6 +71,12 @@ try {
           page.on("pageerror", (error) => errors.push(error.message));
           await page.goto(url);
           await page.locator(".conn-live").waitFor({ state: "attached" });
+          const terminal = page.locator(".pane-terminal");
+          await terminal.waitFor({ state: "attached" });
+          assert.equal(await terminal.getAttribute("role"), "region");
+          assert.equal(await terminal.getAttribute("aria-roledescription"), label("Terminal"));
+          assert.equal(await terminal.getAttribute("aria-label"), label("Terminal for {title}").replace("{title}", "Idempotent payments"));
+          assert.equal(await terminal.getAttribute("tabindex"), null, "the wrapper adds no empty keyboard stop");
           await openSettings(page);
           for (const name of PAGES) {
             await openSettingsPage(page, label(name), label("Back to settings"));
