@@ -13,6 +13,7 @@ import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
+import { handlePaneLayoutRequest } from "./pane-layout.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
@@ -1654,6 +1655,8 @@ export function createServer(
           return errorResponse(error);
         }
       }
+
+      if (/^\/api\/pane\/(?:split|focus|zoom|resize)$/.test(pathname)) return handlePaneLayoutRequest(request, pathname);
 
       // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it
       if (pathname === "/api/tab/rename" || pathname === "/api/tab/close") {

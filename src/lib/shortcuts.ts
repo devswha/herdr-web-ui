@@ -15,6 +15,7 @@ export const SHORTCUTS = [
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },
+  { id: "zoom-view", label: "Maximize / restore focused view", keys: ["Mod", "Shift", "E"] },
   // listed only: held, not dispatched; VoiceInput.tsx listens for it itself (isVoiceShortcut)
   { id: "voice", label: "Dictate (hold)", keys: ["Mod", "Shift", "Space"] },
 ] as const;
@@ -41,6 +42,7 @@ const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   ArrowUp: "previous-pane",
   ArrowDown: "next-pane",
   ",": "settings",
+  e: "zoom-view",
 };
 
 export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): string[] {
@@ -50,7 +52,14 @@ export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): stri
 
 export function shortcutDisplayKeys(id: ShortcutId, overrides: ShortcutOverrides): string[] {
   const shortcut = SHORTCUTS.find((candidate) => candidate.id === id)!;
-  if (id === "voice" || !Object.hasOwn(overrides, id)) return [...shortcut.keys];
+  if (id === "voice") return [...shortcut.keys];
+  if (!Object.hasOwn(overrides, id)) {
+    const key = shortcut.keys.at(-1)!;
+    const normalized = key.length === 1 ? key.toLowerCase() : key;
+    // A pre-existing user binding can own a newly introduced default. Its hint must not lie.
+    if (SHORTCUTS.some((other) => other.id !== id && overrides[other.id] === normalized)) return [];
+    return [...shortcut.keys];
+  }
   const key = overrides[id];
   if (!key) return [];
   return ["Mod", "Shift", key.length === 1 ? key.toUpperCase() : key];
@@ -144,6 +153,11 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
     const onKeyDown = (event: KeyboardEvent): void => {
       const shortcut = matchShortcut(event, platformIsMac, settings.shortcutOverrides);
       if (shortcut === null) return;
+      if (shortcut === "zoom-view") {
+        if (event.repeat) { event.preventDefault(); return; }
+        // A modal owns layout keys too; global palette/settings ownership stays upstream's.
+        if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="alertdialog"]')) return;
+      }
       if (event.key.startsWith("Arrow") && keepsArrowsForText(event.target)) return;
       event.preventDefault();
       switch (shortcut) {
@@ -167,6 +181,9 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
           break;
         case "settings":
           actions.openSettings();
+          break;
+        case "zoom-view":
+          actions.zoomView?.();
           break;
       }
     };

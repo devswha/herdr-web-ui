@@ -82,6 +82,30 @@ describe("shortcutDisplayKeys", () => {
   });
 });
 
+describe("layout shortcut ownership", () => {
+  it("uses app conventions without taking Command E or numbered browser navigation", () => {
+    expect(matchShortcut(keyEvent("e", { metaKey: true }), true)).toBe("zoom-view");
+    expect(matchShortcut(keyEvent("e", { metaKey: true, shiftKey: false }), true)).toBeNull();
+    expect(matchShortcut(keyEvent("1", { metaKey: true, shiftKey: false }), true)).toBeNull();
+    expect(matchShortcut(keyEvent("r", { ctrlKey: true }), false)).toBeNull();
+    expect(matchShortcut(keyEvent("d", { ctrlKey: true }), false)).toBeNull();
+    expect(matchShortcut(keyEvent("x", { ctrlKey: true }), false)).toBeNull();
+  });
+
+  it("preserves existing custom ownership and lets layout bindings be changed or disabled", () => {
+    const overrides = sanitizeShortcutOverrides({ palette: "e", "zoom-view": "q" });
+    expect(matchShortcut(keyEvent("e", { metaKey: true }), true, overrides)).toBe("palette");
+    expect(matchShortcut(keyEvent("q", { metaKey: true }), true, overrides)).toBe("zoom-view");
+    expect(matchShortcut(keyEvent("e", { metaKey: true }), true, { "zoom-view": null })).toBeNull();
+    expect(shortcutDisplayKeys("zoom-view", overrides)).toEqual(["Mod", "Shift", "Q"]);
+    expect(shortcutDisplayKeys("zoom-view", { "zoom-view": null })).toEqual([]);
+    expect(shortcutConflict("zoom-view", ["e"], overrides)).toBe(true);
+    expect(shortcutDisplayKeys("zoom-view", { palette: "e" })).toEqual([]);
+    expect(matchShortcut(keyEvent("e", { metaKey: true }), true, { palette: "e" })).toBe("palette");
+    expect(matchShortcut(keyEvent("q", { metaKey: true, isComposing: true }), true, overrides)).toBeNull();
+  });
+});
+
 describe("non-Latin keyboard layouts", () => {
   it("uses KeyA-Z for a non-ASCII single character but preserves an ASCII event.key layout", () => {
     expect(matchShortcut(keyEvent("한", { ctrlKey: true, code: "KeyK" }), false, { palette: "k" })).toBe("palette");

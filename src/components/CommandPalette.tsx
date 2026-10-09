@@ -1,6 +1,6 @@
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, Monitor, PanelLeft, Plus, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
+import { Bell, Columns2, FolderOpen, LockKeyhole, Maximize2, MessageSquarePlus, Monitor, PanelLeft, Plus, RefreshCw, Rows2, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
@@ -111,6 +111,10 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     // in the selected pane's workspace: nothing to add a tab to without one
     ...(selectedPaneId !== null ? [{ id: "new-tab", label: t("New tab"), icon: Plus, run: () => actions.openNewTab() }] : []),
     { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view", run: actions.toggleView },
+    ...(actions.zoomView ? [{ id: "zoom-view", label: t("Maximize / restore focused view"), icon: Maximize2, shortcut: "zoom-view" as const, run: actions.zoomView }] : []),
+    ...(actions.splitRight ? [{ id: "split-right", label: t("Split right"), icon: Columns2, run: actions.splitRight }] : []),
+    ...(actions.splitDown ? [{ id: "split-down", label: t("Split down"), icon: Rows2, run: actions.splitDown }] : []),
+    ...(actions.closeView ? [{ id: "close-view", label: t("Close view only — keep the session running"), icon: X, run: actions.closeView }] : []),
     { id: "sidebar", label: t("Toggle sidebar"), icon: PanelLeft, shortcut: "toggle-sidebar", run: actions.toggleSidebar },
     { id: "theme", label: t("Toggle theme"), icon: SunMoon, run: actions.toggleTheme },
     { id: "settings", label: t("Settings"), icon: Settings, shortcut: "settings", run: actions.openSettings },

@@ -17,6 +17,14 @@
 
 :root {
   color-scheme: dark;
+  --session-1: #82b5ff;
+  --session-2: #c5a0f5;
+  --session-3: #66c8c1;
+  --session-4: #eda2c3;
+  --session-5: #a8c879;
+  --session-6: #e7b47c;
+  --session-7: #97a9ea;
+  --session-8: #c4bb85;
 
   /* surfaces (tonal steps, darkest to lightest): lamp-lit graphite, warm not tinted */
   --bg: #12100e;
@@ -179,6 +187,14 @@
 
 [data-theme="light"] {
   color-scheme: light;
+  --session-1: #245bb0;
+  --session-2: #7841a6;
+  --session-3: #176d67;
+  --session-4: #a13968;
+  --session-5: #526e22;
+  --session-6: #8c531d;
+  --session-7: #4c55a0;
+  --session-8: #70601f;
   --bg: #eeeae2;
   --bg-panel: #faf8f3;
   --bg-elevated: #f2eee6;

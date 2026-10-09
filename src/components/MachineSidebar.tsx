@@ -23,7 +23,7 @@ export const STATE_WORD: Readonly<Record<MachineState, string>> = {
   error: "Connection error",
 };
 
-interface Props { machines: Machine[]; selectedMachineId: string; selectedPaneId: string | null; actions: AppActions; onSelect(machineId: string, paneId: string | null): void; onNew(machineId: string): void; onSetup(machine: Machine, update?: boolean): void }
+interface Props { machines: Machine[]; selectedMachineId: string; selectedPaneId: string | null; actions: AppActions; runningCount?: number; allCount?: number; onArrangeRunning?: () => void; onArrangeAll?: () => void; onSelect(machineId: string, paneId: string | null): void; onNew(machineId: string): void; onSetup(machine: Machine, update?: boolean): void }
 export function MachineSidebar(props: Props) {
   const t = useT();
   const { canInstall, installed, install, help } = useInstallPrompt();
@@ -32,6 +32,10 @@ export function MachineSidebar(props: Props) {
   const activity = useSidebarActivityState(props.machines, props.selectedMachineId, props.selectedPaneId);
   // no top bar: a workspace starts from its PC's header, and Add PC lives in Settings → Remote PCs
   return <SidebarActivityProvider value={activity}><div className="sidebar-shell">
+    {props.onArrangeRunning && props.onArrangeAll && <div className="layout-overview" role="group" aria-label={t("Arrange sessions")}>
+      <button type="button" className="btn btn-ghost" disabled={!props.runningCount} onClick={props.onArrangeRunning}>{t("Running")} <span>{props.runningCount}</span></button>
+      <button type="button" className="btn btn-ghost" disabled={!props.allCount} onClick={props.onArrangeAll}>{t("All")} <span>{props.allCount}</span></button>
+    </div>}
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
       {props.machines.map((machine) => <MachineGroup key={machine.id} {...props} machine={machine} />)}
       {!props.machines.length && <p className="tree-state" role="status">{t("Loading PCs…")}</p>}

@@ -20,6 +20,7 @@ import agentsFixture from "./fixtures/agents.json";
 import commandsFixture from "./fixtures/commands.json";
 import panesFixture from "./fixtures/panes.json";
 import terminalFixture from "./fixtures/terminal.json";
+import { demoPaneLayout } from "./pane-layout.ts";
 
 const DEMO_VERSION = "demo";
 const PROMPT_ANSWER_TURN_MS = 2600;
@@ -414,6 +415,16 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : agent === "devin" ? "devin-transcript" : "omp-transcript";
     return json({ source, turns: chat.turns, metadata: chat.metadata, cursor: null });
   }
+  if (path === "/api/pane/read") {
+    const pane = paneOf(paneId);
+    if (!pane) return error("not_found", "no such pane", 404);
+    return json({ read: {
+      pane_id: pane.pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id,
+      source: query.get("source") ?? "recent_unwrapped", format: "text", revision: 0,
+      text: `Demo shell ready in ${pane.cwd ?? "/home/demo"}.\nOpen Terminal to explore the recorded example.\n`,
+      truncated: false,
+    } });
+  }
   if (path === "/api/pane/prompt") return json({ prompt: keyOfPane.get(paneId) === "web" && promptOpen ? { ...PROMPT, id: promptId } : null });
   if (path === "/api/pane/prompt/answer") {
     const body = await bodyOf(init, input);
@@ -429,6 +440,14 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     return json({ files: DEMO_FILES.filter((file) => file.toLowerCase().includes(q)).slice(0, Number(query.get("limit") ?? 20)) });
   }
   if (path === "/api/pane/input" || path === "/api/pane/keys") return json({ ok: true });
+  if (/^\/api\/pane\/(?:split|focus|zoom|resize)$/.test(path)) {
+    if (method !== "POST") return error("method_not_allowed", "use POST", 400);
+    const body = await bodyOf(init, input);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return error("invalid_body", "request body must be a JSON object", 400);
+    const result = demoPaneLayout(snapshot(), path.slice("/api/pane/".length), body, `demo-layout:${nextWorkspace++}`);
+    if (result.status === 200) structureChanged();
+    return json(result.body, result.status);
+  }
   if (path === "/api/pane/rename") {
     const body = await bodyOf(init, input);
     const pane = paneOf(String(body["pane_id"] ?? ""));

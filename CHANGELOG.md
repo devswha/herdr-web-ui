@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- General multi-pane workspace views: native tab splits and browser-only docking across
+  workspaces and PCs, independent chat/terminal lenses, resize, maximize and close-view controls.
+  Running and All overviews offer six layout presets with stable numbered/color badges.
+  Header lens controls affect visible views only; layout shortcuts use the existing configurable
+  Mod+Shift bindings. Closing a view keeps its process running.
+
 ### Fixed
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.

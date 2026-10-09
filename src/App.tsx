@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Bell, Ellipsis, FolderOpen, Lock, Menu, MessageSquare, PanelLeft, Plus, Search, SquareTerminal, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
+import { Bell, Columns2, Ellipsis, FolderOpen, Lock, Maximize2, Menu, MessageSquare, PanelLeft, Plus, Rows2, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, focusPane, pairDevice, resizePane, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
+import { SplitView } from "./components/SplitView.tsx";
+import { PaneDock } from "./components/PaneDock.tsx";
+import { dockCells, dockFromNative, dockPane, dockTargetKey, dockTargets, parseDockLayout, pruneDock, removeDockPane, replaceDockPane, resizeDockSplit, type DockNode } from "./lib/dock-layout.ts";
+import { allSessionTargets, runningLayout, runningTargets } from "./lib/running-layout.ts";
+import { assignViewNumbers } from "./lib/session-identity.ts";
+import { PaneDockContext, type PaneDockActions } from "./lib/paneDock.ts";
+import { cells, layoutForPane, resizeForDrag, screenOrder, type SplitAction } from "./lib/split-layout.ts";
 import { PANE_TABPANEL_ID, paneTabPanelLabel } from "./lib/paneRegion.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
@@ -22,7 +29,7 @@ import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
 import { focusWorkspaceListToggle } from "./lib/focus.ts";
 import { headerCrumb, showsChat } from "./lib/headerCrumb.ts";
-import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
+import { paneStorageId, type Machine, type MachineEvent, type PaneTarget } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
@@ -58,6 +65,21 @@ import { playAlertSound, unlockAlertSound, type AlertSoundKind } from "./lib/ale
 
 const APP_TITLE = "herdr web ui";
 const POLL_MS = 5000;
+const DOCK_STORAGE_KEY = "herdr-web-ui:dock-layout:v1";
+
+function storedDock(): DockNode | null {
+  try { return parseDockLayout(JSON.parse(sessionStorage.getItem(DOCK_STORAGE_KEY) ?? "null")); }
+  catch { return null; } // private mode or invalid saved arrangement
+}
+
+/** Role and transport state belong to the cell's connection, never another PC's active cell. */
+function LayoutTerminal(props: Omit<ComponentProps<typeof PaneTerminal>, "role">) {
+  const [role, setRole] = useState<ClientRole>("interact");
+  const [connected, setConnected] = useState(false);
+  useEffect(() => { props.onRoleAck?.(role); }, [role, props.onRoleAck]);
+  useEffect(() => { props.onConnectionChange?.(connected); }, [connected, props.onConnectionChange]);
+  return <PaneTerminal {...props} role={role} onRoleAck={setRole} onConnectionChange={setConnected} />;
+}
 
 /**
  * Polls and the event stream hand over fresh objects every few seconds even when nothing
@@ -511,7 +533,39 @@ export function App() {
 
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
+  const [dockRoot, setDockRoot] = useState<DockNode | null>(storedDock);
+  const [dockEmpty, setDockEmpty] = useState(false);
+  const dockRef = useRef(dockRoot); dockRef.current = dockRoot;
+  const commitDock = useCallback((root: DockNode | null) => {
+    dockRef.current = root;
+    setDockRoot(root);
+  }, []);
+  const [dockZoom, setDockZoom] = useState<string | null>(null);
+  const [dockPlacement, setDockPlacement] = useState<PaneTarget | null>(null);
+  const [dockDragging, setDockDragging] = useState<PaneTarget | null>(null);
+  const placementOpener = useRef<HTMLElement | null>(null);
+  const dockHost = useRef<HTMLElement>(null);
+  useEffect(() => {
+    try {
+      if (dockRoot) sessionStorage.setItem(DOCK_STORAGE_KEY, JSON.stringify(dockRoot));
+      else sessionStorage.removeItem(DOCK_STORAGE_KEY);
+    } catch { /* the arrangement still works without storage */ }
+  }, [dockRoot]);
   const selectTarget = useCallback((machineId: string, paneId: string | null, view?: PaneView) => {
+    setDockEmpty(false);
+    setDockPlacement(null);
+    const root = dockRef.current;
+    if (root && paneId !== null) {
+      const target = { machine_id: machineId, pane_id: paneId };
+      const key = dockTargetKey(target);
+      const targets = dockTargets(root);
+      if (!targets.some((entry) => dockTargetKey(entry) === key)) {
+        const before = selectionRef.current;
+        const replaced = targets.find((entry) => entry.machine_id === before.machineId && entry.pane_id === before.paneId) ?? targets[0];
+        if (replaced) commitDock(replaceDockPane(root, dockTargetKey(replaced), target));
+      }
+      setDockZoom((zoom) => zoom === null ? null : key);
+    }
     // Only another PC mounts a new terminal (and socket), which reports its own state. A pane
     // on the same PC keeps the connected socket, which never reports again: resetting here
     // left the header on "reconnecting" after every pane switch.
@@ -520,7 +574,7 @@ export function App() {
     setOutputStopped(false);
     setNotificationViewTarget(view && paneId !== null ? { machine_id: machineId, pane_id: paneId, view } : null);
     storeSelection(machineId, paneId);
-  }, []);
+  }, [commitDock]);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   useEffect(() => {
     // An offline PC's cached roster cannot invalidate a selection. Once connected,
@@ -543,12 +597,7 @@ export function App() {
     storeSelection(selectedMachineId, selectedPaneId);
   }, [selectedMachineId, selectedPaneId]);
 
-  const selectPane = useCallback((paneId: string) => {
-    setSelectedPaneId(paneId);
-    setNotificationViewTarget(null);
-    setAutoSelected(false);
-    setDrawerOpen(false);
-  }, []);
+  const selectPane = useCallback((paneId: string) => selectTarget(selectedMachineRef.current, paneId), [selectTarget]);
 
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id, target.view)), []);
@@ -576,11 +625,12 @@ export function App() {
   // the lens follows the selected pane: each pane remembers its own. It is settled in the render
   // that selects the pane, not in an effect after it: the pane's terminal attaches in that render's
   // layout effect, and an attach in the previous pane's lens resized a pane whose lens is chat
+  const [paneViews, setPaneViews] = useState<ReadonlyMap<string, PaneView>>(() => new Map());
   const lensKey = JSON.stringify([selectedPaneId, selectedMachineId, selectedPane !== null, selectedAgent !== null, terminalAttach, settings.defaultView]);
   const notificationView = notificationViewForPane(notificationViewTarget, selectedMachineId, selectedPaneId);
   let view = lens.view;
   if (lens.key !== lensKey) {
-    if (selectedPaneId !== null) view = storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach, settings.defaultView);
+    if (selectedPaneId !== null) view = paneViews.get(paneStorageId(selectedMachineId, selectedPaneId)) ?? storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach, settings.defaultView);
     setLens({ key: lensKey, view });
   }
   // a tapped alert's lens is drawn over the pane's own, never stored: once it is gone (the pane or
@@ -594,6 +644,7 @@ export function App() {
       setLens((current) => ({ ...current, view: next }));
       setAutoSelected(false);
       if (selectedPaneId === null) return;
+      setPaneViews((current) => new Map(current).set(paneStorageId(selectedMachineId, selectedPaneId), next));
       try {
         window.localStorage.setItem(`herdr-web-ui:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
       } catch {
@@ -602,6 +653,181 @@ export function App() {
     },
     [selectedPaneId, selectedMachineId],
   );
+
+  const splitLayout = wideScreen && !dockEmpty ? layoutForPane(snapshot, selectedPaneId) : null;
+  const activeDockTarget: PaneTarget | null = selectedPaneId === null ? null : { machine_id: selectedMachineId, pane_id: selectedPaneId };
+  const dockSeed = dockEmpty ? null : splitLayout ? dockFromNative(splitLayout, selectedMachineId, selectedPaneId)
+    : activeDockTarget ? { kind: "pane" as const, target: activeDockTarget } : null;
+  const screenCells = screenOrder(dockCells(dockRoot ?? dockSeed));
+  const screenTargets = dockRoot && (dockZoom !== null || !wideScreen)
+    ? [screenCells.find((cell) => dockTargetKey(cell.target) === (dockZoom ?? (activeDockTarget && dockTargetKey(activeDockTarget)))) ?? screenCells[0]].flatMap((cell) => cell ? [cell.target] : [])
+    : screenCells.map((cell) => cell.target);
+  const identityTargets = dockRoot ? dockTargets(dockRoot) : splitLayout
+    ? cells({ ...splitLayout, zoomed: false }).map((cell) => ({ machine_id: selectedMachineId, pane_id: cell.paneId })) : [];
+  const [viewNumbers, setViewNumbers] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const assignedNumbers = assignViewNumbers(viewNumbers, identityTargets);
+  if (assignedNumbers !== viewNumbers) setViewNumbers(assignedNumbers);
+  const [splitError, setSplitError] = useState<string | null>(null);
+  useEffect(() => { setSplitError(null); }, [selectedMachineId, selectedPaneId]);
+  useEffect(() => {
+    if (!dockRoot || !machines.length) return;
+    const missing = dockTargets(dockRoot).filter((target) => {
+      const machine = machines.find((entry) => entry.id === target.machine_id);
+      return machine?.state === "connected" && machine.snapshot
+        && !machine.snapshot.panes.some((pane) => pane.pane_id === target.pane_id);
+    });
+    if (!missing.length) return;
+    let cancelled = false;
+    void Promise.all([...new Set(missing.map((target) => target.machine_id))].map(async (machineId) => ({
+      machineId, snapshot: await fetchSession(machineId).catch(() => null),
+    }))).then((fresh) => {
+      if (cancelled) return;
+      const next = pruneDock(dockRef.current, (target) => {
+        const confirmed = fresh.find((entry) => entry.machineId === target.machine_id)?.snapshot;
+        return !confirmed || confirmed.panes.some((pane) => pane.pane_id === target.pane_id);
+      });
+      if (next === dockRef.current) return;
+      commitDock(next);
+      const remaining = dockTargets(next);
+      const selected = selectionRef.current;
+      const target = remaining[0];
+      if (target && !remaining.some((entry) => entry.machine_id === selected.machineId && entry.pane_id === selected.paneId)) {
+        selectTarget(target.machine_id, target.pane_id);
+        setAutoSelected(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [dockRoot, machines, commitDock, selectTarget]);
+
+  const setPaneView = (target: PaneTarget, next: PaneView) => {
+    if (target.pane_id === selectedPaneId && target.machine_id === selectedMachineId) { setView(next); return; }
+    const key = dockTargetKey(target);
+    setPaneViews((current) => new Map(current).set(key, next));
+    try { window.localStorage.setItem(`herdr-web-ui:view:${key}`, next); } catch { /* memory still holds the lens */ }
+  };
+  const dockPaneView = (target: PaneTarget): PaneView => {
+    if (target.machine_id === selectedMachineId && target.pane_id === selectedPaneId) return view;
+    const machine = machines.find((entry) => entry.id === target.machine_id);
+    const pane = machine?.snapshot?.panes.find((entry) => entry.pane_id === target.pane_id);
+    const identity = machine?.kind === "local" ? health?.herdr : machine?.herdr;
+    return paneViews.get(dockTargetKey(target)) ?? storedView(target.pane_id, target.machine_id, pane ? !!pane.agent : null,
+      identity?.terminal_attach !== false || identity?.terminal_mirror === true, settings.defaultView);
+  };
+  const dockLabel = (target: PaneTarget): string => {
+    const machine = machines.find((entry) => entry.id === target.machine_id);
+    const pane = machine?.snapshot?.panes.find((entry) => entry.pane_id === target.pane_id);
+    const workspace = machine?.snapshot?.workspaces.find((entry) => entry.workspace_id === pane?.workspace_id);
+    return [machines.length > 1 ? machine?.name : null, workspace?.label, pane ? displayPaneTitle(pane) : target.pane_id].filter(Boolean).join(" · ");
+  };
+  const activateCell = (target: PaneTarget) => {
+    selectTarget(target.machine_id, target.pane_id);
+    // A click or Tab already has a destination inside the cell. Do not steal it for xterm.
+    setAutoSelected(true);
+    void focusPane(target.pane_id, target.machine_id).catch((error) => {
+      if (selectionRef.current.machineId === target.machine_id) setSplitError(error instanceof Error ? error.message : String(error));
+    });
+  };
+  const removeDockView = (target: PaneTarget) => {
+    const next = removeDockPane(dockRef.current ?? dockSeed, dockTargetKey(target));
+    commitDock(next); setDockZoom(null);
+    const remaining = dockTargets(next)[0];
+    if (remaining && target.machine_id === selectedMachineId && target.pane_id === selectedPaneId) {
+      selectTarget(remaining.machine_id, remaining.pane_id);
+      setAutoSelected(true);
+      focusWorkspaceListToggle();
+    } else if (!remaining) {
+      setDockEmpty(true);
+      focusWorkspaceListToggle();
+    }
+  };
+  const runSplitAction = async (action: SplitAction, paneId: string) => {
+    const machineId = selectedMachineId;
+    setSplitError(null);
+    try {
+      if (action.type === "split") {
+        const created = await splitPane({ pane_id: paneId, direction: action.direction }, machineId);
+        const root = dockRef.current;
+        if (root && dockTargets(root).some((target) => target.machine_id === machineId && target.pane_id === paneId)) {
+          commitDock(dockPane(root, { machine_id: machineId, pane_id: created.pane_id }, paneStorageId(machineId, paneId), action.direction, crypto.randomUUID()));
+        }
+        if (selectionRef.current.machineId === machineId && selectionRef.current.paneId === paneId) selectTarget(machineId, created.pane_id);
+      } else if (action.type === "zoom") {
+        if (dockRef.current) {
+          const key = paneStorageId(machineId, paneId);
+          setDockZoom((current) => current === key ? null : key);
+        } else {
+          await focusPane(paneId, machineId);
+          await zoomPane(paneId, "toggle", machineId);
+        }
+      } else if (action.type === "close") {
+        removeDockView({ machine_id: machineId, pane_id: paneId });
+      }
+    } catch (error) {
+      if (selectionRef.current.machineId === machineId) setSplitError(error instanceof Error ? error.message : String(error));
+    } finally { void load(); }
+  };
+  const resizeSplit = async (splitId: string, ratio: number) => {
+    if (!splitLayout) return;
+    const request = resizeForDrag(splitLayout, splitId, ratio);
+    if (!request) return;
+    const machineId = selectedMachineId;
+    try { await resizePane(request.paneId, request.direction, request.amount, machineId); }
+    catch (error) { if (selectionRef.current.machineId === machineId) setSplitError(error instanceof Error ? error.message : String(error)); }
+    finally { void load(); }
+  };
+  const placeDock = (source: PaneTarget, anchor: string | null, direction: "left" | "right" | "up" | "down") => {
+    const machine = machines.find((entry) => entry.id === source.machine_id);
+    if (machine?.state !== "connected" || !machine.snapshot?.panes.some((pane) => pane.pane_id === source.pane_id)) return;
+    setDockPlacement(null); setDockDragging(null);
+    if (dockTargetKey(source) === anchor) return;
+    commitDock(dockPane(dockRef.current ?? dockSeed, source, anchor, direction, crypto.randomUUID()));
+    setDockZoom(null);
+    selectTarget(source.machine_id, source.pane_id);
+  };
+  const dockActions = useMemo<PaneDockActions>(() => ({
+    viewNumbers: assignedNumbers,
+    startDrag: (target) => { setDockPlacement(null); setDockDragging(target); },
+    endDrag: () => setDockDragging(null),
+    place: (target, opener) => {
+      placementOpener.current = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      setDrawerOpen(false); setDockPlacement(target);
+    },
+  }), [assignedNumbers]);
+  const arrangeSessions = (targets: readonly PaneTarget[]) => {
+    const first = targets[0];
+    if (!first) return;
+    commitDock(runningLayout(targets)); setDockZoom(null); setDockPlacement(null);
+    const selected = targets.find((target) => target.machine_id === selectedMachineId && target.pane_id === selectedPaneId) ?? first;
+    selectTarget(selected.machine_id, selected.pane_id);
+  };
+  const running = runningTargets(machines);
+  const allSessions = allSessionTargets(machines);
+  const multiView = dockRoot !== null || splitLayout !== null;
+  const setVisibleView = (next: PaneView) => { for (const target of screenTargets) setPaneView(target, next); };
+  const allVisibleChat = screenTargets.length > 0 && screenTargets.every((target) => dockPaneView(target) === "chat");
+  const allVisibleTerminal = screenTargets.length > 0 && screenTargets.every((target) => dockPaneView(target) === "terminal");
+  const visibleTerminalAvailable = screenTargets.every((target) => {
+    const machine = machines.find((entry) => entry.id === target.machine_id);
+    const identity = machine?.kind === "local" ? health?.herdr : machine?.herdr;
+    return identity?.terminal_attach !== false || identity?.terminal_mirror === true;
+  });
+  const dockConnectionChanged = useCallback((next: boolean) => { setConnected(next); if (next) setOutputStopped(false); }, []);
+  const renderLayoutPane = (target: PaneTarget, active: boolean) => {
+    const machine = machines.find((entry) => entry.id === target.machine_id);
+    const pane = machine?.snapshot?.panes.find((entry) => entry.pane_id === target.pane_id);
+    if (!pane || !machine) return <div className="dock-unavailable" role="status">{t("This view is waiting for its PC to reconnect.")}</div>;
+    return <MachineContext.Provider value={target.machine_id}>
+      <OpenFileContext.Provider value={(path) => openFile({ path, paneId: target.pane_id, machineId: target.machine_id })}>
+        <LayoutTerminal paneId={pane.restore_error ? null : target.pane_id} restoreError={pane.restore_error ?? null}
+          agent={pane.agent ?? null} agentStatus={pane.agent_status} backgroundTasks={"background_tasks" in pane && typeof pane.background_tasks === "number" ? pane.background_tasks : 0}
+          cwd={pane.cwd ?? null} machineName={machine.name} view={dockPaneView(target)} autoSelected={active ? autoSelected : true}
+          terminalFontSize={settings.terminalFontSize} terminalWheelSpeed={settings.terminalWheelSpeed}
+          terminalFontFamily={settings.terminalFontFamily} theme={resolvedTheme} palette={settings.palette}
+          onRoleAck={active ? setRole : undefined} onConnectionChange={active ? dockConnectionChanged : undefined}
+          onServerMessage={active ? handleServerMessage : undefined} />
+      </OpenFileContext.Provider>
+    </MachineContext.Provider>;
+  };
 
   // The Alerts item says what this device does, whatever the browser's permission: in-app alerts
   // need none, so they count as on. A device that has not answered the permission question is
@@ -652,6 +878,10 @@ export function App() {
       },
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
+      zoomView: multiView && selectedPaneId ? () => void runSplitAction({ type: "zoom" }, selectedPaneId) : undefined,
+      splitRight: selectedPaneId ? () => void runSplitAction({ type: "split", direction: "right" }, selectedPaneId) : undefined,
+      splitDown: selectedPaneId ? () => void runSplitAction({ type: "split", direction: "down" }, selectedPaneId) : undefined,
+      closeView: multiView && selectedPaneId ? () => removeDockView({ machine_id: selectedMachineId, pane_id: selectedPaneId }) : undefined,
       openNewSession: () => {
         setDrawerOpen(false);
         setNewSessionMachineId(selectedMachineId);
@@ -700,7 +930,7 @@ export function App() {
       refresh: () => void load(),
       openFiles: selectedPaneId !== null ? () => { setDrawerOpen(false); setFilesOpen(true); } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, runSplitAction, multiView],
   );
 
   useShortcuts(actions, locked === false);
@@ -710,6 +940,9 @@ export function App() {
   // pane's title, and the palette is the menu's first item.
   const paletteItem: RowMenuItem = { id: "palette", label: t("Command palette"), icon: Search, run: () => setPaletteOpen(true) };
   const moreItems: RowMenuItem[] = [
+    ...(actions.splitRight ? [{ id: "split-right", label: t("Split right"), icon: Columns2, run: actions.splitRight }] : []),
+    ...(actions.splitDown ? [{ id: "split-down", label: t("Split down"), icon: Rows2, run: actions.splitDown }] : []),
+    ...(actions.zoomView ? [{ id: "zoom-view", label: t("Maximize / restore focused view"), icon: Maximize2, run: actions.zoomView }] : []),
     ...(selectedPane && selectedWorkspace
       ? [{ id: "new-tab", label: t("New tab"), title: t("New tab in {workspace}", { workspace: selectedWorkspace.label }), icon: Plus, run: () => actions.openNewTab() }]
       : []),
@@ -750,7 +983,7 @@ export function App() {
   if (locked) return <AccessGate reason={lockReason} initialCode={pairCode} onUnlocked={unlock} />;
 
   return (
-    <MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`} style={sidebarWidth === null ? undefined : { "--sidebar-user-w": `${sidebarWidth}px` } as CSSProperties}>
+    <PaneDockContext.Provider value={dockActions}><MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`} style={sidebarWidth === null ? undefined : { "--sidebar-user-w": `${sidebarWidth}px` } as CSSProperties}>
       <header className={`app-header is-zoned${chatShown ? " is-chat" : ""}`}>
         {/* is-zoned tells this header from the connecting shell's, which has no zones to draw.
             .header-side is the sidebar's own top row from 769px (styles.css); below that its
@@ -802,13 +1035,13 @@ export function App() {
         )}
         {selectedPane && (
           <div className="segmented view-switch" role="group" aria-label="Pane view">
-            <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")} title={t("Chat transcript (⌘⇧J)")}>
+            <button type="button" aria-pressed={multiView ? allVisibleChat : view === "chat"} aria-label={multiView ? t("All chat") : t("Chat")} onClick={() => multiView ? setVisibleView("chat") : setView("chat")} title={multiView ? t("Switch all visible views to chat") : t("Chat transcript (⌘⇧J)")}>
               <MessageSquare />
-              <span className="header-desktop-only">{t("Chat")}</span>
+              <span className="header-desktop-only">{multiView ? t("All chat") : t("Chat")}</span>
             </button>
-            <button type="button" aria-pressed={view === "terminal"} onClick={() => setView("terminal")} title={terminalAttach ? t("Live terminal (⌘⇧J)") : t("Live terminal: coming to Windows PCs once herdr can attach there")}>
+            <button type="button" aria-pressed={multiView ? allVisibleTerminal : view === "terminal"} aria-label={multiView ? t("All terminal") : t("Terminal")} disabled={multiView && !visibleTerminalAvailable} onClick={() => multiView ? setVisibleView("terminal") : setView("terminal")} title={multiView ? t("Switch all visible views to terminal") : terminalAttach ? t("Live terminal (⌘⇧J)") : t("Live terminal: coming to Windows PCs once herdr can attach there")}>
               <SquareTerminal />
-              <span className="header-desktop-only">{t("Terminal")}</span>
+              <span className="header-desktop-only">{multiView ? t("All terminal") : t("Terminal")}</span>
               {!terminalAttach && <span className="pill pill-soon">{t("soon")}</span>}
             </button>
           </div>
@@ -868,7 +1101,7 @@ export function App() {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} runningCount={running.length} allCount={allSessions.length} onArrangeRunning={() => arrangeSessions(running)} onArrangeAll={() => arrangeSessions(allSessions)} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
 
@@ -886,10 +1119,33 @@ export function App() {
         )}
         {/* the tab strip's panel: its id is what each tab's aria-controls points at. No tabIndex -
             the terminal (PaneTerminal) and the composer are the focusable things inside it. */}
-        <main className="terminal-host">
+        <main className="terminal-host" ref={dockHost}>
           {/* the panel sits inside main, so the page keeps its main landmark; it draws no box */}
           <div id={PANE_TABPANEL_ID} className="terminal-tabpanel" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
-          <PaneTerminal
+          <PaneDock root={dockRoot} seed={dockSeed} active={activeDockTarget} desktop={wideScreen} zoomed={dockZoom}
+            placement={dockPlacement} dragging={dockDragging} label={dockLabel} view={dockPaneView}
+            renderPane={renderLayoutPane} onActivate={activateCell}
+            onView={setPaneView} onPlace={placeDock} onRemove={removeDockView}
+            onZoom={(target) => setDockZoom((current) => current === dockTargetKey(target) ? null : dockTargetKey(target))}
+            onResize={(id, ratio) => commitDock(resizeDockSplit(dockRef.current, id, ratio))}
+            onLayout={(preset) => {
+              commitDock(runningLayout(dockTargets(dockRef.current ?? dockSeed), preset));
+              setDockZoom(null); setDockPlacement(null); setDockDragging(null);
+            }}
+            onCancel={() => {
+              setDockPlacement(null); setDockDragging(null);
+              if (placementOpener.current?.isConnected) placementOpener.current.focus();
+            }}
+            onExit={() => { commitDock(null); setDockEmpty(false); setDockZoom(null); }}
+            native={dockEmpty ? <div className="dock-unavailable" role="status">{t("Choose a workspace to open a view")}</div> : splitLayout ? <SplitView key={selectedMachineId} layout={splitLayout} activePaneId={selectedPaneId}
+              paneLabel={(paneId) => dockLabel({ machine_id: selectedMachineId, pane_id: paneId })}
+              onActivate={(paneId) => activateCell({ machine_id: selectedMachineId, pane_id: paneId })}
+              onAction={(action, paneId) => void runSplitAction(action, paneId)}
+              onResize={(id, ratio) => void resizeSplit(id, ratio)} error={splitError}
+              paneView={(paneId) => dockPaneView({ machine_id: selectedMachineId, pane_id: paneId })}
+              onPaneView={(paneId, next) => setPaneView({ machine_id: selectedMachineId, pane_id: paneId }, next)}
+              renderPane={(paneId, active) => renderLayoutPane({ machine_id: selectedMachineId, pane_id: paneId }, active)} />
+            : <PaneTerminal
             key={selectedMachineId}
             paneId={selectedPane?.restore_error ? null : selectedPaneId}
             restoreError={selectedPane?.restore_error ?? null}
@@ -909,7 +1165,8 @@ export function App() {
             onRoleAck={setRole}
             onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
             onServerMessage={handleServerMessage}
-          />
+          />} />
+          {!splitLayout && splitError && <div className="error-state" role="alert">{splitError}</div>}
           </div>
         </main>
         </div>
@@ -945,6 +1202,6 @@ export function App() {
         <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} keyboardActive={!settingsOpen} />
       </MachineContext.Provider>}
       <CommandPalette key={selectedMachineId} open={paletteOpen} onClose={() => setPaletteOpen(false)} snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} actions={actions} />
-    </div></MachineContext.Provider>
+    </div></MachineContext.Provider></PaneDockContext.Provider>
   );
 }
