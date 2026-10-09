@@ -25,6 +25,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   changed"), an approval whose long command pushed its title off the screen, and a question whose
   typed-answer row already holds a draft.
   ([#614](https://github.com/devswha/herdr-web-ui/pull/614) by @Haeminway1)
+- A chat message waiting for Claude Code's next turn is no longer pasted over text you typed in
+  the terminal's input box. While that box holds a draft the message stays in the list with the
+  reason, and **Send now** delivers it once the draft is sent or cleared.
+  ([#628](https://github.com/devswha/herdr-web-ui/pull/628))
 - The arrow keys move in `less`, `git log`, `man` and other full-screen programs in the terminal.
   Such a program asks for application cursor keys, which herdr's terminal stream does not pass on
   to the browser, so the arrows arrived in the encoding the program was not reading. They are now
