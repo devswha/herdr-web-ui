@@ -10,7 +10,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - Wrong tokens sent through a proxy on this PC share one budget, whatever loopback address the
   connection comes from: a process on the PC can no longer get a fresh budget by connecting from
-  another address in 127.0.0.0/8.
+  another address in 127.0.0.0/8. ([#626](https://github.com/devswha/herdr-web-ui/pull/626))
 
 ## [0.4.2] - 2026-10-09
 
