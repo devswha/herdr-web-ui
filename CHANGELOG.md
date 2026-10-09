@@ -18,7 +18,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Fixed
 - Claude background counts reread concurrent transcript appends and replaced transcript files
-  instead of keeping a stale count until another write.
+  instead of keeping a stale count until another write. ([#701](https://github.com/devswha/herdr-web-ui/pull/701))
 
 ## [0.4.4] - 2026-10-09
 
