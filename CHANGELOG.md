@@ -50,6 +50,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   after herdr restarts and keeps its pane ids: once the sidebar sees the restart, that PC's record
   of opened finishes is dropped, instead of keeping the entries that happen to equal the new
   session's counters. ([#623](https://github.com/devswha/herdr-web-ui/pull/623))
+- Chat reads a Claude pane's conversation on a Mac whose language puts the day before the month
+  (English (UK), for one) when herdr's Claude integration is not installed. Every Claude pane
+  there showed "Conversation unavailable" and only the terminal text.
 
 ## [0.4.2] - 2026-10-09
 
