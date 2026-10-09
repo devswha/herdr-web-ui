@@ -9,6 +9,7 @@ import type {
   FileInfo,
   HealthAuth,
   IntegrationsResponse,
+  LanExposure,
   InteractivePrompt,
   OmoActivity,
   OpenWorktreeRequest,
@@ -245,6 +246,8 @@ export interface HealthInfo {
   web_ui?: { boot_id: string | null; revision: string | null };
   /** Absent only on a server that predates the token gate. */
   auth?: HealthAuth;
+  /** present only while this server is reachable beyond this PC with no token and nothing paired */
+  lan_exposure?: LanExposure;
 }
 
 export async function fetchHealth(): Promise<HealthInfo> {

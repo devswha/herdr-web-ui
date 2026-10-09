@@ -45,6 +45,7 @@ import { ensurePushSubscription, pushSupported, removePushSubscription } from ".
 import { notificationTargetFromSearch, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
 import { useUpdates } from "./lib/updates.ts";
 import { UpdateNotice } from "./components/UpdateControls.tsx";
+import { LanExposureNotice } from "./components/LanExposureNotice.tsx";
 import { TelemetryNotice } from "./components/TelemetryControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
@@ -232,7 +233,7 @@ export function App() {
   }, [openFile, selectedPaneId, selectedMachineId]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // set by a button that points at one section of Settings, for that opening alone
-  const [settingsSection, setSettingsSection] = useState<"updates" | null>(null);
+  const [settingsSection, setSettingsSection] = useState<"updates" | "devices" | null>(null);
   const closeSettings = useCallback(() => { setSettingsOpen(false); setSettingsSection(null); }, []);
   // Settings is in the history (lib/settingsHistory.ts): Back out of its last entry closes it,
   // Forward onto one opens it again, and closing it any other way takes its entries off
@@ -897,6 +898,7 @@ export function App() {
         <UpdateNotice updates={updates} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
+        {health?.lan_exposure && <LanExposureNotice host={health.lan_exposure.host} onOpen={() => { setSettingsSection("devices"); setSettingsOpen(true); }} />}
         {snapshot && selectedPane && selectedWorkspace && (
           <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} />
         )}
