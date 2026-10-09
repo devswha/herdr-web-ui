@@ -99,6 +99,18 @@ describe("alert turns with a local clock", () => {
     expect(tab.tick(950)).toEqual([play]);
   });
 
+  it("is not silenced by a late duplicate of the chime it played itself", () => {
+    const a = new AlertTurns("a");
+    a.start(key, "blocked", 0);
+    expect(a.tick(150)).toEqual([play]);
+    a.finish(key, true, 150);
+    // tab b heard the first question late and chimed it again
+    a.receive({ ...chimed, tab: "b" }, 1_100);
+    // the pane asks again; b now has it in front, so a is the only tab to tell it
+    expect(a.start(key, "blocked", 1_480)).toEqual([claim]);
+    expect(a.tick(1_630)).toEqual([play]);
+  });
+
   it("lets a third tab wait for the second one's rescue instead of chiming with it", () => {
     const c = new AlertTurns("c");
     c.start(key, "blocked", 0);

@@ -21,6 +21,8 @@ export class AlertTurns {
   private claims = new Map<string, Map<string, number>>();
   private chimed = new Map<string, number>();
   private pending = new Map<string, Pending>();
+  /** when this tab last played each alert: another tab's chime of it soon after is a late duplicate */
+  private played = new Map<string, number>();
   constructor(private tab: string) {}
 
   start(key: string, kind: AlertSoundKind, now: number): AlertTurnMessage[] {
@@ -44,6 +46,9 @@ export class AlertTurns {
         return [];
       }
       case "chimed":
+        // A tab that heard the alert late chimed it again after this one did. That duplicate
+        // tells nothing new, and taking it for a chime could silence the pane's next question.
+        if (this.played.has(message.key)) return [];
         this.chimed.set(message.key, now);
         // that alert is settled: its claims must not defer the pane's next one
         this.claims.delete(message.key);
@@ -82,6 +87,7 @@ export class AlertTurns {
     const pending = this.pending.get(key);
     if (!pending) return [];
     this.pending.delete(key);
+    if (played) this.played.set(key, now);
     return [{ type: played ? "chimed" : "withdraw", tab: this.tab, key, kind: pending.kind }];
   }
 
@@ -91,6 +97,7 @@ export class AlertTurns {
     this.pending.clear();
     this.claims.clear();
     this.chimed.clear();
+    this.played.clear();
     return messages;
   }
 
@@ -112,6 +119,7 @@ export class AlertTurns {
       if (claims.size === 0) this.claims.delete(key);
     }
     for (const [key, at] of this.chimed) if (now - at > LOOKBACK_MS) this.chimed.delete(key);
+    for (const [key, at] of this.played) if (now - at > LOOKBACK_MS) this.played.delete(key);
   }
 }
 
