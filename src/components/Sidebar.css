@@ -512,3 +512,16 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 
   .sidebar-status[data-status="working"] svg { animation: none; }
 }
+
+/* a finger presses a row as an iPhone list row is pressed: it fills, it does not dim (styles.css) */
+@media (hover: none) and (pointer: coarse) {
+  .workspace-header:has(> .pane-select:active),
+  .sidebar-footer-action:active {
+    background: var(--side-hover);
+  }
+
+  .pane-select:active,
+  .sidebar-footer-action:active {
+    opacity: 1;
+  }
+}

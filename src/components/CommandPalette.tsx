@@ -14,6 +14,7 @@ import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import { placeLine } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { useSheetSwipe } from "../lib/sheets.ts";
 
 const RECENT_KEY = "herdr-web-ui:recent-panes";
 const RECENT_LIMIT = 8;
@@ -76,6 +77,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
   const surface = useFocusTrap<HTMLElement>(open, { initialFocus: inputRef });
+  useSheetSwipe(surface, onClose);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // Terminal attachment can move focus after the palette opens. Escape belongs to

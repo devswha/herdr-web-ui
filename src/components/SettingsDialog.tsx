@@ -29,6 +29,7 @@ import { PushTestControls } from "./PushTestControls.tsx";
 import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 import { TelemetryControls } from "./TelemetryControls.tsx";
+import { useSheetSwipe } from "../lib/sheets.ts";
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -602,6 +603,7 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
   const settingsScrollRef = useRef(0);
   // Tab stays inside the dialog, and the focus returns to whatever opened it
   const surface = useFocusTrap<HTMLElement>(true, { initialFocus: backRef });
+  useSheetSwipe(surface, onClose);
   const shown = useRef<{ page: SettingsPage | null; keyBar: boolean } | null>(null);
   const label = (id: SettingsPage): string => t(id === "appearance" ? "Appearance" : id === "chat" ? "Chat" : id === "terminal" ? "Terminal" : id === "alerts" ? "Alerts" : id === "voice" ? "Voice input"
     : id === "usage" ? "Subscription usage" : id === "shortcuts" ? "Shortcuts" : id === "devices" ? "Phone & devices" : id === "remote" ? "Remote PCs" : "About");

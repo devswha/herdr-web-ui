@@ -881,7 +881,8 @@ export function App() {
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
 
-        {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
+        {/* kept on the page closed (styles.css): a swipe that begins on it closes the drawer */}
+        <div className={`scrim${drawerOpen ? " is-open" : ""}`} aria-hidden="true" onClick={() => setDrawerOpen(false)} />
 
         {/* a file path in the chat opens in the viewer, relative to the selected pane's folder */}
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>

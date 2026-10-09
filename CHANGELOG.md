@@ -7,6 +7,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- On a phone the app moves and responds like an iPhone app rather than a web page. Menus,
+  dialogs, the palette and Settings slide up from the bottom, follow your finger when you drag
+  them down, and slide away however they close; the workspace drawer follows your finger too.
+  Over the chat the header is frosted glass that the conversation scrolls under, and the message
+  box floats over the conversation's end. A tapped button dims at once instead of drawing an amber
+  box, a list row fills when pressed, a long press on the app's buttons and rows no longer selects
+  their text, and a pinch no longer zooms the whole app (Settings sizes the text).
+
 ### Fixed
 - Codex Chat can read a new session with one short answer when its complete submitted
   first prompt and answer identify it unambiguously. Older conversations, unreadable
