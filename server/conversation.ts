@@ -46,7 +46,7 @@ import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, 
 import { isOmoProcess, omoSessionForPane } from "./omo.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
-import { piTranscriptPath, unwrittenSession } from "./pi.ts";
+import { piTranscriptInStore, piTranscriptPath, unwrittenSession } from "./pi.ts";
 import { forgetAllPiIndexes, forgetPiIndex, piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { defaultDevinDbPath, DevinHistoryUnavailable, devinConversation, forgetDevinState } from "./devin.ts";
 import { trimOutput } from "./tool-output.ts";
@@ -1033,7 +1033,10 @@ async function ompTranscriptPath(paneId: string, cwd: string): Promise<string> {
   // omp names its session file at start and writes it with the first answer
   const unwritten = unwrittenSession(path, store);
   if (unwritten !== null) throw new ConversationNotStarted(unwritten.id, "omp-transcript", unwritten.path);
-  return path;
+  // the check above is lexical: a link out of the store is no transcript of this pane
+  const inStore = piTranscriptInStore(path, store);
+  if (inStore === null) throw new ConversationUnavailable("no_session_path");
+  return inStore;
 }
 
 /** Where a pane's conversation is: a transcript file, or a session in OpenCode's database. */

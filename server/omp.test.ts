@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
@@ -109,6 +109,17 @@ describe("an omp pane's chat", () => {
     expect(answer.turns.map((turn) => turn.parts[0])).toEqual([
       { kind: "text", text: "synthetic question" }, { kind: "text", text: "synthetic answer" },
     ]);
+  });
+
+  it("refuses a transcript in an omp profile store that links outside it", async () => {
+    const store = join(home, ".omp/profiles/personal/agent/sessions/-project");
+    mkdirSync(store, { recursive: true });
+    const outside = join(home, "elsewhere.jsonl");
+    writeFileSync(outside, transcript(pane.cwd!));
+    const path = join(store, "2026-10-01_s1.jsonl");
+    symlinkSync(outside, path);
+    agentSession = { agent: "omp", kind: "path", value: path };
+    await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
   });
 
   it.skipIf(process.platform !== "linux")("reads the transcript the pane's omp process holds open when herdr names none", async () => {
