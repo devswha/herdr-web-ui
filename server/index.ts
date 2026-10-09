@@ -2056,8 +2056,9 @@ export function createServer(
                 // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
                 const origin = attachment?.clients.has(client) ? attachment : undefined;
                 const claim = client.data.attached.get(message.pane_id);
+                const roles = client.data.roles;
                 // checked again right before herdr is written to: its connect is awaited (#545)
-                const allowed = () => mayType(client) && client.data.attached.get(message.pane_id) === claim
+                const allowed = () => mayType(client) && client.data.roles === roles && client.data.attached.get(message.pane_id) === claim
                   && (!origin || (attachments.get(message.pane_id) === origin && origin.clients.has(client)));
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
@@ -2085,7 +2086,8 @@ export function createServer(
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
                 const claim = client.data.attached.get(message.pane_id);
-                const allowed = () => mayType(client) && attachments.get(message.pane_id) === attachment && attachment.pty === pty
+                const roles = client.data.roles;
+                const allowed = () => mayType(client) && client.data.roles === roles && attachments.get(message.pane_id) === attachment && attachment.pty === pty
                   && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client) && attachment.ready && !attachment.held;
                 void serialize(message.pane_id, () => {
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
@@ -2138,6 +2140,7 @@ export function createServer(
               const origin = attachment?.clients.has(client) ? attachment : undefined;
               const pty = origin?.pty;
               const claim = client.data.attached.get(message.pane_id);
+              const roles = client.data.roles;
               if (attachment?.held) {
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
@@ -2170,8 +2173,9 @@ export function createServer(
                 if (!clients.has(client)) return;
                 authorizeSocket(client);
                 // the same checks once more right before herdr is written to: its connect is awaited (#545)
-                const allowed = () => mayType(client) && (!origin || (attachments.get(message.pane_id) === origin && origin.pty === pty
-                  && client.data.attached.get(message.pane_id) === claim && origin.clients.has(client)));
+                const allowed = () => mayType(client) && client.data.roles === roles && !attachments.get(message.pane_id)?.held
+                  && (!origin || (attachments.get(message.pane_id) === origin && origin.pty === pty && origin.ready
+                    && client.data.attached.get(message.pane_id) === claim && origin.clients.has(client)));
                 try {
                   await paneSendKeys(message.pane_id, message.keys, undefined, allowed);
                 } catch (error) {
