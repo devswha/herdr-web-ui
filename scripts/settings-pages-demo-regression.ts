@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
 import { buildDemoApp } from "./demo-build.ts";
 import { openSettingsPage } from "./settings-page.ts";
+import { KO } from "../src/lib/i18n.ko.ts";
+import { JA } from "../src/lib/i18n.ja.ts";
+import { ZH } from "../src/lib/i18n.zh.ts";
 
 // Settings on the unmodified app over the demo's fixture transport: every page fits a phone, and
 // the browser's Back button steps out of the dialog instead of out of the app. All files and
@@ -22,7 +25,7 @@ const openSettings = async (page: Page): Promise<void> => {
 const entryOf = (page: Page): Promise<{ page: string | null; keyBar: boolean; depth: number } | null> =>
   page.evaluate(() => (history.state as Record<string, unknown> | null)?.["herdr-web-ui:settings"] as never ?? null);
 /** Controls and text that reach past their card, and cards past the page's box: a row wider than its card is cut there. */
-const cutOff = (page: Page): Promise<string[]> => page.locator(".settings-body").evaluate((body) => {
+const cutOff = (page: Page): Promise<string[]> => page.locator(".settings-body:not([hidden]), .settings-key-bar-body").evaluate((body) => {
   const edge = body.getBoundingClientRect();
   const out = [...body.querySelectorAll<HTMLElement>("button, input, select, a, .settings-card, .settings-row")]
     .filter((node) => {
@@ -56,10 +59,13 @@ try {
   try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? chromium.executablePath(), headless: true, args: ["--no-sandbox"] });
     try {
-      for (const width of [390, 320]) {
-        const context = await browser.newContext({ viewport: { width, height: 760 }, isMobile: true, hasTouch: true, locale: "en-US" });
+      for (const [width, language] of [[390, "en"], [320, "en"], [320, "ko"], [320, "ja"], [320, "zh"]] as const) {
+        const started = performance.now();
+        const strings: Record<string, string> = language === "ko" ? KO : language === "ja" ? JA : language === "zh" ? ZH : {};
+        const label = (name: string): string => strings[name] ?? name;
+        const context = await browser.newContext({ viewport: { width, height: 760 }, isMobile: true, hasTouch: true, locale: language });
         try {
-          await context.addInitScript((settings) => { if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", settings); }, JSON.stringify(SETTINGS));
+          await context.addInitScript((settings) => { if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", settings); }, JSON.stringify({ ...SETTINGS, language }));
           const page = await context.newPage();
           const errors: string[] = [];
           page.on("pageerror", (error) => errors.push(error.message));
@@ -67,22 +73,31 @@ try {
           await page.locator(".conn-live").waitFor({ state: "attached" });
           await openSettings(page);
           for (const name of PAGES) {
-            await openSettingsPage(page, name);
+            await openSettingsPage(page, label(name), label("Back to settings"));
             // what a page asks the server for (devices, the phone address, the accounts) has arrived
-            await page.waitForFunction(() => ![...document.querySelectorAll(".settings-body [role='status']")].some((node) => /Loading…|Asking this PC/.test(node.textContent ?? "")));
+            await page.waitForFunction((loading) => ![...document.querySelectorAll(".settings-body [role='status']")].some((node) => loading.includes(node.textContent?.trim() ?? "")),
+              [label("Loading…"), label("Asking this PC about Tailscale…")]);
             if (name === "Subscription usage") await page.locator(".usage-accounts-row").first().waitFor();
-            assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone`);
+            if (name === "Voice input") await page.locator(".voice-key").waitFor();
+            assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }
+          await openSettingsPage(page, label("Terminal"), label("Back to settings"));
+          await page.getByRole("button", { name: label("Edit key bar"), exact: true }).tap();
+          await page.locator(".key-bar-settings").waitFor();
+          assert.deepEqual(await cutOff(page), [], `Key bar fits a ${width}px phone (${language})`);
+          await page.getByRole("button", { name: label("Back to settings"), exact: true }).tap();
           // the quick replies are text fields beside a Remove button each: both stay in the card
-          await openSettingsPage(page, "Chat");
-          const replies = page.locator(".quick-replies-list li");
-          assert.ok(await replies.count() > 0);
-          await page.getByRole("button", { name: "Remove quick reply 1", exact: true }).tap();
-          assert.equal(await replies.count(), (JSON.parse(await page.evaluate(() => localStorage.getItem("herdr-web-ui:settings")!)) as { quickReplies: string[] }).quickReplies.length);
-          await page.getByRole("button", { name: "Restore defaults", exact: true }).tap();
+          if (language === "en") {
+            await openSettingsPage(page, "Chat");
+            const replies = page.locator(".quick-replies-list li");
+            assert.ok(await replies.count() > 0);
+            await page.getByRole("button", { name: "Remove quick reply 1", exact: true }).tap();
+            assert.equal(await replies.count(), (JSON.parse(await page.evaluate(() => localStorage.getItem("herdr-web-ui:settings")!)) as { quickReplies: string[] }).quickReplies.length);
+            await page.getByRole("button", { name: "Restore defaults", exact: true }).tap();
+          }
           assert.deepEqual(errors, []);
-          await page.getByRole("button", { name: "Close settings", exact: true }).tap();
-          console.log(`PASS every Settings page fits a ${width}px phone, quick replies and their Remove buttons included`);
+          await page.getByRole("button", { name: label("Close settings"), exact: true }).tap();
+          console.log(`PASS every Settings page and key bar fit a ${width}px phone (${language}); ${(performance.now() - started).toFixed(0)}ms`);
         } finally {
           await context.close();
         }
