@@ -533,7 +533,7 @@ export function createServer(
     if (attachment !== lease.attachment || attachment.pty !== lease.pty || !owner.data.attached.has(paneId)
       || !attachment.clients.has(owner) || !attachment.ready) throw new HerdrError("input_not_ready", "The pending message's pane connection changed");
   }
-  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean; screen: string }> {
+  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean }> {
     authorizePending(owner, paneId, lease);
     // The same normalized snapshot the client sees includes a known Codex finish that
     // herdr reports as unknown. Nothing is inferred from a bare unknown state.
@@ -565,7 +565,7 @@ export function createServer(
       throw new HerdrError("agent_not_ready", "The agent's current input state is not known");
     }
     authorizePending(owner, paneId, lease);
-    return { pane, identity: current, working: current.agent !== null && (pane.agent_status === "working" || collapsed), screen };
+    return { pane, identity: current, working: current.agent !== null && (pane.agent_status === "working" || collapsed) };
   }
   const pendingFault = (error: unknown) => ({
     code: error instanceof HerdrError || error instanceof PendingInputError ? error.code : "submit_failed",
@@ -586,9 +586,11 @@ export function createServer(
         throw new HerdrError("pending_wait", "The agent is working again; this message still waits for its next turn");
       }
       // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
-      // The box is the live screen's; only the viewport read tells Claude's grey text from a draft.
-      if (context.identity.agent === "claude" && claudeInputDraft(context.screen, (await paneRead({ paneId, source: "visible", format: "ansi" })).text)) {
-        throw new HerdrError("input_draft", "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message");
+      // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
+      // read comes after the colors, so text typed between the two is in the box and holds the message.
+      if (context.identity.agent === "claude") {
+        const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
+        if (claudeInputDraft((await paneRead({ paneId, source: "detection", format: "text" })).text, colors)) throw new HerdrError("input_draft", "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message");
       }
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);

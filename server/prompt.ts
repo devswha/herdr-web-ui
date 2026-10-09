@@ -2722,6 +2722,8 @@ export function claudeInputDraft(live: string, ansi: string): boolean {
   if (box === null) return false;
   if (box === "clipped" || !box.plain[0]?.startsWith("❯")) return true;
   if (box.plain.join("\n").slice(1).replace(/\u00a0/g, " ").trim() === "") return false;
+  // a paste or an image Claude folded into a placeholder is content, however it is colored
+  if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain.join(" "))) return true;
   const shown = claudeInputBox(ansi);
   if (shown === null || shown === "clipped" || shown.plain.join("\n") !== box.plain.join("\n")) return true;
   let prompt = false;

@@ -1605,6 +1605,9 @@ describe("Claude's suggested next prompt", () => {
     expect(draft(screen("❯ \u001b[2mfirst grey row\u001b[0m", "  \u001b[2msecond grey row\u001b[0m\r\n" + RULE))).toBe(false);
     expect(draft(screen("❯\u00a0"))).toBe(false);
     expect(draft(screen("❯ \u001b[7m \u001b[27m"))).toBe(false);
+    // a paste or an image Claude folded into a placeholder is content, dim or not
+    expect(draft(screen("❯ \u001b[2m[Pasted text #1 +12 lines]\u001b[0m"))).toBe(true);
+    expect(draft(screen("❯ \u001b[2m[Image #1]\u001b[0m"))).toBe(true);
     // a named session labels its rule
     expect(draft(screen("❯ typed", "──── my-session ─"))).toBe(true);
     // no rule on screen says nothing
