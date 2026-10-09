@@ -63,9 +63,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A page that opened the pane meanwhile took it for a shell: it opened the terminal and fitted the
   shared terminal to itself. Needs the remote PC's runtime from the next release.
   ([#625](https://github.com/devswha/herdr-web-ui/pull/625))
-- Chat reads a Claude pane's conversation on a Mac whose language puts the day before the month
-  (English (UK), for one) when herdr's Claude integration is not installed. Every Claude pane
-  there showed "Conversation unavailable" and only the terminal text.
+- Chat reads a Claude pane's conversation on a Mac set to a time format other than US English,
+  such as English (UK), German, French, Japanese or Korean, when herdr's Claude integration is not
+  installed. Every Claude pane there showed "Conversation unavailable" and only the terminal text.
+  ([#646](https://github.com/devswha/herdr-web-ui/pull/646) by @jiunshinn)
 
 ## [0.4.2] - 2026-10-09
 
