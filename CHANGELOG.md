@@ -28,9 +28,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Fixed
 - The terminal announces itself: it is a labelled region named after the pane — "Terminal for
-  Idempotent payments" — so a screen reader names the pane before its content. xterm draws the
-  screen to a canvas and carries no accessible name, so before this a reader reaching the
-  terminal found an unnamed control.
+  Idempotent payments" — so a screen reader names the pane before its content. The label is
+  translated and appears only in the terminal view, not over the chat.
   ([#633](https://github.com/devswha/herdr-web-ui/pull/633) by @radicor)
 - Settings keeps a slow browser-history traversal from closing the key bar editor by itself,
   and no longer retries an unanswered traversal every second.
