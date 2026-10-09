@@ -14,6 +14,7 @@ export interface SourceIdentity {
   untrackedContentSha256: string | null;
   untrackedFilesTruncated: boolean | null;
   fingerprint: string | null;
+  reason: string | null;
 }
 
 export interface CheckStep {
@@ -40,7 +41,15 @@ export interface CheckReport {
   endedAt: string | null;
   durationMs: number | null;
   mode: string[];
-  revision: { head: string | null; baseBranch: string | null; baseSha: string | null; branch: string | null };
+  revision: {
+    head: string | null;
+    testedSha: string | null;
+    headSha: string | null;
+    headBranch: string | null;
+    baseBranch: string | null;
+    baseSha: string | null;
+    branch: string | null;
+  };
   toolchain: { bunVersion: string; nodeVersion: string | null; herdrVersion: string | null; herdrTestShards: number | null; platform: string; arch: string; ci: boolean };
   source: { start: SourceIdentity; end: SourceIdentity | null; unchanged: boolean | null };
   verification: {
@@ -97,7 +106,12 @@ export function reportPaths(
 }
 
 export function sourceIdentity(cwd: string, excludedUntrackedPaths: readonly string[] = []): SourceIdentity {
-  const unknown = (head: string | null, branch: string | null): SourceIdentity => ({
+  const boundedReason = (reason: string): string => reason.replace(/[\r\n\t]+/g, " ").trim().slice(0, 512) || "source identity unavailable";
+  const gitFailure = (operation: string, result: ReturnType<typeof spawnSync>): string => {
+    const detail = result.error?.message || (Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8").trim() : "");
+    return boundedReason(`git ${operation} failed${detail ? `: ${detail}` : ` (exit ${result.status ?? "unknown"})`}`);
+  };
+  const unknown = (head: string | null, branch: string | null, reason: string): SourceIdentity => ({
     head,
     branch,
     trackedDiffSha256: null,
@@ -106,18 +120,20 @@ export function sourceIdentity(cwd: string, excludedUntrackedPaths: readonly str
     untrackedContentSha256: null,
     untrackedFilesTruncated: null,
     fingerprint: null,
+    reason: boundedReason(reason),
   });
   const git = (args: string[]) => spawnSync("git", ["-C", cwd, ...args], { encoding: "buffer", maxBuffer: 256 * 1024 * 1024 });
   const headResult = git(["rev-parse", "--verify", "HEAD"]);
   const head = headResult.status === 0 ? headResult.stdout.toString("utf8").trim() || null : null;
   const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   const branch = branchResult.status === 0 ? branchResult.stdout.toString("utf8").trim() || null : null;
-  if (head === null || headResult.error) return unknown(head, branch);
+  if (head === null || headResult.error) return unknown(head, branch, gitFailure("rev-parse --verify HEAD", headResult));
 
   const diff = git(["diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD", "--"]);
   const files = git(["ls-files", "--others", "--exclude-standard", "-z"]);
   if (diff.status !== 0 || files.status !== 0 || diff.error || files.error) {
-    return unknown(head, branch);
+    const failed = diff.status !== 0 || diff.error ? gitFailure("diff", diff) : gitFailure("ls-files --others", files);
+    return unknown(head, branch, failed);
   }
 
   const trackedDiffSha256 = createHash("sha256").update(diff.stdout).digest("hex");
@@ -143,7 +159,7 @@ export function sourceIdentity(cwd: string, excludedUntrackedPaths: readonly str
       untrackedContent.update(path).update("\0").update(String(mode)).update("\0").update(sha256).update("\0");
       if (untrackedFiles.length < detailsLimit) untrackedFiles.push({ path, sha256 });
     }
-  } catch {
+  } catch (error) {
     return {
       head,
       branch,
@@ -153,6 +169,7 @@ export function sourceIdentity(cwd: string, excludedUntrackedPaths: readonly str
       untrackedContentSha256: null,
       untrackedFilesTruncated: names.length > untrackedFiles.length,
       fingerprint: null,
+      reason: boundedReason(`untracked source identity unavailable: ${error instanceof Error ? error.message : String(error)}`),
     };
   }
   const untrackedContentSha256 = untrackedContent.digest("hex");
@@ -168,6 +185,7 @@ export function sourceIdentity(cwd: string, excludedUntrackedPaths: readonly str
     untrackedContentSha256,
     untrackedFilesTruncated: names.length > untrackedFiles.length,
     fingerprint,
+    reason: null,
   };
 }
 
@@ -195,15 +213,68 @@ export function baseRevision(cwd: string, env: Record<string, string | undefined
   return { branch, sha: sha && /^[0-9a-f]{40,64}$/i.test(sha) ? sha : null };
 }
 
+/** The PR source commit is distinct from a merge commit checked out by CI. */
+function headRevision(
+  cwd: string,
+  env: Record<string, string | undefined>,
+  tested: { sha: string | null; branch: string | null },
+): { headSha: string | null; headBranch: string | null } {
+  const isPullRequest = env["GITHUB_EVENT_NAME"] === "pull_request" || env["GITHUB_EVENT_NAME"] === "pull_request_target";
+  if (!isPullRequest) return { headSha: tested.sha, headBranch: tested.branch };
+  try {
+    const eventPath = env["GITHUB_EVENT_PATH"];
+    if (!eventPath) return { headSha: null, headBranch: null };
+    const path = resolve(cwd, eventPath);
+    if (statSync(path).size > 1_048_576) return { headSha: null, headBranch: null };
+    const event = JSON.parse(readFileSync(path, "utf8")) as {
+      pull_request?: { head?: { sha?: unknown; ref?: unknown } };
+    };
+    const sha = event.pull_request?.head?.sha;
+    const branch = event.pull_request?.head?.ref;
+    if (typeof sha !== "string" || !/^[0-9a-f]{40,64}$/i.test(sha)
+      || typeof branch !== "string" || branch.length === 0 || branch.length > 512 || /[\0-\x1f\x7f]/.test(branch)) {
+      return { headSha: null, headBranch: null };
+    }
+    return { headSha: sha.toLowerCase(), headBranch: branch };
+  } catch {
+    return { headSha: null, headBranch: null };
+  }
+}
+
+export function revisionDetails(
+  cwd: string,
+  env: Record<string, string | undefined>,
+  source: Pick<SourceIdentity, "head" | "branch">,
+): CheckReport["revision"] {
+  const base = baseRevision(cwd, env);
+  const environmentBranch = env["GITHUB_HEAD_REF"]
+    || (env["GITHUB_REF_TYPE"] === "branch" ? env["GITHUB_REF_NAME"] : null)
+    || env["CI_COMMIT_BRANCH"]
+    || null;
+  const branch = (source.branch || environmentBranch)?.slice(0, 512) ?? null;
+  const head = headRevision(cwd, env, { sha: source.head, branch });
+  return {
+    head: source.head,
+    testedSha: source.head,
+    headSha: head.headSha,
+    headBranch: head.headBranch,
+    baseBranch: base.branch,
+    baseSha: base.sha,
+    branch,
+  };
+}
+
 export function verificationResult(
   unchanged: boolean | null,
   status: CheckReport["status"],
   artifactUnchangedAfterBuild: boolean | null = null,
+  artifactVerificationRequired = false,
 ): CheckReport["verification"] {
   const base = { scope: "source-state-and-step-results" as const, browserCurrentSource: "not-claimed" as const };
   if (unchanged === false) return { ...base, status: "invalidated", reason: "tracked or untracked source contents changed during the check" };
   if (artifactUnchangedAfterBuild === false) return { ...base, status: "invalidated", reason: "dist changed after the check build; browser artifact verification was invalidated" };
   if (unchanged === null) return { ...base, status: "unknown", reason: "the source identity could not be captured completely" };
+  if (artifactVerificationRequired && artifactUnchangedAfterBuild === null) return { ...base, status: "unknown", reason: "the built dist identity could not be captured completely" };
   if (status === "success") return { ...base, status: "verified", reason: null };
   return { ...base, status: "unknown", reason: status === "interrupted" ? "the check was interrupted" : "the check did not complete successfully" };
 }
@@ -218,8 +289,12 @@ export function reportExitCode(
   persistenceFailed: boolean,
   sourceUnchanged: boolean | null = null,
   artifactUnchangedAfterBuild: boolean | null = null,
+  artifactVerificationRequired = false,
 ): number {
-  return exitCode === 0 && (persistenceFailed || sourceUnchanged === false || artifactUnchangedAfterBuild === false) ? 1 : exitCode;
+  return exitCode === 0 && (
+    persistenceFailed || sourceUnchanged !== true || artifactUnchangedAfterBuild === false
+    || (artifactVerificationRequired && artifactUnchangedAfterBuild !== true)
+  ) ? 1 : exitCode;
 }
 
 export function artifactIdentity(path: string): string | null {
@@ -278,7 +353,15 @@ export function initialReport(input: {
     endedAt: null,
     durationMs: null,
     mode: input.mode,
-    revision: { head: input.source.head, baseBranch: input.baseBranch, baseSha: input.baseSha, branch: input.source.branch },
+    revision: {
+      head: input.source.head,
+      testedSha: input.source.head,
+      headSha: null,
+      headBranch: null,
+      baseBranch: input.baseBranch,
+      baseSha: input.baseSha,
+      branch: input.source.branch,
+    },
     toolchain: {
       bunVersion: Bun.version,
       nodeVersion: null,

@@ -6,13 +6,14 @@ const MAX_MESSAGES = 40;
 const MAX_MESSAGE_LENGTH = 1_000;
 const MAX_FAILURE_LENGTH = 2_000;
 const SCREENSHOT_TIMEOUT_MS = 5_000;
+const TRACE_TIMEOUT_MS = 15_000;
 let nextSessionId = 0;
 
 export interface BrowserEvidencePage {
   onConsole(listener: (type: string, text: string) => void): void;
   onPageError(listener: (message: string) => void): void;
   isOpen(): boolean;
-  screenshot(path: string): Promise<void>;
+  screenshot(path: string, timeoutMs: number): Promise<void>;
 }
 
 export interface BrowserEvidenceTracing {
@@ -61,6 +62,27 @@ const failureOf = (error: unknown): { name: string; message: string } => {
   return { name: typeof error, message: limited(String(error), MAX_FAILURE_LENGTH) };
 };
 
+class EvidenceTimeoutError extends Error {
+  constructor(operation: string, timeoutMs: number) {
+    super(`${operation} timed out after ${timeoutMs}ms`);
+    this.name = "EvidenceTimeoutError";
+  }
+}
+
+const withTimeout = async <T>(operation: Promise<T>, name: string, timeoutMs: number): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new EvidenceTimeoutError(name, timeoutMs)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+};
+
 /** Begin bounded collection for one test-owned page. Trace snapshots/network are deliberately off. */
 export async function startBrowserEvidence(options: BrowserEvidenceOptions): Promise<BrowserEvidenceSession> {
   const directory = options.directory;
@@ -88,11 +110,21 @@ export async function startBrowserEvidence(options: BrowserEvidenceOptions): Pro
     options.page.onConsole((type, text) => record(`console:${type}`, text));
     options.page.onPageError((message) => record("pageerror", message));
     if (options.trace && options.tracing) {
+      const tracing = options.tracing;
+      let startOperation: Promise<void> | undefined;
       try {
-        await options.tracing.start({ screenshots: true, snapshots: false, sources: false });
+        startOperation = tracing.start({ screenshots: true, snapshots: false, sources: false });
+        await withTimeout(startOperation, "trace start", TRACE_TIMEOUT_MS);
         traceStarted = true;
       } catch (error) {
         pendingErrors.push(`trace start: ${failureOf(error).message}`);
+        if (startOperation && error instanceof EvidenceTimeoutError) {
+          void startOperation.then(async () => {
+            try {
+              await withTimeout(tracing.stop(), "trace cleanup", TRACE_TIMEOUT_MS);
+            } catch { /* a late-started trace is best-effort cleanup */ }
+          }).catch(() => {});
+        }
       }
     }
   }
@@ -100,20 +132,26 @@ export async function startBrowserEvidence(options: BrowserEvidenceOptions): Pro
   const stopTrace = async (path?: string): Promise<void> => {
     if (!traceStarted || !options.tracing) return;
     traceStarted = false;
-    await options.tracing.stop(path);
+    const stopOperation = options.tracing.stop(path);
+    try {
+      await withTimeout(stopOperation, "trace stop", TRACE_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof EvidenceTimeoutError && path !== undefined) {
+        void stopOperation.then(() => files.chmod(path, 0o600)).catch(() => {});
+      }
+      throw error;
+    }
   };
 
   const screenshotWithTimeout = async (path: string): Promise<void> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const screenshotOperation = options.page.screenshot(path, SCREENSHOT_TIMEOUT_MS);
     try {
-      await Promise.race([
-        options.page.screenshot(path),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error(`screenshot timed out after ${SCREENSHOT_TIMEOUT_MS}ms`)), SCREENSHOT_TIMEOUT_MS);
-        }),
-      ]);
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      await withTimeout(screenshotOperation, "screenshot", SCREENSHOT_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof EvidenceTimeoutError) {
+        void screenshotOperation.then(() => files.chmod(path, 0o600)).catch(() => {});
+      }
+      throw error;
     }
   };
 
@@ -195,7 +233,7 @@ export function browserEvidencePage(page: Page): BrowserEvidencePage {
     onConsole: (listener) => { page.on("console", (message) => listener(message.type(), message.text())); },
     onPageError: (listener) => { page.on("pageerror", (error) => listener(error.message)); },
     isOpen: () => !page.isClosed(),
-    screenshot: async (path) => { await page.screenshot({ path }); },
+    screenshot: async (path, timeout) => { await page.screenshot({ path, timeout }); },
   };
 }
 

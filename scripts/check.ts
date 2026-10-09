@@ -37,12 +37,12 @@ import { finished } from "node:stream/promises";
 import {
   artifactIdentity,
   artifactUnchangedAfterBuild,
-  baseRevision,
   createRunId,
   initialReport,
   persistReport,
   reportExitCode,
   reportPaths,
+  revisionDetails,
   sourceIdentity,
   verificationResult,
   type CheckReport,
@@ -195,6 +195,29 @@ async function main(): Promise<void> {
   try { todo = plan(args); } catch (error) { console.error((error as Error).message); process.exit(2); }
   const needsHerdr = needsLock(todo);
   const cwd = process.cwd();
+  const cleanups: (() => void)[] = [];
+  let cleaned = false;
+  const cleanup = (): void => {
+    if (cleaned) return;
+    cleaned = true;
+    for (const step of cleanups.reverse()) try { step(); } catch (error) { console.error(`check: cleanup failed: ${(error as Error).message}`); }
+  };
+  if (needsHerdr) {
+    try {
+      const held = await lock();
+      if ("heldBy" in held) {
+        const message = Number.isNaN(held.heldBy)
+          ? `port ${LOCK_PORT} on 127.0.0.1, which a herdr-backed check run holds while it runs, is in use by something else`
+          : `another \`bun run check\` with a herdr-backed command is running on this PC (pid ${held.heldBy}); wait for it to end`;
+        console.error(`check: ${message}`);
+        process.exit(1);
+      }
+      cleanups.push(held.release);
+    } catch (error) {
+      console.error(`check: could not acquire the herdr-backed check lock: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  }
   const runId = createRunId();
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
@@ -260,6 +283,7 @@ async function main(): Promise<void> {
     untrackedContentSha256: null,
     untrackedFilesTruncated: null,
     fingerprint: null,
+    reason: "source identity has not been captured",
   });
   let sourceStart = unavailableSource();
   const report: CheckReport = initialReport({
@@ -282,53 +306,57 @@ async function main(): Promise<void> {
     }
   };
   try { persistReport(paths.reportPath, report, logDirectory); }
-  catch (error) { console.error(`check: could not create report ${paths.reportPath}: ${(error as Error).message}`); process.exit(1); }
+  catch (error) {
+    console.error(`check: could not create report ${paths.reportPath}: ${(error as Error).message}`);
+    cleanup();
+    process.exit(1);
+  }
   console.log(`check: report ${paths.reportPath}`);
   const nodeVersion = spawnSync("node", ["--version"], { encoding: "utf8", timeout: 5_000 });
   const nodeVersionLine = nodeVersion.stdout?.trim().split(/\r?\n/, 1)[0] ?? "";
   report.toolchain.nodeVersion = nodeVersion.status === 0 && /^v\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(nodeVersionLine) ? nodeVersionLine : null;
-  const base = baseRevision(cwd, process.env);
-  report.revision.baseBranch = base.branch;
-  report.revision.baseSha = base.sha;
   try { sourceStart = sourceIdentity(cwd, sourceExcludes); }
-  catch (error) { report.errors.push(`source identity unavailable: ${(error as Error).message}`); }
+  catch (error) {
+    const reason = String((error as Error).message || error).replace(/[\r\n\t]+/g, " ").trim().slice(0, 512) || "source identity could not be captured";
+    sourceStart = { ...unavailableSource(), reason };
+  }
   report.source.start = sourceStart;
-  report.revision.head = sourceStart.head;
-  const environmentBranch = process.env["GITHUB_HEAD_REF"]
-    || (process.env["GITHUB_REF_TYPE"] === "branch" ? process.env["GITHUB_REF_NAME"] : null)
-    || process.env["CI_COMMIT_BRANCH"]
-    || null;
-  report.revision.branch = (sourceStart.branch || environmentBranch)?.slice(0, 512) ?? null;
+  report.revision = revisionDetails(cwd, process.env, sourceStart);
+  if ((process.env["GITHUB_EVENT_NAME"] === "pull_request" || process.env["GITHUB_EVENT_NAME"] === "pull_request_target") && report.revision.headSha === null) {
+    report.errors.push("GitHub pull request event did not provide a valid head SHA and branch");
+  }
+  if (sourceStart.fingerprint === null) {
+    report.errors.push(`source identity unavailable at start: ${sourceStart.reason ?? "unknown reason"}`);
+  }
   report.browserArtifact.identity = artifactIdentity(join(cwd, "dist"));
   report.browserArtifact.provenance = report.browserArtifact.identity ? "pre-existing-unknown" : "unavailable";
   saveReport();
 
-  const cleanups: (() => void)[] = [];
   let child: ChildProcess | null = null;
-  let cleaned = false;
   let activeStep: CheckStep | null = null;
   let activeStartedAtMs = 0;
   let activeStepFinished: Promise<void> | null = null;
-  const cleanup = (): void => {
-    if (cleaned) return;
-    cleaned = true;
-    for (const step of cleanups.reverse()) try { step(); } catch (error) { console.error(`check: cleanup failed: ${(error as Error).message}`); }
-  };
   let ending = false;
   let interruptedBy: NodeJS.Signals | null = null;
   const finalize = (status: CheckReport["status"], exitCode: number): void => {
     const endedAtMs = Date.now();
     let sourceEnd = unavailableSource();
     try { sourceEnd = sourceIdentity(cwd, sourceExcludes); }
-    catch (error) { report.errors.push(`source identity unavailable at end: ${(error as Error).message}`); }
+    catch (error) {
+      const reason = String((error as Error).message || error).replace(/[\r\n\t]+/g, " ").trim().slice(0, 512) || "source identity could not be captured";
+      sourceEnd = { ...unavailableSource(), reason };
+    }
+    if (sourceEnd.fingerprint === null) {
+      report.errors.push(`source identity unavailable at end: ${sourceEnd.reason ?? "unknown reason"}`);
+    }
     report.status = status;
     report.exitCode = exitCode;
     report.endedAt = new Date(endedAtMs).toISOString();
     report.durationMs = endedAtMs - startedAtMs;
     report.currentStep = null;
     report.source.end = sourceEnd;
-    report.source.unchanged = sourceStart.fingerprint !== null && sourceEnd.fingerprint !== null
-      ? sourceStart.fingerprint === sourceEnd.fingerprint
+    report.source.unchanged = sourceStart.fingerprint !== null
+      ? sourceEnd.fingerprint === null ? false : sourceStart.fingerprint === sourceEnd.fingerprint
       : null;
     report.browserArtifact.finalIdentity = artifactIdentity(join(cwd, "dist"));
     if (report.browserArtifact.buildAttempted && report.browserArtifact.buildThisRun) {
@@ -348,7 +376,11 @@ async function main(): Promise<void> {
       report.browserArtifact.identity = null;
       report.browserArtifact.provenance = "unavailable";
     }
-    report.verification = verificationResult(report.source.unchanged, status, report.browserArtifact.unchangedAfterBuild);
+    report.verification = verificationResult(report.source.unchanged, status, report.browserArtifact.unchangedAfterBuild, report.browserArtifact.buildAttempted && report.browserArtifact.buildThisRun);
+    if (report.source.unchanged === null) {
+      const reason = sourceStart.fingerprint === null ? sourceStart.reason : sourceEnd.reason;
+      if (reason) report.verification.reason = `source identity unavailable: ${reason}`;
+    }
     if ((report.browserArtifact.identity || report.browserArtifact.finalIdentity) && !report.evidence.artifacts.includes(resolve(cwd, "dist"))) {
       report.evidence.artifacts.push(resolve(cwd, "dist"));
     }
@@ -429,6 +461,8 @@ async function main(): Promise<void> {
       let resolveStepFinished!: () => void;
       const stepFinished = new Promise<void>((resolve) => { resolveStepFinished = resolve; });
       activeStepFinished = stepFinished;
+      let drainTimer: NodeJS.Timeout | null = null;
+      let outputIncomplete = false;
       const stdout = createWriteStream(step.stdout, { flags: "w", mode: 0o600 });
       const stderr = createWriteStream(step.stderr, { flags: "w", mode: 0o600 });
       let logsFailed = false;
@@ -437,6 +471,7 @@ async function main(): Promise<void> {
       const finish = (code: number | null, signal: NodeJS.Signals | null, launchError?: Error): void => {
         if (settled) return;
         settled = true;
+        if (drainTimer) clearTimeout(drainTimer);
         child = null;
         if (launchError) {
           console.error(`check: ${command[0]}: ${launchError.message}`);
@@ -454,6 +489,7 @@ async function main(): Promise<void> {
           if (ending) step.reason = `interrupted by ${interruptedBy ?? signal ?? "signal"}`;
           else if (signal) step.reason = `process terminated by ${signal}`;
           else if (logsFailed) step.reason = "could not persist command output logs";
+          else if (outputIncomplete) step.reason = "output may be incomplete: a process left running still held the output";
           report.currentStep = null;
           if (step.status === "failure" && signal) report.errors.push(`${label} terminated by ${signal}`);
           else if (step.status === "failure" && !logsFailed) report.errors.push(`${label} exited with code ${step.exitCode}`);
@@ -462,16 +498,53 @@ async function main(): Promise<void> {
           activeStep = null;
           activeStepFinished = null;
           resolveStepFinished();
-          done(ending ? (interruptedBy === "SIGINT" ? 130 : 143) : logsFailed && code === 0 ? 1 : step.exitCode ?? 1);
+          if (!ending) done(logsFailed && code === 0 ? 1 : step.exitCode ?? 1);
         });
       };
       try {
         const started = spawn(command[0]!, command.slice(1), { stdio: ["inherit", "pipe", "pipe"], env, cwd: commandCwd, detached: true });
         child = started;
-        started.stdout?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); stdout.write(chunk); });
-        started.stderr?.on("data", (chunk: Buffer) => { process.stderr.write(chunk); stderr.write(chunk); });
+        const stdoutStream = started.stdout;
+        const stderrStream = started.stderr;
+        let stdoutClosed = !stdoutStream;
+        let stderrClosed = !stderrStream;
+        let exited = false;
+        let terminatingGroup = false;
+        let exitCode: number | null = null;
+        let exitSignal: NodeJS.Signals | null = null;
+        const maybeFinishAfterExit = (): void => {
+          if (!exited || settled || terminatingGroup) return;
+          if (stdoutClosed && stderrClosed) {
+            finish(exitCode, exitSignal);
+            return;
+          }
+          if (drainTimer) return;
+          drainTimer = setTimeout(() => {
+            drainTimer = null;
+            if (settled) return;
+            outputIncomplete = true;
+            terminatingGroup = true;
+            stdoutStream?.destroy();
+            stderrStream?.destroy();
+            void (async () => {
+              if (started.pid !== undefined) await endGroup(started.pid, "SIGTERM");
+              finish(exitCode, exitSignal);
+            })();
+          }, OUTPUT_DRAIN_GRACE_MS);
+        };
+        stdoutStream?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); stdout.write(chunk); });
+        stderrStream?.on("data", (chunk: Buffer) => { process.stderr.write(chunk); stderr.write(chunk); });
+        stdoutStream?.on("end", () => { stdoutClosed = true; maybeFinishAfterExit(); });
+        stdoutStream?.on("close", () => { stdoutClosed = true; maybeFinishAfterExit(); });
+        stderrStream?.on("end", () => { stderrClosed = true; maybeFinishAfterExit(); });
+        stderrStream?.on("close", () => { stderrClosed = true; maybeFinishAfterExit(); });
         started.once("error", (error) => finish(127, null, error));
-        started.once("close", (code, signal) => finish(code, signal));
+        started.once("exit", (code, signal) => {
+          exited = true;
+          exitCode = code;
+          exitSignal = signal;
+          maybeFinishAfterExit();
+        });
       } catch (error) {
         finish(127, null, error as Error);
       }
@@ -504,15 +577,6 @@ async function main(): Promise<void> {
   let code = 0;
   try {
     // A run command shares the same herdr and dist state, so it uses the same lock as named lanes.
-    if (needsHerdr) {
-      const held = await lock();
-      if ("heldBy" in held) {
-        throw new Error(Number.isNaN(held.heldBy)
-          ? `port ${LOCK_PORT} on 127.0.0.1, which a herdr-backed check run holds while it runs, is in use by something else`
-          : `another \`bun run check\` with a herdr-backed command is running on this PC (pid ${held.heldBy}); wait for it to end`);
-      }
-      cleanups.push(held.release);
-    }
     if (todo.fast) {
       const actionlintResult = await actionlint(run, plain, (reason) => skip("workflow syntax", reason), (message) => recordIssue("workflow syntax", message, "failure"));
       code = actionlintResult;
@@ -569,7 +633,8 @@ async function main(): Promise<void> {
   }
   if (ending) return;
   finalize(code === 0 ? "success" : "failure", code);
-  const finalCode = reportExitCode(code, reportPersistFailed, report.source.unchanged, report.browserArtifact.unchangedAfterBuild);
+  const artifactVerificationRequired = report.browserArtifact.buildAttempted && report.browserArtifact.buildThisRun;
+  const finalCode = reportExitCode(code, reportPersistFailed, report.source.unchanged, report.browserArtifact.unchangedAfterBuild, artifactVerificationRequired);
   if (finalCode !== code || reportPersistFailed || report.source.unchanged === false || report.browserArtifact.unchangedAfterBuild === false) {
     code = finalCode;
     report.status = "failure";
@@ -580,9 +645,12 @@ async function main(): Promise<void> {
     if (report.browserArtifact.unchangedAfterBuild === false && !report.errors.includes("dist changed after the check build; browser artifact verification was invalidated")) {
       report.errors.push("dist changed after the check build; browser artifact verification was invalidated");
     }
+    if (artifactVerificationRequired && report.browserArtifact.unchangedAfterBuild === null) {
+      report.errors.push("built dist identity unavailable; cannot verify the built artifact");
+    }
     if (reportPersistFailed) {
       if (report.source.unchanged !== false) {
-        report.verification = verificationResult(report.source.unchanged, "failure", report.browserArtifact.unchangedAfterBuild);
+        report.verification = verificationResult(report.source.unchanged, "failure", report.browserArtifact.unchangedAfterBuild, artifactVerificationRequired);
       }
       if (!report.errors.includes("report persistence failed during the check")) report.errors.push("report persistence failed during the check");
     }
@@ -600,6 +668,8 @@ async function main(): Promise<void> {
 
 /** How long a step's processes get to end after a signal before they are killed. */
 const END_GRACE_MS = 5_000;
+/** How long to drain inherited output pipes after the direct child exits. */
+const OUTPUT_DRAIN_GRACE_MS = 2_000;
 
 /** Signals a process group and waits until no process is left in it, killing what outlasts the grace. */
 async function endGroup(group: number, signal: NodeJS.Signals): Promise<void> {
@@ -616,7 +686,7 @@ async function endGroup(group: number, signal: NodeJS.Signals): Promise<void> {
   try { process.kill(-group, signal); } catch (error) { if (none(error)) return; }
   if (await gone(END_GRACE_MS)) return;
   try { process.kill(-group, "SIGKILL"); } catch (error) { if (none(error)) return; }
-  if (!(await gone(2_000))) console.error(`check: processes of the interrupted step are still running (process group ${group})`);
+  if (!(await gone(2_000))) console.error(`check: processes in step process group ${group} are still running`);
 }
 
 /**

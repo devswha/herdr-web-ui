@@ -9,6 +9,7 @@ import {
   baseRevision,
   initialReport,
   persistReport,
+  revisionDetails,
   reportExitCode,
   reportPaths,
   sourceIdentity,
@@ -100,6 +101,51 @@ describe("check report", () => {
     }
   });
 
+  it("distinguishes a PR head from the merge commit that CI actually tests", () => {
+    const dir = scratch();
+    try {
+      const testedSha = "c".repeat(40);
+      const headSha = "a".repeat(40);
+      const baseSha = "b".repeat(40);
+      const eventPath = join(dir, "event.json");
+      writeFileSync(eventPath, JSON.stringify({
+        pull_request: {
+          head: { sha: headSha, ref: "feature/report-evidence" },
+          base: { sha: baseSha },
+        },
+      }));
+      expect(revisionDetails(dir, {
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_BASE_REF: "main",
+      }, { head: testedSha, branch: null })).toEqual({
+        head: testedSha,
+        testedSha,
+        headSha,
+        headBranch: "feature/report-evidence",
+        baseBranch: "main",
+        baseSha,
+        branch: null,
+      });
+
+      writeFileSync(eventPath, JSON.stringify({ pull_request: { head: { sha: "merge-sha", ref: "feature/report-evidence" } } }));
+      expect(revisionDetails(dir, {
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_EVENT_PATH: eventPath,
+      }, { head: testedSha, branch: "merge-branch" })).toMatchObject({
+        testedSha,
+        headSha: null,
+        headBranch: null,
+      });
+      expect(revisionDetails(dir, {}, { head: testedSha, branch: "local-branch" })).toMatchObject({
+        headSha: testedSha,
+        headBranch: "local-branch",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("does not claim verification when source identity is unavailable and fails on report persistence errors", () => {
     expect(verificationResult(null, "success")).toMatchObject({ status: "unknown", browserCurrentSource: "not-claimed" });
     expect(verificationResult(false, "success").status).toBe("invalidated");
@@ -113,6 +159,13 @@ describe("check report", () => {
     expect(reportExitCode(7, true)).toBe(7);
     expect(reportExitCode(0, false, false)).toBe(1);
     expect(reportExitCode(0, false, true, false)).toBe(1);
+    expect(reportExitCode(0, false, null)).toBe(1);
+    expect(reportExitCode(0, false, true, null, true)).toBe(1);
+    expect(reportExitCode(0, false, true, null, false)).toBe(0);
+    expect(reportExitCode(0, false, true, true, true)).toBe(0);
+    expect(reportExitCode(7, false, null, null, true)).toBe(7);
+    expect(verificationResult(true, "success", null, true)).toMatchObject({ status: "unknown", reason: expect.stringContaining("dist identity") });
+    expect(verificationResult(true, "success", null, false).status).toBe("verified");
   });
 
   it("persists a running report with failure, skipped, not-run and interrupted step states without environment secrets", () => {
@@ -146,6 +199,7 @@ describe("check report", () => {
           untrackedContentSha256: "empty",
           untrackedFilesTruncated: false,
           fingerprint: "source",
+          reason: null,
         },
         baseBranch: "main",
         baseSha: null,

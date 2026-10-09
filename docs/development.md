@@ -36,8 +36,10 @@ generated-types check (`bun run generate:types --check`) is read-only, but `test
 `scripts/generate-protocol-types.test.ts`, which rewrites the generated file while it runs. Fast
 checks and the browser lane also build into `dist/`; avoid overlapping runs that write to the same
 checkout. (`check run` runs only its named command unless `--build` is supplied.)
+Lock refusal exits with the holder's identity before writing a report, so it cannot overwrite
+an active run's `CHECK_DIR/report.json`.
 
-Each planned check run writes a JSON verification report and per-command logs. The default report is
+Each admitted check run writes a JSON verification report and per-command logs. The default report is
 `node_modules/.cache/check/<run-id>/report.json`, or `CHECK_DIR/report.json` when `CHECK_DIR` is set;
 `CHECK_REPORT=<path>` selects another location. Keep reports outside tracked source. CI retains
 reports and logs on success and failure. Reports identify the checked HEAD, available PR base,
@@ -47,6 +49,8 @@ does not expose individual test names.
 
 Read the verification status and source identity, not just a zero exit code. Changes during a
 run invalidate its source verification; a later edit or restack requires new verification.
+An unavailable source fingerprint, or an unreadable artifact after a successful build, fails
+the check even when its commands returned zero.
 `check run --build` records the build made for the command. Without it, an existing `dist/`
 has unknown provenance and cannot establish that a browser tested current source. Report and
 log collection is for isolated fixtures: do not pass real credentials or live-user commands to
@@ -173,6 +177,9 @@ homepage uses the desktop and phone demos.
 and deployment requires both to succeed. Deployments are serialized. Immediately before deploying,
 the workflow checks that the validated SHA is still the latest `main` commit; it fails closed if it is
 stale or that check cannot be completed. This does not change the separate Release workflow.
+The standalone `main` CI also remains enabled: a main push deliberately runs validation twice
+on separate runners, preserving its independent CI history while keeping the deployment gate local
+to the Website workflow.
 
 ### The browser demo
 
@@ -284,8 +291,9 @@ assertions, viewport changes or font waits, so those remain disabled in the lane
 The lane also sets `CHECK_BROWSER_EVIDENCE_DIR` independently of those checkpoint options.
 Explicitly registered fixture pages in `ui-regression.ts` and `prompt-dock-demo-regression.ts`
 capture their failure screen and bounded console/page errors before cleanup. Set
-`CHECK_BROWSER_EVIDENCE_TRACE=1` for screenshot-only Playwright traces retained on failure;
-DOM snapshots and network recording are disabled. Imported checks and other scripts are not
+`CHECK_BROWSER_EVIDENCE_TRACE=1` for Playwright traces with screenshots retained on failure;
+DOM snapshots and network recording are disabled, but action parameters and console events can
+still appear in the trace. Use only synthetic fixture data. Imported checks and other scripts are not
 automatically covered. Evidence failures never replace the original test failure.
 CI uploads nested failure artifacts alongside herdr's `test-server.log`; reports and command
 logs are retained for successful runs too. All captures use isolated fixtures, never live-user

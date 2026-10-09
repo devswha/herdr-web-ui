@@ -1590,7 +1590,7 @@ try {
     Storage.prototype.getItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };
   });
   const mobilePage = await mobile.newPage();
-  if (evidenceDirectory) await watchBrowserEvidence(mobile, mobilePage, "mobile-storage-unavailable");
+  const mobileEvidence = evidenceDirectory ? await watchBrowserEvidence(mobile, mobilePage, "mobile-storage-unavailable") : undefined;
   csp.push(await watchCsp(mobilePage));
   mobilePage.on("pageerror", (error) => errors.push(error.message));
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
@@ -1645,6 +1645,7 @@ try {
   await mobilePage.getByTitle("Use the suggestion", { exact: true }).click();
   assert.equal(await mobileComposer.inputValue(), "run the tests", "the chip puts the suggestion in the box");
   await mobilePage.unroute(promptRoute);
+  try { await mobileEvidence?.finish(); } finally { await mobile.close(); }
   const plainPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await plainPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: false })); });
   const plainPage = await plainPhone.newPage();
