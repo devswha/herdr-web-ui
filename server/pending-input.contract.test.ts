@@ -109,6 +109,13 @@ describe("connection-owned pending input", () => {
     expect(f.bytes()).toBe(`${paste(first.text)}\r${paste("second")}\r`);
   }, 30_000);
 
+  it("closes a trailing @file mention with a space before its Enter", async () => {
+    const f = await setup("mention");
+    const message = await f.queue(1, "look at @/tmp/shot.png");
+    await f.state("idle"); await f.removed(message.id); await f.waitBytes("\r");
+    expect(f.bytes()).toBe(`${paste("look at @/tmp/shot.png ")}\r`);
+  }, 30_000);
+
   it("promotes a pending message only once and does not send it again after completion", async () => {
     const f = await setup("promote"); const message = await f.queue(1, "steer once");
     f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });

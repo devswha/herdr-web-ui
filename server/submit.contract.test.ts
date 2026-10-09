@@ -186,6 +186,20 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("closes a trailing @file mention with a space, so the Enter sends rather than takes a file suggestion", async () => {
+    const socket = await Socket.connect();
+    try {
+      const from = chunks(agent).length;
+      socket.send({ type: "submit", id: 20, pane_id: agent.pane, text: "what is in @/tmp/shot.png", payload: "unused" });
+      expect(await socket.result(20)).toMatchObject({ ok: true });
+      const read = await received(agent, from, 1);
+      const enter = read.findIndex((chunk) => chunk.data.includes("\r"));
+      expect(read.slice(0, enter).map((chunk) => chunk.data).join("")).toBe(paste("what is in @/tmp/shot.png "));
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
   it("refuses a message while the agent waits for an answer, typing nothing", async () => {
     const socket = await Socket.connect();
     await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "blocked" });

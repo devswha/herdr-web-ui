@@ -19,6 +19,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   copy command when the Clipboard API is unavailable or refused. If neither method works,
   the chat explains how to copy manually instead of reporting success or throwing an error.
   ([#613](https://github.com/devswha/herdr-web-ui/pull/613) by @Kinetic27)
+- A chat message that ends with an attached file's `@` mention is sent again. Pasted last, the
+  mention left the agent's file suggestions open, and the Enter took a suggestion instead of
+  sending, so the message stayed in the terminal's input box.
 
 ## [0.4.2] - 2026-10-09
 
