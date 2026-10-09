@@ -374,6 +374,27 @@ describe("ClaudeSubagentStatus", () => {
     expect(status.countOf("p1")).toBe(1);
   });
 
+  it("expires unchanged agent files exactly after a day, while newer agents remain counted", async () => {
+    const s = session();
+    const old = Date.now() - 5000;
+    for (const [id, stamp] of [["old", old], ["new", old + 2000]] as const) {
+      const file = s.agent(id);
+      utimesSync(file, new Date(stamp), new Date(stamp));
+    }
+    let now = old + 10000;
+    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: null }), onChange: () => {}, now: () => now });
+    await status.refresh([pane("p1", "claude")]);
+    status.poll();
+    expect(status.countOf("p1")).toBe(2);
+    now = old + 24 * 60 * 60 * 1000;
+    status.poll();
+    expect(status.countOf("p1")).toBe(2);
+    now++;
+    status.poll();
+    expect(status.countOf("p1")).toBe(1);
+    expect(claudeSubagents(s.path, true, now).map((task) => task.id)).toEqual(["new"]);
+  });
+
   it("counts a Claude pane's running subagents and says only when the count changes", async () => {
     const s = session();
     s.agent("a1", { steps: [[1, 1]] });

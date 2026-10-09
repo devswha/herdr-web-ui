@@ -510,13 +510,13 @@ function agentIds(parentPath: string): string[] {
 }
 
 /** What changes when a session's subagents may have: the folder, parent transcript and every watched agent's own file. */
-export function subagentsSignature(parentPath: string, watch: readonly string[] = []): { sig: string; latestMs: number } {
+export function subagentsSignature(parentPath: string, watch: readonly string[] = [], now = Date.now()): { sig: string; latestMs: number } {
   const dir = subagentsDir(parentPath);
   const folder = folderVersion(dir);
   // A file may grow in the same coarse mtime tick, or be replaced with one of the same size.
   const watched = [plain(parentPath), ...watch.map((id) => plain(join(dir, `agent-${id}.jsonl`)))];
   return {
-    sig: `${folder.sig}:${watch.join(",")}:${watched.map((stat) => stat ? `${stat.id}:${stat.size}:${stat.mtimeMs}` : "-").join(",")}`,
+    sig: `${folder.sig}:${watch.join(",")}:${watched.map((stat, index) => stat ? `${stat.id}:${stat.size}:${stat.mtimeMs}:${index > 0 && now - stat.mtimeMs > RECENT_MS}` : "-").join(",")}`,
     latestMs: Math.max(folder.latestMs, ...watched.map((stat) => stat?.mtimeMs ?? 0)),
   };
 }
@@ -842,13 +842,13 @@ export class ClaudeSubagentStatus {
       let turnRunning = 0;
       let promptAt: number | null = null;
       if (tracked.path !== null && tracked.live) {
-        const before = subagentsSignature(tracked.path, tracked.watch);
         const scanAt = this.now();
+        const before = subagentsSignature(tracked.path, tracked.watch, scanAt);
         if (`${before.sig}:${tracked.startedAt}` === tracked.sig) continue;
         const state = claudeSubagentState(tracked.path, true, this.now(), tracked.startedAt);
         ({ running, turnRunning, promptAt } = state);
         tracked.watch = state.watch;
-        const after = subagentsSignature(tracked.path, tracked.watch);
+        const after = subagentsSignature(tracked.path, tracked.watch, this.now());
         // Certify only the versions and dependency set read, never a concurrent append's newer signature.
         // Coarse file clocks require every input to have been quiet before the scan began.
         tracked.sig = state.settled && before.sig === after.sig && scanAt - before.latestMs >= 1000
