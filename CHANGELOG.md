@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-10-09
+
 ### Changed
 - A desktop tab no longer pauses its terminal a second after you switch to another window, as
   0.4.4 started doing: it keeps updating, as before 0.4.4. If this PC also shows herdr in a
@@ -28,6 +30,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   were read incrementally or loaded from scratch. ([#708](https://github.com/devswha/herdr-web-ui/pull/708))
 - Chat code blocks preserve trailing source newlines in manual text selections, with highlighting
   on or off. The Copy code button continues to copy the original source. ([#710](https://github.com/devswha/herdr-web-ui/pull/710))
+
+### Maintenance
+- Include TanStack Highlight's MIT license in the notices shipped with the app.
+  ([#704](https://github.com/devswha/herdr-web-ui/pull/704))
+- Update source-map-js to 1.2.2 for its security fix.
+  ([#705](https://github.com/devswha/herdr-web-ui/pull/705))
+- Run native Windows and macOS session identity regressions in release validation and order
+  the browser readline fixture's input consistently. Use Debian's official ECR mirror for the
+  Docker SSH fixture to avoid Docker Hub's anonymous pull limit.
+  ([#709](https://github.com/devswha/herdr-web-ui/pull/709), [#701](https://github.com/devswha/herdr-web-ui/pull/701))
 
 ## [0.4.4] - 2026-10-09
 
