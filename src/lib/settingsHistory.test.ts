@@ -233,6 +233,20 @@ describe("history traversal races", () => {
     expect(browser.settingsEntry(browser.history.state)).toBeNull();
   });
 
+  it("does not consume Back when reopening precedes the timeout", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, null, false));
+    const moves: boolean[] = [];
+    browser.onSettingsHistory((_entry, own) => moves.push(own));
+    browser.recordSettings([]);
+    browser.advance(500);
+    browser.recordSettings(browser.settingsLevels(true, null, false));
+    browser.advance(501);
+    await browser.move(-1);
+    expect(moves).toEqual([false]);
+    expect(browser.settingsEntry(browser.history.state)).toBeNull();
+  });
+
   it("steps out of reload entries even when the traversal lands late", async () => {
     const browser = await delayedHistory([null,
       { "herdr-web-ui:settings": { page: "terminal", keyBar: false, depth: 1 } },

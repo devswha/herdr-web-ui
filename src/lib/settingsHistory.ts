@@ -57,12 +57,12 @@ const same = (a: SettingsLevel | null, b: SettingsLevel): boolean => a !== null 
 let rewinding = 0;
 let landing: ReturnType<typeof setTimeout> | undefined;
 /** Keep the destination after the deadline: a slow landing is still ours, not the user's Back. */
-let pending: { from: unknown; depth: number; level: SettingsLevel | null; expired: boolean; claim: boolean } | null = null;
+let pending: { from: unknown; depth: number; level: SettingsLevel | null; expired: boolean; reopened: boolean; claim: boolean } | null = null;
 
 function rewind(by: number): void {
   if (pending !== null) return;
   const depth = (settingsEntry(window.history.state)?.depth ?? 0) - by;
-  const request = { from: window.history.state, depth, level: held[depth - 1] ?? null, expired: false, claim: true };
+  const request = { from: window.history.state, depth, level: held[depth - 1] ?? null, expired: false, reopened: false, claim: true };
   pending = request;
   rewinding = 1;
   clearTimeout(landing);
@@ -72,6 +72,7 @@ function rewind(by: number): void {
     if (pending === request) {
       rewinding = 0;
       request.expired = true;
+      if (request.reopened) request.claim = false;
     }
   }, LANDING_MS);
   window.history.go(-by);
@@ -113,7 +114,10 @@ export function recordSettings(levels: readonly SettingsLevel[]): void {
   wanted = levels;
   // Once a timed-out close is followed by an explicit new opening, a later trip to the same
   // destination is ambiguous with that opening's real Back. Do not consume the user's Back.
-  if (reopening && pending?.expired) pending.claim = false;
+  if (reopening && pending !== null) {
+    pending.reopened = true;
+    if (pending.expired) pending.claim = false;
+  }
   if (typeof window !== "undefined") reconcile();
 }
 
