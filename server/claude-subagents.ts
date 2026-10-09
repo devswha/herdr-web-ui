@@ -10,8 +10,9 @@ import type { HerdrPane, OmoTask } from "../shared/protocol.ts";
  * `agent-<id>.jsonl`, its own transcript. Whether it ended is told only by the parent
  * transcript: a background subagent by the `<task-notification>` Claude queues when it stops (a
  * teammate of an agent team gets none, and one's notice may not be written yet: its own file
- * ending in an `end_turn` answer, with no message to it after, says it stopped), a synchronous one by the tool_result of its call (the "Async agent launched" acknowledgement of
- * a background call is no answer).
+ * ending in an `end_turn` answer, with no message to it after, says it stopped), a synchronous
+ * one by the tool_result of its call (the "Async agent launched" acknowledgement of a
+ * background call is no answer).
  *
  * A notification is carried up to three times (a user entry, a queue-operation, a queued_command
  * attachment) and the same agent notifies again each time it is resumed, so notices are kept per
@@ -39,9 +40,9 @@ const MAX_AGENTS = 200;
 const MAX_NAMES = 5000;
 const RECENT_MS = 24 * 60 * 60 * 1000;
 const RECENT_LIMIT = 10;
-/** a process's start is known to the second, and the clock can step: only an agent quiet this long before the start is taken for another process's */
 /** how much of the end of an agent's file tells its status, whatever else has been read of it */
 const TAIL_BYTES = 64 * 1024;
+/** a process's start is known to the second, and the clock can step: only an agent quiet this long before the start is taken for another process's */
 const START_SLACK_MS = 60_000;
 /** an agent id is a file name's part: nothing that could leave the folder */
 const AGENT_ID = /^[A-Za-z0-9_-]+$/;
@@ -71,8 +72,8 @@ export interface TaskNotification {
 }
 
 export function taskNotification(content: string): TaskNotification | null {
-  const block = content.trimStart();
-  if (!block.startsWith("<task-notification>")) return null;
+  const block = content.trim();
+  if (!block.startsWith("<task-notification>") || !block.endsWith("</task-notification>")) return null;
   const tag = (name: string): string | null => block.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? null;
   const taskId = tag("task-id");
   const raw = tag("status");
@@ -120,9 +121,9 @@ export function lineNotifications(line: string): TaskNotification[] {
  * one that does not fit READ_BUDGET is skipped, not waited for. `more`: the file goes on past
  * what this read looked at.
  */
-function readLines(path: string, from: number, size: number, limit: number, each: (line: string) => void, skipping: boolean): { offset: number; skipping: boolean; more: boolean } {
+export function readLines(path: string, from: number, size: number, limit: number, each: (line: string) => void, skipping: boolean): { offset: number; skipping: boolean; more: boolean; failed?: true } {
   let fd: number;
-  try { fd = openSync(path, "r"); } catch { return { offset: from, skipping, more: false }; }
+  try { fd = openSync(path, "r"); } catch { return { offset: from, skipping, more: true, failed: true }; }
   try {
     const length = Math.min(size - from, limit);
     const buffer = Buffer.alloc(length);
@@ -148,10 +149,10 @@ function readLines(path: string, from: number, size: number, limit: number, each
     }
     for (const line of buffer.subarray(start, end).toString("utf8").split("\n")) if (line.length > 0) each(line);
     return { offset: from + end, skipping: false, more };
-  } catch { return { offset: from, skipping, more: false }; } finally { closeSync(fd); }
+  } catch { return { offset: from, skipping, more: true, failed: true }; } finally { closeSync(fd); }
 }
 
-function plain(path: string, max = Infinity): { size: number; mtimeMs: number; id: string } | null {
+export function plain(path: string, max = Infinity): { size: number; mtimeMs: number; id: string } | null {
   try {
     const stat = lstatSync(path);
     return stat.isFile() && stat.size <= max ? { size: stat.size, mtimeMs: stat.mtimeMs, id: `${stat.dev}:${stat.ino}` } : null;
@@ -414,13 +415,16 @@ function agentIds(parentPath: string): string[] {
   return ids;
 }
 
-/** What changes when a session's subagents may have: the folder, the parent transcript, and the files of the agents `watch` names (those that ended). */
+/** What changes when a session's subagents may have: the folder, parent transcript and every watched agent's own file. */
 export function subagentsSignature(parentPath: string, watch: readonly string[] = []): { sig: string; latestMs: number } {
   const dir = subagentsDir(parentPath);
   const folderMs = (() => { try { return lstatSync(dir).mtimeMs; } catch { return 0; } })();
-  // an agent that ended is resumed by a message that may write nothing else of the session's
-  const watched = watch.map((id) => plain(join(dir, `agent-${id}.jsonl`))?.mtimeMs ?? 0);
-  return { sig: `${folderMs}:${plain(parentPath)?.size ?? -1}:${watched.join(",")}`, latestMs: Math.max(folderMs, ...watched) };
+  // A file may grow in the same coarse mtime tick, or be replaced with one of the same size.
+  const watched = watch.map((id) => plain(join(dir, `agent-${id}.jsonl`)));
+  return {
+    sig: `${folderMs}:${plain(parentPath)?.size ?? -1}:${watched.map((stat) => stat ? `${stat.id}:${stat.size}:${stat.mtimeMs}` : "-").join(",")}`,
+    latestMs: Math.max(folderMs, ...watched.map((stat) => stat?.mtimeMs ?? 0)),
+  };
 }
 
 /** What a subagent's chat card takes from its files: what it was started with, which never changes. */
@@ -466,7 +470,6 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   const budget = { left: READ_BUDGET };
   const running: OmoTask[] = [];
   const ended: OmoTask[] = [];
-  const endedIds: string[] = [];
   const all = new Map<string, OmoTask>();
   let settled = parent !== null && !parent.behind;
   for (const { id, stat } of files) {
@@ -505,7 +508,6 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
     // the part read starts after it went quiet: not known to run
     else if (parent.windowed && parent.firstAt !== null && (view.lastAt ?? 0) < parent.firstAt) continue;
     else status = "running";
-    if (status !== "running") endedIds.push(id);
     const orphan = status === "running" && since !== null && view.lastAt !== null && view.lastAt < since - START_SLACK_MS;
     const lost = status === "running" && (!live || orphan);
     const task: OmoTask = {
@@ -530,7 +532,7 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   remember(previous, parentPath, all, 256);
   running.sort((a, b) => time(a.started_at) - time(b.started_at));
   ended.sort((a, b) => time(b.ended_at) - time(a.ended_at));
-  return { tasks: [...running, ...ended.slice(0, RECENT_LIMIT)], settled, watch: endedIds.slice(0, 50) };
+  return { tasks: [...running, ...ended.slice(0, RECENT_LIMIT)], settled, watch: files.map(({ id }) => id) };
 }
 
 export const claudeSubagents = (parentPath: string, live: boolean, now = Date.now(), since: number | null = null): OmoTask[] => claudeSubagentState(parentPath, live, now, since).tasks;
@@ -563,7 +565,7 @@ interface Tracked {
   /** when its transcript, and its process, were last looked for */
   at: number; pidAt: number;
   live: boolean; running: number; sig: string | null;
-  /** the agents that ended, whose files tell of a resume */
+  /** every observed agent, whose own file can end or resume its turn */
   watch: string[];
 }
 
@@ -572,11 +574,13 @@ interface Tracked {
  * `claude` is looked at (an OmO pane is named `omo` by then, any other agent is not Claude's):
  * its transcript is found once per session, and polled for what changed since. A pane that is
  * not Claude any more keeps the transcript it had, so that its list can say what was left
- * running there is lost; its count is 0. A poll that finds the session's folder and transcript
- * as they were reads nothing: an agent starts, ends or resumes only with a write to the transcript.
+ * running there is lost; its count is 0. A poll that finds the folder, parent transcript and
+ * watched agent files as they were reads nothing. An agent's own file can end or resume it.
  */
 export class ClaudeSubagentStatus {
   private readonly panes = new Map<string, Tracked>();
+  /** The latest lookup claim; a newer pane/session observation cancels an older answer. */
+  private readonly lookups = new Map<string, { key: string }>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private refreshing: Promise<void> | null = null;
   private readonly now: () => number;
@@ -594,6 +598,7 @@ export class ClaudeSubagentStatus {
   }
 
   stop(): void {
+    this.lookups.clear();
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
   }
@@ -610,10 +615,19 @@ export class ClaudeSubagentStatus {
 
   /** Finds the Claude panes of a snapshot and their transcripts; a lookup costs process calls, so a known one is not repeated. */
   refresh(panes: HerdrPane[]): Promise<void> {
+    const ids = new Set(panes.map((pane) => pane.pane_id));
+    for (const paneId of this.panes.keys()) if (!ids.has(paneId)) this.panes.delete(paneId);
+    for (const paneId of this.lookups.keys()) if (!ids.has(paneId)) this.lookups.delete(paneId);
+    for (const pane of panes) {
+      const key = `${pane.agent_session?.value ?? ""}\0${pane.cwd ?? ""}`;
+      if (pane.agent !== "claude" || this.lookups.get(pane.pane_id)?.key !== key) this.lookups.delete(pane.pane_id);
+      if (pane.agent !== "claude") {
+        const tracked = this.panes.get(pane.pane_id);
+        if (tracked) tracked.live = false;
+      }
+    }
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {
-      const ids = new Set(panes.map((pane) => pane.pane_id));
-      for (const paneId of this.panes.keys()) if (!ids.has(paneId)) this.panes.delete(paneId);
       await Promise.all(panes.map((pane) => this.ensure(pane)));
       this.poll();
     })().finally(() => { this.refreshing = null; });
@@ -624,23 +638,28 @@ export class ClaudeSubagentStatus {
   async ensure(pane: HerdrPane): Promise<void> {
     const tracked = this.panes.get(pane.pane_id);
     if (pane.agent !== "claude") {
+      this.lookups.delete(pane.pane_id);
       if (tracked) tracked.live = false;
       return;
     }
     // a session known by its id is looked up when it changes; one found by process only, now and then
     const session = pane.agent_session?.value ?? "";
     const key = `${session}\0${pane.cwd ?? ""}`;
+    const claim = { key };
+    this.lookups.set(pane.pane_id, claim);
     const due = !tracked || tracked.key !== key || !tracked.live || tracked.path === null || (session === "" && this.now() - tracked.at >= 6 * this.refreshMs);
     let again = due;
     // the same session in another process (Claude quit and came back before the pane read as another agent)
     if (!due && tracked && this.deps.pid && tracked.pid !== null && this.now() - tracked.pidAt >= this.refreshMs) {
       tracked.pidAt = this.now();
       const pid = await this.deps.pid(pane).catch(() => null);
+      if (this.lookups.get(pane.pane_id) !== claim) return;
       again = pid !== null && pid !== tracked.pid;
     }
     if (!again) return;
     if (tracked && tracked.key === key && tracked.path === null && this.now() - tracked.at < this.refreshMs) return;
     const found = await this.deps.resolve(pane).catch(() => null);
+    if (this.lookups.get(pane.pane_id) !== claim) return;
     const current = this.panes.get(pane.pane_id);
     const same = current?.key === key;
     // the count it had goes on from here: another session with none says so at the next poll

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { HerdrPane } from "../shared/protocol.ts";
-import { ClaudeSubagentStatus, claudeSubagentState, claudeSubagents, forgetSubagents, lineNotifications, remember, subagentDetails, taskNotification, within } from "./claude-subagents.ts";
+import { ClaudeSubagentStatus, claudeSubagentState, claudeSubagents, forgetSubagents, lineNotifications, readLines, remember, subagentDetails, taskNotification, within } from "./claude-subagents.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -205,6 +205,10 @@ describe("subagentDetails", () => {
 });
 
 describe("taskNotification", () => {
+  it("does not report a truncated envelope as completed", () => {
+    expect(taskNotification('<task-notification><task-id>a1</task-id><status>completed</status><summary>Agent "review" finished</summary>')).toBeNull();
+  });
+
   it("reads a block, its result to the last closing tag", () => {
     expect(taskNotification('<task-notification>\n<task-id>a</task-id>\n<status>stopped</status>\n<summary>Agent "x" was stopped by Claude</summary>\n<result>see </result> here</result>\n</task-notification>')).toEqual({
       taskId: "a", toolUseId: null, status: "cancelled", summary: 'Agent "x" was stopped by Claude', result: "see </result> here", agent: true,
@@ -272,6 +276,13 @@ describe("ClaudeSubagentStatus", () => {
 
 describe("claudeSubagents reading", () => {
   const assistant = (id: string, pad = "") => json({ type: "assistant", timestamp: at(1), message: { id, model: "claude-opus-5", content: [], pad } });
+
+  it("keeps a failed open or read unfinished instead of reporting the end of the file", () => {
+    const s = session();
+    for (const path of [join(s.path, "..", "missing.jsonl"), join(s.path, "..")]) {
+      expect(readLines(path, 0, 10, 10, () => { throw new Error("no line should be read"); }, false)).toEqual({ offset: 0, skipping: false, more: true, failed: true });
+    }
+  });
 
   it("waits for a share of the budget that fits a file's first line, and never jumps to the end of it", () => {
     const s = session();
@@ -364,6 +375,51 @@ describe("claudeSubagents reading", () => {
 describe("ClaudeSubagentStatus upkeep", () => {
   const pane = (agent: string | null, session = "s1"): HerdrPane => ({ pane_id: "p1", agent, agent_session: { agent: agent ?? "", kind: "id", source: "hook", value: session }, cwd: "/work", agent_status: "idle", focused: false, revision: 1 }) as HerdrPane;
 
+  it("does not let an older lookup overwrite a newer session", async () => {
+    const old = session();
+    const current = session();
+    const lookup = Promise.withResolvers<{ path: string; startedAt: null }>();
+    const status = new ClaudeSubagentStatus({ resolve: (p) => p.agent_session?.value === "old" ? lookup.promise : Promise.resolve({ path: current.path, startedAt: null }), onChange: () => undefined });
+    const pending = status.ensure(pane("claude", "old"));
+    await status.ensure(pane("claude", "new"));
+    lookup.resolve({ path: old.path, startedAt: null });
+    await pending;
+    expect(status.sessionOf("p1")?.path).toBe(current.path);
+  });
+
+  it("does not restore Claude after the pane changed agent during a lookup", async () => {
+    const s = session();
+    const lookup = Promise.withResolvers<{ path: string; startedAt: null }>();
+    const status = new ClaudeSubagentStatus({ resolve: () => lookup.promise, onChange: () => undefined });
+    const pending = status.ensure(pane("claude"));
+    await status.ensure(pane("codex"));
+    lookup.resolve({ path: s.path, startedAt: null });
+    await pending;
+    expect(status.sessionOf("p1")).toBeNull();
+  });
+
+  it("does not restore a closed pane when its snapshot lookup finishes", async () => {
+    const s = session();
+    const lookup = Promise.withResolvers<{ path: string; startedAt: null }>();
+    const status = new ClaudeSubagentStatus({ resolve: () => lookup.promise, onChange: () => undefined });
+    const pending = status.refresh([pane("claude")]);
+    const closed = status.refresh([]);
+    lookup.resolve({ path: s.path, startedAt: null });
+    await Promise.all([pending, closed]);
+    expect(status.sessionOf("p1")).toBeNull();
+  });
+
+  it("does not finish a pending lookup after the tracker stops", async () => {
+    const s = session();
+    const lookup = Promise.withResolvers<{ path: string; startedAt: null }>();
+    const status = new ClaudeSubagentStatus({ resolve: () => lookup.promise, onChange: () => undefined });
+    const pending = status.ensure(pane("claude"));
+    status.stop();
+    lookup.resolve({ path: s.path, startedAt: null });
+    await pending;
+    expect(status.sessionOf("p1")).toBeNull();
+  });
+
   it("tells a drop to nothing when the pane moves to another session", async () => {
     const one = session();
     one.agent("a1", { steps: [[1, 1]] });
@@ -380,29 +436,54 @@ describe("ClaudeSubagentStatus upkeep", () => {
 
   it("sees an agent that ended resume by its own file, though nothing else of the session was written", async () => {
     const s = session();
-    s.agent("a1", { steps: [[1, 1]] });
+    const file = s.agent("a1", { steps: [[1, 1]] });
     s.notify("a1", 3);
+    const now = Date.now();
+    const old = new Date(now - 5000);
+    const dir = join(s.path.replace(/\.jsonl$/, ""), "subagents");
+    for (const path of [file, s.path, dir]) utimesSync(path, old, old);
     const told: number[] = [];
-    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: 42 }), onChange: (_, running) => told.push(running), now: () => Date.now() + 5000 });
+    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: 42 }), onChange: (_, running) => told.push(running), now: () => now });
     await status.refresh([pane("claude")]);
     expect(status.sessionOf("p1")).toEqual({ path: s.path, live: true, startedAt: 42 });
     status.poll();
     expect(told).toEqual([]);
     // a message to it was written before, and the session is idle: only its own file moves
     s.work("a1", 5, 1);
+    // An append can share the previous write's coarse filesystem clock tick.
+    utimesSync(file, old, old);
     status.poll();
     expect(told).toEqual([1]);
   });
 
+  it("sees a running agent end by its own file while the parent and folder stay quiet", async () => {
+    const s = session();
+    const file = s.agent("a1", { steps: [[1, 1]] });
+    const now = Date.now();
+    const old = new Date(now - 5000);
+    const dir = join(s.path.replace(/\.jsonl$/, ""), "subagents");
+    for (const path of [file, s.path, dir]) utimesSync(path, old, old);
+    const told: number[] = [];
+    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: null }), onChange: (_, running) => told.push(running), now: () => now });
+    await status.refresh([pane("claude")]);
+    expect(told).toEqual([1]);
+    appendFileSync(file, json({ type: "assistant", timestamp: at(3), message: { id: "end", stop_reason: "end_turn", content: [{ type: "text", text: "done" }] } }));
+    utimesSync(file, old, old);
+    status.poll();
+    expect(told).toEqual([1, 0]);
+  });
+
   it("does not read again while nothing it watches changed", async () => {
     const s = session();
-    s.agent("a1", { steps: [[1, 1]] });
+    const file = s.agent("a1", { steps: [[1, 1]] });
+    const now = Date.now();
+    const old = new Date(now - 5000);
+    for (const path of [file, s.path, join(s.path.replace(/\.jsonl$/, ""), "subagents")]) utimesSync(path, old, old);
     let looked = 0;
-    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: null }), onChange: () => { looked += 1; }, now: () => Date.now() + 5000 });
+    const status = new ClaudeSubagentStatus({ resolve: async () => ({ path: s.path, startedAt: null }), onChange: () => { looked += 1; }, now: () => now });
     await status.refresh([pane("claude")]);
     expect(looked).toBe(1);
-    // its own growth is not a change of the count, and the folder and the transcript are as they were
-    s.work("a1", 2, 1);
+    // An unchanged poll does not notify again.
     status.poll();
     expect(looked).toBe(1);
   });
