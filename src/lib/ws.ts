@@ -233,14 +233,15 @@ export class HerdrSocket {
 
   resize(paneId: string, cols: number, rows: number, force = false): void {
     const state = this.attached.get(paneId);
-    if (state) {
-      // skip only redundant resizes of OUR OWN geometry: a force resize re-asserts
-      // it after another client resized the shared pty (see PaneTerminal refit)
-      if (!force && state.cols === cols && state.rows === rows) return;
-      state.cols = cols;
-      state.rows = rows;
-      state.keepSize = false;
-    }
+    // a pane this tab let go of (PaneTerminal's release) is sized by whoever holds it: the server
+    // would apply the resize to their attach
+    if (!state) return;
+    // skip only redundant resizes of OUR OWN geometry: a force resize re-asserts
+    // it after another client resized the shared pty (see PaneTerminal refit)
+    if (!force && state.cols === cols && state.rows === rows) return;
+    state.cols = cols;
+    state.rows = rows;
+    state.keepSize = false;
     this.send({ type: "resize", pane_id: paneId, cols, rows });
   }
 

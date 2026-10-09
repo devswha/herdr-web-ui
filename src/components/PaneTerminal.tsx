@@ -42,6 +42,8 @@ import { useMediaQuery } from "../lib/useMediaQuery.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
+/** How long a tab is out of use before it lets go of its pane: a glance at another window keeps it. */
+const RELEASE_AFTER_MS = 1000;
 
 export interface PaneTerminalProps {
   /** The pane this terminal attaches to; null renders the placeholder. */
@@ -171,6 +173,14 @@ export function PaneTerminal({
   const fixedGridRef = useRef(false);
   // the pty's grid as the server last said it for this pane (pane-geometry), whoever set it
   const sharedGridRef = useRef<{ cols: number; rows: number } | null>(null);
+  // out of use, the tab let go of its pane (no attach) so herdr's own TUI has it back; it attaches
+  // again when the user is back. The ref is what the socket handlers and the pane switch read
+  const releasedRef = useRef(false);
+  const [released, setReleasedState] = useState(false);
+  const setReleased = useCallback((next: boolean) => { releasedRef.current = next; setReleasedState(next); }, []);
+  // the mount effect's release, for the queue below: a tab that kept its pane for a message lets go once it went
+  const releaseRef = useRef<() => void>(() => {});
+  const endedRef = useRef(false);
   // the modifyOtherKeys level the pane's program asked for, as this pane's stream last said it
   const modifyOtherKeysRef = useRef(0);
   const [observing, setObserving] = useState(false);
@@ -313,6 +323,7 @@ export function PaneTerminal({
   const [queueError, setQueueError] = useState<{ owner: string; id: string; text: string } | null>(null);
 
   paneRef.current = paneId;
+  endedRef.current = ended;
   onConnectionChangeRef.current = onConnectionChange;
   onServerMessageRef.current = onServerMessage;
   onRoleAckRef.current = onRoleAck;
@@ -1193,18 +1204,77 @@ export function PaneTerminal({
       }
       socket.resize(current, term.cols, term.rows, true);
     };
+    // herdr holds a pane at the size of a `terminal attach` for as long as one is attached, and its
+    // own TUI cannot take it back (0.9.3): this window, left open behind it, kept the pane at the
+    // window's size, and the TUI drew it cut off at its split's edge with its bottom rows out of
+    // reach. So a tab out of use lets go of its pane: once the last attach ends, herdr gives the
+    // pane back to its TUI. The tab attaches again when the user is back. A message queued here
+    // goes out through this tab's attach, so the tab keeps the pane until the message has gone; a
+    // mirrored pane holds no attach, and a page inside another page (the site's demo) has the
+    // focus only while it is clicked into.
+    const embedded = window.self !== window.top;
+    const queueWaits = (pane: string): boolean => pendingMessages.read(paneStorageId(machineId, pane))
+      .some((message) => message.serverOwned && (message.state === "queued" || message.state === "sending"));
+    let releaseTimer: number | null = null;
+    // the release waits for a message this tab queued: the queue's next change tries it again
+    let queueHeld = false;
+    const release = (): void => {
+      releaseTimer = null;
+      queueHeld = false;
+      const current = paneRef.current;
+      if (!current || releasedRef.current || inUse() || embedded || fixedGridRef.current || endedRef.current) return;
+      if (queueWaits(current)) {
+        queueHeld = true;
+        return;
+      }
+      socket.detach(current);
+      if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, current), pendingScopeRef.current);
+      setReleased(true);
+    };
+    releaseRef.current = () => { if (queueHeld) release(); };
+    const resume = (): void => {
+      setReleased(false);
+      const current = paneRef.current;
+      if (!current) return;
+      // the pane's screen starts again from the new attach, as on a pane switch
+      outputGeneration++;
+      term.reset();
+      modifyOtherKeysRef.current = 0;
+      setOutputReady(false);
+      if (!observeRef.current && !chatViewRef.current) {
+        try {
+          fit.fit();
+        } catch {
+          /* not laid out yet; the ResizeObserver will follow up */
+        }
+      }
+      socket.attach(current, term.cols, term.rows, chatViewRef.current);
+    };
     // out of use, a reconnect attaches at the size the pane has instead of taking it
-    // (keepSize, as under the chat lens); the refit takes it back once the user is here
+    // (keepSize, as under the chat lens), until the tab lets go of the pane
     const leave = (): void => {
       const current = paneRef.current;
       if (current && !observeRef.current && !fixedGridRef.current) socket.keepSize(current);
+      if (releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(release, RELEASE_AFTER_MS);
+    };
+    const back = (): void => {
+      if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+      releaseTimer = null;
+      queueHeld = false;
+      if (releasedRef.current) resume();
+      else refit();
     };
     const onVisibility = (): void => {
-      if (inUse()) refit();
+      if (inUse()) back();
       else leave();
     };
-    window.addEventListener("focus", refit);
+    // a click or a tap is the user here, whatever the window says about its focus
+    const onPointer = (): void => {
+      if (releasedRef.current) back();
+    };
+    window.addEventListener("focus", back);
     window.addEventListener("blur", leave);
+    window.addEventListener("pointerdown", onPointer, { capture: true });
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
@@ -1224,8 +1294,11 @@ export function PaneTerminal({
       host.removeEventListener("copy", onCopy);
       stopEdge();
       selectionChange.dispose();
-      window.removeEventListener("focus", refit);
+      if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+      releaseRef.current = () => {};
+      window.removeEventListener("focus", back);
       window.removeEventListener("blur", leave);
+      window.removeEventListener("pointerdown", onPointer, { capture: true });
       document.removeEventListener("visibilitychange", onVisibility);
       onModifiedEnter.dispose();
       onCommandBackspace.dispose();
@@ -1344,6 +1417,13 @@ export function PaneTerminal({
     term.reset();
     modifyOtherKeysRef.current = 0;
     if (!paneId) return;
+    const leavePane = (): void => {
+      // a released pane was detached already
+      if (!releasedRef.current) socket.detach(paneId);
+      if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, paneId), pendingScopeRef.current);
+    };
+    // a tab that let go of its pane while out of use attaches the next one when the user is back
+    if (releasedRef.current) return leavePane;
     try {
       fit?.fit();
     } catch {
@@ -1353,11 +1433,11 @@ export function PaneTerminal({
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
     if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();
-    return () => {
-      socket.detach(paneId);
-      if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, paneId), pendingScopeRef.current);
-    };
+    return leavePane;
   }, [paneId]);
+
+  // the message the tab kept its pane for has gone (or was held): out of use, it lets go now
+  useEffect(() => { releaseRef.current(); }, [pending]);
 
 
   // the user picked the pane App had switched to on its own (the same row or lens again,
@@ -1731,7 +1811,8 @@ export function PaneTerminal({
           </div>
         )}
         {!chatView && inputError && <div className="terminal-banner" role="status">{inputError}<button type="button" className="btn terminal-banner-action" onClick={() => setInputError(null)}>{t("Dismiss")}</button></div>}
-        {!chatView && !observing && connected && !inputReady && !held && !ended && <div className="terminal-banner" role="status">{t("Waiting for terminal input…")}</div>}
+        {!chatView && !observing && connected && !inputReady && !held && !ended && !released && <div className="terminal-banner" role="status">{t("Waiting for terminal input…")}</div>}
+        {paneId !== null && !chatView && released && <div className="terminal-banner" role="status">{t("Paused while you use another window")}</div>}
         {/* the chat lens says these itself (ChatView), inline; the pills are the grid's */}
         {paneId !== null && !chatView && ended && !outputError && (
           <div className="terminal-banner" role="status">

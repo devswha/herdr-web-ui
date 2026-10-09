@@ -13,6 +13,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   numbers. Markdown files are numbered but stay plain.
 
 ### Fixed
+- herdr in your terminal shows a pane whole again once you leave the browser tab that had it
+  open. herdr holds a pane at the size of a web UI attach until that attach ends, so a desktop
+  tab left open on a pane kept it at the browser's size, and herdr drew it cut off at its split's
+  edge with the bottom rows out of reach; a phone hid this, since it disconnects in the background
+  and its grid is narrow. A tab you are not using now lets go of the pane after a second, says it
+  is paused, and takes the pane again when you click back into it. A message it queued is still
+  sent first.
 - A web UI tab you are not using no longer resizes the pane you are using elsewhere. A window
   left open behind another app turned visible again when the screen woke, or reconnected in the
   background, and fitted the pane to itself: herdr in your terminal, or your phone, then showed
