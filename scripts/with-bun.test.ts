@@ -92,7 +92,9 @@ describe.skipIf(process.platform === "win32")("Unix Bun discovery", () => {
   it("takes only absolute directories from WITH_BUN_EXTRA_DIRS, without expanding a pattern", async () => {
     const dir = join(home, "with space");
     mkdirSync(dir);
-    expect(await searched({ WITH_BUN_EXTRA_DIRS: `*:scripts::${dir}` })).toBe(`${tools}:${dir}`);
+    mkdirSync(join(home, "wide"));
+    // a relative name, an empty entry, and a pattern that names both directories if it is expanded
+    expect(await searched({ WITH_BUN_EXTRA_DIRS: `scripts::${home}/w*:${dir}` })).toBe(`${tools}:${dir}`);
   });
 
   it("preflight says what is missing when HOME is not set", async () => {
