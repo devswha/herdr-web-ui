@@ -7,6 +7,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- The arrow keys move in `less`, `git log`, `man` and other full-screen programs in the terminal.
+  Such a program asks for application cursor keys, which herdr's terminal stream does not pass on
+  to the browser, so the arrows arrived in the encoding the program was not reading. They are now
+  sent as named keys that herdr encodes for the program in the pane, also from the phone's key bar
+  and on a mirrored pane.
+- A click in the terminal reaches a program that reads the mouse, such as the close button of
+  Claude Code's side-by-side diff. On a desktop every left press was taken for the start of a
+  selection and never sent. A drag still selects and copies, and so does a click with Shift
+  (Option on macOS) held.
+
 ## [0.4.2] - 2026-10-09
 
 ### Added

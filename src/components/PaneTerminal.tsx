@@ -535,10 +535,10 @@ export function PaneTerminal({
     });
 
     // herdr's attach stream turns mouse reporting on, so xterm hands every click to the
-    // pty and selects only with Shift (Option on macOS) held. `herdr terminal attach`
-    // ignores left clicks and drags - selection lives in herdr's own TUI client - so a
-    // left drag here selects as if the modifier were held, and letting go copies, as the
-    // herdr TUI does. Touch keeps its drag-to-scroll.
+    // pty and selects only with Shift (Option on macOS) held. Selection lives in herdr's
+    // own TUI client, not in `herdr terminal attach`, so a left drag here selects as if the
+    // modifier were held, and letting go copies, as the herdr TUI does; a press let go in
+    // place is a click and goes to the program (forwardClick). Touch keeps its drag-to-scroll.
     //
     // xterm keeps no scrollback (herdr owns it), so a drag that outlives one screen is
     // tracked in herdr's history rows: a wheel, or dragging past the top or bottom edge,
@@ -566,6 +566,8 @@ export function PaneTerminal({
       wheelPixels: number;
       sentOffset: number;
       sending: boolean;
+      /** a press the program would have had but for the forced selection: let go in place, it is a click */
+      click: boolean;
     }
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     let drag: Drag | null = null;
@@ -633,18 +635,22 @@ export function PaneTerminal({
       edgeTimer = null;
     };
     const onMouseDown = (event: MouseEvent): void => {
-      if (event.button !== 0) return;
+      // a click handed on to the program (forwardClick) is not a new drag
+      if (event.button !== 0 || !event.isTrusted) return;
       if ((event as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities?.firesTouchEvents) return;
       if (!term.element?.contains(event.target as Node)) return;
       // with reporting off xterm already selects on a plain drag; only the history tracking is ours
-      if (term.modes.mouseTrackingMode !== "none") Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
+      const reporting = term.modes.mouseTrackingMode !== "none";
+      // the modifier that asks xterm for a selection, held by the user rather than added here
+      const selecting = isMac ? event.altKey : event.shiftKey;
+      if (reporting) Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
       copiedText = null;
       selectionGeneration++;
       const pane = paneRef.current;
       const { cell } = cellAt(event);
       const d: Drag = {
         pane: pane ?? "", anchor: cell, cursor: cell, top: null, anchorRow: 0, offset: 0, maxOffset: 0,
-        scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false,
+        scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false, click: reporting && !selecting,
       };
       drag = d;
       if (!pane || !navigator.clipboard || observeRef.current) return;
@@ -677,6 +683,18 @@ export function PaneTerminal({
         repaint(d);
       }
     };
+    // A press that became no selection was a click, and a program that reads the mouse (a
+    // close button in Claude Code's diff, a TUI's menu) expects it: herdr's attach forwards
+    // left clicks to it, as a phone's tap already showed (#621). The press and release are
+    // replayed without the selection modifier so xterm encodes them in the reporting mode
+    // herdr asked for; xterm sends nothing while stdin is disabled (observing, a held pane).
+    const forwardClick = (event: MouseEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Element) || !term.element?.contains(target)) return;
+      const init = { bubbles: true, cancelable: true, view: window, button: 0, detail: 1, clientX: event.clientX, clientY: event.clientY, screenX: event.screenX, screenY: event.screenY };
+      target.dispatchEvent(new MouseEvent("mousedown", { ...init, buttons: 1 }));
+      target.dispatchEvent(new MouseEvent("mouseup", { ...init, buttons: 0 }));
+    };
     // a release outside the window never arrives: stop scrolling the shared pane
     const onBlur = (): void => {
       stopEdge();
@@ -690,6 +708,11 @@ export function PaneTerminal({
       // Window bubble runs after xterm's document listener, still inside the
       // release gesture. A timer here loses clipboard permission in some browsers.
       if (d.scrolled) repaint(d);
+      const released = cellAt(event).cell;
+      if (d.click && !d.scrolled && !term.hasSelection() && released.row === d.anchor.row && released.col === d.anchor.col) {
+        forwardClick(event);
+        return;
+      }
       if (!term.hasSelection()) return;
       const visibleText = term.getSelection();
       copiedText = visibleText;
@@ -975,6 +998,13 @@ export function PaneTerminal({
         : null;
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.
+      // herdr's attach stream never tells xterm that the program asked for application cursor
+      // keys (DECCKM), so xterm's `ESC [ A` misses in less, git log and other full-screen
+      // programs. herdr encodes a named key in the program's own mode (#621). A key the socket
+      // cannot take now goes the way typing does below, as an arrow always did.
+      const arrow = chord === null && !pasting && !composingRef.current && !compositionCommitPendingRef.current && key?.startsWith("Arrow")
+        ? terminalChord(key, NO_STICKY_MODIFIERS) : null;
+      if (arrow !== null && socket.sendKeys(current, [arrow])) return;
       if (chord !== null) {
         // Shortcuts are never retained as offline text or replayed later: a chord the
         // terminal cannot take now (not ready, disconnected) is told, not dropped in silence
