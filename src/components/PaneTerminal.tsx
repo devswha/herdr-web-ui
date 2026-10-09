@@ -26,6 +26,7 @@ import { TerminalInput } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
+import { TerminalLastPromptBar } from "./LastPromptBar.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
@@ -82,6 +83,8 @@ export interface PaneTerminalProps {
   onConnectionChange?: (connected: boolean) => void;
   /** Every server frame also reaches App: it merges pane-status and schedules refetches. */
   onServerMessage?: (message: ServerMessage) => void;
+  /** Opens this pane's chat from the terminal's recorded last prompt. */
+  onShowChat?: () => void;
 }
 
 
@@ -111,6 +114,7 @@ export function PaneTerminal({
   onRoleAck,
   onConnectionChange,
   onServerMessage,
+  onShowChat,
 }: PaneTerminalProps) {
   const t = useT();
   const openFile = useContext(OpenFileContext);
@@ -274,6 +278,21 @@ export function PaneTerminal({
   // where the chat draws its prompt card: on the composer's column, between the held messages and
   // the input card (the stack's order is written once, in the JSX below)
   const [promptDock, setPromptDock] = useState<HTMLDivElement | null>(null);
+  const [lastPromptDock, setLastPromptDock] = useState<HTMLDivElement | null>(null);
+  // The navigation row shares the prompt card's height budget, not the transcript's remaining
+  // lines. Measure it because chat type, density and touch targets can all change its height.
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    if (stack === null || lastPromptDock === null) return;
+    const measure = (): void => stack.style.setProperty("--last-prompt-h", `${lastPromptDock.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(lastPromptDock);
+    return () => { observer.disconnect(); stack.style.removeProperty("--last-prompt-h"); };
+  }, [lastPromptDock]);
+  const [promptJumpPane, setPromptJumpPane] = useState<string | null>(null);
+  const onPromptJumpDone = useCallback(() => setPromptJumpPane(null), []);
+  useLayoutEffect(() => setPromptJumpPane(null), [paneId]);
   // Answered from the card, the card goes and would take the keyboard's focus with it: the message
   // box is the next thing to type in. Not after a tap, which would raise the keyboard: the card
   // tells a key, a mouse and a tap by the press itself (lib/promptAnswer.ts), so a key on a
@@ -1713,6 +1732,10 @@ export function PaneTerminal({
           </div>
         )}
       </div>
+      {paneId !== null && !chatView && agent !== null && onShowChat !== undefined && <TerminalLastPromptBar
+        key={`last-prompt:${paneId}`} paneId={paneId} agentStatus={agentStatus}
+        onOpen={() => { setPromptJumpPane(paneId); onShowChat(); }}
+      />}
       <div className="terminal-surface">
         <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} />
         {paneId !== null && chatView && (
@@ -1743,11 +1766,15 @@ export function PaneTerminal({
             pendingAnswer={pendingAnswer !== null && pendingAnswer.pane === paneId ? pendingAnswer : null}
             onPendingAnswerDone={clearPendingAnswer}
             promptDock={promptDock}
+            lastPromptDock={lastPromptDock}
+            jumpToLastPrompt={promptJumpPane === paneId}
+            onPromptJumpDone={onPromptJumpDone}
             onPromptAnswered={onPromptAnswered}
           />
           </RenderBoundary>
         )}
       </div>
+      {paneId !== null && chatView && <div className="last-prompt-dock" ref={setLastPromptDock} />}
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
           Codex question known (heldByOpenQueue), and Send now must not type into one */}
       {paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (

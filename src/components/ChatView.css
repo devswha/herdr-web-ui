@@ -71,6 +71,37 @@
   width: 100%;
 }
 
+.chat-back-to-prompt {
+  margin-top: var(--space-3);
+  color: var(--text-dim);
+}
+
+.chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+}
+
+.chat-thinking-dots { display: flex; gap: var(--space-1); }
+.chat-thinking-dots i {
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-pill);
+  background: var(--text-dim);
+  opacity: 0.35;
+  animation: chat-thinking-step var(--dur-pulse) steps(1, end) infinite;
+}
+.chat-thinking-dots i:nth-child(2) { animation-delay: calc(var(--dur-pulse) / 3); }
+.chat-thinking-dots i:nth-child(3) { animation-delay: calc(var(--dur-pulse) * 2 / 3); }
+@keyframes chat-thinking-step {
+  0% { opacity: 1; }
+  33% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-thinking-dots i { animation: none; opacity: 1; }
+}
+
 .chat-terminal-fallback {
   color: var(--text-dim);
   font-size: var(--fs-sm);

@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The last recorded prompt stays above the chat composer; its line in the terminal opens
+  Chat there. Long answers offer a way back to their prompt. Sending shows progress without
+  removing the recoverable draft early, and a working agent shows thinking dots before its
+  first assistant turn.
+
 ### Fixed
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.

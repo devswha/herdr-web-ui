@@ -667,6 +667,25 @@ One set for both themes: the card is island black wherever it shows.
   its own box.
   Thinking renders as a folded block only when **Show thinking** is enabled.
 - Auto-follow stops when the reader scrolls up; later output raises a **New messages** pill.
+- The last recorded user prompt is a one-line button over the composer's stack, before held
+  messages and the prompt dock. It uses the chat's reading size and font, a dim speech-bubble
+  icon, ellipsis and the existing column gutters. The terminal lens has the same line above
+  its grid; pressing it opens Chat at that prompt. Only transcript turns supply this line:
+  drafts, queue receipts, compactions and runtime notices never do. An empty or replaced
+  history clears it. There is no cross-pane prompt cache.
+  The row's measured height (`--last-prompt-h` on the stack) comes out of a tall prompt card's
+  60% height budget, keeping its six-touch-row floor and internal scrolling. The transcript
+  retains the space the card left before the navigation row was added.
+  On a short phone (`480px` wide and `600px` tall or less), or a phone with its keyboard up,
+  the line gives its space to an open prompt card so its choices and sticky Confirm remain
+  reachable at large chat sizes. It returns when the card closes; other navigation is unchanged.
+- An answer taller than 90% of the transcript viewport ends with **Back to the prompt** when
+  its originating user turn is loaded. Both controls jump without animation and focus the
+  recorded user turn without scrolling the page or taking focus into the composer. Earlier
+  pages, auto-follow and **Jump to latest** keep their existing behavior.
+- While a connected agent reports working but has not recorded an assistant turn yet, a quiet
+  three-dot status says it is thinking. It never infers work from a send or queue acceptance.
+  Dots step on `--dur-pulse`; reduced motion leaves them still.
 - An empty chat is greeted from the composer (`.composer-greeting`, below), only where the agent's
   conversation was read and holds no turn. A chat still loading, one whose read failed, an agent
   whose transcript could not be read and a pane with no recognized agent keep their own lines
@@ -818,6 +837,10 @@ One set for both themes: the card is island black wherever it shows.
   `--status-blocked` on hover and focus. Not connected, Stop is disabled and loses its fill
   (`--border-strong` outline, `--text-dim` glyph). A coarse pointer keeps that compact visible
   circle inside a transparent `--touch-target` / `40px` button, so tapping remains easy.
+- An in-flight send replaces the arrow with a stepped progress glyph, names the button
+  **Sending…**, and announces that status. Text stays in the box until its authoritative
+  result; a queued receipt is shown only in the pending list, not as a sent transcript turn.
+  Reduced motion keeps the progress glyph still. No optimistic bubble or text matching is used.
 - The status content (`.composer-status`, `role="status"`) sits between the two control groups,
   pushed to the button's side. It draws, at `--fs-xs`: the model pill and the uploading
   or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;

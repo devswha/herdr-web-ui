@@ -1,7 +1,7 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 import {
-  ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, CircleX, Copy, Layers, Target,
+  ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleSlash, CircleX, Copy, Layers, Target,
   type LucideProps,
 } from "lucide-react";
 
@@ -10,6 +10,9 @@ import "./ChatView.css";
 import { AgentMark } from "./AgentMark.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PromptCard } from "./PromptCard.tsx";
+import { LastPromptBar } from "./LastPromptBar.tsx";
+import { lastPromptIndex, promptIndexBefore, promptOf } from "../lib/last-prompt.ts";
+import { showThinking } from "../lib/chatFeedback.ts";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
@@ -77,6 +80,11 @@ export interface ChatViewProps {
   /** where the prompt card is drawn: on the composer's column, over the input card (PaneTerminal
    * owns the place). The chat still owns the prompt, so the card is rendered from here into it */
   promptDock?: HTMLElement | null;
+  /** The last recorded prompt's line, before the held messages and prompt card. */
+  lastPromptDock?: HTMLElement | null;
+  /** The terminal's line opened this chat at its last prompt. Consumed after the first read. */
+  jumpToLastPrompt?: boolean;
+  onPromptJumpDone?: () => void;
   /** a prompt was answered from its card; `toMessageBox`: the keyboard's focus was in the card and may go on to the message box */
   onPromptAnswered?: (toMessageBox: boolean) => void;
 }
@@ -414,6 +422,28 @@ interface TurnProps {
   /** ...and "Needs you" while the agent is blocked */
   waiting: boolean;
   showThinking: boolean;
+  index?: number;
+  promptIndex?: number;
+}
+
+const PromptJumpContext = createContext<((index: number) => void) | null>(null);
+
+/** Measure the answer and its viewport as either reflows, including fonts and folded work. */
+function useTallerThanView() {
+  const ref = useRef<HTMLElement>(null);
+  const [tall, setTall] = useState(false);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    const view = node?.closest(".chat-view");
+    if (node === null || !(view instanceof HTMLElement)) return;
+    const measure = (): void => setTall(view.clientHeight > 0 && node.offsetHeight > view.clientHeight * 0.9);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    observer.observe(view);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, tall };
 }
 
 const TASK_RESULT_ICONS: Record<OmoTaskResult["status"], ComponentType<LucideProps>> = { completed: CircleCheck, failed: CircleX, cancelled: CircleSlash };
@@ -456,8 +486,10 @@ function noticeLabel(t: ReturnType<typeof useT>, notice: Extract<ConversationPar
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
-const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: TurnProps) {
+const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking, index, promptIndex = -1 }: TurnProps) {
   const t = useT();
+  const jump = useContext(PromptJumpContext);
+  const { ref: answerRef, tall } = useTallerThanView();
   // under the turn, not in its meta row: that row fades out once the pointer and focus leave
   const [copyFailed, setCopyFailed] = useState(false);
   const copyError = copyFailed && <p className="chat-copy-error" role="alert">{t("Couldn't copy. Select the text and copy it manually.")}</p>;
@@ -489,7 +521,7 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
   }
   if (turn.role === "user") {
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
-    return <article className="chat-turn chat-turn-user">
+    return <article className="chat-turn chat-turn-user" data-turn={index} tabIndex={-1}>
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
       {/* one row: with a mouse the time and copy sit beside the bubble, on touch under it */}
       <div className="chat-user-row">
@@ -504,7 +536,7 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
   const { work, answer } = splitTurn(turn.parts);
   const answerText = answer.map((part) => part.text).join("\n\n");
   const goal = turnGoal(turn.parts);
-  return <article className="chat-turn chat-turn-agent">
+  return <article className="chat-turn chat-turn-agent" ref={answerRef}>
     <SkillActivityList parts={turn.parts} />
     {goal !== null && <GoalActivity goal={goal} />}
     {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} waiting={waiting} defaultOpen={workStartsOpen(live, turn.parts)} showThinking={showThinking} />}
@@ -516,6 +548,9 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
       {time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}
     </div>}
     {copyError}
+    {tall && answerText.length > 0 && promptIndex >= 0 && jump !== null && <button type="button" className="btn btn-ghost chat-back-to-prompt" onClick={() => jump(promptIndex)}>
+      <ArrowUp aria-hidden="true" />{t("Back to the prompt")}
+    </button>}
   </article>;
 });
 
@@ -526,7 +561,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, lastPromptDock = null, jumpToLastPrompt = false, onPromptJumpDone, onPromptAnswered }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -853,6 +888,27 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
     stickToBottom.current = true; setNewMessages(false); setAway(false);
   };
   const turns = useMemo(() => older.length > 0 ? [...older, ...state.turns] : state.turns, [older, state.turns]);
+  const lastIndex = useMemo(() => state.source === "conversation" ? lastPromptIndex(turns) : -1, [state.source, turns]);
+  const lastTurn = turns[lastIndex];
+  const lastPrompt = lastTurn === undefined ? null : promptOf(lastTurn);
+  const thinking = loaded && error === null && state.source === "conversation" && agent !== null
+    && showThinking({ connected, ended, agentStatus, lastRole: turns.at(-1)?.role });
+  const scrollToTurn = useCallback((index: number): void => {
+    const node = scroller.current;
+    const turn = node?.querySelector<HTMLElement>(`[data-turn="${index}"]`);
+    if (node === null || turn == null) return;
+    const gutter = parseFloat(getComputedStyle(node).paddingTop);
+    const top = turn.getBoundingClientRect().top - node.getBoundingClientRect().top + node.scrollTop - gutter;
+    stickToBottom.current = false;
+    node.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+    turn.focus({ preventScroll: true });
+    setAway(node.scrollTop + node.clientHeight < node.scrollHeight - 48);
+  }, []);
+  useEffect(() => {
+    if (!jumpToLastPrompt || !loaded) return;
+    if (lastIndex >= 0) scrollToTurn(lastIndex);
+    onPromptJumpDone?.();
+  }, [jumpToLastPrompt, loaded, lastIndex, scrollToTurn, onPromptJumpDone]);
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
@@ -867,7 +923,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
   // the chat left the screen (another lens): nothing is known of it until it is read again
   useLayoutEffect(() => () => onRead?.(paneId, null), [onRead, paneId]);
 
-  return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
+  return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><PromptJumpContext.Provider value={scrollToTurn}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
       {/* the conversation below is not all the file holds: a /tree left these behind, and pi moved
           its leaf without writing anything, so nothing here could say they were ever there. First
@@ -895,21 +951,27 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
             const last = index === turns.length - 1;
             const live = isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend);
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-              <Turn paneId={paneId} turn={turn} live={live} waiting={isWaitingWorkTurn(live, agentStatus)} showThinking={settings.showThinking} />
+              <Turn paneId={paneId} turn={turn} live={live} waiting={isWaitingWorkTurn(live, agentStatus)} showThinking={settings.showThinking} index={index} promptIndex={turn.role === "assistant" ? promptIndexBefore(turns, index) : -1} />
             </RenderBoundary>;
           })
         : agent !== null
           ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>
           : state.messages.map((message, index) => <FallbackTurn key={index} paneId={paneId} message={message} />)}
+      {thinking && <div className="chat-thinking" role="status" aria-label={t("{agent} is thinking", { agent: agent ?? "agent" })}>
+        <AgentMark agent={agent ?? "agent"} size={20} />
+        <span className="chat-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+      </div>}
       {!ended && !connected && <p className="chat-inline-state" role="status">{t("Reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? t("locked — the token gate is asking again") : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
-      {loaded && empty && error === null && prompt === null && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {loaded && empty && error === null && prompt === null && !thinking && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
       : away && <button type="button" className="btn chat-new-messages is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>}
   </div>
+  {lastPrompt !== null && lastPromptDock !== null && createPortal(
+    <LastPromptBar className="composer-last-prompt" prompt={lastPrompt} onOpen={() => scrollToTurn(lastIndex)} />, lastPromptDock)}
   {/* The prompt card is not part of the transcript: it is drawn on the composer's column, over the
       input card, where PaneTerminal keeps its place. The prompt itself (its poll, the answer, the
       re-read) stays here. */}
@@ -922,5 +984,5 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, sentKey = 0
       if (prompt.steps) setPromptPollKey((key) => key + 1);
       onPendingAnswerDone?.(paneId, prompt.id);
     }} />, promptDock)}
-  </ChatHistoryContext.Provider></ChatPaneContext.Provider>;
+  </PromptJumpContext.Provider></ChatHistoryContext.Provider></ChatPaneContext.Provider>;
 });

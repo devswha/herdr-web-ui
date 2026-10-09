@@ -909,6 +909,7 @@ export function App() {
             onRoleAck={setRole}
             onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
             onServerMessage={handleServerMessage}
+            onShowChat={() => setView("chat")}
           />
           </div>
         </main>

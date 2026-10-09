@@ -163,13 +163,13 @@ try {
   };
   /** The expected chat is up, and no commit since the switch showed the other pane's. */
   const shows = async (expected: string, forbidden: string) => {
-    await page.getByText(`history ${expected}`, { exact: true }).waitFor();
+    await page.locator(".chat-transcript").getByText(`history ${expected}`, { exact: true }).waitFor();
     const commits = await page.evaluate(() => window.qa.commits);
     assert.ok(commits.length > 0, "profiler recorded product commits");
     assert.ok(commits.every((turns) => !turns.some((turn) => turn.includes(`history ${forbidden}`))), `stale ${forbidden} in intermediate commits: ${JSON.stringify(commits)}`);
   };
   await select("a", "local");
-  await page.getByText("history local/a", { exact: true }).waitFor();
+  await page.locator(".chat-transcript").getByText("history local/a", { exact: true }).waitFor();
   await select("b", "local");
   await shows("local/b", "local/a");
   await select("a", "local");
@@ -187,7 +187,7 @@ try {
       await Bun.sleep(20);
     }
     await select("a", "remote-pc");
-    await page.getByText("history remote-pc/a", { exact: true }).waitFor();
+    await page.locator(".chat-transcript").getByText("history remote-pc/a", { exact: true }).waitFor();
     held.delete("remote-pc/b");
     for (const request of pending.splice(0)) await request.answer(status);
     // B's request has ended in the page (answered, or cancelled when B left) and two frames
@@ -195,7 +195,7 @@ try {
     await page.waitForFunction((count) => window.qa.answered.filter((key) => key === "remote-pc/b").length > count, ended);
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await shows("remote-pc/a", "remote-pc/b");
-    assert.equal(await page.getByText("history remote-pc/a", { exact: true }).count(), 1, "late response preserves active chat");
+    assert.equal(await page.locator(".chat-transcript").getByText("history remote-pc/a", { exact: true }).count(), 1, "late response preserves active chat");
     assert.equal(await page.locator(".chat-inline-error").count(), 0, "late error belongs to the abandoned pane");
   }
   failing.add("remote-pc/b");
@@ -204,14 +204,14 @@ try {
   assert.equal(await page.getByText("history remote-pc/a", { exact: true }).count(), 0, "unavailable chat cannot show another pane's history");
   assert.ok((await page.evaluate(() => window.qa.commits)).every((turns) => !turns.some((turn) => turn.includes("history remote-pc/a"))), "no commit of the unavailable chat showed another pane's history");
   await select("devin", "local", "devin");
-  await page.getByText("Synthetic Devin prompt", { exact: true }).waitFor();
+  await page.locator(".chat-transcript").getByText("Synthetic Devin prompt", { exact: true }).waitFor();
   await page.getByText("Synthetic Devin answer", { exact: true }).waitFor();
   await page.locator(".work-block-head").click();
   assert.equal(await page.locator(".work-row-name").filter({ hasText: "synthetic_tool" }).count(), 1);
   await page.locator(".work-row-head").click();
   await page.getByText("synthetic result", { exact: true }).waitFor();
   await select("claude", "local", "claude");
-  await page.getByText("Synthetic Claude prompt", { exact: true }).waitFor();
+  await page.locator(".chat-transcript").getByText("Synthetic Claude prompt", { exact: true }).waitFor();
   assert.equal(await page.getByText("Synthetic Devin answer", { exact: true }).count(), 0);
   assert.ok((await page.evaluate(() => window.qa.commits)).every((turns) => !turns.some((turn) => turn.includes("Synthetic Devin"))), "switch to Claude cannot commit Devin history");
   assert.deepEqual(errors, []);
