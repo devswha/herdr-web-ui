@@ -78,8 +78,8 @@ export interface Settings {
    *  Stored under this key, not 0.4.1's `terminalOsc52`: settings are saved whole, so a `false` there
    *  was written by any change at all, not chosen, and is ignored. */
   paneClipboard: boolean;
-  /** a desktop tab out of use for a moment detaches its pane (PaneTerminal's release), so herdr's own TUI gets the
-   *  pane's size back; its terminal stops updating until the user is back. Off: the tab keeps the pane and the size. */
+  /** a desktop tab out of use for a moment detaches its pane (PaneTerminal's release) and only watches it, so herdr's own
+   *  window keeps the pane at its size; paused where the server cannot watch. Off: the tab keeps the pane and its size. */
   releasePaneAway: boolean;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
   chatFontSize: number | null;

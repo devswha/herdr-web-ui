@@ -246,7 +246,9 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     const open = (options: Parameters<Browser["newContext"]>[0], settings: object = {}) => openRecording(browser, contexts, origin, paneId, options, { language: "en", defaultView: "terminal", releasePaneAway: true, ...settings });
     // what the page sent that sizes the grid: attaches and resizes
     const sizing = async (page: Page) => (await framesOf(page)).filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
-    const paused = (page: Page) => page.locator(".terminal-banner", { hasText: "Paused while you use another window" });
+    // a window that let go of its pane still shows it, read-only, through the server's watch
+    const viewOnly = (page: Page) => page.locator(".terminal-banner", { hasText: "View only while you use another window" });
+    const watchFrames = async (page: Page) => (await framesOf(page)).filter((f) => f.dir === "in" && f.type === "watch-data").length;
 
     // by default a window out of use keeps its pane: no detach, no paused banner, and the pane's output still arrives
     const keeping = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 1280, height: 800 } }, { language: "en", defaultView: "terminal" });
@@ -261,7 +263,7 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     // past the moment a window that pauses lets go of its pane
     await keeping.clock.runFor(2_000);
     assert.ok(!(await framesOf(keeping)).some((f) => f.dir === "out" && f.type === "detach"), "a window out of use keeps its pane by default");
-    assert.equal(await paused(keeping).count(), 0, "a window out of use is not paused by default");
+    assert.equal(await viewOnly(keeping).count(), 0, "a window out of use is not view only by default");
     await keeping.clock.resume();
     const outputCount = async () => (await framesOf(keeping)).filter((f) => f.dir === "in" && f.type === "pty-data").length;
     const output = await outputCount();
@@ -295,11 +297,12 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     assert.equal(await size(), phoneSize, "a window shown without the focus leaves the phone's grid");
     console.log(`PASS a desktop window shown without the focus leaves the shared grid at the phone's ${phoneSize}`);
 
-    // a moment later it lets go of the pane, and says so; the phone keeps it
+    // a moment later it lets go of the pane and watches it instead, and says so; the phone keeps it
     await desktop.waitForFunction(() => (window as unknown as { frames_: { dir: string; type: string }[] }).frames_.some((f) => f.dir === "out" && f.type === "detach"), undefined, { timeout: 10_000 });
-    await paused(desktop).waitFor({ timeout: 10_000 });
+    await viewOnly(desktop).waitFor({ timeout: 10_000 });
+    assert.ok((await framesOf(desktop)).some((f) => f.dir === "out" && f.type === "watch"), "the window watches the pane it let go of");
     assert.equal(await size(), phoneSize, "the window letting go leaves the phone's grid");
-    console.log("PASS a desktop window out of use lets go of the pane and says it is paused");
+    console.log("PASS a desktop window out of use lets go of the pane, watches it, and says it is view only");
 
     // it reconnects in the background: a pane it let go of is not attached again
     const reconnecting = (await sizing(desktop)).length;
@@ -321,7 +324,7 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     assert.deepEqual(await sizing(desktop), [{ dir: "out", type: "attach", keep_size: true }], "a background reload attaches without resizing");
     assert.equal(await size(), phoneSize, "a background reload leaves the phone's grid");
     await desktop.waitForFunction(() => (window as unknown as { frames_: { dir: string; type: string }[] }).frames_.some((f) => f.dir === "out" && f.type === "detach"), undefined, { timeout: 10_000 });
-    await paused(desktop).waitFor({ timeout: 10_000 });
+    await viewOnly(desktop).waitFor({ timeout: 10_000 });
     console.log("PASS a desktop window reloading in the background leaves the shared grid, then lets go of the pane");
 
     // the phone leaves too: no tab uses the pane, and the bridge lets go of herdr's attach,
@@ -333,6 +336,15 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     assert.ok(!attachRunning(terminalId), "no tab in use holds herdr's attach on the pane");
     console.log("PASS with no tab in use, the bridge holds no attach on the pane");
 
+    // the window it let go of still shows the pane: its output arrives through the watch, with no attach
+    const watched = await watchFrames(desktop);
+    await size();
+    const shows = Date.now() + 10_000;
+    while (await watchFrames(desktop) <= watched && Date.now() < shows) await Bun.sleep(100);
+    assert.ok(await watchFrames(desktop) > watched, "the watched pane's output reaches the window");
+    assert.ok(!attachRunning(terminalId), "watching holds no attach on the pane");
+    console.log("PASS a window out of use keeps showing the pane's output with no attach on it");
+
     // the pane closes in herdr and the window moves on to the focused one in the background: having
     // let go, it attaches nothing until the user is back, and that pane keeps the size it has
     const nextBefore = await nextSize();
@@ -343,7 +355,7 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     await Bun.sleep(NO_RESIZE_WAIT_MS);
     assert.deepEqual((await sizing(desktop)).slice(switching), [], "a background move to the next pane attaches nothing");
     assert.equal(await nextSize(), nextBefore, "a background move to the next pane leaves its grid");
-    assert.equal(await paused(desktop).count(), 1, "the window on the next pane is still paused");
+    assert.equal(await viewOnly(desktop).count(), 1, "the window on the next pane is still view only");
     console.log(`PASS a desktop window moving on to the next pane in the background leaves its grid at ${nextBefore}`);
 
     // the user comes back to it: the window takes the focus, attaches, and takes the grid
@@ -358,7 +370,7 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     let current = nextBefore;
     while (current !== desktopSize && Date.now() < back) current = await nextSize();
     assert.equal(current, desktopSize, "the focused window fits the grid to itself again");
-    assert.equal(await paused(desktop).count(), 0, "the window back in use is not paused");
+    assert.equal(await viewOnly(desktop).count(), 0, "the window back in use is not view only");
     console.log(`PASS the desktop window attaches again at ${desktopSize} when it takes the focus`);
   } finally {
     for (const context of contexts) await context.close().catch(() => undefined);
@@ -483,7 +495,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           });
           await page.clock.runFor(1000);
           await waitDetach(page);
-          await page.locator(".terminal-banner", { hasText: "Paused while you use another window" }).waitFor();
+          await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
           assert.ok(holder);
           await stopHolder(holder);
           await page.evaluate(() => {
@@ -609,7 +621,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           } else if (scenario === "resume") {
             await page.clock.runFor(1000);
             await waitDetach(page);
-            await page.locator(".terminal-banner", { hasText: "Paused while you use another window" }).waitFor();
+            await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
             const before = (await framesOf(page)).length;
             await page.evaluate(() => window.dispatchEvent(new Event("pointerdown")));
             await attached(page, 2);
@@ -639,7 +651,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
             });
             await page.clock.runFor(1000);
             await waitDetach(page);
-            await page.locator(".terminal-banner", { hasText: "Paused while you use another window" }).waitFor();
+            await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
             await page.evaluate(() => {
               Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
               window.dispatchEvent(new Event("focus"));

@@ -268,8 +268,8 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
       <SettingsRow label={t("Clipboard from a pane")} description={t("A program in a pane that copies (vim, tmux, Claude Code) puts its text on this device's clipboard, as a copy you made yourself would. Turn it off if a pane runs output you do not trust: it could replace what you paste next.")}>
         <Toggle label={t("Clipboard from a pane")} checked={settings.paneClipboard} onChange={(paneClipboard) => update({ paneClipboard })} />
       </SettingsRow>
-      <SettingsRow label={t("Pause in another window")} description={t("A second after you switch to another window, this tab lets go of the pane, so herdr's own view gets the pane's size back. The terminal here stops updating until you come back. Off, it keeps updating and keeps the pane at this window's size.")}>
-        <Toggle label={t("Pause in another window")} checked={settings.releasePaneAway} onChange={(releasePaneAway) => update({ releasePaneAway })} />
+      <SettingsRow label={t("Use alongside herdr's own window")} description={t("Turn this on if this PC also shows herdr in a terminal window. A second after you switch to another window, this tab only watches the pane, so herdr's window keeps the pane at its own size instead of this window's. Click the tab to type again. While it watches, the pane is drawn at herdr's size and may not fill this window.")}>
+        <Toggle label={t("Use alongside herdr's own window")} checked={settings.releasePaneAway} onChange={(releasePaneAway) => update({ releasePaneAway })} />
       </SettingsRow>
     </SettingsGroup>
   );

@@ -9,9 +9,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Changed
 - A desktop tab no longer pauses its terminal a second after you switch to another window, as
-  0.4.4 started doing: it keeps updating, as before 0.4.4. **Settings → Terminal → Pause in another
-  window** turns that pause back on, for when herdr's own view should get the pane's size back
-  while you work there.
+  0.4.4 started doing: it keeps updating, as before 0.4.4. If this PC also shows herdr in a
+  terminal window, turn on **Settings → Terminal → Use alongside herdr's own window**: a second
+  after you leave the tab, it lets go of the pane so herdr's window keeps the pane at its own size,
+  and it keeps showing the pane read-only (drawn at herdr's size) until you click it to type again.
+  A server older than this one pauses the tab instead.
   ([#699](https://github.com/devswha/herdr-web-ui/pull/699))
 
 ## [0.4.4] - 2026-10-09
