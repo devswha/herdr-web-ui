@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, claudeInputDraft, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -1587,6 +1587,21 @@ describe("Claude's suggested next prompt", () => {
     // a typed character under that cursor, with nothing grey after it, is typed
     expect(parseClaudeSuggestion(screen("❯ \u001b[7mr\u001b[27m"))).toBeNull();
     expect(parseClaudeSuggestion(screen("❯ \u001b[7mr\u001b[27mun"))).toBeNull();
+  });
+
+  test("a draft typed in the input box is the user's: Claude's grey text, its tip, its cursor and an empty box are not", () => {
+    expect(claudeInputDraft(screen("❯\u00a0아직 진행중이야?"))).toBe(true);
+    expect(claudeInputDraft(screen("❯ \u001b[2m아직\u001b[0m 진행중"))).toBe(true);
+    expect(claudeInputDraft(screen("❯ \u001b[7mr\u001b[27mun"))).toBe(true);
+    // a draft of several lines fills the box down to its rule
+    expect(claudeInputDraft(screen("❯ first line", "  second line\r\n" + RULE))).toBe(true);
+    expect(claudeInputDraft(screen("❯\u00a0\u001b[0m\u001b[2m아직 진행중이야?\u001b[0m"))).toBe(false);
+    expect(claudeInputDraft(screen("❯ \u001b[7mr\u001b[27m\u001b[2mun the tests\u001b[22m"))).toBe(false);
+    expect(claudeInputDraft(screen('❯ \u001b[2mTry "how does <filepath> work?"\u001b[0m'))).toBe(false);
+    expect(claudeInputDraft(screen("❯\u00a0"))).toBe(false);
+    expect(claudeInputDraft(screen("❯ \u001b[7m \u001b[27m"))).toBe(false);
+    // no input box on screen says nothing
+    expect(claudeInputDraft("❯ loose text\nmore")).toBe(false);
   });
 });
 

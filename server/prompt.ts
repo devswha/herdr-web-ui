@@ -2690,6 +2690,24 @@ function claudeGreyInput(ansi: string): string | null {
   return suggestion === "" ? null : suggestion;
 }
 
+/**
+ * Whether Claude Code's input box holds text someone typed: anything between the screen's last
+ * two rules after the `❯` that is not Claude's own grey text (a suggested prompt or the tip). A
+ * paste would land in the middle of it and the Enter after it would send both. False when the
+ * screen shows no input box. Like claudeGreyInput it needs an ANSI read: as plain text a grey
+ * suggestion and a draft are both `❯ words`.
+ */
+export function claudeInputDraft(ansi: string): boolean {
+  const plain = ansi.split("\n").map((line) => line.replace(/\r$/, "").replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, ""));
+  let end = plain.length - 1;
+  while (end >= 0 && !SOLID_RULE_RE.test(plain[end]!.trim())) end--;
+  let start = end - 1;
+  while (start >= 0 && !SOLID_RULE_RE.test(plain[start]!.trim())) start--;
+  if (start < 0 || !plain[start + 1]!.startsWith("❯")) return false;
+  const text = plain.slice(start + 1, end).join("\n").slice(1).replace(/\u00a0/g, " ").trim();
+  return text !== "" && claudeGreyInput(ansi) === null;
+}
+
 /** Whether a card is the one for a message Claude Code holds back (parseClaudeHeld). */
 export function isClaudeHeld(prompt: InteractivePrompt): boolean {
   return parsedByPublicPrompt.get(prompt)?.responder === "claude-held";

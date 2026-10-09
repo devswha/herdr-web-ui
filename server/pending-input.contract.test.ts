@@ -299,6 +299,25 @@ describe("connection-owned pending input", () => {
     await f.waitBytes(`${paste("next message")}\r`);
   }, 30_000);
 
+  it("holds a queued message rather than pasting it over a draft typed in Claude's input box", async () => {
+    const f = await setup("draft");
+    const rule = "\u2500".repeat(60);
+    const footer = "[Haiku 4.5] \u2502 project";
+    await f.showScreen(`  \u273b Cooked for 1s\n${rule}\n\u276f half a thought typed in the terminal\n${rule}\n  ${footer}\n`, footer);
+    const message = await f.queue(1, "queued message");
+    await f.state("idle");
+    const held = await f.socket.wait((frame) => frame.type === "pending-messages" && frame.pane_id === f.pane
+      && frame.messages.some((item: PendingMessage) => item.id === message.id && item.state === "held"));
+    expect(held.messages.find((item: PendingMessage) => item.id === message.id).error.code).toBe("input_draft");
+    expect(f.bytes()).toBe("");
+    // the draft sent or cleared in the terminal, Send now delivers the message
+    await f.showScreen(`  \u273b Cooked for 1s\n${rule}\n\u276f \u001b[2mrun the tests\u001b[0m\n${rule}\n  ${footer} \n`, `${footer} `);
+    f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });
+    expect(await f.socket.action(10)).toMatchObject({ ok: true });
+    await f.removed(message.id);
+    await f.waitBytes(`${paste("queued message")}\r`);
+  }, 30_000);
+
   it("reads the pane's live screen: a menu drawn below a scrolled viewport still stops Send now", async () => {
     const f = await setup("scrolled", "codex"); const message = await f.queue(1, "after the menu");
     const history = Array.from({ length: 150 }, (_, index) => `line ${index + 1}`).join("\n");
