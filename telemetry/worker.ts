@@ -28,13 +28,16 @@ const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9a-z.]{1,24})?$/;
 const WORD = /^[a-z0-9_]{1,16}$/;
 const EVENTS = new Set(["install", "update"]);
 const METHODS = new Set(["plugin", "managed", "source"]);
-/** ISO 3166-1 alpha-2, or Cloudflare's own two characters (XX unknown, T1 Tor) */
-const COUNTRY = /^[A-Z0-9]{2}$/;
+/** ISO 3166-1 alpha-2 */
+const COUNTRY = /^[A-Z]{2}$/;
 
-/** the country Cloudflare worked out for this request; null off Cloudflare or when it names none */
+/**
+ * The country Cloudflare worked out for this request; null off Cloudflare or when it names none.
+ * Its two non-countries are dropped too: XX (unknown), and T1, which would say the sender uses Tor.
+ */
 export function requestCountry(request: Request): string | null {
   const country = (request as { cf?: { country?: unknown } }).cf?.country;
-  return typeof country === "string" && COUNTRY.test(country) ? country : null;
+  return typeof country === "string" && COUNTRY.test(country) && country !== "XX" ? country : null;
 }
 
 /** the event as it is stored, or null when the body is not one */

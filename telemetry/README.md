@@ -8,7 +8,8 @@ It stores one row per install, event and version in a D1 table (`schema.sql`): t
 event, the random install ID, the version and the version it replaced, the OS, the CPU
 architecture and how the app was installed. It adds the country the request came from: the two
 characters Cloudflare works out from the sender's address (`request.cf.country`, such as `KR`),
-and nothing finer (no city, region or network). The Worker itself never reads the sender's address
+and nothing finer (no city, region or network; a request Cloudflare marks as Tor or unknown is
+stored with no country). The Worker itself never reads the sender's address
 or any header other than the content type, and Workers Logs are off (`wrangler.toml`), so no
 request log keeps the address either.
 
@@ -49,8 +50,12 @@ SELECT COUNT(DISTINCT install_id) FROM events WHERE event = 'update' AND day >= 
 SELECT version, COUNT(*) FROM (SELECT install_id, MAX(version) AS version FROM events GROUP BY install_id) GROUP BY version ORDER BY version;
 -- OS, architecture and install method
 SELECT os, arch, install_method, COUNT(DISTINCT install_id) FROM events GROUP BY os, arch, install_method;
--- installs per country; NULL is an install last heard from before the country was kept
-SELECT country, COUNT(DISTINCT install_id) FROM events GROUP BY country ORDER BY 2 DESC;
+-- installs per country, each counted once under the last country it was seen in; NULL is an
+-- install never seen with one (heard from only before the country was kept, or never named one)
+SELECT country, COUNT(*) FROM (
+  SELECT (SELECT country FROM events WHERE install_id = e.install_id AND country IS NOT NULL ORDER BY rowid DESC LIMIT 1) AS country
+  FROM events e GROUP BY install_id
+) GROUP BY country ORDER BY 2 DESC;
 ```
 
 `MAX(version)` compares text, which orders `0.10.0` before `0.9.0`; read the version table with

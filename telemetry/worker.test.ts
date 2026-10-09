@@ -1,4 +1,7 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { handle, readEvent, requestCountry, type Env } from "./worker.ts";
 
 const event = {
@@ -34,8 +37,49 @@ describe("telemetry receiver", () => {
     const { env, rows } = fakeDb();
     expect((await handle(post(JSON.stringify(event)), env, now)).status).toBe(204);
     expect(rows[0]!.values[8]).toBeNull();
-    for (const cf of [undefined, {}, { country: "Korea" }, { country: "kr" }, { country: 82 }]) expect(requestCountry(from(post("{}"), cf))).toBeNull();
-    for (const country of ["US", "XX", "T1"]) expect(requestCountry(from(post("{}"), { country }))).toBe(country);
+    // XX is Cloudflare's "unknown" and T1 its Tor marker: neither is a country, and T1 would say more than one
+    for (const cf of [undefined, {}, { country: "Korea" }, { country: "kr" }, { country: 82 }, { country: "XX" }, { country: "T1" }]) expect(requestCountry(from(post("{}"), cf))).toBeNull();
+    for (const country of ["US", "KR"]) expect(requestCountry(from(post("{}"), { country }))).toBe(country);
+  });
+
+  describe("against the real table", () => {
+    const schema = readFileSync(join(import.meta.dir, "schema.sql"), "utf8");
+    const readme = readFileSync(join(import.meta.dir, "README.md"), "utf8");
+    const sqlite = (db: Database): Env => ({ DB: { prepare: (query) => ({ bind: (...values) => ({ run: async () => db.prepare(query).run(...(values as (string | null)[])) }) }) } });
+    const send = (env: Env, body: object, country?: string) => handle(from(post(JSON.stringify(body)), country ? { country } : undefined), env, now);
+
+    test("the INSERT fits a new table, and one that got its column from the README's ALTER", async () => {
+      const fresh = new Database(":memory:");
+      fresh.exec(schema);
+      const migrated = new Database(":memory:");
+      migrated.exec(schema.replace("  country TEXT,\n", ""));
+      // a table from before the country was kept refuses the event: the ALTER goes first
+      await expect(send(sqlite(migrated), event, "KR")).rejects.toThrow(/country/);
+      migrated.exec(/"(ALTER TABLE events ADD COLUMN[^"]+)"/.exec(readme)![1]!);
+      for (const db of [fresh, migrated]) {
+        expect((await send(sqlite(db), event, "KR")).status).toBe(204);
+        expect(db.query("SELECT country, version FROM events").all()).toEqual([{ country: "KR", version: "0.4.2" }]);
+      }
+    });
+
+    test("the README's country query counts an install once, under the last country it was seen in", async () => {
+      const db = new Database(":memory:");
+      db.exec(schema);
+      const env = sqlite(db);
+      const other = "7c1d2a90-4b3e-4f5a-8c6d-9e0f1a2b3c4d";
+      // one install heard from before the country was kept, then in two countries; another never named one
+      db.exec(`INSERT INTO events (day, event, install_id, version, previous_version, os, arch, install_method) VALUES ('2026-10-08', 'install', '${event.install_id}', '0.4.0', NULL, 'linux', 'x64', 'plugin')`);
+      await send(env, { ...event, version: "0.4.1", previous_version: "0.4.0" }, "KR");
+      await send(env, event, "US");
+      // a replay from elsewhere is the same event: it is ignored, and the country stays
+      await send(env, event, "JP");
+      await send(env, { ...event, install_id: other });
+      const query = /-- installs per country[^\n]*\n--[^\n]*\n(SELECT[\s\S]+?;)/.exec(readme)![1]!;
+      const counts = db.query(query).all().map((row) => Object.values(row as object));
+      expect(counts).toHaveLength(2);
+      expect(counts).toContainEqual(["US", 1]);
+      expect(counts).toContainEqual([null, 1]);
+    });
   });
 
   test("refuses what is not one event", async () => {
