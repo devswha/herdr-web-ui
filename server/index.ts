@@ -22,6 +22,7 @@ import { DevinHistoryChanged } from "./devin.ts";
 import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
+import { omoProgress } from "./omo-progress.ts";
 import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
@@ -1698,8 +1699,11 @@ export function createServer(
         const session = omo.sessionOf(paneId);
         // server_time: the browser's clock can differ from this PC's, and the list says how long tasks ran
         const server_time = new Date().toISOString();
-        if (session === null) return jsonResponse({ tasks: [], runs: [], server_time });
-        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });
+        if (session === null) return jsonResponse({ tasks: [], runs: [], progress: null, server_time });
+        const progress = await omoProgress(session, async () => (await paneRead({ paneId, source: "visible", format: "text" })).text);
+        // A /new or pane replacement during the control read invalidates the old projection.
+        if (omo.sessionOf(paneId)?.path !== session.path) return jsonResponse({ tasks: [], runs: [], progress: null, server_time });
+        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), progress, server_time });
       }
 
       if (pathname === "/api/pane/read") {

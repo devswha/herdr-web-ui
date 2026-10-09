@@ -24,6 +24,7 @@ import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkSafariIme } from "./terminal-safari-ime-regression.ts";
 import { checkHeldDraftPaneSwitch } from "./terminal-draft-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
+import { checkOmoProgress } from "./omo-progress-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
 import { checkTakeOver } from "./take-over-regression.ts";
@@ -664,6 +665,7 @@ try {
   await checkMobileViewport(browser, origin, paneB);
   await checkMobileTabs(browser, origin);
   await checkDefaultView(browser, origin);
+  await checkOmoProgress(browser, origin);
   await checkComposerReconnect(browser, origin, paneB);
   await checkDroplet(browser, origin);
   await checkTakeOver(browser, origin);

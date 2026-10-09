@@ -491,10 +491,10 @@ export async function fetchPaneCommands(paneId: string, machineId = "local"): Pr
 }
 
 /** GET /api/pane/omo-tasks: the background tasks and workflows the pane's OmO session started, and that PC's clock. */
-export async function fetchPaneOmoActivity(paneId: string, machineId = "local"): Promise<{ tasks: OmoActivity["tasks"]; runs: OmoActivity["runs"]; serverTime: string | null }> {
+export async function fetchPaneOmoActivity(paneId: string, machineId = "local"): Promise<{ tasks: OmoActivity["tasks"]; runs: OmoActivity["runs"]; progress: OmoActivity["progress"]; serverTime: string | null }> {
   const activity = await getJson<Partial<OmoActivity>>(machinePath(machineId, `pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`));
   // a bridge from before workflows answers tasks only
-  return { tasks: activity.tasks ?? [], runs: activity.runs ?? [], serverTime: activity.server_time ?? null };
+  return { tasks: activity.tasks ?? [], runs: activity.runs ?? [], progress: activity.progress, serverTime: activity.server_time ?? null };
 }
 
 /** GET /api/pane/files: paths under the pane's cwd matching `query`, for @-mentions. */

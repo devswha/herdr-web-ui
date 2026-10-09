@@ -226,11 +226,12 @@ export class OmoStatus {
     return this.panes.get(paneId)?.background ?? 0;
   }
 
-  /** The folder and session id of the OmO session the pane holds, once its file is known. */
-  sessionOf(paneId: string): { cwd: string; sessionId: string } | null {
+  /** The existing session identity, with its owned file and process start for progress reads. */
+  sessionOf(paneId: string): { cwd: string; sessionId: string; path: string; startedAt: number | null } | null {
     const tracked = this.panes.get(paneId);
     const sessionId = tracked?.path == null ? null : omoSessionId(tracked.path);
-    return tracked && sessionId !== null && tracked.cwd !== "" ? { cwd: tracked.cwd, sessionId } : null;
+    return tracked && tracked.path !== null && sessionId !== null && tracked.cwd !== ""
+      ? { cwd: tracked.cwd, sessionId, path: tracked.path, startedAt: tracked.startedAt } : null;
   }
 
   /**

@@ -969,7 +969,7 @@ export function Composer({
             <Plus aria-hidden="true" />
           </button>
           {dictation.shown && <MicButton dictation={dictation} />}
-          <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} />
+          <BackgroundTasks key={paneStorageId(machineId, paneId)} paneId={paneId} count={backgroundTasks} omo={agent === "omo"} connected={connected} agentStatus={agentStatus} />
         </div>
         {/* between the two control groups of the card's last row. The agent's name, its separator and the
             state word are read, not drawn: the mark and the header name the agent, and Stop, the live row and

@@ -713,6 +713,20 @@ One set for both themes: the card is island black wherever it shows.
 - An OmO or omp `task` row opens to the tasks it starts (`.chat-task-calls`): each summary in
   `--text`, the agent as a hairline mono pill, the prompt in the bounded mono input box.
 
+### Proposed OmO progress disclosure (`.omo-progress`)
+- Reuse the existing Background tasks session-details popover. No progress panel is pinned
+  above the conversation or composer: opening that popover is the user's choice, and its
+  checklist disclosure starts closed. Closing the popover stops its existing activity poll.
+- The summary names progress, activity and completed/total counts; opening it shows phases
+  and pending, in-progress, completed and abandoned tasks with written labels and glyphs.
+  Compaction and retry use working ink, never an endless animation.
+- Keep the popover's existing measured scroll room and Escape/outside-click focus behavior.
+  Use existing text, spacing, status and focus-ring tokens; add no theme tokens. Long task
+  names wrap within the popover on a phone. Disconnects, hidden pages and failed reads keep
+  the checklist but drop the live activity claim.
+- This is a contribution proposal for review, respecting #156's removal of the old pinned
+  progress panel, not a proposal to restore always-visible session chrome.
+
 ### Background tasks ended (`.chat-task-results`)
 - Where OmO reports background tasks that ended, the transcript shows one `--bg-elevated` card
   (hairline edge, `--radius-lg`) on the prose column: a dim `--fs-xs` line with the layers icon,
