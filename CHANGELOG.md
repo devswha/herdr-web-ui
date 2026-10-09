@@ -59,8 +59,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   tab left open on a pane kept it at the browser's size, and herdr drew it cut off at its split's
   edge with the bottom rows out of reach; a phone hid this, since it disconnects in the background
   and its grid is narrow. A tab you are not using now lets go of the pane after a second, says it
-  is paused, and takes the pane again when you click back into it. A message it queued is still
-  sent first. ([#660](https://github.com/devswha/herdr-web-ui/pull/660) by @jiunshinn)
+  is paused, and takes the pane again when the tab regains focus or receives pointer input.
+  Mirrored, embedded, and ended panes are not released. A message it queued is still sent first.
+  ([#660](https://github.com/devswha/herdr-web-ui/pull/660) by @jiunshinn)
 
 ## [0.4.3] - 2026-10-09
 
