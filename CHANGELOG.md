@@ -23,7 +23,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   process stop counting as running when the process boundary becomes available. ([#702](https://github.com/devswha/herdr-web-ui/pull/702))
 - Delayed Claude transcript discovery preserves an observed turn's background wait and original
   deadline; a replacement session does not inherit the old session's wait. ([#703](https://github.com/devswha/herdr-web-ui/pull/703))
-- Claude background badges expire day-old subagent files even when no transcript changes.
+- Claude background badges expire day-old subagent files even when no transcript changes. ([#706](https://github.com/devswha/herdr-web-ui/pull/706))
 
 ## [0.4.4] - 2026-10-09
 
