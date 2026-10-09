@@ -241,7 +241,7 @@ describe("ClaudeSubagentStatus", () => {
       let resolve!: (value: { path: string; startedAt: null }) => void;
       const pending = new Promise<{ path: string; startedAt: null }>((done) => { resolve = done; });
       const status = new ClaudeSubagentStatus({ resolve: () => pending, now: () => now,
-        onReset: (id) => waits.forget(id), onChange: (id, _, running, prompt) => { waits.running(id, running, prompt); } });
+        onReset: (id) => waits.reset(id), onChange: (id, _, running, prompt) => { waits.running(id, running, prompt); } });
       waits.status("p1", order === "baseline" ? "done" : "working");
       const refresh = status.refresh([pane("p1", "claude")]);
       if (order === "early") { resolve({ path: s.path, startedAt: null }); await refresh; }
@@ -267,7 +267,7 @@ describe("ClaudeSubagentStatus", () => {
     let resolve!: (value: { path: string; startedAt: null }) => void;
     const pending = new Promise<{ path: string; startedAt: null }>((done) => { resolve = done; });
     const status = new ClaudeSubagentStatus({ resolve: () => pending, now: () => NOW,
-      onReset: (id) => waits.forget(id), onChange: (id, _, running, prompt) => { waits.running(id, running, prompt); } });
+      onReset: (id) => waits.reset(id), onChange: (id, _, running, prompt) => { waits.running(id, running, prompt); } });
     const first = status.refresh([pane("p1", "claude", "s1")]);
     waits.status("p1", "working");
     waits.status("p1", "done");
@@ -282,6 +282,46 @@ describe("ClaudeSubagentStatus", () => {
     await status.refresh([pane("p1", "claude", "s3")]);
     expect(status.countOf("p1")).toBe(1);
     expect(waits.waiting("p1")).toBe(false);
+  });
+
+  it("retains the latest pane status, but no old hold, across asynchronous process replacement", async () => {
+    for (const latest of ["working", "done"] as const) {
+      const s = session();
+      s.prompt(1);
+      s.bash("suite", 2);
+      let now = NOW;
+      let pid = 1;
+      const waits = new BackgroundWait(() => now);
+      const replacement = Promise.withResolvers<{ path: string; startedAt: number; pid: number }>();
+      const status = new ClaudeSubagentStatus({
+        resolve: () => pid === 1 ? Promise.resolve({ path: s.path, startedAt: Date.parse(at(0)), pid }) : replacement.promise,
+        pid: async () => pid, now: () => now, refreshMs: 1000,
+        onReset: (id) => waits.reset(id),
+        onChange: (id, _, running, prompt) => { waits.running(id, running, prompt); },
+      });
+      await status.refresh([pane("p1", "claude")]);
+      waits.status("p1", "working");
+      waits.status("p1", "done");
+      expect(waits.waiting("p1")).toBe(true);
+      now += 1000;
+      pid = 2;
+      const refreshing = status.refresh([pane("p1", "claude")]);
+      waits.status("p1", latest);
+      replacement.resolve({ path: s.path, startedAt: Date.parse(at(0)) + 1, pid });
+      await refreshing;
+      expect(status.countOf("p1")).toBe(1);
+      expect(waits.waiting("p1")).toBe(false);
+      waits.seed("p1", latest === "working" ? "done" : "working");
+      now += 1000;
+      waits.status("p1", "done");
+      expect(waits.waiting("p1")).toBe(latest === "working");
+      now += WAIT_LIMIT_MS - 1;
+      waits.tick();
+      expect(waits.waiting("p1")).toBe(latest === "working");
+      now++;
+      waits.tick();
+      expect(waits.waiting("p1")).toBe(false);
+    }
   });
 
   it("rereads a same-size replaced parent and a replaced subagent directory", async () => {

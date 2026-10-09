@@ -82,6 +82,17 @@ export class BackgroundWait {
     return this.panes.get(paneId)?.waiting ?? false;
   }
 
+  /** Drop lifetime-specific waits, not the latest observed pane status or its freshness guard. */
+  reset(paneId: string): void {
+    const pane = this.panes.get(paneId);
+    if (!pane) return;
+    pane.rests = [];
+    pane.promptAt = null;
+    pane.turnRunning = 0;
+    pane.endedAt = null;
+    pane.waiting = false;
+  }
+
   forget(paneId: string): void {
     this.panes.delete(paneId);
   }

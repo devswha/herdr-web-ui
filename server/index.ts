@@ -796,7 +796,7 @@ export function createServer(
     pid: claudePanePid,
     onReset: (paneId) => {
       const held = waits.waiting(paneId);
-      waits.forget(paneId);
+      waits.reset(paneId);
       claudeAgentsChanged(paneId, 0, 0, null, held);
     },
     onChange: (paneId, running, turnRunning, promptAt) => claudeAgentsChanged(paneId, running, turnRunning, promptAt),
