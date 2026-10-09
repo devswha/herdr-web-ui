@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-09
+
 ### Fixed
 - A web UI tab you are not using no longer resizes the pane you are using elsewhere. A window
   left open behind another app turned visible again when the screen woke, or reconnected,
@@ -2592,7 +2594,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/devswha/herdr-web-ui/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/devswha/herdr-web-ui/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/devswha/herdr-web-ui/compare/v0.3.52...v0.4.0
