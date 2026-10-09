@@ -138,6 +138,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **omo** | Native session file, found through the pane's process tree | — use Terminal |
 | **gjc** | Native session file, from the session directory gjc keeps open | — use Terminal |
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
+| **OpenCode** | Native session in OpenCode 2's own database, resolved through herdr: `~/.local/share/opencode/opencode.db` (`%USERPROFILE%\.local\share\opencode\opencode.db` on Windows), or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it | — use Terminal |
 | **Devin CLI** | Native SQLite session, showing the active branch when herdr or the live process explicitly identifies the session; otherwise terminal text | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
@@ -189,7 +190,9 @@ The bridge claims the same message ID for Send now and an automatic send, so the
 deliver it. Older bridges keep the draft and ask for an update instead of changing queueing into
 an immediate send. Connection loss pauses automatic delivery; uncertain text can be copied or
 discarded after checking the terminal. Previously held browser messages still need **Send now**
-or **Discard**.
+or **Discard**. A message is never pasted over text typed in Claude Code's own input box: while
+that box holds a draft the message stays in the list with the reason, and **Send now** delivers it
+once the draft is sent or cleared in the terminal.
 
 ## Subscription usage
 
@@ -254,7 +257,7 @@ whether the test was sent or failed; a missing subscription offers **Turn alerts
 
 On a phone:
 - Agent panes open in the chat.
-- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl, Alt, Shift, Enter, arrows, Ctrl+C).
+- The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl+C, Ctrl, Alt, Shift, Enter, arrows).
   Ctrl, Alt and Shift stay held until tapped again and combine with each other.
   Enable direct terminal typing with the keyboard button to use them with letters and
   symbols. Herdr encodes each chord for the program's keyboard protocol; legacy
@@ -449,7 +452,7 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 
 ## Keyboard shortcuts
 
-`Mod` is **⌘** on macOS and **Ctrl** elsewhere. Every shortcut adds Shift, so the terminal keeps its own Ctrl keys.
+`Mod` is **⌘** on Apple platforms and **Ctrl** elsewhere. Global app shortcuts add Shift, so the terminal keeps its own Ctrl keys. These are the defaults:
 
 | Shortcut | Action |
 | --- | --- |
@@ -459,6 +462,20 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 | `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
+
+**Settings → Shortcuts** changes the final key of each app binding or turns it off. Settings
+are saved in this browser, not on the remote PC. The command palette shows the current bindings
+and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
+(`Mod+Shift+Space`) remains fixed.
+
+Known browser/OS reservations are marked, but other combinations can also be intercepted by
+your browser, OS or extensions. Installed-app mode may behave differently. While an IME is
+composing, keys stay with it. In text fields, Mod+Shift+arrows keep their text-selection behavior.
+List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
+
+On a phone, use the header and More menu for app actions; Command palette is available there
+without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
+An external keyboard uses the same app bindings as a desktop.
 
 Enter sends and Shift+Enter adds a line. Settings can switch sending to Mod+Enter.
 
@@ -544,7 +561,7 @@ Samsung Internet has a forced dark mode that repaints every page, including one 
 
 All three are in the herdr plugin marketplace too, and each does something this app does not. [collie](https://github.com/AltanS/collie) is a mobile terminal for herdr, tmux and zellij, with a status dashboard, a key pad, quick replies and voice input, served over Tailscale by its own bridge. [roamgate](https://github.com/powerfooI/roamgate) is a browser client for herdr with a file explorer and diff annotations, installed by its own script. [herdr-remote](https://github.com/dcolinmorgan/herdr-remote) is a macOS menu-bar app with a phone dashboard and a Telegram bot behind a relay and a free tunnel.
 
-herdr web ui reads the agent's own transcript, so Claude Code, Codex, omp, omo, gjc, pi and identifiable Devin CLI panes are a chat with the work folded per turn. Supported prompt cards are checked against the live menu before an answer is typed; Devin prompts use Terminal. The terminal is the same live pane as your TUI, other PCs join over SSH from the sidebar, and it installs and updates as a herdr plugin, with no server or account of its own. It brings no tunnel: you reach it over Tailscale, SSH or your own HTTPS proxy. If you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit.
+herdr web ui reads the agent's own transcript, so Claude Code, Codex, omp, omo, gjc, pi, OpenCode and identifiable Devin CLI panes are a chat with the work folded per turn. Supported prompt cards are checked against the live menu before an answer is typed; Devin prompts use Terminal. The terminal is the same live pane as your TUI, other PCs join over SSH from the sidebar, and it installs and updates as a herdr plugin, with no server or account of its own. It brings no tunnel: you reach it over Tailscale, SSH or your own HTTPS proxy. If you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit.
 </details>
 
 <details>

@@ -15,7 +15,11 @@ export const JA: Record<string, string> = {
   "Automatic": "自動",
   "Terminal input mode": "端末入力モード",
   "Reset shortcuts": "ショートカットをリセット",
-  "Some keys are reserved by the browser. Changes apply to this device.": "一部のキーはブラウザーが使用します。変更はこの端末に適用されます。",
+  "Bindings apply to this browser and device; Mod+Shift is fixed.": "ショートカットはこのブラウザーとデバイスに適用されます。Mod+Shiftは固定です。",
+  "Text selection in focused fields stays native; Tab/list keys are UI-local, not global shortcuts.": "フォーカス中の入力欄でのテキスト選択は標準動作のままです。Tabやリストのキーは UI 内でのみ使い、グローバルショートカットではありません。",
+  "The mobile key bar sends terminal keys, not app actions.": "モバイルのキー列はアプリ操作ではなく、端末にキーを送ります。",
+  "Your browser or operating system may intercept {keys}.": "ブラウザーや OS が {keys} を先に処理する場合があります。",
+  "Reserved": "予約済み",
   "Already assigned": "割り当て済み",
   "Send keys to terminal": "キーを端末に送る",
   "Default": "既定",
@@ -482,6 +486,7 @@ export const JA: Record<string, string> = {
   "Send message": "メッセージを送信",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "未送信: エージェントがターミナルで回答を待っています。先に回答してください。",
   "Not sent: this view only watches the pane.": "未送信: この画面はペインを閲覧するだけです。",
+  "Not sent: Claude Code's input box in the terminal is not empty. Send or clear it there, then send this message.": "未送信: ターミナルの Claude Code の入力欄が空ではありません。そこで送信するか消してから、このメッセージを送ってください。",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "未送信: 前のメッセージの後で長く待ちすぎたため、何も入力されませんでした。もう一度送信してください。",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "未確認: ペインがこのメッセージを確認しませんでした。再送信する前にターミナルを確認してください。",
   "Not sent: {message}": "未送信: {message}",
@@ -494,6 +499,7 @@ export const JA: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "コピーしました",
+  "Couldn't copy. Select the text and copy it manually.": "コピーできませんでした。テキストを選択して手動でコピーしてください。",
   "Output": "出力",
   "thinking": "思考",
   "Working…": "作業中…",

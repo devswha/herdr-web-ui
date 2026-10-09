@@ -13,7 +13,11 @@ export const KO: Record<string, string> = {
   "Automatic": "자동",
   "Terminal input mode": "터미널 입력 방식",
   "Reset shortcuts": "단축키 초기화",
-  "Some keys are reserved by the browser. Changes apply to this device.": "일부 키는 브라우저가 사용합니다. 변경은 이 기기에 적용됩니다.",
+  "Bindings apply to this browser and device; Mod+Shift is fixed.": "단축키는 이 브라우저와 기기에 적용됩니다. Mod+Shift는 고정입니다.",
+  "Text selection in focused fields stays native; Tab/list keys are UI-local, not global shortcuts.": "포커스된 입력란의 텍스트 선택은 기본 동작을 따릅니다. Tab/목록 키는 UI 안에서만 작동하며 전역 단축키가 아닙니다.",
+  "The mobile key bar sends terminal keys, not app actions.": "모바일 키 바는 앱 동작이 아닌 터미널 키를 보냅니다.",
+  "Your browser or operating system may intercept {keys}.": "브라우저나 운영체제가 {keys} 입력을 가로챌 수 있습니다.",
+  "Reserved": "예약됨",
   "Already assigned": "이미 지정됨",
   "Send keys to terminal": "키를 터미널로 전달",
   "Default": "기본값",
@@ -480,6 +484,7 @@ export const KO: Record<string, string> = {
   "Send message": "메시지 보내기",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "보내지 않음: 에이전트가 터미널에서 답을 기다리고 있습니다. 먼저 답하세요.",
   "Not sent: this view only watches the pane.": "보내지 않음: 이 화면은 패널을 보기만 합니다.",
+  "Not sent: Claude Code's input box in the terminal is not empty. Send or clear it there, then send this message.": "보내지 않음: 터미널의 Claude Code 입력란이 비어 있지 않습니다. 그곳에서 보내거나 지운 뒤 이 메시지를 보내세요.",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "보내지 않음: 앞선 메시지 뒤에서 너무 오래 기다렸고 아무것도 입력되지 않았습니다. 다시 보내세요.",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "확인되지 않음: 패널이 이 메시지를 확인하지 않았습니다. 다시 보내기 전에 터미널을 확인하세요.",
   "Not sent: {message}": "보내지 않음: {message}",
@@ -492,6 +497,7 @@ export const KO: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "복사됨",
+  "Couldn't copy. Select the text and copy it manually.": "복사하지 못했습니다. 텍스트를 선택해 직접 복사하세요.",
   "Output": "출력",
   "thinking": "생각",
   "Working…": "작업 중…",

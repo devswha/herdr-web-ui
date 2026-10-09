@@ -17,7 +17,11 @@ export const ZH: Record<string, string> = {
   "Automatic": "自动",
   "Terminal input mode": "终端输入模式",
   "Reset shortcuts": "重置快捷键",
-  "Some keys are reserved by the browser. Changes apply to this device.": "部分按键由浏览器保留。更改适用于此设备。",
+  "Bindings apply to this browser and device; Mod+Shift is fixed.": "快捷键仅应用于此浏览器和设备；Mod+Shift 固定不变。",
+  "Text selection in focused fields stays native; Tab/list keys are UI-local, not global shortcuts.": "焦点位于文本输入框时，文本选择仍由系统处理；Tab/列表按键仅在界面内生效，不是全局快捷键。",
+  "The mobile key bar sends terminal keys, not app actions.": "手机上的按键栏发送终端按键，不会触发应用操作。",
+  "Your browser or operating system may intercept {keys}.": "浏览器或操作系统可能会拦截 {keys}。",
+  "Reserved": "系统保留",
   "Already assigned": "已分配",
   "Send keys to terminal": "将按键发送到终端",
   "Default": "默认",
@@ -484,6 +488,7 @@ export const ZH: Record<string, string> = {
   "Send message": "发送消息",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "未发送：Agent 正在终端中等待回答。请先回答。",
   "Not sent: this view only watches the pane.": "未发送：此视图仅用于查看窗格。",
+  "Not sent: Claude Code's input box in the terminal is not empty. Send or clear it there, then send this message.": "未发送：终端中 Claude Code 的输入框不是空的。请先在那里发送或清除，再发送这条消息。",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "未发送：在前一条消息之后等待过久，且未输入任何内容。请重新发送。",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "未确认：窗格未确认此消息。重新发送前请检查终端。",
   "Not sent: {message}": "未发送：{message}",
@@ -496,6 +501,7 @@ export const ZH: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "已复制",
+  "Couldn't copy. Select the text and copy it manually.": "无法复制。请选中文本并手动复制。",
   "Output": "输出",
   "thinking": "思考",
   "Working…": "正在工作…",
