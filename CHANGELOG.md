@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Open tabs take turns chiming for the same alert. A waiting question is still heard if the
+  tab that claimed it closes or never plays it, including on plain-HTTP LAN addresses.
+
 ## [0.4.2] - 2026-10-09
 
 ### Added

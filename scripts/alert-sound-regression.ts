@@ -1,3 +1,4 @@
+import "./test-herdr.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -112,7 +113,6 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
       assert.ok(Date.now() < deadline, "the status subscription includes the new panes");
       await report(otherPane, "idle");
       await report(otherPane, "working");
-      await page.waitForTimeout(50);
     }
     // no tap yet: the page may not play, and nothing is kept to sound later
     await block(otherPane);
@@ -131,6 +131,7 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     // with the chime: by the time the card for the pane behind shows, a chime for the pane in
     // front would have sounded already
     await page.locator(".droplet-card").waitFor({ state: "visible" });
+    await page.waitForFunction(() => (window as unknown as { chimes: number[] }).chimes.length >= 2);
     assert.deepEqual(await chimes(), [660, 880], "one rising chime, for the pane not in front");
     console.log("PASS a pane that waits chimes, the one in front does not");
 
@@ -179,11 +180,83 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     await page.evaluate(() => { (window as unknown as { rosterFirst: boolean }).rosterFirst = false; });
     console.log("PASS a wait the roster showed before its event still chimes");
 
+    // Both pages share the origin and BroadcastChannel, not just the same browser process.
+    const second = await context.newPage();
+    second.on("pageerror", (error) => errors.push(error.message));
+    await second.goto(`${origin}/?pane=${encodeURIComponent(openPane)}`);
+    await second.locator(".conn-live").waitFor();
+    // A header gesture unlocks audio without typing into any terminal.
+    await second.getByRole("button", { name: "Settings", exact: true }).click();
+    await second.keyboard.press("Escape");
+    await second.getByRole("dialog", { name: "Settings" }).waitFor({ state: "detached" });
+    const tabs = [page, second];
+    const counts = () => Promise.all(tabs.map(async (tab) => (await chimes(tab)).length));
+    const heard = async () => (await counts()).reduce((sum, count) => sum + count, 0);
+    // Check continuously through the safety-net deadline, not just at the first note.
+    // Time is the behaviour here: a duplicate must not arrive later in this turn.
+    const noSecondChime = async (beforeCounts: number[]) => {
+      await Promise.all(tabs.map(async (tab, index) => {
+        const expected = (await chimes(tab)).length;
+        assert.ok(expected <= beforeCounts[index]! + 2, "at most one new chime per tab");
+        const deadline = await tab.evaluate(() => performance.now() + 1_200);
+        await tab.waitForFunction(({ expected, deadline }) => {
+          const recording = window as unknown as { chimes: number[]; chimeEnd: number };
+          if (recording.chimes.length > expected) throw new Error("a second chime arrived");
+          return performance.now() >= deadline && performance.now() / 1000 >= recording.chimeEnd;
+        }, { expected, deadline }, { timeout: 5_000 });
+      }));
+    };
+    await Promise.all(tabs.map(quiet));
+    await report(thirdPane, "working");
+    await Promise.all(tabs.map((tab) => seen(thirdPane, "working", tab)));
+    const bothBefore = await counts();
+    await report(thirdPane, "blocked");
+    await Promise.all(tabs.map((tab) => seen(thirdPane, "blocked", tab)));
+    // Either tab may win: subscribe to the audio recorder in both.
+    await Promise.any(tabs.map((tab, index) => tab.waitForFunction((count) =>
+      (window as unknown as { chimes: number[] }).chimes.length > count, bothBefore[index], { timeout: 5_000 })));
+    await noSecondChime(bothBefore);
+    const delta = (await heard()) - bothBefore.reduce((sum, count) => sum + count, 0);
+    console.log(`two-tab shared alert: ${delta / 2} chimes (${delta} notes)`);
+    assert.equal(delta, 2, "exactly one chime across two tabs for the same alert");
+    console.log("PASS two open tabs chime once for a shared alert");
+
+    await report(otherPane, "working");
+    await Promise.all(tabs.map((tab) => seen(otherPane, "working", tab)));
+    const frontBefore = await counts();
+    assert.equal(await page.evaluate(() => document.visibilityState), "visible");
+    await report(otherPane, "blocked");
+    await Promise.all(tabs.map((tab) => seen(otherPane, "blocked", tab)));
+    await second.waitForFunction((count) => (window as unknown as { chimes: number[] }).chimes.length >= count + 2, frontBefore[1]);
+    await noSecondChime(frontBefore);
+    assert.deepEqual(await counts(), [frontBefore[0], frontBefore[1]! + 2], "tab B tells a question in front of tab A");
+    console.log("PASS the other tab tells a question in front of the first tab");
+
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
     // closing the last pane can already have removed the workspace; any other failure is reported
     for (const workspace of workspaces) await workspaceClose(workspace).catch((error) => { if (error?.code !== "workspace_not_found") throw error; });
     rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Also runnable on its own through `bun run check run bun scripts/alert-sound-regression.ts`.
+if (import.meta.main) {
+  const { chromium } = await import("playwright-core");
+  const { createServer } = await import("../server/index.ts");
+  const { UsageService } = await import("../server/usage.ts");
+  const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-sound-server-"));
+  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir, usage: new UsageService(undefined, []) });
+  const browser = await chromium.launch({
+    executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
+    headless: true, args: ["--no-sandbox", "--accept-lang=en-US"],
+  });
+  try {
+    await checkAlertSound(browser, `http://127.0.0.1:${server.port}`);
+  } finally {
+    await browser.close();
+    server.stop();
+    rmSync(stateDir, { recursive: true, force: true });
   }
 }
