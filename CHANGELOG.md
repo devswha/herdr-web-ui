@@ -25,6 +25,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   changed"), an approval whose long command pushed its title off the screen, and a question whose
   typed-answer row already holds a draft.
   ([#614](https://github.com/devswha/herdr-web-ui/pull/614) by @Haeminway1)
+- A chat message waiting for Claude Code's next turn is no longer pasted over text you typed in
+  the terminal's input box. While that box holds a draft the message stays in the list with the
+  reason, and **Send now** delivers it once the draft is sent or cleared.
+  ([#628](https://github.com/devswha/herdr-web-ui/pull/628))
 - A chat message that ends with an attached file's `@` mention is sent again. Pasted last, the
   mention left the agent's file suggestions open, and the Enter took a suggestion instead of
   sending, so the message stayed in the terminal's input box.
