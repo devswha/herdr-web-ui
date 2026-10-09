@@ -18,6 +18,7 @@ export HERDR_DEMO_BUILD
 trap 'rm -rf "$HERDR_DEMO_BUILD"' EXIT
 bun scripts/demo-build.ts "$HERDR_DEMO_BUILD"
 bun scripts/ui-regression.ts
+bun scripts/herdr-keymap-browser-qa.ts
 bun scripts/sticky-modifiers-regression.ts
 bun scripts/key-bar-customization-demo-regression.ts
 bun scripts/settings-pages-demo-regression.ts

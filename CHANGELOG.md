@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Settings can opt this device into importing the selected PC's Herdr key bindings.
+  Existing web shortcuts and native input keep priority; reserved, ambiguous and unsupported
+  bindings are listed without taking their keys. The import never runs configured shell commands.
+
 ### Fixed
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.

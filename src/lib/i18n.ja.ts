@@ -8,6 +8,21 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Herdr key bindings": "Herdr キーバインド",
+  "Import Herdr key bindings": "Herdr キーバインドを取り込む",
+  "Import the selected PC's [keys] and prefix on this device. Web shortcuts, text editing, IME, and clipboard keys keep priority. Shell commands and terminal-only actions are not imported.": "選択した PC の [keys] とプレフィックスキーをこのデバイスに取り込みます。Web ショートカット、テキスト編集、IME、クリップボードのキーが優先されます。シェルコマンドと端末専用の操作は取り込みません。",
+  "Off by default. Browser-reserved keys such as Cmd+T are not available, including after a prefix.": "デフォルトはオフです。Cmd+T などブラウザーの予約キーは、プレフィックスキーの後でも使用できません。",
+  "Selected PC keymap": "選択した PC のキーマップ",
+  "After editing config.toml on this PC, reload the bindings. Unlisted OS shortcuts may still be intercepted.": "この PC の config.toml を編集したら、バインドを再読み込みしてください。未記載の OS ショートカットも OS が先に処理する場合があります。",
+  "Reload bindings": "バインドを再読み込み",
+  "Loading key bindings": "キーバインドを読み込み中",
+  "Active outside text fields": "テキスト入力欄の外で有効",
+  "Not supported in the web UI": "Web UI では未対応",
+  "Unsupported key syntax": "未対応のキー構文",
+  "Reserved for the browser, system, or web shortcuts": "ブラウザー、システム、Web ショートカット用の予約キー",
+  "No usable prefix sequence": "使用可能なプレフィックス操作なし",
+  "Herdr prefix": "Herdr プレフィックス",
+  "Press a binding within 1.5 seconds; Escape cancels.": "1.5 秒以内にバインドキーを押してください。Escape で取り消します。",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Direct typing": "直接入力",

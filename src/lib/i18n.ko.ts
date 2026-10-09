@@ -6,6 +6,21 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Herdr key bindings": "Herdr 키 바인딩",
+  "Import Herdr key bindings": "Herdr 키 바인딩 가져오기",
+  "Import the selected PC's [keys] and prefix on this device. Web shortcuts, text editing, IME, and clipboard keys keep priority. Shell commands and terminal-only actions are not imported.": "선택한 PC의 [keys]와 접두 키를 이 기기에 가져옵니다. 웹 단축키, 텍스트 편집, IME와 클립보드 키가 우선합니다. 셸 명령과 터미널 전용 동작은 가져오지 않습니다.",
+  "Off by default. Browser-reserved keys such as Cmd+T are not available, including after a prefix.": "기본값은 꺼짐입니다. Cmd+T 같은 브라우저 예약 키는 접두 키를 누른 뒤에도 사용할 수 없습니다.",
+  "Selected PC keymap": "선택한 PC의 키맵",
+  "After editing config.toml on this PC, reload the bindings. Unlisted OS shortcuts may still be intercepted.": "이 PC에서 config.toml을 편집한 뒤 바인딩을 다시 불러오세요. 목록에 없는 OS 단축키도 운영체제가 먼저 처리할 수 있습니다.",
+  "Reload bindings": "바인딩 다시 불러오기",
+  "Loading key bindings": "키 바인딩 불러오는 중",
+  "Active outside text fields": "텍스트 입력란 밖에서 사용",
+  "Not supported in the web UI": "웹 UI에서 지원하지 않음",
+  "Unsupported key syntax": "지원하지 않는 키 문법",
+  "Reserved for the browser, system, or web shortcuts": "브라우저, 시스템 또는 웹 단축키용으로 예약됨",
+  "No usable prefix sequence": "사용 가능한 접두 키 조합 없음",
+  "Herdr prefix": "Herdr 접두 키",
+  "Press a binding within 1.5 seconds; Escape cancels.": "1.5초 안에 바인딩 키를 누르세요. Escape로 취소합니다.",
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Direct typing": "직접 입력",

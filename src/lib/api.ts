@@ -34,6 +34,11 @@ import type { TelemetryStatus } from "../../shared/telemetry.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
+import { readHerdrKeymap, type HerdrKeymap } from "../../shared/herdr-keymap.ts";
+
+export async function fetchHerdrKeymap(machineId: string): Promise<HerdrKeymap> {
+  return readHerdrKeymap(await getJson<unknown>(machinePath(machineId, "keybindings")));
+}
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
