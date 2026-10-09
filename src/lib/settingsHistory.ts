@@ -11,7 +11,7 @@
  */
 
 const KEY = "herdr-web-ui:settings";
-/** how long a traversal this module asked for may take to land before it is given up */
+/** how long to wait before releasing the traversal's busy state, not its ownership */
 const LANDING_MS = 1000;
 
 /** One step into Settings: the page shown (null: a phone's list of pages) and the key bar editor over it. */
@@ -56,18 +56,24 @@ const same = (a: SettingsLevel | null, b: SettingsLevel): boolean => a !== null 
 /** traversals asked for here that have not landed yet: nothing is pushed while one is under way */
 let rewinding = 0;
 let landing: ReturnType<typeof setTimeout> | undefined;
+/** Keep the destination after the deadline: a slow landing is still ours, not the user's Back. */
+let pending: { from: unknown; depth: number; level: SettingsLevel | null } | null = null;
 
 function rewind(by: number): void {
+  const depth = (settingsEntry(window.history.state)?.depth ?? 0) - by;
+  pending = { from: window.history.state, depth, level: held[depth - 1] ?? null };
   rewinding += 1;
   clearTimeout(landing);
-  // a traversal that never lands (the entries are gone) must not hold the history forever
-  landing = setTimeout(() => { rewinding = 0; reconcile(); }, LANDING_MS);
+  // Do not retry an unanswered go(): it may still land, and another go would queue a second
+  // traversal. A new history state or the requested landing can make progress instead.
+  landing = setTimeout(() => { rewinding = 0; }, LANDING_MS);
   window.history.go(-by);
 }
 
 function reconcile(): void {
   if (rewinding > 0) return;
   const state: unknown = window.history.state;
+  if (pending !== null && state === pending.from) return;
   const current = settingsEntry(state);
   const have = current?.depth ?? 0;
   // what the history holds up to here: a Back landed under what was recorded; the step shown is
@@ -112,12 +118,14 @@ export function onSettingsHistory(listener: Listener): () => void {
 
 if (typeof window !== "undefined") {
   window.addEventListener("popstate", (event) => {
-    const own = rewinding > 0;
-    if (own) {
-      rewinding -= 1;
-      if (rewinding === 0) clearTimeout(landing);
-    }
     const entry = settingsEntry(event.state);
+    const own = pending !== null && (entry?.depth ?? 0) === pending.depth
+      && (pending.level === null || (entry !== null && same(pending.level, entry)));
+    if (own) {
+      pending = null;
+      rewinding = 0;
+      clearTimeout(landing);
+    }
     for (const listener of [...listeners]) listener(entry, own);
     // what was asked for while the traversal was under way is done now
     if (own) reconcile();
