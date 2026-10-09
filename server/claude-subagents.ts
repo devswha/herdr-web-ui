@@ -778,12 +778,12 @@ export class ClaudeSubagentStatus {
     this.lookups.set(pane.pane_id, claim);
     const due = !tracked || tracked.key !== key || !tracked.live || tracked.path === null || (session === "" && this.now() - tracked.at >= 6 * this.refreshMs);
     let again = due;
-    // the same session in another process (Claude quit and came back before the pane read as another agent)
-    if (!due && tracked && this.deps.pid && tracked.pid !== null && this.now() - tracked.pidAt >= this.refreshMs) {
+    // Retry incomplete process identity too: a transient lookup failure is not a permanent boundary.
+    if (!due && tracked && this.now() - tracked.pidAt >= this.refreshMs) {
       tracked.pidAt = this.now();
-      const pid = await this.deps.pid(pane).catch(() => null);
+      const pid = this.deps.pid ? await this.deps.pid(pane).catch(() => null) : null;
       if (this.lookups.get(pane.pane_id) !== claim) return;
-      again = pid !== null && pid !== tracked.pid;
+      again = tracked.startedAt === null || tracked.pid === null || (pid !== null && pid !== tracked.pid);
     }
     if (!again) return;
     if (tracked && tracked.key === key && tracked.path === null && this.now() - tracked.at < this.refreshMs) return;

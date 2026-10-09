@@ -680,6 +680,46 @@ describe("claudeSubagents reading, upkeep", () => {
 describe("ClaudeSubagentStatus process", () => {
   const pane = (): HerdrPane => ({ pane_id: "p1", agent: "claude", agent_session: { agent: "claude", kind: "id", source: "hook", value: "s1" }, cwd: "/work", agent_status: "idle", focused: false, revision: 1 }) as HerdrPane;
 
+  it("recovers incomplete process boundaries, throttles failures, and keeps the known transcript", async () => {
+    for (const identity of ["missing-pid", "missing-start", "resolver-only"] as const) {
+      const s = session();
+      s.agent("orphan", { steps: [[1, 1]] });
+      let now = NOW;
+      let attempts = 0;
+      let recovered = false;
+      const status = new ClaudeSubagentStatus({
+        now: () => now, refreshMs: 1000, onChange: () => {},
+        ...(identity === "resolver-only" ? {} : { pid: async () => 123 }),
+        resolve: async () => {
+          attempts++;
+          if (recovered) return { path: s.path, pid: 123, startedAt: NOW };
+          if (attempts > 1) throw new Error("temporarily unavailable");
+          return { path: s.path, pid: identity === "missing-start" ? 123 : null, startedAt: null };
+        },
+      });
+      await status.refresh([pane()]);
+      expect(status.countOf("p1")).toBe(1);
+      now += 999;
+      await status.refresh([pane()]);
+      expect(attempts).toBe(1);
+      now++;
+      await status.refresh([pane()]);
+      expect(attempts).toBe(2);
+      expect(status.sessionOf("p1")?.path).toBe(s.path);
+      expect(status.countOf("p1")).toBe(1);
+      recovered = true;
+      await status.refresh([pane()]);
+      expect(attempts).toBe(2);
+      now += 1000;
+      await status.refresh([pane()]);
+      expect(status.sessionOf("p1")?.startedAt).toBe(NOW);
+      expect(status.countOf("p1")).toBe(0);
+      now += 1000;
+      await status.refresh([pane()]);
+      expect(attempts).toBe(3);
+    }
+  });
+
   it("looks the session up again when the pane's Claude process is another one", async () => {
     const s = session();
     let pid = 100;
