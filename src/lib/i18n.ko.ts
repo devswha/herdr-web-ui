@@ -832,6 +832,7 @@ export const KO: Record<string, string> = {
   "Close failed: {reason}": "닫기 실패: {reason}",
   "An agent in it is still at work, and stops with the tab.": "탭 안의 에이전트가 아직 작업 중이며, 탭과 함께 멈춥니다.",
   "It is the last tab of {workspace}: the workspace closes with it, and the agents and shells in it stop.": "{workspace}의 마지막 탭입니다. 워크스페이스도 함께 닫히고, 그 안의 에이전트와 셸이 멈춥니다.",
+  "It holds {n} panes, and they all close with it.": "이 탭에는 패널이 {n}개 있으며, 모두 함께 닫힙니다.",
   "Tabs of {workspace}": "{workspace}의 탭",
   "{n} panes": "패널 {n}개",
   "herdr web ui sends an anonymous count when it is installed and updated: the version, the OS and a random ID. Nothing else.": "herdr web ui는 설치와 업데이트 때 익명 집계를 보냅니다. 버전, OS, 무작위 ID뿐이며 그 밖에는 보내지 않습니다.",

@@ -27,6 +27,7 @@ import { PANE_TABPANEL_ID, paneTabPanelLabel } from "../lib/paneRegion.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { knownStatus } from "../lib/status.ts";
+import { tabCloseCost } from "../lib/tabClose.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { displayPaneTitle } from "./Sidebar.tsx";
@@ -197,15 +198,15 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   };
   const requestClose = (tab: HerdrTab): void => {
     setError(null);
-    const busy = panesOf(tab).some((pane) => { const status = knownStatus(pane.agent_status); return status === "working" || status === "blocked"; });
-    if (tabs.length > 1 && !busy) {
+    const cost = tabCloseCost(tab.tab_id, tabs.length, panes);
+    if (cost === null) {
       void close(tab).catch((reason: unknown) => setError(t("Close failed: {reason}", { reason: said(reason) })));
       return;
     }
     setConfirm({
       tab,
       title: t("Close tab {name}?", { name: nameOf(tab) }),
-      body: tabs.length > 1
+      body: cost === "busy"
         ? t("An agent in it is still at work, and stops with the tab.")
         : t("It is the last tab of {workspace}: the workspace closes with it, and the agents and shells in it stop.", { workspace: workspace.label }),
     });

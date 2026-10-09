@@ -836,6 +836,7 @@ export const ZH: Record<string, string> = {
   "Close failed: {reason}": "关闭失败：{reason}",
   "An agent in it is still at work, and stops with the tab.": "其中的代理仍在工作，会随标签页一起停止。",
   "It is the last tab of {workspace}: the workspace closes with it, and the agents and shells in it stop.": "这是 {workspace} 的最后一个标签页：工作区会随之关闭，其中的代理和 shell 会停止。",
+  "It holds {n} panes, and they all close with it.": "该标签页有 {n} 个窗格，会全部一同关闭。",
   "Tabs of {workspace}": "{workspace} 的标签页",
   "{n} panes": "{n} 个窗格",
   "herdr web ui sends an anonymous count when it is installed and updated: the version, the OS and a random ID. Nothing else.": "herdr web ui 会在安装和更新时发送一次匿名统计：仅包含版本、操作系统和一个随机 ID。",

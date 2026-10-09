@@ -144,6 +144,15 @@
   font-size: var(--fs-sm);
 }
 
+/* a close the row's menu sent and herdr refused, under the rows until it fades */
+.agent-error {
+  margin: 0;
+  padding: var(--space-1) var(--space-2) var(--space-2) var(--side-box);
+  color: var(--status-blocked);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
 @media (pointer: coarse) {
   .agent-section-caret { opacity: 1; }
 }

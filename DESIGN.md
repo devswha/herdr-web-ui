@@ -389,11 +389,20 @@ One set for both themes: the card is island black wherever it shows.
   A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
   (the menu key and Shift+F10 too, as the browser sends them); a name field being edited keeps
   the browser's own menu, and a finger's long press is left alone (it picks the row up for a
-  drag, and the `⋯` is always shown on touch). PC headers and agent rows have no menu, so they
-  keep the browser's.
+  drag, and the `⋯` is always shown on touch). PC headers have no menu, so they keep the
+  browser's.
+- An agent row has no `⋯`: a right-click on it (the menu key and Shift+F10 too) opens the same
+  menu under the row, right edges aligned, holding **Close tab** for the tab the agent runs in,
+  in the danger colour. A long press opens it as the sheet where the browser sends one, since an
+  agent row is never dragged. A row whose PC is not connected keeps the browser's menu.
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
-  confirmed close, focus lands on the header's workspace-list toggle.
+  confirmed close, focus lands on the header's workspace-list toggle. An agent row's **Close
+  tab** asks when the tab strip's would, and also when the tab holds panes beside the agent's,
+  which the row does not show; otherwise it closes at once, and focus lands on the same toggle.
+  Its question names the tab by the name it was given, else by the row's title, never **Tab n**.
+  A refusal shows in the dialog, or as a line of `--status-blocked` text under the agent rows
+  for six seconds.
 - The tab strip's pane picker is the same menu: one item per pane of the tab, the agent's mark
   (or the shell glyph) and the pane's title, the open pane named in the strong colour
   (`aria-current`).

@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- A right-click on an agent in the sidebar's Agents list opens a menu whose **Close tab** closes
+  the tab the agent runs in. It asks first when the agent is still at work, when the tab is its
+  workspace's last, or when the tab holds other panes beside the agent's.
+
 ## [0.4.3] - 2026-10-09
 
 ### Fixed
