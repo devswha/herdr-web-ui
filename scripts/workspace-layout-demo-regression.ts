@@ -165,6 +165,46 @@ try {
           console.log(`PASS ${theme}: native split/resize/zoom, directional docking, six presets, stable mounts/badges, pending ownership, visible-only lenses, mobile, close-view`);
         } finally { await context.close(); }
       }
+      // Native split PC changes must replace sockets even when both PCs reuse pane IDs.
+      const nativeContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: "en-US" });
+      try {
+        await nativeContext.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({
+          language: "en", defaultView: "chat",
+        })));
+        const page = await nativeContext.newPage();
+        page.setDefaultTimeout(8000);
+        await page.goto(`http://127.0.0.1:${server.port}${prefix}?remote=1&native=1&pane=${encodeURIComponent(panes.api)}`);
+        await page.locator(".composer-text").waitFor();
+        await page.locator(".header-more-button").click();
+        await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+        await page.locator(".split-cell").nth(1).waitFor();
+        const oldNodes = await page.locator(".split-cell").elementHandles();
+        const inputCount = () => page.evaluate(() => {
+          const fixture = Reflect.get(window, "layoutFixture");
+          return fixture.frames.filter((frame: { type: string }) => ["submit", "input", "keys", "pending-action"].includes(frame.type)).length;
+        });
+        const before = await inputCount();
+        const attached = page.waitForEvent("console", { predicate: (message) =>
+          message.text() === `layout-frame:qa-remote:attach:${panes.api}`, timeout: 8000 });
+        await page.locator('.agent-item[data-machine="qa-remote"]').first().click();
+        await attached;
+        for (const node of oldNodes) {
+          assert.equal(await node.evaluate((element) => element.isConnected), false, "native PC switch remounts terminals");
+          await node.dispose();
+        }
+        assert.equal(await inputCount(), before, "PC switching never replays input");
+        const frames = await page.evaluate(() => Reflect.get(window, "layoutFixture").frames);
+        assert.ok(frames.filter((frame: { machine: string; type: string }) => frame.machine === "local" && frame.type === "close").length >= 2);
+        const target = page.locator(".split-cell.is-active");
+        await target.getByRole("button", { name: "Chat", exact: true }).click();
+        await target.locator(".composer-text").fill("Native remote destination regression");
+        const submitted = page.waitForEvent("console", { predicate: (message) =>
+          message.text() === `layout-frame:qa-remote:submit:${panes.api}`, timeout: 8000 });
+        await target.locator(".composer-text").press("Enter");
+        await submitted;
+        assert.equal(await inputCount(), before + 1, "only the explicitly selected remote PC receives input");
+        console.log("PASS native split duplicate IDs: local sockets closed, remote attached, no replay, exact remote submit");
+      } finally { await nativeContext.close(); }
       // Same pane ID on two PCs: identities, storage, requests and sockets must stay distinct.
       const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: "en-US" });
       try {

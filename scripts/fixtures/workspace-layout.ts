@@ -8,17 +8,19 @@ const requests: { path: string; method: string }[] = [];
 const frames: { machine: string; type: string; pane_id?: string }[] = [];
 let remoteState: Machine["state"] = "connected";
 const enabled = new URL(location.href).searchParams.has("remote");
+const native = new URL(location.href).searchParams.has("native");
 const roster = async (): Promise<Machine[]> => {
   const body: { machines: Machine[] } = await (await demoFetch("/api/machines")).json();
   if (!enabled) return body.machines;
   const host = body.machines[0];
   if (!host?.snapshot) throw new Error("Demo host is missing");
   const snapshot = structuredClone(host.snapshot);
-  snapshot.panes = snapshot.panes.filter((pane) => pane.pane_id === panes.api).map((pane) => ({ ...pane, label: "Remote duplicate ID", agent_status: "idle" }));
+  const workspaceId = snapshot.panes.find((pane) => pane.pane_id === panes.api)?.workspace_id;
+  snapshot.panes = snapshot.panes.filter((pane) => native ? pane.workspace_id === workspaceId : pane.pane_id === panes.api).map((pane) => ({ ...pane, label: "Remote duplicate ID", agent_status: "idle" }));
   snapshot.agents = snapshot.agents.filter((agent) => agent.pane_id === panes.api);
   snapshot.workspaces = snapshot.workspaces.filter((workspace) => snapshot.panes.some((pane) => pane.workspace_id === workspace.workspace_id));
   snapshot.tabs = snapshot.tabs.filter((tab) => snapshot.panes.some((pane) => pane.tab_id === tab.tab_id));
-  snapshot.layouts = [];
+  if (!native) snapshot.layouts = [];
   return [...body.machines, { ...host, id: "qa-remote", kind: "ssh", name: "QA remote", state: remoteState, snapshot }];
 };
 window.fetch = async (input, init) => {
@@ -69,12 +71,18 @@ Object.defineProperty(window, "WebSocket", { value: class extends demoSocket {
     super(url, protocols);
     const machine = new URL(String(url), location.href).searchParams.get("machine_id") ?? "local";
     frames.push({ machine, type: "connect" });
+    const close = this.close.bind(this);
+    this.close = (...args) => {
+      frames.push({ machine, type: "close" });
+      close(...args);
+    };
     // The demo constructor returns its own socket object; wrap that object's method.
     const send = this.send.bind(this);
     this.send = (data) => {
       if (typeof data === "string") {
         const frame = JSON.parse(data);
         frames.push({ machine, type: frame.type, pane_id: frame.pane_id });
+        console.debug(`layout-frame:${machine}:${frame.type}:${frame.pane_id ?? ""}`);
       }
       send(data);
     };

@@ -1137,7 +1137,7 @@ export function App() {
               if (placementOpener.current?.isConnected) placementOpener.current.focus();
             }}
             onExit={() => { commitDock(null); setDockEmpty(false); setDockZoom(null); }}
-            native={dockEmpty ? <div className="dock-unavailable" role="status">{t("Choose a workspace to open a view")}</div> : splitLayout ? <SplitView layout={splitLayout} activePaneId={selectedPaneId}
+            native={dockEmpty ? <div className="dock-unavailable" role="status">{t("Choose a workspace to open a view")}</div> : splitLayout ? <SplitView key={selectedMachineId} layout={splitLayout} activePaneId={selectedPaneId}
               paneLabel={(paneId) => dockLabel({ machine_id: selectedMachineId, pane_id: paneId })}
               onActivate={(paneId) => activateCell({ machine_id: selectedMachineId, pane_id: paneId })}
               onAction={(action, paneId) => void runSplitAction(action, paneId)}
