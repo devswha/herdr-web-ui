@@ -24,6 +24,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   such as a split in herdr or a pane the phone's terminal view has sized, and when the slider is
   on max. Claude draws the slider differently there, and the chat showed no card, so a level could
   only be picked in the terminal.
+- A Claude Code approval asked while background agents run shows its card instead of the numbered
+  fallback: its hint goes on after `Esc to cancel` with the chord that stops them.
+  ([#659](https://github.com/devswha/herdr-web-ui/pull/659) by @Haeminway1)
 - Codex Chat can read a new session with one short answer when its complete submitted
   first prompt and answer identify it unambiguously. Older conversations, unreadable
   candidates and competing panes keep the terminal fallback; process age alone never
