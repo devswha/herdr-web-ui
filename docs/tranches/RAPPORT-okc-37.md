@@ -142,6 +142,10 @@ revue (`git status --short` vide).
   (`merge: le rapport de controle okc-37 rejoint main`), sur le tip `182ec4e` de
   `main`, apportant `5e43a67` et `6de66ae`. Aucun conflit (le chantier ne touche
   que `server/`, le rapport `docs/`).
+- Le rapport complet (hash de merge, push, PR) est porté sur `main` par `d129f7d`
+  puis `c742eb7`, et sa copie de branche (`892f8d0`) est absorbée par un second
+  merge `--no-ff` **`a14c90e`** (`merge: le rapport complet okc-37 rejoint main`),
+  pour que les deux copies du rapport (dépôt et worktree) soient identiques.
 - Push `main` → `origin` (`github.com/okcedric/herdr-web-ui`) : **OK**,
   `182ec4e..main` — la branche `main` de la copie de travail a été poussée, le
   présent rapport inclus.
@@ -159,4 +163,4 @@ revue (`git status --short` vide).
 - Livré : `server/opencode.ts` lit `session`/`message`/`part` quand `session_v2` est absent, adapte chaque message à la forme `opencodeRecord` (tours user/assistant, outils tronqués, images d'outils, erreurs, modèle/usage) ; tests 1.x neufs ; ligne `server/AGENTS.md` à jour.
 - Preuve : `bun test ./server/opencode.test.ts` → 32 pass/0 fail ; sans le correctif → 28 pass/4 fail ; `test:unit` → 2217 pass/7 skip/1 fail (le seul échec, `voice.test.ts`, est préexistant sur `main`) ; base réelle `ses_edeb86431ffeNINbKVswqfgH5Q` → 2 tours, 1 user, premier texte « Tu es MANAGER de la tranche tur-74… », là où elle rendait `turns: []`.
 - Verdict : VALIDE. Écarts signalés : échec `voice.test.ts` préexistant ; images de prompt utilisateur non reprises (absentes de la base réelle).
-- Merge : `--no-ff` **`3dfa8fc`** dans `main` (`182ec4e` → `3dfa8fc`), rapport committé d'abord sur la branche puis absorbé ; branche et worktree conservés. Push `origin` `182ec4e..main` **OK** ; push `upstream` **impossible (403)** — `okcedric` n'a pas le droit d'écriture, l'amont se rejoint par PR [#690](https://github.com/devswha/herdr-web-ui/pull/690) (`OPEN`, `MERGEABLE`).
+- Merge : `--no-ff` **`3dfa8fc`** dans `main` (`182ec4e` → `3dfa8fc`), rapport committé d'abord sur la branche puis absorbé ; un second `--no-ff` **`a14c90e`** absorbé la copie de branche du rapport complet. Branche et worktree conservés. Push `origin` `182ec4e..main` **OK** ; push `upstream` **impossible (403)** — `okcedric` n'a pas le droit d'écriture, l'amont se rejoint par PR [#690](https://github.com/devswha/herdr-web-ui/pull/690) (`OPEN`, `MERGEABLE`).
