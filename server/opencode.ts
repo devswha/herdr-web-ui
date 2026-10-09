@@ -623,19 +623,23 @@ interface Message1 {
 /** Every message of a 1.x session with its parts, ordered by `(time_created, id)`: one query per table. */
 function loadSession1(db: Database, sessionId: string): Message1[] {
   const parts = new Map<string, Row[]>();
+  // the stored bytes are what a page counts, as the 2.x reader counts `octet_length(data)`: parsing
+  // each part only to re-serialize it back to JSON for its length is the same number, for nothing
+  const partBytes = new Map<string, number>();
   for (const row of db.query<{ message_id: string; data: string }, [string]>(
     "SELECT message_id, data FROM part WHERE session_id = ? ORDER BY time_created, id",
   ).iterate(sessionId)) {
     const list = parts.get(row.message_id) ?? [];
     list.push(parseData(row.data));
     parts.set(row.message_id, list);
+    partBytes.set(row.message_id, (partBytes.get(row.message_id) ?? 0) + Buffer.byteLength(row.data, "utf8"));
   }
   const messages: Message1[] = [];
   for (const row of db.query<{ id: string; updated: number; data: string }, [string]>(
     "SELECT id, time_updated AS updated, data FROM message WHERE session_id = ? ORDER BY time_created, id",
   ).iterate(sessionId)) {
     const own = parts.get(row.id) ?? [];
-    const size = Buffer.byteLength(row.data, "utf8") + own.reduce((total, part) => total + Buffer.byteLength(JSON.stringify(part), "utf8"), 0);
+    const size = Buffer.byteLength(row.data, "utf8") + (partBytes.get(row.id) ?? 0);
     messages.push({ id: row.id, data: parseData(row.data), parts: own, updated: row.updated, size });
   }
   return messages;
