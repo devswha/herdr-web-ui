@@ -170,6 +170,20 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("closes a trailing @file mention inside the paste markers of a payload typed without agent.prompt", async () => {
+    const socket = await Socket.connect();
+    try {
+      const from = chunks(shell).length;
+      socket.send({ type: "submit", id: 21, pane_id: shell.pane, text: "look at @/tmp/shot.png", payload: paste("look at @/tmp/shot.png") });
+      expect(await socket.result(21)).toMatchObject({ ok: true });
+      const read = await received(shell, from, 1);
+      const enter = read.findIndex((chunk) => chunk.data.includes("\r"));
+      expect(read.slice(0, enter).map((chunk) => chunk.data).join("")).toBe(paste("look at @/tmp/shot.png "));
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
   it("hands an agent the message through herdr's agent.prompt: the paste, then Enter apart", async () => {
     const socket = await Socket.connect();
     try {
@@ -181,6 +195,20 @@ describe("WebSocket submit", () => {
       expect(read.slice(0, enter).map((chunk) => chunk.data).join("")).toBe(paste("line one\nline two"));
       expect(read[enter]!.data).toBe("\r");
       expect(read[enter]!.at - read[enter - 1]!.at).toBeGreaterThanOrEqual(SUBMIT_DELAY_MS);
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
+  it("closes a trailing @file mention with a space, so the Enter sends rather than takes a file suggestion", async () => {
+    const socket = await Socket.connect();
+    try {
+      const from = chunks(agent).length;
+      socket.send({ type: "submit", id: 20, pane_id: agent.pane, text: "what is in @/tmp/shot.png", payload: "unused" });
+      expect(await socket.result(20)).toMatchObject({ ok: true });
+      const read = await received(agent, from, 1);
+      const enter = read.findIndex((chunk) => chunk.data.includes("\r"));
+      expect(read.slice(0, enter).map((chunk) => chunk.data).join("")).toBe(paste("what is in @/tmp/shot.png "));
     } finally {
       socket.close();
     }
