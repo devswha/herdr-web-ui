@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Proposed OmO progress disclosure in the existing Background tasks session details:
+  open it to inspect the session checklist, context compaction and model retries. It starts
+  collapsed and adds no pinned progress panel to the chat.
+
 ### Fixed
 - Codex Chat can read a new session with one short answer when its complete submitted
   first prompt and answer identify it unambiguously. Older conversations, unreadable

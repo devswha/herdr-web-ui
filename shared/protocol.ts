@@ -363,8 +363,24 @@ export interface OmoRun {
 export interface OmoActivity {
   tasks: OmoTask[];
   runs: OmoRun[];
+  /** Current session progress, independent of transcript pagination. Absent on older bridges. */
+  progress?: OmoProgress | null;
   /** the PC's clock, which the times are on */
   server_time: string;
+}
+
+/** Public progress only; control credentials and full runtime state stay on the PC. */
+export interface OmoProgress {
+  session_id: string;
+  /** null: no readable state; []: an explicitly cleared checklist. */
+  todos: OmoTodo[] | null;
+  activity: "working" | "compacting" | "retrying" | "idle" | "unknown";
+}
+
+export interface OmoTodo {
+  phase: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "abandoned";
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */

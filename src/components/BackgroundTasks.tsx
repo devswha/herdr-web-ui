@@ -7,7 +7,9 @@ import { useMachineApi } from "../lib/machineContext.tsx";
 import { clockOffsetMs, endedSummary, formatElapsed, runGoing, spanMs, taskElapsedMs } from "../lib/omoTasks.ts";
 import { formatTokens } from "../lib/compose.ts";
 import { useT } from "../lib/i18n.ts";
-import type { OmoRun, OmoRunNode, OmoTask } from "../../shared/protocol.ts";
+import { usePageVisible } from "../lib/visibility.ts";
+import { OmoProgressView } from "./OmoProgress.tsx";
+import type { AgentStatus, OmoProgress, OmoRun, OmoRunNode, OmoTask } from "../../shared/protocol.ts";
 
 const POLL_MS = 3000;
 
@@ -26,7 +28,9 @@ const NODE_ICONS: Record<OmoRunNode["state"], ComponentType<LucideProps>> = {
  * The server keeps the newest ten ended tasks and five ended workflows of the last day, so the
  * line counts those, and says "recently", not "in the last day".
  */
-export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count: number; omo: boolean }) {
+export function BackgroundTasks({ paneId, count, omo, connected, agentStatus }: {
+  paneId: string; count: number; omo: boolean; connected: boolean; agentStatus?: AgentStatus;
+}) {
   const t = useT();
   const { fetchPaneOmoActivity } = useMachineApi();
   const [open, setOpen] = useState(false);
@@ -35,6 +39,9 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   const [tasks, setTasks] = useState<OmoTask[] | null>(null);
   const [runs, setRuns] = useState<OmoRun[]>([]);
   const [failed, setFailed] = useState(false);
+  const [progress, setProgress] = useState<OmoProgress | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const visible = usePageVisible();
   const [now, setNow] = useState(() => Date.now());
   /** the PC's clock minus this browser's: task times are on the PC's */
   const [offset, setOffset] = useState(0);
@@ -45,10 +52,12 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   const id = useId();
   const endedId = useId();
   // closed, the list forgets what was opened: it opens on what runs now every time
-  useEffect(() => { if (!open) setShowEnded(false); }, [open]);
+  useEffect(() => { if (!open) { setShowEnded(false); setLoaded(false); } }, [open]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !connected || !visible) return;
+    setFailed(false);
+    setLoaded(false);
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async (): Promise<void> => {
@@ -57,6 +66,7 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
         if (!alive) return;
         const received = Date.now();
         setTasks(next.tasks); setRuns(next.runs); setFailed(false); setOffset(clockOffsetMs(next.serverTime, received)); setNow(received);
+        setProgress(next.progress ?? null); setLoaded(true);
       } catch {
         // the clock stops with the list: a running task's time is no longer known to run on
         if (alive) setFailed(true);
@@ -66,7 +76,7 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
     };
     void load();
     return () => { alive = false; clearTimeout(timer); };
-  }, [open, paneId, fetchPaneOmoActivity]);
+  }, [open, paneId, fetchPaneOmoActivity, connected, visible]);
 
   useEffect(() => {
     if (!open) return;
@@ -175,6 +185,8 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
       <Layers aria-hidden="true" /><span className="bg-tasks-label">{label}</span>{count > 0 && <span className="bg-tasks-count" aria-hidden="true">{count}</span>}
     </button>
     {open && <div id={id} ref={menu} className="menu bg-tasks-menu" role="dialog" aria-live="off" aria-label={t("Background tasks")}>
+      {omo && <OmoProgressView progress={progress} state={failed ? "failed" : loaded ? "ready" : "loading"}
+        connected={connected && visible} ended={false} agentStatus={agentStatus} />}
       {tasks === null && !failed && <p className="bg-tasks-note">{t("Loading…")}</p>}
       {failed && tasks === null && <p className="bg-tasks-note">{t("Couldn't load the background tasks")}</p>}
       {failed && tasks !== null && <p className="bg-tasks-note" role="status">{t("Couldn't refresh: this is the list as it last read")}</p>}

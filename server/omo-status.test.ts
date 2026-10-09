@@ -146,6 +146,21 @@ describe("OmO panes' status in place of herdr's", () => {
   }
   const statuses = (snapshot: SessionSnapshot) => Object.fromEntries(snapshot.panes.map((p) => [p.pane_id, `${p.agent}/${p.agent_status}`]));
 
+  it("extends the owned session identity for progress without changing cwd or sessionId", async () => {
+    const { omo, state } = setup();
+    state.discovered.set("omo", { path: FILE, startedAt: 1234 });
+    await omo.refresh(herdr().panes);
+    expect(omo.sessionOf("omo")).toEqual({
+      cwd: "/work", sessionId: "01a0f88b-481c-7139-8125-c9cd453b9e17", path: FILE, startedAt: 1234,
+    });
+    expect(omo.sessionOf("lost")).toBeNull();
+    expect(omo.sessionOf("shell")).toBeNull();
+    state.discovered.set("omo", { path: null, startedAt: 1234 });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(omo.sessionOf("omo")).toBeNull();
+  });
+
   it("reads RUN while a turn runs and DONE when it ends, in events and in every snapshot", async () => {
     const { omo, told, append, state } = setup();
     const completions = new CompletionTracker(null);

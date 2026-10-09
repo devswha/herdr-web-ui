@@ -11,7 +11,7 @@
  * type; agent panes show one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentStatus, ConversationTurn, Machine, MachineEvent, PendingMessage, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationTurn, Machine, MachineEvent, OmoProgress, PendingMessage, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
@@ -71,6 +71,16 @@ function addAgent(pane: Pane): void {
 
 /** The OmO pane's background tasks (the composer's "2 background tasks"), timed from now. */
 const OMO_TASKS_PANE = "docs";
+const omoProgress = (paneId: string): OmoProgress => ({
+  session_id: "demo-docs",
+  activity: paneOf(paneId)?.agent_status === "working" ? "working" : "idle",
+  todos: [
+    { phase: "Review", content: "Find pages that still say v0.2", status: "completed" },
+    { phase: "Update", content: "Check every link in the guide", status: "in_progress" },
+    { phase: "Update", content: "Rewrite the install section for Windows", status: "pending" },
+    { phase: "Verify", content: "Proofread the release guide", status: "pending" },
+  ],
+});
 const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
 const omoTasks = () => [
   { id: "st_demo1", title: "Check every link in the guide", category: "quick", model: "Claude Haiku 4.5", status: "running", started_at: ago(3), ended_at: null, turns: 6, tool_calls: 41, tokens: 52_300 },
@@ -423,7 +433,12 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     return json({ ok: true });
   }
   if (path === "/api/pane/commands") return json(commandsFixture);
-  if (path === "/api/pane/omo-tasks") return json(keyOfPane.get(paneId) === OMO_TASKS_PANE ? { tasks: omoTasks(), runs: omoRuns() } : { tasks: [], runs: [] });
+  if (path === "/api/pane/omo-tasks") return json({
+    ...(keyOfPane.get(paneId) === OMO_TASKS_PANE
+      ? { tasks: omoTasks(), runs: omoRuns(), progress: omoProgress(paneId) }
+      : { tasks: [], runs: [], progress: null }),
+    server_time: now(),
+  });
   if (path === "/api/pane/files") {
     const q = (query.get("q") ?? "").toLowerCase();
     return json({ files: DEMO_FILES.filter((file) => file.toLowerCase().includes(q)).slice(0, Number(query.get("limit") ?? 20)) });

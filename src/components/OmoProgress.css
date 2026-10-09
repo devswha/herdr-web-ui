@@ -1,0 +1,38 @@
+.omo-progress {
+  padding: var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.omo-progress summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  cursor: pointer;
+  list-style: none;
+}
+
+.omo-progress summary::-webkit-details-marker { display: none; }
+.omo-progress summary:hover { color: var(--text-strong); }
+.omo-progress summary:focus-visible { outline: var(--ring); outline-offset: var(--ring-offset); }
+.omo-progress svg { flex: none; width: var(--icon-size); height: var(--icon-size); }
+.omo-progress details[open] .omo-progress-chevron { transform: rotate(90deg); }
+.omo-progress-status { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.omo-progress-count { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.omo-progress:is(.is-working, .is-compacting, .is-retrying) .omo-progress-status { color: var(--status-working); }
+.omo-progress-phase > p { margin: var(--space-2) 0; font-size: var(--fs-xs); font-weight: var(--fw-semibold); }
+.omo-progress-phase ul { list-style: none; margin: 0; padding: 0; }
+.omo-progress-phase li { display: flex; align-items: start; gap: var(--space-2); padding-block: var(--space-1); }
+.omo-progress-phase li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.omo-progress-phase small { font-size: var(--fs-xs); white-space: nowrap; }
+.omo-progress-phase .is-in_progress { color: var(--text-strong); font-weight: var(--fw-medium); }
+.omo-progress-phase .is-in_progress svg { color: var(--status-working); }
+.omo-progress-phase .is-completed svg { color: var(--status-done); }
+.omo-progress-phase .is-abandoned > span { text-decoration: line-through; }
+.omo-progress-empty { margin: var(--space-2) 0; }
+
+@media (pointer: coarse) {
+  .omo-progress summary { min-height: var(--touch-target); }
+}
