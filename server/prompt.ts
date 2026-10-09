@@ -2691,21 +2691,58 @@ function claudeGreyInput(ansi: string): string | null {
 }
 
 /**
- * Whether Claude Code's input box holds text someone typed: anything between the screen's last
- * two rules after the `❯` that is not Claude's own grey text (a suggested prompt or the tip). A
- * paste would land in the middle of it and the Enter after it would send both. False when the
- * screen shows no input box. Like claudeGreyInput it needs an ANSI read: as plain text a grey
- * suggestion and a draft are both `❯ words`.
+ * Claude Code's input box: the rows between the screen's last two rules (a named session labels
+ * its rule). "clipped" when only the bottom rule is on screen, as under a draft taller than the
+ * pane; null when the screen has no rule at all.
  */
-export function claudeInputDraft(ansi: string): boolean {
-  const plain = ansi.split("\n").map((line) => line.replace(/\r$/, "").replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, ""));
+function claudeInputBox(screen: string): { plain: string[]; raw: string[] } | "clipped" | null {
+  const raw = screen.split("\n").map((line) => line.replace(/\r$/, ""));
+  const plain = raw.map((line) => line.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "").trimEnd());
+  const rule = (line: string): boolean => SOLID_RULE_RE.test(line.trim()) || LABELED_RULE_RE.test(line.trim());
   let end = plain.length - 1;
-  while (end >= 0 && !SOLID_RULE_RE.test(plain[end]!.trim())) end--;
+  while (end >= 0 && !rule(plain[end]!)) end--;
+  if (end < 0) return null;
   let start = end - 1;
-  while (start >= 0 && !SOLID_RULE_RE.test(plain[start]!.trim())) start--;
-  if (start < 0 || !plain[start + 1]!.startsWith("❯")) return false;
-  const text = plain.slice(start + 1, end).join("\n").slice(1).replace(/\u00a0/g, " ").trim();
-  return text !== "" && claudeGreyInput(ansi) === null;
+  while (start >= 0 && !rule(plain[start]!)) start--;
+  if (start < 0) return "clipped";
+  return { plain: plain.slice(start + 1, end), raw: raw.slice(start + 1, end) };
+}
+
+/**
+ * Whether Claude Code's input box is not known to be empty, so that a paste would land in what is
+ * there and the Enter after it send both, or run it as a command: typed text, bash mode (`!`), a
+ * box clipped by the pane, or a box that is not a `❯` input. Claude's own grey text (a suggested
+ * prompt, its tip, on any number of rows) and its drawn cursor are not a draft. The box is read
+ * from the live screen (`live`, a detection read, as the other pending checks); only the viewport
+ * read carries colors (`ansi`), so it decides grey from typed only when it shows the very same box.
+ * False when the screen shows no rule at all.
+ */
+export function claudeInputDraft(live: string, ansi: string): boolean {
+  const box = claudeInputBox(live);
+  if (box === null) return false;
+  if (box === "clipped" || !box.plain[0]?.startsWith("❯")) return true;
+  if (box.plain.join("\n").slice(1).replace(/\u00a0/g, " ").trim() === "") return false;
+  const shown = claudeInputBox(ansi);
+  if (shown === null || shown === "clipped" || shown.plain.join("\n") !== box.plain.join("\n")) return true;
+  let prompt = false;
+  let first = true;
+  let cursor = false;
+  let grey = false;
+  for (const row of shown.raw) {
+    for (const [run, dim, inverse] of sgrRuns(row)) {
+      for (const character of run) {
+        if (!prompt) { prompt = character === "❯"; continue; }
+        if (character.trim() === "" || character === "\u00a0") continue;
+        if (dim) grey = true;
+        // the cursor Claude draws itself sits inverse on the first grey character
+        else if (first && inverse) cursor = true;
+        else return true;
+        first = false;
+      }
+    }
+  }
+  // a cursor over a typed character has nothing grey after it
+  return cursor && !grey;
 }
 
 /** Whether a card is the one for a message Claude Code holds back (parseClaudeHeld). */

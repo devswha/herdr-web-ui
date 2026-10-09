@@ -484,6 +484,7 @@ export const KO: Record<string, string> = {
   "Send message": "메시지 보내기",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "보내지 않음: 에이전트가 터미널에서 답을 기다리고 있습니다. 먼저 답하세요.",
   "Not sent: this view only watches the pane.": "보내지 않음: 이 화면은 패널을 보기만 합니다.",
+  "Not sent: Claude Code's input box in the terminal is not empty. Send or clear it there, then send this message.": "보내지 않음: 터미널의 Claude Code 입력란이 비어 있지 않습니다. 그곳에서 보내거나 지운 뒤 이 메시지를 보내세요.",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "보내지 않음: 앞선 메시지 뒤에서 너무 오래 기다렸고 아무것도 입력되지 않았습니다. 다시 보내세요.",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "확인되지 않음: 패널이 이 메시지를 확인하지 않았습니다. 다시 보내기 전에 터미널을 확인하세요.",
   "Not sent: {message}": "보내지 않음: {message}",
