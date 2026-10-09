@@ -92,8 +92,8 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     return () => window.removeEventListener("keydown", dismiss, true);
   }, [open, onClose]);
 
-  // Before the first paint: a passive effect leaves one frame of the last search's results, where a
-  // quick Tab focuses a row at an index the full list then gives to another row (#608).
+  // In the opening commit: a passive effect leaves a render of the last search's results until a later
+  // task, where a quick Tab focuses a row at an index the full list then gives to another row (#608).
   useLayoutEffect(() => {
     if (!open) return;
     setQuery("");

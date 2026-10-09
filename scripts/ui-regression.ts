@@ -181,8 +181,9 @@ try {
   await palette.waitFor({ state: "hidden" });
   assert.equal(await selectedPane(), paneA, "Enter on Close leaves the pane selection alone");
 
-  // A reopened palette starts from an empty search in its first frame: a frame of the last search's
-  // results lets a quick Tab focus a row at an index the full list then gives to another row (#608).
+  // A reopened palette starts from an empty search in its first render, the DOM its opening commit
+  // leaves (sampled by the observer before any later task): a render of the last search's results lets
+  // a Tab that lands before the next one focus a row at an index the full list then gives to another (#608).
   await page.evaluate(() => {
     const frames: string[] = [];
     (window as unknown as { paletteFirstFrame: string[] }).paletteFirstFrame = frames;
@@ -195,7 +196,7 @@ try {
   });
   await openPalette();
   assert.deepEqual(await page.evaluate(() => (window as unknown as { paletteFirstFrame: string[] }).paletteFirstFrame), [""],
-    "a reopened palette shows no frame of the last search's results");
+    "a reopened palette's first render shows none of the last search's results");
   const otherPalettePane = palette.locator(".palette-pane").filter({ hasText: "herdr-web-ui-test-browser-b" });
   // Walk the actual tab order instead of clicking: pointer hover must not pick the row for us.
   for (const deadline = Date.now() + 5_000; ;) {
