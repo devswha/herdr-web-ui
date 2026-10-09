@@ -37,6 +37,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#671](https://github.com/devswha/herdr-web-ui/pull/671) by @aNNdii)
 
 ### Changed
+- Website and installer publishing waits for CI and the site build to pass on the same commit.
+  Local checks retain source-bound results and failure evidence, and critical build scripts
+  and the demo transport are typechecked alongside the app.
 - The chat's `/` command list also matches a word of a command's name, any part of it, its letters
   in order and its description, so a plugin command is found without typing its prefix. Prefix
   matches still come first.

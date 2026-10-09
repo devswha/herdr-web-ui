@@ -990,7 +990,7 @@ for (const name of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"] as const) Object.
 setTimeout(() => {
   const chat = chats.get("api");
   const paneId = panesFixture.api;
-  const turn = chat?.turns.findLast((turn) => turn.role === "assistant" && !turn.end_ts);
+  const turn = chat?.turns.filter((turn) => turn.role === "assistant" && !turn.end_ts).at(-1);
   if (!chat || !turn || turn.role !== "assistant") return;
   turn.parts.push(
     { kind: "tool", name: "Bash", summary: "bun test metrics", input: JSON.stringify({ command: "bun test metrics" }, null, 2), output: " 6 pass\n 0 fail\nRan 6 tests across 1 file. [201ms]" },

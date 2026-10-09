@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isolate, lock, plan } from "./check.ts";
+import { isolate, lock, needsLock, plan, sanitizeCommand } from "./check.ts";
 
 const made: string[] = [];
 afterEach(() => { for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -10,15 +10,24 @@ const scratch = (): string => { const dir = mkdtempSync(join(tmpdir(), "hwc-test
 
 describe("plan", () => {
   it("reads the modes: the fast steps, the lanes, both, or one command", () => {
-    expect(plan(["fast"])).toEqual({ fast: true, lanes: [], command: null });
-    expect(plan(["browser"])).toEqual({ fast: false, lanes: ["browser"], command: null });
-    expect(plan(["browser", "integration"])).toEqual({ fast: false, lanes: ["integration", "browser"], command: null });
-    expect(plan(["full"])).toEqual({ fast: true, lanes: ["integration", "browser"], command: null });
-    expect(plan(["run", "bun", "test", "./a.test.ts"])).toEqual({ fast: false, lanes: [], command: ["bun", "test", "./a.test.ts"] });
+    expect(plan(["fast"])).toEqual({ fast: true, lanes: [], command: null, build: false });
+    expect(plan(["browser"])).toEqual({ fast: false, lanes: ["browser"], command: null, build: false });
+    expect(plan(["browser", "integration"])).toEqual({ fast: false, lanes: ["integration", "browser"], command: null, build: false });
+    expect(plan(["full"])).toEqual({ fast: true, lanes: ["integration", "browser"], command: null, build: false });
+    expect(plan(["run", "bun", "test", "./a.test.ts"])).toEqual({ fast: false, lanes: [], command: ["bun", "test", "./a.test.ts"], build: false });
+    expect(plan(["run", "--build", "bun", "scripts/browser-qa.ts"])).toEqual({ fast: false, lanes: [], command: ["bun", "scripts/browser-qa.ts"], build: true });
+    expect(plan(["run", "--build", "--", "bun", "scripts/browser-qa.ts"])).toEqual({ fast: false, lanes: [], command: ["bun", "scripts/browser-qa.ts"], build: true });
   });
 
   it("refuses what it does not know instead of running something else", () => {
     for (const args of [[], ["quick"], ["fast", "run"], ["run"]]) expect(() => plan(args)).toThrow("Usage");
+  });
+
+  it("uses the existing lock for herdr-backed run commands and never serializes inline credentials", () => {
+    expect(needsLock(plan(["run", "bun", "test", "./a.contract.test.ts"]))).toBe(true);
+    expect(needsLock(plan(["fast"]))).toBe(false);
+    expect(sanitizeCommand(["bun", "--api-token", "private", "--access-token=value", "https://example.test/?token=secret"]))
+      .toEqual(["bun", "--api-token", "[REDACTED]", "--access-token=[REDACTED]", "https://example.test/?token=[REDACTED]"]);
   });
 });
 
@@ -36,6 +45,9 @@ describe("isolate", () => {
       expect(first.sessions).toBe(join(first.env["XDG_CONFIG_HOME"]!, "herdr", "sessions"));
       expect(first.env["HERDR_TEST_SESSION"]).toMatch(/^check-[0-9a-f]{6}$/);
       expect(first.env["HERDR_TEST_SESSION"]).not.toBe(second.env["HERDR_TEST_SESSION"]);
+      if (process.platform !== "win32") {
+        for (const name of ["XDG_CONFIG_HOME", "XDG_STATE_HOME", "HERDR_WEB_STATE_DIR"]) expect(statSync(first.env[name]!).mode & 0o777).toBe(0o700);
+      }
       // one integration file at a time unless asked otherwise
       expect(first.env["HERDR_TEST_SHARDS"]).toBe("1");
       expect(isolate({ HERDR_TEST_SHARDS: "4" }, scratch()).env["HERDR_TEST_SHARDS"]).toBe("4");
