@@ -498,6 +498,7 @@ export const JA: Record<string, string> = {
 
   // ---- chat view ----
   "Copied": "コピーしました",
+  "Couldn't copy. Select the text and copy it manually.": "コピーできませんでした。テキストを選択して手動でコピーしてください。",
   "Output": "出力",
   "thinking": "思考",
   "Working…": "作業中…",
