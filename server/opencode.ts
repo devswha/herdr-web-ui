@@ -658,7 +658,10 @@ function adaptMessage1(message: Message1): { type: string; data: Row } | null {
   const role = message.data.role;
   if (role === "user") {
     const prompt = message.parts.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text as string).join("\n");
-    return { type: "user", data: { time: message.data.time, text: prompt, files: [], skills: [] } };
+    // a picture pasted in the prompt is a `file` part: its 1.x `url` is the 2.x `uri` `rowImages` reads
+    const files = message.parts.filter((part) => part.type === "file" && typeof part.url === "string")
+      .map((part) => ({ type: "file", uri: part.url, mime: part.mime }));
+    return { type: "user", data: { time: message.data.time, text: prompt, files, skills: [] } };
   }
   if (role !== "assistant") return null;
   const content: Row[] = [];

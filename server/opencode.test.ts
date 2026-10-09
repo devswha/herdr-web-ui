@@ -621,6 +621,19 @@ describe("an OpenCode 1.x session (session/message/part)", () => {
     expect(answer.metadata).toEqual({ model: "deepseek-v4.1-flash", reasoning_effort: null, context: { used: 116, window: null } });
   });
 
+  it("keeps a picture pasted in a 1.x prompt, and serves it by the ref the page gave it", () => {
+    const s = storeV1();
+    const id = s.message("user", { agent: "build" });
+    s.part(id, { type: "text", text: "look at this" });
+    s.part(id, { type: "file", mime: "image/png", url: `data:image/png;base64,${PNG.toString("base64")}` });
+    const parts = page(opencodeConversation(s.path, s.session)).turns[0]!.parts;
+    expect(parts).toEqual([
+      { kind: "image", media_type: "image/png", ref: `opencode:${id}:0` },
+      { kind: "text", text: "look at this" },
+    ]);
+    expect(Buffer.from(opencodeImage(s.path, s.session, `opencode:${id}:0`)!.bytes).equals(PNG)).toBe(true);
+  });
+
   it("serves a 1.x tool's cut output and its picture by the refs the page gave them", () => {
     const s = storeV1();
     s.user("read it");
