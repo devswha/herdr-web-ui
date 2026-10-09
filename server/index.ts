@@ -140,6 +140,13 @@ export const SUBMIT_DELAY_MS = 120;
  */
 const TYPED_SETTLE_MS = 300;
 /**
+ * A terminal key (WS `keys`) goes through herdr's RPC, around the attach pty: it waits this long
+ * after the pane's last pty keystroke so it never overtakes typing on its way through the
+ * sidecar and the attach, and the whole TYPED_SETTLE_MS when that keystroke ended in an ESC
+ * herdr may still be holding. Short enough that a held arrow between typed letters shows no lag.
+ */
+const KEY_SETTLE_MS = 40;
+/**
  * Nothing of a composer message is typed once this long has passed since it reached the
  * server (it can wait behind a stalled one in the pane's queue): it answers submit_timeout
  * instead. A send that starts in time ends within two more 10s RPCs, before the client
@@ -400,6 +407,8 @@ export function createServer(
   const paneQueues = new Map<string, Promise<unknown>>();
   /** when each pane last got keystrokes through its attach pty */
   const lastTyped = new Map<string, number>();
+  /** panes whose last pty keystroke ended in an ESC, which herdr holds ~150ms: a key waits TYPED_SETTLE_MS there */
+  const typedEscape = new Set<string>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
@@ -2089,8 +2098,9 @@ export function createServer(
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
                 lastTyped.set(message.pane_id, Date.now());
+                if (message.text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
                 if (lastTyped.size > 64) {
-                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) lastTyped.delete(pane);
+                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
                 }
               }
               break;
@@ -2142,8 +2152,9 @@ export function createServer(
                 // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
                 // held there ~150ms). The checks below run after the wait.
                 if (origin && !origin.mirror) {
+                  const settle = typedEscape.has(message.pane_id) ? TYPED_SETTLE_MS : KEY_SETTLE_MS;
                   const typed = Date.now() - (lastTyped.get(message.pane_id) ?? 0);
-                  if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
+                  if (typed < settle) await Bun.sleep(settle - typed);
                 }
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the

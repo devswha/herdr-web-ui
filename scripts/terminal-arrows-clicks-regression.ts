@@ -141,6 +141,44 @@ try {
     await until(() => s.frames.length > before, "Ctrl+ArrowLeft sent");
     assert.deepEqual(s.frames.slice(before), [{ type: "input", pane_id: s.pane, text: "\x1b[1;5D" }]);
     await until(() => (got = s.received()).length >= 6, "Ctrl+ArrowLeft received");
+
+    // A held arrow: keyboard autorepeat (~30/s) with letters typed between some of the repeats.
+    // Every key arrives, in order, and none waits long enough to show: one herdr RPC per arrow
+    // must not queue up behind itself or behind the typing. The pacing is the behaviour under test.
+    const tokens: Array<{ text: string; sent: number; arrived?: number }> = [];
+    let buffer = "";
+    const poll = setInterval(() => {
+      buffer += s.received();
+      let done = tokens.findIndex((token) => token.arrived === undefined);
+      while (done >= 0 && done < tokens.length && buffer.startsWith(tokens[done]!.text)) {
+        buffer = buffer.slice(tokens[done]!.text.length);
+        tokens[done]!.arrived = performance.now();
+        done += 1;
+      }
+    }, 2);
+    const REPEAT_MS = 33;
+    const start = performance.now();
+    for (let i = 0; i < 60; i += 1) {
+      const due = start + i * REPEAT_MS;
+      while (performance.now() < due) await Bun.sleep(1);
+      const letter = i % 7 === 3;
+      tokens.push({ text: letter ? "x" : "\x1b[B", sent: performance.now() });
+      await s.page.keyboard.press(letter ? "x" : "ArrowDown");
+    }
+    // a key out of order stops the matching above, so this times out with the rest still waiting
+    await until(() => tokens.every((token) => token.arrived !== undefined), "every held key received in order");
+    clearInterval(poll);
+    assert.equal(buffer, "", "nothing out of order or extra");
+    const latencies = tokens.map((token) => token.arrived! - token.sent).sort((a, b) => a - b);
+    const at = (q: number) => latencies[Math.min(latencies.length - 1, Math.floor(q * latencies.length))]!;
+    console.log(`held arrow (60 keys at ${REPEAT_MS} ms, letters between): key to program p50 ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${latencies.at(-1)!.toFixed(1)} ms`);
+    assert.ok(latencies.at(-1)! < 150, `no key lags visibly behind its press (max ${latencies.at(-1)!.toFixed(1)} ms)`);
+
+    // a program that did not ask for the mouse gets nothing from a click (herdr keeps it)
+    const box = (await s.page.locator(".xterm-screen").boundingBox())!;
+    await s.page.mouse.click(box.x + 120, box.y + 90);
+    await Bun.sleep(NO_SEND_WAIT_MS);
+    assert.equal(s.received(), "", "a click reaches no program that did not turn the mouse on");
     await s.close();
   }
 
