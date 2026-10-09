@@ -10,6 +10,21 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Herdr key bindings": "Herdr 按键绑定",
+  "Import Herdr key bindings": "导入 Herdr 按键绑定",
+  "Import the selected PC's [keys] and prefix on this device. Web shortcuts, text editing, IME, and clipboard keys keep priority. Shell commands and terminal-only actions are not imported.": "将所选 PC 的 [keys] 和前缀键导入此设备。Web 快捷键、文本编辑、输入法和剪贴板按键保持优先。不会导入 Shell 命令和终端专用操作。",
+  "Off by default. Browser-reserved keys such as Cmd+T are not available, including after a prefix.": "默认关闭。Cmd+T 等浏览器保留按键不可用，即使在按下前缀键之后也不例外。",
+  "Selected PC keymap": "所选 PC 的按键映射",
+  "After editing config.toml on this PC, reload the bindings. Unlisted OS shortcuts may still be intercepted.": "编辑此 PC 的 config.toml 后，请重新加载绑定。未列出的系统快捷键仍可能被系统优先处理。",
+  "Reload bindings": "重新加载绑定",
+  "Loading key bindings": "正在加载按键绑定",
+  "Active outside text fields": "在文本输入框外生效",
+  "Not supported in the web UI": "Web UI 不支持",
+  "Unsupported key syntax": "不支持的按键语法",
+  "Reserved for the browser, system, or web shortcuts": "为浏览器、系统或 Web 快捷键保留",
+  "No usable prefix sequence": "没有可用的前缀按键组合",
+  "Herdr prefix": "Herdr 前缀键",
+  "Press a binding within 1.5 seconds; Escape cancels.": "请在 1.5 秒内按下绑定键；按 Escape 取消。",
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Direct typing": "直接输入",

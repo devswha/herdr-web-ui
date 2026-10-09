@@ -7,6 +7,7 @@ export const useMachineId = () => useContext(MachineContext);
 export function useMachineApi() {
   const id = useMachineId();
   return useMemo(() => ({
+    fetchHerdrKeymap: () => api.fetchHerdrKeymap(id),
     fetchPaneTranscript: (pane: string, lines: number) => api.fetchPaneTranscript(pane, lines, id),
     fetchPaneConversation: (pane: string, page?: api.ConversationPageQuery) => api.fetchPaneConversation(pane, id, page),
     fetchPanePrompt: (pane: string) => api.fetchPanePrompt(pane, id),

@@ -29,6 +29,8 @@ import { rosterPanes } from "./lib/dagPane.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
 import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
+import { HerdrKeymapProvider } from "./lib/herdrKeymapContext.tsx";
+import { HerdrKeymapNotice } from "./components/HerdrKeymapSettings.tsx";
 import { useMediaQuery } from "./lib/useMediaQuery.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
 import {
@@ -750,7 +752,7 @@ export function App() {
   if (locked) return <AccessGate reason={lockReason} initialCode={pairCode} onUnlocked={unlock} />;
 
   return (
-    <MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`} style={sidebarWidth === null ? undefined : { "--sidebar-user-w": `${sidebarWidth}px` } as CSSProperties}>
+    <MachineContext.Provider value={selectedMachineId}><HerdrKeymapProvider actions={actions} snapshot={snapshot} paneId={selectedPaneId} enabled={connected && role === "interact" && !autoSelected && selectedPane !== null && !selectedPane.restore_error}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`} style={sidebarWidth === null ? undefined : { "--sidebar-user-w": `${sidebarWidth}px` } as CSSProperties}>
       <header className={`app-header is-zoned${chatShown ? " is-chat" : ""}`}>
         {/* is-zoned tells this header from the connecting shell's, which has no zones to draw.
             .header-side is the sidebar's own top row from 769px (styles.css); below that its
@@ -863,6 +865,7 @@ export function App() {
             onClose={closeMore}
           />
         )}
+        <HerdrKeymapNotice />
       </header>
 
       <div className="app-body">
@@ -945,6 +948,6 @@ export function App() {
         <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} keyboardActive={!settingsOpen} />
       </MachineContext.Provider>}
       <CommandPalette key={selectedMachineId} open={paletteOpen} onClose={() => setPaletteOpen(false)} snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} actions={actions} />
-    </div></MachineContext.Provider>
+    </div></HerdrKeymapProvider></MachineContext.Provider>
   );
 }

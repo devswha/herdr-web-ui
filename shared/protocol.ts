@@ -31,6 +31,7 @@ export type HerdrTab = TabInfo;
 export type HerdrPane = PaneInfo & { background_tasks?: number };
 
 export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
+export type { HerdrKeymap } from "./herdr-keymap.ts";
 
 /** Machine API (same token gate; mutations require X-Herdr-Machine: 1 + same origin)
  * GET /api/health?scope=bridge -> BridgeHealth, never waits for herdr
@@ -50,6 +51,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
+ *  GET    /api/keybindings               -> HerdrKeymap (shared/herdr-keymap.ts), authenticated, no-store.
+ *         Also /api/machines/:id/keybindings. Reads that PC's config; never returns command bodies.
+ *         Missing config uses 0.9.3 defaults; unreadable/invalid TOML returns 422 keymap_unavailable.
+ *         Import is opt-in in this browser; this endpoint never executes commands or changes Herdr.
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
  *  GET    /api/updates                   -> UpdateStatus (shared/update.ts), no-store

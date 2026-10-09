@@ -13,6 +13,7 @@
  */
 import type { AgentStatus, ConversationTurn, Machine, MachineEvent, PendingMessage, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
+import { mergeHerdrKeymap } from "../../shared/herdr-keymap.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
 import machinesFixture from "./fixtures/machines.json";
@@ -330,6 +331,10 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   }
   if (path === "/api/machines") return json({ machines });
   if (path === "/api/session") return json({ snapshot: snapshot() });
+  if (path === "/api/keybindings") {
+    if (method !== "GET") return error("method_not_allowed", "use GET", 405);
+    return json(mergeHerdrKeymap({ keys: { prefix: ["ctrl+b", "ctrl+shift+8"], new_tab: ["prefix+c", "cmd+t"] } }), 200, { "cache-control": "no-store" });
+  }
   if (path === "/api/agents") return json(agentsFixture);
   if (path === "/api/updates") return json({ managed: false, auto_update: false, phase: "idle", current_revision: null, latest_revision: null, current_version: __APP_VERSION__, latest_version: null, available: false, checked_at: null, blocked_reason: null, error: null }, 200, { "cache-control": "no-store" });
   if (path === "/api/updates/notes") return json({ revision: null, releases: [], omitted: 0 }, 200, { "cache-control": "no-store" });

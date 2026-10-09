@@ -40,6 +40,32 @@ afterAll(() => {
 
 const base = () => `http://localhost:${server.port}`;
 
+describe("Herdr keymap API", () => {
+  it("keeps imported configuration behind auth and supports the local PC alias", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-keymap-contract-"));
+    const configPath = join(state, "config.toml");
+    writeFileSync(configPath, '[keys]\nprefix = "ctrl+shift+8"\n[[keys.command]]\nkey = "prefix+x"\ntype = "shell"\ncommand = "private-command-body"\n');
+    const app = createServer({ port: 0, stateDir: state, token: "keymap-token", herdrConfigPath: configPath });
+    const url = `http://localhost:${app.port}`;
+    const headers = { authorization: "Bearer keymap-token" };
+    try {
+      expect((await fetch(`${url}/api/keybindings`)).status).toBe(401);
+      const response = await fetch(`${url}/api/keybindings`, { headers });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const body = await response.json();
+      expect(body.prefix).toEqual(["ctrl+shift+8"]);
+      expect(body.commands).toEqual([{ key: "prefix+x", type: "shell", description: "" }]);
+      const local = await fetch(`${url}/api/machines/local/keybindings`, { headers });
+      expect(local.status).toBe(200);
+      expect(await local.json()).toEqual(body);
+      expect((await fetch(`${url}/api/keybindings`, { method: "POST", headers: { ...headers, origin: "https://elsewhere.invalid" } })).status).toBe(403);
+      expect((await fetch(`${url}/api/keybindings`, { method: "POST", headers })).status).toBe(405);
+      expect((await fetch(`${url}/api/keys/command`, { method: "POST", headers })).status).toBe(404);
+    } finally { app.stop(); rmSync(state, { recursive: true, force: true }); }
+  });
+});
+
 describe("Devin conversation API", () => {
   it("keeps the terminal fallback rather than guessing a shell pane's session", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-devin-contract-"));
