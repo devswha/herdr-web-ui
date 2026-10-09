@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A web UI tab you are not using no longer resizes the pane you are using elsewhere. A window
+  left open behind another app turned visible again when the screen woke, or reconnected in the
+  background, and fitted the pane to itself: herdr in your terminal, or your phone, then showed
+  the pane at that window's size, cut off at its edge. The tab takes the pane back once its
+  window has the focus.
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
   ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)
