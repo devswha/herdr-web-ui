@@ -47,6 +47,7 @@ describe("browser lane", () => {
     expect(rows(text)).toEqual([
       { script: "scripts/demo-build.ts", seconds: expect.any(Number), code: 0 },
       { script: "scripts/ui-regression.ts", seconds: expect.any(Number), code: 0 },
+      { script: "scripts/terminal-dispose-browser-qa.ts", seconds: expect.any(Number), code: 0 },
       { script: "scripts/sticky-modifiers-regression.ts", seconds: expect.any(Number), code: 7 },
     ]);
     expect(text).not.toContain("STEP=scripts/key-bar-customization-demo-regression.ts");
