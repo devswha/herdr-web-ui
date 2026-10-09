@@ -502,6 +502,22 @@ describe("parseClaudeTranscript", () => {
       parseClaudeTranscript(entries.map((entry) => JSON.stringify(entry)).join("\n"), MAX_TURNS, subagents);
     const start = { type: "user", timestamp: "2026-10-05T00:00:00.000Z", message: { role: "user", content: "review it" } };
 
+    it("draws a queue-only completion before the active turn, but not its removal", () => {
+      const content = block('Agent "Review the parser" finished');
+      const turn = { type: "assistant", timestamp: "2026-10-05T00:00:01.000Z", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "toolu_1", name: "Agent", input: {} }] } };
+      const queued = { type: "queue-operation", operation: "enqueue", timestamp: "2026-10-05T00:01:00.000Z", content };
+      const turns = read([start, turn, queued]);
+      expect(turns.map((entry) => entry.parts.map((part) => part.kind).join())).toEqual(["text", "task_result", "tool"]);
+      expect(turns[1]?.parts[0]).toMatchObject({ kind: "task_result", tasks: [{ id: "a1", status: "completed", result: "found two issues" }] });
+      expect(read([start, turn, { ...queued, operation: "remove" }]).flatMap((entry) => entry.parts).filter((part) => part.kind === "task_result")).toEqual([]);
+    });
+
+    it("skips garbled lines and incomplete notification envelopes without a success card", () => {
+      const content = block('Agent "Review the parser" finished').replace("</task-notification>", "");
+      const transcript = `null\n42\n{garbled\n${JSON.stringify(start)}\n${JSON.stringify({ type: "user", message: { content } })}\n{"type":`;
+      expect(parseClaudeTranscript(transcript)).toEqual(read([start]));
+    });
+
     it("becomes one task_result however many records carry it, and starts a turn of its own", () => {
       const turns = read([
         start,

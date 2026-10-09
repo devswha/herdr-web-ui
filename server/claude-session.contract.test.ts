@@ -89,7 +89,7 @@ process.stdin.resume();
   first = await pane(FIRST);
   second = await pane(SECOND);
   process.env["HOME"] = root;
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), pushLoopbackHttp: true, alertTiming: { short: 0, long: 0 } });
 });
 
 afterAll(async () => {
@@ -128,11 +128,6 @@ it.skipIf(!NATIVE)("lists a Claude pane's subagents, counts the running ones and
     const { snapshot } = await (await fetch(`${base}/api/session`)).json() as { snapshot: { panes: { pane_id: string; background_tasks?: number }[] } };
     return snapshot.panes.find((entry) => entry.pane_id === paneId)?.background_tasks;
   };
-  /** every snapshot read also tells the server to look for the pane's transcript, which it does in the background */
-  const until = async (check: () => Promise<boolean>): Promise<void> => {
-    for (let attempt = 0; attempt < 100 && !(await check()); attempt++) await Bun.sleep(100);
-    expect(await check()).toBe(true);
-  };
   const folder = join(project, SECOND, "subagents");
   mkdirSync(folder, { recursive: true });
   writeFileSync(join(folder, "agent-a1.meta.json"), JSON.stringify({ agentType: "reviewer", description: "Review the parser", toolUseId: "toolu_a1", requestShape: "background" }));
@@ -140,16 +135,37 @@ it.skipIf(!NATIVE)("lists a Claude pane's subagents, counts the running ones and
 
   // a device that wants every alert: a count that changes alone must not reach it
   const device = await startFakePushService();
-  const subscribed = await fetch(`${base}/api/push/subscribe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: device.subscription, alerts: { input: true, done: "always" } }) });
-  expect(subscribed.status).toBe(204);
   const frames: ServerMessage[] = [];
   const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-  socket.onmessage = (event) => { frames.push(JSON.parse(String(event.data))); };
-  await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("no socket")); });
+  const listeners = new Set<(frame: ServerMessage) => void>();
+  socket.onmessage = (event) => {
+    const frame: ServerMessage = JSON.parse(String(event.data));
+    frames.push(frame);
+    for (const listener of listeners) listener(frame);
+  };
+  const waitFor = (predicate: (frame: ServerMessage) => boolean): Promise<ServerMessage> => {
+    const seen = frames.find(predicate);
+    if (seen) return Promise.resolve(seen);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { listeners.delete(listener); reject(new Error("Claude task frame not received")); }, 10_000);
+      const listener = (frame: ServerMessage) => {
+        if (!predicate(frame)) return;
+        clearTimeout(timer);
+        listeners.delete(listener);
+        resolve(frame);
+      };
+      listeners.add(listener);
+    });
+  };
   try {
+    const subscribed = await fetch(`${base}/api/push/subscribe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: device.subscription, alerts: { input: true, done: "always" } }) });
+    expect(subscribed.status).toBe(204);
+    await waitFor((frame) => frame.type === "snapshot");
+    const running = waitFor((frame) => frame.type === "pane-status" && frame.pane_id === second.pane && frame.background_tasks === 1);
     // asked first, before the server has had a snapshot to look for the pane's transcript with: it finds it itself
     expect((await tasks(second.pane)).tasks).toMatchObject([{ id: "a1", status: "running" }]);
-    await until(async () => await counted(second.pane) === 1);
+    await running;
+    expect(await counted(second.pane)).toBe(1);
     expect(await tasks(second.pane)).toMatchObject({ tasks: [{ id: "a1", title: "Review the parser", category: "reviewer", status: "running" }], runs: [] });
     // a pane with no subagents has no count and no list
     expect(await counted(first.pane)).toBeUndefined();
@@ -157,19 +173,26 @@ it.skipIf(!NATIVE)("lists a Claude pane's subagents, counts the running ones and
 
     // the agent ends: its notification is written to the session's transcript
     const notice = "<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_a1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the parser\" finished</summary>\n<result>fine</result>\n</task-notification>";
+    const ended = waitFor((frame) => frame.type === "pane-status" && frame.pane_id === second.pane && frame.background_tasks === 0);
     appendFileSync(join(project, `${SECOND}.jsonl`), `\n${JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: new Date(Date.now() + 1000).toISOString(), content: notice })}\n`);
-    await until(async () => await counted(second.pane) === undefined);
+    await ended;
+    expect(await counted(second.pane)).toBeUndefined();
     expect((await tasks(second.pane)).tasks).toMatchObject([{ id: "a1", status: "completed" }]);
     // pushed as a count alone: the pane's status is the one it had, and it counts as no turn
     const pushed = frames.filter((frame) => frame.type === "pane-status" && frame.pane_id === second.pane && frame.background_tasks !== undefined);
     expect(pushed.at(-1)).toMatchObject({ background_tasks: 0, agent_status: expect.stringMatching(/^(idle|done)$/) });
-    expect(await read(second.pane)).toMatchObject({ source: "claude-transcript" });
-    // and no alert went out for it
-    await Bun.sleep(1500);
-    expect(device.received.filter((push) => push.payload.pane_id === second.pane)).toEqual([]);
+    const conversation = await read(second.pane);
+    expect(conversation.source).toBe("claude-transcript");
+    expect(conversation.turns.flatMap((turn) => turn.parts).filter((part) => part.kind === "task_result")).toMatchObject([{ kind: "task_result", tasks: [{ id: "a1", status: "completed", result: "fine" }] }]);
+    // A later collector alert waits through the same delivery queue as any earlier alert.
+    const barrier = device.waitFor((push) => push.payload.pane_id === first.pane, "input alert barrier", 10_000);
+    await herdrRpc("pane.report_agent", { pane_id: first.pane, source: "manual", agent: "claude", state: "blocked" });
+    await barrier;
+    expect(device.received.map((push) => push.payload.pane_id)).toEqual([first.pane]);
   } finally {
     socket.close();
     await fetch(`${base}/api/push/subscribe`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: device.subscription.endpoint }) }).catch(() => undefined);
+    await herdrRpc("pane.report_agent", { pane_id: first.pane, source: "manual", agent: "claude", state: "idle" });
     device.stop();
   }
 });

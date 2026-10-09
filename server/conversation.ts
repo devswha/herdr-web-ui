@@ -215,6 +215,7 @@ export function unwrapPastes(text: string): string {
 interface TranscriptEntry {
   type?: string;
   subtype?: string;
+  operation?: string;
   /** a `system` entry's own text; a message's is under `message` */
   content?: unknown;
   timestamp?: string;
@@ -295,7 +296,8 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
     // A message sent while Claude is working is no `user` entry: it is queued, then recorded
     // as this attachment when the turn takes it in. Background task notices and other agents'
     // messages use the same record, so only a person's prompt counts. The `queue-operation`
-    // lines around it repeat the text and are skipped.
+    // lines around a prompt repeat it; a task completion can arrive only in its enqueue.
+    if (entry.type === "queue-operation" && entry.operation === "enqueue" && typeof entry.content === "string" && notified(entry.content, entry.timestamp ?? null)) continue;
     const queued = entry.type === "attachment" ? entry.attachment : undefined;
     if (queued?.commandMode === "task-notification" && typeof queued.prompt === "string" && notified(queued.prompt, entry.timestamp ?? null)) continue;
     if (queued?.type === "queued_command" && queued.commandMode === "prompt" && queued.origin?.kind === "human") {

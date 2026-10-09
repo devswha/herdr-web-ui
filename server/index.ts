@@ -1768,6 +1768,7 @@ export function createServer(
           // a Claude pane's subagents, read from its session's files; nothing for any other pane.
           // Its transcript is found here if the background lookup has not got to it yet
           // (for a second at most: a slow herdr answers with what is known, and the next ask has the rest)
+          // An unknown pane costs a fresh herdr snapshot too; the client bounds its discovery retries.
           if (claudeAgents.sessionOf(paneId) === null) {
             await within(1000, (async () => {
               const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
