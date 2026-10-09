@@ -11,7 +11,7 @@
  * once - would otherwise sound over each other. An alert that comes while a chime sounds is
  * already told by it, except a question after a finish: the question's chime starts where the
  * finish's ends, so a question is never lost. `alertTurns.ts` coordinates eligible tabs by
- * machine, pane and kind. A question deferred to another tab stays pending until that tab
+ * machine, pane and kind. An alert deferred to another tab stays pending until that tab
  * confirms it chimed, or a local deadline/withdrawal lets this tab tell it instead.
  */
 

@@ -51,13 +51,39 @@ describe("alert turns with a local clock", () => {
     expect(tab.receive({ ...claim, type: "withdraw" }, 200)).toEqual([play]);
   });
 
-  it("does not give a finish a question safety net", () => {
+  it("chimes a finish in another tab when the winning tab cannot play it", () => {
+    const a = new AlertTurns("a");
+    const b = new AlertTurns("b");
+    a.start(key, "done", 0);
+    b.start(key, "done", 0);
+    a.receive({ ...claim, tab: "b", kind: "done" }, 1);
+    b.receive({ ...claim, kind: "done" }, 1);
+    expect(a.tick(150)).toEqual([{ ...play, kind: "done" }]);
+    expect(b.tick(150)).toEqual([]);
+    // a's audio did not start (suspended, or its sound was turned off meanwhile)
+    expect(b.receive(a.finish(key, false, 160)[0]!, 161)).toEqual([{ ...play, kind: "done" }]);
+  });
+
+  it("chimes a finish once when the winning tab played it", () => {
+    const a = new AlertTurns("a");
+    const b = new AlertTurns("b");
+    a.start(key, "done", 0);
+    b.start(key, "done", 0);
+    a.receive({ ...claim, tab: "b", kind: "done" }, 1);
+    b.receive({ ...claim, kind: "done" }, 1);
+    expect(a.tick(150)).toEqual([{ ...play, kind: "done" }]);
+    expect(b.tick(150)).toEqual([]);
+    b.receive(a.finish(key, true, 160)[0]!, 161);
+    expect(b.tick(10_000)).toEqual([]);
+  });
+
+  it("rescues a finish when the winning tab never answers", () => {
     const tab = new AlertTurns("b");
     tab.start(key, "done", 0);
     tab.receive({ ...claim, kind: "done" }, 1);
     expect(tab.tick(150)).toEqual([]);
-    expect(tab.tick(750)).toEqual([]);
-    expect(tab.receive({ ...claim, type: "withdraw", kind: "done" }, 800)).toEqual([]);
+    expect(tab.tick(749)).toEqual([]);
+    expect(tab.tick(750)).toEqual([{ ...play, kind: "done" }]);
   });
 
   it("ignores claims older than the lookback", () => {

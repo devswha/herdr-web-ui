@@ -71,9 +71,10 @@ export class AlertTurns {
     for (const [key, pending] of this.pending) {
       if (pending.due > now) continue;
       if (!pending.rescue && this.lowerClaim(key)) {
-        if (pending.kind === "done") this.pending.delete(key);
-        // each lower claimant gets its own turn first, so two deferring tabs never rescue together
-        else { pending.rescue = true; pending.due = now + RESCUE_MS * this.lowerClaims(key); }
+        // A finish waits like a question: the winning tab may not be able to play it.
+        // Each lower claimant gets its own turn first, so two deferring tabs never rescue together.
+        pending.rescue = true;
+        pending.due = now + RESCUE_MS * this.lowerClaims(key);
         continue;
       }
       pending.due = Infinity; // awaiting the local player's result
