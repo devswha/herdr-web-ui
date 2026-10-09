@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { handle, readEvent, type Env } from "./worker.ts";
+import { handle, readEvent, requestCountry, type Env } from "./worker.ts";
 
 const event = {
   event: "update", install_id: "0b5f3c2e-8a51-4c47-9d0e-3f6a2b1c9e84", version: "0.4.2", previous_version: "0.4.1",
@@ -15,16 +15,27 @@ function fakeDb() {
 
 const post = (body: string, type = "application/json") =>
   new Request("https://receiver.test/v1/events", { method: "POST", headers: { "content-type": type, "cf-connecting-ip": "203.0.113.9" }, body });
+/** Cloudflare hangs what it knows about a request on `cf`; Bun's Request has none */
+const from = (request: Request, cf: unknown) => Object.assign(request, { cf });
 
 describe("telemetry receiver", () => {
-  test("stores the event's fields and the day, never the address", async () => {
+  test("stores the event's fields, the day and the country, never the address", async () => {
     const { env, rows } = fakeDb();
-    const response = await handle(post(JSON.stringify(event)), env, now);
+    const response = await handle(from(post(JSON.stringify(event)), { country: "KR", city: "Seoul", postalCode: "04524", latitude: "37.5" }), env, now);
     expect(response.status).toBe(204);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.query).toContain("INSERT OR IGNORE");
-    expect(rows[0]!.values).toEqual(["2026-10-08", "update", event.install_id, "0.4.2", "0.4.1", "linux", "x64", "plugin"]);
+    expect(rows[0]!.values).toEqual(["2026-10-08", "update", event.install_id, "0.4.2", "0.4.1", "linux", "x64", "plugin", "KR"]);
     expect(JSON.stringify(rows)).not.toContain("203.0.113.9");
+    expect(JSON.stringify(rows)).not.toMatch(/Seoul|04524|37\.5/);
+  });
+
+  test("an event with no country, or one that is not two characters, is stored without it", async () => {
+    const { env, rows } = fakeDb();
+    expect((await handle(post(JSON.stringify(event)), env, now)).status).toBe(204);
+    expect(rows[0]!.values[8]).toBeNull();
+    for (const cf of [undefined, {}, { country: "Korea" }, { country: "kr" }, { country: 82 }]) expect(requestCountry(from(post("{}"), cf))).toBeNull();
+    for (const country of ["US", "XX", "T1"]) expect(requestCountry(from(post("{}"), { country }))).toBe(country);
   });
 
   test("refuses what is not one event", async () => {
