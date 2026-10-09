@@ -80,10 +80,12 @@ export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean)
   let done = false;
   // what the drawer is set to now, and where the finger has it: its width on screen, and how fast it moved
   let state = false;
-  let follow: { drawer: HTMLElement; width: number; shown: number; x: number; at: number; speed: number } | null = null;
+  let follow: { drawer: HTMLElement; scrim: HTMLElement | null; width: number; shown: number; x: number; at: number; speed: number } | null = null;
   const onStart = (event: TouchEvent): void => {
     const touch = event.touches[0];
-    const open = isOpen();
+    // the last stroke still holds the drawer: a second finger, or its end never came (the element
+    // it began on left the page and took its touches with it). It lets go where it was first
+    const open = follow !== null ? onEnd() : isOpen();
     start = event.touches.length === 1 && touch && narrow.matches && document.querySelector(MODAL) === null && (open || !scrolledAside(event.target))
       && !editable(event.target) && !selecting()
       ? { x: touch.clientX, y: touch.clientY, open } : null;
@@ -122,10 +124,12 @@ export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean)
     if (follow === null) {
       const drawer = document.getElementById?.("workspace-drawer") ?? null;
       if (drawer === null) return;
-      follow = { drawer, width: drawer.getBoundingClientRect().width, shown: 0, x, at, speed: 0 };
+      const scrim = document.querySelector<HTMLElement>(".scrim");
+      follow = { drawer, scrim, width: drawer.getBoundingClientRect().width, shown: 0, x, at, speed: 0 };
       // the stroke draws the drawer now: no slide of the stylesheet's, and shown even while it is closing
       drawer.style.transition = "none";
       drawer.style.visibility = "visible";
+      if (scrim !== null) scrim.style.transition = "none";
     }
     const shown = Math.min(follow.width, Math.max(0, (start.open ? follow.width : 0) + dx));
     if (at > follow.at) follow.speed = (x - follow.x) / (at - follow.at);
@@ -133,26 +137,27 @@ export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean)
     follow.x = x;
     follow.at = at;
     follow.drawer.style.transform = `translateX(${shown - follow.width}px)`;
-    const scrim = document.querySelector<HTMLElement>(".scrim");
-    if (scrim !== null) scrim.style.opacity = String(shown / Math.max(1, follow.width));
+    if (follow.scrim !== null) follow.scrim.style.opacity = String(shown / Math.max(1, follow.width));
   };
-  const onEnd = (event?: TouchEvent): void => {
+  /** Ends the stroke; returns what the drawer is set to now. */
+  const onEnd = (event?: TouchEvent): boolean => {
     const held = follow;
     start = null;
     claimed = false;
     done = false;
     follow = null;
-    if (held === null) return;
+    if (held === null) return state;
     // a finger that rested before it lifted, or a stroke handed back mid-way, flicks nothing
     const rested = event === undefined || event.timeStamp - held.at > REST_MS;
     const open = drawerSettles(held.shown, held.width, rested ? 0 : held.speed);
     if (open !== state) setOpen(open);
+    state = open;
     // the stylesheet's slide takes it from where the finger left it to where it settles
     held.drawer.style.transition = "";
     held.drawer.style.visibility = "";
     held.drawer.style.transform = "";
-    const scrim = document.querySelector<HTMLElement>(".scrim");
-    if (scrim !== null) { scrim.style.transition = "opacity var(--dur-base) var(--ease-out)"; scrim.style.opacity = ""; }
+    if (held.scrim !== null) { held.scrim.style.transition = ""; held.scrim.style.opacity = ""; }
+    return open;
   };
   document.addEventListener("touchstart", onStart, { capture: true, passive: true });
   document.addEventListener("touchmove", onMove, { capture: true, passive: false });

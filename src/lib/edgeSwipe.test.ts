@@ -162,6 +162,34 @@ describe("watchDrawerSwipe", () => {
     delete doc["getElementById"];
   });
 
+  test("a stroke whose end never came lets the drawer go at the next touch", () => {
+    const drawer = { style: {} as Record<string, string>, getBoundingClientRect: () => ({ width: 300 }) };
+    const scrim = { style: {} as Record<string, string> };
+    const doc = (globalThis as Record<string, unknown>)["document"] as Record<string, unknown>;
+    doc["getElementById"] = (id: string) => (id === "workspace-drawer" ? drawer : null);
+    doc["querySelector"] = (selector: string) => (selector === ".scrim" ? scrim : null);
+    const calls: boolean[] = [];
+    const stop = watchDrawerSwipe(() => true, (next) => calls.push(next));
+    const event = (x: number, timeStamp: number) => ({ touches: [{ clientX: x, clientY: 400 }], target: null, timeStamp, preventDefault: () => {}, stopPropagation: () => {} });
+    // a swipe from the scrim closes the drawer, and its touchend never reaches the document
+    listeners.get("touchstart")!(event(360, 0));
+    listeners.get("touchmove")!(event(330, 16));
+    listeners.get("touchmove")!(event(290, 32));
+    expect(calls).toEqual([false]);
+    expect(drawer.style["transform"]).toBe("translateX(-70px)");
+    expect(scrim.style["transition"]).toBe("none");
+    // the next touch finds it held, and lets it go where it was: most of it showed, so it stays open
+    listeners.get("touchstart")!(event(100, 5000));
+    expect(calls).toEqual([false, true]);
+    expect(drawer.style["transform"]).toBe("");
+    expect(drawer.style["transition"]).toBe("");
+    expect(drawer.style["visibility"]).toBe("");
+    expect(scrim.style["transition"]).toBe("");
+    expect(scrim.style["opacity"]).toBe("");
+    stop();
+    delete doc["getElementById"];
+  });
+
   test("a selection after the drawer moved leaves the stroke with it", () => {
     expect(stroke([[4, 400], [70, 400], [90, 400], [100, 400]], false, null, () => { selection = { isCollapsed: false }; })).toEqual({ reached: 0, calls: [true] });
   });

@@ -1544,12 +1544,22 @@ button {
     transition-delay: 0s;
   }
 
+  /* on the page while the drawer is closed too: a swipe begun on it closes the drawer, and an
+     element that left the page would take the rest of the stroke's touches with it (lib/edgeSwipe.ts) */
   .scrim {
     display: block;
     position: fixed;
     inset: calc(var(--header-h) + env(safe-area-inset-top, 0px)) 0 0 0;
     z-index: var(--z-scrim);
     background: var(--scrim);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease-out);
+  }
+
+  .scrim.is-open {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 
@@ -1673,6 +1683,7 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar,
+  .scrim,
   .icon-button,
   .btn,
   .error-retry {
