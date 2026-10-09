@@ -7,6 +7,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
+  under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
+  ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)
+- Chat finds an omp pane's transcript when herdr reports no session for it, or a Claude session
+  where omp runs: the session file the pane's omp process holds open, or its terminal
+  breadcrumb, names it. Long-running omp panes showed only the terminal text.
+  ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)
+
 ## [0.4.2] - 2026-10-09
 
 ### Added
@@ -75,11 +84,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   is, also when the pane is kept on the terminal. The pane's own view is not changed: pick the
   pane or a view yourself and it is back. A shell's notification opens its terminal as before.
   ([#605](https://github.com/devswha/herdr-web-ui/pull/605) by @Xianbei233)
-- Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
-  under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
-- Chat finds an omp pane's transcript when herdr reports no session for it, or a Claude session
-  where omp runs: the session file the pane's omp process holds open, or its terminal
-  breadcrumb, names it. Long-running omp panes showed only the terminal text.
 
 ## [0.4.1] - 2026-10-08
 
