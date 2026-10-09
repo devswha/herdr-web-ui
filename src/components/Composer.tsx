@@ -869,7 +869,7 @@ export function Composer({
                       onClick={() => selectCompletion(command, trigger)}
                     >
                       <span className="menu-item-main">{command.trigger ?? "/"}{command.name}</span>
-                      <span className="menu-item-hint">{withSource ? `${t(SOURCE_LABEL[command.source])} · ` : ""}{command.description}</span>
+                      <span className="menu-item-hint">{withSource ? `${t(SOURCE_LABEL[command.source])}${command.description ? " · " : ""}` : ""}{command.description}</span>
                     </button>
                   );
                 };
