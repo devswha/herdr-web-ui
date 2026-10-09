@@ -50,7 +50,13 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
     // read here, not in the updater: an updater can run twice, and after a newer roster read
     const handled = new Map(restartsHandled.current);
     const restarts = new Map(machines.map((machine) => [machine.id, memories.current.get(machine.id)?.restarts ?? 0]));
-    for (const machine of machines) if (machine.snapshot && machine.state === "connected") restartsHandled.current.set(machine.id, restarts.get(machine.id)!);
+    for (const machine of machines) {
+      if (!machine.snapshot || machine.state !== "connected") continue;
+      // the stored record goes too, or persistableSeen would bring an old counter back for a look
+      // recorded at a stand-in after the restart
+      if (restarts.get(machine.id)! > (handled.get(machine.id) ?? 0)) saveSeen(machine.id, {});
+      restartsHandled.current.set(machine.id, restarts.get(machine.id)!);
+    }
     setSeen((current) => {
       let next: Map<string, SeenRecord> | null = null;
       for (const machine of machines) {
@@ -87,6 +93,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   // render between the roster read and the effect above
   const carryOpened = (machineId: string): SeenRecord | null => {
     const record = seen.get(machineId);
+    const memory = memories.current.get(machineId);
+    // a restart this render's roster read noticed: the record is dropped by the effect above, not drawn meanwhile
+    if (memory && memory.restarts > (restartsHandled.current.get(machineId) ?? 0)) return null;
     return record ? carrySeen(record, memories.current.get(machineId)?.promoted ?? new Map()) : null;
   };
   return useMemo<SidebarActivity>(() => ({
