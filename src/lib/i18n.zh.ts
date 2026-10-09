@@ -12,6 +12,7 @@
 export const ZH: Record<string, string> = {
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
+  "Paused while you use another window": "使用其他窗口时已暂停",
   "Direct typing": "直接输入",
   "Input line": "输入框",
   "Automatic": "自动",
@@ -81,6 +82,8 @@ export const ZH: Record<string, string> = {
   "Increase chat font size": "增大聊天字号",
   "Chat font": "聊天字体",
   "Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.": "用于消息正文，代码仍使用等宽字体。以逗号分隔，按顺序使用。此设备上没有的字体会回退到默认字体。",
+  "Highlight code": "代码语法高亮",
+  "Colors code by its language. Off, code is plain text.": "按语言为代码着色。关闭后代码以纯文本显示。",
   "Shortcuts": "快捷键",
   "Phone": "手机",
   "Devices": "设备",
@@ -109,6 +112,8 @@ export const ZH: Record<string, string> = {
   "Background tasks running: {count}": "正在运行的后台任务：{count}",
   "INPUT": "输入",
   "DONE": "完成",
+  "BG": "后台",
+  "Agent waiting on background work": "Agent 正在等待后台工作",
   "—": "—",
   "Agent {status}": "Agent 状态：{status}",
 
@@ -182,6 +187,8 @@ export const ZH: Record<string, string> = {
   "Pane name": "窗格名称",
   "Rename pane": "重命名窗格",
   "More for {title}": "{title} 的更多操作",
+  "Move up": "上移",
+  "Move down": "下移",
   "Rename workspace": "重命名工作区",
   "Close workspace": "关闭工作区",
   "New worktree": "新建工作树",
@@ -455,6 +462,8 @@ export const ZH: Record<string, string> = {
   "Copy code": "复制代码",
   "Show less": "收起",
   "Show all {n} lines": "显示全部 {n} 行",
+  "Too long to highlight": "内容过长，未做语法高亮",
+  "Empty task": "空任务",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "正在重连… 消息保留在此处，不会加入队列",

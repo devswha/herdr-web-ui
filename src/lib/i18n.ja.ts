@@ -10,6 +10,7 @@
 export const JA: Record<string, string> = {
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
+  "Paused while you use another window": "別のウィンドウを使っている間は一時停止中",
   "Direct typing": "直接入力",
   "Input line": "入力欄",
   "Automatic": "自動",
@@ -79,6 +80,8 @@ export const JA: Record<string, string> = {
   "Increase chat font size": "チャットの文字を大きく",
   "Chat font": "チャットのフォント",
   "Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.": "メッセージ本文に適用され、コードは等幅フォントのままです。カンマ区切りで、先頭から順に使います。このデバイスにないフォントは既定のフォントで表示します。",
+  "Highlight code": "コードのシンタックスハイライト",
+  "Colors code by its language. Off, code is plain text.": "コードを言語に合わせて色分けします。オフにするとコードはプレーンテキストで表示されます。",
   "Shortcuts": "ショートカット",
   "Phone": "スマートフォン",
   "Devices": "デバイス",
@@ -107,6 +110,8 @@ export const JA: Record<string, string> = {
   "Background tasks running: {count}": "実行中のバックグラウンドタスク: {count}",
   "INPUT": "入力待ち",
   "DONE": "完了",
+  "BG": "BG待ち",
+  "Agent waiting on background work": "エージェントがバックグラウンドの作業を待っています",
   "—": "—",
   "Agent {status}": "エージェント {status}",
 
@@ -180,6 +185,8 @@ export const JA: Record<string, string> = {
   "Pane name": "ペイン名",
   "Rename pane": "ペインの名前を変更",
   "More for {title}": "{title} のその他",
+  "Move up": "上へ移動",
+  "Move down": "下へ移動",
   "Rename workspace": "ワークスペース名を変更",
   "Close workspace": "ワークスペースを閉じる",
   "New worktree": "新しいワークツリー",
@@ -453,6 +460,8 @@ export const JA: Record<string, string> = {
   "Copy code": "コードをコピー",
   "Show less": "折りたたむ",
   "Show all {n} lines": "{n} 行すべて表示",
+  "Too long to highlight": "長すぎるため構文ハイライトを省略しました",
+  "Empty task": "空のタスク",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "再接続しています… メッセージはここに保持され、キューには入りません",
