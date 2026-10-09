@@ -34,7 +34,7 @@ export function composerPayload(text: string, bracketedPaste: boolean): string {
 /** The server refused the message before any of it reached the pane: nothing was typed. */
 export function submitNotTyped(code: string): boolean {
   return ["agent_blocked", "read_only", "submit_timeout", "agent_not_ready", "pending_input_unsupported", "invalid_delivery", "invalid_submit_text",
-    "invalid_submit_id", "pending_limit", "pending_not_found", "pending_busy", "invalid_pending_action", "pending_target_changed", "pending_lease_lost", "not_attached", "input_not_ready", "attach_held", "pane_not_found", "retired_submit_id"].includes(code);
+    "invalid_submit_id", "pending_limit", "pending_not_found", "pending_busy", "invalid_pending_action", "pending_target_changed", "pending_lease_lost", "not_attached", "input_not_ready", "attach_held", "pane_not_found", "retired_submit_id", "input_draft"].includes(code);
 }
 
 export function submitNote(code: string, message: string): string {
