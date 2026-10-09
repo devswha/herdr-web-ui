@@ -12,7 +12,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the tab that claimed it closes or cannot play it, including on plain-HTTP LAN addresses.
   ([#632](https://github.com/devswha/herdr-web-ui/pull/632))
 - Plugin installation and Unix launch commands find Bun in common installation locations
-  when herdr starts with a bare PATH, such as from a GUI app.
+  when herdr starts with a bare PATH, such as from a GUI app. An existing install gets this once
+  the plugin is installed again through herdr: Settings → Updates does not change the commands
+  herdr runs. ([#648](https://github.com/devswha/herdr-web-ui/pull/648) by @od-studio-webagency)
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
   ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,9 +8,18 @@ const script = join(import.meta.dir, "with-bun.sh");
 const preflight = join(import.meta.dir, "preflight.sh");
 
 describe.skipIf(process.platform === "win32")("Unix Bun discovery", () => {
-  let home: string;
-  beforeEach(() => { home = mkdtempSync(join(tmpdir(), "with-bun-")); });
-  afterEach(() => rmSync(home, { recursive: true, force: true }));
+  // A PATH with the three tools the scripts call and nothing else, so a bun or node installed on
+  // this PC (in /usr/bin, say) can neither satisfy a case nor break one.
+  let base: string, home: string, tools: string;
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), "with-bun-"));
+    home = join(base, "home");
+    tools = join(base, "tools");
+    mkdirSync(home);
+    mkdirSync(tools);
+    for (const name of ["sh", "sed", "dirname"]) symlinkSync(Bun.which(name)!, join(tools, name));
+  });
+  afterEach(() => rmSync(base, { recursive: true, force: true }));
 
   function tool(dir: string, name: string, version: string) {
     mkdirSync(dir, { recursive: true });
@@ -19,10 +28,10 @@ describe.skipIf(process.platform === "win32")("Unix Bun discovery", () => {
     chmodSync(file, 0o755);
   }
 
-  async function run(command: string[], overrides: Record<string, string> = {}) {
+  async function run(command: string[], overrides: Record<string, string | undefined> = {}) {
     const child = Bun.spawn(command, {
       cwd: root,
-      env: { HOME: home, PATH: "/usr/bin:/bin", ...overrides },
+      env: { HOME: home, PATH: tools, ...overrides },
       stdout: "pipe", stderr: "pipe",
     });
     const [out, err, code] = await Promise.all([
@@ -48,7 +57,7 @@ describe.skipIf(process.platform === "win32")("Unix Bun discovery", () => {
   it("keeps the Bun already on PATH ahead of fallback locations", async () => {
     tool(join(home, "chosen"), "bun", "1.4.3");
     tool(join(home, ".bun", "bin"), "bun", "1.4.2");
-    const result = await run(["/bin/sh", script, "--version"], { PATH: `${join(home, "chosen")}:/usr/bin:/bin` });
+    const result = await run(["/bin/sh", script, "--version"], { PATH: `${join(home, "chosen")}:${tools}` });
     expect(result.code).toBe(0);
     expect(result.out.trim()).toBe("1.4.3");
   });
@@ -57,13 +66,46 @@ describe.skipIf(process.platform === "win32")("Unix Bun discovery", () => {
     const result = await run(["/bin/sh", script, "x"], { WITH_BUN_EXTRA_DIRS: join(home, "missing") });
     expect(result.code).toBe(127);
     expect(result.out).toBe("");
+    expect(result.err).toContain("bun not found");
+  });
+
+  it("finds Bun in a home directory whose name has a space, not in the directory before the space", async () => {
+    const spaced = join(base, "alice smith");
+    tool(join(spaced, ".bun", "bin"), "bun", "1.4.2");
+    tool(join(base, "alice"), "bun", "9.9.9");
+    const result = await run(["/bin/sh", script, "--version"], { HOME: spaced });
+    expect(result.code).toBe(0);
+    expect(result.out.trim()).toBe("1.4.2");
+  });
+
+  /** PATH as the launcher leaves it. */
+  async function searched(overrides: Record<string, string | undefined> = {}) {
+    return (await run(["/bin/sh", "-c", `. "$1" && printf %s "$PATH"`, "sh", join(import.meta.dir, "bun-path.sh")], overrides)).out;
+  }
+
+  it("looks in the home directory's own places before a version manager's shims", async () => {
+    const dirs = [join(home, ".bun", "bin"), join(home, ".local", "bin"), join(home, ".local", "share", "mise", "shims")];
+    for (const dir of [...dirs].reverse()) mkdirSync(dir, { recursive: true });
+    expect((await searched()).split(":").slice(0, 4)).toEqual([tools, ...dirs]);
+  });
+
+  it("takes only absolute directories from WITH_BUN_EXTRA_DIRS, without expanding a pattern", async () => {
+    const dir = join(home, "with space");
+    mkdirSync(dir);
+    expect(await searched({ WITH_BUN_EXTRA_DIRS: `*:scripts::${dir}` })).toBe(`${tools}:${dir}`);
+  });
+
+  it("preflight says what is missing when HOME is not set", async () => {
+    const result = await run(["/bin/sh", preflight], { HOME: undefined, WITH_BUN_EXTRA_DIRS: undefined });
+    expect(result.err).toBe("");
+    expect(result.code).toBeLessThan(2);
   });
 
   it("preflight finds Bun and Node from extra locations with a bare PATH", async () => {
     const bunDir = join(home, ".bun", "bin"), nodeDir = join(home, "node");
     tool(bunDir, "bun", "1.4.2");
     tool(nodeDir, "node", "v22.0.0");
-    const result = await run(["/bin/sh", preflight], { WITH_BUN_EXTRA_DIRS: `${bunDir} ${nodeDir}` });
+    const result = await run(["/bin/sh", preflight], { WITH_BUN_EXTRA_DIRS: `${bunDir}:${nodeDir}` });
     expect(result.code).toBe(0);
     expect(result.out).toBe("");
     expect(result.err).toBe("");
