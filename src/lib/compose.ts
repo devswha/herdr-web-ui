@@ -189,10 +189,16 @@ function slashMatchTier(command: SlashCommand, needle: string): number | null {
   if (needle === "") return 0;
   const name = command.name.toLocaleLowerCase();
   if (name.startsWith(needle)) return 0;
-  if (name.split(/[:\-_./]+/u).some((word) => word.startsWith(needle))) return 1;
-  if (name.includes(needle)) return 2;
+  const first = name.indexOf(needle);
+  for (let position = first; position >= 0; position = name.indexOf(needle, position + 1)) {
+    if (position === 0 || /[:\-_./]/u.test(name[position - 1]!)) return 1;
+  }
+  if (first >= 0) return 2;
   let at = 0;
-  for (const letter of name) if (letter === needle[at] && ++at === needle.length) return 3;
+  for (const letter of name) {
+    if (needle.startsWith(letter, at)) at += letter.length;
+    if (at === needle.length) return 3;
+  }
   return needle.length >= 2 && command.description.toLocaleLowerCase().includes(needle) ? 4 : null;
 }
 
