@@ -168,23 +168,6 @@ async function delayedHistory(initial: unknown[] = [null]) {
 }
 
 describe("history traversal races", () => {
-  it("reproduces the unresolved foreign-entry ambiguity: cleanup leaves Settings under a fragment", async () => {
-    const browser = await delayedHistory();
-    browser.recordSettings(browser.settingsLevels(true, "terminal", true));
-    let open = true;
-    browser.onSettingsHistory((entry, own) => {
-      // App's listener and its settingsOpen cleanup.
-      if (!own && entry === null) { open = false; browser.recordSettings([]); }
-    });
-    browser.history.pushState(null); // typed hash: a new markerless entry followed by popstate
-    await browser.dispatch();
-    expect(open).toBe(false);
-    expect(browser.requests).toEqual([]);
-    await browser.move(-1);
-    expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "terminal", keyBar: true, depth: 3 });
-    console.log("REPRO A: markerless popstate closes Settings; cleanup requests no traversal; Back restores depth 3");
-  });
-
   it("keeps a late width-change traversal its own after the landing deadline", async () => {
     const browser = await delayedHistory();
     browser.recordSettings(browser.settingsLevels(true, "terminal", true));
@@ -218,6 +201,18 @@ describe("history traversal races", () => {
     expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "terminal", keyBar: true, depth: 3 });
   });
 
+  it("records a deeper reopening after an unanswered close traversal", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, null, false));
+    browser.recordSettings([]);
+    browser.advance(1001);
+    browser.recordSettings(browser.settingsLevels(true, "terminal", false));
+    expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "terminal", keyBar: false, depth: 2 });
+    expect(browser.requests).toHaveLength(1);
+    await browser.land();
+    expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "terminal", keyBar: false, depth: 2 });
+  });
+
   it("steps out of reload entries even when the traversal lands late", async () => {
     const browser = await delayedHistory([null,
       { "herdr-web-ui:settings": { page: "terminal", keyBar: false, depth: 1 } },
@@ -232,7 +227,7 @@ describe("history traversal races", () => {
     expect(browser.requests).toEqual([]);
   });
 
-  it("does not call an unrelated landing its own while a traversal is pending", async () => {
+  it("expires pending ownership when an unrelated landing wins", async () => {
     const browser = await delayedHistory();
     browser.recordSettings(browser.settingsLevels(true, "terminal", true));
     const moves: boolean[] = [];
@@ -240,6 +235,6 @@ describe("history traversal races", () => {
     browser.recordSettings(browser.settingsLevels(false, "terminal", true));
     await browser.move(-2); // depth 1 is not the requested depth 2
     await browser.land();
-    expect(moves).toEqual([false, true]);
+    expect(moves).toEqual([false, false]);
   });
 });

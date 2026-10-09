@@ -73,7 +73,6 @@ function rewind(by: number): void {
 function reconcile(): void {
   if (rewinding > 0) return;
   const state: unknown = window.history.state;
-  if (pending !== null && state === pending.from) return;
   const current = settingsEntry(state);
   const have = current?.depth ?? 0;
   // what the history holds up to here: a Back landed under what was recorded; the step shown is
@@ -122,6 +121,12 @@ if (typeof window !== "undefined") {
     const own = pending !== null && (entry?.depth ?? 0) === pending.depth
       && (pending.level === null || (entry !== null && same(pending.level, entry)));
     if (own) {
+      pending = null;
+      rewinding = 0;
+      clearTimeout(landing);
+    } else if (pending !== null && event.state !== pending.from) {
+      // Another traversal won the race. Its later path through the requested destination is the
+      // user's navigation, not the stale request finally landing.
       pending = null;
       rewinding = 0;
       clearTimeout(landing);
