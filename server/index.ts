@@ -260,6 +260,8 @@ interface SocketData {
   closing: boolean;
   /** the connection's authority: observe connections cannot type or resize */
   mode: ClientRole;
+  /** how often `mode` changed: a switch away and back during an await is still a change */
+  roles: number;
 }
 
 type Client = ServerWebSocket<SocketData>;
@@ -477,6 +479,10 @@ export function createServer(
     await paneSendKeys(paneId, ["Enter"]);
     noteSubmitted(paneId, text);
   }
+
+  /** authorizeSocket as a test: may this connection type now? */
+  const mayType = (client: Client): boolean => clients.has(client) && !client.data.closing && !client.data.revoked
+    && !client.data.readOnly && client.data.mode !== "observe";
 
   function authorizeSocket(client: Client): void {
     if (client.data.revoked) throw new HerdrError("device_revoked", "this device's access was revoked");
@@ -1308,13 +1314,13 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -2050,6 +2056,9 @@ export function createServer(
                 // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
                 const origin = attachment?.clients.has(client) ? attachment : undefined;
                 const claim = client.data.attached.get(message.pane_id);
+                // checked again right before herdr is written to: its connect is awaited (#545)
+                const allowed = () => mayType(client) && client.data.attached.get(message.pane_id) === claim
+                  && (!origin || (attachments.get(message.pane_id) === origin && origin.clients.has(client)));
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) { inputFailed(); return; }
@@ -2060,7 +2069,7 @@ export function createServer(
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
-                  await paneSendText(message.pane_id, shaped);
+                  await paneSendText(message.pane_id, shaped, undefined, allowed);
                   // the echo is read at once, not at the mirror's next idle read
                   attachments.get(message.pane_id)?.mirror?.poke();
                 }).catch(inputFailed);
@@ -2076,6 +2085,8 @@ export function createServer(
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
                 const claim = client.data.attached.get(message.pane_id);
+                const allowed = () => mayType(client) && attachments.get(message.pane_id) === attachment && attachment.pty === pty
+                  && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client) && attachment.ready && !attachment.held;
                 void serialize(message.pane_id, () => {
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
                   if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty
@@ -2084,7 +2095,7 @@ export function createServer(
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
-                  return paneSendText(message.pane_id, text);
+                  return paneSendText(message.pane_id, text, undefined, allowed);
                 }).catch(inputFailed);
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
@@ -2158,7 +2169,16 @@ export function createServer(
                 // a key pressed by a connection that has gone since is not pressed
                 if (!clients.has(client)) return;
                 authorizeSocket(client);
-                await paneSendKeys(message.pane_id, message.keys);
+                // the same checks once more right before herdr is written to: its connect is awaited (#545)
+                const allowed = () => mayType(client) && (!origin || (attachments.get(message.pane_id) === origin && origin.pty === pty
+                  && client.data.attached.get(message.pane_id) === claim && origin.clients.has(client)));
+                try {
+                  await paneSendKeys(message.pane_id, message.keys, undefined, allowed);
+                } catch (error) {
+                  if (!(error instanceof HerdrError && error.code === "cancelled")) throw error;
+                  if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
+                  return;
+                }
                 attachments.get(message.pane_id)?.mirror?.poke();
               });
               break;
@@ -2180,21 +2200,34 @@ export function createServer(
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
                 // the attach this secret was sent from: leaving it (even joining again) takes the secret back
                 const claim = client.data.attached.get(message.pane_id);
+                // and the pty it saw, and the role it had: a live handoff or a switch away and back
+                // during the screen read takes the secret back too (#589)
+                const pty = attachment.pty;
+                const roles = client.data.roles;
                 await serialize(message.pane_id, async () => {
                   // A viewport scrolled into history can still show an old password prompt.
                   // Validate the live screen before typing a secret into the current program.
                   const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
-                  if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
+                  if (client.data.closing || client.data.mode === "observe" || client.data.roles !== roles) { result(false, "read_only"); return; }
                   authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment
                     || client.data.attached.get(message.pane_id) !== claim) { result(false, "not_attached"); return; }
-                  if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); return; }
+                  if (!attachment.ready || attachment.held || attachment.pty !== pty) { result(false, "input_not_ready"); return; }
                   if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
                   if (attachment.mirror) {
                     // A mirrored pane has no pty to type into: the secret is herdr's text, then the
                     // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,
                     // so a send herdr refused is answered as failed, not as entered.
-                    await paneSendText(message.pane_id, message.secret);
+                    const allowed = () => mayType(client) && client.data.roles === roles && attachments.get(message.pane_id) === attachment
+                      && attachment.pty === pty && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client);
+                    try {
+                      await paneSendText(message.pane_id, message.secret, undefined, allowed);
+                    } catch (error) {
+                      if (error instanceof HerdrError && error.code === "cancelled") { result(false, "not_attached"); return; }
+                      throw error;
+                    }
+                    // Once the text is in, its Enter follows unchecked: withheld, it would leave the
+                    // secret on the prompt line for the next Enter anyone presses (#589).
                     await paneSendKeys(message.pane_id, ["Enter"]);
                   } else {
                     // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
@@ -2311,6 +2344,7 @@ export function createServer(
               }
               if (client.data.readOnly) message.mode = "observe";
               if (message.mode === "observe") holdPending(client);
+              if (client.data.mode !== message.mode) client.data.roles++;
               client.data.mode = message.mode;
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {
