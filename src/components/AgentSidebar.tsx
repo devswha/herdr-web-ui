@@ -5,7 +5,6 @@ import type { Machine } from "../../shared/machines.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import type { AgentStatus } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
-import { paneStatus } from "../lib/status.ts";
 import { agentContext, agentTabName, paneMark, sidebarAgents } from "../lib/sidebarAgents.ts";
 import { useSettings } from "../lib/settings.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
@@ -86,7 +85,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
           return <li className={`agent-item${selected ? " is-selected" : ""}${online ? "" : " is-offline"}`} key={paneStorageId(machine.id, pane.pane_id)} data-machine={machine.id} data-pane={pane.pane_id}>
             <button type="button" className="agent-select agent-row" disabled={!online} aria-current={selected ? "true" : undefined} title={tooltip} onClick={() => onSelect(machine.id, pane.pane_id)}>
               {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
-              <AgentRowBody mark={paneMark(entry)} title={title} context={context} backgroundTasks={online ? pane.background_tasks : 0} status={online ? paneStatus({ ...pane, agent_status: activity.status(machine.id, pane) }) : undefined} />
+              <AgentRowBody mark={paneMark(entry)} title={title} context={context} backgroundTasks={online ? pane.background_tasks : 0} status={online ? activity.status(machine.id, pane) : undefined} />
             </button>
           </li>;
         })}

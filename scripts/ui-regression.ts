@@ -397,7 +397,41 @@ try {
   assert.equal(await waitingBadge.getAttribute("title"), "Agent waiting on background work");
   assert.equal(await waitingBadge.locator("svg").count(), 1, "BG draws the running arc, held still");
   await page.locator('.composer-status[data-status="waiting"] strong.visually-hidden', { hasText: "BG" }).waitFor();
-  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "background-wait.png") });
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Appearance");
+  const quietFinishes = page.getByRole("switch", { name: "Quiet opened finishes", exact: true });
+  const quietBefore = await quietFinishes.getAttribute("aria-checked");
+  if (quietBefore !== "true") await quietFinishes.click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await waitingBadge.waitFor();
+  assert.equal((await waitingBadge.textContent())?.trim(), "BG", "Quiet opened finishes cannot hide a background hold");
+  if (process.env.UI_EVIDENCE_DIR) {
+    const viewport = page.viewportSize()!;
+    const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      for (const theme of ["dark", "light"]) {
+        await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+        await page.locator('.composer-status[data-status="waiting"]').waitFor();
+        await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `background-wait-${width}-${theme}.png`), animations: "disabled" });
+        if (width === 390) {
+          const drawer = page.locator('button[aria-controls="workspace-drawer"]');
+          await drawer.click();
+          await waitingBadge.waitFor();
+          await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `background-wait-${width}-${theme}-drawer.png`), animations: "disabled" });
+          await drawer.click();
+        }
+      }
+    }
+    await page.setViewportSize(viewport);
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, themeBefore);
+  }
+  if (quietBefore !== "true") {
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Appearance");
+    await page.getByRole("switch", { name: "Quiet opened finishes", exact: true }).click();
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  }
   await page.unroute("**/api/machines");
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await waitingBadge.waitFor({ state: "detached" });

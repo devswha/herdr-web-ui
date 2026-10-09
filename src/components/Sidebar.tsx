@@ -7,7 +7,7 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../.
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
-import { knownStatus, paneStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
+import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
@@ -635,7 +635,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           </span>}
           <span className="sidebar-pane-meta">
             <span className="visually-hidden">{markName(pane)}</span>
-            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => paneStatus({ ...candidate, agent_status: activity.status(machineId, candidate) }))) : undefined} />}
+            {online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? rollupStatus(statusPanes.map((candidate) => activity.status(machineId, candidate))) : undefined} />}
           </span>
         </div>
         <div className="workspace-actions">
