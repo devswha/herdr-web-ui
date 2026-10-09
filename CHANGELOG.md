@@ -8,10 +8,33 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- A Claude Code pane's subagents (the `Agent` tool) now show where OmO's background tasks do:
+  the status line lists what runs and what ended in the last day, the pane's badge counts the
+  running ones, and a subagent that ends leaves a card in the chat with its answer instead of
+  being hidden. They are read from the session's own `subagents/` files and its transcript.
+  ([#527](https://github.com/devswha/herdr-web-ui/pull/527) by @kilhyeonjun)
+- A Claude Code pane's background commands are listed with its subagents and end with their
+  notification or a successful `TaskStop`/`KillShell`.
+  ([#534](https://github.com/devswha/herdr-web-ui/pull/534) by @kilhyeonjun)
 - **Settings → Voice input → Dictation language** picks the language dictation listens for. On Auto,
   a browser whose first language the app is not translated into (Hungarian, German, …) is heard in
   that language rather than in English; every other case listens for the app's language as before.
   ([#612](https://github.com/devswha/herdr-web-ui/pull/612) by @kratam)
+- `HERDR_WEB_APP_NAME` names the installed app, so the apps of two PCs on one phone no longer
+  both read `herdr`. Unset, nothing changes.
+  ([#684](https://github.com/devswha/herdr-web-ui/pull/684) by @sma505)
+- Workspaces can be reordered on a phone or tablet: hold a row until it lifts, drag it, and let
+  go where the line shows. Before, a long press on iOS showed the system's drag preview but
+  dropped nothing. The row's ⋯ menu also has Move up and Move down.
+  ([#679](https://github.com/devswha/herdr-web-ui/pull/679) by @jiunshinn)
+- A task list (`- [x] done`, `- [ ] open`) in the chat shows a checked or empty box in place of
+  its bullet, instead of the brackets.
+  ([#669](https://github.com/devswha/herdr-web-ui/pull/669) by @aNNdii)
+- Code blocks in the chat are highlighted by their language (TanStack Highlight). Anything longer
+  than a few lines is highlighted in a worker, so no reply can freeze the page: a block that takes
+  longer than 2 s, or is over 100 KB, stays plain and says so. **Settings → Chat → Highlight code**
+  turns it off.
+  ([#671](https://github.com/devswha/herdr-web-ui/pull/671) by @aNNdii)
 
 ### Changed
 - The chat's `/` command list also matches a word of a command's name, any part of it, its letters
@@ -31,6 +54,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   agent reads as work in progress and not as a stutter. The arc is the same size and the turn
   still takes 1.6 s; only its eight 45° steps became forty-eight 7.5° ones.
   ([#622](https://github.com/devswha/herdr-web-ui/pull/622) by @iwangjie)
+- A Claude turn awaiting background work shows **BG**, even with **Quiet opened finishes** on,
+  instead of prematurely alerting "work finished". Automatic resumes share the first rest's
+  30-minute limit; a dev server started by the same prompt can hold the finish until that limit.
+  Work from an earlier prompt holds nothing, and restarting the bridge does not rehold an old
+  finish or send it again.
+  ([#534](https://github.com/devswha/herdr-web-ui/pull/534) by @kilhyeonjun)
 - A key typed right after a chat completion (Tab or Enter on a `/` command, a suggestion, an
   image's mention) stays where it was typed. The caret was put back on the next frame, so on a
   busy phone the next key could land before the one typed just after the completion
@@ -62,6 +91,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Immediate chat sends to Claude Code are refused when its input box contains a draft or is in
   bash mode, preserving the existing terminal input.
   ([#677](https://github.com/devswha/herdr-web-ui/pull/677))
+- herdr in your terminal shows a pane whole again once you leave the browser tab that had it
+  open. herdr holds a pane at the size of a web UI attach until that attach ends, so a desktop
+  tab left open on a pane kept it at the browser's size, and herdr drew it cut off at its split's
+  edge with the bottom rows out of reach; a phone hid this, since it disconnects in the background
+  and its grid is narrow. A tab you are not using now lets go of the pane after a second, says it
+  is paused, and takes the pane again when the tab regains focus or receives pointer input.
+  Mirrored, embedded, and ended panes are not released. A message it queued is still sent first.
+  ([#660](https://github.com/devswha/herdr-web-ui/pull/660) by @jiunshinn)
 
 ## [0.4.3] - 2026-10-09
 

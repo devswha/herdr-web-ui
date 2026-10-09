@@ -7,7 +7,7 @@ import { basename, join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, sessionSnapshot, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
-import type { WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
+import type { SessionSnapshot, WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
 import type { Machine } from "../shared/machines.ts";
 import { alertsOffMarked, alertsState, runMoreItem } from "./header-more.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
@@ -383,6 +383,78 @@ try {
   } finally { await offlineContext.close(); }
   console.log("PASS Agents excludes shells, survives PC folds, selects its machine target and disables offline rows");
 
+  // a turn that ended on work still running in the background reads BG, not DONE: drawn in the sidebar, and read in the composer
+  let backgroundPeer: "working" | "done" | "blocked" | "idle" | null = null;
+  await page.route("**/api/machines", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { machines: { snapshot?: SessionSnapshot }[] };
+    for (const machine of body.machines) {
+      const pane = machine.snapshot?.panes.find((pane) => pane.pane_id === paneA);
+      if (!pane || !machine.snapshot) continue;
+      Object.assign(pane, { agent_status: "done", background_tasks: 1, background_wait: true });
+      if (backgroundPeer) {
+        const peer = { ...pane, pane_id: `${paneA}-background-peer`, agent_status: backgroundPeer, background_wait: undefined };
+        machine.snapshot.panes.push(peer);
+        const tab = machine.snapshot.tabs.find((tab) => tab.tab_id === pane.tab_id);
+        if (tab) tab.agent_status = backgroundPeer === "blocked" ? "blocked" : "done";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  const waitingBadge = agentRow(paneA).locator(".badge[data-status=waiting]");
+  await waitingBadge.waitFor();
+  assert.equal((await waitingBadge.textContent())?.trim(), "BG");
+  assert.equal(await waitingBadge.getAttribute("title"), "Agent waiting on background work");
+  assert.equal(await waitingBadge.locator("svg").count(), 1, "BG draws the running arc, held still");
+  await page.locator('.composer-status[data-status="waiting"] strong.visually-hidden', { hasText: "BG" }).waitFor();
+  for (const peer of ["working", "done", "blocked", "idle"] as const) {
+    backgroundPeer = peer;
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    const expected = peer === "idle" ? "waiting" : peer;
+    await page.locator(`.tab-strip-tab[aria-selected="true"] .tab-strip-dot[data-status="${expected}"]`).waitFor();
+  }
+  backgroundPeer = null;
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Appearance");
+  const quietFinishes = page.getByRole("switch", { name: "Quiet opened finishes", exact: true });
+  const quietBefore = await quietFinishes.getAttribute("aria-checked");
+  if (quietBefore !== "true") await quietFinishes.click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await waitingBadge.waitFor();
+  assert.equal((await waitingBadge.textContent())?.trim(), "BG", "Quiet opened finishes cannot hide a background hold");
+  if (process.env.UI_EVIDENCE_DIR) {
+    const viewport = page.viewportSize()!;
+    const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      for (const theme of ["dark", "light"]) {
+        await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+        await page.locator('.composer-status[data-status="waiting"]').waitFor();
+        await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `background-wait-${width}-${theme}.png`), animations: "disabled" });
+        if (width === 390) {
+          const drawer = page.locator('button[aria-controls="workspace-drawer"]');
+          await drawer.click();
+          await waitingBadge.waitFor();
+          await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `background-wait-${width}-${theme}-drawer.png`), animations: "disabled" });
+          await drawer.click();
+        }
+      }
+    }
+    await page.setViewportSize(viewport);
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, themeBefore);
+  }
+  if (quietBefore !== "true") {
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Appearance");
+    await page.getByRole("switch", { name: "Quiet opened finishes", exact: true }).click();
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  }
+  await page.unroute("**/api/machines");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await waitingBadge.waitFor({ state: "detached" });
+  console.log("PASS a pane whose turn ended on its background work reads BG in the sidebar and the composer, and its status again once it does not");
   // Use a real browser paste: keydown must not send Ctrl+V (0x16) to the agent,
   // where it can trigger image paste against the server's unrelated clipboard.
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });

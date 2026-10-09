@@ -195,6 +195,9 @@ function ChatPage() {
         <SettingsRow label={t("Chat font")} description={t("Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
           <FontFamilyInput value={settings.chatFontFamily} label={t("Chat font")} onCommit={(chatFontFamily) => update({ chatFontFamily })} />
         </SettingsRow>
+        <SettingsRow label={t("Highlight code")} description={t("Colors code by its language. Off, code is plain text.")}>
+          <Toggle label={t("Highlight code")} checked={settings.highlightCode} onChange={(highlightCode) => update({ highlightCode })} />
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title={t("Composer")}>
