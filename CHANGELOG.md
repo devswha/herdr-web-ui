@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- A tap on the model in the chat's input card opens a menu to change it: Model and Effort for
+  Claude Code, Model and effort for Codex, Model for pi. Each one opens the agent's own picker,
+  which the chat shows as a card to pick from, so the list is always the one the agent offers.
+
 ### Fixed
 - Codex Chat can read a new session with one short answer when its complete submitted
   first prompt and answer identify it unambiguously. Older conversations, unreadable

@@ -216,9 +216,10 @@
 }
 
 /* the mark, the model, the level and the ring in one quiet pill, as tall as a control. It is a
-   surface, not a control: no border, no hover, no cursor, and the ring inside it is the only
-   thing to press. It shrinks before its neighbours do, so a name that does not fit is measured
-   clipped inside it (Composer.tsx) and the label steps out */
+   surface, not a control: no border and no cursor of its own. What it holds is pressed: the ring,
+   and the label where the agent has a picker the chat can read (.composer-model-button). It
+   shrinks before its neighbours do, so a name that does not fit is measured clipped inside it
+   (Composer.tsx) and the label steps out */
 .composer-pill {
   display: flex;
   flex: 0 1 auto;
@@ -261,6 +262,37 @@
   /* no box of its own: the name and the level sit in the pill itself, so the name can give way
      before anything else does and the level never overlaps what follows */
   display: contents;
+}
+
+/* the label that opens the agent's pickers: a box of its own, so it can be pressed and draw a
+   focus ring, as tall as the pill so a finger finds it, and still the first thing to give way */
+.composer-model-button {
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composer-status:not([data-model="out"]) .composer-model-button {
+  display: flex;
+  flex: 0 1 auto;
+  align-self: stretch;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.composer-model-button:disabled {
+  cursor: default;
+}
+
+/* the pill answers a pointer over the label, the one hint that it opens something */
+.composer-pill:has(.composer-model-button:hover:not(:disabled)) {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 /* a readable name in the UI face */

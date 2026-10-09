@@ -97,6 +97,33 @@ const TERMINAL_ONLY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
   tree: ["pi", "omp"],
 };
 
+/** A picker the model pill opens: the agent's own command, whose list the chat draws as a card. */
+export interface ModelPicker {
+  /** what it picks: Codex's `/model` list picks the level with the model */
+  id: "model" | "effort" | "model-effort";
+  command: string;
+}
+
+/**
+ * The pickers the model pill offers, by the agents whose picker the chat reads as a card
+ * (server/prompt.ts: Claude Code's `/model` list and `/effort` slider, Codex's `/model`, which
+ * picks the level with the model, and pi's `/model`). The pill names no model or level itself:
+ * what a list holds is the agent's to decide and differs from one session to the next, so the
+ * pick is made on the agent's own card. An agent whose picker the chat cannot read gets none.
+ */
+const MODEL_PICKERS: Readonly<Record<string, readonly ModelPicker[]>> = {
+  claude: [
+    { id: "model", command: "/model" },
+    { id: "effort", command: "/effort" },
+  ],
+  codex: [{ id: "model-effort", command: "/model" }],
+  pi: [{ id: "model", command: "/model" }],
+};
+
+export function modelPickers(agent: string | null): readonly ModelPicker[] {
+  return agent === null ? [] : MODEL_PICKERS[agent] ?? [];
+}
+
 /** The command `text` types, if it is one of those: its name, or null. Case and arguments aside,
  * a message only has to *be* the command — prose that merely mentions it, or a word that only
  * begins like it (`/treemap`), is not one. */

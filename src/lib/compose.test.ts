@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped } from "./compose.ts";
+import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, modelPickers, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -219,5 +219,20 @@ describe("commands the chat cannot finish", () => {
     expect(terminalOnlyCommand("claude", "/tree")).toBeNull();
     expect(terminalOnlyCommand("codex", "/tree")).toBeNull();
     expect(terminalOnlyCommand(null, "/tree")).toBeNull();
+  });
+});
+
+describe("modelPickers", () => {
+  it("opens the agent's own pickers, the ones the chat reads as a card", () => {
+    expect(modelPickers("claude").map((picker) => picker.command)).toEqual(["/model", "/effort"]);
+    // Codex picks the level in its /model list, so one picker covers both
+    expect(modelPickers("codex").map((picker) => [picker.id, picker.command])).toEqual([["model-effort", "/model"]]);
+    expect(modelPickers("pi").map((picker) => picker.command)).toEqual(["/model"]);
+  });
+
+  it("offers nothing where the chat cannot read the picker", () => {
+    expect(modelPickers(null)).toEqual([]);
+    expect(modelPickers("omo")).toEqual([]);
+    expect(modelPickers("opencode")).toEqual([]);
   });
 });

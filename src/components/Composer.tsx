@@ -12,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ArrowUp, FileText, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Cpu, FileText, Gauge, Plus, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -32,6 +32,7 @@ import {
   imageMention,
   insertMention,
   MAX_COMPOSER_CHARS,
+  modelPickers,
   rankSlashCommands,
   terminalOnlyCommand,
 } from "../lib/compose.ts";
@@ -43,6 +44,7 @@ import { composerUsage, formatPercent, formatResetIn, HIGH_PERCENT, meterPercent
 import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
+import { RowMenu } from "./RowMenu.tsx";
 import { useT } from "../lib/i18n.ts";
 
 export interface ComposerProps {
@@ -236,6 +238,9 @@ export function Composer({
   /** the card's own width: a narrow one shows the task chip's count */
   const [cardWidth, setCardWidth] = useState(0);
   const [contextShown, setContextShown] = useState(false);
+  /** the model pill while its pickers are open */
+  const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
+  const closePickers = useCallback(() => setPickerAnchor(null), []);
   const composingRef = useRef(false);
   // the chat lens's input surface takes the keyboard when it appears (a pane switch remounts
   // it), as the grid does in the terminal lens: a pane picked from the drawer is typed into
@@ -777,6 +782,7 @@ export function Composer({
   const hint = composerStatusHint({ uploading, connected, text });
   const model = metadata?.model ? modelLabel(metadata.model) : null;
   const modelShown = Boolean(metadata?.model || metadata?.reasoning_effort);
+  const pickers = modelPickers(agent);
   const usageDetail = usageWindows.map((window) => {
     const reset = formatResetIn(window.resets_at, Date.now());
     return `${windowLabel(window)} ${meterText(window, settings.usageCount)}${reset ? ` · ${t("Resets in {time}", { time: reset })}` : ""}`;
@@ -785,6 +791,23 @@ export function Composer({
   const usageAccessible = usage === undefined ? "" : `${t("Subscription usage")}: ${usageName(usage)}, ${usageDetail.replaceAll("\n", ", ")}`;
   const hintText = hint === null ? null : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
   const menuId = `composer-menu-${paneId}`;
+  /** the model and its level, as the pill draws them, whether or not they open the pickers */
+  const modelInfo = (
+    <>
+      {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
+      <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
+      {/* behind a name the id as received is still read; a touch cannot reach the title */}
+      {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
+      {/* no level recorded: nothing is drawn for it, no dot and no dash; the sentence is still read */}
+      <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+        <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
+        {metadata?.reasoning_effort && <>
+          <span className="composer-reasoning-dot" aria-hidden="true">·</span>
+          <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
+        </>}
+      </span>
+    </>
+  );
 
   return (
     <div className="composer" role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined}>
@@ -987,20 +1010,16 @@ export function Composer({
                 (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
             <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
               {agent && <AgentMark agent={agent} size={14} />}
-              {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
-                {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
-                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
-                {/* behind a name the id as received is still read; a touch cannot reach the title */}
-                {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
-                {/* no level recorded: nothing is drawn for it, no dot and no dash; the sentence is still read */}
-                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
-                  <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
-                  {metadata?.reasoning_effort && <>
-                    <span className="composer-reasoning-dot" aria-hidden="true">·</span>
-                    <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
-                  </>}
-                </span>
-              </span>}
+              {/* a pane whose agent has a picker the chat can read: the label opens it. Anywhere
+                  else it stays what it was, a label with nothing to press */}
+              {modelShown && (pickers.length > 0 ? (
+                <button type="button" className="composer-model-info composer-model-button" disabled={!connected}
+                  aria-haspopup="menu" aria-expanded={pickerAnchor !== null} title={t("Change model or effort")}
+                  onClick={(event) => { const button = event.currentTarget; setPickerAnchor((open) => open ? null : button); }}>
+                  {modelInfo}
+                  <span className="visually-hidden">{t("Change model or effort")}</span>
+                </button>
+              ) : <span className="composer-model-info" aria-label={t("Model and reasoning")}>{modelInfo}</span>)}
               {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} />}
               {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
                 className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
@@ -1051,6 +1070,19 @@ export function Composer({
           command in the terminal the way its own palette would */}
       {!note && terminalOnly !== null && (
         <div className="composer-hint" role="status">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
+      )}
+      {pickerAnchor !== null && (
+        <RowMenu anchor={pickerAnchor} title={t("Model and effort")} onClose={closePickers}
+          items={pickers.map((picker) => ({
+            id: picker.id,
+            label: picker.id === "effort" ? t("Effort") : picker.id === "model" ? t("Model") : t("Model and effort"),
+            hint: (picker.id === "effort" ? metadata?.reasoning_effort : picker.id === "model" ? model?.text
+              : [model?.text, metadata?.reasoning_effort].filter(Boolean).join(" · ")) || undefined,
+            icon: picker.id === "effort" ? Gauge : Cpu,
+            // the agent opens its own list, which the chat draws as a card to pick from
+            run: () => sendQuick(picker.command),
+          }))}
+        />
       )}
       {/* above the whole composer: inside the surface it would cover the text being dictated */}
       {dictation.shown && <VoiceRecordingPill dictation={dictation} align="start" />}
