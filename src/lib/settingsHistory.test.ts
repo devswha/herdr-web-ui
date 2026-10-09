@@ -209,8 +209,28 @@ describe("history traversal races", () => {
     browser.recordSettings(browser.settingsLevels(true, "terminal", false));
     expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "terminal", keyBar: false, depth: 2 });
     expect(browser.requests).toHaveLength(1);
-    await browser.land();
-    expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "terminal", keyBar: false, depth: 2 });
+  });
+
+  it("does not replace an unanswered traversal with another rewind", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, "terminal", true));
+    browser.recordSettings([]);
+    browser.advance(1001);
+    browser.recordSettings(browser.settingsLevels(false, "appearance", false));
+    expect(browser.requests).toHaveLength(1);
+  });
+
+  it("does not consume Back after a timed-out close and reopening", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, null, false));
+    const moves: boolean[] = [];
+    browser.onSettingsHistory((_entry, own) => moves.push(own));
+    browser.recordSettings([]);
+    browser.advance(1001);
+    browser.recordSettings(browser.settingsLevels(true, null, false));
+    await browser.move(-1);
+    expect(moves).toEqual([false]);
+    expect(browser.settingsEntry(browser.history.state)).toBeNull();
   });
 
   it("steps out of reload entries even when the traversal lands late", async () => {

@@ -57,16 +57,23 @@ const same = (a: SettingsLevel | null, b: SettingsLevel): boolean => a !== null 
 let rewinding = 0;
 let landing: ReturnType<typeof setTimeout> | undefined;
 /** Keep the destination after the deadline: a slow landing is still ours, not the user's Back. */
-let pending: { from: unknown; depth: number; level: SettingsLevel | null } | null = null;
+let pending: { from: unknown; depth: number; level: SettingsLevel | null; expired: boolean; claim: boolean } | null = null;
 
 function rewind(by: number): void {
+  if (pending !== null) return;
   const depth = (settingsEntry(window.history.state)?.depth ?? 0) - by;
-  pending = { from: window.history.state, depth, level: held[depth - 1] ?? null };
-  rewinding += 1;
+  const request = { from: window.history.state, depth, level: held[depth - 1] ?? null, expired: false, claim: true };
+  pending = request;
+  rewinding = 1;
   clearTimeout(landing);
   // Do not retry an unanswered go(): it may still land, and another go would queue a second
   // traversal. A new history state or the requested landing can make progress instead.
-  landing = setTimeout(() => { rewinding = 0; }, LANDING_MS);
+  landing = setTimeout(() => {
+    if (pending === request) {
+      rewinding = 0;
+      request.expired = true;
+    }
+  }, LANDING_MS);
   window.history.go(-by);
 }
 
@@ -102,7 +109,11 @@ function reconcile(): void {
 
 /** Makes the history hold these steps into Settings, in order; none when the dialog is closed. */
 export function recordSettings(levels: readonly SettingsLevel[]): void {
+  const reopening = wanted.length === 0 && levels.length > 0;
   wanted = levels;
+  // Once a timed-out close is followed by an explicit new opening, a later trip to the same
+  // destination is ambiguous with that opening's real Back. Do not consume the user's Back.
+  if (reopening && pending?.expired) pending.claim = false;
   if (typeof window !== "undefined") reconcile();
 }
 
@@ -118,15 +129,13 @@ export function onSettingsHistory(listener: Listener): () => void {
 if (typeof window !== "undefined") {
   window.addEventListener("popstate", (event) => {
     const entry = settingsEntry(event.state);
-    const own = pending !== null && (entry?.depth ?? 0) === pending.depth
+    const matches = pending !== null && (entry?.depth ?? 0) === pending.depth
       && (pending.level === null || (entry !== null && same(pending.level, entry)));
-    if (own) {
-      pending = null;
-      rewinding = 0;
-      clearTimeout(landing);
-    } else if (pending !== null && event.state !== pending.from) {
+    const own = matches && pending?.claim === true;
+    if (pending !== null && (matches || event.state !== pending.from)) {
       // Another traversal won the race. Its later path through the requested destination is the
-      // user's navigation, not the stale request finally landing.
+      // user's navigation, not the stale request finally landing. A superseded timed-out close
+      // also releases here without claiming the new opening's real Back.
       pending = null;
       rewinding = 0;
       clearTimeout(landing);
