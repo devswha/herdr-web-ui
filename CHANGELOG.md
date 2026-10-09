@@ -99,6 +99,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   is paused, and takes the pane again when the tab regains focus or receives pointer input.
   Mirrored, embedded, and ended panes are not released. A message it queued is still sent first.
   ([#660](https://github.com/devswha/herdr-web-ui/pull/660) by @jiunshinn)
+- **New worktree** and **Open worktree…** work from a workspace that sits on a git worktree herdr
+  did not open itself: the request goes to the repository's own workspace when it is open, instead
+  of failing with "New and open worktree actions start from the repo parent workspace".
+  ([#685](https://github.com/devswha/herdr-web-ui/pull/685))
 
 ## [0.4.3] - 2026-10-09
 

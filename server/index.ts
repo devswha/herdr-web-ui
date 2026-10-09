@@ -1700,9 +1700,19 @@ export function createServer(
         // and agent.start after it can take a minute more.
         if (creating) bunServer.timeout(request, agent ? 150 : 75);
         try {
-          const opened = creating
-            ? await worktreeCreate({ workspaceId: payload.workspace_id, branch: branch as string, base, label, path })
-            : await worktreeOpen({ workspaceId: payload.workspace_id, path, branch, label });
+          const asked = payload.workspace_id;
+          const from = (workspaceId: string) => creating
+            ? worktreeCreate({ workspaceId, branch: branch as string, base, label, path })
+            : worktreeOpen({ workspaceId, path, branch, label });
+          // herdr starts a worktree only from the workspace on the repository's main checkout. Asked
+          // from a workspace on another checkout (herdr does not mark one it did not open as a
+          // worktree, so the row offers the action), the call goes to that workspace when it is open.
+          const opened = await from(asked).catch(async (error: unknown) => {
+            if (!(error instanceof HerdrError) || error.code !== "linked_worktree_source") throw error;
+            const parent = await worktreeList(asked).then((listing) => listing.source.source_workspace_id, () => null);
+            if (!parent || parent === asked) throw error;
+            return from(parent);
+          });
           return jsonResponse({
             workspace_id: opened.workspace.workspace_id,
             pane_id: opened.root_pane.pane_id,
