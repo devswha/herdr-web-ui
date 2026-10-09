@@ -14,6 +14,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   selects a conversation. Complete directory-less injected AGENTS.md instructions are
   hidden without hiding user messages that continue after the instructions.
   ([#650](https://github.com/devswha/herdr-web-ui/pull/650) by @od-studio-webagency)
+- Terminal cleanup waits for xterm's pending frame and task before disposing its renderer,
+  preventing a dimensions console error on development reloads or when switching PCs or
+  signing out immediately after a pane reset.
+  ([#649](https://github.com/devswha/herdr-web-ui/pull/649) by @od-studio-webagency)
 - Immediate chat sends to Claude Code are refused when its input box contains a draft or is in
   bash mode, preserving the existing terminal input.
   ([#677](https://github.com/devswha/herdr-web-ui/pull/677))
