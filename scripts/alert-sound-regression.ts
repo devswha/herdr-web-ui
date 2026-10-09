@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Browser, Page } from "playwright-core";
+import { errors as browserErrors, type Browser, type Page } from "playwright-core";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { openSettingsPage } from "./settings-page.ts";
 
@@ -108,11 +108,19 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
 
     // The collector reopens its subscriptions after the pane set changes. Prime only owned
     // fixture statuses until working arrives as an event, not merely in a polled snapshot.
+    // Each attempt waits (bounded) for its own event before reporting again, so setup does not
+    // flood the subscription it is priming.
     for (const deadline = Date.now() + 10_000; !(await page.evaluate((pane) =>
       (window as unknown as { soundStatuses: Record<string, string> }).soundStatuses[pane] === "working", otherPane));) {
       assert.ok(Date.now() < deadline, "the status subscription includes the new panes");
       await report(otherPane, "idle");
+      const received = page.waitForFunction((pane) =>
+        (window as unknown as { soundStatuses: Record<string, string> }).soundStatuses[pane] === "working",
+      otherPane, { timeout: Math.max(1, Math.min(1_000, deadline - Date.now())) }).catch((error) => {
+        if (!(error instanceof browserErrors.TimeoutError)) throw error;
+      });
       await report(otherPane, "working");
+      await received;
     }
     // no tap yet: the page may not play, and nothing is kept to sound later
     await block(otherPane);
