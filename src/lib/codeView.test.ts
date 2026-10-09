@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import hljs from "./highlight.ts";
-import { codeLanguage, escapeHtml, normalizeNewlines, numberedLinesHtml, splitMarkupLines } from "./codeView.ts";
+import { codeLanguage, escapeHtml, highlightable, normalizeNewlines, numberedLinesHtml, splitMarkupLines } from "./codeView.ts";
 
 const textOf = (html: string) => html.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
 const balanced = (html: string) => (html.match(/<span[^>]*>/g) ?? []).length === (html.match(/<\/span>/g) ?? []).length;
@@ -18,6 +18,13 @@ describe("the file viewer's numbered text", () => {
     for (const name of ["a.ts", "a.tsx", "a.js", "a.py", "a.rs", "a.go", "a.sh", "a.yml", "a.toml", "a.json", "a.md", "a.css", "a.html", "Makefile", ".bashrc"]) {
       expect(hljs.getLanguage(codeLanguage(name)!)).toBeDefined();
     }
+  });
+
+  it("colors what highlight.js knows, except Markdown under any of its names", () => {
+    for (const language of ["ts", "tsx", "py", "json", "makefile", "bash"]) expect(highlightable(hljs, language)).toBe(true);
+    for (const language of ["md", "markdown", "mkd", "mkdown", "log", "nope"]) expect(highlightable(hljs, language)).toBe(false);
+    // the shape that makes highlight.js's Markdown grammar take seconds is never handed to it
+    expect(highlightable(hljs, codeLanguage("plan.md")!)).toBe(false);
   });
 
   it("escapes text that was not marked up, and drops the \\r of a CRLF file", () => {

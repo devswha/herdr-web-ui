@@ -955,6 +955,7 @@ One set for both themes: the card is island black wherever it shows.
 - A text file shows numbered lines in `--font-mono` `--fs-xs` on `--bg-panel`, wrapped under their
   own text; the numbers are `--text-dim` and stay out of a copy. The plain lines show at once, and
   highlight.js colors them once its chunk has loaded, where it knows the language from the name.
+  Markdown stays plain: its grammar can take seconds on a few KB of odd text, on the page's thread.
 - Syntax takes the palette's own tokens, so every theme and palette has it with no colors of its
   own: keywords and markup names `--accent`, strings `--status-done`, numbers and literals
   `--status-blocked`, types, built-ins, attributes and properties `--status-working`, function and

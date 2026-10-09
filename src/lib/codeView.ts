@@ -1,5 +1,6 @@
 // The file viewer's numbered text (components/FileViewer.tsx): a text file's lines as markup,
 // colored by highlight.js where it knows the language.
+import type { HLJSApi } from "highlight.js";
 
 /** Files known by their name, not an extension, as highlight.js names their language. */
 const FILE_NAMES: Record<string, string> = {
@@ -26,6 +27,19 @@ export function codeLanguage(name: string): string | null {
   // no extension, or a dotfile not named above
   if (dot <= 0 || dot === lower.length - 1) return null;
   return lower.slice(dot + 1);
+}
+
+/**
+ * Languages left plain. highlight.js's Markdown grammar takes time that grows with the cube of some
+ * text (8 KB of `[a](` takes seconds), and the viewer colors on the page's own thread, so an odd
+ * Markdown file would freeze the tab.
+ */
+const PLAIN_LANGUAGES = ["markdown"];
+
+/** Whether the viewer colors text in `language`: highlight.js knows it, under any of its names, and it is not left plain. */
+export function highlightable(hljs: HLJSApi, language: string): boolean {
+  const known = hljs.getLanguage(language);
+  return known !== undefined && !PLAIN_LANGUAGES.some((plain) => hljs.getLanguage(plain) === known);
 }
 
 /** Text as markup, for text highlight.js did not mark up. */

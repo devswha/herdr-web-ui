@@ -31,6 +31,8 @@ copyFileSync(join(import.meta.dir, "fixtures", "file-preview.webm"), join(root, 
 writeFileSync(join(root, "notes.txt"), "File preview history regression\n");
 const code = "/* a comment\n   over two lines */\nconst answer = 42;\n";
 writeFileSync(join(root, "answer.ts"), code);
+// highlight.js's Markdown grammar takes about 45 s on this, on the page's thread
+writeFileSync(join(root, "plan.md"), "[a](".repeat(4096));
 let workspace: string | undefined;
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
@@ -312,6 +314,15 @@ try {
   });
   assert.equal(copied, code.replace(/\n$/, ""), "a copy is the text, without the numbers");
   console.log("PASS a source file shows numbered, colored lines");
+  await page.locator(".file-viewer-header button").click();
+  await page.locator(".file-viewer").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "folder", exact: true }).tap();
+  await page.locator(".file-viewer .dir-browser").getByRole("button", { name: /plan.md/ }).tap();
+  await page.locator(".file-viewer-code .file-viewer-line").first().waitFor();
+  // highlight.js is loaded by now (answer.ts): a frame later, Markdown would have been colored
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.locator(".file-viewer-code [class^=hljs]").count(), 0, "Markdown stays plain");
+  console.log("PASS a Markdown file opens at once and stays plain");
 } finally {
   await browser?.close();
   server?.stop();
