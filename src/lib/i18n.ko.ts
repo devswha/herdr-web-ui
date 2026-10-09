@@ -6,6 +6,12 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Table of contents": "목차",
+  "Document properties": "문서 속성",
+  "Markdown view": "Markdown 보기 방식",
+  "Rendered": "렌더링",
+  "Source": "원본",
+  "Open original in a new tab": "새 탭에서 원본 열기",
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Direct typing": "직접 입력",

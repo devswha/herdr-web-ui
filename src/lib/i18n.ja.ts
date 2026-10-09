@@ -8,6 +8,12 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Table of contents": "目次",
+  "Document properties": "ドキュメントのプロパティ",
+  "Markdown view": "Markdown表示",
+  "Rendered": "プレビュー",
+  "Source": "ソース",
+  "Open original in a new tab": "新しいタブで原文を開く",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Direct typing": "直接入力",

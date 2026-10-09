@@ -368,6 +368,17 @@ One set for both themes: the card is island black wherever it shows.
   with the refusal's words above it. Closing a repository workspace over open worktrees says so
   and closes the group, as herdr's `--group` does.
 
+### Markdown file preview
+- Markdown opens rendered using the chat renderer, current app palette and Chat font size.
+  Rendered / Source keeps the original text available; ordinary text stays plain.
+- Leading YAML-style properties stay literal in a collapsed disclosure. Relative links resolve
+  beside the document on its original PC. Downloads retain the unchanged source.
+- The independently scrolling outline uses the renderer's original heading levels, including
+  duplicate titles. Clicking focuses and scrolls only the document; reading centers the current
+  outline row as far as its scroll bounds allow, without taking focus or moving the body.
+- `--document-outline-w` is 220px. Below 761px the toolbar opens an overlay drawer rather than
+  narrowing the prose. Reopening or resizing the outline restores its current reading position.
+
 ### Field (`.field`, `.input`, `.select`)
 - Stacked uppercase label, optional hint and `--bg-input` field. Desktop fields use `--fs-sm`;
   small-screen fields retain `--fs-input` to avoid focus zoom.

@@ -10,6 +10,12 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Table of contents": "目录",
+  "Document properties": "文档属性",
+  "Markdown view": "Markdown视图",
+  "Rendered": "渲染",
+  "Source": "原文",
+  "Open original in a new tab": "在新标签页中打开原文",
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Direct typing": "直接输入",
