@@ -45,6 +45,12 @@ const RESIZE_SETTLE_MS = 120;
 /** How long a tab is out of use before it lets go of its pane: a glance at another window keeps it. */
 const RELEASE_AFTER_MS = 1000;
 
+// Only a tab the user is in drives the shared grid. A window left open behind another app
+// still turns visible when the screen wakes, and reconnects, reloads or moves on to the next pane
+// in the background: taking the pane then sized it for nobody, and herdr's own TUI drew it cut
+// off at its split's edge
+const inUse = (): boolean => document.visibilityState === "visible" && document.hasFocus();
+
 export interface PaneTerminalProps {
   /** The pane this terminal attaches to; null renders the placeholder. */
   paneId: string | null;
@@ -497,10 +503,6 @@ export function PaneTerminal({
     // the grid while the row fits there, else the bottom rows, where a prompt sits. A mirror
     // has no cursor; xterm's own rests on the last row with text, which serves the same.
     const adopted = (): boolean => observeRef.current || fixedGridRef.current;
-    // Only a tab the user is in drives the shared grid. A window left open behind another app
-    // still turns visible when the screen wakes, and reconnects in the background: taking the
-    // pane then sized it for nobody, and herdr's own TUI drew it cut off at its split's edge
-    const inUse = (): boolean => document.visibilityState === "visible" && document.hasFocus();
     let panned = false;
     const followCursor = (): void => {
       host.toggleAttribute("data-adopted-grid", adopted());
@@ -1354,8 +1356,10 @@ export function PaneTerminal({
       } catch {
         return;
       }
+      // a chosen font loads after every attach: out of use (a reload behind another app), only
+      // this grid fits, and the refit takes the pane once the user is here
       const pane = paneRef.current;
-      if (pane) socketRef.current?.resize(pane, term.cols, term.rows, true);
+      if (pane && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
     };
     if (fontFamily === TERMINAL_FONT_STACK) apply();
     else void loadFontStack(fontFamily, terminalFontSize).then(apply);
@@ -1381,8 +1385,10 @@ export function PaneTerminal({
     } catch {
       return;
     }
+    // this runs on every load too, right after the attach: out of use (a reload behind another
+    // app), only this grid fits, and the refit takes the pane once the user is here
     const pane = paneRef.current;
-    if (pane && term) socketRef.current?.resize(pane, term.cols, term.rows, true);
+    if (pane && term && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
     if (!autoSelected && !coarseRef.current) term?.focus();
   }, [chatView]);
 
@@ -1429,7 +1435,9 @@ export function PaneTerminal({
     } catch {
       /* not laid out yet; the ResizeObserver will follow up */
     }
-    socket.attach(paneId, term.cols, term.rows, chatViewRef.current);
+    // out of use (the pane closed in herdr and the app moved on to the next one, or a reload behind
+    // another app), the attach adopts the pane's size; the refit takes it once the user is here
+    socket.attach(paneId, term.cols, term.rows, chatViewRef.current || !inUse());
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
     if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();

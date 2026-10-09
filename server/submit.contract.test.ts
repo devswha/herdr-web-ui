@@ -664,6 +664,83 @@ describe("typing without terminal attach, at the edges", () => {
       bare.stop();
     }
   }, 30_000);
+
+  it("presses no chord for a sender that switched to observe and back while herdr was being reached (#545)", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "push-role-keys"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const originalKeys = herdr.paneSendKeys;
+    // every check before the RPC has passed; the sender watches and comes back before herdr is written to
+    const keys = spyOn(herdr, "paneSendKeys").mockImplementation(async (paneId, sent, socketPath, guard) => {
+      if (paneId === shell.pane) { entered.resolve(); await gate.promise; }
+      return originalKeys(paneId, sent, socketPath, guard);
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, shell.pane);
+      const from = chunks(shell).length;
+      sender.send({ type: "keys", pane_id: shell.pane, keys: ["Enter"] });
+      await entered.promise;
+      sender.send({ type: "role", mode: "observe" });
+      await sender.waitFor((message) => message.type === "role-ack" && message.mode === "observe");
+      sender.send({ type: "role", mode: "interact" });
+      await sender.waitFor((message) => message.type === "role-ack" && message.mode === "interact");
+      gate.resolve();
+      await sender.waitFor((message) => message.type === "error" && message.code === "input_failed" && message.pane_id === shell.pane);
+      keeper.send({ type: "submit", id: 65, pane_id: shell.pane, text: "two", payload: "two" });
+      await keeper.result(65);
+      await received(shell, from, 1);
+      expect(typed(shell, from)).toBe("two\r");
+    } finally {
+      gate.resolve();
+      keys.mockRestore();
+      sender.close();
+      keeper.close();
+      bare.stop();
+    }
+  }, 30_000);
+
+  it("enters no secret for a sender that switched to observe and back while the screen was read (#589)", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "push-role-secret"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const originalRead = herdr.paneRead;
+    let held = false;
+    // the secret's live-screen check waits until the sender has watched and come back, then finds the prompt
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const screen = await originalRead(options, socketPath);
+      if (held || options.paneId !== shell.pane || options.source !== "detection" || options.format !== "text") return screen;
+      held = true;
+      entered.resolve();
+      await gate.promise;
+      return { ...screen, text: "Password:" };
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, shell.pane);
+      const from = chunks(shell).length;
+      sender.send({ type: "secret", id: 63, pane_id: shell.pane, prompt: "Password:", secret: "sensitive" });
+      await entered.promise;
+      sender.send({ type: "role", mode: "observe" });
+      await sender.waitFor((message) => message.type === "role-ack" && message.mode === "observe");
+      sender.send({ type: "role", mode: "interact" });
+      await sender.waitFor((message) => message.type === "role-ack" && message.mode === "interact");
+      gate.resolve();
+      expect(await sender.waitFor((message) => message.type === "secret-result" && message.id === 63)).toMatchObject({ ok: false, code: "read_only" });
+      keeper.send({ type: "submit", id: 64, pane_id: shell.pane, text: "two", payload: "two" });
+      await keeper.result(64);
+      await received(shell, from, 1);
+      expect(typed(shell, from)).toBe("two\r");
+    } finally {
+      gate.resolve();
+      read.mockRestore();
+      sender.close();
+      keeper.close();
+      bare.stop();
+    }
+  }, 30_000);
 });
 
 describe("herdr unreachable when a terminal is asked for", () => {
