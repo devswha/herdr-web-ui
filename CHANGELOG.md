@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   stored the working directory in another letter case than herdr reports (`\\?\d:\Work\app` for
   `D:\work\app`). A Claude pane whose process two stores both claim (`~/.claude` and a
   `~/.claude-*` copy) now says its chat is unavailable instead of showing `~/.claude`'s session.
+  ([#714](https://github.com/devswha/herdr-web-ui/pull/714))
 
 ## [0.4.5] - 2026-10-09
 
