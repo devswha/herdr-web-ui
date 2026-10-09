@@ -19,6 +19,7 @@ import { checkUsageMeters } from "./usage-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
 import { checkNotificationView } from "./notification-view-regression.ts";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
+import { checkTerminalPinch } from "./terminal-pinch-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
@@ -764,6 +765,7 @@ try {
   await checkNotificationStartup(browser, origin, paneA, paneB);
   await checkNotificationView(browser, origin);
   await checkMobileViewport(browser, origin, paneB);
+  await checkTerminalPinch(browser, origin, paneB);
   await checkMobileTabs(browser, origin);
   await checkDefaultView(browser, origin);
   await checkComposerReconnect(browser, origin, paneB);

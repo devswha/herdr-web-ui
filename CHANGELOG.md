@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- On a phone, a two-finger pinch on the terminal changes its font size live (10–22 px), with a
+  badge showing the size; the shared pty resizes once, when a finger lifts.
+
 ## [0.4.5] - 2026-10-09
 
 ### Changed
