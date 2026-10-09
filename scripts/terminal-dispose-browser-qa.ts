@@ -21,29 +21,50 @@ const bundle = await Bun.build({
           const onError = (event) => { errors.push(event.message); event.preventDefault(); };
           window.addEventListener("error", onError);
           const originalFrame = window.requestAnimationFrame.bind(window);
-          const frames = [];
-          window.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length; };
+          const originalCancelFrame = window.cancelAnimationFrame.bind(window);
+          const frames = new Map();
+          let nextFrameId = 0;
+          window.requestAnimationFrame = (callback) => {
+            // Keep these IDs disjoint from Chromium's handles while queued callbacks are flushed.
+            const id = --nextFrameId;
+            frames.set(id, callback);
+            return id;
+          };
+          window.cancelAnimationFrame = (id) => { frames.delete(id); };
           const terminal = new Terminal({ cols: 80, rows: 24 });
           terminal.open(host);
           terminal.reset();
           let disposed = 0;
           const retire = { dispose() { disposed++; terminal.dispose(); } };
+          let stdinDisabled = false;
+          let detachedAtCleanup = false;
           if (mode === "immediate") retire.dispose();
           else {
             terminal.options.disableStdin = true;
+            stdinDisabled = terminal.options.disableStdin;
             terminal.element.remove();
+            detachedAtCleanup = !host.contains(terminal.element);
             disposeAfterPendingFrame(retire);
           }
+          const pendingFrames = frames.size;
+          const scheduled = Array.from(frames.entries());
+          // Restore first so xterm callbacks that request another frame reach Chromium instead of
+          // being stranded in this one-shot queue. Keep cancellation aware of still-pending fakes.
           window.requestAnimationFrame = originalFrame;
-          const pendingFrames = frames.length;
-          for (const callback of frames) {
+          window.cancelAnimationFrame = (id) => {
+            if (!frames.delete(id)) originalCancelFrame(id);
+          };
+          for (const [id, callback] of scheduled) {
+            if (!frames.delete(id)) continue;
             try { callback(performance.now()); }
             catch (error) { errors.push(String(error)); }
           }
+          window.cancelAnimationFrame = originalCancelFrame;
           // The bug is ordering between a render frame and the task it schedules.
-          await new Promise(resolve => originalFrame(() => setTimeout(resolve, 0)));
+          // Give a frame requested by an xterm callback its own turn before removing the error hook.
+          await new Promise(resolve => originalFrame(() => originalFrame(() => setTimeout(resolve, 0))));
           window.removeEventListener("error", onError);
-          output.textContent = JSON.stringify({ errors, disposed, pendingFrames });
+          output.textContent = JSON.stringify({ errors, disposed, pendingFrames, stdinDisabled, detachedAtCleanup });
           console.info("DISPOSED:" + mode);
         });
       }
@@ -75,11 +96,15 @@ try {
     const finished = page.waitForEvent("console", { predicate: (message) => message.text() === `DISPOSED:${mode}`, timeout: 10_000 });
     await page.getByRole("button", { name: mode, exact: false }).click();
     await finished;
-    const result: { errors: string[]; disposed: number; pendingFrames: number } = JSON.parse(await page.locator("#result").innerText());
+    const result: { errors: string[]; disposed: number; pendingFrames: number; stdinDisabled: boolean; detachedAtCleanup: boolean } = JSON.parse(await page.locator("#result").innerText());
     assert.ok(result.pendingFrames > 0);
     assert.equal(result.disposed, 1);
     if (mode === "immediate") assert.ok(result.errors.some((error) => error.includes("dimensions")), JSON.stringify(result));
-    else assert.deepEqual(result.errors, []);
+    else {
+      assert.deepEqual(result.errors, []);
+      assert.equal(result.stdinDisabled, true);
+      assert.equal(result.detachedAtCleanup, true);
+    }
     console.log(`PASS actual xterm ${mode}: ${JSON.stringify(result)}`);
   }
 } finally {
