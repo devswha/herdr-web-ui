@@ -171,8 +171,11 @@ async function shortSession(milliseconds = true, cwd = root): Promise<number> {
   foreground = [{ pid: child.pid, argv: [join(root, "codex")] }];
   const started = processStartedAt(child.pid);
   if (started === null) throw new Error("fixture process start is unavailable");
-  // The seconds-only schema cannot prove a start within the same partial second.
-  const created = Math.max(Date.now(), Math.ceil(started / 1000) * 1000);
+  // Keep both timestamp schemas beyond the conservative one-second start threshold.
+  const created = Math.max(
+    Math.ceil(Date.now() / 1000) * 1000,
+    Math.ceil((started + 1000) / 1000) * 1000 + 1000,
+  );
   const db = new Database(join(home, "state_5.sqlite"));
   db.exec("ALTER TABLE threads ADD COLUMN first_user_message TEXT");
   if (milliseconds) db.exec("ALTER TABLE threads ADD COLUMN created_at_ms INTEGER");
@@ -206,6 +209,22 @@ shortIt("resolves one submitted short exchange without keeping a screenless bind
 
 shortIt("resolves a seconds-only schema when creation is provably after process start", async () => {
   await shortSession(false);
+  expect(await resolve()).toBe(path);
+});
+
+shortIt("requires a full second after the estimated process start", async () => {
+  await shortSession();
+  const startedAt = processStartedAt(foreground[0]!.pid)!;
+  const beforeThreshold = new Database(join(home, "state_5.sqlite"));
+  beforeThreshold.query("UPDATE threads SET created_at = ?, created_at_ms = ?")
+    .run(Math.floor((startedAt + 999) / 1000), startedAt + 999);
+  beforeThreshold.close();
+  expect(await resolve()).toBeNull();
+
+  const atThreshold = new Database(join(home, "state_5.sqlite"));
+  atThreshold.query("UPDATE threads SET created_at = ?, created_at_ms = ?")
+    .run(Math.floor((startedAt + 1000) / 1000), startedAt + 1000);
+  atThreshold.close();
   expect(await resolve()).toBe(path);
 });
 

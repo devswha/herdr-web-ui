@@ -1186,6 +1186,7 @@ async function shortThreadFromProcess(
   const starts = processes.map(({ pid }) => processStartedAt(pid));
   if (starts.length === 0 || starts.some((start) => start === null || !Number.isFinite(start))) return null;
   const startedAt = Math.min(...starts as number[]);
+  const notBefore = startedAt + 1000;
   let db: Database | undefined;
   try {
     const peers = panes ?? (await sessionSnapshot()).panes;
@@ -1203,12 +1204,12 @@ async function shortThreadFromProcess(
        FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} LIMIT 33`,
     ).all(...cwds);
     if (rows.length > SHORT_THREAD_LIMIT || rows.some((row) => !Number.isFinite(row.createdAtMs))) return null;
-    // No one-second slack: uncertain same-second starts stay on the terminal.
-    const begun = rows.filter((row) => row.createdAtMs >= startedAt);
+    // Process starts are only estimated to second precision; require a full second of margin.
+    const begun = rows.filter((row) => row.createdAtMs >= notBefore);
     if (begun.length !== 1) return null;
     const candidates = safeShortThreads(rows, home);
     if (candidates === null) return null;
-    const path = matchCodexFirstExchange(screen, candidates, startedAt);
+    const path = matchCodexFirstExchange(screen, candidates, notBefore);
     return path !== null && theirs([path], paneId).length === 1 ? path : null;
   } catch { return null; }
   finally { db?.close(); }
