@@ -15,6 +15,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   where omp runs: the session file the pane's omp process holds open, or its terminal
   breadcrumb, names it. Long-running omp panes showed only the terminal text.
   ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)
+- Chat message and code copy buttons work on plain-HTTP LAN addresses using the browser's
+  copy command when the Clipboard API is unavailable or refused. If neither method works,
+  the chat explains how to copy manually instead of reporting success or throwing an error.
+  ([#613](https://github.com/devswha/herdr-web-ui/pull/613) by @Kinetic27)
 - A key, typed text or password sent from a page is no longer typed into the terminal when, in
   the moment before it reached herdr, that page left the pane, switched to watching, or its device
   was revoked. A password is also refused when the pane's terminal was replaced, or the page
