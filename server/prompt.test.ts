@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, claudeInputDraft, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, claudeInputDraft, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -1612,6 +1612,25 @@ describe("Claude's suggested next prompt", () => {
     expect(draft(screen("❯ typed", "──── my-session ─"))).toBe(true);
     // no rule on screen says nothing
     expect(draft("❯ loose text\nmore")).toBe(false);
+  });
+
+  test("a viewport's colors count only when it is verified to show the live screen", () => {
+    const live = screen("❯ \u001b[2mrun the tests\u001b[0m").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    const colors = screen("❯ \u001b[2mrun the tests\u001b[0m");
+    const bottom = { offset_from_bottom: 0 };
+    expect(viewportShowsLive(bottom, bottom, colors, live, live)).toBe(true);
+    // scrolled before or after the colored read
+    expect(viewportShowsLive({ offset_from_bottom: 12 }, bottom, colors, live, live)).toBe(false);
+    expect(viewportShowsLive(bottom, { offset_from_bottom: 3 }, colors, live, live)).toBe(false);
+    // a scroll known for one read only is no proof, whatever the text says
+    expect(viewportShowsLive({ offset_from_bottom: 12 }, null, colors, live, live)).toBe(false);
+    expect(viewportShowsLive(null, { offset_from_bottom: 12 }, colors, live, live)).toBe(false);
+    expect(viewportShowsLive(bottom, null, colors, live, live)).toBe(false);
+    // no scroll from herdr at all: the viewport's whole text must be the live screen's
+    expect(viewportShowsLive(null, null, colors, live, live)).toBe(true);
+    expect(viewportShowsLive(null, null, "● older output\r\n" + colors, live, live)).toBe(false);
+    // the live screen changed across the colored read
+    expect(viewportShowsLive(bottom, bottom, colors, live.replace("run the tests", "run the test"), live)).toBe(false);
   });
 
   test("bash mode, a box clipped by the pane, or a viewport that is not the live box hold a pending message", () => {

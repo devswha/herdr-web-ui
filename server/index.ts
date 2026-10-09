@@ -1,4 +1,3 @@
-import { stripVTControlCharacters } from "node:util";
 import { randomBytes } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -57,7 +56,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { claudeHeldIsGrey, claudeInputDraft, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -573,22 +572,18 @@ export function createServer(
     message: error instanceof Error ? error.message : String(error),
   });
   /**
-   * The live screen for claudeInputDraft, and the viewport's colors when they are verified to show
-   * it: the viewport at the bottom of the pane's history before and after the colored read (or, on a
-   * herdr that reports no scroll, the viewport's text equal to the live screen), and the live screen
-   * unchanged across that read. Read last, the live screen holds anything typed meanwhile.
+   * The live screen for claudeInputDraft, and the viewport's colors when viewportShowsLive verifies
+   * they show it. Read last, the live screen holds anything typed meanwhile. An empty box (or none)
+   * needs no colors.
    */
   async function claudeBoxReads(paneId: string): Promise<[string, string | null]> {
     const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    if (!claudeInputDraft(before, null)) return [before, null];
     const scrollBefore = await paneScrollInfo(paneId);
     const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
     const scrollAfter = await paneScrollInfo(paneId);
     const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    const lines = (text: string): string => stripVTControlCharacters(text).split(/\r?\n/).map((line) => line.trimEnd()).join("\n").trimEnd();
-    const atBottom = scrollBefore && scrollAfter
-      ? scrollBefore.offset_from_bottom === 0 && scrollAfter.offset_from_bottom === 0
-      : lines(colors) === lines(live);
-    return [live, atBottom && live === before ? colors : null];
+    return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
   }
 
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,

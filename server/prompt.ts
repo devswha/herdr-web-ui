@@ -2783,6 +2783,23 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
   return cursor && !grey;
 }
 
+/**
+ * Whether a colored viewport read shows the live screen, so claudeInputDraft may take its colors:
+ * the viewport at the bottom of the pane's history before and after the colored read, or, only when
+ * herdr reports no scroll for either read, the viewport's whole text equal to the live screen; and
+ * the live screen the same before and after it. A scroll known for one read and not the other is
+ * no proof.
+ */
+export function viewportShowsLive(scrollBefore: { offset_from_bottom: number } | null, scrollAfter: { offset_from_bottom: number } | null,
+  colors: string, before: string, live: string): boolean {
+  const lines = (text: string): string => text.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
+    .split(/\r?\n/).map((line) => line.trimEnd()).join("\n").trimEnd();
+  const atBottom = scrollBefore !== null && scrollAfter !== null
+    ? scrollBefore.offset_from_bottom === 0 && scrollAfter.offset_from_bottom === 0
+    : scrollBefore === null && scrollAfter === null && lines(colors) === lines(live);
+  return atBottom && live === before;
+}
+
 /** Whether a card is the one for a message Claude Code holds back (parseClaudeHeld). */
 export function isClaudeHeld(prompt: InteractivePrompt): boolean {
   return parsedByPublicPrompt.get(prompt)?.responder === "claude-held";
