@@ -1205,7 +1205,7 @@ try {
   console.log("PASS a worktree row sits under its repository's row, and its menu deletes the checkout, asking twice for a dirty one");
 
   // A second tab from the row's ⋯ menu: the dialog is New tab, with the workspace's folder shown
-  // and not asked for; the new pane opens, the workspace stays one row, and a strip over the pane
+  // and not asked for; the new pane opens, the workspace stays one row, and the strip over the pane
   // lists both tabs from then on. The header's More menu has New tab too, and opens the same dialog.
   // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
   await until(() => painted.has(created.pane_id), "created pane paint");
@@ -1327,18 +1327,20 @@ try {
   await strip.getByRole("button", { name: "Close tab third", exact: true }).click();
   await until(async () => (await tabsInHerdr()).join() === "first,build", "the x closed the tab");
   await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the tab beside the closed one is open");
-  // Delete on a focused tab that is not the open one closes it; the strip goes with it (one
-  // pane left), the open pane stays, and the focus goes where a closed row's goes
+  // Delete on a focused tab that is not the open one closes it; the strip stays with the one tab
+  // left, the open pane stays, and the focus goes to that tab. The snapshot may still list third,
+  // closed just before, as the tab beside: the focus does not leave the strip with it.
   await strip.getByRole("tab", { name: "first", exact: true }).click();
   await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab is open");
   await strip.getByRole("tab", { name: "first", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
   await until(async () => await strip.getByRole("tab", { name: "build", exact: true }).evaluate((tab) => tab === document.activeElement), "the arrow moved the focus to the other tab");
   await page.keyboard.press("Delete");
-  await strip.waitFor({ state: "detached" });
+  await strip.getByRole("tab", { name: "build", exact: true }).waitFor({ state: "detached" });
   assert.equal((await tabsInHerdr()).join(), "first", "herdr closed the tab and kept the other");
+  assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["first"], "the strip stays over the one tab left");
   assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current"), "true", "the open pane stays");
-  await until(async () => await page.evaluate(() => document.activeElement?.matches(".app-header .drawer-toggle, .app-header .sidebar-toggle") === true), "the focus is not left on the page");
+  await until(async () => await strip.getByRole("tab", { name: "first", exact: true }).evaluate((tab) => tab === document.activeElement), "the focus goes to the tab left");
   console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its x and Delete, asking first while its agent works");
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a

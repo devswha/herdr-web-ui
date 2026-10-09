@@ -1,12 +1,13 @@
 /* The card sits on the composer's column, directly above the input card and outside the
    transcript (PaneTerminal places it; the column and the space under it are Composer.css's).
    Its height is budgeted, and a phone's keyboard counts (--app-height): the larger of 60% of the
-   app and six touch rows, so a three-option approval is never cut. Only the reference text gives
-   way (.prompt-card-body); when that is not enough the card scrolls as a whole. */
+   app less, on a desktop, the tab strip over the pane (TabStrip.css) and six touch rows, so a
+   three-option approval is never cut. Only the reference text gives way (.prompt-card-body); when that is not
+   enough the card scrolls as a whole. */
 .prompt-card {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: max(calc(var(--app-height, 100dvh) * 0.6), calc(var(--touch-target) * 6));
+  max-height: max(calc((var(--app-height, 100dvh) - var(--tab-strip-h, 0px)) * 0.6), calc(var(--touch-target) * 6));
   padding: var(--space-3) var(--space-3) 0;
   display: flex;
   flex-direction: column;

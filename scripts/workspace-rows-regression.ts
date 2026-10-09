@@ -153,7 +153,10 @@ try {
   assert.equal(await page.locator(".workspace-toggle").count(), 0, "a legacy workspace fold has nothing to fold");
   assert.equal(await page.locator(".workspace-contents, .sidebar-tab-heading, .sidebar-pane-item").count(), 0,
     "tabs and panes are navigated above the terminal rather than as workspace children");
-  assert.equal(await page.locator(".tab-strip").count(), 0, "no strip over a lone pane's workspace");
+  // a lone pane's workspace has its strip too: its one tab, open, and the + beside it
+  await page.locator('.tab-strip [role="tab"][aria-selected="true"]').waitFor();
+  assert.deepEqual(await page.locator('.tab-strip [role="tab"]').allTextContents(), ["Tab 1"], "a strip over a lone pane's workspace lists its one tab");
+  assert.equal(await page.locator(".tab-strip-add").count(), 1, "the lone tab's strip has its +");
   for (const fixture of [alpha, beta]) {
     const workspace = workspaceSelector(fixture.workspaceId);
     assert.equal(await page.locator(`${workspace} > .workspace-header`).count(), 1);
@@ -175,7 +178,7 @@ try {
   // the second pane of a split tab is reached from the strip over the pane: its tab carries a
   // picker, which lists both panes and opens the other one; the row then shows that pane
   await changeState(page, [{ selector: paneSelector(other.paneId), attribute: ["aria-current", "true"] }, { selector: '.tab-strip [role="tab"]', count: 1 }],
-    () => page.locator(paneSelector(other.paneId)).click(), "selecting the split workspace shows its strip");
+    () => page.locator(paneSelector(other.paneId)).click(), "selecting the split workspace shows its tab");
   assert.equal(await page.locator('.tab-strip [role="tab"]').textContent(), "Tab 1", "a tab herdr named by its number reads as Tab 1");
   // at this width the header over the pane is the pane's surface, and the strip under it is
   // the same one, not a band of the panel's colour between header and pane

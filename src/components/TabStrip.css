@@ -19,6 +19,11 @@
   display: none;
 }
 
+/* the strip's own height, which the prompt card's budget leaves to it (PromptCard.css) */
+.pane-column:has(> .tab-strip) {
+  --tab-strip-h: var(--control-h);
+}
+
 .tab-strip-item {
   display: flex;
   align-items: stretch;
@@ -182,6 +187,12 @@
 }
 
 @media (pointer: coarse) {
+  /* a finger's card keeps its whole budget, which its answer rows need: over a workspace of
+     several panes the transcript gives way to the strip instead */
+  .pane-column:has(> .tab-strip) {
+    --tab-strip-h: 0px;
+  }
+
   .tab-strip-panes,
   .tab-strip-add {
     width: var(--touch-target);

@@ -1,9 +1,10 @@
 /**
- * The tabs of the selected pane's workspace, above its pane, as herdr's own tab row: shown once
- * the workspace has more than one pane (a second tab, or a tab split in the TUI), with a `+`
- * that opens the New tab dialog. A tab opens the pane last viewed in it, else the one herdr has
- * focused there, else its first. The app shows one pane at a time, so a tab with several panes
- * carries a picker of them beside its name.
+ * The tabs of the selected pane's workspace, above its pane, as herdr's own tab row, with a `+`
+ * that opens the New tab dialog: on a desktop for a workspace's one tab as for several, so the
+ * pane does not move as tabs come and go; on a touch screen once the workspace has more than one
+ * pane, since a short phone's prompt card has no room to give it. A tab opens the pane last
+ * viewed in it, else the one herdr has focused there, else its first. The app shows one pane at
+ * a time, so a tab with several panes carries a picker of them beside its name.
  *
  * A tab is renamed and closed here, as herdr's prefix+shift+t and prefix+shift+x. With a mouse:
  * an x on the tab under the pointer and on the open one, a double-click on the name to type a
@@ -26,6 +27,7 @@ import { STRIP_AT_REST, stripPlaced, stripScrolled, stripSelected, type StripScr
 import { PANE_TABPANEL_ID, paneTabPanelLabel } from "../lib/paneRegion.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { knownStatus } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -86,16 +88,18 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(refocus.current)}"]`)?.focus();
     refocus.current = null;
   }, [editing]);
-  // once the snapshot has lost a closed tab, the focus it held goes to the tab beside it, or,
-  // when the strip went with it (one pane left), where a closed row's focus goes
+  // once the snapshot has lost a closed tab, the focus it held goes to the tab beside it, else to
+  // the open tab (the one beside was closed too, before a snapshot showed it), or, when the strip
+  // went with them, where a closed row's focus goes
   useLayoutEffect(() => {
     const was = closed.current;
     if (!was || tabs.some((tab) => tab.tab_id === was.tabId)) return;
     closed.current = null;
     const active = document.activeElement;
     if (active && active !== document.body && !strip.current?.contains(active)) return;
-    const beside = strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(was.beside)}"]`);
-    if (beside) beside.focus(); else focusWorkspaceListToggle();
+    const next = strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(was.beside)}"]`)
+      ?? strip.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (next) next.focus(); else focusWorkspaceListToggle();
   });
   // a name herdr never showed back (renamed again elsewhere) does not stay on the tab
   useEffect(() => {
@@ -109,9 +113,14 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     return () => window.clearTimeout(timer);
   }, [error]);
 
+  // on a desktop a lone tab has its strip too. On a touch screen it waits for a second pane: a
+  // phone with its keyboard up has no transcript left over a prompt card, so the strip would take
+  // the card's answer rows. A snapshot that lists no tab of the workspace would leave a `+` alone.
+  const coarse = useMediaQuery("(pointer: coarse)");
+  const shown = tabs.length > 0 && (panes.length >= 2 || !coarse);
+
   // the open tab is in view: a pane opened from the sidebar, the palette or an alert can be on a
   // tab scrolled out of a phone's strip. Only the strip scrolls, never the page around it.
-  const shown = panes.length >= 2;
   const scroll = useRef<StripScroll>(STRIP_AT_REST);
   const bringOpenTab = (): void => {
     const row = strip.current;

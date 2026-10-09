@@ -561,8 +561,11 @@ One set for both themes: the card is island black wherever it shows.
   herdr gives it). Submit calls `POST /api/tab/create` with the same agent launch.
 
 ### Tab strip (`.tab-strip`)
-- herdr's tab row, over the pane: shown once the selected pane's workspace has more than one
-  pane (a second tab, or a tab split in the TUI), never for a lone pane. One `role="tab"` per tab
+- herdr's tab row, over the pane. On a desktop it is shown for the selected pane's workspace
+  whether it has one tab or several, so the pane keeps its height as tabs open and close. On a
+  touch screen it is shown once the workspace has more than one pane (a second tab, or a tab
+  split in the TUI): a phone with its keyboard up has no transcript left over a prompt card, and
+  the strip would take the card's answer rows. One `role="tab"` per tab
   in herdr's order, named by its label, or **Tab n** while herdr still names it by its number;
   a 7px dot before the name in the state's colour for working, blocked and done. The open tab
   (the selected pane's) is underlined 2px in `--accent` and in the strong colour; the others are
@@ -742,7 +745,8 @@ One set for both themes: the card is island black wherever it shows.
   command of an approval, a plan, a diff: the prompt's `body`) is the card's one mono box
   (`--bg`, `--fs-xs`); a question in words is never set in mono.
 - Height: at most the larger of 60% of the app's height (`--app-height`, so a phone's keyboard
-  counts) and six touch rows (`240px`), at every width. Only the reference text gives way: six
+  counts) less, on a desktop, the tab strip over the pane (`--tab-strip-h`), and six touch rows
+  (`240px`), at every width. Only the reference text gives way: six
   lines at rest, two at the least (one for a one-line command), scrolling in itself with a fade
   on its fold. The header, step chips, question, hint, options, custom answer and confirm row
   never shrink. A card still taller than its limit scrolls as a whole with a fade at its bottom
