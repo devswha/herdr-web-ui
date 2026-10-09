@@ -233,8 +233,8 @@
   overflow: hidden;
 }
 
-/* no model to show, or the label stepped out: no pill either. Its box is gone, so the mark and
-   the ring stand in the status row itself, as they did before there was a pill */
+/* no model to show and no picker to open, or the label stepped out: no pill either. Its box is
+   gone, so the mark and the ring stand in the status row itself, as they did before there was a pill */
 .composer-pill.is-bare,
 .composer-status[data-model="out"] .composer-pill {
   display: contents;

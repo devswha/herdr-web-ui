@@ -2606,7 +2606,8 @@ ${"─".repeat(120)}
     expect(modelListWaits("claude", CLAUDE_EFFORT_SET)).toBe(false);
     // a slider that takes Enter alone would save the level as the default: not this card's to press
     expect(parseInteractivePrompt("claude", claudeEffort(2, "  ←/→ to adjust · Enter to confirm · Esc to cancel"))).toBeNull();
-    // level names a narrow pane wrapped: no card, and the slider still holds the screen
+    // level names wrapped as words onto a line of their own (Claude breaks a name inside its
+    // column instead): no card, and the slider still holds the screen
     const wrapped = claudeEffort(2).replace("low     medium     high     xhigh      max      Tab to toggle", "low     medium     high\n  xhigh      max");
     expect(parseInteractivePrompt("claude", wrapped)).toBeNull();
     expect(modelListWaits("claude", wrapped)).toBe(true);
@@ -2614,6 +2615,105 @@ ${"─".repeat(120)}
     const between = claudeEffort(2).replace(`${"─".repeat(20)}▲${"─".repeat(21)}`, `${"─".repeat(15)}▲${"─".repeat(26)}`);
     expect(between).not.toBe(claudeEffort(2));
     expect(parseInteractivePrompt("claude", between)).toBeNull();
+  });
+
+  // Claude Code 2.1.285 in panes 53, 45, 36 and 92 columns wide, as captured
+  test("reads the slider as a narrow pane draws it, and with max's warning under it", () => {
+    const wide = parseInteractivePrompt("claude", claudeEffort(1))!;
+    // under 70 columns: the toggle under the levels, the hint on two lines
+    const stacked = `   Effort
+
+      Faster                             Smarter
+      ──────────────────────────────▲───────────
+      low     medium     high     xhigh      max
+
+
+                    Ultracode  off
+                    Tab to toggle
+
+   ←/→ to adjust · Enter to confirm · s for this
+   session only · Esc to cancel
+`;
+    // under 50: a name broken inside its column, the rule broken too; on max a warning under the levels
+    const broken = `   Effort
+
+   Faster                           Smarte
+                                    r
+   ─────────────────────────────────────▲─
+   ───
+   low    medium     hig     xhigh     max
+                     h
+
+    May use excessive tokens resulting in
+    long response times or overthinking.
+    Use sparingly for the hardest tasks.
+
+                Ultracode  off
+                Tab to toggle
+
+   ←/→ to adjust · Enter to confirm · s
+   for this session only · Esc to cancel
+`;
+    // every name broken, the hint on three lines
+    const narrowest = `   Effort
+
+   Fast                     Smart
+   er                       er
+   ───────▲──────────────────────
+   ───     ─────────
+   lo    medi    hi    xhig    ma
+   w     um      gh    h       x
+
+
+           Ultracode  off
+           Tab to toggle
+
+   ←/→ to adjust · Enter to
+   confirm · s for this session
+   only · Esc to cancel
+`;
+    const warned = `   Effort
+
+               Faster                             Smarter
+               ────────────────────────────────────────▲─      Ultracode  off
+               low     medium     high     xhigh      max      Tab to toggle
+
+       May use excessive tokens resulting in long response times or overthinking. Use
+       sparingly for the hardest tasks.
+
+   ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
+`;
+    for (const [screen, on] of [[stacked, 3], [broken, 4], [narrowest, 1], [warned, 4]] as const) {
+      const prompt = parseInteractivePrompt("claude", screen)!;
+      // the same card as in a wide pane, picked with ←/→ and s from the level ▲ is over
+      expect(prompt.id).toBe(wide.id);
+      expect(labels(prompt)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+      expect(answerKeys(prompt, { option_index: on })).toEqual([{ text: "s" }]);
+      expect(answerKeys(prompt, { option_index: on - 1 })).toEqual([{ keys: ["left"] }, { text: "s" }]);
+    }
+    // the break lost ▲ (42 columns, on medium): where the slider stands is not known, so no card,
+    // and the slider still holds the screen
+    const lost = `   Effort
+
+   Faste                         Smarte
+   r                             r
+   ────────────────────────────────────
+   ─        ────
+   low    mediu    high    xhig     max
+          m                h
+
+
+              Ultracode  off
+              Tab to toggle
+
+   ←/→ to adjust · Enter to confirm · s
+   for this session only · Esc to
+   cancel
+`;
+    expect(parseInteractivePrompt("claude", lost)).toBeNull();
+    expect(modelListWaits("claude", lost)).toBe(true);
+    // ▲ on the broken-off rest of a rule stands over nothing that can be read
+    expect(parseInteractivePrompt("claude", lost.replace("   ─        ────", "   ─────────▲──"))).toBeNull();
   });
 });
 

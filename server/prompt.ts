@@ -1749,30 +1749,62 @@ function parseClaudeModel(screen: string): ParsedPrompt | null {
  *
  * ▲ stands over the level the slider is on. The levels are the card's options, picked with ←/→
  * and `s`, never Enter. Ultracode is left to the terminal.
+ *
+ * A pane under about 70 columns (2.1.285) stacks the toggle under the levels and wraps the hint.
+ * Under about 50 it also breaks each level's name inside its own column and the rule onto a line
+ * of its own; on `max` a warning stands between the levels and what follows them:
+ *
+ *   ─────────────────────────────────────▲─
+ *   ───
+ *   low    medium     hig     xhigh     max
+ *                     h
+ *
+ *    May use excessive tokens resulting in
+ *    long response times or overthinking.
+ *
+ *                Ultracode  off
+ *                Tab to toggle
+ *
+ *   ←/→ to adjust · Enter to confirm · s
+ *   for this session only · Esc to cancel
+ *
+ * That break can lose ▲ too: a slider drawn without it is not read, since where it stands is unknown.
  */
-const CLAUDE_EFFORT_LEVEL_RE = /\b(?:low|medium|high|xhigh|max)\b/g;
+const CLAUDE_EFFORT_LEVELS: ReadonlySet<string> = new Set(["low", "medium", "high", "xhigh", "max"]);
+/** the rule with ▲ on it, and the toggle beside it where the pane is wide enough */
+const CLAUDE_EFFORT_TRACK_RE = /^\s*─*▲─*(?:\s+Ultracode\s+(?:on|off))?$/i;
+/** a rule a narrow pane broke: dashes and nothing else */
+const CLAUDE_EFFORT_RULE_RE = /^[\s─]*─[\s─]*$/;
 /** how far ▲ may stand from the middle of a level's name and still be over it */
 const CLAUDE_EFFORT_ALIGN = 3;
-/** blank lines between the level names and the hint, at most */
-const CLAUDE_EFFORT_UNDER_LINES = 3;
+/** lines between the level names and the hint, at most: blank ones, `max`'s warning and the
+ * toggle a narrow pane stacks there */
+const CLAUDE_EFFORT_UNDER_LINES = 14;
 
 function parseClaudeEffort(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
   const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_EFFORT_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  let labelsIndex = hintIndex - 1;
-  while (labelsIndex > 0 && lines[labelsIndex]!.trim() === "") labelsIndex -= 1;
-  const labels = lines[labelsIndex] ?? "";
-  const track = lines[labelsIndex - 1] ?? "";
-  const scale = /^\s*[─▲]+/.exec(track)?.[0] ?? "";
-  const titled = lines.slice(Math.max(0, labelsIndex - 4), Math.max(0, labelsIndex - 1)).some((line) => line.trim() === "Effort");
-  // a line of level names and nothing else (the toggle's hint aside), cut or wrapped by a narrow pane: not read
-  const onlyLevels = labels.replace(CLAUDE_EFFORT_LEVEL_RE, "").replace(/Tab to toggle/i, "").trim() === "";
-  // two blank lines stand between the level names and the hint as Claude draws it
-  if (hintIndex - labelsIndex > CLAUDE_EFFORT_UNDER_LINES + 1 || !titled || !onlyLevels || scale.split("▲").length !== 2) return null;
+  // the rule with ▲ on it, the last one over the hint. A rule over it makes it the broken-off
+  // rest of one, where ▲ stands over nothing that can be read
+  const trackIndex = findLastIndex(lines, (line, index) => index < hintIndex && index >= hintIndex - CLAUDE_EFFORT_UNDER_LINES - 4 && CLAUDE_EFFORT_TRACK_RE.test(line));
+  if (trackIndex < 1 || CLAUDE_EFFORT_RULE_RE.test(lines[trackIndex - 1]!)) return null;
+  const track = lines[trackIndex]!;
+  const labelsIndex = CLAUDE_EFFORT_RULE_RE.test(lines[trackIndex + 1] ?? "") ? trackIndex + 2 : trackIndex + 1;
+  const words = [...(lines[labelsIndex] ?? "").replace(/\s{2,}Tab to toggle$/i, "").matchAll(/\S+/g)];
+  // the rest of a name a narrow pane broke stands under its first letter. Anything else right
+  // under the names (a word wrapped to the next line) is no slider of Claude's
+  const rest = labelsIndex + 1 < hintIndex ? [...lines[labelsIndex + 1]!.matchAll(/\S+/g)] : [];
+  if (!rest.every((piece) => words.some((word) => word.index === piece.index))) return null;
+  const levels = words.map((word) => {
+    const name = word[0] + (rest.find((piece) => piece.index === word.index)?.[0] ?? "");
+    return { name, middle: word.index + name.length / 2 };
+  });
+  const titled = lines.slice(Math.max(0, trackIndex - 5), trackIndex).some((line) => line.trim() === "Effort");
+  const under = hintIndex - labelsIndex - (rest.length > 0 ? 2 : 1);
+  if (!titled || under > CLAUDE_EFFORT_UNDER_LINES || levels.length < 2 || !levels.every(({ name }) => CLAUDE_EFFORT_LEVELS.has(name))
+    || new Set(levels.map(({ name }) => name)).size !== levels.length) return null;
   const arrow = track.indexOf("▲");
-  const levels = [...labels.matchAll(CLAUDE_EFFORT_LEVEL_RE)].map((match) => ({ name: match[0], middle: match.index + match[0].length / 2 }));
-  if (levels.length < 2 || new Set(levels.map(({ name }) => name)).size !== levels.length) return null;
   const distance = (index: number) => Math.abs(levels[index]!.middle - arrow);
   const selectedIndex = levels.reduce((best, _, index) => distance(index) < distance(best) ? index : best, 0);
   if (distance(selectedIndex) > CLAUDE_EFFORT_ALIGN) return null;

@@ -11,8 +11,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A tap on the model in the chat's input card opens a menu to change it: Model and Effort for
   Claude Code, Model and effort for Codex, Model for pi. Each one opens the agent's own picker,
   which the chat shows as a card to pick from, so the list is always the one the agent offers.
+  A conversation that names no model yet (a new one, or one just cleared) shows Model there.
 
 ### Fixed
+- Claude Code's effort slider (`/effort`) shows as a card in a pane under about 70 columns wide,
+  such as a split in herdr or a pane the phone's terminal view has sized, and when the slider is
+  on max. Claude draws the slider differently there, and the chat showed no card, so a level could
+  only be picked in the terminal.
 - Codex Chat can read a new session with one short answer when its complete submitted
   first prompt and answer identify it unambiguously. Older conversations, unreadable
   candidates and competing panes keep the terminal fallback; process age alone never

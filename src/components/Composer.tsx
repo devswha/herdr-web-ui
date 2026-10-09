@@ -783,6 +783,9 @@ export function Composer({
   const model = metadata?.model ? modelLabel(metadata.model) : null;
   const modelShown = Boolean(metadata?.model || metadata?.reasoning_effort);
   const pickers = modelPickers(agent);
+  /** the label opens the agent's pickers, a model named or not: a new or cleared session names
+   * none until the agent's first answer, which is just when a model is picked first */
+  const pickable = pickers.length > 0;
   const usageDetail = usageWindows.map((window) => {
     const reset = formatResetIn(window.resets_at, Date.now());
     return `${windowLabel(window)} ${meterText(window, settings.usageCount)}${reset ? ` · ${t("Resets in {time}", { time: reset })}` : ""}`;
@@ -1006,20 +1009,22 @@ export function Composer({
             <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
             <strong className="visually-hidden">{t(composerStatusWord(agentStatus))}</strong>
             {/* the mark, the model, the level and the context ring as one quiet pill. It only shows: no role,
-                no focus, nothing to press but the ring inside it. A pane that names no model draws no pill
-                (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
-            <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
+                no focus, nothing to press but the ring and the label inside it. A pane that names no model
+                and has no picker draws no pill (.is-bare): the mark, a level if it has one, and the ring
+                stand in the row as they are */}
+            <span className={`composer-pill${metadata?.model || pickable ? "" : " is-bare"}`}>
               {agent && <AgentMark agent={agent} size={14} />}
-              {/* a pane whose agent has a picker the chat can read: the label opens it. Anywhere
-                  else it stays what it was, a label with nothing to press */}
-              {modelShown && (pickers.length > 0 ? (
+              {/* a pane whose agent has a picker the chat can read: the label opens it, and before
+                  the conversation names a model it says what it opens. Anywhere else it stays what
+                  it was, a label with nothing to press */}
+              {pickable ? (
                 <button type="button" className="composer-model-info composer-model-button" disabled={!connected}
                   aria-haspopup="menu" aria-expanded={pickerAnchor !== null} title={t("Change model or effort")}
                   onClick={(event) => { const button = event.currentTarget; setPickerAnchor((open) => open ? null : button); }}>
-                  {modelInfo}
+                  {modelShown ? modelInfo : <span className="composer-model is-none">{t("Model")}</span>}
                   <span className="visually-hidden">{t("Change model or effort")}</span>
                 </button>
-              ) : <span className="composer-model-info" aria-label={t("Model and reasoning")}>{modelInfo}</span>)}
+              ) : modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>{modelInfo}</span>}
               {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} />}
               {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
                 className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}

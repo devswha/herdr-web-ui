@@ -238,6 +238,20 @@ try {
       });
       console.log("PASS agents at 350, 390, 800 and 1440px use one Stop/Send control with no Queue or dropdown");
 
+      // A conversation that names no model yet (a new session, or one just cleared) still has the
+      // agent's pickers: the label says what it opens, in the pill, and opens them
+      for (const width of [390, 1440]) await withCard(browser, width, { agent: "claude", model: null, effort: null, ring: false }, async (page) => {
+        const row = await drawn(page, "full", `${width}px, no model named yet`);
+        assert.equal(row.name, "Model");
+        await page.locator(".composer-model-button").click();
+        const items = page.locator(width <= 480 ? ".row-sheet-item .row-sheet-label" : '.row-menu [role="menuitem"]');
+        await items.first().waitFor();
+        assert.deepEqual((await items.allTextContents()).map((text) => text.trim()), ["Model", "Effort"]);
+        await page.keyboard.press("Escape");
+        await items.first().waitFor({ state: "detached" });
+      });
+      console.log("PASS a pane whose conversation names no model yet still opens the model and effort pickers");
+
       for (const width of [350, 390]) await withCard(browser, width, { agent: "codex", model: LONG_MODEL, mic: true }, async (page) => {
         await draft(page);
         await upload(page);
