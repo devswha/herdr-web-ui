@@ -271,4 +271,19 @@ describe("history traversal races", () => {
     await browser.land();
     expect(moves).toEqual([false, false]);
   });
+
+  for (const method of ["pushState", "replaceState"] as const) {
+    it(`releases pending ownership after foreign ${method}`, async () => {
+      const browser = await delayedHistory();
+      browser.recordSettings(browser.settingsLevels(true, null, false));
+      browser.recordSettings([]);
+      browser.advance(1001);
+      browser.history[method]({ route: "other" });
+      browser.recordSettings(browser.settingsLevels(true, null, false));
+      expect(browser.settingsEntry(browser.history.state)).toEqual({ page: null, keyBar: false, depth: 1 });
+      const beforeClose = browser.requests.length;
+      browser.recordSettings([]);
+      expect(browser.requests).toHaveLength(beforeClose + 1);
+    });
+  }
 });

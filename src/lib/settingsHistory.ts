@@ -58,6 +58,14 @@ let rewinding = 0;
 let landing: ReturnType<typeof setTimeout> | undefined;
 /** Keep the destination after the deadline: a slow landing is still ours, not the user's Back. */
 let pending: { from: unknown; depth: number; level: SettingsLevel | null; expired: boolean; reopened: boolean; claim: boolean } | null = null;
+/** Last state seen here or written here; a different identity without popstate came from another writer. */
+let observed: unknown = typeof window === "undefined" ? undefined : window.history.state;
+
+function releasePending(): void {
+  pending = null;
+  rewinding = 0;
+  clearTimeout(landing);
+}
 
 function rewind(by: number): void {
   if (pending !== null) return;
@@ -79,8 +87,10 @@ function rewind(by: number): void {
 }
 
 function reconcile(): void {
-  if (rewinding > 0) return;
   const state: unknown = window.history.state;
+  if (pending !== null && state !== observed) releasePending();
+  observed = state;
+  if (rewinding > 0) return;
   const current = settingsEntry(state);
   const have = current?.depth ?? 0;
   // what the history holds up to here: a Back landed under what was recorded; the step shown is
@@ -100,10 +110,12 @@ function reconcile(): void {
   if (have > 0 && differs === have - 1) {
     // the step shown is another: a wider dialog turned its page, or the list took a page's place
     window.history.replaceState({ ...base, [KEY]: { ...wanted[have - 1], depth: have } }, "");
+    observed = window.history.state;
     held[have - 1] = wanted[have - 1]!;
   }
   for (let depth = have + 1; depth <= wanted.length; depth++) {
     window.history.pushState({ ...base, [KEY]: { ...wanted[depth - 1], depth } }, "");
+    observed = window.history.state;
     held.push(wanted[depth - 1]!);
   }
 }
@@ -132,6 +144,7 @@ export function onSettingsHistory(listener: Listener): () => void {
 
 if (typeof window !== "undefined") {
   window.addEventListener("popstate", (event) => {
+    observed = event.state;
     const entry = settingsEntry(event.state);
     const matches = pending !== null && (entry?.depth ?? 0) === pending.depth
       && (pending.level === null || (entry !== null && same(pending.level, entry)));
@@ -140,9 +153,7 @@ if (typeof window !== "undefined") {
       // Another traversal won the race. Its later path through the requested destination is the
       // user's navigation, not the stale request finally landing. A superseded timed-out close
       // also releases here without claiming the new opening's real Back.
-      pending = null;
-      rewinding = 0;
-      clearTimeout(landing);
+      releasePending();
     }
     for (const listener of [...listeners]) listener(entry, own);
     // what was asked for while the traversal was under way is done now
