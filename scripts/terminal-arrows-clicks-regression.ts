@@ -157,22 +157,52 @@ try {
       }
     }, 2);
     const REPEAT_MS = 33;
-    const start = performance.now();
-    for (let i = 0; i < 60; i += 1) {
-      const due = start + i * REPEAT_MS;
-      while (performance.now() < due) await Bun.sleep(1);
-      const letter = i % 7 === 3;
-      tokens.push({ text: letter ? "x" : "\x1b[B", sent: performance.now() });
-      await s.page.keyboard.press(letter ? "x" : "ArrowDown");
+    try {
+      // ArrowDown stays down: each further keydown is an autorepeat; a letter is typed between some repeats
+      const start = performance.now();
+      for (let i = 0; i < 60; i += 1) {
+        const due = start + i * REPEAT_MS;
+        while (performance.now() < due) await Bun.sleep(1);
+        tokens.push({ text: "\x1b[B", sent: performance.now() });
+        await s.page.keyboard.down("ArrowDown");
+        if (i % 7 === 3) {
+          tokens.push({ text: "x", sent: performance.now() });
+          await s.page.keyboard.press("x");
+        }
+      }
+      await s.page.keyboard.up("ArrowDown");
+      // a key out of order stops the matching above, so this times out with the rest still waiting
+      await until(() => tokens.every((token) => token.arrived !== undefined), "every held key received in order").catch((error) => {
+        console.log("held keys received:", tokens.filter((token) => token.arrived !== undefined).length, "of", tokens.length, "left over:", JSON.stringify(buffer));
+        throw error;
+      });
+      assert.equal(buffer, "", "nothing out of order or extra");
+    } finally {
+      clearInterval(poll);
     }
-    // a key out of order stops the matching above, so this times out with the rest still waiting
-    await until(() => tokens.every((token) => token.arrived !== undefined), "every held key received in order");
-    clearInterval(poll);
-    assert.equal(buffer, "", "nothing out of order or extra");
     const latencies = tokens.map((token) => token.arrived! - token.sent).sort((a, b) => a - b);
     const at = (q: number) => latencies[Math.min(latencies.length - 1, Math.floor(q * latencies.length))]!;
     console.log(`held arrow (60 keys at ${REPEAT_MS} ms, letters between): key to program p50 ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${latencies.at(-1)!.toFixed(1)} ms`);
     assert.ok(latencies.at(-1)! < 150, `no key lags visibly behind its press (max ${latencies.at(-1)!.toFixed(1)} ms)`);
+
+    // Repeats far faster than herdr answers: 200 keydowns in one burst. They arrive complete and in
+    // order, a letter between them included, and the keys still waiting join one RPC instead of each
+    // queueing its own, so the burst drains in about as long as a few RPCs take.
+    let burst = "";
+    const burstStart = performance.now();
+    await s.page.locator(".xterm-helper-textarea").evaluate((element) => {
+      for (let i = 0; i < 200; i += 1) {
+        element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, repeat: i > 0, bubbles: true, cancelable: true }));
+        // a keypress alone: a synthetic keydown would type the letter a second time
+        if (i === 100) element.dispatchEvent(new KeyboardEvent("keypress", { key: "y", code: "KeyY", charCode: 121, keyCode: 121, bubbles: true, cancelable: true }));
+      }
+    });
+    const expected = "\x1b[B".repeat(101) + "y" + "\x1b[B".repeat(99);
+    await until(() => (burst += s.received()).length >= expected.length, "the burst arrives");
+    console.log(`burst of 200 repeats: drained in ${(performance.now() - burstStart).toFixed(1)} ms; letter after arrow ${burst.slice(0, burst.indexOf("y")).split("\x1b[B").length - 1}, arrows ${burst.split("\x1b[B").length - 1}, other ${JSON.stringify(burst.replaceAll("\x1b[B", ""))}`);
+    await Bun.sleep(NO_SEND_WAIT_MS);
+    burst += s.received();
+    assert.equal(burst, expected, "the burst arrives complete and in order");
 
     // a program that did not ask for the mouse gets nothing from a click (herdr keeps it)
     const box = (await s.page.locator(".xterm-screen").boundingBox())!;

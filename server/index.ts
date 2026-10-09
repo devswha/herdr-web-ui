@@ -146,6 +146,8 @@ const TYPED_SETTLE_MS = 300;
  * herdr may still be holding. Short enough that a held arrow between typed letters shows no lag.
  */
 const KEY_SETTLE_MS = 40;
+/** Keys that may wait to join one `pane.send_keys` while herdr answers the one before (a held arrow repeats ~30/s). */
+const MAX_WAITING_KEYS = 256;
 /**
  * Nothing of a composer message is typed once this long has passed since it reached the
  * server (it can wait behind a stalled one in the pane's queue): it answers submit_timeout
@@ -409,6 +411,8 @@ export function createServer(
   const lastTyped = new Map<string, number>();
   /** panes whose last pty keystroke ended in an ESC, which herdr holds ~150ms: a key waits TYPED_SETTLE_MS there */
   const typedEscape = new Set<string>();
+  /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
+  const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; run: Promise<unknown> | null; sent: boolean }>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
@@ -2147,7 +2151,22 @@ export function createServer(
                 send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                 break;
               }
-              await serialize(message.pane_id, async () => {
+              // A key behind keys of the same sender that have not gone out yet joins them, as long as
+              // nothing else was queued since: one RPC carries them all, so keys held faster than herdr
+              // answers (a slow herdr, a busy PC) never queue up an RPC each, and keep their order.
+              const waiting = waitingKeys.get(message.pane_id);
+              if (waiting && !waiting.sent && waiting.client === client && waiting.origin === origin && waiting.pty === pty && waiting.claim === claim
+                && waiting.run !== null && paneQueues.get(message.pane_id) === waiting.run) {
+                // a herdr that stopped answering does not collect keys without end: past this, they are refused
+                if (waiting.keys.length + message.keys.length > MAX_WAITING_KEYS) {
+                  send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
+                  break;
+                }
+                waiting.keys.push(...message.keys);
+                break;
+              }
+              const batch = { keys: [...message.keys], client: client as unknown, origin: origin as unknown, pty: pty as unknown, claim: claim as unknown, run: null as Promise<unknown> | null, sent: false };
+              const run = serialize(message.pane_id, async () => { try {
                 // A key goes through herdr's RPC, around the attach pty that typing just went into: it
                 // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
                 // held there ~150ms). The checks below run after the wait.
@@ -2176,9 +2195,16 @@ export function createServer(
                 // a key pressed by a connection that has gone since is not pressed
                 if (!clients.has(client)) return;
                 authorizeSocket(client);
-                await paneSendKeys(message.pane_id, message.keys);
+                batch.sent = true;
+                await paneSendKeys(message.pane_id, batch.keys);
                 attachments.get(message.pane_id)?.mirror?.poke();
-              });
+              } finally {
+                batch.sent = true;
+                if (waitingKeys.get(message.pane_id) === batch) waitingKeys.delete(message.pane_id);
+              } });
+              batch.run = run;
+              waitingKeys.set(message.pane_id, batch);
+              await run;
               break;
             }
             case "secret": {

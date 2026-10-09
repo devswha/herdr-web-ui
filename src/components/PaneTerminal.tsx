@@ -673,6 +673,11 @@ export function PaneTerminal({
       const d = drag;
       if (!d) return;
       const { cell, edge } = cellAt(event);
+      // a press that left its cell is a drag, even one that comes back: it is no click (cellAt clamps
+      // a pointer beside the grid to the edge column, so leaving sideways counts too)
+      const grid = term.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
+      const beside = grid !== undefined && (event.clientX < grid.left || event.clientX >= grid.right);
+      if (beside || edge !== 0 || cell.row !== d.anchor.row || cell.col !== d.anchor.col) d.click = null;
       // past an edge the edge row is taken whole, as xterm does
       d.cursor = edge < 0 ? { row: 0, col: 0 } : edge > 0 ? { row: term.rows - 1, col: term.cols - 1 } : cell;
       if (d.top === null) return;
