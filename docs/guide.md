@@ -190,7 +190,9 @@ The bridge claims the same message ID for Send now and an automatic send, so the
 deliver it. Older bridges keep the draft and ask for an update instead of changing queueing into
 an immediate send. Connection loss pauses automatic delivery; uncertain text can be copied or
 discarded after checking the terminal. Previously held browser messages still need **Send now**
-or **Discard**.
+or **Discard**. A message is never pasted over text typed in Claude Code's own input box: while
+that box holds a draft the message stays in the list with the reason, and **Send now** delivers it
+once the draft is sent or cleared in the terminal.
 
 ## Subscription usage
 

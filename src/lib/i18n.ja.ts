@@ -486,6 +486,7 @@ export const JA: Record<string, string> = {
   "Send message": "メッセージを送信",
   "Not sent: the agent is waiting for an answer in the terminal. Answer it first.": "未送信: エージェントがターミナルで回答を待っています。先に回答してください。",
   "Not sent: this view only watches the pane.": "未送信: この画面はペインを閲覧するだけです。",
+  "Not sent: Claude Code's input box in the terminal is not empty. Send or clear it there, then send this message.": "未送信: ターミナルの Claude Code の入力欄が空ではありません。そこで送信するか消してから、このメッセージを送ってください。",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "未送信: 前のメッセージの後で長く待ちすぎたため、何も入力されませんでした。もう一度送信してください。",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "未確認: ペインがこのメッセージを確認しませんでした。再送信する前にターミナルを確認してください。",
   "Not sent: {message}": "未送信: {message}",
