@@ -21,7 +21,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#613](https://github.com/devswha/herdr-web-ui/pull/613) by @Kinetic27)
 - The command palette opens on an empty search every time. It no longer shows the previous
   search's results for a moment, during which a quick Tab could highlight a different row than the
-  one it focused.
+  one it focused. ([#631](https://github.com/devswha/herdr-web-ui/pull/631))
 
 ## [0.4.2] - 2026-10-09
 
