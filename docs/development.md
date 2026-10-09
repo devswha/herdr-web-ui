@@ -53,6 +53,7 @@ bun scripts/settings-pages-demo-regression.ts # every Settings page on a 390px a
 bun scripts/chat-browser-qa.ts  # chat lens end to end
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
+bun scripts/recent-folders-regression.ts # owned workspaces: PC-scoped history, reload, selected-agent chips, pending and failures
 bun run test:ssh                # remote-PC integration over SSH
 bun scripts/fresh-install-docker.ts [owner/repo] [ref]  # a new user's install in a bare Ubuntu (Docker)
 ```

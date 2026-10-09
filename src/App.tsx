@@ -10,6 +10,7 @@ import { PANE_TABPANEL_ID, paneTabPanelLabel } from "./lib/paneRegion.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
+import { recentDirectories } from "./lib/recent-directories.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { onSettingsHistory, recordSettings } from "./lib/settingsHistory.ts";
@@ -146,6 +147,13 @@ export function App() {
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
   const [machines, setMachines] = useState<Machine[]>([]);
+  useEffect(() => {
+    for (const machine of machines) {
+      if (machine.state !== "connected" || !machine.snapshot) continue;
+      recentDirectories.remember(machine.id, machine.snapshot.panes
+        .filter((pane) => !pane.restore_error).map((pane) => pane.cwd).reverse());
+    }
+  }, [machines]);
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     const query = new URLSearchParams(window.location.search);
     if (query.has("pane")) return query.get("machine") ?? "local";

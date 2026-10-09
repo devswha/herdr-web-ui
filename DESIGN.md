@@ -551,6 +551,12 @@ One set for both themes: the card is island black wherever it shows.
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
   the selected pane cwd and name is an optional workspace label.
+- Recent folders appear as neutral `.btn` chips with `--radius-pill`, wrapping with `--space-2`
+  gaps in a scroll area capped at four touch-control rows. Each shows the folder basename with
+  ellipsis and the full path in its tooltip and accessible name. Clicking starts the selected
+  agent there. History is per PC in this browser, seeded from connected snapshots and retained
+  after panes close; only successful workspace starts promote a folder. Pending and partial
+  failures disable the chips. New tab keeps its workspace folder and shows no recent chips.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
