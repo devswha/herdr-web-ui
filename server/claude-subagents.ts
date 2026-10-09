@@ -671,6 +671,8 @@ export interface ClaudeSubagentDeps {
   resolve: (pane: HerdrPane) => Promise<{ path: string; startedAt: number | null; pid?: number | null } | null>;
   /** the pid of the pane's Claude process now: a restart under the same session id is another process */
   pid?: (pane: HerdrPane) => Promise<number | null>;
+  /** Positive session/process replacement, never first discovery or a retry. Discard the old turn's transition evidence. */
+  onReset?: (paneId: string) => void;
   /**
    * A pane's running subagents and background commands changed, or how many of them its turn
    * started (`turnRunning`, server/background-wait.ts): no turn started or ended.
@@ -687,6 +689,7 @@ interface Tracked {
   /** when its transcript, and its process, were last looked for */
   at: number; pidAt: number;
   live: boolean; running: number; turnRunning: number; promptAt: number | null; sig: string | null;
+  reset?: boolean;
   /** every observed agent, whose own file can end or resume its turn */
   watch: string[];
 }
@@ -701,6 +704,8 @@ interface Tracked {
  */
 export class ClaudeSubagentStatus {
   private readonly panes = new Map<string, Tracked>();
+  /** Identity observations precede async resolution, including snapshots queued behind a lookup. */
+  private readonly sessions = new Map<string, string | null>();
   /** The latest lookup claim; a newer pane/session observation cancels an older answer. */
   private readonly lookups = new Map<string, { key: string }>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -722,6 +727,7 @@ export class ClaudeSubagentStatus {
 
   stop(): void {
     this.lookups.clear();
+    this.sessions.clear();
     this.queued = null;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
@@ -742,7 +748,9 @@ export class ClaudeSubagentStatus {
     const ids = new Set(panes.map((pane) => pane.pane_id));
     for (const paneId of this.panes.keys()) if (!ids.has(paneId)) this.panes.delete(paneId);
     for (const paneId of this.lookups.keys()) if (!ids.has(paneId)) this.lookups.delete(paneId);
+    for (const paneId of this.sessions.keys()) if (!ids.has(paneId)) this.sessions.delete(paneId);
     for (const pane of panes) {
+      this.observeSession(pane);
       const key = `${pane.agent_session?.value ?? ""}\0${pane.cwd ?? ""}`;
       if (pane.agent !== "claude" || this.lookups.get(pane.pane_id)?.key !== key) this.lookups.delete(pane.pane_id);
       if (pane.agent !== "claude") {
@@ -765,6 +773,7 @@ export class ClaudeSubagentStatus {
 
   /** One pane's transcript, looked up now if it is not known (or not known to be this session's). */
   async ensure(pane: HerdrPane): Promise<void> {
+    this.observeSession(pane);
     const tracked = this.panes.get(pane.pane_id);
     if (pane.agent !== "claude") {
       this.lookups.delete(pane.pane_id);
@@ -791,8 +800,38 @@ export class ClaudeSubagentStatus {
     if (this.lookups.get(pane.pane_id) !== claim) return;
     const current = this.panes.get(pane.pane_id);
     const same = current?.key === key;
+    const reset = !!(found && current && ((current.path !== null && current.path !== found.path)
+      || (current.pid !== null && found.pid != null && current.pid !== found.pid)
+      || (current.startedAt !== null && found.startedAt !== null && current.startedAt !== found.startedAt)));
+    if (reset) this.deps.onReset?.(pane.pane_id);
     // the count it had goes on from here: another session with none says so at the next poll
-    this.panes.set(pane.pane_id, { key, path: found?.path ?? (same ? current.path : null), startedAt: found ? found.startedAt : same ? current.startedAt : null, pid: found ? found.pid ?? null : same ? current.pid : null, at: this.now(), pidAt: this.now(), live: true, running: current?.running ?? 0, turnRunning: current?.turnRunning ?? 0, promptAt: current?.promptAt ?? null, sig: null, watch: same && !found ? current.watch : [] });
+    this.panes.set(pane.pane_id, { key, path: found?.path ?? (same ? current.path : null), startedAt: found ? found.startedAt : same ? current.startedAt : null, pid: found ? found.pid ?? null : same ? current.pid : null, at: this.now(), pidAt: this.now(), live: true, running: current?.running ?? 0, turnRunning: current?.turnRunning ?? 0, promptAt: current?.promptAt ?? null, sig: null, watch: same && !found ? current.watch : [], reset });
+  }
+
+  private observeSession(pane: HerdrPane): void {
+    const previous = this.sessions.get(pane.pane_id);
+    const session = pane.agent === "claude" ? pane.agent_session?.value ?? "" : null;
+    // Missing hook identity becoming known (or a cwd change) is not a new lifetime.
+    const replaced = previous !== undefined && previous !== session
+      && (previous === null || session === null || (previous !== "" && session !== ""));
+    this.sessions.set(pane.pane_id, session === "" && previous != null ? previous : session);
+    if (!replaced) return;
+    this.lookups.delete(pane.pane_id);
+    this.deps.onReset?.(pane.pane_id);
+    const tracked = this.panes.get(pane.pane_id);
+    if (!tracked) return;
+    tracked.live = false;
+    tracked.reset = true;
+    // Leaving Claude retains the old transcript for the lost-task list, but a new Claude session cannot read it.
+    if (session !== null) {
+      tracked.path = null;
+      tracked.startedAt = null;
+      tracked.pid = null;
+      tracked.at = -Infinity;
+      tracked.watch = [];
+      tracked.sig = null;
+    }
+    this.poll(pane.pane_id);
   }
 
   /** Reads what the files gained, of every pane or of one (a turn just ended there); a pane whose counts changed is told. */
@@ -815,7 +854,8 @@ export class ClaudeSubagentStatus {
         tracked.sig = state.settled && before.sig === after.sig && scanAt - before.latestMs >= 1000
           ? `${after.sig}:${tracked.startedAt}` : null;
       }
-      if (running === tracked.running && turnRunning === tracked.turnRunning && promptAt === tracked.promptAt) continue;
+      if (!tracked.reset && running === tracked.running && turnRunning === tracked.turnRunning && promptAt === tracked.promptAt) continue;
+      tracked.reset = false;
       tracked.running = running;
       tracked.turnRunning = turnRunning;
       tracked.promptAt = promptAt;

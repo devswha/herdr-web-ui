@@ -794,6 +794,11 @@ export function createServer(
   const claudeAgents = new ClaudeSubagentStatus({
     resolve: claudePaneSession,
     pid: claudePanePid,
+    onReset: (paneId) => {
+      const held = waits.waiting(paneId);
+      waits.forget(paneId);
+      claudeAgentsChanged(paneId, 0, 0, null, held);
+    },
     onChange: (paneId, running, turnRunning, promptAt) => claudeAgentsChanged(paneId, running, turnRunning, promptAt),
   });
   /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
@@ -1260,8 +1265,8 @@ export function createServer(
    * the alerts took it for working meanwhile, so a wait that ends with no turn after it is that
    * turn's finish, told then.
    */
-  function claudeAgentsChanged(paneId: string, running: number, turnRunning: number, promptAt: number | null): void {
-    const changed = waits.running(paneId, turnRunning, promptAt);
+  function claudeAgentsChanged(paneId: string, running: number, turnRunning: number, promptAt: number | null, resetHold = false): void {
+    const changed = waits.running(paneId, turnRunning, promptAt) || resetHold;
     if (paneId === settling) return;
     const status = completions.current(paneId);
     // a pane never reported here carries its count in the next snapshot

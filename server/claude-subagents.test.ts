@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { HerdrPane } from "../shared/protocol.ts";
+import { BackgroundWait, WAIT_LIMIT_MS } from "./background-wait.ts";
 import { ClaudeSubagentStatus, claudeSubagentState, claudeSubagents, forgetSubagents, lineNotifications, readLines, remember, subagentDetails, taskNotification, within } from "./claude-subagents.ts";
 
 const roots: string[] = [];
@@ -229,6 +230,59 @@ describe("taskNotification", () => {
 
 describe("ClaudeSubagentStatus", () => {
   const pane = (id: string, agent: string | null, session = "s1"): HerdrPane => ({ pane_id: id, agent, agent_session: { agent: agent ?? "", kind: "id", source: "hook", value: session }, cwd: "/work", agent_status: "idle", focused: false, revision: 1 }) as HerdrPane;
+
+  it("adopts a delayed transcript without losing the observed rest or renewing its deadline", async () => {
+    for (const order of ["early", "late", "baseline", "expired"] as const) {
+      const s = session();
+      s.prompt(1);
+      s.bash("suite", 2);
+      let now = NOW;
+      const waits = new BackgroundWait(() => now);
+      let resolve!: (value: { path: string; startedAt: null }) => void;
+      const pending = new Promise<{ path: string; startedAt: null }>((done) => { resolve = done; });
+      const status = new ClaudeSubagentStatus({ resolve: () => pending, now: () => now,
+        onReset: (id) => waits.forget(id), onChange: (id, _, running, prompt) => { waits.running(id, running, prompt); } });
+      waits.status("p1", order === "baseline" ? "done" : "working");
+      const refresh = status.refresh([pane("p1", "claude")]);
+      if (order === "early") { resolve({ path: s.path, startedAt: null }); await refresh; }
+      status.poll("p1");
+      waits.status("p1", "done");
+      now += order === "expired" ? WAIT_LIMIT_MS : WAIT_LIMIT_MS - 1;
+      if (order !== "early") { resolve({ path: s.path, startedAt: null }); await refresh; }
+      waits.tick();
+      expect(status.countOf("p1")).toBe(1);
+      expect(waits.waiting("p1")).toBe(order === "early" || order === "late");
+      now++;
+      waits.tick();
+      expect(waits.waiting("p1")).toBe(false);
+      status.stop();
+    }
+  });
+
+  it("forgets old transition evidence when a session changes during discovery, but keeps the new session's observations", async () => {
+    const s = session();
+    s.prompt(1);
+    s.bash("suite", 2);
+    const waits = new BackgroundWait(() => NOW);
+    let resolve!: (value: { path: string; startedAt: null }) => void;
+    const pending = new Promise<{ path: string; startedAt: null }>((done) => { resolve = done; });
+    const status = new ClaudeSubagentStatus({ resolve: () => pending, now: () => NOW,
+      onReset: (id) => waits.forget(id), onChange: (id, _, running, prompt) => { waits.running(id, running, prompt); } });
+    const first = status.refresh([pane("p1", "claude", "s1")]);
+    waits.status("p1", "working");
+    waits.status("p1", "done");
+    const next = status.refresh([pane("p1", "claude", "s2")]);
+    resolve({ path: s.path, startedAt: null });
+    await Promise.all([first, next]);
+    expect(status.countOf("p1")).toBe(1);
+    expect(waits.waiting("p1")).toBe(false);
+    waits.status("p1", "working");
+    waits.status("p1", "done");
+    expect(waits.waiting("p1")).toBe(true);
+    await status.refresh([pane("p1", "claude", "s3")]);
+    expect(status.countOf("p1")).toBe(1);
+    expect(waits.waiting("p1")).toBe(false);
+  });
 
   it("rereads a same-size replaced parent and a replaced subagent directory", async () => {
     const s = session();
