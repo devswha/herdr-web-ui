@@ -73,12 +73,12 @@ const resolve = () => codexTranscriptPath(root, root, home, [{
 }]);
 
 /** A ready, owned process with Codex's argv[0], no rollout descriptor and no timer. */
-async function runningCodex(resume = false): Promise<ReturnType<typeof Bun.spawn>> {
+async function runningCodex(resume: boolean | string[] = false): Promise<ReturnType<typeof Bun.spawn>> {
   const node = Bun.which("node");
   if (node === null) throw new Error("node is required for the Codex process fixture");
   const child = Bun.spawn([
     "/bin/bash", "-c", 'exec -a "$1" "$2" -e \'process.stdout.write("READY\\n"); process.stdin.resume()\' "${@:3}"',
-    "fixture", join(root, "codex"), node, ...(resume ? ["resume", thread] : []),
+    "fixture", join(root, "codex"), node, ...(Array.isArray(resume) ? resume : resume ? ["resume", thread] : []),
   ], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   children.push(child);
   const reader = child.stdout.getReader();
@@ -129,6 +129,47 @@ it("finds the threads of a Windows cwd that Codex stored with the \\\\?\\ prefix
     pane_id: root, workspace_id: root, tab_id: root, terminal_id: root,
     agent: "codex", agent_status: "working", cwd, focused: false, revision: 0,
   }])).toBe(path);
+});
+
+/** The thread moved to another directory, written `updatedAt` seconds after 1970 (the fixture's own start is now). */
+function threadElsewhere(updatedAt: number): void {
+  const db = new Database(join(home, "state_5.sqlite"));
+  db.query("UPDATE threads SET cwd = ?, updated_at = ?").run(join(root, "elsewhere"), updatedAt);
+  db.close();
+}
+const now = () => Math.floor(Date.now() / 1000);
+const pickerIt = it.skipIf(process.platform !== "linux");
+
+for (const picker of [["resume"], ["resume", "--all"], ["resume", "--last", "--all"]]) {
+  pickerIt(`finds a thread of another directory resumed through \`codex ${picker.join(" ")}\` by its answer on screen (#518)`, async () => {
+    const child = await runningCodex(picker);
+    foreground = [{ pid: child.pid, argv: [join(root, "codex"), ...picker] }];
+    threadElsewhere(now() + 5);
+    screen = answer;
+    expect(await resolve()).toBe(path);
+  });
+}
+
+pickerIt("takes no thread of another directory without its answer on screen, or untouched since Codex started", async () => {
+  const child = await runningCodex(["resume", "--all"]);
+  foreground = [{ pid: child.pid, argv: [join(root, "codex"), "resume", "--all"] }];
+  threadElsewhere(now() + 5);
+  screen = "";
+  expect(await resolve()).toBeNull();
+  threadElsewhere(now() - 3600);
+  screen = answer;
+  expect(await resolve()).toBeNull();
+});
+
+pickerIt("looks at no other directory for a Codex not started through the picker", async () => {
+  for (const argv of [[], ["exec", "resume"], ["resume", thread]]) {
+    const child = await runningCodex(argv);
+    foreground = [{ pid: child.pid, argv: [join(root, "codex"), ...argv] }];
+    threadElsewhere(now() + 5);
+    screen = answer;
+    // `resume <thread>` names its thread: that one, found by its id, wherever it ran
+    expect(await resolve()).toBe(argv[1] === thread ? path : null);
+  }
 });
 
 it("does not guess a session when argv and proc data are unavailable", async () => {

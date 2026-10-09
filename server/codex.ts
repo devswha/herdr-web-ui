@@ -975,6 +975,27 @@ export function resumedThread(argvs: readonly (readonly string[])[]): string | n
   return null;
 }
 
+/**
+ * `codex resume` with no thread after it (the picker, `--all`, `--last`): the thread it resumed is on
+ * no command line, and it may have begun in another directory than the pane's (#518).
+ */
+export function resumedFromPicker(argvs: readonly (readonly string[])[]): boolean {
+  return argvs.some((argv) => {
+    const at = argv.indexOf("resume");
+    return at > 0 && !argv.slice(0, at).includes("exec") && !UUID.test(argv[at + 1] ?? "");
+  });
+}
+
+/**
+ * Interactive threads of any directory written since `since` (seconds), as their rollouts: what a
+ * Codex resumed through the picker may be running. Only an answer on screen may pick one.
+ */
+function threadsWrittenSince(db: Database, since: number, home: string): string[] {
+  return db.query<{ rollout_path: string }, [number]>(
+    `SELECT rollout_path FROM threads WHERE updated_at >= ? AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 32`,
+  ).all(since).flatMap((row) => codexRolloutPath(row.rollout_path, home) ?? []);
+}
+
 /** The rollout each pane's Codex was last matched to on screen, the processes that were running it, and when. */
 const boundRollouts = new Map<string, { processes: string; path: string; at: number }>();
 
@@ -1285,6 +1306,8 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   let reported: string | null = null;
   /** whether every interactive thread in this cwd is among the candidates */
   let listed = false;
+  /** threads of other directories a Codex resumed through the picker may run: for a long answer only */
+  let picked: string[] = [];
   try {
     db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
     if (session?.value && UUID.test(session.value)) {
@@ -1318,13 +1341,18 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // a thread whose rollout is gone or outside the store is still a conversation of this cwd
     listed = rows.length <= 32 && !rollouts.includes(null);
     paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rollouts.filter((path): path is string => path !== null)])];
+    if (resumed === null && resumedFromPicker(codexProcesses.map((process) => process.argv ?? []))) {
+      const startedAt = Math.min(...codexProcesses.map((process) => processStartedAt(process.pid) ?? Infinity));
+      if (Number.isFinite(startedAt)) picked = theirs(threadsWrittenSince(db, Math.floor(startedAt / 1000), home).filter((path) => !paths.includes(path)), paneId);
+    }
   } catch { /* Older installations can still resolve their open descriptors. */ }
   finally { db?.close(); }
-  const screen = paths.length ? await paneRead({ paneId, source: "recent", lines: 400, stripAnsi: true }) : null;
-  const candidates = paths.flatMap((path) => {
+  const screen = paths.length || picked.length ? await paneRead({ paneId, source: "recent", lines: 400, stripAnsi: true }) : null;
+  const tails = (rollouts: string[]) => rollouts.flatMap((path) => {
     try { return [{ path, text: codexHistoryTail(path, 1024 * 1024, home) }]; } catch { return []; }
   });
-  const matched = screen ? matchCodexTranscript(screen.text, candidates) : null;
+  const candidates = tails(paths);
+  const matched = screen ? matchCodexTranscript(screen.text, [...candidates, ...tails(picked)]) : null;
   if (matched !== null) {
     boundRollouts.delete(paneId);
     boundRollouts.set(paneId, { processes, path: matched, at: Date.now() });

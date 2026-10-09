@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- A Codex chat is found for a session resumed through the `codex resume` picker (or
+  `codex resume --all`) from another folder, once an answer of it shows in the pane. This mattered
+  on Windows, where nothing else tells which session such a Codex runs.
+
 ## [0.4.5] - 2026-10-09
 
 ### Changed
