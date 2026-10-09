@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, sep } from "node:path";
+import nodePath, { isAbsolute, join, type PlatformPath } from "node:path";
 import type { ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
 import { patchFiles, patchText } from "../shared/patch.ts";
 import { processStartedAt } from "./process-start.ts";
@@ -453,12 +453,30 @@ export function storedCwds(cwd: string): [string, string] {
   return [cwd, cwd];
 }
 
+/**
+ * Codex's `WHERE` condition for the threads of a directory, and its parameters: a Windows cwd is
+ * one directory whatever the letter case (herdr reports `D:\work\app` for the `\\?\d:\Work\app`
+ * Codex stored, #587), a POSIX one only as it is. NOCASE folds ASCII letters only.
+ */
+export function storedCwdCondition(cwd: string): { where: string; params: [string, string] } {
+  const params = storedCwds(cwd);
+  return { where: params[0] === params[1] ? "cwd IN (?, ?)" : "cwd COLLATE NOCASE IN (?, ?)", params };
+}
+
+/**
+ * Whether the canonical `file` lies inside the canonical store `root`. Either may carry the
+ * Windows `\\?\` prefix without the other (a prefixed CODEX_HOME, #587): it is not another root.
+ */
+export function rolloutInsideStore(root: string, file: string, paths: PlatformPath = nodePath): boolean {
+  const rel = paths.relative(withoutVerbatimPrefix(root), withoutVerbatimPrefix(file));
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${paths.sep}`) && !paths.isAbsolute(rel);
+}
+
 /** File access is constrained by canonical paths, including symlink targets. */
 export function codexRolloutPath(path: string, codexHome: string): string | null {
   try {
     const canonical = realpathSync(withoutVerbatimPrefix(path));
-    const rel = relative(realpathSync(join(codexHome, "sessions")), canonical);
-    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !canonical.endsWith(".jsonl")) return null;
+    if (!rolloutInsideStore(realpathSync(join(codexHome, "sessions")), canonical) || !canonical.endsWith(".jsonl")) return null;
     if (!statSync(canonical).isFile()) return null;
     const metadata = rolloutHeader(canonical);
     // A child Codex can be in the foreground process group too. Its rollout
@@ -986,9 +1004,10 @@ const boundRollouts = new Map<string, { processes: string; path: string; at: num
  */
 function newerThreads(db: Database, cwd: string, since: number, except: string | null, paneId: string, home: string, firsts?: Map<string, string>): string[] {
   const first = db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : "";
+  const { where, params } = storedCwdCondition(cwd);
   const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, [string, string, number]>(
-    `SELECT id, rollout_path${first} FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
-  ).all(...storedCwds(cwd), since);
+    `SELECT id, rollout_path${first} FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
+  ).all(...params, since);
   return theirs(rows.flatMap((row) => {
     if (row.id === except) return [];
     const path = codexRolloutPath(row.rollout_path, home) ?? row.rollout_path;
@@ -1199,10 +1218,11 @@ async function shortThreadFromProcess(
     if (!columns.has("first_user_message") || !columns.has("source")) return null;
     const created = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000)" : "created_at * 1000";
     // The 33rd row disables this bounded lookup, never establishes uniqueness.
+    const { where, params } = storedCwdCondition(cwd);
     const rows = db.query<CodexThreadRow, [string, string]>(
       `SELECT rollout_path AS rolloutPath, first_user_message AS firstUserMessage, ${created} AS createdAtMs
-       FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} LIMIT 33`,
-    ).all(...cwds);
+       FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} LIMIT 33`,
+    ).all(...params);
     if (rows.length > SHORT_THREAD_LIMIT || rows.some((row) => !Number.isFinite(row.createdAtMs))) return null;
     // Process starts are only estimated to second precision; require a full second of margin.
     const begun = rows.filter((row) => row.createdAtMs >= notBefore);
@@ -1310,10 +1330,11 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // the same guard for a match: after /new the process writes a thread begun since
     // (created_at has whole seconds, so one begun in the match's second counts too)
     if (boundHere !== undefined) boundNewer = newerThreads(db, cwd, Math.floor(boundHere.at / 1000), null, paneId, home, firsts);
+    const { where, params } = storedCwdCondition(cwd);
     const rows = db.query<{ rollout_path: string }, [string, string]>(
       // a burst of `codex exec` runs must not push the pane's own thread out of the 32
-      `SELECT rollout_path FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
-    ).all(...storedCwds(cwd));
+      `SELECT rollout_path FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
+    ).all(...params);
     const rollouts = rows.slice(0, 32).map((row) => codexRolloutPath(row.rollout_path, home));
     // a thread whose rollout is gone or outside the store is still a conversation of this cwd
     listed = rows.length <= 32 && !rollouts.includes(null);

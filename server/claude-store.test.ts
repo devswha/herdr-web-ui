@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeProcessSession, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
+import { AmbiguousClaudeStore, claudeProcessSession, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 
 const NATIVE = process.platform === "linux" || process.platform === "darwin";
@@ -340,11 +340,14 @@ describe("a Windows Claude's store", () => {
     expect(await storeOf(dir)).toBe(join(dir, ".claude-second"));
   });
 
-  it("answers no store when two stores both claim the process", async () => {
+  it("refuses to pick a store when two stores both claim the process, rather than fall back to ~/.claude (#586)", async () => {
     const dir = home();
     record(join(dir, ".claude"));
     record(join(dir, ".claude-copy"));
-    expect(await storeOf(dir)).toBeNull();
+    await expect(storeOf(dir)).rejects.toBeInstanceOf(AmbiguousClaudeStore);
+    // and asks again: the copy may be removed
+    rmSync(join(dir, ".claude-copy"), { recursive: true });
+    expect(await storeOf(dir)).toBe(join(dir, ".claude"));
   });
 
   it("looks again after a miss, since Claude writes its record as it starts", async () => {

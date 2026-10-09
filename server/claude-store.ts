@@ -84,16 +84,26 @@ async function windowsClaudeStores(home: string): Promise<string[]> {
   return [...stores.values()];
 }
 
+/** More than one store holds a live PID record of the process: which one it writes cannot be told (#586). */
+export class AmbiguousClaudeStore extends Error {
+  constructor(pid: number) {
+    super(`more than one Claude store holds process ${pid}`);
+    this.name = "AmbiguousClaudeStore";
+  }
+}
+
 /**
  * Windows lets no other process read Claude's environment, so the store is the one holding the
- * process's live PID record (claudeProcessSession checks its start); null unless exactly one does.
+ * process's live PID record (claudeProcessSession checks its start); null when none does, and
+ * AmbiguousClaudeStore when several do (a store copied while Claude ran), never the default store.
  * A store that cannot be read is not the process's.
  */
 async function windowsProcessStore(home: string, pid: number, table: () => Promise<ProcessRow[]>): Promise<string | null> {
   const stores = await windowsClaudeStores(home);
   const checks = await Promise.allSettled(stores.map((store) => claudeProcessSession(home, pid, store, "win32", table)));
   const owners = stores.filter((_, index) => { const check = checks[index]!; return check.status === "fulfilled" && check.value !== null; });
-  return owners.length === 1 ? owners[0]! : null;
+  if (owners.length > 1) throw new AmbiguousClaudeStore(pid);
+  return owners[0] ?? null;
 }
 
 async function readProcessConfigDir(pid: number, home: string, platform: string, table: () => Promise<ProcessRow[]>): Promise<string | null> {
@@ -112,7 +122,10 @@ async function readProcessConfigDir(pid: number, home: string, platform: string,
         dir = configDirInPsLine(text);
       } finally { clearTimeout(timer); }
     }
-  } catch { dir = null; }
+  } catch (error) {
+    if (error instanceof AmbiguousClaudeStore) throw error;
+    dir = null;
+  }
   if (dir === null || !isAbsolute(dir)) return null;
   try { return (await stat(dir)).isDirectory() ? dir : null; } catch { return null; }
 }
@@ -121,7 +134,8 @@ async function readProcessConfigDir(pid: number, home: string, platform: string,
  * The CLAUDE_CONFIG_DIR a Claude process was started with (a launcher such as cac keeps one store
  * per environment), or null when it has none. /proc on Linux, `ps -E` (same user only) on macOS,
  * the store holding its PID record on Windows, kept for PROCESS_DIR_TTL_MS under the process's
- * pid and argv.
+ * pid and argv. Throws AmbiguousClaudeStore, remembered no more than a miss, when several Windows
+ * stores hold it.
  */
 export async function processClaudeConfigDir(
   pid: number,

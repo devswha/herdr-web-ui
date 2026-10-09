@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexFirstExchange, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, resumedThread, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
+import { join, posix, win32 } from "node:path";
+import { Database } from "bun:sqlite";
+import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexFirstExchange, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, resumedThread, rolloutInsideStore, storedCwdCondition, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
 const ts = "2026-09-22T01:00:00.000Z";
@@ -403,6 +404,41 @@ describe("Codex rollout resolution", () => {
     // a POSIX cwd is looked up as it is, and only so
     expect(storedCwds("/home/user/app")).toEqual(["/home/user/app", "/home/user/app"]);
     expect(storedCwds("\\\\.\\pipe\\x")).toEqual(["\\\\.\\pipe\\x", "\\\\.\\pipe\\x"]);
+  });
+
+  it("keeps a rollout inside a store whose root alone carries the \\\\?\\ prefix, or whose rollout alone does (#587)", () => {
+    const root = "D:\\codex\\sessions";
+    const rollout = "D:\\codex\\sessions\\2026\\10\\10\\rollout.jsonl";
+    expect(rolloutInsideStore(`\\\\?\\${root}`, rollout, win32)).toBe(true);
+    expect(rolloutInsideStore(root, `\\\\?\\${rollout}`, win32)).toBe(true);
+    expect(rolloutInsideStore("\\\\?\\UNC\\host\\share\\codex\\sessions", "\\\\host\\share\\codex\\sessions\\x.jsonl", win32)).toBe(true);
+    for (const outside of ["D:\\codex\\other.jsonl", "\\\\?\\D:\\codex\\sessions\\..\\other.jsonl", "E:\\codex\\sessions\\x.jsonl", root]) {
+      expect(rolloutInsideStore(`\\\\?\\${root}`, outside, win32)).toBe(false);
+    }
+    // POSIX paths are compared as they are
+    expect(rolloutInsideStore("/home/u/.codex/sessions", "/home/u/.codex/sessions/x.jsonl", posix)).toBe(true);
+    for (const outside of ["/home/u/.codex/x.jsonl", "/home/u/.codex/sessions", "/home/u/.Codex/sessions/x.jsonl"]) {
+      expect(rolloutInsideStore("/home/u/.codex/sessions", outside, posix)).toBe(false);
+    }
+  });
+
+  it("finds the threads of a Windows cwd Codex stored in another letter case, and of a POSIX one only as it is (#587)", () => {
+    const db = new Database(":memory:");
+    try {
+      db.run("CREATE TABLE threads (id TEXT, cwd TEXT)");
+      for (const [id, cwd] of [["a", "\\\\?\\d:\\Work\\app"], ["b", "D:\\WORK\\APP"], ["c", "D:\\work\\app2"], ["d", "/home/u/app"], ["e", "/home/u/App"], ["f", "\\\\?\\UNC\\Host\\Share\\app"]]) {
+        db.run("INSERT INTO threads VALUES (?, ?)", [id!, cwd!]);
+      }
+      const ids = (cwd: string) => {
+        const { where, params } = storedCwdCondition(cwd);
+        return db.query<{ id: string }, [string, string]>(`SELECT id FROM threads WHERE ${where} ORDER BY id`).all(...params).map((row) => row.id);
+      };
+      expect(ids("D:\\work\\app")).toEqual(["a", "b"]);
+      expect(ids("\\\\?\\D:\\work\\app")).toEqual(["a", "b"]);
+      expect(ids("\\\\host\\share\\APP")).toEqual(["f"]);
+      expect(ids("/home/u/app")).toEqual(["d"]);
+      expect(ids("/home/u/APP")).toEqual([]);
+    } finally { db.close(); }
   });
 
   /** Rollouts as Codex 0.156 writes them: one record per line, ordinals running on from the cut a rollout starts at. */

@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- On Windows, a Codex chat is found when `CODEX_HOME` carries the `\\?\` prefix, or when Codex
+  stored the working directory in another letter case than herdr reports (`\\?\d:\Work\app` for
+  `D:\work\app`). A Claude pane whose process two stores both claim (`~/.claude` and a
+  `~/.claude-*` copy) now says its chat is unavailable instead of showing `~/.claude`'s session.
+
 ## [0.4.5] - 2026-10-09
 
 ### Changed
