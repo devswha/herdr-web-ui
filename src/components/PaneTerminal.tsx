@@ -1260,7 +1260,9 @@ export function PaneTerminal({
           /* not laid out yet; the ResizeObserver will follow up */
         }
       }
-      socket.attach(current, term.cols, term.rows, chatViewRef.current);
+      const away = !inUse();
+      socket.attach(current, term.cols, term.rows, chatViewRef.current || away);
+      if (away) leave();
     };
     // out of use, a reconnect attaches at the size the pane has instead of taking it
     // (keepSize, as under the chat lens), until the tab lets go of the pane

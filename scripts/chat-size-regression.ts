@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import type { Machine } from "../shared/machines.ts";
+import { chromium } from "playwright-core";
+import { createServer } from "../server/index.ts";
 import { herdrRpc, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 /** how long a resize that should not happen gets to show up */
@@ -31,7 +33,7 @@ function shellSize(paneId: string): () => Promise<string> {
 }
 
 /** A page on `paneId` that records every frame its socket sends and receives (`frames_`), its socket in `socket_`. */
-async function openRecording(browser: Browser, contexts: BrowserContext[], origin: string, paneId: string, options: Parameters<Browser["newContext"]>[0], settings: object): Promise<Page> {
+async function openRecording(browser: Browser, contexts: BrowserContext[], origin: string, paneId: string, options: Parameters<Browser["newContext"]>[0], settings: object, away = false): Promise<Page> {
   const context = await browser.newContext({ locale: "en-US", ...options });
   contexts.push(context);
   await context.addInitScript((stored) => {
@@ -50,6 +52,9 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
     }
     Object.assign(window, { WebSocket: Recording });
   }, settings);
+  if (away) await context.addInitScript(() => {
+    Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+  });
   const page = await context.newPage();
   await page.goto(`${origin}/?pane=${encodeURIComponent(paneId)}`);
   await page.locator(".conn-live").waitFor();
@@ -205,6 +210,7 @@ function attachRunning(terminalId: string): boolean {
  * focus.
  */
 export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, origin: string): Promise<void> {
+  await checkInactiveAttachLifecycle(browser, origin);
   const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-background-size-"));
   const contexts: BrowserContext[] = [];
   const workspaces: string[] = [];
@@ -319,6 +325,137 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
   } finally {
     for (const context of contexts) await context.close().catch(() => undefined);
     for (const id of workspaces) await workspaceClose(id).catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** Drive the real component and assert the attach/resize frames, not the paused notice alone. */
+export async function checkInactiveAttachLifecycle(browser: Browser, origin: string): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-inactive-"));
+  const contexts: BrowserContext[] = [];
+  const workspaces: string[] = [];
+  const failures: string[] = [];
+  try {
+    const panes: string[] = [];
+    for (const name of ["first", "next"]) {
+      const cwd = join(root, name);
+      mkdirSync(cwd);
+      const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-inactive-${name}` });
+      panes.push(created.root_pane.pane_id);
+      workspaces.push(created.workspace.workspace_id);
+    }
+    const first = panes[0]!;
+    const next = panes[1]!;
+    const waitDetach = (page: Page, count = 1) => page.waitForFunction((n) =>
+      (window as unknown as { frames_: Frame[] }).frames_.filter((f) => f.dir === "out" && f.type === "detach").length >= n,
+    count, { timeout: 10_000 });
+    const sent = async (page: Page, start = 0) => (await framesOf(page)).slice(start)
+      .filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
+    for (const scenario of ["mount", "switch", "resume", "toggles"]) {
+      if (process.env.CHAT_SIZE_CASE && process.env.CHAT_SIZE_CASE !== scenario) continue;
+      const page = await openRecording(browser, contexts, origin, first,
+        { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: "terminal" }, scenario === "mount");
+      try {
+        await attached(page);
+        if (scenario === "mount") {
+          // No blur or visibility transition occurs after this out-of-use mount.
+          await waitDetach(page);
+          assert.deepEqual(await sent(page), [{ dir: "out", type: "attach", keep_size: true }]);
+        } else {
+          // Freeze timers after the real first attach; only the release delay is advanced below.
+          await page.clock.install();
+          await page.clock.pauseAt(new Date());
+          await page.evaluate(() => {
+            Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+            window.dispatchEvent(new Event("blur"));
+          });
+          if (scenario === "switch") {
+            const before = (await framesOf(page)).length;
+            // Programmatic click deliberately does not focus the window.
+            await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
+            await attached(page, 2);
+            assert.deepEqual(await sent(page, before), [{ dir: "out", type: "attach", keep_size: true }]);
+            await page.clock.runFor(1000);
+            await waitDetach(page, 2); // old-pane cleanup plus new-pane release
+          } else if (scenario === "resume") {
+            await page.clock.runFor(1000);
+            await waitDetach(page);
+            await page.locator(".terminal-banner", { hasText: "Paused while you use another window" }).waitFor();
+            const before = (await framesOf(page)).length;
+            await page.evaluate(() => window.dispatchEvent(new Event("pointerdown")));
+            await attached(page, 2);
+            assert.deepEqual(await sent(page, before), [{ dir: "out", type: "attach", keep_size: true }],
+              "an inactive pointer resume must not resize the shared grid");
+            await page.clock.runFor(1000);
+            await waitDetach(page, 2);
+          } else {
+            // Returning before the delay cancels release, including repeated interruptions.
+            await page.evaluate(() => {
+              for (let i = 0; i < 5; i++) {
+                Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+                window.dispatchEvent(new Event("focus"));
+                Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+                window.dispatchEvent(new Event("blur"));
+              }
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+              window.dispatchEvent(new Event("focus"));
+            });
+            await page.clock.runFor(1000);
+            let frames = await framesOf(page);
+            assert.equal(frames.filter((f) => f.dir === "out" && f.type === "detach").length, 0);
+            assert.equal(frames.filter((f) => f.dir === "out" && f.type === "attach").length, 1);
+            await page.evaluate(() => {
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+              window.dispatchEvent(new Event("blur"));
+            });
+            await page.clock.runFor(1000);
+            await waitDetach(page);
+            await page.locator(".terminal-banner", { hasText: "Paused while you use another window" }).waitFor();
+            await page.evaluate(() => {
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+              window.dispatchEvent(new Event("focus"));
+            });
+            await attached(page, 2);
+            await page.clock.runFor(1000);
+            frames = await framesOf(page);
+            assert.equal(frames.filter((f) => f.dir === "out" && f.type === "attach").length, 2);
+            assert.equal(frames.filter((f) => f.dir === "out" && f.type === "detach").length, 1);
+          }
+        }
+        console.log(`PASS inactive attach lifecycle: ${scenario}`);
+      } catch (error) {
+        failures.push(`${scenario}: ${String(error)}`);
+        console.error(`FAIL inactive attach lifecycle: ${scenario}: ${String(error)}`);
+      } finally {
+        await page.context().close();
+      }
+    }
+    assert.deepEqual(failures, [], "inactive attach lifecycle scenarios");
+  } finally {
+    for (const context of contexts) await context.close().catch(() => undefined);
+    for (const id of workspaces) await workspaceClose(id).catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// This file is also the focused manual-QA entry point; imports from ui-regression do not run it.
+if (import.meta.main) {
+  await import("./test-herdr.ts");
+  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-chat-size-run-"));
+  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox", "--accept-lang=en-US"] });
+    const origin = `http://127.0.0.1:${server.port}`;
+    if (process.env.CHAT_SIZE_CASE) await checkInactiveAttachLifecycle(browser, origin);
+    else {
+      await checkChatKeepsTerminalSize(browser, origin);
+      await checkPaneSwitchKeepsTerminalSize(browser, origin);
+      await checkBackgroundTabKeepsTerminalSize(browser, origin);
+    }
+  } finally {
+    await browser?.close();
+    server.stop();
     rmSync(root, { recursive: true, force: true });
   }
 }
