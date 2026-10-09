@@ -1790,11 +1790,11 @@ export function PaneTerminal({
         )}
       </div>
       <div className="terminal-surface">
-        {/* the grid itself carries no accessible name (xterm draws the screen to canvas and hides
-            it), so the region around it carries the pane's: a screen reader announces which pane
+        {/* xterm hides its rendered rows from assistive technology, so the region around the
+            visible grid carries the pane's name: a screen reader announces which pane
             this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
             stop on the wrapper would only be an empty one ahead of it. */}
-        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} role="region" aria-roledescription={t("Terminal")} aria-label={terminalName} />
+        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
         {paneId !== null && chatView && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">
