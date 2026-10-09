@@ -41,6 +41,31 @@ describe("file view", () => {
     expect(response.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''page.html");
     expect(await response.text()).toBe("<script>alert(1)</script>");
   });
+
+  it("draws an HTML page only when asked to render it, with no origin and no network", async () => {
+    const root = temp();
+    writeFileSync(join(root, "report.html"), "<p>chart</p>");
+    writeFileSync(join(root, "notes.txt"), "<p>not a page</p>");
+    const page = fileResponse(fileInfo(join(root, "report.html"))!, false, true);
+    expect(page.headers.get("content-type")).toStartWith("text/html");
+    const policy = page.headers.get("content-security-policy")!;
+    // its script runs, but never with this app's origin, cookie or storage
+    expect(policy).toStartWith("sandbox allow-scripts;");
+    expect(policy).not.toContain("allow-same-origin");
+    // nothing to fetch with: default-src stands in for connect-src
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).not.toContain("connect-src");
+    // nor this server's files, whose loading would tell it which exist
+    expect(policy.split("; ").filter((directive) => directive.includes("'self'"))).toEqual(["frame-ancestors 'self'"]);
+    expect(policy).toContain("frame-ancestors 'self'");
+    expect(await page.text()).toBe("<p>chart</p>");
+    // asked without render, or as a download, it stays the source; another text file never renders
+    expect(fileResponse(fileInfo(join(root, "report.html"))!, false).headers.get("content-type")).toStartWith("text/plain");
+    expect(fileResponse(fileInfo(join(root, "report.html"))!, true, true).headers.get("content-type")).toStartWith("text/plain");
+    const text = fileResponse(fileInfo(join(root, "notes.txt"))!, false, true);
+    expect(text.headers.get("content-type")).toStartWith("text/plain");
+    expect(text.headers.get("content-security-policy")).toStartWith("sandbox;");
+  });
 });
 
 describe("locateFile", () => {

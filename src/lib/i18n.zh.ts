@@ -329,6 +329,9 @@ export const ZH: Record<string, string> = {
   "No readable file at this path.": "此路径下没有可读取的文件。",
   "The file could not be opened.": "无法打开该文件。",
   "Open {path}": "打开 {path}",
+  "Show the HTML file as": "HTML 文件显示方式",
+  "Page": "页面",
+  "Source": "源代码",
 
   // ---- PC dialog ----
   "Update remote bridge": "更新远程 bridge",

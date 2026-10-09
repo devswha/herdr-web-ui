@@ -325,6 +325,9 @@ export const KO: Record<string, string> = {
   "No readable file at this path.": "이 경로에 읽을 수 있는 파일이 없습니다.",
   "The file could not be opened.": "파일을 열 수 없습니다.",
   "Open {path}": "{path} 열기",
+  "Show the HTML file as": "HTML 파일 보기 방식",
+  "Page": "페이지",
+  "Source": "소스",
 
   // ---- PC dialog ----
   "Update remote bridge": "원격 브리지 업데이트",

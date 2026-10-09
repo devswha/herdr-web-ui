@@ -421,7 +421,11 @@ export interface DirectoryListing {
 /** How the file viewer shows a file. */
 export type FileKind = "image" | "video" | "audio" | "pdf" | "text" | "binary";
 
-/** GET /api/fs/stat: a file the viewer can open (GET /api/fs/file streams it). */
+/**
+ * GET /api/fs/stat: a file the viewer can open (GET /api/fs/file streams it). An HTML page is
+ * `text` with `mime` "text/html": `/api/fs/file` serves it as plain text, and as the page itself
+ * only with `render=1`, in a sandbox with no origin and no network of its own.
+ */
 export interface FileInfo {
   path: string;
   name: string;

@@ -720,7 +720,8 @@
 
 .chat-tool-io pre,
 .chat-tool-io p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-tool-io > :not(:first-child) { margin-top: var(--space-2); }
+/* blocks stacked in a call's detail; a file link inside an output's text is not one */
+.chat-tool-io > :not(:first-child):not(.markdown-file) { margin-top: var(--space-2); }
 
 /* a tool's own pictures (pi reads a file into the result): left-aligned, unlike a user's
    attachments, and only fetched when the row is opened, so the bytes are not on the page */

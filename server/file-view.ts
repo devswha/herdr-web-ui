@@ -86,22 +86,51 @@ export function fileInfo(path: string): FileInfo | null {
 }
 
 /**
+ * An HTML page drawn as a page (the report or chart an agent wrote): its own script runs, but in
+ * a sandbox without `allow-same-origin`, so it has no origin, no cookie and no storage of this
+ * app's, and with no `connect-src` it cannot fetch, open a socket or beacon anything, here or
+ * anywhere. It may load pictures, styles, fonts and scripts from https (a page made with a chart
+ * library from a CDN draws as it does in any browser), but nothing from this server: an image
+ * that loads or fails would tell it which of this PC's files exist. Only this app may frame it.
+ */
+const PAGE_POLICY = [
+  "sandbox allow-scripts",
+  "default-src 'none'",
+  "script-src 'unsafe-inline' 'unsafe-eval' https:",
+  "style-src 'unsafe-inline' https:",
+  "img-src data: blob: https:",
+  "media-src data: blob: https:",
+  "font-src data: https:",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'self'",
+].join("; ");
+
+/** Whether `fileResponse` can draw this file as a page, given `render`. */
+export function isHtmlPage(info: FileInfo): boolean {
+  return info.kind === "text" && info.mime === "text/html";
+}
+
+/**
  * The file itself. `download` asks the browser to save it. Answers are sandboxed (an HTML
  * or SVG file opened from this origin must not run script with the app's access), and
- * text is served as plain text whatever its extension says it runs as.
+ * text is served as plain text whatever its extension says it runs as. `render` asks for an
+ * HTML page as a page (`PAGE_POLICY`); any other file ignores it.
  */
-export function fileResponse(info: FileInfo, download: boolean): Response {
+export function fileResponse(info: FileInfo, download: boolean, render = false): Response {
   const name = encodeURIComponent(info.name);
   const headers = new Headers({
     "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${name}`,
     "x-content-type-options": "nosniff",
     "cache-control": "private, no-store",
   });
+  const page = render && !download && isHtmlPage(info);
   // a PDF is drawn by the browser's own viewer, which refuses a sandboxed document; its
   // scripts stay inside that viewer, never on this origin
-  if (info.kind !== "pdf") headers.set("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
+  if (page) headers.set("content-security-policy", PAGE_POLICY);
+  else if (info.kind !== "pdf") headers.set("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
   // text shows as text, whatever its extension says it runs as
-  const type = info.kind === "text" && info.mime !== "image/svg+xml" ? "text/plain; charset=utf-8" : info.mime;
+  const type = page ? "text/html; charset=utf-8" : info.kind === "text" && info.mime !== "image/svg+xml" ? "text/plain; charset=utf-8" : info.mime;
   const file = Bun.file(info.path, { type });
   return new Response(file, { headers });
 }

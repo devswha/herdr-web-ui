@@ -3,6 +3,7 @@ import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { canHighlight, countLines, extendLines, LINE_ELEMENT_LIMIT, normalizeCode, plainLines, type Lines } from "../lib/highlight.ts";
 import { highlightedFrom, highlightKnown, highlightOffThread, type Highlighted } from "../lib/highlightOffThread.ts";
 import { useT } from "../lib/i18n.ts";
+import { linkFilePaths } from "./FilePathLink.tsx";
 import { useSettings } from "../lib/settings.ts";
 import "./HighlightedCode.css";
 
@@ -54,6 +55,8 @@ function useHighlightedLines(code: string, language: string | null, limit?: numb
 interface CodeLinesProps {
   /** from `useHighlightedLines`; the same array while the code is unchanged */
   lines: Lines;
+  /** opens a file path the code names; null leaves every path as text */
+  open: ((path: string) => void) | null;
 }
 
 /**
@@ -65,7 +68,7 @@ interface CodeLinesProps {
  * Block lines would add a line break of their own between lines and drop or double the blank ones.
  * Past `LINE_ELEMENT_LIMIT` lines it is one text, as drawing an element per line would hold the page.
  */
-const CodeLines = memo(function CodeLines({ lines }: CodeLinesProps) {
+const CodeLines = memo(function CodeLines({ lines, open }: CodeLinesProps) {
   // index keys: the lines are a static list that is rebuilt as a whole
   const elements = useMemo(() => lines.length > LINE_ELEMENT_LIMIT
     ? lines.map((tokens) => tokens.map((token) => token.text).join("")).join("\n")
@@ -73,10 +76,10 @@ const CodeLines = memo(function CodeLines({ lines }: CodeLinesProps) {
       <Fragment key={index}>
         {index > 0 && "\n"}
         <span className="hl-line">
-          {tokens.map((token, n) => token.role === null ? token.text : <span className={`hl-${token.role}`} key={n}>{token.text}</span>)}
+          {tokens.map((token, n) => token.role === null ? <Fragment key={n}>{linkFilePaths(token.text, open)}</Fragment> : <span className={`hl-${token.role}`} key={n}>{linkFilePaths(token.text, open)}</span>)}
         </span>
       </Fragment>
-    )), [lines]);
+    )), [lines, open]);
   return <pre className="hl-code"><code>{elements}</code></pre>;
 });
 
@@ -85,19 +88,21 @@ interface HighlightedCodeProps {
   language: string | null;
   /** Characters; above it the code shows as plain text with the note. */
   limit?: number;
+  /** opens a file path the code names (output, a log); absent, paths stay text */
+  open?: ((path: string) => void) | null;
 }
 
 /**
  * A code block that highlights itself and, when it was left plain for its length, says so under
- * the code. Every prop is a primitive, so `memo` skips a parent's re-render (a chat reply's other
+ * the code. Every prop is a primitive or a stable callback, so `memo` skips a parent's re-render (a chat reply's other
  * blocks while one grows).
  */
-export const HighlightedCode = memo(function HighlightedCode({ code, language, limit }: HighlightedCodeProps) {
+export const HighlightedCode = memo(function HighlightedCode({ code, language, limit, open = null }: HighlightedCodeProps) {
   const t = useT();
   const { lines, tooLong } = useHighlightedLines(code, language, limit);
   return (
     <>
-      <CodeLines lines={lines} />
+      <CodeLines lines={lines} open={open} />
       {tooLong && <p className="hl-note">{t("Too long to highlight")}</p>}
     </>
   );
