@@ -204,7 +204,9 @@ try {
     if (await otherPalettePane.evaluate((button) => document.activeElement === button)) break;
     assert.ok(Date.now() < deadline, "Tab reaches the other pane's option");
   }
-  assert.equal(await otherPalettePane.getAttribute("aria-selected"), "true", "the focused option is highlighted");
+  // bounded: in #608's race the focused row never became the highlighted one, so this still fails there
+  await until(async () => await otherPalettePane.evaluate((button) =>
+    document.activeElement === button && button.getAttribute("aria-selected") === "true"), "the focused option is highlighted");
   await page.keyboard.press("Enter");
   await palette.waitFor({ state: "hidden" });
   await until(async () => await selectedPane() === paneB, "Enter on the focused option selects that pane");
