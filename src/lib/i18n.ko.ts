@@ -178,6 +178,8 @@ export const KO: Record<string, string> = {
   "Pane name": "패널 이름",
   "Rename pane": "패널 이름 바꾸기",
   "More for {title}": "{title} 더보기",
+  "Move up": "위로 이동",
+  "Move down": "아래로 이동",
   "Rename workspace": "워크스페이스 이름 바꾸기",
   "Close workspace": "워크스페이스 닫기",
   "New worktree": "새 워크트리",
@@ -451,6 +453,7 @@ export const KO: Record<string, string> = {
   "Copy code": "코드 복사",
   "Show less": "접기",
   "Show all {n} lines": "{n}줄 모두 보기",
+  "Empty task": "빈 할 일",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "재연결 중… 메시지는 여기에 보관되고 대기열에 넣지 않습니다",

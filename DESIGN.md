@@ -388,8 +388,8 @@ One set for both themes: the card is island black wherever it shows.
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
   A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
   (the menu key and Shift+F10 too, as the browser sends them); a name field being edited keeps
-  the browser's own menu, and a finger's long press is left alone (it picks the row up for a
-  drag, and the `⋯` is always shown on touch). PC headers and agent rows have no menu, so they
+  the browser's own menu, and a finger's long press is left alone (it picks a workspace row up
+  to be moved, and the `⋯` is always shown on touch). PC headers and agent rows have no menu, so they
   keep the browser's.
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
@@ -506,6 +506,10 @@ One set for both themes: the card is island black wherever it shows.
   workspace. A custom worktree workspace name follows the branch on the same line in dim text.
   Selection uses a neutral rounded fill; workspace rows have no amber rail or separate reorder
   gutter. Drag the row itself, or press `Alt+↑/↓` while its selector is focused, to reorder it.
+  On a touch screen (`pointer: coarse`) the browser's drag is off: a long press (400ms, still
+  within 8px) lifts the row (`.is-lifted`: `--bg-elevated` with `--shadow-card`), it follows
+  the finger, the list scrolls near its edges, and a 2px `--accent` line (`data-drop`) shows
+  where it lands. The row menu's Move up and Move down do the same one step at a time.
   Dragging is disabled while a name field is open. Each workspace's `⋯` opens its row menu
   (`.row-menu-toggle`: no width at rest; shown on hover, focus, selection and while its menu is
   open; always on touch). Inline server failures
@@ -655,7 +659,9 @@ One set for both themes: the card is island black wherever it shows.
   text button in the regular weight beside it. Otherwise the answer keeps two labelled buttons,
   glyph + MD and glyph + TXT; where the primary pointer is coarse each is a `--touch-target` target on a
   one-line row, as is a user turn's copy, and a skill list under a user turn clears that target.
-- Markdown supports headings, lists, links, quotes, tables, inline/fenced code and code-copy actions.
+- Markdown supports headings, lists (a task item `- [x]` / `- [ ]` shows a checked or empty box in
+  place of its bullet, not clickable), links, quotes, tables, inline/fenced code and code-copy
+  actions.
   A link keeps `--accent` and a file chip reads in `--text-strong` with a dotted underline; both
   underlines are `--text-dim` at rest and both take the accent on hover and focus-visible.
   Code blocks are `--radius-lg` and never scroll inside: one longer than 30 lines opens at its

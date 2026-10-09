@@ -182,6 +182,8 @@ export const ZH: Record<string, string> = {
   "Pane name": "窗格名称",
   "Rename pane": "重命名窗格",
   "More for {title}": "{title} 的更多操作",
+  "Move up": "上移",
+  "Move down": "下移",
   "Rename workspace": "重命名工作区",
   "Close workspace": "关闭工作区",
   "New worktree": "新建工作树",
@@ -455,6 +457,7 @@ export const ZH: Record<string, string> = {
   "Copy code": "复制代码",
   "Show less": "收起",
   "Show all {n} lines": "显示全部 {n} 行",
+  "Empty task": "空任务",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "正在重连… 消息保留在此处，不会加入队列",
