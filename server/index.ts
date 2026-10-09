@@ -2138,6 +2138,13 @@ export function createServer(
                 break;
               }
               await serialize(message.pane_id, async () => {
+                // A key goes through herdr's RPC, around the attach pty that typing just went into: it
+                // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
+                // held there ~150ms). The checks below run after the wait.
+                if (origin && !origin.mirror) {
+                  const typed = Date.now() - (lastTyped.get(message.pane_id) ?? 0);
+                  if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
+                }
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
                 // pane's readiness, and the attach it holds by now has already been told it is ready

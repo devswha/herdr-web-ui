@@ -566,9 +566,10 @@ export function PaneTerminal({
       wheelPixels: number;
       sentOffset: number;
       sending: boolean;
-      /** a press the program would have had but for the forced selection: let go in place, it is a click */
-      click: boolean;
+      /** a press the program would have had but for the forced selection, with the keys the user held: let go in place, it is a click */
+      click: ClickKeys | null;
     }
+    interface ClickKeys { ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     let drag: Drag | null = null;
     let edgeTimer: number | null = null;
@@ -643,6 +644,10 @@ export function PaneTerminal({
       const reporting = term.modes.mouseTrackingMode !== "none";
       // the modifier that asks xterm for a selection, held by the user rather than added here
       const selecting = isMac ? event.altKey : event.shiftKey;
+      // a press that clears a selection, or opens a link, is not the program's click
+      const onLink = term.element?.querySelector(".xterm-screen")?.classList.contains("xterm-cursor-pointer") === true;
+      const click: ClickKeys | null = reporting && !selecting && !onLink && !term.hasSelection()
+        ? { ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey } : null;
       if (reporting) Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
       copiedText = null;
       selectionGeneration++;
@@ -650,7 +655,7 @@ export function PaneTerminal({
       const { cell } = cellAt(event);
       const d: Drag = {
         pane: pane ?? "", anchor: cell, cursor: cell, top: null, anchorRow: 0, offset: 0, maxOffset: 0,
-        scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false, click: reporting && !selecting,
+        scrolled: false, edge: 0, wheelPixels: 0, sentOffset: 0, sending: false, click,
       };
       drag = d;
       if (!pane || !navigator.clipboard || observeRef.current) return;
@@ -688,10 +693,10 @@ export function PaneTerminal({
     // left clicks to it, as a phone's tap already showed (#621). The press and release are
     // replayed without the selection modifier so xterm encodes them in the reporting mode
     // herdr asked for; xterm sends nothing while stdin is disabled (observing, a held pane).
-    const forwardClick = (event: MouseEvent): void => {
+    const forwardClick = (event: MouseEvent, keys: ClickKeys): void => {
       const target = event.target;
       if (!(target instanceof Element) || !term.element?.contains(target)) return;
-      const init = { bubbles: true, cancelable: true, view: window, button: 0, detail: 1, clientX: event.clientX, clientY: event.clientY, screenX: event.screenX, screenY: event.screenY };
+      const init = { ...keys, bubbles: true, cancelable: true, view: window, button: 0, detail: 1, clientX: event.clientX, clientY: event.clientY, screenX: event.screenX, screenY: event.screenY };
       target.dispatchEvent(new MouseEvent("mousedown", { ...init, buttons: 1 }));
       target.dispatchEvent(new MouseEvent("mouseup", { ...init, buttons: 0 }));
     };
@@ -709,8 +714,10 @@ export function PaneTerminal({
       // release gesture. A timer here loses clipboard permission in some browsers.
       if (d.scrolled) repaint(d);
       const released = cellAt(event).cell;
-      if (d.click && !d.scrolled && !term.hasSelection() && released.row === d.anchor.row && released.col === d.anchor.col) {
-        forwardClick(event);
+      // released on the pane it was pressed on: a pane switched meanwhile gets no click of this press
+      if (d.click && d.pane !== "" && d.pane === paneRef.current && !d.scrolled && !term.hasSelection()
+        && released.row === d.anchor.row && released.col === d.anchor.col) {
+        forwardClick(event, d.click);
         return;
       }
       if (!term.hasSelection()) return;

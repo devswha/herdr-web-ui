@@ -10,9 +10,7 @@ import { workspaceCreate, workspaceClose, paneSendText, paneSendKeys, paneRead }
 
 const root = mkdtempSync(join(tmpdir(), "herdr-arrows-clicks-"));
 const owned: string[] = [];
-const attached = createServer({ port: 0, hostname: "127.0.0.1", stateDir: join(root, "state-attached"), token: "" });
-// a PC without Node for the PTY sidecar: the pane is mirrored, and xterm never learns a mouse mode
-const mirrored = createServer({ port: 0, hostname: "127.0.0.1", stateDir: join(root, "state-mirrored"), token: "", sidecar: false });
+const servers: Array<ReturnType<typeof createServer>> = [];
 let launched: Browser | undefined;
 const errors: string[] = [];
 const evidence = process.env.UI_EVIDENCE_DIR;
@@ -92,6 +90,11 @@ async function open(browser: Browser, server: ReturnType<typeof createServer>, n
 }
 
 try {
+  const attached = createServer({ port: 0, hostname: "127.0.0.1", stateDir: join(root, "state-attached"), token: "" });
+  servers.push(attached);
+  // a PC without Node for the PTY sidecar: the pane is mirrored, and xterm never learns a mouse mode
+  const mirrored = createServer({ port: 0, hostname: "127.0.0.1", stateDir: join(root, "state-mirrored"), token: "", sidecar: false });
+  servers.push(mirrored);
   const browser = launched = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox", "--accept-lang=en-US"] });
 
   // 1. Application cursor keys: less, git log and vim ask for them, and herdr's attach stream
@@ -126,6 +129,12 @@ try {
     }
     await until(() => (got += s.received()).length >= 25, "letters and arrows received");
     assert.equal(got, "a\x1b[Db".repeat(5), "an arrow between two letters arrives between them");
+    // herdr holds a lone ESC typed into the attach pty ~150ms: an arrow right after it must wait for it
+    got = "";
+    await s.page.keyboard.press("Escape");
+    await s.page.keyboard.press("ArrowUp");
+    await until(() => (got += s.received()).length >= 4, "Escape and ArrowUp received");
+    assert.equal(got, "\x1b\x1b[A", "an arrow does not overtake the Escape before it");
     // Ctrl+arrow and Shift+arrow were never plain arrows: they keep the path they had
     const before = s.frames.length;
     await s.page.keyboard.press("Control+ArrowLeft");
@@ -137,7 +146,7 @@ try {
 
   // 3. A click reaches a program that reads the mouse; a drag and a modifier-click still select.
   {
-    const s = await open(browser, attached, "mouse", "\\033[?1049h\\033[?1000h\\033[?1006h");
+    const s = await open(browser, attached, "mouse", "\\033[?1049h\\033[?1000h\\033[?1006hhttps://example.test/621\\r\\n");
     const at = await s.point(100, 70);
     let got = "";
     const click = /\x1b\[<0;(\d+);(\d+)M[\s\S]*\x1b\[<0;(\d+);(\d+)m/;
@@ -148,6 +157,35 @@ try {
     assert.equal((got.match(/\x1b\[<0;\d+;\d+M/g) ?? []).length, 1, "one press for one click");
     assert.equal((got.match(/\x1b\[<0;\d+;\d+m/g) ?? []).length, 1, "one release for one click");
     if (evidence) await s.page.screenshot({ path: join(evidence, "click-mouse-reporting.png") });
+
+    // a link opens and is not clicked in the program as well
+    await s.page.evaluate(() => {
+      const opened: string[] = [];
+      (window as unknown as { opened: string[] }).opened = opened;
+      window.open = (url) => { opened.push(String(url)); return null; };
+    });
+    const link = await s.point(40, 6);
+    await s.page.mouse.move(link.x, link.y);
+    await until(async () => (await s.page.locator(".xterm-screen.xterm-cursor-pointer").count()) === 1, "the link is under the pointer");
+    await s.page.mouse.click(link.x, link.y);
+    await Bun.sleep(NO_SEND_WAIT_MS);
+    assert.doesNotMatch(s.received(), /\x1b\[<0;/, "a click on a link sends the program no button");
+    assert.deepEqual(await s.page.evaluate(() => (window as unknown as { opened: string[] }).opened), ["https://example.test/621"], "and opens the link once");
+
+    // the keys held with a click go with it: Ctrl adds 16 to the button
+    await s.page.keyboard.down("Control");
+    await s.page.mouse.click(at.x, at.y);
+    await s.page.keyboard.up("Control");
+    got = "";
+    await until(() => /\x1b\[<16;\d+;\d+M[\s\S]*\x1b\[<16;\d+;\d+m/.test(got += s.received()), "Ctrl+click received with Ctrl");
+
+    // a later click still arrives at its own cell: none of the above left a drag behind
+    const second = await s.point(400, 200);
+    got = "";
+    await s.page.mouse.click(second.x, second.y);
+    await until(() => click.test(got += s.received()), "a later click received");
+    const later = click.exec(got)!;
+    assert.ok(Number(later[1]) > Number(first[1]) && Number(later[2]) > Number(first[2]), "at its own cell, right of and below the first");
 
     // a drag is a selection, as before: no button report, and the dragged cells are selected
     const to = await s.point(300, 70);
@@ -167,13 +205,6 @@ try {
     await Bun.sleep(NO_SEND_WAIT_MS);
     assert.doesNotMatch(s.received(), /\x1b\[<0;/, "Shift+click sends the program no button");
 
-    // a second click still arrives: the first one left no drag behind
-    const second = await s.point(400, 200);
-    got = "";
-    await s.page.mouse.click(second.x, second.y);
-    await until(() => click.test(got += s.received()), "a later click received");
-    const later = click.exec(got)!;
-    assert.ok(Number(later[1]) > Number(first[1]) && Number(later[2]) > Number(first[2]), "at its own cell, right of and below the first");
     await s.close();
   }
 
@@ -199,9 +230,9 @@ try {
   assert.deepEqual(errors, [], "no page errors");
   console.log("terminal arrows and clicks: PASS");
 } finally {
-  await launched?.close();
-  await attached.stop();
-  await mirrored.stop();
-  for (const id of owned) await workspaceClose(id).catch(() => {});
+  // each step on its own: one that fails must not leave the rest behind
+  await launched?.close().catch((error) => console.log("browser close failed", error));
+  for (const server of servers) await Promise.resolve().then(() => server.stop()).catch((error) => console.log("server stop failed", error));
+  for (const id of owned) await workspaceClose(id).catch((error) => console.log("workspace close failed", id, error));
   rmSync(root, { recursive: true, force: true });
 }
