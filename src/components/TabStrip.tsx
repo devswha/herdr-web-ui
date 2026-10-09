@@ -26,7 +26,7 @@ import { STRIP_AT_REST, stripPlaced, stripScrolled, stripSelected, type StripScr
 import { PANE_TABPANEL_ID, paneTabPanelLabel } from "../lib/paneRegion.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
-import { knownStatus, paneStatus } from "../lib/status.ts";
+import { paneStatus, rollupStatus } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { displayPaneTitle } from "./Sidebar.tsx";
@@ -265,9 +265,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         {tabs.map((tab) => {
           const active = tab.tab_id === selectedPane.tab_id;
           const own = panesOf(tab);
-          // herdr rolls the tab up, and knows nothing of a pane waiting on its background work
-          const rolled = knownStatus(tab.agent_status);
-          const status = rolled !== "working" && rolled !== "blocked" && own.some((pane) => paneStatus(pane as HerdrPane) === "waiting") ? "waiting" : rolled;
+          // Settle each pane's wait before rolling up, so a sibling's RUN or DONE stays visible.
+          const status = rollupStatus(own.map((pane) => paneStatus(pane as HerdrPane)));
           const pickerOpen = picker?.tab.tab_id === tab.tab_id;
           const name = nameOf(tab);
           return (

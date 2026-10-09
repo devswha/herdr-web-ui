@@ -7,7 +7,7 @@ import { basename, join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, sessionSnapshot, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
-import type { WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
+import type { SessionSnapshot, WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
 import type { Machine } from "../shared/machines.ts";
 import { alertsOffMarked, alertsState, runMoreItem } from "./header-more.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
@@ -384,10 +384,21 @@ try {
   console.log("PASS Agents excludes shells, survives PC folds, selects its machine target and disables offline rows");
 
   // a turn that ended on work still running in the background reads BG, not DONE: drawn in the sidebar, and read in the composer
+  let backgroundPeer: "working" | "done" | "blocked" | "idle" | null = null;
   await page.route("**/api/machines", async (route) => {
     const response = await route.fetch();
-    const body = await response.json() as { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
-    for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { agent_status: "done", background_tasks: 1, background_wait: true });
+    const body = await response.json() as { machines: { snapshot?: SessionSnapshot }[] };
+    for (const machine of body.machines) {
+      const pane = machine.snapshot?.panes.find((pane) => pane.pane_id === paneA);
+      if (!pane || !machine.snapshot) continue;
+      Object.assign(pane, { agent_status: "done", background_tasks: 1, background_wait: true });
+      if (backgroundPeer) {
+        const peer = { ...pane, pane_id: `${paneA}-background-peer`, agent_status: backgroundPeer, background_wait: undefined };
+        machine.snapshot.panes.push(peer);
+        const tab = machine.snapshot.tabs.find((tab) => tab.tab_id === pane.tab_id);
+        if (tab) tab.agent_status = backgroundPeer === "blocked" ? "blocked" : "done";
+      }
+    }
     await route.fulfill({ response, json: body });
   });
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -397,6 +408,14 @@ try {
   assert.equal(await waitingBadge.getAttribute("title"), "Agent waiting on background work");
   assert.equal(await waitingBadge.locator("svg").count(), 1, "BG draws the running arc, held still");
   await page.locator('.composer-status[data-status="waiting"] strong.visually-hidden', { hasText: "BG" }).waitFor();
+  for (const peer of ["working", "done", "blocked", "idle"] as const) {
+    backgroundPeer = peer;
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    const expected = peer === "idle" ? "waiting" : peer;
+    await page.locator(`.tab-strip-tab[aria-selected="true"] .tab-strip-dot[data-status="${expected}"]`).waitFor();
+  }
+  backgroundPeer = null;
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   await openSettingsPage(page, "Appearance");
   const quietFinishes = page.getByRole("switch", { name: "Quiet opened finishes", exact: true });
