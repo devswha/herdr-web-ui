@@ -55,6 +55,15 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
         }
       }
       Object.assign(window, { AudioContext: RecordingAudioContext });
+      // `slowChimed` makes this tab confirm its chimes late, as one whose audio waits behind another
+      const post = BroadcastChannel.prototype.postMessage;
+      BroadcastChannel.prototype.postMessage = function (message: unknown) {
+        if ((window as unknown as { slowChimed?: boolean }).slowChimed && (message as { type?: string } | null)?.type === "chimed") {
+          setTimeout(() => post.call(this, message), 1_000);
+          return;
+        }
+        post.call(this, message);
+      };
       // A visible working badge can come from a roster snapshot before the collector has
       // subscribed to these newly created panes. Observe a real status event before testing alerts.
       const statuses: Record<string, string> = {};
@@ -239,6 +248,21 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     await noSecondChime(frontBefore);
     assert.deepEqual(await counts(), [frontBefore[0], frontBefore[1]! + 2], "tab B tells a question in front of tab A");
     console.log("PASS the other tab tells a question in front of the first tab");
+
+    // The winning tab's confirmation comes a second late: the other tab waits for it instead of
+    // chiming the same question again.
+    await Promise.all(tabs.map(quiet));
+    await report(thirdPane, "working");
+    await Promise.all(tabs.map((tab) => seen(thirdPane, "working", tab)));
+    await Promise.all(tabs.map((tab) => tab.evaluate(() => { (window as unknown as { slowChimed: boolean }).slowChimed = true; })));
+    const slowBefore = await counts();
+    await report(thirdPane, "blocked");
+    await Promise.all(tabs.map((tab) => seen(thirdPane, "blocked", tab)));
+    await Promise.any(tabs.map((tab, index) => tab.waitForFunction((count) =>
+      (window as unknown as { chimes: number[] }).chimes.length > count, slowBefore[index], { timeout: 5_000 })));
+    await noSecondChime(slowBefore);
+    assert.equal((await heard()) - slowBefore.reduce((sum, count) => sum + count, 0), 2, "one chime when the winner confirms late");
+    console.log("PASS a winner that confirms late is not chimed over by the other tab");
 
     assert.deepEqual(errors, []);
   } finally {

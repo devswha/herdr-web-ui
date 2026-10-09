@@ -137,6 +137,63 @@ describe("alert turns with a local clock", () => {
     expect(a.tick(1_630)).toEqual([play]);
   });
 
+  it("takes another tab's chime of the pane's next question although it chimed the first one itself", () => {
+    const a = new AlertTurns("a");
+    const b = new AlertTurns("b");
+    // b alone chimed the pane's first question
+    b.start(key, "blocked", 0);
+    expect(b.tick(150)).toEqual([play]);
+    b.finish(key, true, 150);
+    // the pane asks again; both tabs take part now, and a is the lower one
+    a.start(key, "blocked", 800);
+    b.start(key, "blocked", 800);
+    a.receive({ ...claim, tab: "b" }, 801);
+    b.receive(claim, 801);
+    expect(a.tick(950)).toEqual([play]);
+    expect(b.tick(950)).toEqual([]);
+    b.receive(a.finish(key, true, 950)[0]!, 951);
+    // a told it: b's rescue must not chime it a second time
+    expect(b.tick(10_000)).toEqual([]);
+  });
+
+  it("waits for a winner that is playing, however long its audio waits, and chimes once", () => {
+    for (const kind of ["blocked", "done"] as const) {
+      const a = new AlertTurns("a");
+      const b = new AlertTurns("b");
+      a.start(key, kind, 0);
+      b.start(key, kind, 0);
+      a.receive({ ...claim, tab: "b", kind }, 1);
+      b.receive({ ...claim, kind }, 1);
+      expect(a.tick(150)).toEqual([{ ...play, kind }]);
+      expect(b.tick(150)).toEqual([]);
+      // a's audio waits behind a chime it still plays: it says so before it starts
+      b.receive(a.announce(key, kind), 151);
+      expect(b.tick(750)).toEqual([]);
+      expect(b.tick(1_400)).toEqual([]);
+      b.receive(a.finish(key, true, 1_400)[0]!, 1_401);
+      expect(b.tick(10_000)).toEqual([]);
+    }
+  });
+
+  it("still rescues an alert whose winner said it was playing and then went silent", () => {
+    const b = new AlertTurns("b");
+    b.start(key, "done", 0);
+    b.receive({ ...claim, kind: "done" }, 1);
+    b.tick(150);
+    b.receive({ ...claim, type: "playing", kind: "done" }, 151);
+    expect(b.tick(5_150)).toEqual([]);
+    expect(b.tick(5_151)).toEqual([{ ...play, kind: "done" }]);
+  });
+
+  it("redecides at once when a winner that said it was playing withdraws", () => {
+    const b = new AlertTurns("b");
+    b.start(key, "blocked", 0);
+    b.receive(claim, 1);
+    b.tick(150);
+    b.receive({ ...claim, type: "playing" }, 151);
+    expect(b.receive({ ...claim, type: "withdraw" }, 300)).toEqual([play]);
+  });
+
   it("lets a third tab wait for the second one's rescue instead of chiming with it", () => {
     const c = new AlertTurns("c");
     c.start(key, "blocked", 0);

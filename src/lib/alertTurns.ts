@@ -3,12 +3,14 @@ import type { AlertSoundKind } from "./alertSound.ts";
 const WINDOW_MS = 150;
 const LOOKBACK_MS = 1_500;
 const RESCUE_MS = 600;
+/** a winner that said it plays can wait behind its own chime this long before another tab rescues */
+const PLAYING_HOLD_MS = 5_000;
 /** a chime another tab played this long before this tab heard the alert was for the same one */
 const CHIMED_BEFORE_MS = 400;
 const CHANNEL = "herdr-web-ui:alert-turns";
 
 export interface AlertTurnMessage {
-  type: "claim" | "chimed" | "withdraw";
+  type: "claim" | "playing" | "chimed" | "withdraw";
   tab: string;
   key: string;
   kind: AlertSoundKind;
@@ -23,6 +25,8 @@ export class AlertTurns {
   private pending = new Map<string, Pending>();
   /** when this tab last played each alert: another tab's chime of it soon after is a late duplicate */
   private played = new Map<string, number>();
+  /** when another tab said it plays each alert: its chime can wait behind one it still plays */
+  private announced = new Map<string, number>();
   constructor(private tab: string) {}
 
   start(key: string, kind: AlertSoundKind, now: number): AlertTurnMessage[] {
@@ -45,19 +49,29 @@ export class AlertTurns {
         this.claims.set(message.key, claims);
         return [];
       }
+      case "playing": {
+        this.announced.set(message.key, now);
+        const pending = this.pending.get(message.key);
+        if (pending?.rescue && Number.isFinite(pending.due)) pending.due = Math.max(pending.due, now + PLAYING_HOLD_MS);
+        return [];
+      }
       case "chimed":
         // A tab that heard the alert late chimed it again after this one did. That duplicate
         // tells nothing new, and taking it for a chime could silence the pane's next question.
-        if (this.played.has(message.key)) return [];
+        // While this tab waits on the pane's next alert, though, a chime is that alert's, or
+        // ignoring it would let this tab's rescue chime it a second time.
+        if (this.played.has(message.key) && !this.pending.has(message.key)) return [];
         this.chimed.set(message.key, now);
         // that alert is settled: its claims must not defer the pane's next one
         this.claims.delete(message.key);
+        this.announced.delete(message.key);
         // Cancel the actual pending turn, not just its short-lived lookback. A suspended
         // tab may not get its timer back until long after the lookback has expired.
         this.pending.delete(message.key);
         return [];
       case "withdraw": {
         this.claims.get(message.key)?.delete(message.tab);
+        this.announced.delete(message.key);
         const pending = this.pending.get(message.key);
         if (pending?.rescue && Number.isFinite(pending.due) && !this.lowerClaim(message.key)) pending.due = now;
         return this.tick(now);
@@ -74,13 +88,18 @@ export class AlertTurns {
         // A finish waits like a question: the winning tab may not be able to play it.
         // Each lower claimant gets its own turn first, so two deferring tabs never rescue together.
         pending.rescue = true;
-        pending.due = now + RESCUE_MS * this.lowerClaims(key);
+        pending.due = now + Math.max(RESCUE_MS * this.lowerClaims(key), this.announced.has(key) ? PLAYING_HOLD_MS : 0);
         continue;
       }
       pending.due = Infinity; // awaiting the local player's result
       plays.push({ type: "play", key, kind: pending.kind });
     }
     return plays;
+  }
+
+  /** Said before this tab's audio starts: a tab waiting on it then waits for its chime or withdrawal. */
+  announce(key: string, kind: AlertSoundKind): AlertTurnMessage {
+    return { type: "playing", tab: this.tab, key, kind };
   }
 
   finish(key: string, played: boolean, now: number): AlertTurnMessage[] {
@@ -99,6 +118,7 @@ export class AlertTurns {
     this.claims.clear();
     this.chimed.clear();
     this.played.clear();
+    this.announced.clear();
     return messages;
   }
 
@@ -125,12 +145,13 @@ export class AlertTurns {
     }
     for (const [key, at] of this.chimed) if (now - at > LOOKBACK_MS) this.chimed.delete(key);
     for (const [key, at] of this.played) if (now - at > LOOKBACK_MS) this.played.delete(key);
+    for (const [key, at] of this.announced) if (now - at > PLAYING_HOLD_MS) this.announced.delete(key);
   }
 }
 
 function isMessage(value: unknown): value is AlertTurnMessage {
   if (!value || typeof value !== "object") return false;
-  return "type" in value && typeof value.type === "string" && ["claim", "chimed", "withdraw"].includes(value.type)
+  return "type" in value && typeof value.type === "string" && ["claim", "playing", "chimed", "withdraw"].includes(value.type)
     && "tab" in value && typeof value.tab === "string"
     && "key" in value && typeof value.key === "string"
     && "kind" in value && (value.kind === "blocked" || value.kind === "done");
@@ -159,6 +180,7 @@ export function createAlertTurnPlayer(options: {
     for (const { key, kind } of plays) {
       const attempt = {};
       playing.set(key, attempt);
+      send([turns.announce(key, kind)]);
       const finish = (played: boolean) => {
         // A queued question can start later. Its result belongs to this claim only,
         // never to a new claim for the same pane after pagehide or another chime.
