@@ -8,6 +8,23 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Conversation history": "会話履歴",
+  "Close conversation history": "会話履歴を閉じる",
+  "Search conversations": "会話を検索",
+  "Saved conversations": "保存された会話",
+  "No saved conversations": "保存された会話はありません",
+  "Open conversation": "開いている会話",
+  "Closed conversation": "終了した会話",
+  "Conversation unavailable": "会話を読み込めません",
+  "Select a saved conversation": "保存された会話を選択してください",
+  "Resume conversation": "会話を再開",
+  "Back to conversations": "会話一覧に戻る",
+  "This conversation has no messages yet": "この会話にはまだメッセージがありません",
+  "Saved reasoning": "保存された思考",
+  "Saved image": "保存された画像",
+  "Load saved output": "保存された出力全体を表示",
+  "Load earlier messages": "以前のメッセージを読み込む",
+  "This saved message could not be displayed.": "この保存されたメッセージを表示できませんでした。",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Direct typing": "直接入力",

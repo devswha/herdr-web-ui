@@ -22,6 +22,7 @@ bun scripts/sticky-modifiers-regression.ts
 bun scripts/key-bar-customization-demo-regression.ts
 bun scripts/settings-pages-demo-regression.ts
 bun scripts/chat-history-browser-qa.ts
+bun scripts/conversation-history-regression.ts
 bun scripts/math-browser-qa.ts
 bun scripts/file-viewer-regression.ts
 bun scripts/keyboard-viewport-regression.ts

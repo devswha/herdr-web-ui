@@ -194,6 +194,39 @@ or **Discard**. A message is never pasted over text typed in Claude Code's own i
 that box holds a draft the message stays in the list with the reason, and **Send now** delivers it
 once the draft is sent or cleared in the terminal.
 
+## Conversation history
+
+Open **Conversation history** in the sidebar footer for the selected PC. Search by title,
+folder, agent or session ID, select a conversation to read it, and use **Load earlier messages**
+or **Load saved output** for more. Reading never starts an agent and needs no live pane.
+The local library remains readable while herdr is stopped; a remote PC's bridge must be reachable.
+
+The library stores references, not copies of conversations. It discovers top-level OmO native
+sessions in the bridge's configured OmO store and remembers observed Claude Code, Codex, omp,
+pi and gjc transcript files in their supported stores. Files that move, disappear or change
+identity remain listed as unavailable. This is not a backup, a full-text search index or an
+import of every agent's past sessions. OpenCode and Devin use databases: their live Chat
+readers still work, but **their closed-session archives are not supported here**. Profile
+stores outside the history adapter's configured roots are not imported.
+
+**Open pane** reuses the exact native conversation already running on this PC. **Resume
+conversation** launches a closed OmO conversation in a new workspace at its original folder,
+with its validated absolute native session file. Concurrent requests join that launch.
+Other agents' closed conversations are read-only; no approximate cwd or newest-file match
+is used to launch them.
+
+Managed bridges also remember which OmO sessions were open. Only a **new herdr boot**, not a
+browser reload or Web UI restart, can automatically restore them. Recovery requires the
+original pane and workspace, the original working directory, a replacement terminal, a
+proven idle interactive shell and an empty recognizable shell prompt. Missing panes remain
+pending; busy programs, shell drafts and unrecognized prompts are left alone. A recorded
+attempt is never replayed during the same boot. Explicitly closed panes stay closed, and
+failed automatic recovery can be resumed manually into a new workspace.
+
+History uses the same PC and authentication boundaries as the rest of the app. Watch devices
+cannot browse or resume saved conversations. Resume additionally requires the app's
+same-origin and custom-header gates.
+
 ## Subscription usage
 
 On a local desktop pane, the composer shows a compact read-only limit for the agent's provider:

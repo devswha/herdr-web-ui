@@ -548,6 +548,21 @@ One set for both themes: the card is island black wherever it shows.
   the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
   note is dim, red for an expired sign-in or a failed request.
 
+### Conversation history dialog
+- The sidebar footer opens the selected PC's library, including with no selected pane.
+  Watch devices have no history action. The dialog names the PC, and all requests remain
+  bound to it until the dialog closes.
+- Desktop uses two columns: a searchable, independently scrolling list and a read-only
+  transcript. At `<=768px` selection replaces the list with the preview; **Back to
+  conversations** returns to the list. Both use the existing modal, chat and theme tokens.
+- Reading, paging, image links and full tool output do not attach a terminal or open
+  arbitrary file paths. **Open pane** reuses a live session; **Resume conversation** is
+  available only where the server has an exact launch adapter. Unavailable records retain
+  their error rather than disappearing.
+- First focus is search; Tab stays in visible controls, Escape and scrim close the dialog,
+  and focus returns to the opener. During resume the selection and dismissal controls stay
+  disabled. Superseded reads, pages and launches cannot change another selection or PC.
+
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
   the selected pane cwd and name is an optional workspace label.

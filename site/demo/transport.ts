@@ -15,6 +15,7 @@ import type { AgentStatus, ConversationTurn, Machine, MachineEvent, PendingMessa
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
+import { createDemoHistory } from "./history.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
 import commandsFixture from "./fixtures/commands.json";
@@ -188,6 +189,13 @@ function closeDemoWorkspaces(ids: Set<string>): void {
   snap.workspaces.forEach((workspace, index) => { workspace.number = index + 1; workspace.focused = workspace.workspace_id === snap.focused_workspace_id; });
 }
 
+const demoHistory = createDemoHistory((record, turns) => {
+  const made = createDemoWorkspace(record.cwd, record.title, "omo");
+  chats.set(made.pane_id, { turns, metadata: { model: "demo-model", reasoning_effort: "medium" } });
+  structureChanged();
+  return { pane_id: made.pane_id, workspace_id: made.workspace_id };
+}, (paneId) => snapshot().panes.some((pane) => pane.pane_id === paneId));
+
 const sseListeners = new Set<SseListener>();
 const sockets = new Set<DemoSocket>();
 
@@ -322,6 +330,8 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   const path = url.pathname;
   const query = url.searchParams;
   const paneId = query.get("pane_id") ?? "";
+  const history = demoHistory(url, method);
+  if (history) return history;
 
   if (path === "/api/health") {
     const auth = { required: false, authenticated: true };

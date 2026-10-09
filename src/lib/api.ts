@@ -35,6 +35,29 @@ import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
 
+import type { ConversationHistoryResponse, ResumeConversationResponse } from "../../shared/conversation-history.ts";
+
+export function fetchConversationHistory(machineId = "local"): Promise<ConversationHistoryResponse> {
+  return getJson<ConversationHistoryResponse>(machinePath(machineId, "conversations"));
+}
+
+export function fetchSavedConversation(id: string, machineId = "local", before?: string): Promise<ConversationResponse> {
+  const query = before === undefined ? "" : `?${new URLSearchParams({ before })}`;
+  return getJson<ConversationResponse>(machinePath(machineId, `conversations/${encodeURIComponent(id)}${query}`));
+}
+
+export async function resumeConversation(id: string, machineId = "local"): Promise<ResumeConversationResponse> {
+  return (await sendJson(machinePath(machineId, `conversations/${encodeURIComponent(id)}/resume`), "POST", {})).json();
+}
+
+export function savedConversationImageUrl(id: string, ref: string, machineId = "local"): string {
+  return machinePath(machineId, `conversations/${encodeURIComponent(id)}/image?${new URLSearchParams({ ref })}`);
+}
+
+export function fetchSavedToolOutput(id: string, ref: string, machineId = "local"): Promise<{ output: string }> {
+  return getJson<{ output: string }>(machinePath(machineId, `conversations/${encodeURIComponent(id)}/tool-output?${new URLSearchParams({ ref })}`));
+}
+
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
   return getJson<RemoteAccess>("/api/access");

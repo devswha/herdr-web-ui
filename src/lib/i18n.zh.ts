@@ -10,6 +10,23 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Conversation history": "对话记录",
+  "Close conversation history": "关闭对话记录",
+  "Search conversations": "搜索对话",
+  "Saved conversations": "已保存的对话",
+  "No saved conversations": "没有已保存的对话",
+  "Open conversation": "打开的对话",
+  "Closed conversation": "已结束的对话",
+  "Conversation unavailable": "无法读取对话",
+  "Select a saved conversation": "请选择已保存的对话",
+  "Resume conversation": "继续对话",
+  "Back to conversations": "返回对话列表",
+  "This conversation has no messages yet": "此对话尚无消息",
+  "Saved reasoning": "已保存的思考过程",
+  "Saved image": "已保存的图片",
+  "Load saved output": "查看已保存的完整输出",
+  "Load earlier messages": "加载更早的消息",
+  "This saved message could not be displayed.": "无法显示这条已保存的消息。",
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Direct typing": "直接输入",

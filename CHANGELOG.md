@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **Conversation history** keeps PC-scoped references to supported native transcript files:
+  search their titles, folders and session IDs, read earlier messages, images and tool output
+  after panes close, reopen exact live sessions, or explicitly resume closed OmO sessions.
+  Previously open OmO sessions can recover after a new herdr boot into their original,
+  verified idle shell. OpenCode and Devin database archives are not included.
+
 ### Fixed
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
