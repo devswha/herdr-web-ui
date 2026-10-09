@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The sidebar's Agents list puts each workspace's agents in a card under the workspace's name,
+  so agents working in the same workspace read as one group. The rows no longer repeat the
+  workspace on their second line; their tooltips still name it. A list in Activity order stays
+  as it was, since it mixes workspaces.
+
 ## [0.4.3] - 2026-10-09
 
 ### Fixed

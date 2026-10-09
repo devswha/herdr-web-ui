@@ -101,16 +101,33 @@ export interface AgentContextParts {
   machineName: string | null;
   workspaceLabel: string;
   tabName: string | null;
+  /** the row sits under a head that names its PC and workspace, so the line leaves them to it */
+  grouped?: boolean;
 }
 
 /** An agent row's second line: who it is, then where it runs, without repeating a word the row already says. */
-export function agentContext({ agentLabel, title, machineName, workspaceLabel, tabName }: AgentContextParts): string[] {
+export function agentContext({ agentLabel, title, machineName, workspaceLabel, tabName, grouped = false }: AgentContextParts): string[] {
   const agent = nonblank(agentLabel);
   const tab = nonblank(tabName);
   return [
     agent && agent !== title.trim() ? agent : null,
-    nonblank(machineName),
-    workspaceLabel,
+    grouped ? null : nonblank(machineName),
+    grouped ? null : workspaceLabel,
     tab && tab !== workspaceLabel ? tab : null,
   ].filter((part): part is string => Boolean(part));
+}
+
+/**
+ * Rows gathered by `keyOf`, each group at its first row's place. In herdr's order a workspace's
+ * agents already sit together, so the Agents list's workspace groups keep that order.
+ */
+export function groupRows<T>(rows: readonly T[], keyOf: (row: T) => string): Array<{ key: string; rows: T[] }> {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
+  }
+  return [...groups].map(([key, members]) => ({ key, rows: members }));
 }

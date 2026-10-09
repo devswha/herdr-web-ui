@@ -19,7 +19,8 @@ The sidebar is one grid: a leading cell that says who or what a row is (the codi
 mark, else the place's own glyph), a title, and a trailing cell that says how it is. Workspaces
 and Agents are independent lists, as in herdr's Spaces and Agents panels; tab and pane navigation
 stays over the terminal and in the palette. Sections are parted by space and a dim head, never by
-a rule. Hover and selection are one neutral fill at two strengths. Brand marks are the only color
+a rule; the Agents list's workspace cards are an edge around rows, not a line between sections.
+Hover and selection are one neutral fill at two strengths. Brand marks are the only color
 there that is not a state, and a ready row draws no state at all. Amber connects focus, the chosen
 lens glyph and the terminal cursor.
 
@@ -475,6 +476,16 @@ One set for both themes: the card is island black wherever it shows.
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
+- In the **Workspaces** order the Agents list puts each workspace's agents on a PC in a card,
+  a workspace with one agent included: a `--hairline` `--border` edge with `--radius-lg`, `--space-1`
+  inside and `--space-2` between cards, and no fill, so a row's hover and selection read as they do
+  outside it. The card opens with a `--space-6` line in `--text-dim` `--fs-xs`: a `--space-4`
+  folder in the leading cell, then the workspace's name, after the PC's when two or more PCs are
+  registered (`machine · workspace`). The line is the card's name, not a control. A row in a card
+  leaves the PC and the workspace out of its dim line (`agentContext` with `grouped`); its tooltip
+  still names them, and the card's list is labelled by its head for screen readers. The head of
+  a disconnected PC's card dims with its rows. **Activity** mixes workspaces, so it draws no cards
+  and every row names its own place.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's
   height and type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
@@ -487,7 +498,8 @@ One set for both themes: the card is island black wherever it shows.
   workspace, tab and pane order. **Activity** pins a blocked agent on top and orders the rest by
   their most recent state change (herdr's `state_change_seq`, read from the snapshot's `agents`),
   within each PC, so the agent just worked in stays on top while it runs and after it finishes.
-  It changes only the Agents list; herdr's order and the workspace rows stay as they are.
+  It changes only the Agents list, which then draws no workspace cards; herdr's order and the
+  workspace rows stay as they are.
 - Appearance's **Quiet opened finishes** is off by default. herdr reports DONE until one of its
   own clients shows the pane, so an agent opened here would keep its finished dot. On, a DONE
   opened here (selected while the page is visible) since it finished draws as ready in the
