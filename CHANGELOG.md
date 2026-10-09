@@ -17,6 +17,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and it keeps showing the pane read-only (drawn at herdr's size) until you click it to type again.
   A server older than this one pauses the tab instead.
   ([#699](https://github.com/devswha/herdr-web-ui/pull/699), [#700](https://github.com/devswha/herdr-web-ui/pull/700))
+- Remote PCs use runtime bundle v24 for these fixes. Choose **Update bridge…** once on each
+  connected PC after updating the app. ([#711](https://github.com/devswha/herdr-web-ui/pull/711))
 
 ### Fixed
 - Claude background counts reread concurrent transcript appends and replaced transcript files
