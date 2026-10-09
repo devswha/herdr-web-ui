@@ -1,4 +1,5 @@
 import type { SshTarget } from "../shared/machines.ts";
+import { DEVICE_COOKIE, parseCookies, TOKEN_COOKIE } from "./auth.ts";
 
 export function shellQuote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'`; }
 
@@ -17,7 +18,23 @@ export function sameOrigin(request: Request): boolean {
   const site = request.headers.get("sec-fetch-site");
   if (site && site !== "same-origin" && site !== "none") return false;
   const origin = request.headers.get("origin");
-  if (!origin) return true; // CLI clients still need the custom mutation header + token.
+  if (!origin) {
+    // No Origin at all. A browser always attaches one to a cross-origin state-changing
+    // request, so a session or device cookie arriving without one is a header that went
+    // missing or a non-browser client, not a same-origin page: it is read as cross-site.
+    // Two ways it is still admitted, both of which a forged browser request cannot use. A
+    // non-browser client can prove itself with the custom mutation header — a cross-site
+    // page cannot send both the victim's cookie and that header without a CORS preflight
+    // this server never answers. And three paths are reachable by a cookie-bearing client
+    // that can state no origin at all: the WebSocket upgrade, which a browser cannot attach
+    // the header to, and the two endpoints that touch only the requesting device's own
+    // session.
+    const cookies = parseCookies(request.headers.get("cookie"));
+    if (!cookies.has(TOKEN_COOKIE) && !cookies.has(DEVICE_COOKIE)) return true; // CLI clients
+    if (request.headers.get("x-herdr-machine") === "1") return true;
+    const { pathname } = new URL(request.url);
+    return pathname === "/ws" || pathname === "/api/auth" || pathname === "/api/push/subscribe";
+  }
   try {
     const expected = new URL(request.url);
     // Reverse proxies commonly terminate HTTPS; do not trust arbitrary forwarded hosts.
