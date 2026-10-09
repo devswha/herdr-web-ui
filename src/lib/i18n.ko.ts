@@ -121,6 +121,7 @@ export const KO: Record<string, string> = {
   "soon": "준비 중",
   "Live terminal is coming to Windows PCs: herdr cannot attach a terminal there yet. The chat lens works now.": "Windows PC의 실시간 터미널은 준비 중입니다. herdr가 아직 Windows에서 터미널 attach를 지원하지 않습니다. 채팅은 지금 바로 쓸 수 있습니다.",
   "Terminal": "터미널",
+  "Terminal for {title}": "{title} 터미널",
   "locked — the token gate is asking again": "잠김 — 토큰 게이트가 다시 물었습니다",
   "herdr {version} · protocol {protocol}": "herdr {version} · 프로토콜 {protocol}",
   "live": "연결됨",

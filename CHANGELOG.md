@@ -25,6 +25,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   changed"), an approval whose long command pushed its title off the screen, and a question whose
   typed-answer row already holds a draft.
   ([#614](https://github.com/devswha/herdr-web-ui/pull/614) by @Haeminway1)
+- The terminal announces itself: it is a labelled region named after the pane — "Terminal for
+  Idempotent payments" — so a screen reader names the pane before its content. xterm draws the
+  screen to a canvas and carries no accessible name, so before this a reader reaching the
+  terminal found an unnamed control.
 
 ## [0.4.2] - 2026-10-09
 

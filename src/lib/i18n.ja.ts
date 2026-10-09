@@ -123,6 +123,7 @@ export const JA: Record<string, string> = {
   "soon": "近日",
   "Live terminal is coming to Windows PCs: herdr cannot attach a terminal there yet. The chat lens works now.": "Windows PC のライブターミナルは準備中です。herdr はまだ Windows でターミナルをアタッチできません。チャットは今すぐ使えます。",
   "Terminal": "ターミナル",
+  "Terminal for {title}": "{title} のターミナル",
   "locked — the token gate is asking again": "ロック中 — トークンゲートが再度確認しています",
   "herdr {version} · protocol {protocol}": "herdr {version} · プロトコル {protocol}",
   "live": "接続中",
