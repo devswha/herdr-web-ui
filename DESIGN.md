@@ -951,6 +951,16 @@ One set for both themes: the card is island black wherever it shows.
 - Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints resolved from this browser's shortcut settings; disabled bindings have no hint.
 
+### File viewer text (`.file-viewer-code`)
+- A text file shows numbered lines in `--font-mono` `--fs-xs` on `--bg-panel`, wrapped under their
+  own text; the numbers are `--text-dim` and stay out of a copy. The plain lines show at once, and
+  highlight.js colors them once its chunk has loaded, where it knows the language from the name.
+- Syntax takes the palette's own tokens, so every theme and palette has it with no colors of its
+  own: keywords and markup names `--accent`, strings `--status-done`, numbers and literals
+  `--status-blocked`, types, built-ins, attributes and properties `--status-working`, function and
+  class titles `--text-strong`, comments (italic), tags and meta `--text-dim`. Here those hues
+  mark kinds of code, not agent states.
+
 ### Settings dialog
 - A Settings shortcut opened over a file preview places Settings above it (`--z-modal + 2`, one
   above the preview). Settings owns Escape until it closes; the preview keeps its history entry

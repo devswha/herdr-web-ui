@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Download, ExternalLink, X } from "lucide-react";
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -6,6 +6,7 @@ import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import type { FileInfo } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
 import { formatBytes } from "../lib/bridgeProgress.ts";
+import { codeLanguage, escapeHtml, normalizeNewlines, numberedLinesHtml, splitMarkupLines } from "../lib/codeView.ts";
 import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
@@ -15,6 +16,43 @@ import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
 /** Text shows its first part: the rest is a download away. */
 const TEXT_PREVIEW_BYTES = 256 * 1024;
+
+type Highlighter = typeof import("highlight.js/lib/common").default;
+/** highlight.js is its own chunk (lib/highlight.ts), loaded with the first file that has a language. */
+let highlighterLoad: Promise<Highlighter> | null = null;
+
+function loadHighlighter(): Promise<Highlighter> {
+  highlighterLoad ??= import("../lib/highlight.ts").then((module) => module.default).catch((reason: unknown) => {
+    // a chunk that failed to load (offline, or the app was updated) is tried again with the next file
+    highlighterLoad = null;
+    throw reason;
+  });
+  return highlighterLoad;
+}
+
+/** A text file's start, numbered by line: plain at once, then colored when highlight.js knows its language. */
+function CodeText({ name, text }: { name: string; text: string }) {
+  const source = useMemo(() => normalizeNewlines(text), [text]);
+  const plain = useMemo(() => splitMarkupLines(escapeHtml(source)), [source]);
+  const [colored, setColored] = useState<string[] | null>(null);
+  useEffect(() => {
+    const language = codeLanguage(name);
+    if (language === null) return;
+    let cancelled = false;
+    loadHighlighter().then((hljs) => {
+      if (cancelled || hljs.getLanguage(language) === undefined) return;
+      setColored(splitMarkupLines(hljs.highlight(source, { language, ignoreIllegals: true }).value));
+    }).catch(() => { /* the plain lines stay */ });
+    return () => { cancelled = true; };
+  }, [name, source]);
+  const lines = colored ?? plain;
+  const html = useMemo(() => numberedLinesHtml(lines), [lines]);
+  return (
+    <pre className="file-viewer-text file-viewer-code" style={{ "--line-digits": String(lines.length).length } as CSSProperties}>
+      <code dangerouslySetInnerHTML={{ __html: html }} />
+    </pre>
+  );
+}
 
 export interface FileViewerProps {
   /** absolute, `~/…`, or relative to the pane's folder */
@@ -108,7 +146,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
-          <pre className="file-viewer-text">{text}</pre>
+          <CodeText key={info.path} name={info.name} text={text} />
           {info.size > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(info.size) })}</p>}
         </>;
       default:

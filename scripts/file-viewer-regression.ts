@@ -29,6 +29,8 @@ writeFileSync(standIn, "#!/bin/sh\nsleep 600\n");
 chmodSync(standIn, 0o755);
 copyFileSync(join(import.meta.dir, "fixtures", "file-preview.webm"), join(root, "preview.webm"));
 writeFileSync(join(root, "notes.txt"), "File preview history regression\n");
+const code = "/* a comment\n   over two lines */\nconst answer = 42;\n";
+writeFileSync(join(root, "answer.ts"), code);
 let workspace: string | undefined;
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
@@ -291,6 +293,25 @@ try {
   await page.locator(".file-viewer-text").waitFor();
   assert.match(await page.locator(".file-viewer-text").innerText(), /File preview history regression/);
   console.log("PASS Chat plain file URI opens content through touch");
+  await page.locator(".file-viewer-header button").click();
+  await page.locator(".file-viewer").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "folder", exact: true }).tap();
+  await page.locator(".file-viewer .dir-browser").getByRole("button", { name: /answer.ts/ }).tap();
+  const lines = page.locator(".file-viewer-code .file-viewer-line");
+  await lines.locator(".hljs-keyword").waitFor();
+  assert.equal(await lines.count(), 3, "a line each, none after the final newline");
+  assert.equal(await lines.nth(1).locator(".hljs-comment").count(), 1, "a comment over two lines colors both");
+  assert.equal(await lines.nth(2).locator(".hljs-number").innerText(), "42");
+  // what a copy takes: the selection's text (innerText would count each line's block as a newline of its own)
+  const copied = await page.locator(".file-viewer-code code").evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+    return getSelection()!.toString();
+  });
+  assert.equal(copied, code.replace(/\n$/, ""), "a copy is the text, without the numbers");
+  console.log("PASS a source file shows numbered, colored lines");
 } finally {
   await browser?.close();
   server?.stop();

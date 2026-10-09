@@ -115,6 +115,40 @@
   overflow-wrap: anywhere;
 }
 
+/* Numbered by line (lib/codeView.ts): each line is a block holding its own newline, so a long one
+   wraps under its own text, and the number is drawn by CSS, so a copy leaves it out. */
+.file-viewer-code {
+  counter-reset: file-line;
+  tab-size: 4;
+}
+
+.file-viewer-line {
+  position: relative;
+  display: block;
+  padding-left: calc(var(--line-digits, 1) * 1ch + var(--space-4));
+  counter-increment: file-line;
+}
+
+.file-viewer-line::before {
+  content: counter(file-line);
+  position: absolute;
+  left: 0;
+  width: calc(var(--line-digits, 1) * 1ch);
+  color: var(--text-dim);
+  text-align: right;
+  user-select: none;
+}
+
+/* highlight.js classes, in the palette's own colors so every theme and palette has them */
+.file-viewer-code :is(.hljs-keyword, .hljs-doctag, .hljs-template-tag, .hljs-bullet, .hljs-name) { color: var(--accent); }
+.file-viewer-code :is(.hljs-string, .hljs-regexp, .hljs-char, .hljs-addition, .hljs-code, .hljs-meta .hljs-string) { color: var(--status-done); }
+.file-viewer-code :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-variable.constant_, .hljs-deletion) { color: var(--status-blocked); }
+.file-viewer-code :is(.hljs-built_in, .hljs-type, .hljs-title.class_, .hljs-attr, .hljs-attribute, .hljs-property, .hljs-variable.language_, .hljs-selector-class, .hljs-selector-id, .hljs-selector-attr, .hljs-selector-pseudo, .hljs-template-variable, .hljs-link) { color: var(--status-working); }
+.file-viewer-code :is(.hljs-title, .hljs-section, .hljs-selector-tag) { color: var(--text-strong); }
+.file-viewer-code :is(.hljs-comment, .hljs-quote, .hljs-meta, .hljs-tag) { color: var(--text-dim); }
+.file-viewer-code :is(.hljs-comment, .hljs-quote, .hljs-emphasis) { font-style: italic; }
+.file-viewer-code :is(.hljs-section, .hljs-strong) { font-weight: var(--fw-semibold); }
+
 .file-viewer-note {
   margin: var(--space-3) 0 0;
   color: var(--text-dim);

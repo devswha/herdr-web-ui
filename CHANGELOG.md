@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The file viewer numbers a text file's lines and colors source code by its language (from the
+  file's name), in the colors of the theme and palette. A copy still takes the text without the
+  numbers.
+
 ### Fixed
 - A web UI tab you are not using no longer resizes the pane you are using elsewhere. A window
   left open behind another app turned visible again when the screen woke, or reconnected in the
