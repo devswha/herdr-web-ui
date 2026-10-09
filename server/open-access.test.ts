@@ -86,6 +86,16 @@ describe("a paired watch device", () => {
     expect(posted.status).toBe(400);
     expect((await posted.json() as { error: { code: string } }).error.code).toBe("method_not_allowed");
   });
+
+  it("cannot reach saved conversations through local or PC aliases", async () => {
+    const id = "a".repeat(64);
+    for (const prefix of ["/api", "/api/machines/local", "/api/machines/remote"]) {
+      for (const suffix of ["", `/${id}`, `/${id}/image?ref=image`, `/${id}/tool-output?ref=output`]) {
+        expect((await asWatcher(`${prefix}/conversations${suffix}`)).status).toBe(403);
+      }
+      expect((await asWatcher(`${prefix}/conversations/${id}/resume`, "POST")).status).toBe(403);
+    }
+  });
 });
 describe("a token set: guessing it", () => {
   const TOKEN = "the-right-token-for-this-test";

@@ -6,6 +6,23 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Conversation history": "대화 기록",
+  "Close conversation history": "대화 기록 닫기",
+  "Search conversations": "대화 검색",
+  "Saved conversations": "저장된 대화",
+  "No saved conversations": "저장된 대화가 없습니다",
+  "Open conversation": "열린 대화",
+  "Closed conversation": "종료된 대화",
+  "Conversation unavailable": "대화를 읽을 수 없음",
+  "Select a saved conversation": "저장된 대화를 선택하세요",
+  "Resume conversation": "이어서 대화하기",
+  "Back to conversations": "대화 목록으로",
+  "This conversation has no messages yet": "아직 메시지가 없는 대화입니다",
+  "Saved reasoning": "저장된 사고 과정",
+  "Saved image": "저장된 이미지",
+  "Load saved output": "저장된 전체 출력 보기",
+  "Load earlier messages": "이전 메시지 불러오기",
+  "This saved message could not be displayed.": "이 저장된 메시지를 표시할 수 없습니다.",
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Direct typing": "직접 입력",

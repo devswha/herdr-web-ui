@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 
-import { handleMachineRequest } from "./machine-api.ts";
+import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
 
 // A remote bridge that answers like the local conversation route: an ETag, then 304 while unchanged.
@@ -9,6 +9,12 @@ const remote = Bun.serve({
   port: 0,
   fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path.startsWith("/api/conversations/")) return Response.json({
+      path, method: request.method,
+      authorization: request.headers.get("authorization"),
+      cookie: request.headers.get("cookie"),
+      machine: request.headers.get("x-herdr-machine"),
+    }, { headers: { "set-cookie": "remote-secret=blocked" } });
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
     if (path === "/api/fs/file") return new Response("%PDF-1.7", { headers: { "content-type": "application/pdf" } });
@@ -83,4 +89,36 @@ it("refuses a path with an empty segment instead of forwarding it as another rou
     expect((await handleMachineRequest(new Request(`http://127.0.0.1/api/machines/${path}`), manager)).status).toBe(404);
   }
   expect(asked.length).toBe(before);
+});
+
+it("allowlists saved history without opening arbitrary nested endpoints", () => {
+  const id = "a".repeat(64);
+  for (const path of ["conversations", `conversations/${id}`, `conversations/${id}/image`, `conversations/${id}/tool-output`, `conversations/${id}/resume`]) {
+    expect(MACHINE_PROXY_PATH.test(path)).toBeTrue();
+  }
+  for (const path of ["conversations/path", `conversations/${id}/unknown`, `conversations/${id}/resume/extra`, `conversations//${id}`]) {
+    expect(MACHINE_PROXY_PATH.test(path)).toBeFalse();
+  }
+});
+
+it("resumes remote history with the bridge token and synthesized header, never browser credentials", async () => {
+  const path = `/api/machines/pc1/conversations/${"a".repeat(64)}/resume`;
+  const request = new Request(`http://127.0.0.1${path}`, { method: "POST", headers: {
+    "x-herdr-machine": "1", authorization: "Bearer browser-secret", cookie: "browser-secret=private",
+  } });
+  const response = await handleMachineRequest(request, manager);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("set-cookie")).toBeNull();
+  expect(await response.json()).toEqual({
+    path: `/api/conversations/${"a".repeat(64)}/resume`, method: "POST", authorization: "Bearer remote-token",
+    cookie: null, machine: "1",
+  });
+});
+
+it("refuses remote history resume without app headers or from another origin", async () => {
+  const url = `http://127.0.0.1/api/machines/pc1/conversations/${"a".repeat(64)}/resume`;
+  expect((await handleMachineRequest(new Request(url, { method: "POST" }), manager)).status).toBe(403);
+  expect((await handleMachineRequest(new Request(url, { method: "POST", headers: {
+    "x-herdr-machine": "1", origin: "https://foreign.example",
+  } }), manager)).status).toBe(403);
 });

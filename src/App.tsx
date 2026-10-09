@@ -46,6 +46,7 @@ import { useUpdates } from "./lib/updates.ts";
 import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { TelemetryNotice } from "./components/TelemetryControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
+import { ConversationHistoryDialog } from "./components/ConversationHistoryDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useFileViewer } from "./lib/useFileViewer.ts";
@@ -224,6 +225,8 @@ export function App() {
   }, [moreOpen]);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
+  const [historyMachineId, setHistoryMachineId] = useState<string | null>(null);
+  const closeHistory = useCallback(() => setHistoryMachineId(null), []);
   const { viewing, openFile, closeFile } = useFileViewer();
   const viewFile = useCallback((path: string) => {
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
@@ -703,7 +706,7 @@ export function App() {
     [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load],
   );
 
-  useShortcuts(actions, locked === false);
+  useShortcuts(actions, locked === false && historyMachineId === null);
 
   // The header's More menu: what used to be three buttons of its own. Each item is there under
   // the condition its button had. At phone width the palette's button gives its room to the
@@ -868,7 +871,7 @@ export function App() {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onHistory={auth?.role === "watch" ? undefined : () => { setHistoryMachineId(selectedMachineId); setDrawerOpen(false); }} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
 
@@ -941,6 +944,13 @@ export function App() {
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}
+      {historyMachineId !== null && auth?.role !== "watch" && <ConversationHistoryDialog key={`history:${historyMachineId}`}
+        machineId={historyMachineId} machineName={machines.find((machine) => machine.id === historyMachineId)?.name ?? historyMachineId}
+        onClose={closeHistory} onResume={({ pane_id }) => {
+          selectTarget(historyMachineId, pane_id, "chat");
+          closeHistory();
+          void load();
+        }} />}
       {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
         <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} keyboardActive={!settingsOpen} />
       </MachineContext.Provider>}

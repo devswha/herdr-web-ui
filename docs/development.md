@@ -84,6 +84,45 @@ bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on
 
 `FILE_VIEWER_CASE=landscape-notch` selects a viewer case; `FILE_VIEWER_CSS=/path/to/before.css` compares another stylesheet. These checks use Chromium mobile emulation and synthetic safe-area/keyboard geometry; they cannot verify actual iOS Safari keyboard dismissal or notch insets. The existing `bun scripts/file-viewer-regression.ts` separately checks history with an owned herdr pane. The original `scripts/mobile-viewport-regression.ts` exports `checkMobileViewport` for the real-app `bun run test:ui` suite; it also checks the command palette and xterm focus transitions. The demo runners build the real client into a temporary directory, inject the committed fictional-session transport and serve it only on loopback; they do not use a live herdr session or download website media. Run on its own, each builds the client itself (`scripts/demo-build.ts`); the browser lane builds it once and names the directory in `HERDR_DEMO_BUILD`, and each runner copies that instead. They exercise real-app viewport and alert geometry, but not live herdr connectivity.
 
+## Native conversation history
+
+`server/conversation-history.ts` keeps a versioned, socket-scoped reference registry under
+`stateDir` (`conversations-<socket hash>.json`), with 0700 directories and atomic 0600
+temp-file/rename writes. Opaque IDs bind socket, source, canonical path and native session ID.
+Every saved read revalidates the header and store containment. Malformed state fails closed
+without overwriting it; concurrent external registry writers are rejected.
+
+`StreamSource` is the file-backed part of the conversation contract. OpenCode and Devin
+remain DB-backed live readers and are explicitly excluded from archival; a new source must
+be handled by the exhaustive archival policy. `resolveTranscript` retains `opencodeDb` as
+its fifth argument; history's exact-only OmO lookup is a separate sixth argument. No DB path
+is passed to `transcriptPage` or `transcriptToolOutput`.
+
+Only OmO has a closed-session launch adapter. Observations and explicit resumes serialize,
+concurrent resumes share a promise, and launch claims/boot attempts are durable before input.
+Automatic recovery never creates a workspace: it verifies the restored original pane,
+workspace, cwd, terminal and shell, and refuses drafts or unknown prompts. The collector's
+existing pane-ended callback clears same-boot close intent; there is no new status subscription.
+The read-only HTTP surface refuses watch devices before either local aliases or remote proxies.
+The proxy synthesizes the resume header only for an allowlisted resume path.
+
+The earlier [issue #181](https://github.com/devswha/herdr-web-ui/issues/181), closed as not
+planned, concerns daemon archives. This proposal instead references OmO's native sessions;
+it neither restores daemon scrollback nor changes that archive policy.
+
+Targeted checks, all with fictional sessions and temporary state:
+
+```bash
+HERDR_TEST_MODE=unit bun test ./server/conversation-history.test.ts ./server/history-shell.test.ts ./server/omo.test.ts ./server/machine-proxy.test.ts ./server/open-access.test.ts ./scripts/conversation-history-demo.test.ts ./src/lib/i18n.test.ts
+bun run typecheck
+```
+
+The integration suite discovers `server/conversation-history-api.contract.test.ts` and
+`server/conversation-history.contract.test.ts`; the latter owns an isolated daemon and
+stand-in OmO executable. `scripts/ci-browser.sh` registers
+`scripts/conversation-history-regression.ts` for desktop/phone, light/dark, paging, stale
+responses and resume UI checks. Those checks require the parent CI/build lane.
+
 ## README media
 
 `bun run build && bun scripts/readme-media/capture.ts` regenerates the stills and demos in `docs/screenshots/` from a staged, fictional session in its own herdr session (`herdr-web-ui-demo`). Pass `shots` or `video` to redo only one of them. It needs ffmpeg.

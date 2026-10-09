@@ -200,3 +200,29 @@ it("names a cwd's session folder as omo's engine does, a Windows cwd included", 
   expect(omoSessionFolder("C:\\Users\\me\\dev\\app")).toBe("--C--Users-me-dev-app--");
   expect(omoSessionFolder("C:/Users/me/app")).toBe("--C--Users-me-app--");
 });
+
+it("history's exact-only lookup refuses even a unique creation-time match", () => {
+  expect(selectOmoTranscript("a", files, [runtime("a")], 20_000, false)).toBe("/fresh.jsonl");
+  expect(selectOmoTranscript("a", files, [runtime("a")], 20_000, true)).toBeNull();
+  expect(selectOmoTranscript("a", files, [runtime("a", 10_000, ["/fresh.jsonl"])], 20_000, true)).toBe("/fresh.jsonl");
+});
+
+it("history accepts a native holder only in its trusted store", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-history-omo-")));
+  try {
+    const cwd = join(root, "project"), home = join(root, "home"), agentDir = join(root, "agent");
+    const dir = join(agentDir, "sessions", omoSessionFolder(cwd));
+    mkdirSync(dir, { recursive: true });
+    const id = "history-exact", path = join(dir, `2026-10-09T00-00-00-000Z_${id}.jsonl`);
+    writeFileSync(path, JSON.stringify({ type: "session", id, cwd, timestamp: "2026-10-09T00:00:00Z" }) + "\n");
+    const current: HerdrPane = { pane_id: "owned", workspace_id: "workspace", tab_id: "tab", terminal_id: "terminal",
+      cwd, agent: "omo", agent_status: "idle", focused: false, revision: 1 };
+    const infos = new Map([[current.pane_id, { process_info: { foreground_processes: [{ pid: process.pid, argv: ["/opt/omo"] }] } }]]);
+    const options = { agentDir, exactOnly: true };
+    expect(omoTranscriptsOfCwd(cwd, [current], infos, home, () => [], options).get(current.pane_id)?.path).toBeNull();
+    const holders = join(dir, "session-holders", id);
+    mkdirSync(holders, { recursive: true });
+    writeFileSync(join(holders, `${process.pid}.json`), JSON.stringify({ pid: process.pid, processStartedAtMs: processStartedAt(process.pid) ?? 0 }));
+    expect(omoTranscriptsOfCwd(cwd, [current], infos, home, () => [], options).get(current.pane_id)?.path).toBe(path);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

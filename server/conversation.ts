@@ -432,7 +432,7 @@ export type RecognizedConversation = {
 };
 
 /** The stores read as one append-only file: OpenCode's and Devin's databases are paged by opencode.ts and devin.ts. */
-type StreamSource = Exclude<RecognizedConversation["source"], "opencode-transcript" | "devin-transcript">;
+export type StreamSource = Exclude<RecognizedConversation["source"], "opencode-transcript" | "devin-transcript">;
 
 /** A restart may parse the same files differently: its answers never match an earlier ETag. */
 const PROCESS_VERSION = randomUUID();
@@ -1052,7 +1052,7 @@ type ResolvedTranscript =
  * label: omo's own store is read only when omo is really running
  * in that pane, never on a matching cwd alone.
  */
-async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[], opencodeDb?: string): Promise<ResolvedTranscript> {
+export async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[], opencodeDb?: string, omoOptions?: { agentDir: string; exactOnly: boolean }): Promise<ResolvedTranscript> {
   const paneId = pane.pane_id;
   let agent = pane.agent ?? pane.agent_session?.agent ?? "";
   // herdr names no agent for this pane: a session report an earlier agent left behind says
@@ -1069,7 +1069,7 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     if (running || await gjcPidUnderShell(info?.process_info?.shell_pid)) agent = "gjc";
   }
   if ((agent === "omo" || agent === "pi" || agent === "claude") && await paneRunsOmo(paneId)) {
-    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes) };
+    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes, omoOptions) };
   }
   // omp and GJC can change their own cwd without changing the pane's shell directory; their
   // session headers name the one they run in
@@ -1104,12 +1104,12 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     throw new ConversationUnavailable("no_recognized_transcript");
   } catch (error) {
     if (!(error instanceof ConversationUnavailable) || !(await paneRunsOmo(paneId))) throw error;
-    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes) };
+    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes, omoOptions) };
   }
 }
 
-async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[]): Promise<string> {
-  const session = await omoSessionForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes);
+async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[], options?: { agentDir: string; exactOnly: boolean }): Promise<string> {
+  const session = await omoSessionForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes, undefined, options);
   if (session.pending !== null) throw new ConversationNotStarted(session.pending);
   if (!session.path) throw new ConversationUnavailable("no_session_path");
   return session.path;

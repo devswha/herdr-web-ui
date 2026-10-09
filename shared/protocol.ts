@@ -50,6 +50,14 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
+ *  GET    /api/conversations             -> ConversationHistoryResponse (shared/conversation-history.ts)
+ *  GET    /api/conversations/:id[?before=] -> ConversationResponse, without a live pane
+ *  GET    /api/conversations/:id/image?ref= -> saved image bytes
+ *  GET    /api/conversations/:id/tool-output?ref= -> { output: string }
+ *  POST   /api/conversations/:id/resume   -> ResumeConversationResponse; X-Herdr-Machine: 1,
+ *                                          same-origin/full-access only; exact live reuse or OmO launch.
+ *                                          All history routes refuse watch access; file-backed sources only,
+ *                                          not OpenCode/Devin DB archives.
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
  *  GET    /api/updates                   -> UpdateStatus (shared/update.ts), no-store

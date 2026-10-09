@@ -17,6 +17,7 @@ import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
+import { ConversationHistory, ConversationHistoryError } from "./conversation-history.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import { omoPanes } from "./omo.ts";
@@ -339,6 +340,10 @@ export function createServer(
     tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
+    /** Native file-backed history; tests inject a registry over temporary stores. */
+    conversationHistory?: ConversationHistory;
+    /** Production remembers and restores OmO sessions; unrelated tests never launch agents. */
+    autoRestoreAgents?: boolean;
     /** OpenCode's database; defaults to where OpenCode finds it (OPENCODE_DB, XDG_DATA_HOME). Tests use an isolated store. */
     opencodeDb?: string;
     /** Native Devin store; tests pass an isolated SQLite database. */
@@ -759,6 +764,22 @@ export function createServer(
     await omo.refresh(snapshot.panes);
     return omo.apply(snapshot);
   };
+  let history = options.conversationHistory;
+  let historyRefresh: Promise<void> | null = null;
+  const getHistory = () => history ??= new ConversationHistory({
+    stateDir: options.stateDir ?? defaultStateDir(),
+    codexHome: options.codexHome,
+    autoRestore: options.autoRestoreAgents ?? options.registerBridge ?? false,
+  });
+  const refreshHistory = (): Promise<void> => {
+    if (historyRefresh) return historyRefresh;
+    const store = getHistory();
+    const operation = rawSnapshot().then((snapshot) => store.observe(snapshot));
+    historyRefresh = operation;
+    void operation.then(() => { historyRefresh = null; }, () => { historyRefresh = null; });
+    return operation;
+  };
+
   /** the snapshot clients get: finishes settled, OmO panes named, their running background tasks counted */
   const clientSnapshot = async (): Promise<SessionSnapshot> => {
     const snapshot = await completions.readSnapshot(rawSnapshot);
@@ -1249,6 +1270,7 @@ export function createServer(
       push.resync(panes.map((pane) => ({ ...pane, agent_status: completions.current(pane.pane_id) ?? pane.agent_status })), newer);
     },
     onPaneEnded: (paneId) => {
+      void history?.closePane(paneId).catch((error: unknown) => console.error("Conversation history close:", error));
       holdPendingPane(paneId, { code: "pane_not_found", message: "The pane ended; its pending messages were not sent" });
       pending.forget(paneId);
       completions.forget(paneId);
@@ -1270,7 +1292,7 @@ export function createServer(
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/conversations" || pathname.startsWith("/api/conversations/") || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -1319,13 +1341,14 @@ export function createServer(
       // (names and sizes are the shape of a repository the terminals never print), plus
       // every mutation except the two below.
       const fileRead = /^\/api\/(?:machines\/[^/]+\/)?fs\//.test(pathname);
+      const savedRead = /^\/api\/(?:machines\/[^/]+\/)?conversations(?:\/|$)/.test(pathname);
       const directoryListing = /^\/api\/(?:machines\/[^/]+\/)?workspace\/directories$/.test(pathname);
       // Signing a device's own alerts in is a preference of that device, so `watch` keeps
       // it. The endpoint it registers is https-only (server/push.ts), and that is the
       // protection: a watch device's subscription is delivered every status change anyway.
       // /api/push/test stays with a session that can drive only because it is a mutation.
       const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe";
-      if (readOnly && (fileRead || directoryListing || mutating && !ownPreferences)) {
+      if (readOnly && (fileRead || savedRead || directoryListing || mutating && !ownPreferences)) {
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
@@ -1339,7 +1362,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|conversations(?:\/|$)|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
@@ -1800,6 +1823,47 @@ export function createServer(
         }
       }
 
+      if (pathname === "/api/conversations" || pathname.startsWith("/api/conversations/")) {
+        try {
+          const store = getHistory();
+          if (pathname === "/api/conversations" && request.method === "GET") {
+            // The durable library remains readable while Herdr is stopped.
+            try { await refreshHistory(); }
+            catch (error) { if (!(error instanceof HerdrError)) throw error; }
+            return jsonResponse({ conversations: await store.list() }, 200, { "cache-control": "no-store" });
+          }
+          const match = /^\/api\/conversations\/([a-f0-9]{64})(?:\/(resume|image|tool-output))?$/.exec(pathname);
+          if (!match?.[1]) return jsonResponse({ error: { code: "conversation_not_found", message: "No such saved conversation" } }, 404);
+          const id = match[1], action = match[2];
+          if (action === "resume" && request.method === "POST") {
+            if (request.headers.get("x-herdr-machine") !== "1") return jsonResponse({ error: { code: "invalid_machine_request", message: "Use controls from this app" } }, 403);
+            bunServer.timeout(request, 80);
+            return jsonResponse(await store.resume(id), 200, { "cache-control": "no-store" });
+          }
+          if (request.method !== "GET") return badRequest("method_not_allowed", "Use GET to read or POST to resume");
+          if (action === "image" || action === "tool-output") {
+            const ref = url.searchParams.get("ref");
+            if (!ref) return badRequest("missing_parameter", "ref is required");
+            if (action === "image") {
+              const image = await store.image(id, ref);
+              if (!image) return jsonResponse({ error: { code: "image_not_found", message: "No such saved image" } }, 404);
+              return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
+            }
+            const output = await store.toolOutput(id, ref);
+            if (output === null) return jsonResponse({ error: { code: "output_not_found", message: "No such saved output" } }, 404);
+            return jsonResponse({ output }, 200, { "cache-control": "no-store" });
+          }
+          if (action !== undefined) return badRequest("method_not_allowed", "Use POST to resume");
+          const { version, ...conversation } = await store.read(id, { before: url.searchParams.get("before") ?? undefined });
+          return jsonResponse(conversation, 200, { "cache-control": "no-store", etag: `"${version}"` });
+        } catch (error) {
+          if (error instanceof HistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
+          if (error instanceof ConversationHistoryError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.code === "conversation_not_found" ? 404 : error.code === "history_registry_unavailable" ? 503 : 409);
+          if (error instanceof ConversationUnavailable) return jsonResponse({ error: { code: "conversation_unavailable", message: error.message } }, 409);
+          return errorResponse(error);
+        }
+      }
+
       if (pathname === "/api/pane/conversation/tool-output") {
         const paneId = url.searchParams.get("pane_id");
         const ref = url.searchParams.get("ref");
@@ -1893,6 +1957,7 @@ export function createServer(
           // herdr emits pane.closed -> the collector broadcasts session-changed, so
           // every client refetches and the pane leaves sidebars on its own
           await paneClose(payload.pane_id);
+          await history?.closePane(payload.pane_id);
           // the pane is gone: whatever its chat parsed is released with it (server/conversation.ts)
           forgetPaneTranscriptState(payload.pane_id);
           return jsonResponse({ ok: true });
@@ -2464,6 +2529,22 @@ export function createServer(
 
   const registration = options.registerBridge ? registerBridge(server.port ?? 0, bridgeToken) : null;
 
+  let historyStopped = false;
+  let historyFailure: string | null = null;
+  const recordHistory = async () => {
+    if (historyStopped) return;
+    try { await refreshHistory(); historyFailure = null; }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!historyStopped && message !== historyFailure) console.error(`Conversation history: ${message}`);
+      historyFailure = message;
+    }
+  };
+  const historyTimer = options.registerBridge || options.autoRestoreAgents
+    ? setInterval(() => void recordHistory(), 5000) : null;
+  historyTimer?.unref();
+  if (historyTimer) void recordHistory();
+
   // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
   const outputTimer = setInterval(() => {
     pending.expire();
@@ -2475,6 +2556,9 @@ export function createServer(
     port: server.port ?? 0,
     hostname,
     stop: () => {
+      historyStopped = true;
+      if (historyTimer) clearInterval(historyTimer);
+      history?.stop();
       clearInterval(outputTimer);
       collector.stop();
       omo.stop();

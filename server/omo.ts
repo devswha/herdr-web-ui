@@ -59,7 +59,7 @@ export interface OmoRuntime {
 }
 
 /** A session is never selected by mtime: tool activity is not evidence of pane ownership. */
-export function selectOmoTranscript(paneId: string, candidates: OmoCandidate[], runtimes: OmoRuntime[], now = Date.now()): string | null {
+export function selectOmoTranscript(paneId: string, candidates: OmoCandidate[], runtimes: OmoRuntime[], now = Date.now(), exactOnly = false): string | null {
   const direct = (runtime: OmoRuntime): OmoCandidate[] => candidates.filter((file) => runtime.paths.includes(file.path) || runtime.ids.includes(file.id));
   const target = runtimes.find((runtime) => runtime.paneId === paneId);
   if (!target) return null;
@@ -74,7 +74,7 @@ export function selectOmoTranscript(paneId: string, candidates: OmoCandidate[], 
     return exact[0]!.path;
   }
   // A second process (or an unreadable peer) sharing cwd blocks inference entirely.
-  if (runtimes.length !== 1 || target.startedAt === null) return null;
+  if (exactOnly || runtimes.length !== 1 || target.startedAt === null) return null;
   const fresh = candidates.filter((file) => file.createdAt !== null && file.createdAt >= target.startedAt! - 1000 && file.createdAt <= now + 1000);
   return fresh.length === 1 ? fresh[0]!.path : null;
 }
@@ -238,10 +238,10 @@ const processInfo = (paneId: string): Promise<ProcessInfo> => herdrRpc<NonNullab
  * The session each OmO pane of one folder holds, from the processes herdr named for its panes.
  * Same-cwd peers are inspected even when herdr calls omo's SDK child `claude`.
  */
-export function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: ReadonlyMap<string, ProcessInfo>, home: string, environOf: (pid: number) => readonly string[] | null = processEnviron): Map<string, { path: string | null; pending: string | null; startedAt: number | null }> {
+export function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: ReadonlyMap<string, ProcessInfo>, home: string, environOf: (pid: number) => readonly string[] | null = processEnviron, options?: { agentDir: string; exactOnly: boolean }): Map<string, { path: string | null; pending: string | null; startedAt: number | null }> {
   const runtimes: OmoRuntime[] = [];
   // Each process's own store: the default one, and wherever its environment moved it.
-  const agentDirs = new Set([defaultOmoAgentDir(home)]);
+  const agentDirs = new Set([options?.agentDir ?? defaultOmoAgentDir(home)]);
   const held = new Map<string, string[]>();
   /** the session folders a pane's processes hold their sessions in */
   const heldDirs = new Map<string, string[]>();
@@ -253,7 +253,7 @@ export function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: Read
     const processes = (info.process_info?.foreground_processes ?? []).filter((process) => isOmoProcess(process.argv ?? []));
     if (processes.length === 0) continue;
     const starts = processes.map((process) => processStartedAt(process.pid));
-    const owned = processes.map((process) => omoAgentDir(environOf(process.pid), home, cwd));
+    const owned = processes.map((process) => options?.agentDir ?? omoAgentDir(environOf(process.pid), home, cwd));
     for (const agentDir of owned) agentDirs.add(agentDir);
     const dirs = owned.map((agentDir) => sessionDir(cwd, agentDir));
     const paths: string[] = [];
@@ -307,7 +307,7 @@ export function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: Read
   };
   return new Map(current.map((runtime) => {
     const pending = unwritten(runtime.paneId);
-    return [runtime.paneId, { path: pending === null ? selectOmoTranscript(runtime.paneId, files, current) : null, pending, startedAt: runtime.startedAt ?? since.get(runtime.paneId) ?? null }];
+    return [runtime.paneId, { path: pending === null ? selectOmoTranscript(runtime.paneId, files, current, Date.now(), options?.exactOnly) : null, pending, startedAt: runtime.startedAt ?? since.get(runtime.paneId) ?? null }];
   }));
 }
 
@@ -315,10 +315,10 @@ export function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: Read
  * The session an OmO pane holds: its file, or `pending`, the id of a session the pane holds
  * but omo has not written yet (before its first message, or right after /new).
  */
-export async function omoSessionForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<{ path: string | null; pending: string | null }> {
+export async function omoSessionForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? "", options?: { agentDir: string; exactOnly: boolean }): Promise<{ path: string | null; pending: string | null }> {
   const peers = panes.filter((pane) => pane.cwd === cwd);
   const infos = new Map(await Promise.all(peers.map(async (pane) => [pane.pane_id, await processInfo(pane.pane_id)] as const)));
-  const session = omoTranscriptsOfCwd(cwd, peers, infos, home).get(paneId);
+  const session = omoTranscriptsOfCwd(cwd, peers, infos, home, undefined, options).get(paneId);
   return { path: session?.path ?? null, pending: session?.pending ?? null };
 }
 
