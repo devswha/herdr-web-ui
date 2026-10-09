@@ -121,6 +121,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [0.4.2] - 2026-10-09
 
 ### Added
+- A `mermaid` code block in the chat is drawn as a diagram, with a full-screen lightbox to zoom and
+  pan it, and the file viewer shows a markdown file rendered, its images included.
+  ([#616](https://github.com/devswha/herdr-web-ui/pull/616) by @lyonbot)
+
+### Added
 - Devin CLI panes with an explicitly identified native session show their active conversation
   branch and tool activity in Chat. Unresolved or unreadable sessions keep the terminal-text
   fallback. ([#438](https://github.com/devswha/herdr-web-ui/pull/438) by @Haeminway1)

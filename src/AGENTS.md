@@ -13,6 +13,8 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - Dictation (lib/voice.ts) only hands text to the caller to insert at the caret; it never sends.
 - An alert chime before the first tap or key (`unlockAlertSound`) is skipped, never queued to sound late.
 - Never import KaTeX statically: Markdown.tsx loads lib/katex.ts with the first expression (it is a fifth of the app's script).
+- Never import Mermaid statically: Markdown.tsx loads lib/mermaid.ts with the first ```mermaid fence (its own 685 kB chunk). It keeps `securityLevel: "strict"`; a block that does not parse stays a code block.
+- Markdown draws images only under a `MarkdownImageContext` (components/Markdown.tsx); FileViewer provides it for .md files through lib/markdownImages.ts, so a path reads through `/api/fs/file`. Chat has no provider: the image stays the `!` + link it always was (the CSP allows own-origin images only).
 
 ## REMOTE TARGET OWNERSHIP
 - `MachineContext` binds every pane/workspace API call to a PC; PaneTerminal and CommandPalette remount on machine changes. Never use a mutable global target for async work.

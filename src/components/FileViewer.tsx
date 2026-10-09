@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Download, ExternalLink, X } from "lucide-react";
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
+import { Markdown, MarkdownImageContext } from "./Markdown.tsx";
 
 import type { FileInfo } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
@@ -9,6 +10,7 @@ import { formatBytes } from "../lib/bridgeProgress.ts";
 import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
+import { markdownImagePath } from "../lib/markdownImages.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 
 /** Bigger images are offered as a download: a phone decodes an image whole. */
@@ -29,7 +31,7 @@ export interface FileViewerProps {
 
 /**
  * A file an agent wrote, opened in the browser: images, video and audio (streamed, so they
- * play and seek at once), PDFs, and the start of a text file. Anything can be downloaded.
+ * play and seek at once), PDFs, and the start of a text file (markdown drawn, its images read through the file endpoint). Anything can be downloaded.
  */
 export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActive = true }: FileViewerProps) {
   const t = useT();
@@ -87,6 +89,12 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
 
   // the file found (a bare name may have been found deeper in the folder), else as asked
   const url = fileUrl(info?.path ?? path, paneId);
+  const filePath = info?.path ?? path;
+  // images of a markdown file load through the file endpoint, as the file itself does
+  const imageUrl = useCallback((src: string): string | null => {
+    const target = markdownImagePath(src, filePath);
+    return target === null ? null : fileUrl(target, paneId);
+  }, [filePath, paneId, fileUrl]);
   const body = (() => {
     if (directory !== null) return <DirectoryBrowser key={directory} start={directory} onOpenFile={onOpen ?? setPath} />;
     if (error !== null) return <p className="file-viewer-note" role="alert">{error}</p>;
@@ -108,7 +116,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
-          <pre className="file-viewer-text">{text}</pre>
+          {/\.(?:md|markdown)$/i.test(info.name)
+            ? <MarkdownImageContext.Provider value={imageUrl}><Markdown className="file-viewer-markdown">{text}</Markdown></MarkdownImageContext.Provider>
+            : <pre className="file-viewer-text">{text}</pre>}
           {info.size > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(info.size) })}</p>}
         </>;
       default:
