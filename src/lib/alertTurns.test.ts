@@ -185,6 +185,19 @@ describe("alert turns with a local clock", () => {
     expect(b.tick(5_151)).toEqual([{ ...play, kind: "done" }]);
   });
 
+  it("keeps a third tab behind the second one's rescue when a winner that said it was playing goes silent", () => {
+    const c = new AlertTurns("c");
+    c.start(key, "blocked", 0);
+    c.receive(claim, 1);
+    c.receive({ ...claim, tab: "b" }, 1);
+    c.tick(150);
+    c.receive({ ...claim, type: "playing" }, 151);
+    // b's rescue comes at 5151: c waits one turn longer
+    expect(c.tick(5_151)).toEqual([]);
+    expect(c.tick(5_750)).toEqual([]);
+    expect(c.tick(5_751)).toEqual([play]);
+  });
+
   it("redecides at once when a winner that said it was playing withdraws", () => {
     const b = new AlertTurns("b");
     b.start(key, "blocked", 0);

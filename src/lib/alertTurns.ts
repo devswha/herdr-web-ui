@@ -52,7 +52,7 @@ export class AlertTurns {
       case "playing": {
         this.announced.set(message.key, now);
         const pending = this.pending.get(message.key);
-        if (pending?.rescue && Number.isFinite(pending.due)) pending.due = Math.max(pending.due, now + PLAYING_HOLD_MS);
+        if (pending?.rescue && Number.isFinite(pending.due)) pending.due = Math.max(pending.due, now + this.hold(message.key));
         return [];
       }
       case "chimed":
@@ -88,7 +88,7 @@ export class AlertTurns {
         // A finish waits like a question: the winning tab may not be able to play it.
         // Each lower claimant gets its own turn first, so two deferring tabs never rescue together.
         pending.rescue = true;
-        pending.due = now + Math.max(RESCUE_MS * this.lowerClaims(key), this.announced.has(key) ? PLAYING_HOLD_MS : 0);
+        pending.due = now + Math.max(RESCUE_MS * this.lowerClaims(key), this.announced.has(key) ? this.hold(key) : 0);
         continue;
       }
       pending.due = Infinity; // awaiting the local player's result
@@ -128,6 +128,11 @@ export class AlertTurns {
 
   get deadline(): number {
     return Math.min(...[...this.pending.values()].map((pending) => pending.due));
+  }
+
+  /** the wait on a winner that said it plays: each lower claimant past the first still gets its own turn after it */
+  private hold(key: string): number {
+    return PLAYING_HOLD_MS + RESCUE_MS * Math.max(0, this.lowerClaims(key) - 1);
   }
 
   private lowerClaim(key: string): boolean {
