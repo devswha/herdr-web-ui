@@ -242,6 +242,27 @@ try {
         await waitQuery(page, "machine", null);
       });
       console.log("PASS a link to a PC that is not set up here opens this PC's pane in front, and says so");
+
+      // Back can select a pane while a modal is open: the grid that takes the keyboard when a pane
+      // the app picked becomes one the user picked must leave it in the modal (#675 review)
+      await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}&view=terminal`, async (page) => {
+        await waitSelected(page, INFRA);
+        await page.locator(`.agents-sidebar .agent-item[data-pane="${DOCS}"] .agent-select`).click();
+        await waitQuery(page, "pane", DOCS);
+        // the selected pane closes: the app picks the pane herdr has in front (autoSelected)
+        await page.evaluate((pane) => fetch("/api/pane/close", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pane_id: pane }) }), DOCS);
+        await page.waitForFunction((pane) => new URLSearchParams(window.location.search).get("pane") !== pane, DOCS);
+        await page.locator(".palette-button").click();
+        const palette = page.getByRole("dialog", { name: "Command palette" });
+        await palette.waitFor();
+        await page.goBack();
+        await waitSelected(page, INFRA);
+        for (const deadline = Date.now() + 1_000; Date.now() < deadline;) {
+          assert.equal(await palette.evaluate((node) => node.contains(document.activeElement)), true, "the keyboard stays in the palette");
+          await page.waitForTimeout(100);
+        }
+      });
+      console.log("PASS a pane Back selects under an open modal does not take the keyboard out of it");
     } finally {
       await browser.close();
     }
