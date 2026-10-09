@@ -123,14 +123,14 @@ describe("OmO panes' status in place of herdr's", () => {
   function setup(initial = lines(message("user"), message("assistant", "stop"))) {
     const files: Record<string, string> = { [FILE]: initial };
     const ids: Record<string, string> = {};
-    const told: [string, AgentStatus, number, boolean][] = [];
+    const told: ([string, AgentStatus, number, boolean] | [string, AgentStatus, number, boolean, true])[] = [];
     const found: string[] = [];
     const state = { background: 0, discovered: new Map<string, OmoPane>([["omo", { path: FILE, startedAt: null }], ["lost", { path: null, startedAt: null }]]), lookups: 0, clock: 0, failing: false, during: () => {} };
     const omo = new OmoStatus({
       // the session of `lost` cannot be told (two OmO panes in one folder without /proc)
       discover: async () => { state.lookups += 1; state.during(); return new Map(state.discovered); },
       snapshot: async () => herdr(),
-      onChange: (id, status, count, turn) => told.push([id, status, count, turn]),
+      onChange: (id, status, count, turn, failed) => told.push(failed ? [id, status, count, turn, true] : [id, status, count, turn]),
       onFound: (id) => found.push(id),
       file: {
         stat: (path) => path in files ? { size: Buffer.byteLength(files[path]!), id: ids[path] ?? "1" } : null,
@@ -173,6 +173,43 @@ describe("OmO panes' status in place of herdr's", () => {
     omo.poll();
     expect(completions.observe("omo", told.at(-1)![1], "omo")).toBe("working");
     expect(statuses(await served())["omo"]).toBe("omo/working");
+  });
+
+  it("reads no DONE for a turn that ended on a model error, and DONE once a retry answers it (#687)", async () => {
+    const { omo, told, append, state } = setup();
+    const completions = new CompletionTracker(null);
+    const served = () => completions.readSnapshot(async () => { const raw = herdr(); await omo.refresh(raw.panes); return omo.apply(raw); });
+    await served();
+    /** what the pane reads after each change OmO tells, as index.ts settles it */
+    const shown: AgentStatus[] = [];
+    const settle = () => { for (const [id, status, , turn, failed] of told.splice(0)) if (id === "omo" && turn) shown.push(completions.observe(id, status, "omo", failed === true)); };
+    // the answer OmO records for a request the provider gave up on, and the fallback it switches to
+    const failure = (text: string) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:01:00.000Z", message: { role: "assistant", content: [], stopReason: "error", errorMessage: text } });
+    const fallback = JSON.stringify({ type: "model_change", timestamp: "2026-10-02T00:01:00.050Z", provider: "eons", modelId: "GLM-5.3", reason: "fallback", originalModelId: "DeepSeek-V4.1-Flash" });
+    append(message("user"), message("assistant", "toolUse"), message("toolResult"));
+    omo.poll(); settle();
+    // the issue's screen: no answer after 5 retries, a fallback model takes the turn on, the original model comes back and times out
+    append(failure("The model provider could not complete the request after 5 retries. Try again or choose another model with /model."), bookkeeping("senpi.hooks.stop-state"), fallback);
+    omo.poll(); settle();
+    append(message("assistant", "toolUse"), message("toolResult"));
+    omo.poll(); settle();
+    append(failure("Request timed out."), bookkeeping("senpi.hooks.stop-state"));
+    omo.poll(); settle();
+    // back at the prompt: READY, never DONE, so nothing alerts a finish; not in events and not in any snapshot
+    expect(shown).toEqual(["working", "idle", "working", "idle"]);
+    for (let i = 0; i < 3; i++) { state.clock += 10_000; expect(statuses(await served())["omo"]).toBe("omo/idle"); }
+    expect(completions.current("omo")).toBe("idle");
+    // a retry that gets an answer ends the turn after all: that is a finish, alerted as one
+    append(message("assistant", "stop"));
+    omo.poll(); settle();
+    expect(shown.slice(4)).toEqual(["working", "done"]);
+    expect(statuses(await served())["omo"]).toBe("omo/done");
+    // and a turn that ends well, as before
+    append(message("user"));
+    omo.poll(); settle();
+    append(message("assistant", "stop"));
+    omo.poll(); settle();
+    expect(shown.slice(6)).toEqual(["working", "done"]);
   });
 
   it("restores INPUT when an unanswered call predates the last megabyte at startup", async () => {

@@ -68,8 +68,13 @@ export class CompletionTracker {
     } catch { /* none yet, or unreadable: start empty */ }
   }
 
-  /** A status change as herdr sent it, to the status to report. */
-  observe(paneId: string, status: AgentStatus, agent: string | null = null): AgentStatus {
+  /**
+   * A status change as herdr sent it, to the status to report. `failed`: the agent is at rest
+   * because its turn ended in an error (OmO's model gave up, #687), and an idle after work is
+   * then no finish: the work is over, but nothing finished, so it reads READY and alerts nothing.
+   */
+  observe(paneId: string, status: AgentStatus, agent: string | null = null, failed = false): AgentStatus {
+    if (failed && status === "idle") this.worked.delete(paneId);
     const reported = this.settle(paneId, status, agent);
     this.record(paneId, reported, ++this.order);
     this.save();
