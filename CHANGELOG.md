@@ -19,6 +19,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   copy command when the Clipboard API is unavailable or refused. If neither method works,
   the chat explains how to copy manually instead of reporting success or throwing an error.
   ([#613](https://github.com/devswha/herdr-web-ui/pull/613) by @Kinetic27)
+- Claude Code 2.1.29x approvals and questions keep their card instead of falling back to the
+  numbered one: an approval with the cursor on "Yes, and don't ask again" (its hint is
+  `Esc to cancel` alone, so picking that row from the card failed with "The interactive prompt
+  changed"), an approval whose long command pushed its title off the screen, and a question whose
+  typed-answer row already holds a draft.
+  ([#614](https://github.com/devswha/herdr-web-ui/pull/614) by @Haeminway1)
 - A chat message waiting for Claude Code's next turn is no longer pasted over text you typed in
   the terminal's input box. While that box holds a draft the message stays in the list with the
   reason, and **Send now** delivers it once the draft is sent or cleared.
