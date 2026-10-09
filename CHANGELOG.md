@@ -35,9 +35,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   image's mention) stays where it was typed. The caret was put back on the next frame, so on a
   busy phone the next key could land before the one typed just after the completion
   (`/pr-comments ba` for `ab`), and a select-all made in that time was undone.
+  ([#688](https://github.com/devswha/herdr-web-ui/pull/688))
 - Enter or Tab pressed right after the keystroke that narrows the `/` or `@` list completes the
   highlighted row. With a row lower in the list chosen before, the key could arrive before the
-  list caught up and did nothing at all.
+  list caught up and did nothing at all. ([#688](https://github.com/devswha/herdr-web-ui/pull/688))
 - The terminal announces itself: it is a labelled region named after the pane — "Terminal for
   Idempotent payments" — so a screen reader names the pane before its content. The label is
   translated and appears only in the terminal view, not over the chat.
