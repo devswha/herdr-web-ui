@@ -54,6 +54,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#663](https://github.com/devswha/herdr-web-ui/pull/663))
 
 ### Fixed
+- A request that carries a session cookie but states no `Origin` is now read as cross-site rather
+  than same-origin, so a header that went missing is no longer trusted as though a browser had
+  sent it. The three paths that genuinely cannot state one keep working — the WebSocket upgrade
+  a browser cannot add the custom header to, signing out, and push subscribe — as does any client
+  that proves itself with `x-herdr-machine`. A browser is unaffected: it always states an
+  `Origin` on a cross-origin request, and `SameSite=Strict` already covered what this closes.
 - The working arc in the sidebar is drawn thirty times a second instead of five, so a working
   agent reads as work in progress and not as a stutter. The arc is the same size and the turn
   still takes 1.6 s; only its eight 45° steps became forty-eight 7.5° ones.

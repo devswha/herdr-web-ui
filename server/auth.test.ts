@@ -142,4 +142,23 @@ describe("sameOrigin", () => {
   it("lets a request with no Origin through, so a CLI client can use the custom mutation header", () => {
     expect(sameOrigin(new Request("http://host/api/pane/close", { headers: { "x-herdr-machine": "1" } }))).toBe(true);
   });
+
+  it("reads a session cookie with no Origin as cross-site, except the paths such a client must use", () => {
+    const session = { cookie: "herdr_web_token=abc; herdr_web_device=def" };
+    // the origin check is not a complete control until these are refused
+    expect(sameOrigin(new Request("http://host/api/pane/close", { headers: session }))).toBe(false);
+    expect(sameOrigin(new Request("http://host/api/workspace/create", { headers: session }))).toBe(false);
+    expect(sameOrigin(new Request("http://host/api/machines/local/workspace/create", { headers: session }))).toBe(false);
+    // either cookie alone marks it session-bearing
+    expect(sameOrigin(new Request("http://host/api/pane/close", { headers: { cookie: "herdr_web_device=def" } }))).toBe(false);
+    expect(sameOrigin(new Request("http://host/api/pane/close", { headers: { cookie: "herdr_web_token=abc" } }))).toBe(false);
+    // the custom mutation header is the non-browser client's proof
+    expect(sameOrigin(new Request("http://host/api/pane/close", { headers: { ...session, "x-herdr-machine": "1" } }))).toBe(true);
+    // and these three carry no header in the cases that need them: the WS handshake a
+    // browser cannot add one to, and the two endpoints that manage the sender's own session
+    expect(sameOrigin(new Request("http://host/ws", { headers: session }))).toBe(true);
+    expect(sameOrigin(new Request("http://host/api/auth", { headers: session }))).toBe(true);
+    expect(sameOrigin(new Request("http://host/api/push/subscribe", { headers: session }))).toBe(true);
+  });
+
 });
