@@ -48,6 +48,7 @@ import { fileUriPath, isWebLink, terminalFileLinkProvider } from "../lib/termina
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 import { terminalLabel } from "../lib/terminalLabel.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
+import { pinchFontSize } from "../lib/pinchFontSize.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -194,6 +195,7 @@ export function PaneTerminal({
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const pinchBadgeRef = useRef<HTMLSpanElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -1262,10 +1264,74 @@ export function PaneTerminal({
     // a wheel at the cell under it (without one, every report said row 1, column 1).
     // An adopted grid has no history to send a wheel to (an observer's reports are dropped, a
     // mirror reports nothing): there the drag pans the mount, both ways, to the cells past its edge.
+    // Two fingers pinch the font size: the font follows them locally, and the shared pty resizes once when one lifts.
     let touchX = 0;
     let touchY = 0;
     let tracking = false;
+    let pinch: { first: number; second: number; startSize: number; startDistance: number; size: number } | null = null;
+    // from a second finger until every finger lifts: the stroke is a pinch, never a scroll
+    let pinchStroke = false;
+    let pinchWatchPending = false;
+    const spread = (a: Touch, b: Touch): number => Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+    const hidePinchBadge = (): void => {
+      if (pinchBadgeRef.current) pinchBadgeRef.current.hidden = true;
+    };
+    const applyLiveFont = (size: number): void => {
+      if (term.options.fontSize === size) return;
+      term.options.fontSize = size;
+      if (adopted() || chatViewRef.current) return;
+      try {
+        fit.fit();
+      } catch {
+        return;
+      }
+    };
+    const finishPinch = (save: boolean): void => {
+      const finished = pinch;
+      if (finished && (!save || finished.size === finished.startSize)) applyLiveFont(finished.startSize);
+      pinch = null;
+      const current = paneRef.current;
+      if (pinchWatchPending && current && releasedRef.current && watchingRef.current) socket.watch(current, term.cols, term.rows);
+      pinchWatchPending = false;
+      if (finished && save && finished.size !== finished.startSize) {
+        if (current && inUse() && !adopted() && !chatViewRef.current) socket.resize(current, term.cols, term.rows, true);
+        updateSettings({ terminalFontSize: finished.size });
+      }
+      hidePinchBadge();
+    };
+    const claimPinch = (event: Event): void => {
+      event.preventDefault();
+      // the host listens in the capture phase: xterm's own touch listeners on its element must not
+      // scroll its viewport with the first finger of a pinch
+      event.stopPropagation();
+    };
     const onTouchStart = (event: TouchEvent): void => {
+      if (chatViewRef.current) return;
+      if (event.touches.length === 1 && pinchStroke) {
+        finishPinch(false);
+        pinchStroke = false;
+      }
+      if (pinchStroke) {
+        claimPinch(event);
+        return;
+      }
+      if (event.touches.length >= 2) {
+        tracking = false;
+        pinchStroke = true;
+        claimPinch(event);
+        const a = event.touches[0];
+        const b = event.touches[1];
+        if (event.touches.length !== 2 || !a || !b ||
+            !host.contains(a.target as Node) || !host.contains(b.target as Node) ||
+            spread(a, b) <= 0) return;
+        const startSize = term.options.fontSize ?? terminalFontSize;
+        pinch = { first: a.identifier, second: b.identifier, startSize, startDistance: spread(a, b), size: startSize };
+        if (pinchBadgeRef.current) {
+          pinchBadgeRef.current.textContent = `${startSize}px`;
+          pinchBadgeRef.current.hidden = false;
+        }
+        return;
+      }
       tracking = event.touches.length === 1;
       const first = event.touches[0];
       if (tracking && first) {
@@ -1274,6 +1340,31 @@ export function PaneTerminal({
       }
     };
     const onTouchMove = (event: TouchEvent): void => {
+      if (!pinchStroke && event.touches.length > 1) {
+        tracking = false;
+        pinchStroke = true;
+      }
+      if (pinchStroke) {
+        claimPinch(event);
+        if (pinch && event.touches.length === 2) {
+          let first: Touch | undefined;
+          let second: Touch | undefined;
+          for (let i = 0; i < event.touches.length; i++) {
+            const touch = event.touches[i]!;
+            if (touch.identifier === pinch.first) first = touch;
+            if (touch.identifier === pinch.second) second = touch;
+          }
+          if (first && second) {
+            const size = pinchFontSize(pinch.startSize, pinch.startDistance, spread(first, second));
+            if (size !== pinch.size) {
+              pinch.size = size;
+              applyLiveFont(size);
+              if (pinchBadgeRef.current) pinchBadgeRef.current.textContent = `${size}px`;
+            }
+          }
+        }
+        return;
+      }
       if (!tracking || event.touches.length !== 1) return;
       event.preventDefault();
       const first = event.touches[0];
@@ -1293,12 +1384,21 @@ export function PaneTerminal({
         target.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: delta, clientX: first.clientX, clientY: first.clientY }));
       }
     };
-    const onTouchEnd = (): void => {
+    const onTouchEnd = (event: TouchEvent): void => {
       tracking = false;
+      if (!pinchStroke) return;
+      claimPinch(event);
+      if (event.type === "touchcancel" || event.touches.length < 2) finishPinch(event.type === "touchend");
+      if (event.touches.length === 0) pinchStroke = false;
     };
-    host.addEventListener("touchstart", onTouchStart, { passive: true });
-    host.addEventListener("touchmove", onTouchMove, { passive: false });
-    host.addEventListener("touchend", onTouchEnd, { passive: true });
+    // Safari zooms inside an overflow region (xterm's viewport) despite touch-action: none
+    const onGesture = (event: Event): void => { if (!chatViewRef.current) event.preventDefault(); };
+    host.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+    host.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    host.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+    host.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
+    host.addEventListener("gesturestart", onGesture, { passive: false });
+    host.addEventListener("gesturechange", onGesture, { passive: false });
 
     // The pty is shared per pane: a client on another device (typically a phone)
     // resizes it to its own geometry, and this tab's viewport never changed, so
@@ -1374,7 +1474,9 @@ export function PaneTerminal({
     // a window resized while watched: the view is drawn for a grid, so it starts again at the new one
     const onWatchedResize = term.onResize(({ cols, rows }) => {
       const current = paneRef.current;
-      if (current && releasedRef.current && watchingRef.current) socket.watch(current, cols, rows);
+      if (!current || !releasedRef.current || !watchingRef.current) return;
+      if (pinch) pinchWatchPending = true;
+      else socket.watch(current, cols, rows);
     });
     const resume = (): void => {
       if (!presentedRef.current) return;
@@ -1452,9 +1554,13 @@ export function PaneTerminal({
       window.clearInterval(poll);
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
-      host.removeEventListener("touchstart", onTouchStart);
-      host.removeEventListener("touchmove", onTouchMove);
-      host.removeEventListener("touchend", onTouchEnd);
+      host.removeEventListener("touchstart", onTouchStart, { capture: true });
+      host.removeEventListener("touchmove", onTouchMove, { capture: true });
+      host.removeEventListener("touchend", onTouchEnd, { capture: true });
+      host.removeEventListener("touchcancel", onTouchEnd, { capture: true });
+      host.removeEventListener("gesturestart", onGesture);
+      host.removeEventListener("gesturechange", onGesture);
+      finishPinch(false);
       host.removeEventListener("mousedown", onMouseDown, { capture: true });
       window.removeEventListener("mousemove", onMouseMove, { capture: true });
       window.removeEventListener("blur", onBlur);
@@ -2094,6 +2200,7 @@ export function PaneTerminal({
             this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
             stop on the wrapper would only be an empty one ahead of it. */}
         <div className={`pane-terminal${paneId === null ? " is-idle" : ""}${!chatView && paneId !== null ? " has-viewport-tools" : ""}`} ref={hostRef} id={viewportId} data-mouse-reporting={mouseReporting && !observing && !held && !secretActive && connected && !chatView ? "" : undefined} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
+        <span className="terminal-font-size" ref={pinchBadgeRef} hidden aria-hidden="true" />
         {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
           interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}
