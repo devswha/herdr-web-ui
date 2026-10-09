@@ -56,7 +56,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { claudeHeldIsGrey, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -571,6 +571,21 @@ export function createServer(
     code: error instanceof HerdrError || error instanceof PendingInputError ? error.code : "submit_failed",
     message: error instanceof Error ? error.message : String(error),
   });
+  /**
+   * The live screen for claudeInputDraft, and the viewport's colors when viewportShowsLive verifies
+   * they show it. Read last, the live screen holds anything typed meanwhile. An empty box (or none)
+   * needs no colors.
+   */
+  async function claudeBoxReads(paneId: string): Promise<[string, string | null]> {
+    const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    if (!claudeInputDraft(before, null)) return [before, null];
+    const scrollBefore = await paneScrollInfo(paneId);
+    const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
+    const scrollAfter = await paneScrollInfo(paneId);
+    const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
+  }
+
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
@@ -584,6 +599,12 @@ export function createServer(
       if (automatic && context.working) {
         pending.observe(paneId, "working", mark);
         throw new HerdrError("pending_wait", "The agent is working again; this message still waits for its next turn");
+      }
+      // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
+      // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
+      // read comes after the colors, so text typed between the two is in the box and holds the message.
+      if (context.identity.agent === "claude" && claudeInputDraft(...await claudeBoxReads(paneId))) {
+        throw new HerdrError("input_draft", "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message");
       }
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
