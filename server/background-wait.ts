@@ -11,8 +11,9 @@ export const WAIT_LIMIT_MS = 30 * 60_000;
 
 interface Pane {
   busy: boolean;
-  /** when the pane last came to rest: the limit runs from there */
+  /** first rest since the person's prompt; automatic resumes never renew the limit */
   restAt: number | null;
+  promptAt: number | null;
   /** the running subagents and background commands its turn started (server/claude-subagents.ts) */
   turnRunning: number;
   /** when the last of them ended while the pane was at rest */
@@ -30,7 +31,8 @@ interface Pane {
  * So a pane at rest whose turn's work runs, or ended less than WAIT_GRACE_MS ago, is waiting:
  * the sidebar says so in place of DONE, and the alerts take it for working (`alertStatus`,
  * shared/notify-policy.ts), so a turn that goes on is one turn, alerted once when it ends. Work
- * that ended before the turn did holds nothing, and no rest is held past WAIT_LIMIT_MS.
+ * that ended before the turn did holds nothing. The limit starts at the first rest after the
+ * person's prompt, not at each automatic resume. A resting baseline starts no hold.
  */
 export class BackgroundWait {
   private readonly panes = new Map<string, Pane>();
@@ -42,12 +44,11 @@ export class BackgroundWait {
     const pane = this.pane(paneId);
     if (status === "working" || status === "blocked") {
       pane.busy = true;
-      pane.restAt = null;
       pane.endedAt = null;
-    } else if (pane.busy || pane.restAt === null) {
+    } else if (pane.busy) {
       // `done` and `idle` are one rest: a finish seen is not a new one
       pane.busy = false;
-      pane.restAt = this.now();
+      pane.restAt ??= this.now();
     }
     return this.settle(pane);
   }
@@ -58,8 +59,13 @@ export class BackgroundWait {
   }
 
   /** How many of the pane's running subagents and commands its turn started. True when that changed whether it waits. */
-  running(paneId: string, turnRunning: number): boolean {
+  running(paneId: string, turnRunning: number, promptAt: number | null = null): boolean {
     const pane = this.pane(paneId);
+    if (promptAt !== pane.promptAt) {
+      pane.promptAt = promptAt;
+      pane.restAt = null;
+      pane.endedAt = null;
+    }
     if (turnRunning === 0 && pane.turnRunning > 0 && !pane.busy) pane.endedAt = this.now();
     pane.turnRunning = turnRunning;
     return this.settle(pane);
@@ -80,7 +86,7 @@ export class BackgroundWait {
 
   private pane(paneId: string): Pane {
     let pane = this.panes.get(paneId);
-    if (!pane) this.panes.set(paneId, pane = { busy: false, restAt: null, turnRunning: 0, endedAt: null, waiting: false });
+    if (!pane) this.panes.set(paneId, pane = { busy: false, restAt: null, promptAt: null, turnRunning: 0, endedAt: null, waiting: false });
     return pane;
   }
 

@@ -711,6 +711,19 @@ describe("claudeSubagents, an agent's own turn", () => {
 describe("claudeSubagents, background commands", () => {
   const command = (summary: string) => ({ summary: `Background command "${summary}`, carriers: ["queue" as const] });
 
+  it("keeps running after garbled lines or a failed stop, then accepts repeated successful stops once", () => {
+    const s = session();
+    s.prompt(1);
+    s.bash("suite", 2);
+    appendFileSync(s.path, '{garbled "task_id":"suite"\nnull\n');
+    s.parent({ type: "user", timestamp: at(3), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "failed-stop", is_error: true, content: "Could not stop suite" }] }, toolUseResult: { task_id: "suite", task_type: "local_bash" } });
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 1, turnRunning: 1 });
+    for (const minute of [4, 5]) s.parent({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: `stop-${minute}`, content: "{}" }] }, toolUseResult: minute === 4 ? { task_id: "suite", task_type: "local_bash" } : { shell_id: "suite" } });
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 0, turnRunning: 0, tasks: [{ id: "suite", status: "cancelled", ended_at: at(4) }] });
+    forgetSubagents();
+    expect(claudeSubagentState(s.path, true, NOW)).toMatchObject({ running: 0, turnRunning: 0, tasks: [{ id: "suite", status: "cancelled", ended_at: at(4) }] });
+  });
+
   it("lists a command the session sent to the background as running, by its description, with no subagent folder", () => {
     const s = session();
     rmSync(join(s.path, "..", "11111111-1111-4111-8111-111111111111"), { recursive: true });
@@ -793,6 +806,25 @@ describe("claudeSubagents, background commands", () => {
     status.poll("p1");
     expect(told).toEqual([["p1", 1, 1], ["p1", 1, 0], ["p1", 0, 0]]);
     expect(status.countOf("p1")).toBe(0);
+  });
+
+  it("announces a new prompt even when one background task replaces another between polls", async () => {
+    const s = session();
+    s.prompt(1);
+    s.bash("first", 2);
+    const prompts: Array<number | null> = [];
+    const pane = { pane_id: "p1", agent: "claude", cwd: "/work", agent_status: "idle", focused: false, revision: 1 } as HerdrPane;
+    const status = new ClaudeSubagentStatus({
+      resolve: async () => ({ path: s.path, startedAt: null }),
+      onChange: (_paneId, _running, _turnRunning, promptAt) => prompts.push(promptAt),
+      now: () => NOW,
+    });
+    await status.refresh([pane]);
+    s.notify("first", 3, command('x" completed (exit code 0)'));
+    s.prompt(4);
+    s.bash("second", 5);
+    status.poll();
+    expect(prompts).toEqual([Date.parse(at(1)), Date.parse(at(4))]);
   });
 });
 

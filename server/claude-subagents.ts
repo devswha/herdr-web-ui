@@ -189,7 +189,8 @@ function scanCommands(commands: Commands, entry: Row, at: number | null, notices
     const title = text(input?.["description"]) ?? text(input?.["command"]);
     if (title !== null) remember(commands.calls, block["id"], title.slice(0, TITLE_LENGTH), 512);
   }
-  const result = row(entry["toolUseResult"]);
+  const failed = blocks.some((block) => block["type"] === "tool_result" && block["is_error"] === true);
+  const result = failed ? null : row(entry["toolUseResult"]);
   const launched = result?.["backgroundTaskId"];
   if (typeof launched === "string" && AGENT_ID.test(launched)) {
     const call = blocks.find((block) => block["type"] === "tool_result" && typeof block["tool_use_id"] === "string")?.["tool_use_id"] as string | undefined;
@@ -530,7 +531,7 @@ const time = (value: string | null): number => value === null ? 0 : Date.parse(v
 /** what each session's last read said of each agent: kept while the transcript is read in parts */
 const previous = new Map<string, Map<string, OmoTask>>();
 
-export function claudeSubagentState(parentPath: string, live: boolean, now = Date.now(), since: number | null = null): { tasks: OmoTask[]; settled: boolean; watch: string[]; running: number; turnRunning: number } {
+export function claudeSubagentState(parentPath: string, live: boolean, now = Date.now(), since: number | null = null): { tasks: OmoTask[]; settled: boolean; watch: string[]; running: number; turnRunning: number; promptAt: number | null } {
   const dir = subagentsDir(parentPath);
   const files = agentIds(parentPath).flatMap((id) => {
     const stat = plain(join(dir, `agent-${id}.jsonl`));
@@ -539,7 +540,7 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   // each has a budget of its own: a long transcript must not keep the agents from being read.
   // Read with no subagent too: the session's own background commands are in it
   const parent = scanParent(parentPath);
-  if (parent === null && files.length === 0) return { tasks: [], settled: true, watch: [], running: 0, turnRunning: 0 };
+  if (parent === null && files.length === 0) return { tasks: [], settled: true, watch: [], running: 0, turnRunning: 0, promptAt: null };
   const budget = { left: READ_BUDGET };
   const running: OmoTask[] = [];
   const ended: OmoTask[] = [];
@@ -618,7 +619,7 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
   // what runs of the turn going on, or last ended: what it started since the person's prompt (any, when none is in reach)
   const promptAt = parent?.promptAt ?? null;
   const turnRunning = running.filter((task) => promptAt === null || time(task.started_at) >= promptAt).length;
-  return { tasks: [...running, ...ended.slice(0, RECENT_LIMIT)], settled, watch: files.map(({ id }) => id), running: running.length, turnRunning };
+  return { tasks: [...running, ...ended.slice(0, RECENT_LIMIT)], settled, watch: files.map(({ id }) => id), running: running.length, turnRunning, promptAt };
 
   function keep(task: OmoTask): void {
     all.set(task.id, task);
@@ -651,7 +652,7 @@ export interface ClaudeSubagentDeps {
    * A pane's running subagents and background commands changed, or how many of them its turn
    * started (`turnRunning`, server/background-wait.ts): no turn started or ended.
    */
-  onChange: (paneId: string, running: number, turnRunning: number) => void;
+  onChange: (paneId: string, running: number, turnRunning: number, promptAt: number | null) => void;
   pollMs?: number;
   refreshMs?: number;
   now?: () => number;
@@ -662,7 +663,7 @@ interface Tracked {
   key: string; path: string | null; startedAt: number | null; pid: number | null;
   /** when its transcript, and its process, were last looked for */
   at: number; pidAt: number;
-  live: boolean; running: number; turnRunning: number; sig: string | null;
+  live: boolean; running: number; turnRunning: number; promptAt: number | null; sig: string | null;
   /** every observed agent, whose own file can end or resume its turn */
   watch: string[];
 }
@@ -768,7 +769,7 @@ export class ClaudeSubagentStatus {
     const current = this.panes.get(pane.pane_id);
     const same = current?.key === key;
     // the count it had goes on from here: another session with none says so at the next poll
-    this.panes.set(pane.pane_id, { key, path: found?.path ?? (same ? current.path : null), startedAt: found ? found.startedAt : same ? current.startedAt : null, pid: found ? found.pid ?? null : same ? current.pid : null, at: this.now(), pidAt: this.now(), live: true, running: current?.running ?? 0, turnRunning: current?.turnRunning ?? 0, sig: null, watch: same && !found ? current.watch : [] });
+    this.panes.set(pane.pane_id, { key, path: found?.path ?? (same ? current.path : null), startedAt: found ? found.startedAt : same ? current.startedAt : null, pid: found ? found.pid ?? null : same ? current.pid : null, at: this.now(), pidAt: this.now(), live: true, running: current?.running ?? 0, turnRunning: current?.turnRunning ?? 0, promptAt: current?.promptAt ?? null, sig: null, watch: same && !found ? current.watch : [] });
   }
 
   /** Reads what the files gained, of every pane or of one (a turn just ended there); a pane whose counts changed is told. */
@@ -777,19 +778,21 @@ export class ClaudeSubagentStatus {
       if (only !== undefined && paneId !== only) continue;
       let running = 0;
       let turnRunning = 0;
+      let promptAt: number | null = null;
       if (tracked.path !== null && tracked.live) {
         if (`${subagentsSignature(tracked.path, tracked.watch).sig}:${tracked.startedAt}` === tracked.sig) continue;
         const state = claudeSubagentState(tracked.path, true, this.now(), tracked.startedAt);
-        ({ running, turnRunning } = state);
+        ({ running, turnRunning, promptAt } = state);
         tracked.watch = state.watch;
         const { sig, latestMs } = subagentsSignature(tracked.path, tracked.watch);
         // file times are coarse: only a signature of files quiet for a second says nothing changed when it reads the same
         tracked.sig = state.settled && this.now() - latestMs >= 1000 ? `${sig}:${tracked.startedAt}` : null;
       }
-      if (running === tracked.running && turnRunning === tracked.turnRunning) continue;
+      if (running === tracked.running && turnRunning === tracked.turnRunning && promptAt === tracked.promptAt) continue;
       tracked.running = running;
       tracked.turnRunning = turnRunning;
-      this.deps.onChange(paneId, running, turnRunning);
+      tracked.promptAt = promptAt;
+      this.deps.onChange(paneId, running, turnRunning, promptAt);
     }
   }
 }

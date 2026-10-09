@@ -13,6 +13,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   running ones, and a subagent that ends leaves a card in the chat with its answer instead of
   being hidden. They are read from the session's own `subagents/` files and its transcript.
   ([#527](https://github.com/devswha/herdr-web-ui/pull/527) by @kilhyeonjun)
+- A Claude Code pane's background commands are listed with its subagents and end with their
+  notification or a successful `TaskStop`/`KillShell`.
+  ([#534](https://github.com/devswha/herdr-web-ui/pull/534) by @kilhyeonjun)
 - **Settings → Voice input → Dictation language** picks the language dictation listens for. On Auto,
   a browser whose first language the app is not translated into (Hungarian, German, …) is heard in
   that language rather than in English; every other case listens for the app's language as before.
@@ -46,6 +49,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   agent reads as work in progress and not as a stutter. The arc is the same size and the turn
   still takes 1.6 s; only its eight 45° steps became forty-eight 7.5° ones.
   ([#622](https://github.com/devswha/herdr-web-ui/pull/622) by @iwangjie)
+- A Claude turn awaiting background work shows **BG**, even with **Quiet opened finishes** on,
+  instead of prematurely alerting "work finished". Automatic resumes share the first rest's
+  30-minute limit; a dev server started by the same prompt can hold the finish until that limit.
+  Work from an earlier prompt holds nothing, and restarting the bridge does not rehold an old
+  finish or send it again.
+  ([#534](https://github.com/devswha/herdr-web-ui/pull/534) by @kilhyeonjun)
 - The terminal announces itself: it is a labelled region named after the pane — "Terminal for
   Idempotent payments" — so a screen reader names the pane before its content. The label is
   translated and appears only in the terminal view, not over the chat.
@@ -453,9 +462,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
   and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
-- A Claude Code pane's background commands (`run_in_background`, Ctrl+B, or a command moved
-  there by its timeout, by the session or by a subagent) are listed and counted with its
-  subagents, and end with their notice or a `TaskStop`.
 
 ### Changed
 - The terminal's **Input held until the terminal is ready** notice appears only when there is
@@ -583,11 +589,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that claims the same headers still gains nothing, and a configured token is still required of
   everything but a paired device.
   ([#525](https://github.com/devswha/herdr-web-ui/pull/525) by @jetmobsol)
-- A Claude Code turn that ends while work it started still runs in the background (a test suite
-  it waits on, a subagent) no longer reads DONE and alerts "work finished": the pane reads
-  **BG** until that work ends, and the turn its notice starts is the same turn, alerted once when
-  it ends. A turn is held at most 30 minutes, and work started before the person's last prompt
-  (a dev server left running) holds nothing.
 
 ## [0.3.52] - 2026-10-06
 

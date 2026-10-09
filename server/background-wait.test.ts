@@ -8,6 +8,35 @@ function clock() {
 }
 
 describe("BackgroundWait", () => {
+  it("does not rehold a resting baseline after restart or generate another finish", () => {
+    const time = clock();
+    const waits = new BackgroundWait(time.now);
+    waits.seed("p1", "done");
+    expect(waits.running("p1", 1)).toBe(false);
+    expect(waits.waiting("p1")).toBe(false);
+    time.pass(WAIT_LIMIT_MS);
+    expect(waits.tick()).toEqual([]);
+    waits.status("p1", "idle");
+    expect(waits.waiting("p1")).toBe(false);
+  });
+
+  it("does not extend the first rest deadline when a notice resumes a turn with a dev server left", () => {
+    const time = clock();
+    const waits = new BackgroundWait(time.now);
+    waits.status("p1", "working");
+    waits.running("p1", 2);
+    waits.status("p1", "done");
+    time.pass(WAIT_LIMIT_MS - 1000);
+    waits.running("p1", 1);
+    waits.status("p1", "working");
+    waits.status("p1", "done");
+    time.pass(1000);
+    expect(waits.tick()).toEqual(["p1"]);
+    expect(waits.waiting("p1")).toBe(false);
+    waits.status("p1", "working");
+    expect(waits.status("p1", "done")).toBe(false);
+  });
+
   it("holds a turn that ended while what it started runs, and lets go once Claude goes on with it", () => {
     const time = clock();
     const waits = new BackgroundWait(time.now);
@@ -55,11 +84,11 @@ describe("BackgroundWait", () => {
     expect([waits.waiting("p1"), waits.waiting("p2")]).toEqual([false, false]);
   });
 
-  it("lets go of a turn whose work never ends after the limit, and holds the next rest anew", () => {
+  it("lets go at the limit and grants a new budget only to a new prompt", () => {
     const time = clock();
     const waits = new BackgroundWait(time.now);
     waits.status("p1", "working");
-    waits.running("p1", 1);
+    waits.running("p1", 1, 100);
     waits.status("p1", "done");
     time.pass(WAIT_LIMIT_MS - 1);
     expect(waits.tick()).toEqual([]);
@@ -68,23 +97,27 @@ describe("BackgroundWait", () => {
     // seen meanwhile (done to idle): still the same rest, and still past the limit
     expect(waits.status("p1", "idle")).toBe(false);
     waits.status("p1", "working");
+    waits.running("p1", 1, 200);
     expect(waits.status("p1", "done")).toBe(true);
   });
 
-  it("reads a pane first seen at rest from then on, and keeps no blocked or working pane waiting", () => {
+  it("holds only an observed busy-to-rest transition and never masks blocked", () => {
     const time = clock();
     const waits = new BackgroundWait(time.now);
     waits.running("p1", 1);
     expect(waits.waiting("p1")).toBe(false);
+    expect(waits.status("p1", "done")).toBe(false);
+    expect(waits.status("p1", "blocked")).toBe(false);
+    expect(waits.waiting("p1")).toBe(false);
     expect(waits.status("p1", "done")).toBe(true);
     expect(waits.status("p1", "blocked")).toBe(true);
-    expect(waits.waiting("p1")).toBe(false);
   });
 
   it("takes a snapshot's status only for a pane it does not know yet: an event seen is newer", () => {
     const waits = new BackgroundWait(clock().now);
-    waits.seed("p1", "done");
+    waits.seed("p1", "working");
     waits.running("p1", 1);
+    waits.status("p1", "done");
     expect(waits.waiting("p1")).toBe(true);
     // a snapshot asked for while the turn worked lands after the turn ended
     waits.seed("p1", "working");

@@ -369,6 +369,8 @@ export function createServer(
     pushLoopbackHttp?: boolean;
     /** how long a turn's end is held for its background work (server/background-wait.ts); tests shorten it */
     backgroundWait?: { grace: number; limit: number };
+    /** Clock for background holds and alert turn durations; tests advance it explicitly. */
+    statusNow?: () => number;
     /** ATTACH_RETRY_FOR_MS; tests shorten it */
     attachRetryForMs?: number;
     /** ATTACH_HELD_RETRY_MS; tests shorten it */
@@ -382,7 +384,7 @@ export function createServer(
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer. */
     sidecar?: boolean;
   } = {},
-): { port: number; hostname: string; stop: () => void } {
+): { port: number; hostname: string; statusReady: Promise<void>; alertsSettled: () => Promise<void>; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
   /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
@@ -749,6 +751,7 @@ export function createServer(
   const push = createPushService({
     stateDir: options.stateDir ?? defaultStateDir(),
     timing: options.alertTiming,
+    now: options.statusNow,
     loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
     lookupTitle: async (paneId) => {
@@ -768,14 +771,14 @@ export function createServer(
     onFound: (paneId) => completions.adopt(paneId, "omo", OMO_ALIASES),
   });
   /** Claude panes whose turn ended while work it started runs in the background (server/background-wait.ts) */
-  const waits = new BackgroundWait(Date.now, options.backgroundWait);
+  const waits = new BackgroundWait(options.statusNow ?? Date.now, options.backgroundWait);
   /** the pane whose status event is reading its background work now: that event sends the one frame and alert of it */
   let settling: string | null = null;
   /** Claude panes count the subagents and commands they run as background tasks, read from the session's own files (server/claude-subagents.ts) */
   const claudeAgents = new ClaudeSubagentStatus({
     resolve: claudePaneSession,
     pid: claudePanePid,
-    onChange: (paneId, running, turnRunning) => claudeAgentsChanged(paneId, running, turnRunning),
+    onChange: (paneId, running, turnRunning, promptAt) => claudeAgentsChanged(paneId, running, turnRunning, promptAt),
   });
   /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
   const rawSnapshot = async (): Promise<SessionSnapshot> => {
@@ -1241,8 +1244,8 @@ export function createServer(
    * the alerts took it for working meanwhile, so a wait that ends with no turn after it is that
    * turn's finish, told then.
    */
-  function claudeAgentsChanged(paneId: string, running: number, turnRunning: number): void {
-    const changed = waits.running(paneId, turnRunning);
+  function claudeAgentsChanged(paneId: string, running: number, turnRunning: number, promptAt: number | null): void {
+    const changed = waits.running(paneId, turnRunning, promptAt);
     if (paneId === settling) return;
     const status = completions.current(paneId);
     // a pane never reported here carries its count in the next snapshot
@@ -1309,7 +1312,7 @@ export function createServer(
       push.onStatus(paneId, alertStatus("idle", waits.waiting(paneId))).catch(logPushError);
     },
     onBaseline: (panes) => {
-      // a Claude pane at rest from the start is at rest from now: what runs of its turn holds it from here
+      // A resting baseline never reholds old work after a bridge restart.
       for (const pane of panes) if (pane.agent === "claude") waits.seed(pane.pane_id, pane.agent_status);
       push.seed(panes.map((pane) => ({ ...pane, agent_status: alertStatus(pane.agent_status, waits.waiting(pane.pane_id)) })));
       for (const pane of panes) {
@@ -2576,6 +2579,8 @@ export function createServer(
   return {
     port: server.port ?? 0,
     hostname,
+    statusReady: collector.ready,
+    alertsSettled: () => push.settled(),
     stop: () => {
       clearInterval(outputTimer);
       collector.stop();
