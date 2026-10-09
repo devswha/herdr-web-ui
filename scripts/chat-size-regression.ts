@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import type { Machine } from "../shared/machines.ts";
-import { herdrRpc, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { herdrRpc, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 /** how long a resize that should not happen gets to show up */
 const NO_RESIZE_WAIT_MS = 400;
@@ -192,24 +192,35 @@ export async function checkPaneSwitchKeepsTerminalSize(browser: Browser, origin:
 /**
  * A tab the user is not in leaves the shared terminal's size alone. A desktop window left open
  * behind another app (herdr's own TUI in a terminal) turned visible when the screen woke, or
- * reconnected in the background, and fitted the pane to itself again: a phone or herdr's TUI in
- * use then showed the pane at that window's size, cut off at its own edge. The window takes the
- * grid back when it takes the focus.
+ * reconnected, reloaded or moved on to the next pane in the background, and fitted the pane to
+ * itself: a phone or herdr's TUI in use then showed the pane at that window's size, cut off at its
+ * own edge. The window takes the grid back when it takes the focus.
  */
 export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, origin: string): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-background-size-"));
-  const cwd = join(root, "pane");
-  mkdirSync(cwd);
-  const created = await workspaceCreate({ cwd, label: "herdr-web-ui-test-background-size" });
-  const paneId = created.root_pane.pane_id;
   const contexts: BrowserContext[] = [];
+  const workspaces: string[] = [];
   try {
+    const cwd = join(root, "pane");
+    mkdirSync(cwd);
+    const created = await workspaceCreate({ cwd, label: "herdr-web-ui-test-background-size" });
+    workspaces.push(created.workspace.workspace_id);
+    const paneId = created.root_pane.pane_id;
+    // the pane the app moves on to once the first one closes: herdr's focused one
+    const nextCwd = join(root, "next");
+    mkdirSync(nextCwd);
+    const next = await herdrRpc<WorkspaceCreateResult>("workspace.create", { cwd: nextCwd, label: "herdr-web-ui-test-background-size-next", focus: true });
+    workspaces.push(next.workspace.workspace_id);
+    const nextPane = next.root_pane.pane_id;
     const size = shellSize(paneId);
-    const open = (options: Parameters<Browser["newContext"]>[0]) => openRecording(browser, contexts, origin, paneId, options, { language: "en", defaultView: "terminal" });
+    const nextSize = shellSize(nextPane);
+    const open = (options: Parameters<Browser["newContext"]>[0], settings: object = {}) => openRecording(browser, contexts, origin, paneId, options, { language: "en", defaultView: "terminal", ...settings });
     // what the page sent that sizes the grid: attaches and resizes
     const sizing = async (page: Page) => (await framesOf(page)).filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
 
-    const desktop = await open({ viewport: { width: 1280, height: 800 } });
+    // a font the user chose loads after every attach and refits the grid: one no device has falls
+    // back to the built-in fonts, so the grid keeps its size
+    const desktop = await open({ viewport: { width: 1280, height: 800 } }, { terminalFontFamily: "herdr-web-ui-test-no-such-font" });
     await attached(desktop);
     const desktopSize = await size();
     const phone = await open({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -239,19 +250,49 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     assert.equal(await size(), phoneSize, "a background reconnect leaves the phone's grid");
     console.log("PASS a desktop window reconnecting in the background leaves the shared grid");
 
+    // it reloads in the background: the first attach adopts the grid too, and so does the chosen
+    // font loading after it
+    await desktop.context().addInitScript(() => Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false }));
+    await desktop.reload();
+    await desktop.locator(".conn-live").waitFor();
+    await attached(desktop);
+    await Bun.sleep(NO_RESIZE_WAIT_MS);
+    assert.deepEqual(await sizing(desktop), [{ dir: "out", type: "attach", keep_size: true }], "a background reload attaches without resizing");
+    assert.equal(await size(), phoneSize, "a background reload leaves the phone's grid");
+    console.log("PASS a desktop window reloading in the background leaves the shared grid");
+
+    // the pane closes in herdr and the window moves on to the focused one in the background: that
+    // pane keeps the size it has. The phone goes first, or it would take the next pane itself
+    await phone.context().close();
+    const nextBefore = await nextSize();
+    assert.notEqual(nextBefore, desktopSize, "the next pane starts at a size the window would change");
+    const switching = (await sizing(desktop)).length;
+    const closing = (await framesOf(desktop)).length;
+    await workspaceClose(created.workspace.workspace_id);
+    // the next pane's attach and the server's answer to it (the phone leaving answered the old one)
+    await desktop.waitForFunction((from) => {
+      const frames = (window as unknown as { frames_: { dir: string; type: string }[] }).frames_;
+      const at = frames.findIndex((f, i) => i >= from && f.dir === "out" && f.type === "attach");
+      return at >= 0 && frames.slice(at).some((f) => f.dir === "in" && f.type === "input-ready");
+    }, closing, { timeout: 15_000 });
+    await Bun.sleep(NO_RESIZE_WAIT_MS);
+    assert.deepEqual((await sizing(desktop)).slice(switching), [{ dir: "out", type: "attach", keep_size: true }], "a background move to the next pane attaches without resizing");
+    assert.equal(await nextSize(), nextBefore, "a background move to the next pane leaves its grid");
+    console.log(`PASS a desktop window moving on to the next pane in the background leaves its grid at ${nextBefore}`);
+
     // the user comes back to it: the window takes the focus, and the grid
     await desktop.evaluate(() => {
       delete (document as unknown as { hasFocus?: unknown }).hasFocus;
       window.dispatchEvent(new Event("focus"));
     });
     const back = Date.now() + 10_000;
-    let current = phoneSize;
-    while (current !== desktopSize && Date.now() < back) current = await size();
+    let current = nextBefore;
+    while (current !== desktopSize && Date.now() < back) current = await nextSize();
     assert.equal(current, desktopSize, "the focused window fits the grid to itself again");
     console.log(`PASS the desktop window takes the grid back at ${desktopSize} when it takes the focus`);
   } finally {
-    for (const context of contexts) await context.close();
-    await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+    for (const context of contexts) await context.close().catch(() => undefined);
+    for (const id of workspaces) await workspaceClose(id).catch(() => undefined);
     rmSync(root, { recursive: true, force: true });
   }
 }
