@@ -34,10 +34,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   to the browser, so the arrows arrived in the encoding the program was not reading. They are now
   sent as named keys that herdr encodes for the program in the pane, also from the phone's key bar
   and on a mirrored pane. ([#634](https://github.com/devswha/herdr-web-ui/pull/634))
-- A click in the terminal reaches a program that reads the mouse, such as the close button of
-  Claude Code's side-by-side diff. On a desktop every left press was taken for the start of a
-  selection and never sent. A drag still selects and copies, and so does a click with Shift
-  (Option on macOS) held. ([#634](https://github.com/devswha/herdr-web-ui/pull/634))
+- A plain left click in the terminal reaches a program that reads the mouse, such as the close
+  button of Claude Code's side-by-side diff. On a desktop every left press was taken for the start
+  of a selection and never sent. A drag still selects and copies, and so does a click with Shift
+  (Option on macOS) held; a click on a link only opens it, a click on selected text works on the
+  selection, and a mirrored pane still sends no clicks. ([#634](https://github.com/devswha/herdr-web-ui/pull/634))
 
 ## [0.4.2] - 2026-10-09
 
