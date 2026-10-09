@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A Codex chat is found for a session resumed through the `codex resume` picker (or
   `codex resume --all`) from another folder, once an answer of it shows in the pane. This mattered
   on Windows, where nothing else tells which session such a Codex runs.
+  ([#717](https://github.com/devswha/herdr-web-ui/pull/717))
 
 ## [0.4.5] - 2026-10-09
 
