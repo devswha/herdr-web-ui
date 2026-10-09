@@ -10,6 +10,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - Immediate chat sends to Claude Code are refused when its input box contains a draft or is in
   bash mode, preserving the existing terminal input.
+  ([#677](https://github.com/devswha/herdr-web-ui/pull/677))
 
 ## [0.4.3] - 2026-10-09
 
