@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
+import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
@@ -57,6 +58,8 @@ export interface PaneTerminalProps {
    * terminal to attach, so App passes a null paneId and the placeholder says why.
    */
   restoreError?: string | null;
+  /** the pane's own name (App's header shows it): the region around the grid announces it */
+  title?: string | null;
   /** the pane's agent name — the chat lens labels the assistant's voice with it */
   agent?: string | null;
   /** the pane's live agent status: `working` turns composer sends into the queue */
@@ -102,6 +105,7 @@ export function PaneTerminal({
   paneId,
   restoreError = null,
   agent = null,
+  title = null,
   agentStatus,
   backgroundTasks = 0,
   cwd = null,
@@ -129,6 +133,8 @@ export function PaneTerminal({
   const chatView = view === "chat";
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
+  // what the grid's region announces: the pane's own name, or the grid's kind while none is open
+  const terminalName = paneId === null ? t("Terminal") : t("Terminal for {title}", { title: title ?? paneId });
   /** read by the wheel handler, which is attached once for the terminal's life */
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
@@ -840,6 +846,7 @@ export function PaneTerminal({
         const generation = outputGeneration;
         term.write(message.data, () => {
           acknowledge?.();
+          if (disposed) return;
           if (paneRef.current !== owner || generation !== outputGeneration) {
             // output of a pane left behind, or of a dropped connection, was still queued in xterm
             // when the switch reset the level: whatever its parse just set, the level is off again
@@ -1211,6 +1218,7 @@ export function PaneTerminal({
 
     return () => {
       disposed = true;
+      term.options.disableStdin = true;
       if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
       pendingScopeRef.current = null;
       window.clearInterval(poll);
@@ -1249,7 +1257,9 @@ export function PaneTerminal({
       host.removeEventListener("compositionend", compositionEnd);
       if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);
       compositionCommitPendingRef.current = false;
-      term.dispose();
+      // A replacement mount must not share its host with the retiring terminal.
+      term.element?.remove();
+      disposeAfterPendingFrame(term);
       termRef.current = null;
       socketRef.current = null;
     };
@@ -1780,7 +1790,11 @@ export function PaneTerminal({
         )}
       </div>
       <div className="terminal-surface">
-        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} />
+        {/* the grid itself carries no accessible name (xterm draws the screen to canvas and hides
+            it), so the region around it carries the pane's: a screen reader announces which pane
+            this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
+            stop on the wrapper would only be an empty one ahead of it. */}
+        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} role="region" aria-roledescription={t("Terminal")} aria-label={terminalName} />
         {paneId !== null && chatView && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">

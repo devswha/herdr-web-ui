@@ -179,6 +179,30 @@ describe("composer presentation helpers", () => {
       commands[1]!,
     ]);
   });
+
+  it("also finds a command by a word of its name, a substring, its letters in order or its description", () => {
+    const named = (name: string, description = "") => ({ name, description, source: "plugin" as const });
+    const commands = [
+      named("superpowers:brainstorming"),
+      named("review", "Look over a diff"),
+      named("code-review"),
+      named("reviewer-notes"),
+      named("my-brainstorm-helper"),
+      named("unrelated", "Something else"),
+    ];
+    const find = (query: string) => rankSlashCommands(commands, query, {}).map((command) => command.name);
+    // the namespace is not a prefix to type: the command's own word finds it
+    expect(find("brain")).toEqual(["my-brainstorm-helper", "superpowers:brainstorming"]);
+    // prefix, then a word of the name, then anywhere in it
+    expect(find("review")).toEqual(["review", "reviewer-notes", "code-review"]);
+    expect(find("ainst")).toEqual(["my-brainstorm-helper", "superpowers:brainstorming"]);
+    expect(find("spbr")).toEqual(["superpowers:brainstorming"]);
+    expect(find("diff")).toEqual(["review"]);
+    expect(find("zzz")).toEqual([]);
+    expect(find("")).toHaveLength(commands.length);
+    // a stronger kind of match beats a frequently used weaker one
+    expect(rankSlashCommands(commands, "review", { "code-review": 9 }).map((command) => command.name)[0]).toBe("review");
+  });
 });
 
 describe("context left", () => {

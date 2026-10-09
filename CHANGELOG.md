@@ -7,6 +7,45 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- The chat's `/` command list also matches a word of a command's name, any part of it, its letters
+  in order and its description, so a plugin command is found without typing its prefix. Prefix
+  matches still come first.
+  ([#617](https://github.com/devswha/herdr-web-ui/pull/617) by @lyonbot)
+- A size under 10 MB shows one decimal (`1.3 MB`), in the file viewer, the Files list and a bridge
+  update's progress: a 1.3 MB file no longer reads as 1 MB.
+  ([#670](https://github.com/devswha/herdr-web-ui/pull/670) by @aNNdii)
+- The anonymous install and update counts now keep the country a message came from: two
+  letters such as `KR`, worked out by the receiver's host, and nothing finer. No IP address is
+  stored and the message itself is unchanged. The notice, Settings → About and the guide say so.
+  ([#663](https://github.com/devswha/herdr-web-ui/pull/663))
+
+### Fixed
+- The terminal announces itself: it is a labelled region named after the pane — "Terminal for
+  Idempotent payments" — so a screen reader names the pane before its content. xterm draws the
+  screen to a canvas and carries no accessible name, so before this a reader reaching the
+  terminal found an unnamed control.
+  ([#633](https://github.com/devswha/herdr-web-ui/pull/633) by @radicor)
+- Settings keeps a slow browser-history traversal from closing the key bar editor by itself,
+  and no longer retries an unanswered traversal every second.
+  ([#630](https://github.com/devswha/herdr-web-ui/pull/630))
+- A Claude Code approval asked while background agents run shows its card instead of the numbered
+  fallback: its hint goes on after `Esc to cancel` with the chord that stops them.
+  ([#659](https://github.com/devswha/herdr-web-ui/pull/659) by @Haeminway1)
+- Codex Chat can read a new session with one short answer when its complete submitted
+  first prompt and answer identify it unambiguously. Older conversations, unreadable
+  candidates and competing panes keep the terminal fallback; process age alone never
+  selects a conversation. Complete directory-less injected AGENTS.md instructions are
+  hidden without hiding user messages that continue after the instructions.
+  ([#650](https://github.com/devswha/herdr-web-ui/pull/650) by @od-studio-webagency)
+- Terminal cleanup waits for xterm's pending frame and task before disposing its renderer,
+  preventing a dimensions console error on development reloads or when switching PCs or
+  signing out immediately after a pane reset.
+  ([#649](https://github.com/devswha/herdr-web-ui/pull/649) by @od-studio-webagency)
+- Immediate chat sends to Claude Code are refused when its input box contains a draft or is in
+  bash mode, preserving the existing terminal input.
+  ([#677](https://github.com/devswha/herdr-web-ui/pull/677))
+
 ## [0.4.3] - 2026-10-09
 
 ### Fixed
