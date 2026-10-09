@@ -153,7 +153,8 @@ describe("sameOrigin", () => {
     expect(sameOrigin(new Request("http://host/api/pane/close", { method: "POST", headers: { cookie: "herdr_web_device=def" } }))).toBe(false);
     expect(sameOrigin(new Request("http://host/api/pane/close", { method: "POST", headers: { cookie: "herdr_web_token=abc" } }))).toBe(false);
     // the custom mutation header is the non-browser client's proof
-    expect(sameOrigin(new Request("http://host/api/pane/close", { headers: { ...session, "x-herdr-machine": "1" } }))).toBe(true);
+    expect(sameOrigin(new Request("http://host/api/pane/close", { method: "POST", headers: { ...session, "x-herdr-machine": "1" } }))).toBe(true);
+    expect(sameOrigin(new Request("http://host/api/updates/check", { method: "POST", headers: { ...session, "x-herdr-update": "1" } }))).toBe(true);
     // these carry no header in the cases that need them: the WS handshake (a GET) a
     // browser cannot add one to, and the two endpoints that manage the sender's own session
     expect(sameOrigin(new Request("http://host/ws", { headers: session }))).toBe(true);

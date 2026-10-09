@@ -25,14 +25,14 @@ export function sameOrigin(request: Request): boolean {
     // cookie arriving on one without it is a header that went missing or a non-browser
     // client, not a same-origin page: it is read as cross-site.
     // Two ways it is still admitted, both of which a forged browser request cannot use. A
-    // non-browser client can prove itself with the custom mutation header — a cross-site
-    // page cannot send both the victim's cookie and that header without a CORS preflight
-    // this server never answers. And two endpoints that touch only the requesting device's
+    // non-browser client can prove itself with a custom mutation header (`x-herdr-machine`, or
+    // `x-herdr-update` on the update routes) — a cross-site page cannot send both the victim's
+    // cookie and that header without a CORS preflight this server never answers. And two endpoints that touch only the requesting device's
     // own session stay reachable by a cookie-bearing client that can state no origin at all.
     if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return true;
     const cookies = parseCookies(request.headers.get("cookie"));
     if (!cookies.has(TOKEN_COOKIE) && !cookies.has(DEVICE_COOKIE)) return true; // CLI clients
-    if (request.headers.get("x-herdr-machine") === "1") return true;
+    if (request.headers.get("x-herdr-machine") === "1" || request.headers.get("x-herdr-update") === "1") return true;
     const { pathname } = new URL(request.url);
     return pathname === "/api/auth" || pathname === "/api/push/subscribe";
   }
