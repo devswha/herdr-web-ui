@@ -446,9 +446,15 @@ export function createServer(
   /**
    * A message whose last word is an `@file` mention leaves the agent's file suggestions open over
    * it, and the Enter after the paste takes the suggestion instead of sending: the message stays in
-   * the input box (Claude Code 2.1.295, #404). A space after the mention closes them first.
+   * the input box (Claude Code 2.1.295, #404). A space after the mention closes them first; a
+   * payload already in bracketed-paste markers gets it inside them.
    */
-  const closeMention = (text: string): string => /(?:^|\s)@\S+$/.test(text) ? `${text} ` : text;
+  const closeMention = (text: string): string => {
+    const open = text.startsWith("\u001b[200~") ? "\u001b[200~" : "";
+    const close = open && text.endsWith("\u001b[201~") ? "\u001b[201~" : "";
+    const body = text.slice(open.length, text.length - close.length);
+    return /(?:^|\s)@\S+$/.test(body) ? `${open}${body} ${close}` : text;
+  };
 
   async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {}): Promise<void> {
     const inTime = (): void => {
@@ -476,7 +482,7 @@ export function createServer(
     // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
     // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
     // asked only for such a block, so a one-line message never waits on it.
-    const shaped = await mirrorInput(payload, async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
+    const shaped = await mirrorInput(closeMention(payload), async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
     inTime();
     await paneSendText(paneId, shaped);
     await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
