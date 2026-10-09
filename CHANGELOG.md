@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- Codex Chat finds a session with only a short answer when exactly one interactive thread
+  began since its process started and its complete first prompt is echoed in the pane.
+  Ambiguous sessions keep the terminal fallback. Directory-free injected AGENTS.md
+  instructions no longer appear as user messages.
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
   ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, resumedThread, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
+import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, threadStartedWithProcess, resumedThread, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
 const ts = "2026-09-22T01:00:00.000Z";
@@ -193,6 +193,24 @@ describe("Codex conversation records", () => {
     expect(turns).toHaveLength(2);
     expect(turns[0]?.parts).toEqual([{ kind: "text", text: "Fix chat" }]);
     expect(turns[1]?.parts).toEqual([{ kind: "text", text: "Fixed", phase: "final_answer" }]);
+  });
+
+  it("hides directory-free AGENTS instructions in both event and model records", () => {
+    const injected = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nSynthetic rules\n</INSTRUCTIONS>";
+    const turns = parseCodexTranscript(jsonl(
+      message("user", injected),
+      event({ type: "user_message", message: injected }),
+      message("user", "Check fixture"),
+      message("assistant", "Ready", "final_answer"),
+    ));
+    expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
+    expect(turns[0]?.parts).toEqual([{ kind: "text", text: "Check fixture" }]);
+  });
+
+  it("preserves user messages resembling an incomplete or different AGENTS header", () => {
+    const texts = ["# AGENTS.md instructions\nExplain this", "# AGENTS.md instructions-extra\n<INSTRUCTIONS>example</INSTRUCTIONS>"];
+    expect(parseCodexTranscript(jsonl(...texts.map((text) => message("user", text)))).map((turn) => turn.parts[0]))
+      .toEqual(texts.map((text) => ({ kind: "text", text })));
   });
 
   it("pairs duplicate display/model records in either order but keeps genuine repeated prompts", () => {
@@ -663,6 +681,39 @@ describe("Codex rollout resolution", () => {
   it("does not bind using user context, tool output or a previous session above the welcome card", () => {
     expect(matchCodexTranscript(answer, [{ path: "user", text: jsonl(message("user", answer)) }])).toBeNull();
     expect(matchCodexTranscript(`${answer}\nOpenAI Codex (v1.0)\nNew session`, [{ path: "old", text: jsonl(message("assistant", answer)) }])).toBeNull();
+  });
+});
+
+describe("threadStartedWithProcess", () => {
+  const started = Date.parse("2026-10-03T00:00:00Z");
+  const screen = "OpenAI Codex (v1.0)\n\n› Check fixture\n\n• Ready\n";
+  const row = (path: string, createdAtMs: number, firstUserMessage = "Check fixture") => ({ path, createdAtMs, firstUserMessage });
+
+  it("matches the sole new thread by its complete first prompt", () => {
+    expect(threadStartedWithProcess([row("new", started + 1000), row("old", started - 60_000)], started, screen)).toBe("new");
+    expect(threadStartedWithProcess([row("new", started + 1000)], started, "› Check\n  fixture\n\n• Ready")).toBe("new");
+  });
+
+  it("allows only the whole-second process start tolerance", () => {
+    expect(threadStartedWithProcess([row("new", started - 1000)], started, screen)).toBe("new");
+    expect(threadStartedWithProcess([row("old", started - 1001)], started, screen)).toBeNull();
+  });
+
+  it("rejects multiple new threads even when only one prompt matches", () => {
+    expect(threadStartedWithProcess([row("one", started), row("two", started + 2000, "Other fixture")], started, screen)).toBeNull();
+  });
+
+  it("rejects absent timestamps, empty prompts and absent new threads", () => {
+    for (const time of [null, Infinity, NaN]) expect(threadStartedWithProcess([row("new", started)], time, screen)).toBeNull();
+    expect(threadStartedWithProcess([row("new", started, "")], started, screen)).toBeNull();
+    expect(threadStartedWithProcess([], started, screen)).toBeNull();
+  });
+
+  it("never uses a substring, punctuation variant, assistant quote or previous welcome card", () => {
+    for (const shown of ["› Check fixture again", "› Check-fixture", "• Check fixture", "› Check fixture\nOpenAI Codex (v1.0)\n› Other fixture"]) {
+      expect(threadStartedWithProcess([row("new", started)], started, shown)).toBeNull();
+    }
+    expect(threadStartedWithProcess([row("new", started, "Check")], started, screen)).toBeNull();
   });
 });
 

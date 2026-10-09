@@ -20,7 +20,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function contextOnly(text: string): boolean {
   const value = text.trim();
-  return (value.startsWith("# AGENTS.md instructions for ") && value.includes("</INSTRUCTIONS>"))
+  // Older Codex names the directory; newer Codex omits it.
+  return (/^# AGENTS\.md instructions(?: for |\s*\n)/.test(value) && value.includes("</INSTRUCTIONS>"))
     || /^<(environment_context|permissions instructions|turn_aborted|subagent_notification)>[\s\S]*<\/\1>$/.test(value);
 }
 
@@ -864,6 +865,64 @@ export function matchShortCodexAnswers(screen: string, candidates: { path: strin
   return candidates[only]!.path;
 }
 
+/** ps reports elapsed time in whole seconds. */
+const START_SLACK_MS = 1000;
+
+/**
+ * A shared app-server TUI may have no open rollout and too few answers to match.
+ * Only one interactive thread may have begun since its process started, and its
+ * complete first prompt must be echoed here. Never choose the most recent thread.
+ */
+export function threadStartedWithProcess(
+  rows: readonly { path: string; createdAtMs: number; firstUserMessage: string }[],
+  startedAtMs: number | null,
+  screen: string,
+): string | null {
+  if (startedAtMs === null || !Number.isFinite(startedAtMs)) return null;
+  const since = rows.filter((row) => row.createdAtMs >= startedAtMs - START_SLACK_MS);
+  if (since.length !== 1) return null;
+  const only = since[0];
+  if (only === undefined) return null;
+  const normalizePrompt = (text: string) => text.trim().replace(/\s+/g, " ");
+  const first = normalizePrompt(only.firstUserMessage);
+  if (first === "") return null;
+  const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
+  const lines = (lastHeader >= 0 ? screen.slice(lastHeader) : screen).split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const prompt = /^[ \t]*›[ \t]+(.*)$/.exec(lines[index] ?? "");
+    if (prompt === null) continue;
+    let echo = prompt[1] ?? "";
+    // Indented continuation lines are terminal wrapping, not assistant output.
+    while (/^[ \t]+\S/.test(lines[index + 1] ?? "") && !/^[ \t]*[›•]/.test(lines[index + 1] ?? "")) {
+      echo += ` ${lines[++index]?.trim()}`;
+    }
+    if (normalizePrompt(echo) === first) return only.path;
+  }
+  return null;
+}
+
+/** Every interactive thread begun since the process: no LIMIT may hide ambiguity. */
+function threadsBegunSince(home: string, cwd: string, sinceMs: number): { path: string; createdAtMs: number; firstUserMessage: string }[] {
+  let db: Database | undefined;
+  try {
+    db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
+    const columns = new Set(db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('threads')").all().map((column) => column.name));
+    if (!columns.has("first_user_message")) return [];
+    const createdMs = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000)" : "created_at * 1000";
+    const rows = db.query<{ rollout_path: string; created_ms: number; first_user_message: string | null }, [string, string, number]>(
+      `SELECT rollout_path, ${createdMs} AS created_ms, first_user_message FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} AND ${createdMs} >= ?`,
+    ).all(...storedCwds(cwd), sinceMs);
+    // Missing or unsafe rollouts still count: dropping one could make a guess unique.
+    if (rows.length !== 1) return [];
+    return rows.flatMap((row) => {
+      const path = codexRolloutPath(row.rollout_path, home);
+      return path === null ? [] : [{ path, createdAtMs: row.created_ms, firstUserMessage: row.first_user_message ?? "" }];
+    });
+  } catch {
+    return [];
+  } finally { db?.close(); }
+}
+
 /** `codex resume <thread>`: the thread a TUI was started on, straight from its command line. */
 export function resumedThread(argvs: readonly (readonly string[])[]): string | null {
   for (const argv of argvs) {
@@ -1172,14 +1231,21 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   // tell (#283). Never remembered as a binding: what it shows is read again each time, and only a
   // long answer binds the pane for when its screen no longer tells.
   if (screen === null || session?.value || boundHere !== undefined) return null;
-  // and only against every conversation this pane may be running, read whole: one left out of
-  // the 32 or one whose rollout is gone may be what said the same short lines
-  if (!listed || candidates.length !== paths.length) return null;
-  // read from each rollout itself, nothing remembered: one that continues another (a fork, a
-  // backtrack) shares that one's answers, and one past the budget was not read whole
-  let cut: boolean[];
-  try {
-    cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
-  } catch { return null; }
-  return matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
+  const short = ((): string | null => {
+    // Only against every conversation read whole: omitted or unreadable rollouts
+    // may have said the same short lines.
+    if (!listed || candidates.length !== paths.length) return null;
+    let cut: boolean[];
+    try {
+      cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
+    } catch { return null; }
+    return matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
+  })();
+  if (short !== null) return short;
+  const startedAt = Math.min(...codexProcesses.map((process) => processStartedAt(process.pid) ?? Infinity));
+  if (!Number.isFinite(startedAt)) return null;
+  const begun = threadsBegunSince(home, cwd, startedAt - START_SLACK_MS);
+  const path = threadStartedWithProcess(begun, startedAt, screen.text);
+  // Check ownership after uniqueness, never erase a second thread to make one unique.
+  return path !== null && theirs([path], paneId).length === 1 ? path : null;
 }
