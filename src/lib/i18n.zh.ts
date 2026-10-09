@@ -10,6 +10,9 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Recent folders": "最近的文件夹",
+  "Start a new workspace in {path}": "在 {path} 中启动新工作区",
+  "Click a folder to start with the selected agent. Saved after workspaces close.": "点击文件夹即可使用所选 Agent 启动。关闭工作区后仍会保存。",
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Direct typing": "直接输入",

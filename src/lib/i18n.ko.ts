@@ -6,6 +6,9 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Recent folders": "최근 폴더",
+  "Start a new workspace in {path}": "{path}에서 새 워크스페이스 시작",
+  "Click a folder to start with the selected agent. Saved after workspaces close.": "폴더를 누르면 선택한 에이전트로 시작합니다. 워크스페이스를 닫아도 저장됩니다.",
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Direct typing": "직접 입력",

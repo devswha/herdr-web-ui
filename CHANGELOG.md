@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- New workspace offers recent folder chips per PC, retained after workspaces close and browser
+  reloads. A chip starts the selected agent in that folder; successful starts move it to the front.
+
 ### Fixed
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.

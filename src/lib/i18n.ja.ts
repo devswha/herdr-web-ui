@@ -8,6 +8,9 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Recent folders": "最近のフォルダー",
+  "Start a new workspace in {path}": "{path}で新しいワークスペースを開始",
+  "Click a folder to start with the selected agent. Saved after workspaces close.": "フォルダーをクリックすると、選択したエージェントで開始します。ワークスペースを閉じても保存されます。",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Direct typing": "直接入力",
