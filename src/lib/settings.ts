@@ -36,8 +36,8 @@ export type VoiceButton = "auto" | "on" | "off";
 export const VOICE_BUTTONS: readonly VoiceButton[] = ["auto", "on", "off"];
 /**
  * The languages dictation can be set to, as BCP 47 tags (SpeechRecognition.lang; the transcribe
- * route takes the first subtag). On Auto a browser language the UI is not translated into is
- * heard as is, so one outside this list still works without a choice here.
+ * route takes the first subtag). Auto can also use a browser language outside this list when
+ * its primary subtag is two letters and the UI is not translated into it.
  */
 export const DICTATION_LANGUAGES = [
   "ar-SA", "cs-CZ", "da-DK", "de-DE", "el-GR", "en-GB", "en-US", "es-ES", "fi-FI", "fr-FR", "he-IL", "hi-IN",

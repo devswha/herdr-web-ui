@@ -195,6 +195,8 @@ describe("dictationLocale", () => {
     expect(dictationLocale("auto", "system", "ko", ["de-DE", "ko-KR"])).toBe("de-DE");
     // not a language tag: the UI language
     expect(dictationLocale("auto", "system", "en", ["*"])).toBe("en-US");
+    expect(dictationLocale("auto", "system", "en", ["hu"])).toBe("hu");
+    expect(dictationLocale("auto", "system", "en", ["fil-PH"])).toBe("en-US");
   });
 
   it("keeps the UI language's locale on auto when the browser's first language is a UI language", () => {
@@ -369,6 +371,20 @@ describe("createVoiceEngine", () => {
     start() { this.state = "recording"; this.onstart?.(); }
     stop() { this.state = "inactive"; this.ondataavailable?.({ data: new Blob(["audio"]) }); this.onstop?.(); }
   }
+  class FakeSpeech {
+    static made: FakeSpeech[] = [];
+    lang = "";
+    continuous = false;
+    interimResults = false;
+    onaudiostart: (() => void) | null = null;
+    onresult = null;
+    onerror = null;
+    onend: (() => void) | null = null;
+    constructor() { FakeSpeech.made.push(this); }
+    start() { this.onaudiostart?.(); }
+    stop() { this.onend?.(); }
+    abort() { this.onend?.(); }
+  }
 
   const GLOBALS = ["document", "MediaRecorder", "requestAnimationFrame", "cancelAnimationFrame", "fetch"] as const;
   const saved = new Map<string, PropertyDescriptor | undefined>();
@@ -377,19 +393,26 @@ describe("createVoiceEngine", () => {
   let micRequests: Array<(stream: FakeStream) => void> = [];
   let frames: FrameRequestCallback[] = [];
   let uploads: Array<(response: Response) => void> = [];
+  let uploadedLanguages: Array<FormDataEntryValue | null> = [];
 
   beforeEach(() => {
     micRequests = [];
     frames = [];
     uploads = [];
+    uploadedLanguages = [];
     FakeRecorder.made = [];
+    FakeSpeech.made = [];
     for (const name of GLOBALS) saved.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
     saved.set("mediaDevices", Object.getOwnPropertyDescriptor(navigator, "mediaDevices"));
     define(globalThis, "document", { hidden: false });
     define(globalThis, "MediaRecorder", FakeRecorder);
     define(globalThis, "requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
     define(globalThis, "cancelAnimationFrame", () => undefined);
-    define(globalThis, "fetch", () => new Promise<Response>((resolve) => { uploads.push(resolve); }));
+    define(globalThis, "fetch", (_url: string, init: RequestInit) => {
+      expect(init.body).toBeInstanceOf(FormData);
+      uploadedLanguages.push((init.body as FormData).get("language"));
+      return new Promise<Response>((resolve) => { uploads.push(resolve); });
+    });
     define(navigator, "mediaDevices", { getUserMedia: () => new Promise<FakeStream>((resolve) => { micRequests.push(resolve); }) });
   });
 
@@ -402,7 +425,7 @@ describe("createVoiceEngine", () => {
     saved.clear();
   });
 
-  function engine() {
+  function engine(locale = "en-US", provider: "server" | "browser" = "server") {
     const states: string[] = [];
     const texts: string[] = [];
     const waiting: Array<{ state: string; resolve: () => void }> = [];
@@ -415,10 +438,10 @@ describe("createVoiceEngine", () => {
       setSilent: () => undefined,
       setError: () => undefined,
       options: () => ({ mode: "chat", enabled: true, polish: false, onText: (result) => { texts.push(result.text); } }),
-      engine: () => "server",
-      language: () => ({ locale: "en-US", ui: "en" }),
+      engine: () => provider,
+      language: () => ({ locale, ui: "en" }),
       recorder: () => ({ mimeType: "audio/webm", extension: "webm" }),
-      speech: () => null,
+      speech: () => provider === "browser" ? FakeSpeech : null,
     });
     const reached = (state: string) => new Promise<void>((resolve) => { waiting.push({ state, resolve }); });
     return { voice, states, texts, reached };
@@ -426,6 +449,33 @@ describe("createVoiceEngine", () => {
 
   /** lets the engine's own continuations after a resolved promise run; nothing here waits on time */
   const drain = async (): Promise<void> => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); };
+
+  it("passes the selected full locale to browser recognition without uploading audio", () => {
+    const { voice } = engine("hu-HU", "browser");
+    try {
+      voice.press();
+      expect(FakeSpeech.made).toHaveLength(1);
+      expect(FakeSpeech.made[0]!.lang).toBe("hu-HU");
+      expect(micRequests).toHaveLength(0);
+      expect(uploads).toHaveLength(0);
+    } finally { voice.cancel(); }
+  });
+
+  it("uploads the selected language rather than the display language", async () => {
+    const { voice, reached } = engine("hu-HU");
+    try {
+      voice.press();
+      micRequests[0]!(new FakeStream());
+      await drain();
+      frames.pop()!(performance.now() + 1000);
+      voice.press();
+      await drain();
+      expect(uploadedLanguages).toEqual(["hu"]);
+      const idle = reached("idle");
+      uploads[0]!(new Response('{"type":"done","text":"teszt"}\n'));
+      await idle;
+    } finally { voice.cancel(); }
+  });
 
   it("closes only its own stream when a cancelled microphone request answers after a newer one", async () => {
     const { voice } = engine();
