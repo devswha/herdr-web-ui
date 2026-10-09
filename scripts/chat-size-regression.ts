@@ -6,13 +6,25 @@ import type { Browser, BrowserContext, Page } from "playwright-core";
 import type { Machine } from "../shared/machines.ts";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
-import { herdrRpc, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { PtySession } from "../server/pty/session.ts";
+import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 /** how long a resize that should not happen gets to show up */
 const NO_RESIZE_WAIT_MS = 400;
 
 type Frame = { dir: "in" | "out"; type: string; keep_size?: boolean };
 const framesOf = (page: Page) => page.evaluate(() => (window as unknown as { frames_: Frame[] }).frames_);
+
+async function stopHolder(holder: PtySession): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("attach holder did not exit")), 10_000);
+  });
+  try {
+    holder.kill();
+    await Promise.race([holder.exited, deadline]);
+  } finally { clearTimeout(timer); }
+}
 
 /** The size the pane's own shell reports (`stty size`), not what a browser thinks. */
 function shellSize(paneId: string): () => Promise<string> {
@@ -33,7 +45,7 @@ function shellSize(paneId: string): () => Promise<string> {
 }
 
 /** A page on `paneId` that records every frame its socket sends and receives (`frames_`), its socket in `socket_`. */
-async function openRecording(browser: Browser, contexts: BrowserContext[], origin: string, paneId: string, options: Parameters<Browser["newContext"]>[0], settings: object, away = false): Promise<Page> {
+async function openRecording(browser: Browser, contexts: BrowserContext[], origin: string, paneId: string, options: Parameters<Browser["newContext"]>[0], settings: object, away = false, setup?: (page: Page) => Promise<void>): Promise<Page> {
   const context = await browser.newContext({ locale: "en-US", ...options });
   contexts.push(context);
   await context.addInitScript((stored) => {
@@ -56,6 +68,7 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
     Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
   });
   const page = await context.newPage();
+  await setup?.(page);
   await page.goto(`${origin}/?pane=${encodeURIComponent(paneId)}`);
   await page.locator(".conn-live").waitFor();
   return page;
@@ -337,11 +350,13 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
   const failures: string[] = [];
   try {
     const panes: string[] = [];
-    for (const name of ["first", "next"]) {
+    let heldTerminal: string | null = null;
+    for (const name of ["first", "next", "held"]) {
       const cwd = join(root, name);
       mkdirSync(cwd);
       const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-inactive-${name}` });
       panes.push(created.root_pane.pane_id);
+      if (name === "held") heldTerminal = created.root_pane.terminal_id;
       workspaces.push(created.workspace.workspace_id);
     }
     const first = panes[0]!;
@@ -351,12 +366,127 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
     count, { timeout: 10_000 });
     const sent = async (page: Page, start = 0) => (await framesOf(page)).slice(start)
       .filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
-    for (const scenario of ["mount", "switch", "resume", "toggles"]) {
+    const scenarios = ["mount", "switch", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
+    assert.ok(!process.env.CHAT_SIZE_CASE || scenarios.some((scenario) => scenario === process.env.CHAT_SIZE_CASE), "unknown CHAT_SIZE_CASE");
+    for (const scenario of scenarios) {
       if (process.env.CHAT_SIZE_CASE && process.env.CHAT_SIZE_CASE !== scenario) continue;
-      const page = await openRecording(browser, contexts, origin, first,
-        { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: "terminal" }, scenario === "mount");
+      let holder: PtySession | undefined;
+      let page: Page | undefined;
+      const heldPane = panes[2]!;
       try {
-        await attached(page);
+        const queueScenario = scenario.startsWith("queue-");
+        if (queueScenario) {
+          await herdrRpc("pane.report_agent", { pane_id: first, source: "manual", agent: "claude", state: "working" });
+          await agentListed(origin, first);
+        }
+        let releaseSubmit: (() => void) | undefined;
+        let acceptedQueue = false;
+        let holdOutput = false;
+        let injectOutput: (() => void) | undefined;
+        const heldOutput: Array<() => void> = [];
+        const wire: Frame[] = [];
+        const listeners = new Set<() => void>();
+        const record = (raw: string | Buffer, dir: "in" | "out"): void => {
+          const frame = JSON.parse(String(raw));
+          wire.push({ dir, type: frame.type, ...(dir === "out" ? { keep_size: frame.keep_size } : {}) });
+          for (const listener of listeners) listener();
+        };
+        const waitWire = (dir: "in" | "out", type: string, count = 1): Promise<void> => new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => { listeners.delete(check); reject(new Error(`no ${count} ${dir} ${type} frames`)); }, 15_000);
+          const check = (): void => {
+            if (wire.filter((frame) => frame.dir === dir && frame.type === type).length < count) return;
+            clearTimeout(timeout); listeners.delete(check); resolve();
+          };
+          listeners.add(check); check();
+        });
+        const routed = queueScenario || scenario === "writes";
+        const recorded = async (): Promise<Frame[]> => {
+          if (routed) return [...wire];
+          assert.ok(page);
+          return framesOf(page);
+        };
+        const setup = async (recording: Page): Promise<void> => {
+          await recording.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+            injectOutput = () => {
+              for (const data of ["\x1b[2J\x1b[H", "STALE-SUBSCRIPTION"]) {
+                socket.send(JSON.stringify({ type: "pty-data", pane_id: first, data }));
+              }
+            };
+            const upstream = socket.connectToServer();
+            upstream.onMessage((raw) => {
+              const frame = JSON.parse(String(raw));
+              if (frame.type === "submit-result") acceptedQueue = Boolean(frame.ok && frame.pending);
+              record(raw, "in");
+              if (holdOutput && frame.type === "pty-data") heldOutput.push(() => socket.send(raw));
+              else socket.send(raw);
+            });
+            socket.onMessage((raw) => {
+              const frame = JSON.parse(String(raw));
+              record(raw, "out");
+              if (queueScenario && frame.type === "submit" && frame.delivery === "queue") {
+                if (scenario === "queue-switch") {
+                  // The component receives the real pending protocol; backend queue behavior has contract tests.
+                  const receipt = JSON.stringify({ type: "submit-result", id: frame.id, pane_id: first, ok: true,
+                    pending: { id: "lifecycle-queue", request_id: frame.id, text: frame.text, state: "queued", created_at: new Date().toISOString() } });
+                  record(receipt, "in"); socket.send(receipt);
+                } else releaseSubmit = () => upstream.send(raw); // validation/acceptance still runs on the real server
+              } else upstream.send(raw);
+            });
+          });
+        };
+        if (scenario === "held") {
+          assert.ok(heldTerminal);
+          const ready = Promise.withResolvers<void>();
+          const deadline = setTimeout(() => ready.reject(new Error("holder produced no attach stream")), 15_000);
+          holder = new PtySession({
+            command: process.env.HERDR_WEB_HERDR_BIN ?? "herdr", args: ["terminal", "attach", heldTerminal],
+            cols: 80, rows: 24, env: { HERDR_SOCKET_PATH: herdrSocketPath() },
+            onData: () => ready.resolve(), onExit: () => ready.reject(new Error("holder ended before the test")),
+          });
+          try { await ready.promise; } finally { clearTimeout(deadline); }
+        }
+        page = await openRecording(browser, contexts, origin, scenario === "held" ? heldPane : first,
+          { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal" },
+          scenario === "mount", queueScenario || scenario === "writes" ? setup : undefined);
+        if (scenario === "held") {
+          await page.getByText("Another app has this pane open.", { exact: false }).waitFor();
+          await page.clock.install();
+          await page.clock.pauseAt(new Date());
+          await page.evaluate(() => {
+            Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+            window.dispatchEvent(new Event("blur"));
+          });
+          await page.clock.runFor(1000);
+          await waitDetach(page);
+          await page.locator(".terminal-banner", { hasText: "Paused while you use another window" }).waitFor();
+          assert.ok(holder);
+          await stopHolder(holder);
+          await page.evaluate(() => {
+            Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+            window.dispatchEvent(new Event("focus"));
+          });
+          await attached(page);
+          assert.equal((await framesOf(page)).filter((f) => f.dir === "in" && f.type === "attach-resumed").length, 0,
+            "the fresh attach succeeds without a held retry");
+          assert.equal(await page.getByText("Another app has this pane open.", { exact: false }).count(), 0,
+            "a fresh resume must clear the previous attach's held state");
+          await page.clock.resume();
+          await page.locator(".xterm-helper-textarea").focus();
+          await page.keyboard.type("z");
+          await page.waitForFunction(() => (window as unknown as { frames_: Frame[] }).frames_
+            .some((f) => f.dir === "out" && f.type === "input"), undefined, { timeout: 10_000 });
+          console.log("PASS inactive attach lifecycle: held");
+          continue;
+        }
+        await (routed ? waitWire("in", "input-ready") : attached(page));
+        if (queueScenario) {
+          await page.locator('.composer-status[data-status="working"]').waitFor();
+          await page.locator(".composer-text").fill("lifecycle follow-up");
+          assert.equal(await page.locator(".composer-text").inputValue(), "lifecycle follow-up");
+          await page.locator(".composer-text").press("Enter");
+          await waitWire("out", "submit");
+          if (scenario === "queue-switch") await page.locator('.pending-message[data-state="queued"]').waitFor();
+        }
         if (scenario === "mount") {
           // No blur or visibility transition occurs after this out-of-use mount.
           await waitDetach(page);
@@ -365,11 +495,85 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           // Freeze timers after the real first attach; only the release delay is advanced below.
           await page.clock.install();
           await page.clock.pauseAt(new Date());
+          if (scenario === "writes") {
+            await page.clock.runFor(50);
+            holdOutput = true;
+          }
           await page.evaluate(() => {
             Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
             window.dispatchEvent(new Event("blur"));
           });
-          if (scenario === "switch") {
+          if (queueScenario) {
+            await page.clock.runFor(1000);
+            assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 0,
+              "a queued or unacknowledged follow-up holds its originating attach");
+            if (scenario === "queue-switch") {
+              await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
+              await waitWire("out", "attach", 2);
+              await page.locator(`.terminal-stack[data-pane-owner="${next}"]`).waitFor({ state: "attached" });
+              await page.clock.runFor(0);
+              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 1,
+                "pane B gets its own release delay, not pane A's queue-held state");
+              await waitWire("in", "input-ready", 2);
+              await page.clock.runFor(900);
+              await page.evaluate(() => {
+                Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+                window.dispatchEvent(new Event("focus"));
+                Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+                window.dispatchEvent(new Event("blur"));
+              });
+              await page.clock.runFor(100);
+              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 1,
+                "pane A's orphaned timer cannot shorten pane B's new delay");
+              await page.clock.runFor(900);
+              await waitWire("out", "detach", 2);
+            } else {
+              assert.ok(releaseSubmit, "the explicit Send is waiting at the server boundary");
+              releaseSubmit();
+              await waitWire("in", "submit-result");
+              if (acceptedQueue) {
+                const queued = page.locator('.pending-message[data-state="queued"]');
+                await queued.waitFor();
+                // An accepted follow-up still owns its lease until the user discards it.
+                await queued.getByRole("button", { name: "Discard", exact: true }).evaluate((button: HTMLElement) => button.click());
+                await waitWire("out", "pending-action");
+              }
+              await waitWire("out", "detach");
+            }
+          } else if (scenario === "writes") {
+            await page.clock.runFor(999);
+            await page.evaluate(() => {
+              const scheduled: Array<() => void> = [];
+              const timers: Pick<Window, "setTimeout"> = window;
+              const schedule = timers.setTimeout;
+              timers.setTimeout = (handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+                if (timeout === undefined && typeof handler === "function") {
+                  scheduled.push(() => handler(...args));
+                  return 0;
+                }
+                return schedule(handler, timeout, ...args);
+              };
+              Object.assign(window, { parseHeld_: scheduled, restoreParserTimer_: () => { timers.setTimeout = schedule; } });
+            });
+            assert.ok(injectOutput);
+            injectOutput();
+            await page.waitForFunction(() => (window as unknown as { parseHeld_: Array<() => void> }).parseHeld_.length > 0,
+              undefined, { timeout: 10_000 });
+            await page.evaluate(() => (window as unknown as { restoreParserTimer_: () => void }).restoreParserTimer_());
+            await page.clock.runFor(1);
+            await waitWire("out", "detach");
+            await page.evaluate(() => {
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+              window.dispatchEvent(new Event("focus"));
+              for (const parse of (window as unknown as { parseHeld_: Array<() => void> }).parseHeld_) parse();
+            });
+            await waitWire("in", "input-ready", 2);
+            await page.clock.runFor(50);
+            assert.equal((await page.locator(".xterm-rows").textContent() ?? "").includes("STALE-SUBSCRIPTION"), false,
+              "resume resets after pending writes, before the new attachment stream");
+            holdOutput = false;
+            for (const deliver of heldOutput) deliver();
+          } else if (scenario === "switch") {
             const before = (await framesOf(page)).length;
             // Programmatic click deliberately does not focus the window.
             await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
@@ -426,8 +630,10 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
       } catch (error) {
         failures.push(`${scenario}: ${String(error)}`);
         console.error(`FAIL inactive attach lifecycle: ${scenario}: ${String(error)}`);
+        if (error instanceof Error) console.error(error.stack);
       } finally {
-        await page.context().close();
+        if (holder) await stopHolder(holder);
+        await page?.context().close();
       }
     }
     assert.deepEqual(failures, [], "inactive attach lifecycle scenarios");

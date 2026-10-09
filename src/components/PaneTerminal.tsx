@@ -195,6 +195,8 @@ export function PaneTerminal({
   // the mount effect's leave, for the pane switch: a tab out of use from the start (a reload behind
   // another app) or moving on to the next pane there lets go of it too
   const leaveRef = useRef<() => void>(() => {});
+  const cancelLeaveRef = useRef<() => void>(() => {});
+  const pendingSubmissionsRef = useRef(new Set<{ pane: string; socket: HerdrSocket; epoch: number }>());
   const endedRef = useRef(false);
   // the modifyOtherKeys level the pane's program asked for, as this pane's stream last said it
   const modifyOtherKeysRef = useRef(0);
@@ -853,7 +855,7 @@ export function PaneTerminal({
       }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
       if (message.type === "pty-data") {
-        if (message.pane_id !== paneRef.current) return;
+        if (message.pane_id !== paneRef.current || releasedRef.current) return;
         // raw pty bytes: append, never repaint, so xterm keeps the screen and selection
         const acknowledge = socket.outputAcknowledgement(message);
         const owner = message.pane_id;
@@ -1225,14 +1227,24 @@ export function PaneTerminal({
     // mirrored pane holds no attach, and a page inside another page (the site's demo) has the
     // focus only while it is clicked into.
     const embedded = window.self !== window.top;
-    const queueWaits = (pane: string): boolean => pendingMessages.read(paneStorageId(machineId, pane))
-      .some((message) => message.serverOwned && (message.state === "queued" || message.state === "sending"));
+    const queueWaits = (pane: string): boolean => {
+      if ([...pendingSubmissionsRef.current].some((submission) => submission.pane === pane
+        && submission.socket === socket && submission.epoch === pendingEpochRef.current)) return true;
+      const owner = paneStorageId(machineId, pane);
+      return pendingMessages.read(owner).some((message) => pendingMessages.isOwned(owner, message.id, pendingScopeRef.current)
+        && (message.state === "queued" || message.state === "sending"));
+    };
     let releaseTimer: number | null = null;
     // the release waits for a message this tab queued: the queue's next change tries it again
     let queueHeld = false;
-    const release = (): void => {
+    const cancelLeave = (): void => {
+      if (releaseTimer !== null) window.clearTimeout(releaseTimer);
       releaseTimer = null;
       queueHeld = false;
+    };
+    cancelLeaveRef.current = cancelLeave;
+    const release = (): void => {
+      cancelLeave();
       const current = paneRef.current;
       if (!current || releasedRef.current || inUse() || embedded || fixedGridRef.current || endedRef.current) return;
       if (queueWaits(current)) {
@@ -1248,9 +1260,15 @@ export function PaneTerminal({
       setReleased(false);
       const current = paneRef.current;
       if (!current) return;
+      // A fresh attach says attach_held again if needed; success does not send attach-resumed.
+      setHeld(false);
       // the pane's screen starts again from the new attach, as on a pane switch
-      outputGeneration++;
-      term.reset();
+      const generation = ++outputGeneration;
+      // Reset in stream order: synchronous reset would let old queued writes draw afterward.
+      term.write("\x1bc", () => {
+        if (disposed || paneRef.current !== current || generation !== outputGeneration) return;
+        modifyOtherKeysRef.current = 0;
+      });
       modifyOtherKeysRef.current = 0;
       setOutputReady(false);
       if (!observeRef.current && !chatViewRef.current) {
@@ -1269,13 +1287,13 @@ export function PaneTerminal({
     const leave = (): void => {
       const current = paneRef.current;
       if (current && !observeRef.current && !fixedGridRef.current) socket.keepSize(current);
-      if (releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(release, RELEASE_AFTER_MS);
+      if (releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(() => {
+        if (paneRef.current === current) release();
+      }, RELEASE_AFTER_MS);
     };
     leaveRef.current = leave;
     const back = (): void => {
-      if (releaseTimer !== null) window.clearTimeout(releaseTimer);
-      releaseTimer = null;
-      queueHeld = false;
+      cancelLeave();
       if (releasedRef.current) resume();
       else refit();
     };
@@ -1313,6 +1331,7 @@ export function PaneTerminal({
       if (releaseTimer !== null) window.clearTimeout(releaseTimer);
       releaseRef.current = () => {};
       leaveRef.current = () => {};
+      cancelLeaveRef.current = () => {};
       window.removeEventListener("focus", back);
       window.removeEventListener("blur", leave);
       window.removeEventListener("pointerdown", onPointer, { capture: true });
@@ -1441,6 +1460,7 @@ export function PaneTerminal({
     modifyOtherKeysRef.current = 0;
     if (!paneId) return;
     const leavePane = (): void => {
+      cancelLeaveRef.current();
       // a released pane was detached already
       if (!releasedRef.current) socket.detach(paneId);
       if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, paneId), pendingScopeRef.current);
@@ -1541,6 +1561,8 @@ export function PaneTerminal({
     const epoch = pendingEpochRef.current;
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery);
     if (sent === null) return null;
+    const submission = delivery === "queue" ? { pane, socket, epoch } : null;
+    if (submission) pendingSubmissionsRef.current.add(submission);
     term.scrollToBottom();
     if (delivery === "immediate") setChatSent((current) => current + 1);
     const owner = paneStorageId(machineId, pane);
@@ -1571,6 +1593,10 @@ export function PaneTerminal({
       // the send broke with no answer: it may have been typed, and it is no longer on its way
       rememberGreeting(owner, afterSettled(delivery === "immediate" ? greetingMemory(owner) : afterSend(greetingMemory(owner)), true, history)); redrawGreeting();
       throw error;
+    }).finally(() => {
+      if (!submission) return;
+      pendingSubmissionsRef.current.delete(submission);
+      if (paneRef.current === pane && socketRef.current === socket && pendingEpochRef.current === epoch) releaseRef.current();
     });
   }, [onChatSuggestion, machineId]);
 
