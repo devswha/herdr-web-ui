@@ -12,6 +12,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   a browser whose first language the app is not translated into (Hungarian, German, …) is heard in
   that language rather than in English; every other case listens for the app's language as before.
   ([#612](https://github.com/devswha/herdr-web-ui/pull/612) by @kratam)
+- `HERDR_WEB_APP_NAME` names the installed app, so the apps of two PCs on one phone no longer
+  both read `herdr`. Unset, nothing changes.
+  ([#684](https://github.com/devswha/herdr-web-ui/pull/684) by @sma505)
 
 ### Changed
 - The chat's `/` command list also matches a word of a command's name, any part of it, its letters
