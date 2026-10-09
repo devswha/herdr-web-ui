@@ -19,21 +19,22 @@ export function sameOrigin(request: Request): boolean {
   if (site && site !== "same-origin" && site !== "none") return false;
   const origin = request.headers.get("origin");
   if (!origin) {
-    // No Origin at all. A browser always attaches one to a cross-origin state-changing
-    // request, so a session or device cookie arriving without one is a header that went
-    // missing or a non-browser client, not a same-origin page: it is read as cross-site.
+    // No Origin at all. A browser leaves it off its own same-origin GET and HEAD (the PC
+    // event stream, an EventSource, can send no header of its own), so a read keeps passing.
+    // A browser always attaches one to a state-changing request, so a session or device
+    // cookie arriving on one without it is a header that went missing or a non-browser
+    // client, not a same-origin page: it is read as cross-site.
     // Two ways it is still admitted, both of which a forged browser request cannot use. A
     // non-browser client can prove itself with the custom mutation header — a cross-site
     // page cannot send both the victim's cookie and that header without a CORS preflight
-    // this server never answers. And three paths are reachable by a cookie-bearing client
-    // that can state no origin at all: the WebSocket upgrade, which a browser cannot attach
-    // the header to, and the two endpoints that touch only the requesting device's own
-    // session.
+    // this server never answers. And two endpoints that touch only the requesting device's
+    // own session stay reachable by a cookie-bearing client that can state no origin at all.
+    if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return true;
     const cookies = parseCookies(request.headers.get("cookie"));
     if (!cookies.has(TOKEN_COOKIE) && !cookies.has(DEVICE_COOKIE)) return true; // CLI clients
     if (request.headers.get("x-herdr-machine") === "1") return true;
     const { pathname } = new URL(request.url);
-    return pathname === "/ws" || pathname === "/api/auth" || pathname === "/api/push/subscribe";
+    return pathname === "/api/auth" || pathname === "/api/push/subscribe";
   }
   try {
     const expected = new URL(request.url);
