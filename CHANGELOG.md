@@ -12,6 +12,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   file's name), in the colors of the theme and palette. A copy still takes the text without the
   numbers. Markdown files are numbered but stay plain.
 
+### Changed
+- On a phone the app moves and responds like an iPhone app rather than a web page. Menus,
+  dialogs, the palette and Settings slide up from the bottom, follow your finger when you drag
+  them down, and slide away however they close; the workspace drawer follows your finger too.
+  Over the chat the header is frosted glass that the conversation scrolls under, and the message
+  box floats over the conversation's end. A tapped button dims at once instead of drawing an amber
+  box, a list row fills when pressed, a long press on the app's buttons and rows no longer selects
+  their text, and a pinch no longer zooms the whole app (Settings sizes the text).
+
 ### Fixed
 - herdr in your terminal shows a pane whole again once you leave the browser tab that had it
   open. herdr holds a pane at the size of a web UI attach until that attach ends, so a desktop

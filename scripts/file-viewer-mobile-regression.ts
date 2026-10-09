@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { sheetsSettled } from "./sheets-settled.ts";
 
 async function checkLayout(): Promise<void> {
   const fixture = mkdtempSync(join(tmpdir(), "herdr-web-ui-viewer-layout-"));
@@ -95,6 +96,8 @@ async function checkLayout(): Promise<void> {
             const image = document.querySelector<HTMLImageElement>(".file-viewer-media");
             return image?.complete && image.naturalWidth > 0;
           });
+          // a phone's viewer rises into place (styles.css): measure where it comes to rest
+          await sheetsSettled(page);
           const geometry = await page.evaluate(() => {
             const rect = (element: Element) => {
               const { x, y, width, height, right, bottom } = element.getBoundingClientRect();

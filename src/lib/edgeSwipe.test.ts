@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { EDGE_PX, SWIPE_PX, swipeVerdict, watchDrawerSwipe } from "./edgeSwipe.ts";
+import { drawerSettles, EDGE_PX, FLING_SPEED, SWIPE_PX, swipeVerdict, watchDrawerSwipe } from "./edgeSwipe.ts";
 
 describe("swipeVerdict", () => {
   test("a swipe in from the left edge opens the closed drawer", () => {
@@ -23,6 +23,18 @@ describe("swipeVerdict", () => {
     expect(swipeVerdict(true, 200, -20, 3)).toBe("claim");
     expect(swipeVerdict(true, 200, -SWIPE_PX, 3)).toBe("close");
     expect(swipeVerdict(true, 200, SWIPE_PX, 3)).toBe("ignore");
+  });
+});
+
+describe("drawerSettles", () => {
+  test("let go slowly, the drawer stays open when more than half of it shows", () => {
+    expect(drawerSettles(170, 300, 0)).toBe(true);
+    expect(drawerSettles(130, 300, 0)).toBe(false);
+  });
+
+  test("a flick settles it the way it went, wherever it is let go", () => {
+    expect(drawerSettles(40, 300, FLING_SPEED)).toBe(true);
+    expect(drawerSettles(260, 300, -FLING_SPEED)).toBe(false);
   });
 });
 
@@ -131,6 +143,23 @@ describe("watchDrawerSwipe", () => {
 
   test("a selection begun mid-stroke, before the drawer moved, hands the stroke back", () => {
     expect(stroke([[4, 400], [24, 400], [40, 400], [90, 400]], false, null, () => { selection = { isCollapsed: false }; })).toEqual({ reached: 2, calls: [] });
+  });
+
+  test("the drawer is under the finger while it moves, and settles where it is let go", () => {
+    const style: Record<string, string> = {};
+    const drawer = { style, getBoundingClientRect: () => ({ width: 300 }) };
+    const doc = (globalThis as Record<string, unknown>)["document"] as Record<string, unknown>;
+    doc["getElementById"] = (id: string) => (id === "workspace-drawer" ? drawer : null);
+    const seen: string[] = [];
+    const watch = new Proxy(style, { set: (target, key: string, value: string) => { target[key] = value; if (key === "transform") seen.push(value); return true; } });
+    drawer.style = watch;
+    // past the swipe it opens, the finger comes back to a third of the drawer, and is let go slowly: it closes
+    const timed = stroke([[4, 400], [24, 400], [100, 400], [100, 400], [100, 400]]);
+    expect(seen).toContain("translateX(-204px)");
+    expect(timed.calls).toEqual([true, false]);
+    expect(style["transform"]).toBe("");
+    expect(style["visibility"]).toBe("");
+    delete doc["getElementById"];
   });
 
   test("a selection after the drawer moved leaves the stroke with it", () => {
