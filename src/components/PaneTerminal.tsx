@@ -58,6 +58,8 @@ export interface PaneTerminalProps {
    * terminal to attach, so App passes a null paneId and the placeholder says why.
    */
   restoreError?: string | null;
+  /** the pane's own name (App's header shows it): the region around the grid announces it */
+  title?: string | null;
   /** the pane's agent name — the chat lens labels the assistant's voice with it */
   agent?: string | null;
   /** the pane's live agent status: `working` turns composer sends into the queue */
@@ -103,6 +105,7 @@ export function PaneTerminal({
   paneId,
   restoreError = null,
   agent = null,
+  title = null,
   agentStatus,
   backgroundTasks = 0,
   cwd = null,
@@ -130,6 +133,8 @@ export function PaneTerminal({
   const chatView = view === "chat";
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
+  // what the grid's region announces: the pane's own name, or the grid's kind while none is open
+  const terminalName = paneId === null ? t("Terminal") : t("Terminal for {title}", { title: title ?? paneId });
   /** read by the wheel handler, which is attached once for the terminal's life */
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
@@ -1785,7 +1790,11 @@ export function PaneTerminal({
         )}
       </div>
       <div className="terminal-surface">
-        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} />
+        {/* xterm hides its rendered rows from assistive technology, so the region around the
+            visible grid carries the pane's name: a screen reader announces which pane
+            this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
+            stop on the wrapper would only be an empty one ahead of it. */}
+        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
         {paneId !== null && chatView && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">

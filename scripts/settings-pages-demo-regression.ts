@@ -71,6 +71,17 @@ try {
           page.on("pageerror", (error) => errors.push(error.message));
           await page.goto(url);
           await page.locator(".conn-live").waitFor({ state: "attached" });
+          const terminal = page.locator(".pane-terminal");
+          await terminal.waitFor({ state: "attached" });
+          const lens = page.getByRole("group", { name: "Pane view", exact: true });
+          await lens.getByTitle(label("Live terminal (⌘⇧J)"), { exact: true }).tap();
+          assert.equal(await terminal.getAttribute("role"), "region");
+          assert.equal(await terminal.getAttribute("aria-roledescription"), label("Terminal"));
+          assert.equal(await terminal.getAttribute("aria-label"), label("Terminal for {title}").replace("{title}", "Idempotent payments"));
+          assert.equal(await terminal.getAttribute("tabindex"), null, "the wrapper adds no empty keyboard stop");
+          await lens.getByTitle(label("Chat transcript (⌘⇧J)"), { exact: true }).tap();
+          assert.equal(await terminal.getAttribute("role"), null, "chat exposes no empty terminal landmark");
+          assert.equal(await terminal.getAttribute("aria-label"), null);
           await openSettings(page);
           for (const name of PAGES) {
             await openSettingsPage(page, label(name), label("Back to settings"));
@@ -78,7 +89,16 @@ try {
             await page.waitForFunction((loading) => ![...document.querySelectorAll(".settings-body [role='status']")].some((node) => loading.includes(node.textContent?.trim() ?? "")),
               [label("Loading…"), label("Asking this PC about Tailscale…")]);
             if (name === "Subscription usage") await page.locator(".usage-accounts-row").first().waitFor();
-            if (name === "Voice input") await page.locator(".voice-key").waitFor();
+            if (name === "Voice input") {
+              await page.locator(".voice-key").waitFor();
+              const dictation = page.getByLabel(label("Dictation language"), { exact: true });
+              await dictation.selectOption("hu-HU");
+              await page.waitForFunction(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).voiceLanguage === "hu-HU");
+              assert.equal(await dictation.inputValue(), "hu-HU");
+              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).language), language,
+                "dictation selection does not change the display language");
+              await dictation.selectOption("auto");
+            }
             assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }
           await openSettingsPage(page, label("Terminal"), label("Back to settings"));
@@ -97,6 +117,31 @@ try {
           }
           assert.deepEqual(errors, []);
           await page.getByRole("button", { name: label("Close settings"), exact: true }).tap();
+          if (language === "en") {
+            const composer = page.locator(".composer textarea");
+            await composer.fill("/");
+            const menu = page.getByRole("listbox", { name: "Slash commands" });
+            await menu.getByRole("option").last().waitFor();
+            await composer.press("ArrowUp");
+            await page.waitForFunction(() => {
+              const menu = document.querySelector(".composer-menu");
+              const active = menu?.querySelector('[aria-selected="true"]');
+              if (!menu || !active) return false;
+              const box = menu.getBoundingClientRect(), row = active.getBoundingClientRect();
+              return active.textContent?.includes("vim") && row.top >= box.top && row.bottom <= box.bottom;
+            });
+            await composer.fill("/comments");
+            await menu.getByRole("option").filter({ hasText: "pr-comments" }).waitFor();
+            assert.equal(await menu.getByRole("option").count(), 1);
+            await composer.press("Tab");
+            await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>(".composer textarea")?.value === "/pr-comments ");
+            assert.equal(await composer.inputValue(), "/pr-comments ");
+            await composer.fill("/rln");
+            await menu.getByRole("option").filter({ hasText: "release-notes" }).waitFor();
+            assert.equal(await menu.getByRole("option").count(), 1);
+            await composer.fill("");
+            console.log(`PASS fuzzy commands and offscreen keyboard selection (${width}px)`);
+          }
           console.log(`PASS every Settings page and key bar fit a ${width}px phone (${language}); ${(performance.now() - started).toFixed(0)}ms`);
         } finally {
           await context.close();
