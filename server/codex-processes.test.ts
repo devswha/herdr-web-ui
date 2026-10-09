@@ -151,6 +151,83 @@ it("does not use an alias resume after a newer interactive thread starts", async
   expect(await resolve()).toBeNull();
 });
 
+/** A native short session, not enough assistant text for either answer matcher. */
+async function shortSession(milliseconds = true, cwd = root): Promise<number> {
+  const child = await runningCodex();
+  foreground = [{ pid: child.pid, argv: [join(root, "codex")] }];
+  screen = "OpenAI Codex (v1.0)\n\n› Check fixture\n\n• Ready\n";
+  const created = Date.now();
+  const db = new Database(join(home, "state_5.sqlite"));
+  db.exec("ALTER TABLE threads ADD COLUMN first_user_message TEXT");
+  if (milliseconds) db.exec("ALTER TABLE threads ADD COLUMN created_at_ms INTEGER");
+  db.query("UPDATE threads SET cwd = ?, created_at = ?, first_user_message = ?").run(cwd, Math.floor(created / 1000), "Check fixture");
+  if (milliseconds) db.query("UPDATE threads SET created_at_ms = ?").run(created);
+  db.close();
+  return created;
+}
+
+it("resolves a short session from the process start and exact first prompt, without retaining a binding", async () => {
+  await shortSession();
+  expect(await resolve()).toBe(path);
+  screen = "• Ready";
+  expect(await resolve()).toBeNull();
+});
+
+it("resolves a short session with a seconds-only thread schema", async () => {
+  await shortSession(false);
+  expect(await resolve()).toBe(path);
+});
+
+it("resolves a short session with the Windows stored cwd prefix", async () => {
+  const cwd = "D:\\fixture\\app";
+  await shortSession(true, `\\\\?\\${cwd}`);
+  expect(await codexTranscriptPath(root, cwd, home, [])).toBe(path);
+});
+
+it("rejects an unreadable second interactive thread instead of making uniqueness from valid files", async () => {
+  const created = await shortSession();
+  const db = new Database(join(home, "state_5.sqlite"));
+  db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, ?, ?, 'cli', ?, ?)").run(
+    "other", join(home, "sessions", "missing.jsonl"), root, Math.floor(created / 1000), 2, "Different fixture", created,
+  );
+  db.close();
+  expect(await resolve()).toBeNull();
+});
+
+it("counts all newly begun threads even beyond the answer candidate limit", async () => {
+  const created = await shortSession();
+  const db = new Database(join(home, "state_5.sqlite"));
+  for (let index = 0; index < 34; index++) {
+    db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, ?, ?, 'cli', ?, ?)").run(
+      `other-${index}`, join(home, "sessions", `missing-${index}.jsonl`), root, Math.floor(created / 1000), index + 2, "Different fixture", created,
+    );
+  }
+  db.close();
+  expect(await resolve()).toBeNull();
+});
+
+it("excludes exec, subagent and archived threads from interactive uniqueness", async () => {
+  const created = await shortSession();
+  const db = new Database(join(home, "state_5.sqlite"));
+  for (const [source, role, archived] of [["exec", null, 0], ["cli", "worker", 0], ["cli", null, 1]] as const) {
+    db.query("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      `excluded-${source}-${role}-${archived}`, join(home, "sessions", "missing.jsonl"), root, archived, role,
+      Math.floor(created / 1000), 2, source, "Check fixture", created,
+    );
+  }
+  db.close();
+  expect(await resolve()).toBe(path);
+});
+
+it("does not use recency when the prompt differs or the process start is unavailable", async () => {
+  await shortSession();
+  screen = "› Check fixture again\n• Ready";
+  expect(await resolve()).toBeNull();
+  screen = "› Check fixture\n• Ready";
+  foreground = [{ pid: 2147483647, argv: [join(root, "codex")] }];
+  expect(await resolve()).toBeNull();
+});
+
 for (const argv of [
   ["echo", "/usr/bin/codex", "resume", thread],
   ["node", "-e", "/usr/bin/codex", "resume", thread],
