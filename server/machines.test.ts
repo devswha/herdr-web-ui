@@ -305,6 +305,43 @@ describe("a bridge update on a PC that cannot be reached", () => {
     const { machine } = await updateOnce({ start: async () => {}, connected: true, failRun: true });
     expect(machine).toMatchObject({ state: "error", action_required: "update_bridge" });
   });
+
+  // The record a live server showed for a switched-off MacBook: an earlier failed update left the
+  // button and its error, then an update that was cancelled (Cancel update, a closed dialog, the
+  // setup's time limit) disconnected the PC and kept both, with no reconnect ever scheduled.
+  it("reconnects after a cancelled update, and asks again only once the PC answers", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-cancelled-update-"));
+    writeFileSync(join(dir, "machines.json"), JSON.stringify([{ id, name: "macbook", enabled: false, target: { destination: "macbook" }, snapshot: null }]));
+    let reachable = false;
+    SshConnection.prototype.start = async () => { await Bun.sleep(100); if (!reachable) throw new Error("ssh: connect to host macbook port 22: Connection timed out"); };
+    SshConnection.prototype.connected = () => true;
+    SshConnection.prototype.run = (async (script: string) => {
+      if (script.includes("uname")) return `Linux\nx86_64\n/home/u\n/home/u/.config\n\n${JSON.stringify(descriptor)}\n`;
+      if (script.includes("socket=")) return socket;
+      if (script.includes("kill -0")) return "live";
+      throw new Error("Unexpected remote mutation");
+    }) as typeof real.run;
+    SshConnection.prototype.close = () => {};
+    const manager = new MachineManager(dir, {} as PushService, new CompletionTracker(null), async () => { throw new Error("local offline"); });
+    const internals = manager as unknown as { machines: Map<string, { machine: { enabled: boolean; state: string; action_required: string | null; error: string | null } }>; jobs: Map<string, unknown> };
+    const record = internals.machines.get(id)!.machine;
+    Object.assign(record, { enabled: true, state: "error", action_required: "update_bridge", error: "mux_client_request_session: read from master failed: Broken pipe" });
+    const view = () => structuredClone(manager.list().find((machine) => machine.id === id)!);
+    try {
+      const started = manager.updateBridge(id);
+      manager.action(started.id, { action: "cancel" });
+      await (internals.jobs.get(started.id) as { finished: Promise<void> }).finished;
+      expect(manager.job(started.id)!.phase).toBe("cancelled");
+      expect(view()).toMatchObject({ state: "reconnecting", action_required: null });
+      // the PC answers with an old bridge: the button comes back, and the cancelled update does
+      // not start again by itself
+      reachable = true;
+      for (let i = 0; i < 120 && view().state !== "error"; i += 1) await Bun.sleep(25);
+      expect(view()).toMatchObject({ state: "error", action_required: "update_bridge", updating: null });
+      await Bun.sleep(50);
+      expect(internals.jobs.size).toBe(1);
+    } finally { manager.stop(); rmSync(dir, { recursive: true, force: true }); }
+  });
 });
 
 describe("terminal attach capability", () => {

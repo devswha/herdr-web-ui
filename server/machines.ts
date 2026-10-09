@@ -31,6 +31,8 @@ interface Runtime {
   refreshQueued: boolean;
   snapshotRevision: number;
   terminals: Set<() => void>;
+  /** the user cancelled this PC's bridge update: it is not started again on its own until the PC connects */
+  updateCancelled?: boolean;
 }
 interface JobState {
   update: boolean;
@@ -283,6 +285,7 @@ export class MachineManager {
     const auto = options.auto === true && request.update_remote === true && !!existing;
     const job: JobState = { update: request.update_remote === true, auto, public: { id, machine_id: machineId, target, phase: "connecting", step: "Connecting with SSH keys and ssh-agent…", challenge: null, installations: [], error: null, ssh_output: null, progress: null }, abort: new AbortController(), timer: setTimeout(() => this.cancelJob(id), 600_000), stageStartedAt: Date.now(), finished: Promise.resolve() };
     if (job.update && existing) job.runtime = existing;
+    if (job.update && existing && !auto) existing.updateCancelled = false;
     job.timer.unref();
     this.jobs.set(id, job);
     if (this.jobs.size > 40) for (const [key, j] of this.jobs) if (["connected", "failed", "cancelled"].includes(j.public.phase) && key !== id) { this.jobs.delete(key); break; }
@@ -326,7 +329,12 @@ export class MachineManager {
         // closes the connection.
         const unreachable = ownsRuntime && job.update && !!existing && !(e instanceof MachineActionRequired) && (reached ? !ssh.connected() : !SSH_REFUSED.test(error));
         if (ownsRuntime) this.disconnect(runtime);
-        if (job.public.phase !== "cancelled") {
+        // a cancelled update (its Cancel, a closed dialog, the setup's time limit) says nothing
+        // about the bridge either: the PC tries again on its own, and only a version check on a PC
+        // that answers asks for the update again, without starting the cancelled one by itself
+        if (job.public.phase === "cancelled") {
+          if (ownsRuntime && job.update && existing && runtime.machine.enabled && !this.stopped) { runtime.machine.error = null; runtime.machine.action_required = null; runtime.updateCancelled = true; this.retryLater(runtime); }
+        } else {
           job.public.phase = "failed"; job.public.step = "Connection failed";
           job.public.error = error;
           if (ownsRuntime && unreachable && runtime.machine.enabled) { runtime.machine.error = error; runtime.machine.action_required = null; this.retryLater(runtime); }
@@ -584,7 +592,7 @@ export class MachineManager {
     const generation = runtime.generation;
     await this.refresh(runtime);
     if (generation !== runtime.generation || this.stopped) throw new Error("Connection cancelled");
-    runtime.machine.state = "connected"; runtime.machine.action_required = null; runtime.attempts = 0;
+    runtime.machine.state = "connected"; runtime.machine.action_required = null; runtime.attempts = 0; runtime.updateCancelled = false;
     const endpoint = runtime.endpoint!;
     const ws = authenticatedWebSocket(endpoint.url.replace("http:", "ws:") + "/ws", endpoint.token);
     runtime.observer = ws;
@@ -617,7 +625,7 @@ export class MachineManager {
       runtime.machine.state = "error"; runtime.machine.action_required = error.action;
       this.emit();
       // SSH itself just worked without a password, so the update can run unattended
-      if (error.action === "update_bridge" && this.preferences.auto_update_bridges) this.queueAutoUpdate(runtime.machine.id);
+      if (error.action === "update_bridge" && this.preferences.auto_update_bridges && !runtime.updateCancelled) this.queueAutoUpdate(runtime.machine.id);
       return;
     }
     this.retryLater(runtime);
