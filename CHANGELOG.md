@@ -15,6 +15,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   where omp runs: the session file the pane's omp process holds open, or its terminal
   breadcrumb, names it. Long-running omp panes showed only the terminal text.
   ([#618](https://github.com/devswha/herdr-web-ui/pull/618) by @frankjoshua)
+- Chat message and code copy buttons work on plain-HTTP LAN addresses using the browser's
+  copy command when the Clipboard API is unavailable or refused. If neither method works,
+  the chat explains how to copy manually instead of reporting success or throwing an error.
+  ([#613](https://github.com/devswha/herdr-web-ui/pull/613) by @Kinetic27)
 - A remote PC lists a pane's new agent at once when herdr names it without a status change (a
   pane created a moment ago, an agent started in an idle shell), instead of up to 5 seconds late.
   A page that opened the pane meanwhile took it for a shell: it opened the terminal and fitted the
