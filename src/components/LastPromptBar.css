@@ -1,0 +1,75 @@
+/* A row outside the transcript's scroller; never an overlay on the prompt card or input. */
+.last-prompt-dock {
+  flex: none;
+  width: min(calc(100% - 2 * var(--space-4)), var(--chat-w));
+  margin-inline: auto;
+}
+
+/* Keep the two transcript lines the tall card used to leave on a short desktop. The card's
+   existing six-touch-row floor and its own internal scrolling still apply. */
+.last-prompt-dock:not(:empty) ~ .prompt-dock {
+  max-height: max(calc(var(--app-height, 100dvh) * 0.6 - var(--last-prompt-h, 0px)), calc(var(--touch-target) * 6));
+}
+
+.last-prompt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-h);
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-chat, var(--font-ui));
+  font-size: calc(var(--fs-chat) * var(--chat-scale, 1));
+  text-align: start;
+  cursor: pointer;
+}
+
+.last-prompt-icon {
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  color: var(--text-dim);
+}
+
+.last-prompt-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  .last-prompt:hover .last-prompt-text {
+    color: var(--text-strong);
+    text-decoration: underline;
+    text-underline-offset: var(--space-1);
+  }
+}
+
+.last-prompt:focus-visible { outline: var(--ring); outline-offset: calc(-1 * var(--space-1)); }
+
+.terminal-last-prompt {
+  padding-inline: var(--space-3);
+  border-bottom: var(--hairline) solid var(--border);
+  border-radius: 0;
+}
+
+@media (pointer: coarse) {
+  .last-prompt { min-height: var(--touch-target); }
+}
+
+@media (max-width: 480px) {
+  .last-prompt-dock { width: calc(100% - 2 * var(--space-3)); }
+  /* With the keyboard up, answering the current prompt takes precedence over history navigation. */
+  [data-keyboard] .last-prompt-dock:has(~ .prompt-dock:not(:empty)) { display: none; }
+}
+
+@media (max-width: 480px) and (max-height: 600px) {
+  .last-prompt-dock:has(~ .prompt-dock:not(:empty)) { display: none; }
+}

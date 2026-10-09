@@ -12,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ArrowUp, FileText, Plus, Square, X } from "lucide-react";
+import { ArrowUp, FileText, LoaderCircle, Plus, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -1035,16 +1035,18 @@ export function Composer({
             <button
               type="button"
               className="composer-action composer-send"
-              aria-label={t("Send message")}
-              title={t("Send message")}
+              aria-label={sending ? t("Sending…") : t("Send message")}
+              title={sending ? t("Sending…") : t("Send message")}
+              aria-busy={sending}
               disabled={!connected || uploading || sending || text.trim().length === 0}
               onClick={() => send()}
             >
-              <ArrowUp aria-hidden="true" />
+              {sending ? <LoaderCircle className="composer-send-progress" aria-hidden="true" /> : <ArrowUp aria-hidden="true" />}
             </button>
           )}
         </div>
       </div>
+      <span className="visually-hidden" role="status">{sending ? t("Sending…") : ""}</span>
       {note && <div className="composer-note" role="alert">{note}</div>}
       {/* said while typing, before the send: after it the browser is already open and the reader is
           already in the state the words describe. Not a block — the text still goes, and pi runs the

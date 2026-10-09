@@ -651,6 +651,9 @@
   --composer-action-fill: var(--primary);
 }
 
+.composer-send-progress { animation: composer-send-spin var(--dur-pulse) steps(8, end) infinite; }
+@keyframes composer-send-spin { to { transform: rotate(360deg); } }
+
 /* the one round button: Stop is Send's circle in the text colour, in the same place at the same
    size, so only the glyph changes when the agent starts and ends a turn */
 .composer-stop {
@@ -887,6 +890,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .composer-send-progress { animation: none; }
   .composer-surface,
   .composer-action::before,
   .composer-resize::before {
