@@ -13,7 +13,8 @@ const VERB_LABEL: Record<ToolVerbKind, string> = {
 /**
  * The tool ids a verb stands for, by exact name (case aside): Claude's Read / Edit / MultiEdit /
  * NotebookEdit / Write / Bash, Codex's exec / exec_command / shell / local_shell / apply_patch,
- * and the lowercase read / edit / write / bash / patch of pi, omp, gjc and omo. Anything else
+ * the lowercase read / edit / write / bash / patch of pi, omp, gjc and omo, and Hermes's
+ * read_file / write_file / patch / terminal. Anything else
  * (Grep, a web or task tool, a todo or goal call, an MCP tool) keeps its own name: a guess by
  * substring would call `mcp__files__read_all` a read.
  */
@@ -22,6 +23,7 @@ const VERB_OF: Record<string, ToolVerbKind> = {
   edit: "edit", multiedit: "edit", notebookedit: "edit", apply_patch: "edit", patch: "edit",
   write: "write",
   bash: "run", exec: "run", exec_command: "run", shell: "run", shell_command: "run", local_shell: "run",
+  read_file: "read", write_file: "write", terminal: "run",
 };
 
 /** The input fields a verb's object can be: a run's command, a file call's path. */

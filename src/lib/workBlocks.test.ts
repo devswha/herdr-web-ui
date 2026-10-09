@@ -84,6 +84,10 @@ describe("workSummary", () => {
     expect(workSummary([thinking("x"), text("y")])).toBe("");
   });
 
+  it("counts Hermes's file and terminal tools as reads, edits and commands", () => {
+    expect(workSummary([tool("read_file"), tool("search_files"), tool("write_file"), tool("patch"), tool("terminal")])).toBe("2 edits · 2 file reads · 1 command");
+  });
+
   it("leaves todo updates out of the counts", () => {
     expect(workSummary([tool("TodoWrite"), tool("Edit"), tool("update_plan"), tool("todo_write"), tool("Read")])).toBe("1 edit · 1 file read");
   });

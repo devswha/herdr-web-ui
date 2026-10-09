@@ -11,6 +11,8 @@ describe("toolVerbKind", () => {
       exec: "run", exec_command: "run", shell: "run", shell_command: "run", local_shell: "run", apply_patch: "edit",
       // pi, omp, gjc and omo name theirs in lowercase
       read: "read", edit: "edit", multiedit: "edit", patch: "edit", write: "write", bash: "run",
+      // Hermes
+      read_file: "read", write_file: "write", terminal: "run",
     };
     for (const [name, kind] of Object.entries(expected)) expect([name, toolVerbKind(name)]).toEqual([name, kind as ReturnType<typeof toolVerbKind>]);
   });

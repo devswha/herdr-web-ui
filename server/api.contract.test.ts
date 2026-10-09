@@ -70,6 +70,48 @@ describe("Devin conversation API", () => {
   });
 });
 
+describe("Hermes conversation API", () => {
+  it("reads the session herdr's integration reports, and keeps the terminal fallback without one", async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), "herdr-web-ui-hermes-contract-"));
+    const created = await workspaceCreate({ cwd: hermesHome, label: "herdr-web-ui-test-hermes-session" });
+    const session = "20261009_090000_c0ffee";
+    let bridge: ReturnType<typeof createServer> | undefined;
+    try {
+      const paneId = created.root_pane.pane_id;
+      const db = new Database(join(hermesHome, "state.db"));
+      try {
+        db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, model TEXT, started_at REAL NOT NULL, ended_at REAL)");
+        db.exec("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT, tool_call_id TEXT, tool_calls TEXT, timestamp REAL NOT NULL)");
+        db.query("INSERT INTO sessions VALUES (?, 'cli', 'example/model-1', 1791536000, NULL)").run(session);
+        const add = db.query("INSERT INTO messages (session_id, role, content, tool_call_id, tool_calls, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
+        add.run(session, "user", "Synthetic Hermes prompt", null, null, 1791536001);
+        add.run(session, "assistant", "", null, JSON.stringify([{ id: "call_1", type: "function", function: { name: "terminal", arguments: JSON.stringify({ command: "echo synthetic" }) } }]), 1791536002);
+        add.run(session, "tool", JSON.stringify({ output: "x".repeat(20_000), exit_code: 0, error: null }), "call_1", null, 1791536003);
+        add.run(session, "assistant", "Synthetic Hermes answer", null, null, 1791536004);
+      } finally { db.close(); }
+      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "hermes", state: "idle" });
+      bridge = createServer({ port: 0, stateDir: hermesHome, hermesHome });
+      const conversation = `http://localhost:${bridge.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`;
+      // no report and no Hermes process holding a session: never a guess from the directory
+      expect(await (await fetch(conversation)).json()).toEqual({ source: "scrollback", turns: [] });
+
+      await herdrRpc("pane.report_agent_session", { pane_id: paneId, source: "herdr:hermes", agent: "hermes", seq: Date.now(), agent_session_id: session, session_start_source: "startup" });
+      const response = await fetch(conversation);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { source: string; history_id: string; metadata: { model: string | null }; turns: { role: string; parts: { kind: string; text?: string; output_ref?: string }[] }[] };
+      expect([body.source, body.history_id, body.metadata.model]).toEqual(["hermes-transcript", `hermes-${session}`, "example/model-1"]);
+      expect(body.turns.map((turn) => [turn.role, turn.parts.map((part) => part.kind)])).toEqual([["user", ["text"]], ["assistant", ["tool", "text"]]]);
+      const ref = body.turns[1]!.parts[0]!.output_ref!;
+      const whole = await fetch(`http://localhost:${bridge.port}/api/pane/conversation/tool-output?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent(ref)}`);
+      expect([whole.status, (await whole.text()).length]).toEqual([200, 20_000]);
+    } finally {
+      bridge?.stop();
+      await workspaceClose(created.workspace.workspace_id);
+      rmSync(hermesHome, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("usage API", () => {
   it("returns OpenCode Go windows without exposing its credential", async () => {
     const usageState = mkdtempSync(join(tmpdir(), "herdr-opencode-contract-"));

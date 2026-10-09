@@ -140,6 +140,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
 | **OpenCode** | Native session in OpenCode 2's own database, resolved through herdr: `~/.local/share/opencode/opencode.db` (`%USERPROFILE%\.local\share\opencode\opencode.db` on Windows), or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it | — use Terminal |
 | **Devin CLI** | Native SQLite session, showing the active branch when herdr or the live process explicitly identifies the session; otherwise terminal text | — use Terminal |
+| **Hermes Agent** | Native session in Hermes's own database, `~/.hermes/state.db` (a profile's under `~/.hermes/profiles/<name>`, or where the server's `HERMES_HOME` puts it), for the session herdr's Hermes integration reports or the pane's Hermes process holds | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
 Devin sessions are never selected by directory or recency alone. A plain `devin` shows the
@@ -150,6 +151,15 @@ unreadable history uses the terminal-text fallback, including histories beyond t
 5,000-node or 8 MiB bounds. Long tool output is shortened with a truncation marker; use
 Terminal for the rest. The database is opened read-only, though SQLite may create its
 WAL coordination files beside it.
+
+Hermes sessions are not selected by directory or recency either. With herdr's Hermes integration
+(`herdr integration install hermes`), the chat follows the session the pane shows, through `/new`
+too. Without it, the chat reads the session the pane's Hermes process holds in Hermes's own
+registry (`runtime/active_sessions.json`), in the classic CLI and in `hermes --tui`; but the
+classic CLI keeps holding the session a `/new` ended, so after a `/new` that pane shows the
+terminal text until the integration is installed. A session before its first message is an empty
+chat. Long tool output is shortened; the tool row opens it whole. The database is opened
+read-only for each read.
 
 When the last visible line is a familiar password, SSH passphrase or PIN request, both
 views show a **Password or PIN** field. It hides what you type and sends it directly

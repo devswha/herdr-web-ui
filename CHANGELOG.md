@@ -7,6 +7,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Chat reads Hermes Agent sessions from Hermes's own database (`~/.hermes/state.db`, profiles
+  and `HERMES_HOME` included): prompts, answers, reasoning and tool calls with their output,
+  instead of the terminal text. The session is the one herdr's Hermes integration reports, or
+  the one the pane's Hermes process holds; install the integration
+  (`herdr integration install hermes`) for the chat to follow a `/new` in the classic CLI.
+  Hermes's `terminal`, `read_file` and `write_file` calls count as commands, reads and edits.
+
 ## [0.4.3] - 2026-10-09
 
 ### Fixed

@@ -177,6 +177,7 @@ const AGENT_LABELS: Record<string, string> = {
   copilot: "GitHub Copilot",
   kimi: "Kimi",
   amp: "Amp",
+  hermes: "Hermes Agent",
 };
 
 function expandedDirectory(value: string): string | null {
@@ -343,6 +344,8 @@ export function createServer(
     opencodeDb?: string;
     /** Native Devin store; tests pass an isolated SQLite database. */
     devinDbPath?: string;
+    /** Hermes Agent's home (its state.db and profiles); defaults to HERMES_HOME, else ~/.hermes. Tests use an isolated home. */
+    hermesHome?: string;
     updates?: UpdateService;
     /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
     herdrUpdate?: HerdrUpdater;
@@ -1810,7 +1813,7 @@ export function createServer(
         const ref = url.searchParams.get("ref");
         if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
         try {
-          const output = await toolOutput(paneId, ref, options.codexHome, options.opencodeDb);
+          const output = await toolOutput(paneId, ref, options.codexHome, options.opencodeDb, options.hermesHome);
           if (output === null) return jsonResponse({ error: { code: "output_not_found", message: "no such tool call in this pane's conversation" } }, 404);
           // a tool call's id names its output for good; OpenCode's ref names a place in a row it rewrites in place
           const cacheControl = OPENCODE_TOOL_REF.test(ref) ? "private, no-store" : "private, max-age=86400, immutable";
@@ -1825,7 +1828,7 @@ export function createServer(
         const ref = url.searchParams.get("ref");
         if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
         try {
-          const image = await conversationImage(paneId, ref, options.codexHome, options.opencodeDb);
+          const image = await conversationImage(paneId, ref, options.codexHome, options.opencodeDb, options.hermesHome);
           if (image === null) return jsonResponse({ error: { code: "image_not_found", message: "no such image in this pane's conversation" } }, 404);
           // Claude embeds immutable bytes; Codex files and OpenCode tool-image ordinals can change.
           const cacheControl = ref.startsWith("codex-") || ref.startsWith("opencode:") ? "private, no-store" : "private, max-age=86400, immutable";
@@ -1844,7 +1847,7 @@ export function createServer(
           from: url.searchParams.get("from") ?? undefined,
         };
         try {
-          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb);
+          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb, options.hermesHome);
           // The chat polls every 2s: an unchanged conversation answers 304 with no body.
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
           const etag = `"${version}"`;

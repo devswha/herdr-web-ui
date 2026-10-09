@@ -49,6 +49,7 @@ import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeCo
 import { piTranscriptInStore, piTranscriptPath, unwrittenSession } from "./pi.ts";
 import { forgetAllPiIndexes, forgetPiIndex, piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { defaultDevinDbPath, DevinHistoryUnavailable, devinConversation, forgetDevinState } from "./devin.ts";
+import { forgetHermesRead, forgetHermesState, hermesConversation, hermesHomeRoots, hermesHomes, hermesReadKey, hermesSessionForPane, hermesToolOutput } from "./hermes.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
 
@@ -415,7 +416,7 @@ export class HistoryChanged extends Error {
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript" | "hermes-transcript";
   turns: ConversationTurn[];
   metadata: ConversationMetadata;
   /** the first turn's position, for the page before it; null at the conversation's beginning */
@@ -431,8 +432,8 @@ export type RecognizedConversation = {
   version: string;
 };
 
-/** The stores read as one append-only file: OpenCode's and Devin's databases are paged by opencode.ts and devin.ts. */
-type StreamSource = Exclude<RecognizedConversation["source"], "opencode-transcript" | "devin-transcript">;
+/** The stores read as one append-only file: OpenCode's, Devin's and Hermes's databases are paged by opencode.ts, devin.ts and hermes.ts. */
+type StreamSource = Exclude<RecognizedConversation["source"], "opencode-transcript" | "devin-transcript" | "hermes-transcript">;
 
 /** A restart may parse the same files differently: its answers never match an earlier ETag. */
 const PROCESS_VERSION = randomUUID();
@@ -883,6 +884,7 @@ export function forgetTranscriptState(): void {
   forgetAllCodexState();
   forgetAllPiIndexes();
   forgetDevinState();
+  forgetHermesState();
 }
 
 /**
@@ -916,6 +918,7 @@ export function forgetPaneTranscriptState(paneId: string): void {
     forgetPiIndex(path);
     forgetClaudeSessionFile(path);
     forgetOpencodeRead(path);
+    forgetHermesRead(path);
   }
 }
 
@@ -1039,10 +1042,11 @@ async function ompTranscriptPath(paneId: string, cwd: string): Promise<string> {
   return inStore;
 }
 
-/** Where a pane's conversation is: a transcript file, or a session in OpenCode's database. */
+/** Where a pane's conversation is: a transcript file, or a session in OpenCode's or Hermes's database. */
 type ResolvedTranscript =
   | { source: StreamSource; path: string; codexHome?: string }
-  | { source: "opencode-transcript"; path: string; session: string };
+  | { source: "opencode-transcript"; path: string; session: string }
+  | { source: "hermes-transcript"; path: string; session: string };
 
 /**
  * The store a pane's transcript lives in. herdr's agent label follows the
@@ -1052,7 +1056,7 @@ type ResolvedTranscript =
  * label: omo's own store is read only when omo is really running
  * in that pane, never on a matching cwd alone.
  */
-async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[], opencodeDb?: string): Promise<ResolvedTranscript> {
+async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[], opencodeDb?: string, hermesHome?: string): Promise<ResolvedTranscript> {
   const paneId = pane.pane_id;
   let agent = pane.agent ?? pane.agent_session?.agent ?? "";
   // herdr names no agent for this pane: a session report an earlier agent left behind says
@@ -1100,6 +1104,17 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
       const path = opencodeDb ?? opencodeDatabasePath();
       if (path === null) throw new ConversationUnavailable("no_session_path");
       return { source: "opencode-transcript", path, session };
+    }
+    if (agent === "hermes") {
+      // the session is the one herdr's integration reported, or the one a process in the pane leases
+      const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown }[] } }>(
+        "pane.process_info", { pane_id: paneId },
+      ).catch(() => null);
+      const pids = (info?.process_info?.foreground_processes ?? []).map((process) => process.pid).filter((pid): pid is number => typeof pid === "number");
+      const bound = hermesSessionForPane(pane, pids, hermesHomes(hermesHome === undefined ? hermesHomeRoots() : [hermesHome]));
+      if (bound.kind === "unwritten") throw new ConversationNotStarted(bound.session, "hermes-transcript");
+      if (bound.kind === "unavailable") throw new ConversationUnavailable(bound.reason);
+      return { source: "hermes-transcript", path: bound.path, session: bound.session };
     }
     throw new ConversationUnavailable("no_recognized_transcript");
   } catch (error) {
@@ -1169,7 +1184,7 @@ export function devinSessionForPane(pane: HerdrPane, panes: HerdrPane[], argv: s
  * shows the pages before it. A cursor from another file throws HistoryChanged.
  * `opencodeDb` is OpenCode's store, unset where OpenCode itself would find it.
  */
-export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, devinDbPath?: string, opencodeDb?: string): Promise<RecognizedConversation> {
+export async function paneConversation(paneId: string, codexHome?: string, page: ConversationPage = {}, devinDbPath?: string, opencodeDb?: string, hermesHome?: string): Promise<RecognizedConversation> {
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
@@ -1203,7 +1218,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
 
   let resolved: ResolvedTranscript;
   try {
-    resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb);
+    resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb, hermesHome);
   } catch (error) {
     if (!(error instanceof ConversationNotStarted)) throw error;
     // a file read before and gone since is no conversation not begun: the terminal stands in for it
@@ -1225,6 +1240,19 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     if (answer.kind === "unavailable") throw new ConversationUnavailable(answer.reason);
     const { kind: _kind, signature, ...conversation } = answer;
     const key = `opencode\0${resolved.path}\0${resolved.session}\0${page.before ?? ""}\0${page.since ?? ""}\0${page.from ?? ""}`;
+    return { source: resolved.source, ...conversation, version: answerVersion(key, signature) };
+  }
+  if (resolved.source === "hermes-transcript") {
+    rememberPaneRead(paneId, hermesReadKey(resolved.path, resolved.session));
+    const answer = hermesConversation(resolved.path, resolved.session, page);
+    if (answer.kind === "history_changed") throw new HistoryChanged();
+    if (answer.kind === "unavailable") throw new ConversationUnavailable(answer.reason);
+    // read once, a session that turns up unwritten again was removed: the terminal stands in for it
+    const written = `${resolved.source}\0${resolved.session}`;
+    writtenSessions.add(written);
+    rememberPaneSession(paneId, written);
+    const { kind: _kind, signature, ...conversation } = answer;
+    const key = `${hermesReadKey(resolved.path, resolved.session)}\0${page.before ?? ""}\0${page.since ?? ""}\0${page.from ?? ""}`;
     return { source: resolved.source, ...conversation, version: answerVersion(key, signature) };
   }
   const identity = resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
@@ -1324,13 +1352,13 @@ export function transcriptPage(source: StreamSource, path: string, page: Convers
  * here rather than sent with every poll of the conversation. Null when there is no such
  * image. Codex uses a hash of the native attachment and searches only the bound history.
  */
-export async function conversationImage(paneId: string, ref: string, codexHome?: string, opencodeDb?: string): Promise<{ mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null> {
+export async function conversationImage(paneId: string, ref: string, codexHome?: string, opencodeDb?: string, hermesHome?: string): Promise<{ mediaType: string; bytes: Uint8Array<ArrayBuffer> } | null> {
   if (!IMAGE_REF.test(ref) && !CODEX_IMAGE_REF.test(ref) && !PI_IMAGE_REF.test(ref) && !OPENCODE_IMAGE_REF.test(ref)) return null;
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
   let resolved: ResolvedTranscript;
-  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb); }
+  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb, hermesHome); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   // OpenCode's store is read per request and keeps nothing for the pane to release
   if (resolved.source === "opencode-transcript") return opencodeImage(resolved.path, resolved.session, ref);
@@ -1370,16 +1398,20 @@ const TOOL_REF = /^[A-Za-z0-9_:.-]{1,128}$/;
 const TOOL_OUTPUT_MAX = 2_000_000;
 
 /** The whole output of a tool call whose page output was cut, by its id; null when there is none. */
-export async function toolOutput(paneId: string, ref: string, codexHome?: string, opencodeDb?: string): Promise<string | null> {
+export async function toolOutput(paneId: string, ref: string, codexHome?: string, opencodeDb?: string, hermesHome?: string): Promise<string | null> {
   if (!TOOL_REF.test(ref)) return null;
   const snapshot = await sessionSnapshot();
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
   if (pane === undefined || typeof pane.cwd !== "string" || pane.cwd.length === 0) return null;
   let resolved: ResolvedTranscript;
-  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb); }
+  try { resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes, opencodeDb, hermesHome); }
   catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
   if (resolved.source === "opencode-transcript") {
     const output = opencodeToolOutput(resolved.path, resolved.session, ref);
+    return output !== null && output.length > TOOL_OUTPUT_MAX ? `${output.slice(0, TOOL_OUTPUT_MAX)}\n… trimmed` : output;
+  }
+  if (resolved.source === "hermes-transcript") {
+    const output = hermesToolOutput(resolved.path, resolved.session, ref);
     return output !== null && output.length > TOOL_OUTPUT_MAX ? `${output.slice(0, TOOL_OUTPUT_MAX)}\n… trimmed` : output;
   }
   rememberPaneRead(paneId, resolved.path);
