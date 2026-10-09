@@ -84,7 +84,16 @@ try {
             await page.waitForFunction((loading) => ![...document.querySelectorAll(".settings-body [role='status']")].some((node) => loading.includes(node.textContent?.trim() ?? "")),
               [label("Loading…"), label("Asking this PC about Tailscale…")]);
             if (name === "Subscription usage") await page.locator(".usage-accounts-row").first().waitFor();
-            if (name === "Voice input") await page.locator(".voice-key").waitFor();
+            if (name === "Voice input") {
+              await page.locator(".voice-key").waitFor();
+              const dictation = page.getByLabel(label("Dictation language"), { exact: true });
+              await dictation.selectOption("hu-HU");
+              await page.waitForFunction(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).voiceLanguage === "hu-HU");
+              assert.equal(await dictation.inputValue(), "hu-HU");
+              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).language), language,
+                "dictation selection does not change the display language");
+              await dictation.selectOption("auto");
+            }
             assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }
           await openSettingsPage(page, label("Terminal"), label("Back to settings"));
