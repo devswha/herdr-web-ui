@@ -136,6 +136,22 @@ try {
             await composer.press("Tab");
             await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>(".composer textarea")?.value === "/pr-comments ");
             assert.equal(await composer.inputValue(), "/pr-comments ");
+            // a key typed after a completion, before the next frame (a busy phone), stays where it was typed
+            await composer.fill("/comments");
+            await menu.getByRole("option").filter({ hasText: "pr-comments" }).waitFor();
+            await page.evaluate(() => {
+              const real = window.requestAnimationFrame, held: FrameRequestCallback[] = [];
+              window.requestAnimationFrame = (callback) => { held.push(callback); return 0; };
+              addEventListener("release-frames", () => {
+                window.requestAnimationFrame = real;
+                for (const callback of held) callback(performance.now());
+              }, { once: true });
+            });
+            await composer.press("Tab");
+            await page.keyboard.type("a");
+            await page.evaluate(() => dispatchEvent(new Event("release-frames")));
+            await page.keyboard.type("b");
+            assert.equal(await composer.inputValue(), "/pr-comments ab");
             await composer.fill("/rln");
             await menu.getByRole("option").filter({ hasText: "release-notes" }).waitFor();
             assert.equal(await menu.getByRole("option").count(), 1);

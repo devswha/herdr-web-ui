@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { ArrowUp, FileText, Plus, Square, X } from "lucide-react";
 
 import "./Composer.css";
@@ -553,15 +554,17 @@ export function Composer({
     const clampedCaret = Math.min(nextCaret, MAX_COMPOSER_CHARS);
     textRef.current = limitedText;
     caretRef.current = clampedCaret;
-    setText(limitedText);
-    setCaret(clampedCaret);
-    setMenuDismissed(false);
-    requestAnimationFrame(() => {
-      const element = textareaRef.current;
-      if (!element) return;
-      element.selectionStart = element.selectionEnd = clampedCaret;
-      element.focus();
+    // committed now and the caret placed in the same task: a placement deferred to the next frame
+    // would land on whatever was typed or selected meanwhile, behind a key typed right after a completion
+    flushSync(() => {
+      setText(limitedText);
+      setCaret(clampedCaret);
+      setMenuDismissed(false);
     });
+    const element = textareaRef.current;
+    if (!element) return;
+    element.selectionStart = element.selectionEnd = clampedCaret;
+    element.focus();
   }, []);
 
   const insertMentionAtCursor = useCallback(
