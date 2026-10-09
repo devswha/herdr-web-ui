@@ -12,6 +12,11 @@ export interface AppActions {
   selectAdjacentPane: (direction: -1 | 1) => void;
   setView: (view: PaneView) => void;
   toggleView: () => void;
+  /** Layout controls are absent without an actionable pane. They never import a PC's keymap. */
+  zoomView?: () => void;
+  splitRight?: () => void;
+  splitDown?: () => void;
+  closeView?: () => void;
   openNewSession: () => void;
   /**
    * The New tab dialog for a workspace: the named one (a sidebar row's menu, on its own PC),

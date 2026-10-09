@@ -104,6 +104,12 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         herdr would keep it as the name)
  *  POST   /api/tab/close  { tab_id } -> { ok: true } (tab.close: every pane in the tab closes, and
  *         a workspace's last tab takes the workspace with it)
+ *  POST   /api/pane/split { pane_id, direction?: "right" | "down" } -> PaneSplit
+ *         (pane.split with focus:false; a missing direction means right)
+ *  POST   /api/pane/focus { pane_id } -> { ok: true }
+ *  POST   /api/pane/zoom { pane_id, mode?: "toggle" | "on" | "off" } -> { ok: true }
+ *  POST   /api/pane/resize { pane_id, direction: "left" | "right" | "up" | "down", amount } -> { ok: true }
+ *         (native boundary ratio delta, above zero and at most 0.8; not terminal pixel sizing)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id, close_group? } -> { ok: true } (close_group takes the
@@ -524,6 +530,12 @@ export interface WorkspaceCreated {
  * launch leaves the tab there, reachable through pane_id, as workspace creation does.
  */
 export type TabCreated = WorkspaceCreated;
+
+export interface SplitPaneRequest {
+  pane_id: string;
+  direction?: "right" | "down";
+}
+export interface PaneSplit { pane_id: string }
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */
 export interface SlashCommand {

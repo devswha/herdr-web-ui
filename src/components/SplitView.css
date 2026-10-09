@@ -1,0 +1,18 @@
+.split-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.split-cell { position: absolute; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; box-sizing: border-box; border: var(--hairline) solid var(--border); background: var(--bg); container-type: inline-size; }
+.split-cell-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); flex: none; min-height: var(--control-h); padding-inline: var(--space-2); background: var(--bg-panel); color: var(--text-dim); font-size: var(--fs-xs); border-bottom: var(--hairline) solid var(--border); }
+.split-cell.is-active .split-cell-head { background: var(--bg-elevated); color: var(--text-strong); }
+.split-cell-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: grab; }
+.split-cell-view { display: flex; flex: none; }
+.split-cell-view button { display: inline-flex; align-items: center; justify-content: center; width: var(--control-h); height: var(--control-h); border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; }
+.split-cell-view button:hover, .split-cell-view button[aria-pressed="true"] { background: var(--bg-hover); color: var(--text-strong); }
+.split-cell-head svg { width: var(--icon-size); height: var(--icon-size); }
+.split-cell-sep { width: var(--hairline); height: var(--icon-size); background: var(--border); }
+.split-cell-body { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.split-cell-error { position: absolute; right: var(--space-2); bottom: var(--space-2); padding: var(--space-2); background: var(--bg-panel); color: var(--status-blocked); border: var(--hairline) solid var(--border); }
+.split-divider { position: absolute; z-index: var(--z-banner); touch-action: none; }
+.split-divider.is-vertical { width: var(--space-2); transform: translateX(-50%); cursor: col-resize; }
+.split-divider.is-horizontal { height: var(--space-2); transform: translateY(-50%); cursor: row-resize; }
+.split-divider:hover, .split-divider.is-dragging, .split-divider:focus-visible { background: var(--bg-hover); }
+@container (max-width: 360px) { .split-cell-title { flex-basis: 80%; } }
+@media (pointer: coarse) { .split-cell-view button { min-width: var(--touch-target); min-height: var(--touch-target); } }

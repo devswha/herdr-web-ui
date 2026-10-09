@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, PanelsTopLeft, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -21,6 +21,10 @@ import { useSettings } from "../lib/settings.ts";
 import { useWorktreeBranches } from "../lib/useWorktreeBranches.ts";
 import { worktreeLabel } from "../lib/worktreeName.ts";
 import { paneMark, sidebarAgents, workspaceAgentLabels } from "../lib/sidebarAgents.ts";
+import { paneStorageId } from "../../shared/machines.ts";
+import { startPaneDrag, usePaneDock } from "../lib/paneDock.ts";
+import { sessionStyle } from "../lib/session-identity.ts";
+import { SessionBadge } from "./SessionBadge.tsx";
 
 const ERROR_NOTE_MS = 5000;
 
@@ -135,6 +139,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const { settings } = useSettings();
   const twoLine = settings.sidebarRows === "two";
   const machineId = useMachineId();
+  const docking = usePaneDock();
   // a DONE looked at here reads as ready with Quiet opened finishes on (lib/sidebarActivity.tsx)
   const activity = useSidebarActivity();
   const { branches, rememberOpened } = useWorktreeBranches(snapshot, online);
@@ -312,6 +317,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const worktrees = linked ? [] : (snapshot?.workspaces.filter((candidate) => candidate.worktree?.is_linked_worktree && candidate.worktree.repo_key === workspace.worktree?.repo_key) ?? []);
     // herdr's own actions on a workspace: rename, a new tab (prefix+c), its worktrees (prefix+shift+g), close
     const items: RowMenuItem[] = [
+      ...(docking ? [{ id: "place-view", label: t("Place in split view"), icon: PanelsTopLeft, run: () => docking.place({ machine_id: machineId, pane_id: pane.pane_id }, state.anchor) }] : []),
       { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace) },
       { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) },
       { id: "new-tab", label: t("New tab"), icon: Plus, run: () => actions.openNewTab({ machineId, workspaceId: workspace.workspace_id }) },
@@ -522,8 +528,13 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           role="button"
           tabIndex={0}
           draggable={!editingWorkspace && !editingPane}
-          onDragStart={(event) => { if (!editingWorkspace && !editingPane) onDragStart(event, workspace.workspace_id); }}
-          onDragEnd={() => setDragWorkspaceId(null)}
+          onDragStart={(event) => {
+            if (editingWorkspace || editingPane) return;
+            onDragStart(event, workspace.workspace_id);
+            startPaneDrag(event, { machine_id: machineId, pane_id: pane.pane_id }, docking);
+          }}
+          onDragEnd={() => { setDragWorkspaceId(null); docking?.endDrag(); }}
+          style={sessionStyle(docking?.viewNumbers?.get(paneStorageId(machineId, pane.pane_id)))}
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
           aria-description={`${t("Reorder workspace {name}", { name: workspace.label })} · ${t("Drag to reorder · Alt+↑/↓")}`}
           data-pane={pane.pane_id}
@@ -539,6 +550,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           }}
         >
           {rowMark(pane, workspace.worktree?.is_linked_worktree === true)}
+          <SessionBadge number={docking?.viewNumbers?.get(paneStorageId(machineId, pane.pane_id))} />
           {editingWorkspace ? <input
             className="input workspace-rename-input"
             aria-label={t("Workspace name")}

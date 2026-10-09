@@ -591,6 +591,37 @@ One set for both themes: the card is island black wherever it shows.
   touch grows the buttons to `--touch-target`, and puts the pane picker beside its tab's name
   instead of pulling it over the name's padding. The same strip on a phone.
 
+### Multi-pane workspace (`.pane-dock`, `.split-view`)
+- Native SplitView reads herdr's tab geometry. Split and resize affect that PC's native layout;
+  browser docking composes existing `(machine_id, pane_id)` views without moving their processes.
+  Closing a view never closes a pane. Returning to the workspace layout restores native navigation.
+- The existing PC/worktree roster, Agents list and TabStrip remain the navigation owners. Workspace
+  drag retains its reorder payload and also carries a pane-view payload for docking. A menu action
+  offers the same four directional destinations without dragging; Escape cancels and returns focus.
+- Each cell owns its Chat/Terminal choice, scroll area and input connection. Only the active cell
+  reports header connection state or receives automatic desktop focus. Per-cell file links remain
+  bound to that cell's PC and pane. No layout operation sends, retries or transfers pending input.
+- Zoom keeps identity-keyed cells mounted, as do presets within a browser arrangement; hidden
+  cells are inert and not tabbable. Converting the native renderer into a browser arrangement
+  changes the connection owner: the existing pending-input suspension preserves held copies and
+  never resumes their automatic delivery on the replacement connection.
+  At 768px and below one cell is visible with a view selector. All chat / All terminal affects only
+  visible cells, not hidden zoomed/mobile cells. Background panes do not steal keyboard focus.
+- Running collects working panes and panes with background tasks from connected PCs. All includes
+  every non-failed pane on connected PCs. These are explicit one-shot arrangements, not a live
+  filter that removes a view when its agent finishes. Auto, 2/3/4 columns, 2 x 2 and 3 x 2 retain
+  every target; overflow adds rows rather than hiding sessions.
+- Session badges are stable for this page's lifetime, not keyboard hints or status colors. Eight theme tokens repeat
+  after eight views; the written number remains unique. Dark `--session-1..8`: `#82b5ff`,
+  `#c5a0f5`, `#66c8c1`, `#eda2c3`, `#a8c879`, `#e7b47c`, `#97a9ea`, `#c4bb85`.
+  Light: `#245bb0`, `#7841a6`, `#176d67`, `#a13968`, `#526e22`, `#8c531d`,
+  `#4c55a0`, `#70601f`. Color lives on badges; active cells use a neutral elevated header.
+- Cell headers wrap before clipping controls, separators work with arrows and Home/End, and controls
+  use existing touch targets, focus rings and surface tokens. The stage is height-bounded; only each
+  terminal/chat body scrolls. Geometry changes snap; no new motion or dependency is introduced.
+- Layout actions use the existing AppActions/shortcut settings, including configurable
+  Mod+Shift+E for maximize/restore. No Cmd+number or Herdr prefix/keymap interception is added.
+
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
   (required), where to start from (HEAD when empty, ignored for a branch that exists) and a

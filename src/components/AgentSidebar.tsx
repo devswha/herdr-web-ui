@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Terminal } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelsTopLeft, Terminal } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
 import { paneStorageId } from "../../shared/machines.ts";
@@ -12,6 +12,9 @@ import { activityOrder } from "../lib/sidebarOrder.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundBadge, displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import "./AgentSidebar.css";
+import { startPaneDrag, usePaneDock } from "../lib/paneDock.ts";
+import { sessionStyle } from "../lib/session-identity.ts";
+import { SessionBadge } from "./SessionBadge.tsx";
 
 interface AgentRowBodyProps {
   /** the agent's kind or name; null draws a terminal, for a shell */
@@ -20,17 +23,18 @@ interface AgentRowBodyProps {
   context: string;
   backgroundTasks?: number;
   status?: AgentStatus;
+  viewNumber?: number;
 }
 
 /**
  * One agent in a list: the coding agent's mark, what it is working on, who and where it is, and
  * how it is doing.
  */
-function AgentRowBody({ mark, title, context, backgroundTasks, status }: AgentRowBodyProps) {
+function AgentRowBody({ mark, title, context, backgroundTasks, status, viewNumber }: AgentRowBodyProps) {
   return <>
     <span className="sidebar-mark" aria-hidden="true">{mark !== null ? <AgentMark agent={mark} size={18} /> : <Terminal />}</span>
     <span className="agent-copy">
-      <span className="agent-title">{title}</span>
+      <span className="agent-title"><SessionBadge number={viewNumber} />{viewNumber !== undefined ? " " : null}{title}</span>
       {context && <span className="agent-context">{context}</span>}
     </span>
     <span className="agent-row-status"><BackgroundBadge count={backgroundTasks} /><StatusBadge status={status} compact /></span>
@@ -56,6 +60,7 @@ const DRAWER_QUERY = "(max-width: 768px)";
 export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stateWord, onSelect }: AgentSidebarProps) {
   const t = useT();
   const listId = useId();
+  const docking = usePaneDock();
   const [collapsed, setCollapsed] = useState(() => window.matchMedia?.(DRAWER_QUERY).matches === true);
   const { settings } = useSettings();
   const activity = useSidebarActivity();
@@ -82,11 +87,15 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
           const tabName = agentTabName(tab, tabs, t);
           const context = agentContext({ agentLabel, title, machineName: machines.length > 1 ? machine.name : null, workspaceLabel: workspace.label, tabName }).join(" · ");
           const tooltip = [...new Set([pane.pane_id, title, context, agent?.name, agent?.display_agent, pane.cwd, online ? null : stateWord(machine)].filter(Boolean))].join("\n");
-          return <li className={`agent-item${selected ? " is-selected" : ""}${online ? "" : " is-offline"}`} key={paneStorageId(machine.id, pane.pane_id)} data-machine={machine.id} data-pane={pane.pane_id}>
-            <button type="button" className="agent-select agent-row" disabled={!online} aria-current={selected ? "true" : undefined} title={tooltip} onClick={() => onSelect(machine.id, pane.pane_id)}>
+          const viewNumber = docking?.viewNumbers?.get(paneStorageId(machine.id, pane.pane_id));
+          return <li className={`agent-item${selected ? " is-selected" : ""}${online ? "" : " is-offline"}`} style={sessionStyle(viewNumber)} key={paneStorageId(machine.id, pane.pane_id)} data-machine={machine.id} data-pane={pane.pane_id}>
+            <button type="button" className="agent-select agent-row" disabled={!online} draggable={online} onDragStart={(event) => startPaneDrag(event, { machine_id: machine.id, pane_id: pane.pane_id }, docking)} onDragEnd={() => docking?.endDrag()} aria-current={selected ? "true" : undefined} title={tooltip} onClick={() => onSelect(machine.id, pane.pane_id)}>
               {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
-              <AgentRowBody mark={paneMark(entry)} title={title} context={context} backgroundTasks={online ? pane.background_tasks : 0} status={online ? activity.status(machine.id, pane) : undefined} />
+              <AgentRowBody mark={paneMark(entry)} title={title} context={context} viewNumber={viewNumber} backgroundTasks={online ? pane.background_tasks : 0} status={online ? activity.status(machine.id, pane) : undefined} />
             </button>
+            {docking && <button type="button" className="sidebar-row-action agent-place" disabled={!online}
+              title={t("Place in split view")} aria-label={`${t("Place in split view")}: ${title}`}
+              onClick={(event) => docking.place({ machine_id: machine.id, pane_id: pane.pane_id }, event.currentTarget)}><PanelsTopLeft aria-hidden="true" /></button>}
           </li>;
         })}
       </ul>}

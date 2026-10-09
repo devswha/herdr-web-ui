@@ -14,6 +14,8 @@ import type {
   PairedDevice,
   PairingCode,
   PaneReadResult,
+  PaneSplit,
+  SplitPaneRequest,
   PromptAnswer,
   PushKey,
   RemoteAccess,
@@ -87,6 +89,24 @@ export async function changeTelemetry(change: { enabled?: boolean; notice_seen?:
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify(change) });
   if (!response.ok) throw await errorFrom(url, response);
   return (await response.json()) as TelemetryStatus;
+}
+
+/** Layout requests capture their PC explicitly, like the existing pane APIs. */
+export async function splitPane(request: SplitPaneRequest, machineId = "local"): Promise<PaneSplit> {
+  const response = await sendJson(machinePath(machineId, "pane/split"), "POST", request);
+  return response.json();
+}
+
+export async function focusPane(paneId: string, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/focus"), "POST", { pane_id: paneId });
+}
+
+export async function zoomPane(paneId: string, mode: "toggle" | "on" | "off", machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/zoom"), "POST", { pane_id: paneId, mode });
+}
+
+export async function resizePane(paneId: string, direction: "left" | "right" | "up" | "down", amount: number, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/resize"), "POST", { pane_id: paneId, direction, amount });
 }
 
 /**

@@ -75,10 +75,13 @@
 }
 
 /* an agent's row */
+.agent-item { display: flex; align-items: center; }
+.agent-place { flex: none; }
 .agent-row {
   display: flex;
   align-items: center;
   width: 100%;
+  min-width: 0;
   min-height: var(--side-row-2);
   padding: 0;
   border: 0;

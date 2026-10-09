@@ -79,7 +79,18 @@ bun scripts/composer-fit-demo-regression.ts   # one Send/Stop control, pending S
 bun scripts/held-rows-demo-regression.ts      # held messages: the fold under an approval card, its button, a row's error
 bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quiet opened finishes: blocked pinned, recency, an opened DONE drawn as ready
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
+bun scripts/workspace-layout-demo-regression.ts # native splits, docking across fictional PCs, presets, pending ownership and phone layout
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
+```
+
+The multi-pane regression uses 8-second DOM waits and a 180-second browser deadline. It
+holds the demo's initial timed finish, so its pending-input assertion does not race the clock.
+Set `UI_EVIDENCE_DIR=evidence/workspace-layout` for the paired dark/light native, preset and
+phone screenshots plus the cross-PC fixture. The native HTTP contract runs separately on
+the check runner's isolated herdr:
+
+```bash
+bun run check run bun test --timeout 30000 ./server/pane-layout.contract.test.ts
 ```
 
 `FILE_VIEWER_CASE=landscape-notch` selects a viewer case; `FILE_VIEWER_CSS=/path/to/before.css` compares another stylesheet. These checks use Chromium mobile emulation and synthetic safe-area/keyboard geometry; they cannot verify actual iOS Safari keyboard dismissal or notch insets. The existing `bun scripts/file-viewer-regression.ts` separately checks history with an owned herdr pane. The original `scripts/mobile-viewport-regression.ts` exports `checkMobileViewport` for the real-app `bun run test:ui` suite; it also checks the command palette and xterm focus transitions. The demo runners build the real client into a temporary directory, inject the committed fictional-session transport and serve it only on loopback; they do not use a live herdr session or download website media. Run on its own, each builds the client itself (`scripts/demo-build.ts`); the browser lane builds it once and names the directory in `HERDR_DEMO_BUILD`, and each runner copies that instead. They exercise real-app viewport and alert geometry, but not live herdr connectivity.

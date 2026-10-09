@@ -7,8 +7,11 @@ import type { MachineManager } from "./machines.ts";
 const asked: (string | null)[] = [];
 const remote = Bun.serve({
   port: 0,
-  fetch(request) {
+  async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (/^\/api\/pane\/(?:split|resize|focus|zoom)$/.test(path)) return Response.json({
+      path, body: await request.json(), authorization: request.headers.get("authorization"), cookie: request.headers.get("cookie"),
+    }, { headers: { "set-cookie": "remote-secret=not-for-the-browser" } });
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
     if (path === "/api/fs/file") return new Response("%PDF-1.7", { headers: { "content-type": "application/pdf" } });
@@ -83,4 +86,19 @@ it("refuses a path with an empty segment instead of forwarding it as another rou
     expect((await handleMachineRequest(new Request(`http://127.0.0.1/api/machines/${path}`), manager)).status).toBe(404);
   }
   expect(asked.length).toBe(before);
+});
+
+it("forwards layout operations with captured PC ownership and bridge-only credentials", async () => {
+  for (const operation of ["split", "resize", "focus", "zoom"]) {
+    const body = { pane_id: "same-id-on-two-PCs", direction: "right", amount: 0.2, mode: "toggle" };
+    const response = await handleMachineRequest(new Request(`http://127.0.0.1/api/machines/pc1/pane/${operation}`, {
+      method: "POST", headers: { "x-herdr-machine": "1", cookie: "browser=private", authorization: "Bearer browser-secret" },
+      body: JSON.stringify(body),
+    }), manager);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(await response.json()).toEqual({ path: `/api/pane/${operation}`, body, authorization: "Bearer remote-token", cookie: null });
+  }
+  const denied = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/pc1/pane/split", { method: "POST", body: "{}" }), manager);
+  expect(denied.status).toBe(403);
 });

@@ -214,6 +214,23 @@ export async function tabClose(tabId: string, socketPath?: string): Promise<void
   await herdrRpc("tab.close", { tab_id: tabId }, socketPath);
 }
 
+/** Explicit target only: a PC's currently focused pane is never a browser fallback. */
+export async function paneSplit(paneId: string, direction: "right" | "down", socketPath?: string): Promise<{ type: "pane_info"; pane: PaneInfo }> {
+  return herdrRpc("pane.split", { target_pane_id: paneId, direction, focus: false }, socketPath);
+}
+
+export async function paneFocus(paneId: string, socketPath?: string): Promise<void> {
+  await herdrRpc("pane.focus", { pane_id: paneId }, socketPath);
+}
+
+export async function paneZoom(paneId: string, mode: "toggle" | "on" | "off", socketPath?: string): Promise<void> {
+  await herdrRpc("pane.zoom", { pane_id: paneId, mode }, socketPath);
+}
+
+export async function paneResize(paneId: string, direction: "left" | "right" | "up" | "down", amount: number, socketPath?: string): Promise<void> {
+  await herdrRpc("pane.resize", { pane_id: paneId, direction, amount }, socketPath);
+}
+
 export async function agentStart(
   options: { name: string; kind: string; paneId: string; args?: string[]; timeoutMs?: number },
   socketPath?: string,
