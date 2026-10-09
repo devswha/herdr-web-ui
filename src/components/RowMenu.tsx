@@ -15,6 +15,7 @@ import "./RowMenu.css";
 
 import { useT } from "../lib/i18n.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
+import { SHEET_QUERY, useSheetSwipe } from "../lib/sheets.ts";
 
 export interface RowMenuItem {
   id: string;
@@ -49,7 +50,6 @@ interface Props {
   onClose: () => void;
 }
 
-const SHEET_QUERY = "(max-width: 640px)";
 const GAP = 4;
 const EDGE = 8;
 /** a popover never grows past this, however much room the screen has */
@@ -62,6 +62,7 @@ export function RowMenu({ anchor, title, subtitle, header, items, align = "end",
   const t = useT();
   const sheet = useMediaQuery(SHEET_QUERY);
   const surface = useRef<HTMLDivElement>(null);
+  useSheetSwipe(surface, sheet ? onClose : null);
   const [place, setPlace] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   // where the button was when the menu was placed: a scroll that leaves it there is not a reason to close
   const placedAt = useRef<{ top: number; left: number } | null>(null);
