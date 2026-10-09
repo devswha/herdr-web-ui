@@ -327,6 +327,9 @@ export const JA: Record<string, string> = {
   "No readable file at this path.": "このパスに読み取り可能なファイルはありません。",
   "The file could not be opened.": "ファイルを開けませんでした。",
   "Open {path}": "{path} を開く",
+  "Show the HTML file as": "HTML ファイルの表示",
+  "Page": "ページ",
+  "Source": "ソース",
 
   // ---- PC dialog ----
   "Update remote bridge": "リモートブリッジを更新",

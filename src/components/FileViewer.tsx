@@ -29,7 +29,7 @@ export interface FileViewerProps {
 
 /**
  * A file an agent wrote, opened in the browser: images, video and audio (streamed, so they
- * play and seek at once), PDFs, and the start of a text file. Anything can be downloaded.
+ * play and seek at once), PDFs, HTML pages, and the start of a text file. Anything can be downloaded.
  */
 export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActive = true }: FileViewerProps) {
   const t = useT();
@@ -44,13 +44,15 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const [candidates, setCandidates] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
+  // an HTML page shows as the page, or as its source when asked
+  const [source, setSource] = useState(false);
   // Escape closes it, Tab stays in it, and the focus goes back to the row that opened it
   const surface = useFocusTrap<HTMLElement>(true);
   useEffect(() => setPath(asked), [asked]);
 
   useEffect(() => {
     let cancelled = false;
-    setInfo(null); setCandidates(null); setError(null); setText(null); setDirectory(null);
+    setInfo(null); setCandidates(null); setError(null); setText(null); setDirectory(null); setSource(false);
     fetchFileInfo(path, paneId).then(async (next) => {
       if (cancelled) return;
       if ("candidates" in next) { setCandidates(next.candidates); return; }
@@ -87,6 +89,14 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
 
   // the file found (a bare name may have been found deeper in the folder), else as asked
   const url = fileUrl(info?.path ?? path, paneId);
+  // drawn by its own script in a sandbox with no origin and no network (server/file-view.ts); a PC
+  // whose bridge predates `render` answers with the source, which the frame shows as text
+  const page = info !== null && info.kind === "text" && info.mime === "text/html";
+  const pageUrl = `${url}&render=1`;
+  const modes = <div className="segmented file-viewer-modes" role="group" aria-label={t("Show the HTML file as")}>
+    <button type="button" aria-pressed={!source} onClick={() => setSource(false)}>{t("Page")}</button>
+    <button type="button" aria-pressed={source} onClick={() => setSource(true)}>{t("Source")}</button>
+  </div>;
   const body = (() => {
     if (directory !== null) return <DirectoryBrowser key={directory} start={directory} onOpenFile={onOpen ?? setPath} />;
     if (error !== null) return <p className="file-viewer-note" role="alert">{error}</p>;
@@ -107,7 +117,12 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       case "pdf":
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "text":
+        if (page && !source) return <>
+          {modes}
+          <iframe className="file-viewer-page" src={pageUrl} sandbox="allow-scripts" title={info.name} />
+        </>;
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
+          {page && modes}
           <pre className="file-viewer-text">{text}</pre>
           {info.size > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(info.size) })}</p>}
         </>;
@@ -127,7 +142,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
               <span className="file-viewer-path"><span dir="ltr">{info?.path ?? path}</span></span>
             </p>
           </div>
-          <a className="icon-button" href={url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>
+          <a className="icon-button" href={page && !source ? pageUrl : url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>
           <a className="icon-button" href={fileUrl(info?.path ?? path, paneId, true)} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
           <button type="button" className="icon-button" aria-label={t("Close file")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>
