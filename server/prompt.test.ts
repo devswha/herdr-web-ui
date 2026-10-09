@@ -1625,6 +1625,11 @@ describe("Claude's suggested next prompt", () => {
     const live = screen("❯\u00a0half typed").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
     expect(claudeInputDraft(live, "\u001b[0m● earlier output\r\n" + "more of it")).toBe(true);
     expect(claudeInputDraft(live, screen("❯ \u001b[2mhalf typed\u001b[0m".replace("half typed", "an old suggestion")))).toBe(true);
+    // colors not verified to show the live screen (null) say nothing: a box that is not empty holds,
+    // also one whose words are Claude's grey suggestion; an empty one does not
+    const grey = screen("❯ \u001b[2mrun the tests\u001b[0m");
+    expect(claudeInputDraft(grey.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, ""), null)).toBe(true);
+    expect(claudeInputDraft(screen("❯\u00a0").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, ""), null)).toBe(false);
     // an empty live box sends, whatever an older box in the scrolled viewport held
     const empty = screen("❯\u00a0").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
     expect(claudeInputDraft(empty, screen("❯ an old draft"))).toBe(false);

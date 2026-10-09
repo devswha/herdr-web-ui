@@ -2714,17 +2714,20 @@ function claudeInputBox(screen: string): { plain: string[]; raw: string[] } | "c
  * box clipped by the pane, or a box that is not a `❯` input. Claude's own grey text (a suggested
  * prompt, its tip, on any number of rows) and its drawn cursor are not a draft. The box is read
  * from the live screen (`live`, a detection read, as the other pending checks); only the viewport
- * read carries colors (`ansi`), so it decides grey from typed only when it shows the very same box.
- * False when the screen shows no rule at all.
+ * read carries colors (`colors`), and the caller passes it only once it is verified to show that
+ * live screen (null otherwise): equal words do not prove it, since an older box in a scrolled
+ * viewport, or a grey suggestion the user then typed out, reads the same. Without verified colors a
+ * box that is not empty is a draft. False when the screen shows no rule at all.
  */
-export function claudeInputDraft(live: string, ansi: string): boolean {
+export function claudeInputDraft(live: string, colors: string | null): boolean {
   const box = claudeInputBox(live);
   if (box === null) return false;
   if (box === "clipped" || !box.plain[0]?.startsWith("❯")) return true;
   if (box.plain.join("\n").slice(1).replace(/\u00a0/g, " ").trim() === "") return false;
   // a paste or an image Claude folded into a placeholder is content, however it is colored
   if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain.join(" "))) return true;
-  const shown = claudeInputBox(ansi);
+  if (colors === null) return true;
+  const shown = claudeInputBox(colors);
   if (shown === null || shown === "clipped" || shown.plain.join("\n") !== box.plain.join("\n")) return true;
   let prompt = false;
   let first = true;
