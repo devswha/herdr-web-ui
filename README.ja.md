@@ -27,9 +27,9 @@
 
 ---
 
-https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
+https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 
-<p align="center"><sub>herdr のターミナルで Claude Code が確認を求め、同じ質問がブラウザとスマートフォンにも表示。スマートフォンで 1 回タップして回答 · 実際の動作を収録、カットなし</sub></p>
+<p align="center"><sub>1 つの Claude Code セッションを、herdr のターミナルからブラウザのターミナルとチャットへ、そしてスマートフォンへ。スマートフォンでは新しい worktree をすぐ隣に起動 · 実際の動作を収録、カットなし</sub></p>
 
 **Claude Code と Codex を、スマートフォンから。**
 
@@ -38,36 +38,36 @@ https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/33ed2183-9b94-4677-8980-edd90d45750a"><img src="docs/media/readme/terminal.webp" width="100%" alt="実際の動作の録画。ブラウザのチャットに Claude Code の返答が表示され、Terminal をクリックすると同じペインが Claude Code 自身のターミナルになり、src/server.test.ts にテスト「unknown refund is 404」を追加した編集が見えます。スマートフォンでは tests タブのターミナルで、キーバーの ↑ で bun test を呼び出し、入力行の Enter ボタンで実行すると 5 pass、0 fail になります。"></a>
+      <a href="https://github.com/user-attachments/assets/32ca9aa4-960f-4629-9fb5-17c12ba35c80"><img src="docs/media/readme/terminal.webp" width="100%" alt="実際の動作の録画。ブラウザの Chat に Claude Code の返答があり、Terminal をクリックすると同じペインが Claude Code 自身のターミナルとして表示され、src/server.test.ts にテスト「unknown refund is 404」を追加した編集が見えます。スマートフォンでは tests タブのターミナルで、キーバーの ↑ で bun test を呼び出し、キーバーの Enter で実行します：5 pass, 0 fail。"></a>
       <br><b>ライブターミナルに切り替える</b>
-      <br><sub>クリック 1 回でチャットがそのペインの本物のターミナルに切り替わり、スマートフォンではキーバーの ↑ でテストのコマンドを呼び出して、Enter で再実行します。</sub>
+      <br><sub>クリック 1 回でチャットがそのペインの本物のターミナルに切り替わり、スマートフォンではキーバーの ↑ でテストのコマンドを呼び出して、隣の Enter で再実行します。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/ac8dbf34-5c27-441b-8e49-e3850eac0c27"><img src="docs/media/readme/layout.webp" width="100%" alt="実際の動作の録画。ブラウザに herdr のレイアウトがそのまま表示されます。サイドバーに 4 つのワークスペースと各エージェントの状態（checkout-api DONE、web-dashboard RUN、infra READY、release）、checkout-api のタブ payments と dev。dev タブをクリックすると最初のペインの bun test（4 pass）が表示され、タブのペインメニューには分割された 2 つのペイン tests と git が並び、git をクリックするとその git log が表示されます。スマートフォンでは ☰ で同じ 4 つのワークスペースが同じ状態で開き、checkout-api をタップすると Claude のチャット（「What does this repo do? Answer in one line.」とその答え）が開きます。"></a>
+      <a href="https://github.com/user-attachments/assets/22d10639-9aa6-4953-a5f3-a1b743f4053b"><img src="docs/media/readme/layout.webp" width="100%" alt="実際の動作の録画。ブラウザに herdr のレイアウトが表示されます。サイドバーの 4 つのワークスペースは、各行の末尾にエージェントの状態を示し（Claude が作業を終えた checkout-api は緑の点、Codex が作業中の web-dashboard は回る弧、infra と release は表示なし）、checkout-api には payments と dev のタブがあります。dev タブをクリックすると最初のペイン tests に bun test の 4 pass が表示され、タブのペインメニューには分割された 2 つのペイン tests と git が並び、git をクリックするとその git log が表示され、checkout-api の行に git と表示されます。スマートフォンでは ☰ で同じ状態の同じ 4 つのワークスペースが開き、checkout-api をタップすると Claude のチャットが開きます：「What does this repo do? Answer in one line.」とその回答。"></a>
       <br><b>herdr のレイアウトをブラウザで</b>
       <br><sub>ワークスペース、タブ、分割ペイン、そして各エージェントの状態がそのまま。タブをクリックし、分割のペインを選び、スマートフォンからワークスペースを切り替えます。</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/804ed0e1-54e6-4c1a-9d87-bd769a970315"><img src="docs/media/readme/alerts.webp" width="100%" alt="実際の動作の録画。ブラウザで Claude が checkout-api の作業をしている間、スマートフォンは別のワークスペースのターミナルを表示しています。Claude がどのレート制限にするか質問すると、スマートフォンに「checkout-api Needs input」の通知が降りてきて、タップすると質問がカードで開きます。ブラウザでも Needs you の下に checkout-api が同じカードとともに表示されます。"></a>
+      <a href="https://github.com/user-attachments/assets/b228a2b8-6db5-4546-a15b-972056000cab"><img src="docs/media/readme/alerts.webp" width="100%" alt="実際の動作の録画。ブラウザで Claude が checkout-api の作業をしている間、スマートフォンは別のワークスペースのターミナルを表示しています。Claude がどのレート制限を使うか尋ねると、スマートフォンに「checkout-api Needs input」という通知が降りてきて、タップすると質問がカードとして開きます。ブラウザでは checkout-api の行と Agents の下のその行に赤い疑問符が表示され、同じカードがチャットで待っています。"></a>
       <br><b>エージェントに呼ばれたらすぐ分かる</b>
       <br><sub>別のワークスペースを見ていても、Claude が質問すると通知が降りてきて、タップ 1 回で質問が開きます。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/25e55478-354b-4c5d-a33a-c1158f4b819a"><img src="docs/media/readme/attach.webp" width="100%" alt="実際の動作の録画。スマートフォンでクリップから $NaN と表示されたレシートのスクリーンショットを添付するとパスが挿入され、「Fix this, with a test.」を送信します。パソコンのチャットにも画像付きの同じメッセージが届き、Claude は src/routes/receipt.ts を読むところから始めます。"></a>
+      <a href="https://github.com/user-attachments/assets/a193b426-259c-47d9-bd73-10acc2594265"><img src="docs/media/readme/attach.webp" width="100%" alt="実際の動作の録画。スマートフォンで checkout-api の空のチャットが「What should Claude do in checkout-api?」と尋ねています。+ ボタンで合計が $NaN と表示されたレシートのスクリーンショットを添付するとパスが挿入され、「Fix this, with a test.」と入力して送信します。スクリーンショット付きのメッセージがスマートフォンとデスクトップのチャットに表示されるあいだにカメラが引き、デスクトップのチャットに寄ります。動画全体では、続いて Claude が src/routes/receipt.ts と src/server.ts を読む最初のコマンドを実行します。"></a>
       <br><b>スマートフォンからスクリーンショットを送る</b>
-      <br><sub>クリップでペインのフォルダーにアップロードしてパスを挿入。Claude が画像を読みます。</sub>
+      <br><sub>+ ボタンでペインのフォルダーにアップロードしてパスを挿入。Claude が画像を読みます。</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/b410d41c-a822-47fe-94a5-88becab9b235"><img src="docs/media/readme/open.webp" width="100%" alt="実際の動作の録画。ブラウザのターミナルで Claude Code が bench/p95.svg を書き出しています。パスをクリックするとファイルビューアでグラフが開き、スマートフォンのチャットで同じパスをタップすると全画面で開きます。"></a>
+      <a href="https://github.com/user-attachments/assets/bc419d3e-ebda-4fb5-acc5-e498609559fe"><img src="docs/media/readme/open.webp" width="100%" alt="実際の動作の録画。ブラウザのターミナルで Claude Code が bench/p95.svg を書き出しました。回答内のパスをクリックするとファイルビューアーでグラフが開き、スマートフォンのチャットで同じパスをタップすると全画面で開きます。"></a>
       <br><b>エージェントが作ったファイルを開く</b>
       <br><sub>ターミナルのパスをクリック、またはチャットのパスをタップすると、その場でファイルが開きます。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/3a50f082-d13a-4a88-b2a4-7bc050e8a47a"><img src="docs/media/readme/worktree.webp" width="100%" alt="実際の動作の録画。スマートフォンで checkout-api の行の ⋯ メニュー → New worktree を開くと、ブランチ worktree/clear-forest-3580 が入力済みのフォームが表示されます。エージェントに Claude Code を選んで Create worktree をタップすると、ブラウザで checkout-api の下に新しい行が現れ、Claude Code に変わって READY になります。"></a>
+      <a href="https://github.com/user-attachments/assets/150a4c9d-7667-4f63-ba56-8f91e6a25878"><img src="docs/media/readme/worktree.webp" width="100%" alt="実際の動作の録画。スマートフォンで checkout-api の ⋯ メニュー → New worktree を開くと、ブランチ worktree/clear-field-23e0 が入力済みのフォームが表示され、Claude Code を選んで Create worktree をタップします。カメラがブラウザに移ると、checkout-api のフォルダーが開き、その下に新しいチェックアウトが Claude として入れ子で表示されています。続いてその行は worktree-clear-field-23e0 の上に Claude Code と表示され、Agents 一覧には 4 つ目のエージェントとして加わります。"></a>
       <br><b>2 つ目のエージェントを分岐させる</b>
       <br><sub>スマートフォンで ⋯ → New worktree。ブランチは入力済み、エージェントを選べば最初のものの隣で起動します。</sub>
     </td>
