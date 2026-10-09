@@ -153,13 +153,16 @@ const ADMITTED_FOR_MS = 30 * 24 * 60 * 60_000;
 const admitted = new Map<string, number>();
 
 /**
- * The proxy a forwarded address came through. The forwarded part is whatever the client wrote,
+ * The share a forwarded address draws on. Only a loopback peer is taken on its word
+ * (`authClient`), and a process on this PC can connect from any address in 127.0.0.0/8 or ::1,
+ * so every such peer is one proxy here: a guesser rotating its source address gets no fresh share,
+ * and the map holds one entry per channel (#595). The forwarded part is whatever the client wrote,
  * ` via ` included, so the peer is read from the end: it is this socket's address, which never
  * holds a space.
  */
 function sharedKey(channel: Channel, client: string | null): string | null {
   const via = client?.lastIndexOf(" via ") ?? -1;
-  return client === null || via < 0 ? null : `${channel} via ${client.slice(via + " via ".length)}`;
+  return client === null || via < 0 ? null : `${channel} via loopback`;
 }
 
 function sharedWaitLeft(channel: Channel, client: string | null): number {
