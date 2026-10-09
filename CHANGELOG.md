@@ -29,6 +29,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Idempotent payments" — so a screen reader names the pane before its content. xterm draws the
   screen to a canvas and carries no accessible name, so before this a reader reaching the
   terminal found an unnamed control.
+  ([#633](https://github.com/devswha/herdr-web-ui/pull/633) by @radicor)
 
 ## [0.4.2] - 2026-10-09
 
