@@ -249,6 +249,64 @@ describe("a first connect that finds a bridge of another version", () => {
   });
 });
 
+// A bridge update that cannot reach its PC (switched off, asleep, gone in the middle) learned
+// nothing about the bridge: the PC waits as offline and checks the version again once it answers,
+// instead of asking for an update it cannot run. A PC that refuses the key keeps the button.
+describe("a bridge update on a PC that cannot be reached", () => {
+  const id = "0b9d6a52-7a5e-4f8e-9a51-2f3c4d5e6f70";
+  const socket = "/home/u/.config/herdr/herdr.sock";
+  const descriptor = { pid: 4242, port: 29431, token: "a".repeat(64), socket_path: socket, bridge_protocol: BRIDGE_PROTOCOL, bundle_version: "0", managed_remote: true };
+  const real = { start: SshConnection.prototype.start, run: SshConnection.prototype.run, close: SshConnection.prototype.close, connected: SshConnection.prototype.connected };
+  afterEach(() => { Object.assign(SshConnection.prototype, real); });
+
+  async function updateOnce(options: { start: () => Promise<void>; connected?: boolean; failRun?: boolean }) {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-offline-update-"));
+    writeFileSync(join(dir, "machines.json"), JSON.stringify([{ id, name: "macbook", enabled: false, target: { destination: "macbook" }, snapshot: null }]));
+    SshConnection.prototype.start = options.start;
+    SshConnection.prototype.connected = () => options.connected ?? true;
+    SshConnection.prototype.run = (async (script: string) => {
+      if (script.includes("uname")) return `Linux\nx86_64\n/home/u\n/home/u/.config\n\n${JSON.stringify(descriptor)}\n`;
+      if (script.includes("socket=")) return socket;
+      // the bridge check after the host was read: the connection drops (or the check fails) here
+      if (script.includes("kill -0")) { if (options.failRun) throw new Error("Connection to macbook closed by remote host."); return "live"; }
+      throw new Error("Unexpected remote mutation");
+    }) as typeof real.run;
+    SshConnection.prototype.close = () => {};
+    const manager = new MachineManager(dir, {} as PushService, new CompletionTracker(null), async () => { throw new Error("local offline"); });
+    // registered disabled so no reconnect of its own runs; enabled again without a reconnect,
+    // as a PC that was connected when its update began
+    (manager as unknown as { machines: Map<string, { machine: { enabled: boolean } }> }).machines.get(id)!.machine.enabled = true;
+    try {
+      const started = manager.updateBridge(id);
+      for (let i = 0; i < 100 && manager.job(started.id)?.phase !== "failed"; i += 1) await Bun.sleep(25);
+      // copied: stop() below disconnects the live record
+      return structuredClone({ job: manager.job(started.id)!, machine: manager.list().find((machine) => machine.id === id)! });
+    } finally { manager.stop(); rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  it("waits as offline when SSH cannot reach the PC", async () => {
+    const { job, machine } = await updateOnce({ start: async () => { throw new Error("ssh: connect to host macbook port 22: Operation timed out"); } });
+    expect(job.phase).toBe("failed");
+    expect(machine).toMatchObject({ state: "reconnecting", action_required: null });
+    expect(machine.error).toContain("Operation timed out");
+  });
+
+  it("waits as offline when the PC goes away in the middle of the update", async () => {
+    const { machine } = await updateOnce({ start: async () => {}, connected: false, failRun: true });
+    expect(machine).toMatchObject({ state: "reconnecting", action_required: null });
+  });
+
+  it("keeps the update button when the PC refuses the saved key", async () => {
+    const { machine } = await updateOnce({ start: async () => { throw new Error("u@macbook: Permission denied (publickey)."); } });
+    expect(machine).toMatchObject({ state: "error", action_required: "update_bridge" });
+  });
+
+  it("keeps the update button when the update fails on a PC that still answers", async () => {
+    const { machine } = await updateOnce({ start: async () => {}, connected: true, failRun: true });
+    expect(machine).toMatchObject({ state: "error", action_required: "update_bridge" });
+  });
+});
+
 describe("terminal attach capability", () => {
   it("follows herdr's own word when it gives one, and the platform otherwise", () => {
     expect(terminalAttachSupported({ direct_terminal_attach: false, live_handoff: true })).toBe(false);
