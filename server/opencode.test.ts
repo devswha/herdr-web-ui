@@ -680,4 +680,37 @@ describe("an OpenCode 1.x session (session/message/part)", () => {
     expect(all).toEqual(Array.from({ length: 100 }, (_, n) => `p${n + 20}`));
     expect(opencodeConversation(s.path, s.session, { before: `opencode-ses_other:${newest.cursor!.split(":")[1]}` })).toEqual({ kind: "history_changed" });
   });
+
+  it("hides a reverted 1.x suffix from the pages and from the row references", () => {
+    const s = storeV1();
+    for (let n = 0; n < 51; n++) { s.user(`p${n}`); s.assistant([{ type: "text", text: `a${n}` }], { finish: "stop" }); }
+    const step = s.assistant([
+      { type: "text", text: "reading" },
+      { type: "tool", tool: "read", callID: "call_1", state: {
+        status: "completed", input: { filePath: "big.log" }, output: "y".repeat(5000),
+        attachments: [{ type: "file", mime: "image/png", url: `data:image/png;base64,${PNG.toString("base64")}` }],
+      } },
+    ], { finish: "stop" });
+    const later = s.user("after undo");
+    s.part(later, { type: "file", mime: "image/png", url: `data:image/png;base64,${PNG.toString("base64")}` });
+
+    // before the undo the step is readable, so the nulls after it are not passing on nothing
+    const tool = page(opencodeConversation(s.path, s.session)).turns.flatMap((turn) => turn.parts)
+      .find((part): part is Extract<ConversationPart, { kind: "tool" }> => part.kind === "tool")!;
+    expect(tool.output_ref).toBe(`${step}:1`);
+    expect(opencodeToolOutput(s.path, s.session, tool.output_ref!)).toBe("y".repeat(5000));
+    expect(opencodeImage(s.path, s.session, tool.images![0]!.ref)).not.toBeNull();
+
+    s.db.query("UPDATE session SET revert = ? WHERE id = ?").run(JSON.stringify({ messageID: step }), s.session);
+
+    const newest = page(opencodeConversation(s.path, s.session));
+    expect(newest.cursor).not.toBeNull();
+    const older = page(opencodeConversation(s.path, s.session, { before: newest.cursor! }));
+    const parts = [...older.turns, ...newest.turns].flatMap((turn) => turn.parts);
+    expect(parts.some((part) => part.kind === "tool")).toBe(false);
+    expect(parts.some((part) => part.kind === "text" && part.text === "after undo")).toBe(false);
+    expect(parts.some((part) => part.kind === "image" && part.ref === `opencode:${later}:0`)).toBe(false);
+    expect(opencodeToolOutput(s.path, s.session, tool.output_ref!)).toBeNull();
+    expect(opencodeImage(s.path, s.session, tool.images![0]!.ref)).toBeNull();
+  });
 });
