@@ -125,6 +125,7 @@ try {
             await menu.getByRole("option").filter({ hasText: "pr-comments" }).waitFor();
             assert.equal(await menu.getByRole("option").count(), 1);
             await composer.press("Tab");
+            await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>(".composer textarea")?.value === "/pr-comments ");
             assert.equal(await composer.inputValue(), "/pr-comments ");
             await composer.fill("/rln");
             await menu.getByRole("option").filter({ hasText: "release-notes" }).waitFor();
