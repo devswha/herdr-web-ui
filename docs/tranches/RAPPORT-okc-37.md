@@ -136,22 +136,26 @@ revue (`git status --short` vide).
 
 ## MERGE
 
-- `main` local = `182ec4e` ; branche `okc-37` = `5e43a67` (un seul commit, le
-  chantier). Rapport committé sur la branche **avant** la fusion, puis fusion
-  `--no-ff` dans `main` ; la branche ne garde ensuite **aucun commit d'avance**
-  (`git rev-list --count main..okc-37` = **0**).
-- Push `main` → `origin` (`github.com/okcedric/herdr-web-ui`) : voir la ligne
-  ci-dessous, renseignée après coup.
+- `main` local = `182ec4e` ; branche `okc-37` = `5e43a67` (le chantier), puis
+  `6de66ae` (le rapport), committé sur la branche **avant** la fusion.
+- Merge `--no-ff` d'`okc-37` dans `main` : **`3dfa8fc`**
+  (`merge: le rapport de controle okc-37 rejoint main`), sur le tip `182ec4e` de
+  `main`, apportant `5e43a67` et `6de66ae`. Aucun conflit (le chantier ne touche
+  que `server/`, le rapport `docs/`).
+- Push `main` → `origin` (`github.com/okcedric/herdr-web-ui`) : **OK**,
+  `182ec4e..main` — la branche `main` de la copie de travail a été poussée, le
+  présent rapport inclus.
 - Push `main` → `upstream` (`devswha/herdr-web-ui`) : **refusé, 403** (`Permission
-  to devswha/herdr-web-ui.git denied to okcedric`). L'amont se rejoint par **PR**
-  (voie demandée par le ticket, non bloquante), pas par poussée directe ; la doc
-  de l'amont réserve d'ailleurs `main` aux PR squashées.
-
-<!-- MERGE_LINE -->
+  to devswha/herdr-web-ui.git denied to okcedric`) — `okcedric` n'a pas le droit
+  d'écriture sur l'amont. Celui-ci se rejoint par **PR** (voie demandée par le
+  ticket, non bloquante), pas par poussée directe ; la doc de l'amont réserve
+  d'ailleurs `main` aux PR squashées.
+- Aucun commit d'avance conservé sur `okc-37` : `git rev-list --count main..okc-37`
+  = **0**.
 
 ## Compte rendu
 - Objet : en mode chat, herdr web UI lisait un store opencode 2.x (`session_v2`) et renvoyait le terminal pour un store 1.x ; la tranche rend les tours d'un store 1.x.
 - Livré : `server/opencode.ts` lit `session`/`message`/`part` quand `session_v2` est absent, adapte chaque message à la forme `opencodeRecord` (tours user/assistant, outils tronqués, images d'outils, erreurs, modèle/usage) ; tests 1.x neufs ; ligne `server/AGENTS.md` à jour.
 - Preuve : `bun test ./server/opencode.test.ts` → 32 pass/0 fail ; sans le correctif → 28 pass/4 fail ; `test:unit` → 2217 pass/7 skip/1 fail (le seul échec, `voice.test.ts`, est préexistant sur `main`) ; base réelle `ses_edeb86431ffeNINbKVswqfgH5Q` → 2 tours, 1 user, premier texte « Tu es MANAGER de la tranche tur-74… », là où elle rendait `turns: []`.
 - Verdict : VALIDE. Écarts signalés : échec `voice.test.ts` préexistant ; images de prompt utilisateur non reprises (absentes de la base réelle).
-- Merge : voir la ligne renseignée après la fusion (branche `main`, `--no-ff`) ; push `origin` OK ; push `upstream` impossible (403) — PR amont comme le veut le ticket.
+- Merge : `--no-ff` **`3dfa8fc`** dans `main` (`182ec4e` → `3dfa8fc`), rapport committé d'abord sur la branche puis absorbé ; branche et worktree conservés. Push `origin` `182ec4e..main` **OK** ; push `upstream` **impossible (403)** — `okcedric` n'a pas le droit d'écriture, l'amont se rejoint par PR (voie non bloquante du ticket).
