@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, threadStartedWithProcess, resumedThread, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
+import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexFirstExchange, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, resumedThread, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
 const ts = "2026-09-22T01:00:00.000Z";
@@ -195,22 +195,30 @@ describe("Codex conversation records", () => {
     expect(turns[1]?.parts).toEqual([{ kind: "text", text: "Fixed", phase: "final_answer" }]);
   });
 
-  it("hides directory-free AGENTS instructions in both event and model records", () => {
-    const injected = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nSynthetic rules\n</INSTRUCTIONS>";
-    const turns = parseCodexTranscript(jsonl(
-      message("user", injected),
-      event({ type: "user_message", message: injected }),
-      message("user", "Check fixture"),
-      message("assistant", "Ready", "final_answer"),
-    ));
-    expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
-    expect(turns[0]?.parts).toEqual([{ kind: "text", text: "Check fixture" }]);
+  it("hides complete directory-less AGENTS envelopes in event and model records", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const injected = ["# AGENTS.md instructions", "", "<INSTRUCTIONS>", "Synthetic rules", "</INSTRUCTIONS>"].join(newline);
+      const turns = parseCodexTranscript(jsonl(
+        message("user", injected), event({ type: "user_message", message: injected }),
+        message("user", "Check fixture"), message("assistant", "Ready", "final_answer"),
+      ));
+      expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
+      expect(turns[0]?.parts).toEqual([{ kind: "text", text: "Check fixture" }]);
+    }
   });
 
-  it("preserves user messages resembling an incomplete or different AGENTS header", () => {
-    const texts = ["# AGENTS.md instructions\nExplain this", "# AGENTS.md instructions-extra\n<INSTRUCTIONS>example</INSTRUCTIONS>"];
-    expect(parseCodexTranscript(jsonl(...texts.map((text) => message("user", text)))).map((turn) => turn.parts[0]))
-      .toEqual(texts.map((text) => ({ kind: "text", text })));
+  it("preserves incomplete, similar and user-extended AGENTS messages", () => {
+    for (const text of [
+      "# AGENTS.md instructions\nExplain this",
+      "# AGENTS.md instructions-extra\n<INSTRUCTIONS>example</INSTRUCTIONS>",
+      "# AGENTS.md instructions\nexample</INSTRUCTIONS>",
+      "# AGENTS.md instructions\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain why this rule is wrong.",
+      "# AGENTS.md instructions for /project\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain.",
+    ]) {
+      for (const record of [message("user", text), event({ type: "user_message", message: text })]) {
+        expect(parseCodexTranscript(jsonl(record))[0]?.parts).toEqual([{ kind: "text", text }]);
+      }
+    }
   });
 
   it("pairs duplicate display/model records in either order but keeps genuine repeated prompts", () => {
@@ -684,36 +692,59 @@ describe("Codex rollout resolution", () => {
   });
 });
 
-describe("threadStartedWithProcess", () => {
+describe("Codex submitted first exchange", () => {
   const started = Date.parse("2026-10-03T00:00:00Z");
-  const screen = "OpenAI Codex (v1.0)\n\n› Check fixture\n\n• Ready\n";
-  const row = (path: string, createdAtMs: number, firstUserMessage = "Check fixture") => ({ path, createdAtMs, firstUserMessage });
-
-  it("matches the sole new thread by its complete first prompt", () => {
-    expect(threadStartedWithProcess([row("new", started + 1000), row("old", started - 60_000)], started, screen)).toBe("new");
-    expect(threadStartedWithProcess([row("new", started + 1000)], started, "› Check\n  fixture\n\n• Ready")).toBe("new");
+  const prompt = "Check fixture";
+  const answer = "The fixture is ready for inspection.";
+  const screen = `OpenAI Codex (v1.0)\n\n› ${prompt}\n\n• ${answer}\n\n› `;
+  const row = (path = "new", createdAtMs = started, firstUserMessage = prompt, reply = answer) => ({
+    path, createdAtMs, firstUserMessage,
+    text: jsonl(message("user", firstUserMessage), message("assistant", reply, "final_answer")),
   });
 
-  it("allows only the whole-second process start tolerance", () => {
-    expect(threadStartedWithProcess([row("new", started - 1000)], started, screen)).toBe("new");
-    expect(threadStartedWithProcess([row("old", started - 1001)], started, screen)).toBeNull();
+  it("matches a complete first prompt and one answer, including whitespace wrapping", () => {
+    expect(matchCodexFirstExchange(screen, [row()], started)).toBe("new");
+    expect(matchCodexFirstExchange(screen.replace(prompt, "Check\n  fixture"), [row()], started)).toBe("new");
+    expect(matchCodexFirstExchange(screen, [row(), row("old", started - 60_000, "Other fixture", "Different answer")], started)).toBe("new");
   });
 
-  it("rejects multiple new threads even when only one prompt matches", () => {
-    expect(threadStartedWithProcess([row("one", started), row("two", started + 2000, "Other fixture")], started, screen)).toBeNull();
+  it("requires exact prompt punctuation and the full answer", () => {
+    for (const shown of [
+      screen.replace(prompt, "Check-fixture"), screen.replace(prompt, "Check fixture again"),
+      screen.replace(answer, "The fixture is ready"), screen.replace(answer, "Ready"),
+    ]) expect(matchCodexFirstExchange(shown, [row()], started)).toBeNull();
   });
 
-  it("rejects absent timestamps, empty prompts and absent new threads", () => {
-    for (const time of [null, Infinity, NaN]) expect(threadStartedWithProcess([row("new", started)], time, screen)).toBeNull();
-    expect(threadStartedWithProcess([row("new", started, "")], started, screen)).toBeNull();
-    expect(threadStartedWithProcess([], started, screen)).toBeNull();
+  it("rejects composers, indented quotes, later turns and a missing welcome card", () => {
+    for (const shown of [
+      `OpenAI Codex (v1.0)\n› ${prompt}`,
+      screen.replace(`› ${prompt}`, `    › ${prompt}`),
+      screen.replace(`› ${prompt}`, `• Earlier output\n› ${prompt}`),
+      screen.replace(`› ${prompt}`, `› Earlier prompt\n• Earlier reply\n› ${prompt}`),
+      screen.slice(screen.indexOf("›")),
+      `${screen}\nOpenAI Codex (v1.0)\n› Other fixture`,
+    ]) expect(matchCodexFirstExchange(shown, [row()], started)).toBeNull();
   });
 
-  it("never uses a substring, punctuation variant, assistant quote or previous welcome card", () => {
-    for (const shown of ["› Check fixture again", "› Check-fixture", "• Check fixture", "› Check fixture\nOpenAI Codex (v1.0)\n› Other fixture"]) {
-      expect(threadStartedWithProcess([row("new", started)], started, shown)).toBeNull();
+  it("keeps older later exchanges and longer answers as competing evidence", () => {
+    const old = {
+      ...row("old", started - 60_000, "Original request", "Original reply"),
+      text: jsonl(message("user", "Original request"), message("assistant", "Original reply"),
+        message("user", prompt), message("assistant", answer)),
+    };
+    expect(matchCodexFirstExchange(screen, [row(), old], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [old], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [row(), row("old", started - 60_000, prompt, `${answer} More details.`)], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [row(), row("other")], started)).toBeNull();
+  });
+
+  it("does not admit pre-start timestamps, missing prompt metadata or tiny answers", () => {
+    for (const time of [started - 1, Infinity, NaN]) {
+      expect(matchCodexFirstExchange(screen, [row("new", time)], started)).toBeNull();
     }
-    expect(threadStartedWithProcess([row("new", started, "Check")], started, screen)).toBeNull();
+    for (const time of [Infinity, NaN]) expect(matchCodexFirstExchange(screen, [row()], time)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [{ ...row(), firstUserMessage: "" }], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen.replace(answer, "Ready"), [row("new", started, prompt, "Ready")], started)).toBeNull();
   });
 });
 

@@ -20,8 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function contextOnly(text: string): boolean {
   const value = text.trim();
-  // Older Codex names the directory; newer Codex omits it.
-  return (/^# AGENTS\.md instructions(?: for |\s*\n)/.test(value) && value.includes("</INSTRUCTIONS>"))
+  return (/^# AGENTS\.md instructions(?: for [^\r\n]+)?\r?\n\s*<INSTRUCTIONS>[\s\S]*<\/INSTRUCTIONS>(?:\s*<environment_context>[\s\S]*<\/environment_context>)?$/.test(value))
     || /^<(environment_context|permissions instructions|turn_aborted|subagent_notification)>[\s\S]*<\/\1>$/.test(value);
 }
 
@@ -865,62 +864,105 @@ export function matchShortCodexAnswers(screen: string, candidates: { path: strin
   return candidates[only]!.path;
 }
 
-/** ps reports elapsed time in whole seconds. */
-const START_SLACK_MS = 1000;
-
-/**
- * A shared app-server TUI may have no open rollout and too few answers to match.
- * Only one interactive thread may have begun since its process started, and its
- * complete first prompt must be echoed here. Never choose the most recent thread.
- */
-export function threadStartedWithProcess(
-  rows: readonly { path: string; createdAtMs: number; firstUserMessage: string }[],
-  startedAtMs: number | null,
-  screen: string,
-): string | null {
-  if (startedAtMs === null || !Number.isFinite(startedAtMs)) return null;
-  const since = rows.filter((row) => row.createdAtMs >= startedAtMs - START_SLACK_MS);
-  if (since.length !== 1) return null;
-  const only = since[0];
-  if (only === undefined) return null;
-  const normalizePrompt = (text: string) => text.trim().replace(/\s+/g, " ");
-  const first = normalizePrompt(only.firstUserMessage);
-  if (first === "") return null;
-  const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
-  const lines = (lastHeader >= 0 ? screen.slice(lastHeader) : screen).split("\n");
-  for (let index = 0; index < lines.length; index++) {
-    const prompt = /^[ \t]*›[ \t]+(.*)$/.exec(lines[index] ?? "");
-    if (prompt === null) continue;
-    let echo = prompt[1] ?? "";
-    // Indented continuation lines are terminal wrapping, not assistant output.
-    while (/^[ \t]+\S/.test(lines[index + 1] ?? "") && !/^[ \t]*[›•]/.test(lines[index + 1] ?? "")) {
-      echo += ` ${lines[++index]?.trim()}`;
-    }
-    if (normalizePrompt(echo) === first) return only.path;
-  }
-  return null;
+interface CodexExchange { user: string; assistant: string }
+interface CodexFirstExchangeCandidate {
+  path: string;
+  text: string;
+  firstUserMessage?: string | null;
+  createdAtMs?: number;
 }
 
-/** Every interactive thread begun since the process: no LIMIT may hide ambiguity. */
-function threadsBegunSince(home: string, cwd: string, sinceMs: number): { path: string; createdAtMs: number; firstUserMessage: string }[] {
-  let db: Database | undefined;
-  try {
-    db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
-    const columns = new Set(db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('threads')").all().map((column) => column.name));
-    if (!columns.has("first_user_message")) return [];
-    const createdMs = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000)" : "created_at * 1000";
-    const rows = db.query<{ rollout_path: string; created_ms: number; first_user_message: string | null }, [string, string, number]>(
-      `SELECT rollout_path, ${createdMs} AS created_ms, first_user_message FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} AND ${createdMs} >= ?`,
-    ).all(...storedCwds(cwd), sinceMs);
-    // Missing or unsafe rollouts still count: dropping one could make a guess unique.
-    if (rows.length !== 1) return [];
-    return rows.flatMap((row) => {
-      const path = codexRolloutPath(row.rollout_path, home);
-      return path === null ? [] : [{ path, createdAtMs: row.created_ms, firstUserMessage: row.first_user_message ?? "" }];
-    });
-  } catch {
-    return [];
-  } finally { db?.close(); }
+const normalizePrompt = (text: string): string => text.trim().replace(/\s+/g, " ");
+
+/** User/assistant exchanges as recorded, retaining later prompts as competing evidence. */
+function codexExchanges(text: string): CodexExchange[] {
+  const turns = parseCodexTranscript(text, Infinity);
+  const exchanges: CodexExchange[] = [];
+  let user: string | null = null;
+  let assistant: string[] = [];
+  const finish = () => {
+    if (user !== null) exchanges.push({ user, assistant: assistant.join("\n") });
+  };
+  for (const turn of turns) {
+    const prose = turn.parts.flatMap((part) => part.kind === "text" ? [part.text] : []).join("\n");
+    if (turn.role === "user") {
+      finish();
+      user = prose;
+      assistant = [];
+    } else if (user !== null && prose !== "") assistant.push(prose);
+  }
+  finish();
+  return exchanges;
+}
+
+/** The first top-level prompt and its following assistant output, after this TUI's header. */
+function displayedFirstExchange(screen: string): CodexExchange | null {
+  const header = screen.lastIndexOf("OpenAI Codex (v");
+  if (header < 0) return null;
+  const lines = screen.slice(header).split(/\r?\n/);
+  let promptAt = -1;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (/^•(?:[ \t]|$)/.test(line)) return null;
+    if (/^›[ \t]+/.test(line)) { promptAt = index; break; }
+  }
+  if (promptAt < 0) return null;
+  let answerAt = -1;
+  for (let index = promptAt + 1; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (/^›[ \t]+/.test(line)) return null;
+    if (/^•(?:[ \t]|$)/.test(line)) { answerAt = index; break; }
+  }
+  if (answerAt < 0) return null;
+  const user = lines.slice(promptAt, answerAt).map((line, index) => index === 0 ? line.slice(1) : line).join("\n");
+  const nextPrompt = lines.findIndex((line, index) => index > answerAt && /^›(?:[ \t]|$)/.test(line));
+  const response = lines.slice(answerAt, nextPrompt < 0 ? undefined : nextPrompt)
+    .map((line) => /^•/.test(line) ? line.slice(1) : line).join("\n");
+  return { user, assistant: response };
+}
+
+function matchingCodexExchanges(screen: string, candidates: readonly CodexFirstExchangeCandidate[]): { candidate: CodexFirstExchangeCandidate; index: number }[] {
+  const shown = displayedFirstExchange(screen);
+  if (shown === null) return [];
+  const prompt = normalizePrompt(shown.user);
+  const answer = normalizePrompt(shown.assistant);
+  if (normalizeDisplay(prompt).length < 8 || normalizeDisplay(answer).length < 16) return [];
+  const matches: { candidate: CodexFirstExchangeCandidate; index: number }[] = [];
+  for (const candidate of candidates) {
+    for (const [index, exchange] of codexExchanges(candidate.text).entries()) {
+      const recordedPrompt = normalizePrompt(exchange.user);
+      const recordedAnswer = normalizePrompt(exchange.assistant);
+      if (recordedPrompt === prompt && recordedAnswer !== ""
+        && (answer.includes(recordedAnswer) || recordedAnswer.includes(answer))) {
+        matches.push({ candidate, index });
+      }
+    }
+  }
+  return matches;
+}
+
+/** Match a submitted first prompt and its answer only when no competing exchange explains it. */
+export function matchCodexFirstExchange(
+  screen: string,
+  candidates: readonly CodexFirstExchangeCandidate[],
+  startedAtMs: number,
+): string | null {
+  if (!Number.isFinite(startedAtMs)) return null;
+  if (candidates.filter((candidate) => typeof candidate.createdAtMs === "number"
+    && candidate.createdAtMs >= startedAtMs).length !== 1) return null;
+  const matches = matchingCodexExchanges(screen, candidates);
+  if (matches.length !== 1) return null;
+  const match = matches[0]!;
+  const first = codexExchanges(match.candidate.text)[0];
+  const storedPrompt = normalizePrompt(match.candidate.firstUserMessage ?? "");
+  const shown = displayedFirstExchange(screen);
+  if (match.index !== 0 || first === undefined || shown === null
+    || normalizeDisplay(storedPrompt).length < 8
+    || normalizePrompt(first.user) !== storedPrompt
+    || normalizePrompt(first.assistant) !== normalizePrompt(shown.assistant)
+    || typeof match.candidate.createdAtMs !== "number"
+    || !Number.isFinite(match.candidate.createdAtMs) || match.candidate.createdAtMs < startedAtMs) return null;
+  return match.candidate.path;
 }
 
 /** `codex resume <thread>`: the thread a TUI was started on, straight from its command line. */
@@ -1056,7 +1098,9 @@ async function claimedByOtherPanes(paneId: string, cwd: string, threads: string[
     try {
       const theirsNow = boundRollouts.get(pane.pane_id)?.path;
       const screen = await paneRead({ paneId: pane.pane_id, source: "recent", lines: 400, stripAnsi: true });
-      const shown = matchCodexTranscript(screen.text, [...candidates, ...known, ...(theirsNow && !threads.includes(theirsNow) && !own.includes(theirsNow) ? tail(theirsNow) : [])]);
+      const possible = [...new Map([...candidates, ...known, ...(theirsNow && !threads.includes(theirsNow) && !own.includes(theirsNow) ? tail(theirsNow) : [])]
+        .map((candidate) => [candidate.path, candidate])).values()];
+      const shown = matchCodexTranscript(screen.text, possible);
       if (shown === null || !threads.includes(shown)) continue;
       // and the thread's first message shows there too: typed in that pane, not only its answer
       // quoted or pasted there (a thread whose first message is gone from that screen stays unclaimed)
@@ -1084,6 +1128,90 @@ async function resumedElsewhere(paneId: string, cwd: string, thread: string, ses
     } catch { /* a pane closed meanwhile */ }
   }
   return false;
+}
+
+interface CodexThreadRow {
+  rolloutPath: string;
+  firstUserMessage: string | null;
+  createdAtMs: number;
+}
+
+const SHORT_THREAD_LIMIT = 32;
+const SHORT_ROLLOUT_LIMIT = 1024 * 1024;
+
+/** Short matching needs every competing exchange, so incomplete or unsafe rows disable it. */
+function safeShortThreads(rows: readonly CodexThreadRow[], home: string): CodexFirstExchangeCandidate[] | null {
+  if (rows.length === 0 || rows.length > SHORT_THREAD_LIMIT) return null;
+  const candidates: CodexFirstExchangeCandidate[] = [];
+  for (const row of rows) {
+    const path = codexRolloutPath(row.rolloutPath, home);
+    if (path === null) return null;
+    try {
+      const stat = statSync(path);
+      const header = rolloutHeader(path);
+      if (!stat.isFile() || stat.size <= 0 || stat.size > SHORT_ROLLOUT_LIMIT || header === null
+        || Object.keys(record(header.history_base)).length > 0) return null;
+      const text = readRange(path, 0, stat.size);
+      const after = statSync(path);
+      if (Buffer.byteLength(text, "utf8") !== stat.size
+        || after.size !== stat.size || after.ino !== stat.ino || after.mtimeMs !== stat.mtimeMs
+        || !text.endsWith("\n")) return null;
+      const lines = text.slice(0, -1).split(/\r?\n/);
+      if (lines.length === 0 || lines.some((line) => {
+        try { JSON.parse(line); return false; } catch { return true; }
+      })) return null;
+      const exchanges = codexExchanges(text);
+      const stored = normalizePrompt(row.firstUserMessage ?? "");
+      if (stored !== "" && (exchanges[0] === undefined || normalizePrompt(exchanges[0].user) !== stored)) return null;
+      candidates.push({
+        path,
+        text,
+        firstUserMessage: row.firstUserMessage,
+        createdAtMs: row.createdAtMs,
+      });
+    } catch { return null; }
+  }
+  return candidates;
+}
+
+/**
+ * The prompt is not ownership evidence on its own. Require its submitted answer,
+ * compare older conversations too, and decline while another same-directory Codex
+ * pane could own the thread. No weak binding or cached peer claim survives a poll.
+ */
+async function shortThreadFromProcess(
+  paneId: string, cwd: string, home: string, screen: string,
+  processes: readonly { pid: number }[], panes?: HerdrPane[],
+): Promise<string | null> {
+  const starts = processes.map(({ pid }) => processStartedAt(pid));
+  if (starts.length === 0 || starts.some((start) => start === null || !Number.isFinite(start))) return null;
+  const startedAt = Math.min(...starts as number[]);
+  let db: Database | undefined;
+  try {
+    const peers = panes ?? (await sessionSnapshot()).panes;
+    const cwds = storedCwds(cwd);
+    if (peers.some((pane) => pane.pane_id !== paneId
+      && (pane.agent ?? pane.agent_session?.agent) === "codex"
+      && (pane.cwd == null || storedCwds(pane.cwd).some((path) => cwds.includes(path))))) return null;
+    db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
+    const columns = new Set(db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('threads')").all().map((column) => column.name));
+    if (!columns.has("first_user_message") || !columns.has("source")) return null;
+    const created = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000)" : "created_at * 1000";
+    // The 33rd row disables this bounded lookup, never establishes uniqueness.
+    const rows = db.query<CodexThreadRow, [string, string]>(
+      `SELECT rollout_path AS rolloutPath, first_user_message AS firstUserMessage, ${created} AS createdAtMs
+       FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} LIMIT 33`,
+    ).all(...cwds);
+    if (rows.length > SHORT_THREAD_LIMIT || rows.some((row) => !Number.isFinite(row.createdAtMs))) return null;
+    // No one-second slack: uncertain same-second starts stay on the terminal.
+    const begun = rows.filter((row) => row.createdAtMs >= startedAt);
+    if (begun.length !== 1) return null;
+    const candidates = safeShortThreads(rows, home);
+    if (candidates === null) return null;
+    const path = matchCodexFirstExchange(screen, candidates, startedAt);
+    return path !== null && theirs([path], paneId).length === 1 ? path : null;
+  } catch { return null; }
+  finally { db?.close(); }
 }
 
 /**
@@ -1231,21 +1359,16 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   // tell (#283). Never remembered as a binding: what it shows is read again each time, and only a
   // long answer binds the pane for when its screen no longer tells.
   if (screen === null || session?.value || boundHere !== undefined) return null;
-  const short = ((): string | null => {
-    // Only against every conversation read whole: omitted or unreadable rollouts
-    // may have said the same short lines.
-    if (!listed || candidates.length !== paths.length) return null;
-    let cut: boolean[];
-    try {
-      cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
-    } catch { return null; }
-    return matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
-  })();
+  // and only against every conversation this pane may be running, read whole: one left out of
+  // the 32 or one whose rollout is gone may be what said the same short lines
+  if (!listed || candidates.length !== paths.length) return null;
+  // read from each rollout itself, nothing remembered: one that continues another (a fork, a
+  // backtrack) shares that one's answers, and one past the budget was not read whole
+  let cut: boolean[];
+  try {
+    cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
+  } catch { return null; }
+  const short = matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
   if (short !== null) return short;
-  const startedAt = Math.min(...codexProcesses.map((process) => processStartedAt(process.pid) ?? Infinity));
-  if (!Number.isFinite(startedAt)) return null;
-  const begun = threadsBegunSince(home, cwd, startedAt - START_SLACK_MS);
-  const path = threadStartedWithProcess(begun, startedAt, screen.text);
-  // Check ownership after uniqueness, never erase a second thread to make one unique.
-  return path !== null && theirs([path], paneId).length === 1 ? path : null;
+  return shortThreadFromProcess(paneId, cwd, home, screen.text, codexProcesses, panes);
 }
