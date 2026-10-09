@@ -50,6 +50,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Immediate chat sends to Claude Code are refused when its input box contains a draft or is in
   bash mode, preserving the existing terminal input.
   ([#677](https://github.com/devswha/herdr-web-ui/pull/677))
+- **New worktree** and **Open worktree…** work from a workspace that sits on a git worktree herdr
+  did not open itself: the request goes to the repository's own workspace when it is open, instead
+  of failing with "New and open worktree actions start from the repo parent workspace".
 
 ## [0.4.3] - 2026-10-09
 
