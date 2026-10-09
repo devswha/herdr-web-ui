@@ -112,6 +112,22 @@ export class AgentNews {
   }
 }
 
+/**
+ * A bridge's part (createServer without `machines`): its connection server reads this PC's roster
+ * again on every pane-status, pane-exited and session-changed frame (MachineManager.observe), so an
+ * agent named in a status event reaches it with that event's frame. An agent first seen in a
+ * snapshot the status collector reconciles from has no frame behind it: `tell` sends one (#555).
+ * A reconcile leaves out panes heard of since its snapshot was asked for, so it never prunes.
+ */
+export function bridgeAgentNews(tell: () => void) {
+  const news = new AgentNews();
+  return {
+    status(panes: readonly Pick<HerdrPane, "pane_id" | "agent">[]): void { news.hear(panes); },
+    reconciled(panes: readonly Pick<HerdrPane, "pane_id" | "agent">[]): void { if (news.hear(panes)) tell(); },
+    ended(paneId: string): void { news.forget(paneId); },
+  };
+}
+
 export class MachineManager {
   private machines = new Map<string, Runtime>();
   private jobs = new Map<string, JobState>();

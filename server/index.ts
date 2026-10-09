@@ -76,7 +76,7 @@ import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
-import { AgentNews, MachineManager } from "./machines.ts";
+import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
@@ -1144,13 +1144,8 @@ export function createServer(
     if (turn) push.onStatus(paneId, status).catch(logPushError);
   }
 
-  // A bridge (no roster of its own) tells its connection server instead: that server reads this
-  // PC's roster again on a session-changed frame, and a pane-status frame names no agent (#555)
-  const bridgeAgents = machines ? null : new AgentNews();
-  const heardAgents = (panes: readonly Pick<HerdrPane, "pane_id" | "agent">[]): void => {
-    if (machines) machines.localAgents(panes);
-    else if (bridgeAgents!.hear(panes)) broadcastAll({ type: "session-changed" });
-  };
+  // a bridge (no roster of its own) tells its connection server instead (#555)
+  const bridgeAgents = machines ? null : bridgeAgentNews(() => broadcastAll({ type: "session-changed" }));
 
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
@@ -1161,7 +1156,8 @@ export function createServer(
       if (omo.named(paneId, agent)) completions.forget(paneId);
       // the frame below names no agent: one herdr names anew is read into the roster now. An OmO
       // pane is `omo` in every snapshot, whatever herdr calls it in an event
-      heardAgents([{ pane_id: paneId, agent: omo.runs(paneId) ? "omo" : agent }]);
+      const named = [{ pane_id: paneId, agent: omo.runs(paneId) ? "omo" : agent }];
+      if (machines) machines.localAgents(named); else bridgeAgents!.status(named);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
       // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
@@ -1195,7 +1191,7 @@ export function createServer(
     },
     // a pane created a moment ago got its agent after the roster's own read of it. After the
     // snapshot's replays: a roster read before them could show a finish ahead of its status frame
-    onReconciled: (panes) => { bridgeAgents?.keepOnly(panes); heardAgents(panes); },
+    onReconciled: (panes) => { if (machines) machines.localAgents(panes); else bridgeAgents!.reconciled(panes); },
     // the tracker first: what it makes of each pane (a finish after work is done, not idle) is
     // what the alerts are measured against from here, or the next event would alert of it
     onResync: (panes, newer) => {
@@ -1209,7 +1205,7 @@ export function createServer(
       completions.forget(paneId);
       // the terminal is gone, so is whatever its chat parsed (server/conversation.ts)
       forgetPaneTranscriptState(paneId);
-      bridgeAgents?.forget(paneId);
+      bridgeAgents?.ended(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);
     },

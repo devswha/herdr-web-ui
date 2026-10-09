@@ -1,4 +1,8 @@
-# Changelog
+- A remote PC lists a pane's new agent at once when herdr names it without a status change (a
+  pane created a moment ago, an agent started in an idle shell), instead of up to 5 seconds late.
+  A page that opened the pane meanwhile took it for a shell: it opened the terminal and fitted the
+  shared terminal to itself. Needs the remote PC's runtime from the next release.
+  ([#625](https://github.com/devswha/herdr-web-ui/pull/625))# Changelog
 
 herdr web ui is versioned with [semantic versioning](https://semver.org/). Each release is a
 `vX.Y.Z` Git tag with a GitHub release. Installs update only to releases; commits on `main`
