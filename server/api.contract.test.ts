@@ -1800,6 +1800,50 @@ describe("web push", () => {
     }
   }, 40_000);
 
+  it("tells its connection server at once when herdr names an agent on a pane it knew as a shell (#555)", async () => {
+    let target: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
+    let probe: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
+    let dir: string | undefined;
+    let bridge: ReturnType<typeof createServer> | undefined;
+    let watcher: RecordingSocket | undefined;
+    try {
+      // both made before the bridge starts, so their creation is no frame of its own
+      target = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-bridge-agent" });
+      probe = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-bridge-agent-probe" });
+      const paneId = target.root_pane.pane_id;
+      const probeId = probe.root_pane.pane_id;
+      await herdrRpc("pane.report_agent", { pane_id: probeId, source: "manual", agent: "claude", state: "idle" });
+      dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-bridge-agent-"));
+      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false, tailscaleOwner: null });
+      watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
+      // the collector is live once a status change of the probe (whose agent stays claude) comes through
+      let live = false;
+      for (let attempt = 0; attempt < 8 && !live; attempt++) {
+        const state = attempt % 2 === 0 ? "working" : "blocked";
+        await herdrRpc("pane.report_agent", { pane_id: probeId, source: "manual", agent: "claude", state });
+        live = await watcher.waitFor((message) => message.type === "pane-status" && message.pane_id === probeId && message.agent_status === state,
+          "bridge agent probe", 2_500).then(() => true).catch(() => false);
+      }
+      expect(live).toBe(true);
+      watcher.seen.length = 0;
+      // an agent starts in the shell: the pane-status frame names none, so the bridge says the session changed
+      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state: "working" });
+      await watcher.waitFor((message) => message.type === "pane-status" && message.pane_id === paneId, "the new agent's status", 5_000);
+      await watcher.waitFor((message) => message.type === "session-changed", "session-changed for the new agent", 2_500);
+      // said again, it is no news
+      watcher.seen.length = 0;
+      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state: "idle" });
+      await watcher.waitFor((message) => message.type === "pane-status" && message.pane_id === paneId, "the same agent's next status", 5_000);
+      expect(watcher.seen.some((message) => message.type === "session-changed")).toBe(false);
+    } finally {
+      watcher?.close();
+      bridge?.stop();
+      if (dir) rmSync(dir, { recursive: true, force: true });
+      if (target) await workspaceClose(target.workspace.workspace_id).catch(() => undefined);
+      if (probe) await workspaceClose(probe.workspace.workspace_id).catch(() => undefined);
+    }
+  }, 40_000);
+
   it("alerts on the very first change after a restart, measured against herdr's snapshot", async () => {
     // A server restart must not cost the first alert: the collector seeds each pane's
     // status from its startup snapshot. Pane `watched` is already working when the new
