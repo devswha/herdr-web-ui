@@ -46,6 +46,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   of a selection and never sent. A drag still selects and copies, and so does a click with Shift
   (Option on macOS) held; a click on a link only opens it, a click on selected text works on the
   selection, and a mirrored pane still sends no clicks. ([#634](https://github.com/devswha/herdr-web-ui/pull/634))
+- Chat reads a Claude pane's conversation on a Mac whose language puts the day before the month
+  (English (UK), for one) when herdr's Claude integration is not installed. Every Claude pane
+  there showed "Conversation unavailable" and only the terminal text.
 
 ## [0.4.2] - 2026-10-09
 
