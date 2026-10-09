@@ -15,6 +15,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - `HERDR_WEB_APP_NAME` names the installed app, so the apps of two PCs on one phone no longer
   both read `herdr`. Unset, nothing changes.
   ([#684](https://github.com/devswha/herdr-web-ui/pull/684) by @sma505)
+- Workspaces can be reordered on a phone or tablet: hold a row until it lifts, drag it, and let
+  go where the line shows. Before, a long press on iOS showed the system's drag preview but
+  dropped nothing. The row's ⋯ menu also has Move up and Move down.
+  ([#679](https://github.com/devswha/herdr-web-ui/pull/679) by @jiunshinn)
 
 ### Changed
 - The chat's `/` command list also matches a word of a command's name, any part of it, its letters

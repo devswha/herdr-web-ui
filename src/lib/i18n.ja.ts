@@ -181,6 +181,8 @@ export const JA: Record<string, string> = {
   "Pane name": "ペイン名",
   "Rename pane": "ペインの名前を変更",
   "More for {title}": "{title} のその他",
+  "Move up": "上へ移動",
+  "Move down": "下へ移動",
   "Rename workspace": "ワークスペース名を変更",
   "Close workspace": "ワークスペースを閉じる",
   "New worktree": "新しいワークツリー",

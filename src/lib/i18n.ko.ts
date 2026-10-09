@@ -179,6 +179,8 @@ export const KO: Record<string, string> = {
   "Pane name": "패널 이름",
   "Rename pane": "패널 이름 바꾸기",
   "More for {title}": "{title} 더보기",
+  "Move up": "위로 이동",
+  "Move down": "아래로 이동",
   "Rename workspace": "워크스페이스 이름 바꾸기",
   "Close workspace": "워크스페이스 닫기",
   "New worktree": "새 워크트리",

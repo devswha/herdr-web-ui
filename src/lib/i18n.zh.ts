@@ -183,6 +183,8 @@ export const ZH: Record<string, string> = {
   "Pane name": "窗格名称",
   "Rename pane": "重命名窗格",
   "More for {title}": "{title} 的更多操作",
+  "Move up": "上移",
+  "Move down": "下移",
   "Rename workspace": "重命名工作区",
   "Close workspace": "关闭工作区",
   "New worktree": "新建工作树",
