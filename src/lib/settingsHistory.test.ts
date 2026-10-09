@@ -201,6 +201,67 @@ describe("history traversal races", () => {
     expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "terminal", keyBar: true, depth: 3 });
   });
 
+  it("reconciles the latest levels after a delayed traversal lands", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, "terminal", true));
+    browser.recordSettings(browser.settingsLevels(false, "terminal", true));
+    browser.advance(1001);
+    browser.recordSettings(browser.settingsLevels(false, "appearance", false));
+    expect(browser.requests).toHaveLength(1);
+    await browser.land();
+    expect(browser.requests).toHaveLength(1);
+    await browser.land();
+    expect(browser.settingsEntry(browser.history.state)).toEqual({ page: "appearance", keyBar: false, depth: 1 });
+    expect(browser.requests).toEqual([]);
+  });
+
+  it("completes an unmount reset after a pending width traversal lands late", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, "terminal", true));
+    const moves: boolean[] = [];
+    browser.onSettingsHistory((_entry, own) => moves.push(own));
+    browser.recordSettings(browser.settingsLevels(false, "terminal", true));
+    browser.advance(1001);
+    // SettingsDialog unmounts before its width-change traversal has landed.
+    browser.recordSettings([]);
+    expect(browser.requests).toHaveLength(1);
+    await browser.land();
+    expect(moves).toEqual([true]);
+    expect(browser.requests).toHaveLength(1);
+    await browser.land();
+    expect(browser.settingsEntry(browser.history.state)).toBeNull();
+    expect(browser.requests).toEqual([]);
+  });
+
+  it("does not notify an unsubscribed listener when a traversal lands", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, "terminal", true));
+    const moves: boolean[] = [];
+    const unsubscribe = browser.onSettingsHistory((_entry, own) => moves.push(own));
+    browser.recordSettings(browser.settingsLevels(false, "terminal", true));
+    unsubscribe();
+    await browser.land();
+    expect(moves).toEqual([]);
+  });
+
+  it("characterizes markerless landing leaving the old Settings depth reachable by Back", async () => {
+    const browser = await delayedHistory();
+    browser.recordSettings(browser.settingsLevels(true, "terminal", true));
+    const moves: Array<[ReturnType<typeof browser.settingsEntry>, boolean]> = [];
+    browser.onSettingsHistory((entry, own) => moves.push([entry, own]));
+    browser.history.pushState({ route: "markerless" });
+    browser.history.pushState({ route: "after-markerless" });
+
+    // Back lands on a state without our marker. Closing cannot tell that older Settings entries
+    // are still in history, so it does not rewind them; another Back restores their old depth.
+    await browser.move(-1);
+    expect(moves).toEqual([[null, false]]);
+    browser.recordSettings([]);
+    expect(browser.requests).toEqual([]);
+    await browser.move(-1);
+    expect(moves[1]).toEqual([{ page: "terminal", keyBar: true, depth: 3 }, false]);
+  });
+
   it("records a deeper reopening after an unanswered close traversal", async () => {
     const browser = await delayedHistory();
     browser.recordSettings(browser.settingsLevels(true, null, false));

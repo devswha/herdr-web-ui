@@ -2723,6 +2723,83 @@ function claudeGreyInput(ansi: string): string | null {
   return suggestion === "" ? null : suggestion;
 }
 
+/**
+ * Claude Code's input box: the rows between the screen's last two rules (a named session labels
+ * its rule). "clipped" when only the bottom rule is on screen, as under a draft taller than the
+ * pane; null when the screen has no rule at all.
+ */
+function claudeInputBox(screen: string): { plain: string[]; raw: string[] } | "clipped" | null {
+  const raw = screen.split("\n").map((line) => line.replace(/\r$/, ""));
+  const plain = raw.map((line) => line.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "").trimEnd());
+  const rule = (line: string): boolean => SOLID_RULE_RE.test(line.trim()) || LABELED_RULE_RE.test(line.trim());
+  let end = plain.length - 1;
+  while (end >= 0 && !rule(plain[end]!)) end--;
+  if (end < 0) return null;
+  let start = end - 1;
+  while (start >= 0 && !rule(plain[start]!)) start--;
+  if (start < 0) return "clipped";
+  return { plain: plain.slice(start + 1, end), raw: raw.slice(start + 1, end) };
+}
+
+/**
+ * Whether Claude Code's input box is not known to be empty, so that a paste would land in what is
+ * there and the Enter after it send both, or run it as a command: typed text, bash mode (`!`), a
+ * box clipped by the pane, or a box that is not a `❯` input. Claude's own grey text (a suggested
+ * prompt, its tip, on any number of rows) and its drawn cursor are not a draft. The box is read
+ * from the live screen (`live`, a detection read, as the other pending checks); only the viewport
+ * read carries colors (`colors`), and the caller passes it only once it is verified to show that
+ * live screen (null otherwise): equal words do not prove it, since an older box in a scrolled
+ * viewport, or a grey suggestion the user then typed out, reads the same. Without verified colors a
+ * box that is not empty is a draft. False when the screen shows no rule at all.
+ */
+export function claudeInputDraft(live: string, colors: string | null): boolean {
+  const box = claudeInputBox(live);
+  if (box === null) return false;
+  if (box === "clipped" || !box.plain[0]?.startsWith("❯")) return true;
+  if (box.plain.join("\n").slice(1).replace(/\u00a0/g, " ").trim() === "") return false;
+  // a paste or an image Claude folded into a placeholder is content, however it is colored
+  if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain.join(" "))) return true;
+  if (colors === null) return true;
+  const shown = claudeInputBox(colors);
+  if (shown === null || shown === "clipped" || shown.plain.join("\n") !== box.plain.join("\n")) return true;
+  let prompt = false;
+  let first = true;
+  let cursor = false;
+  let grey = false;
+  for (const row of shown.raw) {
+    for (const [run, dim, inverse] of sgrRuns(row)) {
+      for (const character of run) {
+        if (!prompt) { prompt = character === "❯"; continue; }
+        if (character.trim() === "" || character === "\u00a0") continue;
+        if (dim) grey = true;
+        // the cursor Claude draws itself sits inverse on the first grey character
+        else if (first && inverse) cursor = true;
+        else return true;
+        first = false;
+      }
+    }
+  }
+  // a cursor over a typed character has nothing grey after it
+  return cursor && !grey;
+}
+
+/**
+ * Whether a colored viewport read shows the live screen, so claudeInputDraft may take its colors:
+ * the viewport at the bottom of the pane's history before and after the colored read, or, only when
+ * herdr reports no scroll for either read, the viewport's whole text equal to the live screen; and
+ * the live screen the same before and after it. A scroll known for one read and not the other is
+ * no proof.
+ */
+export function viewportShowsLive(scrollBefore: { offset_from_bottom: number } | null, scrollAfter: { offset_from_bottom: number } | null,
+  colors: string, before: string, live: string): boolean {
+  const lines = (text: string): string => text.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
+    .split(/\r?\n/).map((line) => line.trimEnd()).join("\n").trimEnd();
+  const atBottom = scrollBefore !== null && scrollAfter !== null
+    ? scrollBefore.offset_from_bottom === 0 && scrollAfter.offset_from_bottom === 0
+    : scrollBefore === null && scrollAfter === null && lines(colors) === lines(live);
+  return atBottom && live === before;
+}
+
 /** Whether a card is the one for a message Claude Code holds back (parseClaudeHeld). */
 export function isClaudeHeld(prompt: InteractivePrompt): boolean {
   return parsedByPublicPrompt.get(prompt)?.responder === "claude-held";

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, claudeInputDraft, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -1587,6 +1587,71 @@ describe("Claude's suggested next prompt", () => {
     // a typed character under that cursor, with nothing grey after it, is typed
     expect(parseClaudeSuggestion(screen("❯ \u001b[7mr\u001b[27m"))).toBeNull();
     expect(parseClaudeSuggestion(screen("❯ \u001b[7mr\u001b[27mun"))).toBeNull();
+  });
+
+  test("a draft typed in the input box is the user's: Claude's grey text, its tip, its cursor and an empty box are not", () => {
+    // the live screen as a detection read gives it, without colors, and the viewport's ANSI read of the same screen
+    const draft = (ansi: string, live = ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")) => claudeInputDraft(live, ansi);
+    expect(draft(screen("❯\u00a0아직 진행중이야?"))).toBe(true);
+    expect(draft(screen("❯ \u001b[2m아직\u001b[0m 진행중"))).toBe(true);
+    expect(draft(screen("❯ \u001b[7mr\u001b[27mun"))).toBe(true);
+    expect(draft(screen("❯ \u001b[7mr\u001b[27m"))).toBe(true);
+    // a draft of several lines fills the box down to its rule
+    expect(draft(screen("❯ first line", "  second line\r\n" + RULE))).toBe(true);
+    expect(draft(screen("❯\u00a0\u001b[0m\u001b[2m아직 진행중이야?\u001b[0m"))).toBe(false);
+    expect(draft(screen("❯ \u001b[7mr\u001b[27m\u001b[2mun the tests\u001b[22m"))).toBe(false);
+    expect(draft(screen('❯ \u001b[2mTry "how does <filepath> work?"\u001b[0m'))).toBe(false);
+    // grey text wrapped over two rows is still Claude's own
+    expect(draft(screen("❯ \u001b[2mfirst grey row\u001b[0m", "  \u001b[2msecond grey row\u001b[0m\r\n" + RULE))).toBe(false);
+    expect(draft(screen("❯\u00a0"))).toBe(false);
+    expect(draft(screen("❯ \u001b[7m \u001b[27m"))).toBe(false);
+    // a paste or an image Claude folded into a placeholder is content, dim or not
+    expect(draft(screen("❯ \u001b[2m[Pasted text #1 +12 lines]\u001b[0m"))).toBe(true);
+    expect(draft(screen("❯ \u001b[2m[Image #1]\u001b[0m"))).toBe(true);
+    // a named session labels its rule
+    expect(draft(screen("❯ typed", "──── my-session ─"))).toBe(true);
+    // no rule on screen says nothing
+    expect(draft("❯ loose text\nmore")).toBe(false);
+  });
+
+  test("a viewport's colors count only when it is verified to show the live screen", () => {
+    const live = screen("❯ \u001b[2mrun the tests\u001b[0m").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    const colors = screen("❯ \u001b[2mrun the tests\u001b[0m");
+    const bottom = { offset_from_bottom: 0 };
+    expect(viewportShowsLive(bottom, bottom, colors, live, live)).toBe(true);
+    // scrolled before or after the colored read
+    expect(viewportShowsLive({ offset_from_bottom: 12 }, bottom, colors, live, live)).toBe(false);
+    expect(viewportShowsLive(bottom, { offset_from_bottom: 3 }, colors, live, live)).toBe(false);
+    // a scroll known for one read only is no proof, whatever the text says
+    expect(viewportShowsLive({ offset_from_bottom: 12 }, null, colors, live, live)).toBe(false);
+    expect(viewportShowsLive(null, { offset_from_bottom: 12 }, colors, live, live)).toBe(false);
+    expect(viewportShowsLive(bottom, null, colors, live, live)).toBe(false);
+    // no scroll from herdr at all: the viewport's whole text must be the live screen's
+    expect(viewportShowsLive(null, null, colors, live, live)).toBe(true);
+    expect(viewportShowsLive(null, null, "● older output\r\n" + colors, live, live)).toBe(false);
+    // the live screen changed across the colored read
+    expect(viewportShowsLive(bottom, bottom, colors, live.replace("run the tests", "run the test"), live)).toBe(false);
+  });
+
+  test("bash mode, a box clipped by the pane, or a viewport that is not the live box hold a pending message", () => {
+    const draft = (ansi: string, live = ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")) => claudeInputDraft(live, ansi);
+    // the Enter after a paste would run it as a command
+    expect(draft(screen("! "))).toBe(true);
+    expect(draft(screen("! echo unfinished"))).toBe(true);
+    // a draft taller than the pane: its top rule and `❯` row are above the screen
+    expect(draft(["  more of the draft", "  its last line", RULE, "  footer"].join("\r\n"))).toBe(true);
+    // the viewport scrolled into the history shows no box, or another one: only the live box counts
+    const live = screen("❯\u00a0half typed").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    expect(claudeInputDraft(live, "\u001b[0m● earlier output\r\n" + "more of it")).toBe(true);
+    expect(claudeInputDraft(live, screen("❯ \u001b[2mhalf typed\u001b[0m".replace("half typed", "an old suggestion")))).toBe(true);
+    // colors not verified to show the live screen (null) say nothing: a box that is not empty holds,
+    // also one whose words are Claude's grey suggestion; an empty one does not
+    const grey = screen("❯ \u001b[2mrun the tests\u001b[0m");
+    expect(claudeInputDraft(grey.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, ""), null)).toBe(true);
+    expect(claudeInputDraft(screen("❯\u00a0").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, ""), null)).toBe(false);
+    // an empty live box sends, whatever an older box in the scrolled viewport held
+    const empty = screen("❯\u00a0").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    expect(claudeInputDraft(empty, screen("❯ an old draft"))).toBe(false);
   });
 });
 
