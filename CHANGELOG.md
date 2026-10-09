@@ -27,6 +27,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#663](https://github.com/devswha/herdr-web-ui/pull/663))
 
 ### Fixed
+- The working arc in the sidebar is drawn thirty times a second instead of five, so a working
+  agent reads as work in progress and not as a stutter. The arc is the same size and the turn
+  still takes 1.6 s; only its eight 45° steps became forty-eight 7.5° ones.
+  ([#622](https://github.com/devswha/herdr-web-ui/pull/622) by @iwangjie)
 - The terminal announces itself: it is a labelled region named after the pane — "Terminal for
   Idempotent payments" — so a screen reader names the pane before its content. The label is
   translated and appears only in the terminal view, not over the chat.
