@@ -317,7 +317,7 @@ const metas = new Map<string, { key: string; meta: Meta | null }>();
 function readMeta(path: string): Meta | null {
   const stat = plain(path, MAX_META_BYTES);
   if (stat === null) return null;
-  const key = `${stat.mtimeMs}:${stat.size}`;
+  const key = `${stat.id}:${stat.mtimeMs}:${stat.size}`;
   const known = metas.get(path);
   if (known?.key === key) return known.meta;
   let meta: Meta | null = null;

@@ -258,6 +258,20 @@ describe("ClaudeSubagentStatus", () => {
     mkdirSync(dir);
     s.agent("a2");
     s.agent("a3");
+    utimesSync(join(dir, "agent-a2.meta.json"), old, old);
+    utimesSync(dir, old, old);
+    status.poll();
+    expect(status.countOf("p1")).toBe(2);
+    s.parent({ type: "assistant", timestamp: at(1), message: { content: [{ type: "tool_use", id: "toolu_a2", name: "Agent", input: {} }] } });
+    s.parent({ type: "user", timestamp: at(4), message: { content: [{ type: "tool_result", tool_use_id: "toolu_a2", content: "done" }] } });
+    status.poll();
+    expect(status.countOf("p1")).toBe(1);
+    // Reuse the agent ID and metadata size/mtime, but not the completed call's identity.
+    renameSync(dir, `${dir}.second`);
+    mkdirSync(dir);
+    s.agent("a2", { toolUseId: "toolu_b2" });
+    s.agent("a3");
+    utimesSync(join(dir, "agent-a2.meta.json"), old, old);
     utimesSync(dir, old, old);
     status.poll();
     expect(status.countOf("p1")).toBe(2);
