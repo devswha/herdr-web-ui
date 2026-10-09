@@ -285,5 +285,18 @@ describe("history traversal races", () => {
       browser.recordSettings([]);
       expect(browser.requests).toHaveLength(beforeClose + 1);
     });
+
+    it(`does not claim Back after silent foreign ${method}`, async () => {
+      const browser = await delayedHistory();
+      browser.recordSettings(browser.settingsLevels(true, "terminal", true));
+      const moves: boolean[] = [];
+      browser.onSettingsHistory((_entry, own) => moves.push(own));
+      browser.recordSettings(browser.settingsLevels(false, "terminal", true));
+      browser.recordSettings(browser.settingsLevels(true, "terminal", true));
+      browser.advance(1001);
+      browser.history[method]({ route: "other" });
+      await browser.move(method === "pushState" ? -2 : -1);
+      expect(moves).toEqual([false]);
+    });
   }
 });
