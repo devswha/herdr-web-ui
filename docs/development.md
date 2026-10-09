@@ -70,6 +70,8 @@ Browser checks look for Chrome at `/opt/google/chrome/chrome`; set `CHROME_PATH`
 For isolated phone viewer and keyboard layout regressions (no herdr session; the demo runner builds the real client locally):
 
 ```bash
+bun scripts/markdown-preview-regression.ts # rendered/source documents, properties and relative links
+bun scripts/markdown-toc-regression.ts     # outline navigation and centered reading position
 bun scripts/file-viewer-mobile-regression.ts  # 8 viewport cases × tall/wide images
 bun scripts/keyboard-viewport-regression.ts   # keyboard, rotation and measured standalone status inset
 bun scripts/keyboard-viewport-demo-regression.ts # original real-app viewport suite on disposable demo fixtures

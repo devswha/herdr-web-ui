@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Markdown file previews render headings, lists, tables, code and formulas with a source switch,
+  document-relative links, collapsible properties and the selected app theme and Chat font size.
+  A responsive table of contents follows the current section near its center without moving
+  the document or stealing focus.
+
 ### Fixed
 - Chat reads the transcript of an omp started with `--profile <name>`, whose sessions live
   under `~/.omp/profiles/<name>/agent/sessions`; such panes showed only the terminal text.
