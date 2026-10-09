@@ -13,6 +13,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   which the chat shows as a card to pick from, so the list is always the one the agent offers.
   A conversation that names no model yet (a new one, or one just cleared) shows Model there.
 
+### Changed
+- The anonymous install and update counts now keep the country a message came from: two
+  letters such as `KR`, worked out by the receiver's host, and nothing finer. No IP address is
+  stored and the message itself is unchanged. The notice, Settings → About and the guide say so.
+  ([#663](https://github.com/devswha/herdr-web-ui/pull/663))
+
 ### Fixed
 - Claude Code's effort slider (`/effort`) shows as a card in a pane under about 70 columns wide,
   such as a split in herdr or a pane the phone's terminal view has sized, and when the slider is
