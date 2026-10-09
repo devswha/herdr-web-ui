@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { Machine } from "../../shared/machines.ts";
 import type { AgentStatus, PaneInfo } from "../../shared/protocol.ts";
 import { useSettings } from "./settings.ts";
-import { anySeen, carrySeen, forgetSeen, liveSeqs, loadSeen, markSeen, newSeqMemory, persistableSeen, pruneSeen, saveSeen, seedSeen, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
+import { anySeen, carrySeen, forgetSeen, liveSeqs, loadSeen, markSeen, newSeqMemory, persistableSeen, pruneSeen, saveSeen, seedSeen, seenAfterRestart, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
 
 export interface SidebarActivity {
   /** herdr's state_change_seq per pane on a PC, a pushed status change dated at once */
@@ -36,6 +36,8 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   // time the setting is on in this browser, everything open counts as looked at, so the lists
   // start quiet; a PC first seen after that starts with nothing looked at.
   const [seen, setSeen] = useState<ReadonlyMap<string, SeenRecord>>(() => new Map());
+  // per PC, the herdr restarts (SeqMemory.restarts) its record was last kept through
+  const restartsHandled = useRef(new Map<string, number>());
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === "visible");
   useEffect(() => {
     const onVisibility = () => setPageVisible(document.visibilityState === "visible");
@@ -45,6 +47,10 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   useEffect(() => {
     if (!settings.quietOpenedDone) return;
     const firstUse = !anySeen();
+    // read here, not in the updater: an updater can run twice, and after a newer roster read
+    const handled = new Map(restartsHandled.current);
+    const restarts = new Map(machines.map((machine) => [machine.id, memories.current.get(machine.id)?.restarts ?? 0]));
+    for (const machine of machines) if (machine.snapshot && machine.state === "connected") restartsHandled.current.set(machine.id, restarts.get(machine.id)!);
     setSeen((current) => {
       let next: Map<string, SeenRecord> | null = null;
       for (const machine of machines) {
@@ -52,7 +58,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
         if (!machine.snapshot || machine.state !== "connected") continue;
         const seqs = seqsByMachine.get(machine.id) ?? NO_SEQS;
         const before = current.get(machine.id);
-        let record = before ?? loadSeen(machine.id) ?? (firstUse ? seedSeen(machine.snapshot.panes, seqs) : {});
+        // after a herdr restart the whole record is from the earlier session, in storage too (#591)
+        const kept = before ?? loadSeen(machine.id);
+        let record = kept ? seenAfterRestart(kept, restarts.get(machine.id)!, handled.get(machine.id) ?? 0) : firstUse ? seedSeen(machine.snapshot.panes, seqs) : {};
         // a look recorded at a stand-in counter follows it to herdr's own (lib/sidebarOrder.ts carrySeen)
         record = carrySeen(record, memories.current.get(machine.id)?.promoted ?? new Map());
         const seq = machine.id === selectedMachineId && selectedPaneId && pageVisible ? seqs.get(selectedPaneId) : undefined;
