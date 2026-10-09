@@ -1,8 +1,11 @@
-import { expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 
+import { forgetTranscriptState, paneConversation } from "./conversation.ts";
+import * as herdr from "./herdr/client.ts";
 import { terminalBreadcrumb } from "./gjc-runtime.ts";
 import { isOmpProcess, ompAgentDir } from "./omp.ts";
 
@@ -55,4 +58,86 @@ it("reads omp's breadcrumb, whose transcript starts with a title record before t
     writeFileSync(join(markers, "pts-7"), `${home}\n${session}\n`);
     expect(terminalBreadcrumb(agent, home, "pts-7", 0)).toBeNull();
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+describe("an omp pane's chat", () => {
+  let home = "";
+  let savedHome: string | undefined;
+  let agentSession: unknown;
+  let processes: { pid: number; argv: string[] }[] = [];
+  let pane: HerdrPane;
+  const restores: Array<() => void> = [];
+  const transcript = (cwd: string) => [
+    JSON.stringify({ type: "title", v: 1, title: "t" }),
+    JSON.stringify({ type: "session", version: 3, id: "s1", cwd }),
+    JSON.stringify({ type: "message", timestamp: "2026-10-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "synthetic question" }] } }),
+    JSON.stringify({ type: "message", timestamp: "2026-10-01T00:00:01.000Z", message: { role: "assistant", content: [{ type: "text", text: "synthetic answer" }] } }),
+  ].join("\n") + "\n";
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-omp-pane-")));
+    savedHome = process.env["HOME"];
+    process.env["HOME"] = home;
+    const cwd = join(home, "project");
+    mkdirSync(cwd);
+    pane = { pane_id: "pane-omp", cwd, foreground_cwd: cwd, agent: "omp" } as HerdrPane;
+    const snapshot = spyOn(herdr, "sessionSnapshot").mockImplementation(async () => ({ panes: [pane] } as SessionSnapshot));
+    const rpc = spyOn(herdr, "herdrRpc").mockImplementation(async (method) => {
+      if (method === "agent.get") return { agent: { agent_session: agentSession } } as never;
+      if (method === "pane.process_info") return { process_info: { foreground_processes: processes } } as never;
+      throw new Error(`unexpected RPC: ${method}`);
+    });
+    restores.push(() => snapshot.mockRestore(), () => rpc.mockRestore());
+  });
+  afterEach(() => {
+    for (const restore of restores.splice(0)) restore();
+    if (savedHome === undefined) delete process.env["HOME"]; else process.env["HOME"] = savedHome;
+    rmSync(home, { recursive: true, force: true });
+    agentSession = undefined;
+    processes = [];
+    forgetTranscriptState();
+  });
+
+  it("reads the transcript herdr names in an `omp --profile` store", async () => {
+    const store = join(home, ".omp/profiles/personal/agent/sessions/-project");
+    mkdirSync(store, { recursive: true });
+    const path = join(store, "2026-10-01_s1.jsonl");
+    writeFileSync(path, transcript(pane.cwd!));
+    agentSession = { agent: "omp", kind: "path", value: path };
+    const answer = await paneConversation(pane.pane_id);
+    expect(answer.source).toBe("omp-transcript");
+    expect(answer.turns.map((turn) => turn.parts[0])).toEqual([
+      { kind: "text", text: "synthetic question" }, { kind: "text", text: "synthetic answer" },
+    ]);
+  });
+
+  it.skipIf(process.platform !== "linux")("reads the transcript the pane's omp process holds open when herdr names none", async () => {
+    const store = join(home, ".omp/agent/sessions/-project");
+    mkdirSync(store, { recursive: true });
+    const path = join(store, "2026-10-01_s1.jsonl");
+    writeFileSync(path, transcript(pane.cwd!));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    const script = join(bin, "omp.js");
+    writeFileSync(script, `require("node:fs").openSync(${JSON.stringify(path)}, "a"); console.log("ready"); setInterval(() => {}, 1000);`);
+    const child = Bun.spawn([process.execPath, script], { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+    try {
+      const reader = child.stdout.getReader();
+      const first = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("omp stand-in did not start")), 5000)),
+      ]);
+      expect(new TextDecoder().decode(first.value)).toContain("ready");
+      processes = [{ pid: child.pid, argv: [process.execPath, script] }];
+      for (const session of [undefined, { agent: "claude", kind: "id", value: "a-claude-session" }]) {
+        agentSession = session;
+        forgetTranscriptState();
+        const answer = await paneConversation(pane.pane_id);
+        expect(answer.source).toBe("omp-transcript");
+        expect(answer.turns.map((turn) => turn.parts[0])).toEqual([
+          { kind: "text", text: "synthetic question" }, { kind: "text", text: "synthetic answer" },
+        ]);
+      }
+    } finally { child.kill(); await child.exited; }
+  });
 });
