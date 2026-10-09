@@ -10,6 +10,7 @@
 export const JA: Record<string, string> = {
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
+  "Paused while you use another window": "別のウィンドウを使っている間は一時停止中",
   "Direct typing": "直接入力",
   "Input line": "入力欄",
   "Automatic": "自動",

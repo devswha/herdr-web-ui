@@ -12,6 +12,7 @@
 export const ZH: Record<string, string> = {
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
+  "Paused while you use another window": "使用其他窗口时已暂停",
   "Direct typing": "直接输入",
   "Input line": "输入框",
   "Automatic": "自动",

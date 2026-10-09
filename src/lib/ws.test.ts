@@ -392,6 +392,25 @@ it("attaches a grid the chat lens covers without resizing the shared pty, on a r
   client.close();
 });
 
+it("sends no resize for a pane it let go of, and does not attach it again on a reconnect", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  client.attach("w1:p1", 100, 30);
+  // a tab out of use lets go of its pane: herdr gives the pane back to its own TUI
+  client.detach("w1:p1");
+  const after = socket.sent.length;
+  // the server would apply this to the attach of whoever holds the pane now
+  client.resize("w1:p1", 120, 40, true);
+  socket.open();
+  expect(socket.sent.slice(after).filter((m) => m.type === "attach" || m.type === "resize")).toEqual([]);
+  // the user is back: it attaches at its own size again
+  client.attach("w1:p1", 120, 40);
+  expect(socket.sent.at(-1)).toEqual({ type: "attach", pane_id: "w1:p1", cols: 120, rows: 40, flow_control: "ack" });
+  client.close();
+});
+
 it("waits for capabilities when output precedes snapshot, and supports old bridges", () => {
   for (const features of [["input-ready"], []]) {
     const client = new HerdrSocket("ws://test/ws"); client.connect();

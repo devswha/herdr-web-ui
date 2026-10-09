@@ -8,6 +8,7 @@
 export const KO: Record<string, string> = {
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
+  "Paused while you use another window": "다른 창을 쓰는 동안 일시 정지됨",
   "Direct typing": "직접 입력",
   "Input line": "입력창",
   "Automatic": "자동",
