@@ -8,6 +8,15 @@ function clock() {
 }
 
 describe("BackgroundWait", () => {
+  it("accepts the first working baseline after count-only discovery without overwriting later events", () => {
+    const waits = new BackgroundWait(clock().now);
+    waits.running("p1", 1, 100);
+    waits.seed("p1", "working");
+    expect(waits.status("p1", "done")).toBe(true);
+    waits.seed("p1", "working");
+    expect(waits.waiting("p1")).toBe(true);
+  });
+
   it("does not rehold a resting baseline after restart or generate another finish", () => {
     const time = clock();
     const waits = new BackgroundWait(time.now);

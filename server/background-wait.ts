@@ -10,6 +10,7 @@ export const WAIT_GRACE_MS = 60_000;
 export const WAIT_LIMIT_MS = 30 * 60_000;
 
 interface Pane {
+  statusSeen: boolean;
   busy: boolean;
   /** first rest since the person's prompt; automatic resumes never renew the limit */
   restAt: number | null;
@@ -42,6 +43,7 @@ export class BackgroundWait {
   /** The pane's status as reported. True when that changed whether it waits. */
   status(paneId: string, status: AgentStatus): boolean {
     const pane = this.pane(paneId);
+    pane.statusSeen = true;
     if (status === "working" || status === "blocked") {
       pane.busy = true;
       pane.endedAt = null;
@@ -55,7 +57,7 @@ export class BackgroundWait {
 
   /** A status read from a snapshot: only for a pane not known yet, as an event already seen is newer than any snapshot. */
   seed(paneId: string, status: AgentStatus): void {
-    if (!this.panes.has(paneId)) this.status(paneId, status);
+    if (!this.panes.get(paneId)?.statusSeen) this.status(paneId, status);
   }
 
   /** How many of the pane's running subagents and commands its turn started. True when that changed whether it waits. */
@@ -86,7 +88,7 @@ export class BackgroundWait {
 
   private pane(paneId: string): Pane {
     let pane = this.panes.get(paneId);
-    if (!pane) this.panes.set(paneId, pane = { busy: false, restAt: null, promptAt: null, turnRunning: 0, endedAt: null, waiting: false });
+    if (!pane) this.panes.set(paneId, pane = { statusSeen: false, busy: false, restAt: null, promptAt: null, turnRunning: 0, endedAt: null, waiting: false });
     return pane;
   }
 
