@@ -35,5 +35,6 @@ export function useMachineApi() {
     closeTab: (tab: string) => api.closeTab(tab, id),
     fetchPluginActions: () => api.fetchPluginActions(id),
     runPluginAction: (request: PluginActionRequest) => api.runPluginAction(request, id),
+    fetchPluginActionStatus: (pluginId: string, logId: string) => api.fetchPluginActionStatus(pluginId, logId, id),
   }), [id]);
 }

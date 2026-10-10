@@ -9,6 +9,7 @@ import { ApiError } from "../lib/api.ts";
 import { paneStatus } from "../lib/status.ts";
 import type { AppActions, PaneView } from "../lib/actions.ts";
 import { offeredPluginActions, rankPanes, type OfferedPluginAction } from "../lib/paletteSearch.ts";
+import { Ownership, runPluginActionToEnd } from "../lib/pluginRun.ts";
 import { shortcutDisplayKeys, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
 import { useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -79,8 +80,9 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   /** `<plugin_id>.<action_id>` of the plugin action under way; the palette stays open until it answers */
   const [running, setRunning] = useState<string | null>(null);
   const [pluginError, setPluginError] = useState<string | null>(null);
-  /** one per opening: an answer that arrives after the palette closed belongs to no one */
-  const opening = useRef(0);
+  /** one claim per opening: an answer that arrives after the palette closed, or left for another PC, belongs to no one */
+  const owner = useRef<Ownership | null>(null);
+  owner.current ??= new Ownership();
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -111,17 +113,23 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   }, [open]);
 
   // The PC's plugin actions, read on each opening. A herdr with no plugins, an older bridge
-  // without the route and an unreachable herdr all leave the group out.
-  useEffect(() => {
-    opening.current += 1;
+  // without the route and an unreachable herdr all leave the group out. A layout effect: the
+  // rows of the last opening are drawn again at once, and a tap on one must find this opening's
+  // state, not a run left over from the last one nor a claim this effect is about to end.
+  useLayoutEffect(() => {
+    const claims = owner.current!;
+    claims.end();
     setRunning(null);
     setPluginError(null);
     if (!open) return;
-    const mine = opening.current;
+    const alive = claims.claim();
     void api.fetchPluginActions().then(
-      (list) => { if (opening.current === mine) setPlugins(list); },
-      () => { if (opening.current === mine) setPlugins([]); },
+      (list) => { if (alive()) setPlugins(list); },
+      () => { if (alive()) setPlugins([]); },
     );
+    // also on unmount: App keys the palette by PC, and the answer of the PC left behind must
+    // not select its pane ID on the PC now shown, nor close that PC's palette
+    return () => claims.end();
   }, [open, api]);
 
   useEffect(() => {
@@ -187,12 +195,13 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   };
   const runPluginAction = async ({ plugin, action }: OfferedPluginAction): Promise<void> => {
     if (running !== null) return;
-    const mine = opening.current;
+    const alive = owner.current!.claim();
     setRunning(`${plugin.plugin_id}.${action.action_id}`);
     setPluginError(null);
     try {
-      const result = await api.runPluginAction({ plugin_id: plugin.plugin_id, action_id: action.action_id, ...(selectedPaneId === null ? {} : { pane_id: selectedPaneId }) });
-      if (opening.current !== mine) return;
+      // stays Running… past the server's own wait: a command that fails late is still said
+      const result = await runPluginActionToEnd(api, { plugin_id: plugin.plugin_id, action_id: action.action_id, ...(selectedPaneId === null ? {} : { pane_id: selectedPaneId }) }, alive);
+      if (result === null) return;
       if (result.status === "failed") {
         setPluginError(result.output !== null
           ? t("{action} failed: {detail}", { action: action.title, detail: result.output })
@@ -206,10 +215,10 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
       }
       onClose();
     } catch (error) {
-      if (opening.current !== mine) return;
+      if (!alive()) return;
       setPluginError(t("{action} failed: {detail}", { action: action.title, detail: error instanceof ApiError ? error.detail : error instanceof Error ? error.message : String(error) }));
     } finally {
-      if (opening.current === mine) setRunning(null);
+      if (alive()) setRunning(null);
     }
   };
   const activate = (index: number): void => {

@@ -362,6 +362,11 @@ export async function runPluginAction(request: PluginActionRequest, machineId = 
   return (await response.json()) as PluginActionResult;
 }
 
+/** GET /api/plugin/action: where a run the POST answered `running` for stands now. */
+export async function fetchPluginActionStatus(pluginId: string, logId: string, machineId = "local"): Promise<PluginActionResult> {
+  return getJson<PluginActionResult>(machinePath(machineId, `plugin/action?plugin_id=${encodeURIComponent(pluginId)}&log_id=${encodeURIComponent(logId)}`));
+}
+
 /** GET /api/pane/scroll: where the pane's viewport sits in its history (null: herdr reports none). */
 export async function fetchPaneScroll(paneId: string, machineId = "local"): Promise<PaneScrollInfo | null> {
   return (await getJson<{ scroll: PaneScrollInfo | null }>(machinePath(machineId, `pane/scroll?pane_id=${encodeURIComponent(paneId)}`))).scroll;
