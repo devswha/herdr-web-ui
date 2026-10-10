@@ -855,7 +855,7 @@ export const KO: Record<string, string> = {
   "Close tab {name}": "{name} 탭 닫기",
   "Close tab {name}?": "{name} 탭을 닫을까요?",
   "Close failed: {reason}": "닫기 실패: {reason}",
-  "Split right": "오른쏙으로 분할",
+  "Split right": "오른쪽으로 분할",
   "Split down": "아래로 분할",
   "Zoom pane": "패널 확대",
   "Unzoom pane": "패널 확대 해제",
