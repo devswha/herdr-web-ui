@@ -54,6 +54,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   herdr's own refusal when another agent holds the name, and the Agents row shows the name on its
   second line. A name set from herdr's terminal UI or CLI shows in the web the same way.
   ([#736](https://github.com/devswha/herdr-web-ui/pull/736))
+- An OpenCode pane on a 1.x store (`session`/`message`/`part`) reads as a conversation again, where
+  the chat used to keep the terminal's text: prompts with the pictures pasted in them, each answer's
+  steps with their tool calls and outputs, and the turns an `/undo` took back.
+  ([#690](https://github.com/devswha/herdr-web-ui/pull/690) by @okcedric)
 
 ### Changed
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
