@@ -459,7 +459,7 @@ export function storedCwds(cwd: string): [string, string] {
  * compared as it is: a Windows directory can be case-sensitive, and nothing short of the file
  * system tells `app` from `App`, so a cwd stored in another letter case finds nothing (#587).
  */
-function directoryKey(cwd: string): string {
+export function directoryKey(cwd: string): string {
   const plain = withoutVerbatimPrefix(cwd);
   return /^[a-z]:\\/.test(plain) ? plain[0]!.toUpperCase() + plain.slice(1) : plain;
 }
@@ -490,11 +490,16 @@ export function storedCwdCondition(cwd: string): { where: string; params: string
 
 /**
  * Whether the canonical `file` lies inside the canonical store `root`. Either may carry the
- * Windows `\\?\` prefix without the other (a prefixed CODEX_HOME, #587): it is not another root.
+ * Windows `\\?\` prefix without the other (a prefixed CODEX_HOME, #587), or its drive letter in
+ * another case: it is not another root. Past the drive letter the comparison is exact, as
+ * `directoryKey` has it: a case-sensitive directory's `Sessions` is not `sessions`.
  */
 export function rolloutInsideStore(root: string, file: string, paths: PlatformPath = nodePath): boolean {
-  const rel = paths.relative(withoutVerbatimPrefix(root), withoutVerbatimPrefix(file));
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${paths.sep}`) && !paths.isAbsolute(rel);
+  const key = (path: string) => directoryKey(paths.normalize(withoutVerbatimPrefix(path)));
+  const base = key(root);
+  const inside = base.endsWith(paths.sep) ? base : `${base}${paths.sep}`;
+  const path = key(file);
+  return path.length > inside.length && path.startsWith(inside);
 }
 
 /** File access is constrained by canonical paths, including symlink targets. */

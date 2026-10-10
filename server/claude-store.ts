@@ -16,7 +16,7 @@
 import { constants } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import nodePath, { isAbsolute, join, type PlatformPath } from "node:path";
-import { withoutVerbatimPrefix } from "./codex.ts";
+import { directoryKey, withoutVerbatimPrefix } from "./codex.ts";
 import { recentProcessTable } from "./gjc-runtime.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 
@@ -67,10 +67,12 @@ export function configDirInPsLine(text: string): string | null {
 /**
  * What one store is known by, so that a directory reached two ways (another letter case, the
  * `\\?\` prefix, a junction) is one store, not two that both claim the process (#586): its volume
- * and file id where it has one, else its spelling without the prefix and without case.
+ * and file id where it has one, else its spelling without the prefix and with the drive letter in
+ * one case. Past the drive letter case is kept: a case-sensitive directory's `.claude-Work` is
+ * another store than `.claude-work`, and both go to the ambiguity check.
  */
 export function claudeStoreKey(store: string, id: { dev: bigint; ino: bigint } | null, paths: PlatformPath = nodePath): string {
-  return id !== null && id.ino !== 0n ? `${id.dev}:${id.ino}` : paths.resolve(withoutVerbatimPrefix(store)).toLowerCase();
+  return id !== null && id.ino !== 0n ? `${id.dev}:${id.ino}` : directoryKey(paths.resolve(withoutVerbatimPrefix(store)));
 }
 
 /**

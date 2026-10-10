@@ -364,11 +364,14 @@ describe("a Windows Claude's store", () => {
     }
   });
 
-  it("knows a store without a file id by its spelling without the \\\\?\\ prefix or case (#586)", () => {
+  it("knows a store without a file id by its spelling without the \\\\?\\ prefix or the drive letter's case (#586)", () => {
     const store = "C:\\Users\\u\\.claude";
     for (const id of [null, { dev: 7n, ino: 0n }]) {
       expect(claudeStoreKey(`\\\\?\\${store}`, id, win32)).toBe(claudeStoreKey(store, id, win32));
-      expect(claudeStoreKey("c:\\users\\U\\.Claude", id, win32)).toBe(claudeStoreKey(store, id, win32));
+      expect(claudeStoreKey("\\\\?\\c:\\Users\\u\\.claude", id, win32)).toBe(claudeStoreKey(store, id, win32));
+      // past the drive letter a case-sensitive directory may be another store: both are asked
+      expect(claudeStoreKey("C:\\Users\\u\\.Claude", id, win32)).not.toBe(claudeStoreKey(store, id, win32));
+      expect(claudeStoreKey("C:\\Users\\u\\.claude-Work", id, win32)).not.toBe(claudeStoreKey("C:\\Users\\u\\.claude-work", id, win32));
       expect(claudeStoreKey("\\\\?\\UNC\\host\\share\\.claude", id, win32)).toBe(claudeStoreKey("\\\\host\\share\\.claude", id, win32));
       expect(claudeStoreKey(`${store}-work`, id, win32)).not.toBe(claudeStoreKey(store, id, win32));
     }

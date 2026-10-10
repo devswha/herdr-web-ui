@@ -416,9 +416,16 @@ describe("Codex rollout resolution", () => {
     for (const outside of ["D:\\codex\\other.jsonl", "\\\\?\\D:\\codex\\sessions\\..\\other.jsonl", "E:\\codex\\sessions\\x.jsonl", root]) {
       expect(rolloutInsideStore(`\\\\?\\${root}`, outside, win32)).toBe(false);
     }
+    // only the prefix and the drive letter's case are one spelling: past it a case-sensitive
+    // directory may be another one, and a sibling that shares the name's start is outside
+    expect(rolloutInsideStore("\\\\?\\c:\\codex\\sessions", "C:\\codex\\sessions\\x.jsonl", win32)).toBe(true);
+    for (const outside of ["C:\\codex\\Sessions\\other.jsonl", "C:\\Codex\\sessions\\other.jsonl", "C:\\codex\\sessions2\\x.jsonl"]) {
+      expect(rolloutInsideStore("\\\\?\\C:\\codex\\sessions", outside, win32)).toBe(false);
+      expect(rolloutInsideStore("C:\\codex\\sessions", outside, win32)).toBe(false);
+    }
     // POSIX paths are compared as they are
     expect(rolloutInsideStore("/home/u/.codex/sessions", "/home/u/.codex/sessions/x.jsonl", posix)).toBe(true);
-    for (const outside of ["/home/u/.codex/x.jsonl", "/home/u/.codex/sessions", "/home/u/.Codex/sessions/x.jsonl"]) {
+    for (const outside of ["/home/u/.codex/x.jsonl", "/home/u/.codex/sessions", "/home/u/.Codex/sessions/x.jsonl", "/home/u/.codex/sessions2/x.jsonl", "/home/u/.codex/sessions/../x.jsonl"]) {
       expect(rolloutInsideStore("/home/u/.codex/sessions", outside, posix)).toBe(false);
     }
   });
