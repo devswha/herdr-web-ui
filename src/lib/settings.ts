@@ -47,6 +47,9 @@ export const DICTATION_LANGUAGES = [
 export type DictationLanguage = "auto" | (typeof DICTATION_LANGUAGES)[number];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
+/** the terminal cursor's shape (xterm's cursorStyle); a program can still change it with DECSCUSR */
+export type TerminalCursorStyle = "block" | "bar" | "underline";
+export const TERMINAL_CURSOR_STYLES: readonly TerminalCursorStyle[] = ["block", "bar", "underline"];
 
 import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcutBindings.ts";
 
@@ -69,6 +72,10 @@ export interface Settings {
   palette: Palette;
   /** xterm font size in px */
   terminalFontSize: number;
+  /** xterm cursorStyle; a program's own DECSCUSR still changes it, as before this setting existed */
+  terminalCursorStyle: TerminalCursorStyle;
+  /** xterm cursorBlink */
+  terminalCursorBlink: boolean;
   /** mouse reports sent to herdr per wheel event in the terminal: 1 is what xterm sends by itself */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in terminal stack, as a CSS font-family list; "" keeps the built-in one */
@@ -145,6 +152,8 @@ export const DEFAULT_SETTINGS: Settings = {
   quietOpenedDone: false,
   palette: "amber",
   terminalFontSize: 13,
+  terminalCursorStyle: "block",
+  terminalCursorBlink: true,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
   paneClipboard: true,
@@ -296,6 +305,10 @@ export function sanitizeSettings(raw: unknown): Settings {
     quietOpenedDone: record["quietOpenedDone"] === true,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
+    terminalCursorStyle: TERMINAL_CURSOR_STYLES.includes(record["terminalCursorStyle"] as TerminalCursorStyle)
+      ? record["terminalCursorStyle"] as TerminalCursorStyle
+      : DEFAULT_SETTINGS.terminalCursorStyle,
+    terminalCursorBlink: typeof record["terminalCursorBlink"] === "boolean" ? record["terminalCursorBlink"] : DEFAULT_SETTINGS.terminalCursorBlink,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))
       : DEFAULT_SETTINGS.terminalWheelSpeed,
