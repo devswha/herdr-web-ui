@@ -19,6 +19,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   come first. A missing or outdated one shows its `herdr integration install …` command with a
   Copy button; the page only reads herdr's state and never installs or removes anything.
   ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
+- **Agent name…** in a workspace row's menu, next to Rename pane, and in the new `⋯` menu of an
+  Agents row sets or clears the live name herdr addresses the agent by (`herdr agent rename`,
+  what `herdr agent prompt <name>` takes). The dialog checks herdr's rule as you type, shows
+  herdr's own refusal when another agent holds the name, and the Agents row shows the name on its
+  second line. A name set from herdr's terminal UI or CLI shows in the web the same way.
 
 ### Changed
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
