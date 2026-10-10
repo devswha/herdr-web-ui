@@ -21,7 +21,7 @@ bun run check fast                  # CI's Fast checks: workflow syntax, generat
 bun run check integration browser   # CI's Integration and browser: a build, then both lanes side by side
 bun run check full                  # fast, then both lanes
 bun run check run bun test --timeout 15000 ./server/api.contract.test.ts   # one command on the same isolated herdr
-bun run check run bun scripts/ui-regression.ts                             # (a browser script serves dist/: build first)
+bun run check run --build bun scripts/ui-regression.ts                     # build and browser script under the same lock
 ```
 
 `fast` needs no herdr. The other modes run on a herdr of their own: its config, its plugin state
@@ -29,10 +29,43 @@ and the web UI's state live in a directory made for the run (`XDG_CONFIG_HOME`, 
 `HERDR_WEB_STATE_DIR`), under a session name made for the run. Nothing reads your herdr config,
 so no plugin installed there starts with the test servers, and two runs on one PC share no
 socket and no file. The run stops its herdr servers and removes the directory when it ends, also
-when it is interrupted; `CHECK_DIR=<path>` keeps it there instead. Only one run with a lane at a
-time on a PC: the contract and browser tests are bound by timing, and a second run names the
-first and exits (the lock is loopback port 41737, which a run listens on while it runs). One run per checkout: `fast` rewrites the generated types file while it
-checks it, and `fast` and the browser lane build into `dist/` (`check run` runs only its command).
+when it is interrupted; `CHECK_DIR=<path>` keeps it there instead. A few lane or `check run`
+invocations may run at a time on a PC, each in a slot: a loopback port from 41737 up that the run
+listens on while it runs, so a run that died holds none. `CHECK_MAX_RUNS` sets how many (1 to 8);
+the default is one per eight cores, from 1 to 2. The contract and browser tests are bound by
+timing, so more runs side by side make them fail each other: on a 32-core PC three at once
+already lost Chromium screenshots in the browser lane, so raise it only to look for such failures. A run that finds every slot taken
+names the holders and exits. So does a second run in the same checkout, even with slots free:
+runs in one checkout share `dist/` and the generated types. The
+generated-types check (`bun run generate:types --check`) is read-only, but `test:unit` includes
+`scripts/generate-protocol-types.test.ts`, which rewrites the generated file while it runs. Fast
+checks and the browser lane also build into `dist/`; avoid overlapping runs that write to the same
+checkout. (`check run` runs only its named command unless `--build` is supplied.)
+Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
+eight slots again for its checkout and counts every active holder against its requested limit,
+including holders above its candidate range. A busy admission port refuses rather than waits.
+Explicit `CHECK_DIR` and `CHECK_REPORT` paths are claimed exclusively by canonical path, even for
+`fast`, before writing reports, logs or isolated state. Pid markers are released at exit after the
+final report and session cleanup; a dead owner's marker is reclaimed under serialized admission.
+Lock refusal exits with the holder's identity before writing a report, so it cannot overwrite
+an active run's output or stop its sessions.
+
+Each admitted check run writes a JSON verification report and per-command logs. The default report is
+`node_modules/.cache/check/<run-id>/report.json`, or `CHECK_DIR/report.json` when `CHECK_DIR` is set;
+`CHECK_REPORT=<path>` selects another location. Keep reports outside tracked source. CI retains
+reports and logs on success and failure. Reports identify the checked HEAD, available PR base,
+tracked and untracked source fingerprints, tool versions, commands, timings, exit codes, and
+skipped, not-run or interrupted steps. A command failure is recorded even when its test runner
+does not expose individual test names.
+
+Read the verification status and source identity, not just a zero exit code. Changes during a
+run invalidate its source verification; a later edit or restack requires new verification.
+An unavailable source fingerprint, or an unreadable artifact after a successful build, fails
+the check even when its commands returned zero.
+`check run --build` records the build made for the command. Without it, an existing `dist/`
+has unknown provenance and cannot establish that a browser tested current source. Report and
+log collection is for isolated fixtures: do not pass real credentials or live-user commands to
+the test runner. A report is evidence, not an authorization to merge or publish.
 
 A local pass is not CI's: the PC has its own Node (CI pins 22), its own cores and its own system
 libraries. The browser lane uses the lockfile's Chromium, which it downloads into Playwright's
@@ -79,6 +112,7 @@ bun scripts/composer-fit-demo-regression.ts   # one Send/Stop control, pending S
 bun scripts/held-rows-demo-regression.ts      # held messages: the fold under an approval card, its button, a row's error
 bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quiet opened finishes: blocked pinned, recency, an opened DONE drawn as ready
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
+bun scripts/plugin-actions-demo-regression.ts # a plugin action that ends after the server stopped waiting: the late failure said, a traceback's height on a phone with its keyboard up
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
 ```
 
@@ -150,8 +184,14 @@ the page and the data follows. The SoftwareApplication data is written in the pa
 The build also copies the retained `site/assets/` and `site/media/` files, including the film linked
 from the README and its chat loop. These remain available at their existing URLs even though the
 homepage uses the desktop and phone demos.
-`.github/workflows/pages.yml` installs ffmpeg, runs the same build and deploys it to GitHub Pages on
-every push to `main`.
+`.github/workflows/pages.yml` installs ffmpeg and runs on pushes to `main` and manual dispatches from
+`main`. Reusable CI validation and the site build run in parallel against the same triggering SHA,
+and deployment requires both to succeed. Deployments are serialized. Immediately before deploying,
+the workflow checks that the validated SHA is still the latest `main` commit; it fails closed if it is
+stale or that check cannot be completed. This does not change the separate Release workflow.
+The standalone `main` CI also remains enabled: a main push deliberately runs validation twice
+on separate runners, preserving its independent CI history while keeping the deployment gate local
+to the Website workflow.
 
 ### The browser demo
 
@@ -198,15 +238,49 @@ Remote-PC runtime bundles are released separately: raise `REMOTE_BUNDLE_VERSION`
 
 Contributors: [CONTRIBUTING.md](../CONTRIBUTING.md) is the short version of this section.
 
-Use short-lived `feat/*`, `fix/*` or `chore/*` branches from `main`. Keep each PR focused
-on one change, squash merge it after required checks pass, and delete its remote branch
-after merging. Remove local branches/worktrees only when their work is finished.
-There is no permanent `develop` branch. Release metadata changes also go through a PR.
+Contributors use short-lived `feat/*`, `fix/*`, `chore/*` or `docs/*` branches from `main`.
+Independent changes normally get independent PRs. A stack is a narrow exception only when a
+maintainer explicitly manages it for a genuine code dependency. Code conflicts and approval gates
+are scheduling constraints, not reasons to stack; similar goals or shared CI results alone are not
+dependencies. Keep each PR focused on one change. Squash merge it after required checks pass, and
+delete its remote branch after merging only when dependent work is preserved. There is no permanent
+`develop` branch. Release metadata changes also go through a PR.
+
+### Coordinated work
+
+For coordinated work, record one small task entry in the existing PR/issue or another single,
+explicitly chosen authoritative place before work starts. Use fields `owner`, `scope`,
+`branch/worktree`, `start SHA`, `dependencies`, `verification` and `status`. Do not use this guide as
+a task-history log.
+
+Assign one writer per branch/worktree, including for generated files and build outputs such as
+`dist/`. Keep independent work in separate branches/worktrees. Herdr-backed runs (a lane or `check run`) take one of
+a few PC-wide slots ([Checks](#checks)) and only one per checkout, so a worktree runs its checks one at a
+time and waits when every slot is taken; serialize other heavy checks when they contend for that PC, runner or shared outputs. The CI workflow's
+within-run lane scheduling remains unchanged. Implementation and independent review are separate
+roles: an implementer may self-check, but another person reviews when review is required. Human
+approvals remain optional under the existing policy; external contributions still need maintainer
+review.
+
+For a maintainer-managed stack, state the genuine code dependency. A code conflict or external
+approval gate may affect scheduling, but does not justify a stack by itself. After a predecessor is
+squash-merged, restack only the child's changes onto updated `main`, retarget its PR to `main`, and
+rerun affected verification.
+Delete a branch or worktree only after its work and every dependent change are safely preserved.
+After an interruption, reconcile the task record with actual branch, worktree, PR and CI state before
+resuming; do not duplicate in-flight work or rewrite branches owned by someone else.
+
+Coordinators must have actual authorization and credentials for each repository or branch mutation,
+including workflow dispatch; do not infer privileges from the coordinator role. A non-admin
+implementation identity must already have the required permission—repository code cannot provision
+credentials, and this procedure does not claim they are provisioned. Release actions require explicit
+user authorization.
 
 The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
 
 - **Fast checks**: frozen dependency install, then `bun run check fast`: workflow syntax
-  (checksum-pinned actionlint), generated type freshness, typecheck, build, and
+  (checksum-pinned actionlint), generated type freshness, application and critical-tools typechecks
+  (`tsconfig.tools.json`), build, and
   `bun run test:unit`. This suite does not start herdr.
 - **Integration and browser**: checksum-pinned herdr 0.9.3, Node 22, then
   `bun run check integration browser`: a build, `bun run test:integration`, and the browser
@@ -226,9 +300,16 @@ Under `CI` or with `CHECK_DIR` set, it creates `UI_EVIDENCE_DIR` at
 are enabled automatically: the UI suite and key-bar demo have evidence branches that add
 assertions, viewport changes or font waits, so those remain disabled in the lane. Outside
 `CI`/`CHECK_DIR`, an explicit `UI_EVIDENCE_DIR` still works as before.
-On CI failure, **Preserve failure logs** uploads those PNGs alongside herdr's `test-server.log`.
-These are checkpoints from isolated test fixtures, not captures of every open page at the
-failure point. Playwright traces and timestamps on the web UI test servers' lines are not added.
+The lane also sets `CHECK_BROWSER_EVIDENCE_DIR` independently of those checkpoint options.
+Explicitly registered fixture pages in `ui-regression.ts` and `prompt-dock-demo-regression.ts`
+capture their failure screen and bounded console/page errors before cleanup. Set
+`CHECK_BROWSER_EVIDENCE_TRACE=1` for Playwright traces with screenshots retained on failure;
+DOM snapshots and network recording are disabled, but action parameters and console events can
+still appear in the trace. Use only synthetic fixture data. Imported checks and other scripts are not
+automatically covered. Evidence failures never replace the original test failure.
+CI uploads nested failure artifacts alongside herdr's `test-server.log`; reports and command
+logs are retained for successful runs too. All captures use isolated fixtures, never live-user
+pages or credentials.
 
 `scripts/ci-tests.ts` discovers all `.test.ts` files under src/shared/server/scripts.
 Files named `*.contract.test.ts`, tests under `server/herdr/` and `server/pty/`, and
@@ -240,10 +321,12 @@ Remote/server/shared/dependency changes also run the existing four-platform bund
 SSH workflow on PRs; its publishing job only runs for `remote-v*` tags. Website publishing
 continues after `main` pushes.
 
-Repository protection should require PRs and both CI checks on `main`, including for
-administrators, with branches up to date before merging. Force pushes and branch deletion
-are disabled. Human approvals are optional for this maintainer-led project; external
-contributions still need maintainer review. CodeRabbit is advisory, not a required check.
+Repository protection should require PRs and all three checks on `main`—**Fast checks**,
+**Integration and browser**, and **Native Windows install** (GitHub App ID `15368`)—including for
+administrators, with branches up to date before merging and every review thread resolved. Force
+pushes and branch deletion are disabled. Human approvals are optional for this maintainer-led
+project; external contributions still need maintainer review. CodeRabbit is advisory, not a required
+check.
 Release tags must not be moved or deleted. These GitHub settings are separate from files
 in the checkout.
 

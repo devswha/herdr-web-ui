@@ -12,17 +12,23 @@ export type {
   AgentSessionInfo,
   AgentStatus,
   PaneInfo,
+  PaneMoveReason,
+  PaneMoveResult,
+  PaneLayoutPane,
+  PaneLayoutRect,
+  PaneLayoutSnapshot,
   PaneReadResult,
   PaneScrollInfo,
   ReadFormat,
   ReadSource,
   SessionSnapshot,
+  SplitDirection,
   Subscription as HerdrSubscriptionSpec,
   TabInfo,
   WorkspaceInfo,
 } from "./herdr-api.generated.ts";
 
-import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
+import type { AgentStatus, PaneInfo, PaneMoveResult, SessionSnapshot, SplitDirection, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
 
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
@@ -66,11 +72,33 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
  *         for the new-session dialog)
+ *  GET    /api/integrations              -> IntegrationsResponse (herdr's `integration.list`, in
+ *         herdr's order; read only: nothing here installs or removes one, Settings shows the
+ *         `herdr integration install` command instead)
+ *  GET    /api/plugins/actions           -> PluginActionsResponse (plugin.list + plugin.action.list:
+ *         every installed plugin with its enabled state and the manifest actions this PC's
+ *         platform can run; herdr lists a disabled plugin's actions too, and refuses to run them)
+ *  POST   /api/plugin/action { plugin_id, action_id, pane_id? } -> PluginActionResult
+ *         (plugin.action.invoke. With pane_id the action gets that pane's whole context: herdr
+ *         fills a field the caller left out from its OWN focus, not from the pane named, so what
+ *         the pane does not have (an agent, a git checkout, a cwd) goes as empty strings, never
+ *         left out. Without pane_id herdr uses its focus throughout. herdr answers as soon as the
+ *         command started, so the server waits a few seconds for its log entry: `running` means it
+ *         had not ended by then, and the GET below says how it ended. A failed command is a 200
+ *         with status `failed`; a refused invoke is herdr's own error: plugin_not_found,
+ *         plugin_action_not_found, plugin_disabled, platform_unsupported)
+ *  GET    /api/plugin/action?plugin_id=&log_id= -> PluginActionResult (plugin.log.list: where the
+ *         run a POST answered `running` for stands now; `log_id` is that answer's. 404
+ *         plugin_log_not_found once herdr's log no longer holds it)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
  *  POST   /api/pane/scroll { pane_id, offset_from_bottom } -> { scroll } (pane.scroll; herdr
  *         redraws every attached terminal)
+ *  POST   /api/pane/find -> PaneFindResponse; PaneFindRequest searches literal text in herdr's
+ *         stored history and scrolls the shared viewport to the match. No copy mode is entered.
+ *         A previous match is reused only while content_revision still matches; 409 stale_content
+ *         means output changed during the search, so the user can search again.
  *  GET    /api/pane/selection?pane_id=&anchor_row=&anchor_col=&cursor_row=&cursor_col=
  *         -> { text } (pane.selection.read: both cells inclusive, rows from the top of the
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
@@ -81,6 +109,31 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
+ *  POST   /api/pane/move   { pane_id, destination, focus? } -> PaneMoved (pane.move: the pane into
+ *         another tab of its workspace, a new tab there or in another workspace, or a new workspace;
+ *         a pane that leaves its workspace gets a NEW pane id, reported beside previous_pane_id; an
+ *         emptied tab or workspace closes behind it; focus defaults to false, so herdr's own focus
+ *         stays where it was and only the caller follows the pane)
+ *  POST   /api/agent/rename { pane_id, name } -> { ok: true } (agent.rename on the pane's live agent:
+ *         the name other tools address it by, `herdr agent prompt <name>`; null clears it. herdr
+ *         owns the rule (shared/agent-name.ts) and answers invalid_agent_name, agent_name_taken or,
+ *         for a pane without a live agent, agent_not_found; the name is read back from
+ *         `snapshot.agents[].name`, and pane.updated carries the change to every client)
+ *  POST   /api/pane/split  { pane_id, direction: right|down, focus? } -> PaneSplit { ok: true, pane }
+ *         (pane.split beside that pane, herdr's prefix+v and prefix+-: `pane` is the new one; focus
+ *         false, the default, leaves herdr's focus where it is, true moves it to the new pane as --focus does)
+ *  POST   /api/pane/zoom   { pane_id, mode?: toggle|on|off } -> PaneZoomed { ok: true, zoomed, changed, reason }
+ *         (pane.zoom, prefix+z: the tab shows that pane alone; herdr focuses the pane it zooms; changed
+ *         false names why: single_pane, already_zoomed, already_unzoomed)
+ *  POST   /api/pane/swap   { pane_id, direction: left|right|up|down } -> PaneSwapped { ok: true, changed, reason, target_pane_id }
+ *         (pane.swap with the neighbour on that side, prefix+shift+hjkl; changed false with reason
+ *         no_neighbor when the pane has none there)
+ *  POST   /api/pane/resize { pane_id, direction: left|right|up|down, amount? } -> PaneResized { ok: true, changed, reason }
+ *         (pane.resize, herdr's resize mode: the border the pane shares with a neighbour moves that way
+ *         by `amount` of the split the border belongs to, not of the tab (0 < amount <= 0.5, herdr's
+ *         own cap; its 0.05 when absent); changed false, reason unchanged, when no border of the
+ *         pane can move that way)
+ *  POST   /api/pane/clear  { pane_id } -> { ok: true } (pane.clear: clears the pane's terminal screen)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/ (under HERDR_WEB_PASTE_DIR when the
  *         server's environment sets it), path for the prompt
@@ -148,6 +201,27 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  */
 export interface ApiError {
   error: { code: string; message: string };
+}
+
+export interface PaneFindMatch {
+  start: { row: number; col: number };
+  end: { row: number; col: number };
+}
+
+export interface PaneFindRequest {
+  pane_id: string;
+  query: string;
+  direction: "forward" | "backward";
+  previous?: PaneFindMatch;
+  content_revision?: number;
+}
+
+export interface PaneFindResponse {
+  total: number;
+  /** One-based ordinal, or null when no match was found. */
+  current: number | null;
+  match: PaneFindMatch | null;
+  content_revision: number;
 }
 
 /** The subscriptions whose plan limits GET /api/usage can read from a CLI's own sign-in. */
@@ -401,6 +475,59 @@ export interface ConversationResponse {
   abandoned?: { count: number; branches: number; summary: string | null };
 }
 
+/** Where a plugin manifest says an action applies. herdr may add more, so it stays open. */
+export type PluginActionContext = "global" | "workspace" | "tab" | "pane" | "selection" | (string & {});
+
+/** One manifest action of a herdr plugin. Its command line stays on the server. */
+export interface PluginAction {
+  /** local to its plugin: herdr's global name is `<plugin_id>.<action_id>` */
+  action_id: string;
+  title: string;
+  description: string | null;
+  /** empty when the manifest names none */
+  contexts: PluginActionContext[];
+}
+
+/** GET /api/plugins/actions: one installed plugin and the actions this PC can run. */
+export interface PluginActions {
+  plugin_id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  /** herdr refuses a disabled plugin's actions (`plugin_disabled`) */
+  enabled: boolean;
+  actions: PluginAction[];
+}
+
+export interface PluginActionsResponse {
+  plugins: PluginActions[];
+}
+
+/** POST /api/plugin/action. Without `pane_id` herdr runs the action in its own focus. */
+export interface PluginActionRequest {
+  plugin_id: string;
+  action_id: string;
+  pane_id?: string;
+}
+
+/** POST /api/plugin/action: what herdr's plugin command log said by the time the server answered. */
+export interface PluginActionResult {
+  /** herdr's log entry of this run: what GET /api/plugin/action is asked about while it is `running` */
+  log_id: string;
+  /** `running`: the command had not ended when the wait ran out */
+  status: "running" | "succeeded" | "failed";
+  exit_code: number | null;
+  /** a failed command's own words (spawn error, else the end of stderr, else of stdout); null otherwise */
+  output: string | null;
+  /**
+   * The pane this run's own output says it opened with focus (the answer of `herdr plugin pane
+   * open --focus`), while that pane still exists. Null for everything else: a command that
+   * printed no such answer, a popup (it has no pane ID), and a pane that merely appeared while
+   * the command ran, which nothing ties to it.
+   */
+  opened_pane_id: string | null;
+}
+
 /** GET /api/agents: one agent kind herdr can start (`agent.start` kind), with a display label. */
 /** GET /api/workspace/directories: the folders inside one directory, for the folder browser. */
 export interface DirectoryListing {
@@ -435,6 +562,27 @@ export interface FileInfo {
 export interface AgentKind {
   kind: string;
   label: string;
+}
+
+/**
+ * GET /api/integrations: one of herdr's built-in agent integrations (`integration.list`, herdr
+ * 0.9.3; the saved schema predates it, so the shape is written out here). `state` widens like the
+ * generated enums: a newer herdr may report one this build does not know.
+ */
+export interface AgentIntegration {
+  /** herdr's integration target, e.g. `claude`, `antigravity_cli` */
+  target: string;
+  /** the name herdr shows, also the argument `herdr integration install` takes */
+  label: string;
+  /** the agent's executable */
+  command: string;
+  /** whether that executable is on the PATH of the PC herdr runs on */
+  available: boolean;
+  state: "not_installed" | "current" | "outdated" | (string & {});
+}
+
+export interface IntegrationsResponse {
+  integrations: AgentIntegration[];
 }
 
 export interface CreateWorkspaceRequest {
@@ -482,6 +630,12 @@ export interface WorktreeOpened {
   error?: { code: string; message: string };
 }
 
+/** POST /api/agent/rename: the live name of the agent in the pane; null clears it. */
+export interface AgentRenameRequest {
+  pane_id: string;
+  name: string | null;
+}
+
 /** POST /api/worktree/remove: `git worktree remove` of the workspace's checkout; force when git refuses a dirty one. */
 export interface RemoveWorktreeRequest {
   workspace_id: string;
@@ -527,6 +681,101 @@ export interface WorkspaceCreated {
  * launch leaves the tab there, reachable through pane_id, as workspace creation does.
  */
 export type TabCreated = WorkspaceCreated;
+
+/**
+ * POST /api/pane/move: where the pane goes. herdr's PaneMoveDestination with the `type` the
+ * generated union widens to a string spelled out, so a caller cannot send a kind herdr has not got.
+ * `tab` lands beside the tab's focused pane (`target_pane_id` names another) on the side `split`
+ * says, right when absent; `new_tab` without a workspace stays in the pane's own.
+ */
+export type MovePaneDestination =
+  | { type: "tab"; tab_id: string; split?: SplitDirection; target_pane_id?: string | null; ratio?: number | null }
+  | { type: "new_tab"; workspace_id?: string | null; label?: string | null }
+  | { type: "new_workspace"; label?: string | null; tab_label?: string | null };
+
+export interface MovePaneRequest {
+  pane_id: string;
+  destination: MovePaneDestination;
+  /** herdr's focus follows the pane when true; absent or false leaves it where it was */
+  focus?: boolean;
+}
+
+/**
+ * POST /api/pane/move: herdr's move result. `pane` is the pane where it now stands, under a new
+ * `pane_id` when it changed workspace (`previous_pane_id` is the one the caller sent); `changed`
+ * false with `reason: "same_tab"` means it already was where it was asked to go. `created_tab`
+ * and `created_workspace` name what the move made, `closed_tab_id` and `closed_workspace_id` what
+ * it emptied and herdr closed behind it.
+ */
+export type PaneMoved = PaneMoveResult;
+
+/** The two ways herdr splits a pane: a new pane to its right, or below it. */
+export type SplitPaneDirection = "right" | "down";
+
+/** A neighbour's side, for swapping and resizing: herdr's own left/right/up/down. */
+export type PaneDirection = "left" | "right" | "up" | "down";
+
+/** POST /api/pane/split: `focus` true moves herdr's focus to the new pane (its --focus); false, the default, leaves it. */
+export interface SplitPaneRequest {
+  pane_id: string;
+  direction: SplitPaneDirection;
+  focus?: boolean;
+}
+
+/** The pane herdr made, as its snapshot lists it (focused only when `focus` asked for it). */
+export interface PaneSplit {
+  ok: true;
+  pane: PaneInfo;
+}
+
+/** POST /api/pane/zoom: a toggle by default; `on` and `off` set the state instead. */
+export interface ZoomPaneRequest {
+  pane_id: string;
+  mode?: "toggle" | "on" | "off";
+}
+
+/** `zoomed` is the tab's state after the call; `reason` says why `changed` is false (single_pane, already_zoomed, already_unzoomed). */
+export interface PaneZoomed {
+  ok: true;
+  zoomed: boolean;
+  changed: boolean;
+  reason: string | null;
+}
+
+/** POST /api/pane/swap: the pane changes places with its neighbour on that side. */
+export interface SwapPaneRequest {
+  pane_id: string;
+  direction: PaneDirection;
+}
+
+/** `target_pane_id` is the neighbour swapped with; `changed` false with reason no_neighbor when the pane has none there. */
+export interface PaneSwapped {
+  ok: true;
+  changed: boolean;
+  reason: string | null;
+  target_pane_id: string | null;
+}
+
+/**
+ * POST /api/pane/resize: the border the pane shares with a neighbour moves `direction`-wards by
+ * `amount` of the split that border belongs to, which herdr measures on the split's own extent,
+ * not the tab's (0.25 in a 60-column half of a 120-column tab moves the border 15 columns, not
+ * 30). herdr caps the amount at 0.5 and holds a split's ratio to 0.1..0.9, so the server refuses
+ * more than 0.5 (invalid_amount) rather than let herdr quietly take less; its own 0.05 when
+ * absent. Measured on herdr 0.9.3.
+ */
+export interface ResizePaneRequest {
+  pane_id: string;
+  direction: PaneDirection;
+  amount?: number;
+}
+
+/** `changed` false with reason unchanged: no border of the pane could move that way. */
+export interface PaneResized {
+  ok: true;
+  changed: boolean;
+  reason: string | null;
+}
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */
 export interface SlashCommand {
@@ -610,8 +859,9 @@ export interface PushPayload {
  *  Client -> server frames: attach {pane_id, cols, rows} | detach {pane_id} | input {pane_id, text}
  *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | role {mode}
  *    | pty-ack {pane_id, stream_id, offset} | secret {id, pane_id, prompt, secret}
+ *    | watch {pane_id, cols, rows} | unwatch {pane_id}
  *  Server -> client frames: snapshot | pty-data | pty-exit | pane-geometry | role-ack
- *    | pane-status | pane-exited | session-changed | secret-result | error
+ *    | pane-status | pane-exited | session-changed | secret-result | watch-data | watch-end | error
  *
  *  attach {flow_control:"ack"} opts into per-subscription output credit.
  *  pty-data.flow carries a stream_id and cumulative UTF-8 payload offset;
@@ -625,6 +875,12 @@ export interface PushPayload {
  *  re-sends its role before the attach replay on reconnect.
  *  secret requires the "secret-input" feature, an interact attachment, a matching fresh
  *  prompt and an idle input queue. Its result contains only ok/code, never the value.
+ *  watch requires the "watch" feature: a read-only view of the pane drawn for the client's grid
+ *  (`herdr terminal session observe`), which, unlike an attach, leaves the pane at the size herdr's
+ *  own window gives it. It is not an attach: no input, resize, ACK or input-ready. A tab out of use
+ *  detaches and watches; it attaches again when the user is back. One watch per pane and connection;
+ *  a second watch for the same pane starts it again at the new grid. watch-end: the view ended
+ *  (unwatch does not answer one), and a pane the view could not start for gets one at once.
  */
 
 /** A connection's authority over the shared ptys: `interact` types and resizes, `observe` only watches. */
@@ -666,10 +922,13 @@ export type ClientMessage =
   | { type: "resize"; pane_id: string; cols: number; rows: number }
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
-  | { type: "role"; mode: ClientRole };
+  | { type: "role"; mode: ClientRole }
+  /** a read-only view of the pane at this grid, for a tab out of use (feature "watch"); never resizes the pane */
+  | { type: "watch"; pane_id: string; cols: number; rows: number }
+  | { type: "unwatch"; pane_id: string };
 
 /** What a server supports beyond the base protocol, listed in its first snapshot; older bridges list nothing. */
-export type ServerFeature = "submit" | "pending-input" | "secret-input" | "input-ready" | "take-over";
+export type ServerFeature = "submit" | "pending-input" | "secret-input" | "input-ready" | "take-over" | "watch";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }
@@ -695,6 +954,10 @@ export type ServerMessage =
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */
   | { type: "session-changed" }
+  /** a watched pane's screen as herdr draws it for the watch's grid: whole screens and changes, written as they come; never acknowledged */
+  | { type: "watch-data"; pane_id: string; data: string }
+  /** the watch ended (pane gone, herdr closed it, or this herdr has no read-only view); the client keeps its last screen */
+  | { type: "watch-end"; pane_id: string }
   /** `pane_id` names the pane an error is about, when it is about one (`attach_held`) */
   | { type: "error"; code: string; message: string; pane_id?: string };
 

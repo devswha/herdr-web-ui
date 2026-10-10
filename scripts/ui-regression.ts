@@ -5,20 +5,23 @@ import { copyFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSy
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { chromium } from "playwright-core";
+import type { BrowserContext, Page } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, sessionSnapshot, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
-import type { SessionSnapshot, WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
+import type { PaneMoved, SessionSnapshot, WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
 import type { Machine } from "../shared/machines.ts";
 import { alertsOffMarked, alertsState, runMoreItem } from "./header-more.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkSecretInput } from "./secret-input-regression.ts";
 import { checkTerminalCopy } from "./terminal-copy-regression.ts";
+import { checkPaneFind } from "./pane-find-regression.ts";
 import { checkUsageMeters } from "./usage-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
 import { checkNotificationView } from "./notification-view-regression.ts";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
+import { checkTabMenu } from "./tab-menu-regression.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkSafariIme } from "./terminal-safari-ime-regression.ts";
@@ -33,11 +36,14 @@ import { checkCommandBackspace } from "./terminal-command-backspace-regression.t
 import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkFolderFilter } from "./folder-filter-regression.ts";
+import { checkPaletteKeys } from "./palette-keys-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
 import { openSettingsPage } from "./settings-page.ts";
 import { assertCspClean, watchCsp } from "./csp-violations.ts";
 import type { CspWatch } from "./csp-violations.ts";
+import { browserEvidencePage, browserEvidenceTracing, startBrowserEvidence } from "./browser-evidence.ts";
+import type { BrowserEvidenceSession } from "./browser-evidence.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
 const workspaces: string[] = [];
@@ -50,6 +56,22 @@ const errors: string[] = [];
 const csp: CspWatch[] = [];
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+const evidenceSessions: BrowserEvidenceSession[] = [];
+const evidenceDirectory = process.env.CHECK_BROWSER_EVIDENCE_DIR;
+const evidenceTrace = process.env.CHECK_BROWSER_EVIDENCE_TRACE === "1";
+async function watchBrowserEvidence(context: BrowserContext, page: Page, scenario: string): Promise<BrowserEvidenceSession | undefined> {
+  if (!evidenceDirectory) return undefined;
+  const evidence = await startBrowserEvidence({
+    page: browserEvidencePage(page),
+    tracing: browserEvidenceTracing(context),
+    directory: evidenceDirectory,
+    script: "ui-regression",
+    scenario,
+    trace: evidenceTrace,
+  });
+  evidenceSessions.push(evidence);
+  return evidence;
+}
 /** WebKit's IME commit: an Enter keydown after compositionend, isComposing false, key code 229 */
 const IME_ENTER = { key: "Enter", code: "Enter", keyCode: 229, which: 229, bubbles: true, cancelable: true };
 /** how long a send that should not happen gets to show up */
@@ -89,6 +111,7 @@ try {
   }, panes);
 
   const page = await context.newPage();
+  const pageEvidence = evidenceDirectory ? await watchBrowserEvidence(context, page, "main-app") : undefined;
   const workspaceGroup = (workspaceId: string) => page.locator(`.workspace-group[data-workspace="${workspaceId}"]`);
   const workspaceHeader = (workspaceId: string) => workspaceGroup(workspaceId).locator(":scope > .workspace-header");
   const agentRow = (paneId: string) => page.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneId}"]`);
@@ -197,7 +220,8 @@ try {
   await openPalette();
   assert.deepEqual(await page.evaluate(() => (window as unknown as { paletteFirstFrame: string[] }).paletteFirstFrame), [""],
     "a reopened palette's first render shows none of the last search's results");
-  const otherPalettePane = palette.locator(".palette-pane").filter({ hasText: "herdr-web-ui-test-browser-b" });
+  // a row names its tab and folder; its workspace is the heading of its section
+  const otherPalettePane = palette.locator(`.palette-section[data-section="${workspaces[1]}"] .palette-pane`);
   // Walk the actual tab order instead of clicking: pointer hover must not pick the row for us.
   for (const deadline = Date.now() + 5_000; ;) {
     await page.keyboard.press("Tab");
@@ -290,6 +314,7 @@ try {
   await page.mouse.move(0, 0);
   await page.setViewportSize(paletteViewport);
   console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
+  await checkPaletteKeys(page, { workspaceId: workspaces[1]! });
 
   // Hold a real machines response, then deliver a newer status through herdr/SSE.
   const badge = page.locator(".pane-item.is-selected .badge");
@@ -364,6 +389,7 @@ try {
   const cachedRoster = await (await context.request.get(`${origin}/api/machines`)).json() as { machines: Machine[] };
   const offlineMachines = cachedRoster.machines.map((machine) => ({ ...machine, state: "disconnected" as const }));
   const offlineContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  let offlineEvidence: BrowserEvidenceSession | undefined;
   try {
     await offlineContext.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false })));
     await offlineContext.route("**/api/machines", (route) => route.fulfill({ json: { machines: offlineMachines } }));
@@ -372,6 +398,7 @@ try {
     }));
     await offlineContext.routeWebSocket(/\/ws(?:\?|$)/, (socket) => socket.close({ code: 1000, reason: "Offline cached roster" }));
     const offlinePage = await offlineContext.newPage();
+    offlineEvidence = evidenceDirectory ? await watchBrowserEvidence(offlineContext, offlinePage, "offline-cached-roster") : undefined;
     await offlinePage.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
     const offlineAgent = offlinePage.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneB}"] .agent-select`);
     await offlineAgent.waitFor();
@@ -380,7 +407,13 @@ try {
     await offlineAgent.dispatchEvent("click");
     assert.equal(await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection")), selectionBefore,
       "offline Agent clicks leave the current selection unchanged");
-  } finally { await offlineContext.close(); }
+  } catch (error) {
+    await offlineEvidence?.captureFailure(error);
+    throw error;
+  } finally {
+    if (offlineEvidence) await offlineEvidence.finish();
+    await offlineContext.close();
+  }
   console.log("PASS Agents excludes shells, survives PC folds, selects its machine target and disables offline rows");
 
   // a turn that ended on work still running in the background reads BG, not DONE: drawn in the sidebar, and read in the composer
@@ -711,6 +744,7 @@ try {
     Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" });
   });
   const blockedPage = await blocked.newPage();
+  const blockedEvidence = evidenceDirectory ? await watchBrowserEvidence(blocked, blockedPage, "blocked-notifications") : undefined;
   csp.push(await watchCsp(blockedPage));
   await blockedPage.goto(origin);
   await blockedPage.locator(".header-more-button").waitFor();
@@ -723,6 +757,7 @@ try {
   await runMoreItem(blockedPage, "Alerts");
   await until(async () => await alertsState(blockedPage) === "On in the app", "blocked alerts on again");
   assert.equal(await alertsOffMarked(blockedPage), false);
+  if (blockedEvidence) await blockedEvidence.finish();
   await blocked.close();
   console.log("PASS a device that blocks notifications keeps the Alerts item as the switch for in-app alerts");
 
@@ -730,11 +765,13 @@ try {
   await checkWakeLock(browser, origin, paneA);
   await checkSecretInput(browser, origin);
   await checkTerminalCopy(browser, origin);
+  await checkPaneFind(browser, origin);
   await checkUsageMeters(browser, origin);
   await checkNotificationStartup(browser, origin, paneA, paneB);
   await checkNotificationView(browser, origin);
   await checkMobileViewport(browser, origin, paneB);
   await checkMobileTabs(browser, origin);
+  await checkTabMenu(browser, origin);
   await checkDefaultView(browser, origin);
   await checkComposerReconnect(browser, origin, paneB);
   await checkDroplet(browser, origin);
@@ -1262,7 +1299,29 @@ try {
   await childHeader.locator(".row-menu-toggle").click();
   const childMenu = page.getByRole("menu");
   await childMenu.waitFor();
-  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "New tab", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
+  // the row's pane was reported as a codex agent above, so herdr lists it and the menu offers its name
+  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "Agent name…", "Move pane to…", "New tab", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
+  // Agent name… opens the dialog on the row's agent. The palette opens over it and takes the keyboard:
+  // its Escape closes the palette alone (both listen on the window), the draft stays, and the next
+  // Escape closes the dialog and hands the focus back to the row's ⋯.
+  await childMenu.getByRole("menuitem", { name: "Agent name…", exact: true }).click();
+  const nameDialog = page.getByRole("dialog", { name: /^Agent name · / });
+  await nameDialog.waitFor();
+  const nameField = nameDialog.locator(".agent-name-input");
+  await until(() => nameField.evaluate((field) => field === document.activeElement), "the name field takes the focus");
+  await nameField.fill("reviewer-draft");
+  await page.keyboard.press("ControlOrMeta+Shift+K");
+  const paletteOverDialog = page.getByRole("dialog", { name: "Command palette", exact: true });
+  await paletteOverDialog.waitFor();
+  await page.keyboard.press("Escape");
+  await paletteOverDialog.waitFor({ state: "hidden" });
+  assert.equal(await nameDialog.isVisible(), true, "Escape on the palette over the dialog closes the palette alone");
+  assert.equal(await nameField.inputValue(), "reviewer-draft", "the dialog keeps its draft under the palette");
+  await page.keyboard.press("Escape");
+  await nameDialog.waitFor({ state: "detached" });
+  await until(() => childHeader.locator(".row-menu-toggle").evaluate((toggle) => toggle === document.activeElement), "the closed dialog hands the focus back to the row's menu button");
+  await childHeader.locator(".row-menu-toggle").click();
+  await childMenu.waitFor();
   await childMenu.getByRole("menuitem", { name: "Delete worktree checkout…", exact: true }).click();
   const deleteConfirm = page.getByRole("alertdialog");
   await deleteConfirm.waitFor();
@@ -1353,14 +1412,24 @@ try {
   await strip.getByRole("tab", { name: "second", exact: true }).click({ button: "right" });
   const tabMenu = page.getByRole("menu", { name: "second", exact: true });
   await tabMenu.waitFor();
-  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Close tab"]);
+  // a tab of one pane: herdr's split and clear for that pane, then the tab's own name, where its pane can move, and its close
+  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Move pane to…", "Close tab"]);
   await tabMenu.getByRole("menuitem", { name: "Rename tab", exact: true }).click();
   await tabName.fill("build");
   await page.keyboard.press("Enter");
   await until(async () => (await tabsInHerdr()).join() === "first,build", "the menu's rename reaches herdr");
-  // on a touch screen the open tab carries a chevron in place of the x: the same menu, as a sheet
+  // on a touch screen the open tab carries a chevron in place of the x: the same menu, as a sheet.
+  // A dozen more tabs first: the move menu lists every one, and the sheet (92% of the screen at
+  // most, its overflow hidden) must scroll them between its head and Cancel, which stay in reach
+  const manyTabs: string[] = [];
+  for (let index = 1; index <= 12; index += 1) {
+    const made = await herdrRpc<{ tab: { tab_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: `many-${index}`, focus: false });
+    manyTabs.push(made.tab.tab_id);
+  }
+  await until(async () => (await tabsInHerdr()).length === 14, "herdr has the dozen tabs");
   const tabPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const tabPhonePage = await tabPhone.newPage();
+  const tabPhoneEvidence = evidenceDirectory ? await watchBrowserEvidence(tabPhone, tabPhonePage, "touch-tab-menu") : undefined;
   csp.push(await watchCsp(tabPhonePage));
   tabPhonePage.on("pageerror", (error) => errors.push(error.message));
   await tabPhonePage.goto(`${origin}/?pane=${encodeURIComponent(createdTab.pane_id)}`);
@@ -1371,10 +1440,32 @@ try {
   await phoneStrip.getByRole("button", { name: "Actions for build", exact: true }).tap();
   const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
   await tabSheet.waitFor();
-  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Rename tab", "Close tab"]);
-  await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
+  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Move pane to…", "Close tab"]);
+  await tabSheet.locator(".row-sheet-item", { hasText: "Move pane to…" }).tap();
   await tabSheet.waitFor({ state: "detached" });
+  const moveSheet = tabPhonePage.getByRole("dialog", { name: /^Move .+ to$/ });
+  await moveSheet.waitFor();
+  const moveItems = moveSheet.locator(".row-sheet-item");
+  assert.ok(await moveItems.count() >= 15, `the move sheet lists the dozen tabs and the other workspaces (${await moveItems.count()} items)`);
+  const moveList = moveSheet.locator(".row-sheet-items");
+  const moveListSize = await moveList.evaluate((list) => ({ scroll: list.scrollHeight, client: list.clientHeight }));
+  assert.ok(moveListSize.scroll > moveListSize.client, `the items scroll inside the sheet (${moveListSize.scroll} > ${moveListSize.client})`);
+  const moveCancel = moveSheet.getByRole("button", { name: "Cancel", exact: true });
+  const moveCancelBox = await moveCancel.boundingBox();
+  assert.ok(moveCancelBox !== null && moveCancelBox.y + moveCancelBox.height <= 844, `Cancel stays on the screen under the list (${JSON.stringify(moveCancelBox)})`);
+  const lastMoveItem = moveItems.last();
+  assert.equal(await lastMoveItem.textContent(), "New workspace");
+  await lastMoveItem.scrollIntoViewIfNeeded();
+  const lastMoveItemBox = await lastMoveItem.boundingBox();
+  const moveListBox = await moveList.boundingBox();
+  assert.ok(lastMoveItemBox !== null && moveListBox !== null && lastMoveItemBox.y >= moveListBox.y && lastMoveItemBox.y + lastMoveItemBox.height <= moveListBox.y + moveListBox.height + 1,
+    `the list scrolls its last item into view (${JSON.stringify(lastMoveItemBox)} in ${JSON.stringify(moveListBox)})`);
+  await moveCancel.tap();
+  await moveSheet.waitFor({ state: "detached" });
+  if (tabPhoneEvidence) await tabPhoneEvidence.finish();
   await tabPhone.close();
+  for (const tabId of manyTabs) await herdrRpc("tab.close", { tab_id: tabId });
+  await until(async () => (await tabsInHerdr()).join() === "first,build", "the dozen tabs are closed again");
   // a tab whose agent is at work asks before it closes; a no leaves it
   await herdrRpc("pane.report_agent", { pane_id: createdTab.pane_id, source: "manual", agent: "codex", state: "working" });
   await strip.locator('.tab-strip-dot[data-status="working"]').waitFor();
@@ -1412,6 +1503,45 @@ try {
   assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current"), "true", "the open pane stays");
   await until(async () => await page.evaluate(() => document.activeElement?.matches(".app-header .drawer-toggle, .app-header .sidebar-toggle") === true), "the focus is not left on the page");
   console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its x and Delete, asking first while its agent works");
+
+  // A pane moved into another workspace answers to a new id, and the app follows it even when the
+  // roster without the old pane reaches the browser before the move's answer does: a roster alone
+  // sends a selection whose pane is gone back to herdr's focus, as it must for a closed pane. The
+  // answer is held here until the app has seen that roster and confirmed it against this PC.
+  const mover = await herdrRpc<{ root_pane: { pane_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: "mover", focus: false });
+  const moverId = mover.root_pane.pane_id;
+  await strip.getByRole("tab", { name: "mover", exact: true }).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${moverId} —"]`).getAttribute("aria-current")) === "true", "the mover tab's pane is open");
+  assert.notEqual((await sessionSnapshot()).focused_pane_id, moverId, "herdr's focus is elsewhere: a fallback could not land on the moved pane by chance");
+  // the fallback's own read of this PC, without the pane: what the answer waits for
+  const absenceConfirmed = page.waitForResponse(async (response) => {
+    if (response.request().method() !== "GET" || !/\/api\/session(?:\?|$)/.test(response.url())) return false;
+    try { return !(await response.text()).includes(`"${moverId}"`); } catch { return false; }
+  });
+  let lateAnswer: PaneMoved | null = null;
+  await page.route("**/api/pane/move", async (route) => {
+    const answer = await route.fetch();
+    lateAnswer = await answer.json() as PaneMoved;
+    await absenceConfirmed;
+    // the fallback's render, had the read released one: a frame and a tick after it
+    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))));
+    await route.fulfill({ response: answer, body: JSON.stringify(lateAnswer) });
+  });
+  await strip.getByRole("tab", { name: "mover", exact: true }).click({ button: "right" });
+  const moverMenu = page.getByRole("menu", { name: "mover", exact: true });
+  await moverMenu.waitFor();
+  await moverMenu.getByRole("menuitem", { name: "Move pane to…", exact: true }).click();
+  const moveMenu = page.getByRole("menu", { name: /^Move .+ to$/ });
+  await moveMenu.waitFor();
+  await moveMenu.getByRole("menuitem", { name: "herdr-web-ui-test-browser-b", exact: true }).click();
+  await until(() => lateAnswer !== null, "herdr answered the move");
+  const movedId = lateAnswer!.pane.pane_id;
+  assert.notEqual(movedId, moverId, "a pane that changes workspace gets a new id");
+  await until(async () => (await page.locator(`.pane-select[title^="${movedId} —"]`).getAttribute("aria-current")) === "true", "the app follows the moved pane under its new id, late answer or not");
+  await page.unroute("**/api/pane/move");
+  assert.equal((await tabsInHerdr()).join(), "first", "the emptied tab closed behind the pane");
+  await herdrRpc("tab.close", { tab_id: lateAnswer!.created_tab!.tab_id });
+  console.log("PASS a pane moved into another workspace is followed under its new id, also when the roster outruns the answer");
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.
@@ -1558,6 +1688,7 @@ try {
     Storage.prototype.getItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };
   });
   const mobilePage = await mobile.newPage();
+  const mobileEvidence = evidenceDirectory ? await watchBrowserEvidence(mobile, mobilePage, "mobile-storage-unavailable") : undefined;
   csp.push(await watchCsp(mobilePage));
   mobilePage.on("pageerror", (error) => errors.push(error.message));
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
@@ -1612,9 +1743,11 @@ try {
   await mobilePage.getByTitle("Use the suggestion", { exact: true }).click();
   assert.equal(await mobileComposer.inputValue(), "run the tests", "the chip puts the suggestion in the box");
   await mobilePage.unroute(promptRoute);
+  try { await mobileEvidence?.finish(); } finally { await mobile.close(); }
   const plainPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await plainPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: false })); });
   const plainPage = await plainPhone.newPage();
+  const plainEvidence = evidenceDirectory ? await watchBrowserEvidence(plainPhone, plainPage, "suggestion-chip-off") : undefined;
   csp.push(await watchCsp(plainPage));
   plainPage.on("pageerror", (error) => errors.push(error.message));
   await plainPage.route(promptRoute, (route) => route.fulfill(suggest));
@@ -1624,6 +1757,7 @@ try {
   const plainComposer = plainPage.getByRole("textbox", { name: "Message", exact: true });
   await until(async () => await plainComposer.getAttribute("placeholder") === "run the tests", "the suggestion stays the placeholder with the chip off");
   assert.equal(await plainPage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip once Settings turns it off");
+  if (plainEvidence) await plainEvidence.finish();
   await plainPhone.close();
   assert.equal(errors.length, 0, errors.join("\n"));
   assertCspClean(csp, "the suggestion chip loads with no CSP violation");
@@ -1636,6 +1770,7 @@ try {
   // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const touchPage = await touch.newPage();
+  const touchEvidence = evidenceDirectory ? await watchBrowserEvidence(touch, touchPage, "touch-terminal-input") : undefined;
   csp.push(await watchCsp(touchPage));
   touchPage.on("pageerror", (error) => errors.push(error.message));
   const touchSent: Array<Record<string, unknown>> = [];
@@ -1694,6 +1829,7 @@ try {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await touchPage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-input-mobile.png") });
   }
+  if (touchEvidence) await touchEvidence.finish();
   await touch.close();
   console.log("PASS touch terminal input line sends whole lines, Enter alone, and yields to direct typing");
 
@@ -1756,6 +1892,7 @@ try {
   console.log("PASS closed and obsolete saved panes recover their selection");
   // the desktop page ran past the phone steps above: close it on the same gate
   assertCspClean(csp, "the desktop shell, the file viewer and the pane close load with no CSP violation");
+  if (pageEvidence) await pageEvidence.finish();
   await page.close();
 
   const secured = createServer({ port: 0, hostname: "127.0.0.1", token: "browser-test-token", stateDir: join(root, "secured"), tailscaleOwner: null });
@@ -1766,6 +1903,7 @@ try {
   const securedWorkspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-browser-signout" });
   workspaces.push(securedWorkspace.workspace.workspace_id);
   const securedPage = await securedContext.newPage();
+  const securedEvidence = await watchBrowserEvidence(securedContext, securedPage, "token-gate-signout");
   csp.push(await watchCsp(securedPage));
   await securedContext.request.post(`${securedOrigin}/api/auth`, { data: { token: "browser-test-token" } });
   await securedPage.goto(`${securedOrigin}/?pane=${encodeURIComponent(securedWorkspace.root_pane.pane_id)}`);
@@ -1786,10 +1924,17 @@ try {
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).click();
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
+  if (securedEvidence) await securedEvidence.finish();
   await securedContext.close();
   assertCspClean(csp, "the token gate loads with no CSP violation");
   console.log("PASS token and paired-device sign out return to the access gate");
+} catch (error) {
+  for (const evidence of evidenceSessions) {
+    if (evidence.isOpen()) await evidence.captureFailure(error);
+  }
+  throw error;
 } finally {
+  for (const evidence of evidenceSessions) await evidence.finish();
   for (const release of releases) release();
   await browser?.close();
   server?.stop();

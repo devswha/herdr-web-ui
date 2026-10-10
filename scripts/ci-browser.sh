@@ -32,7 +32,8 @@ run_script() {
 
 if [ -n "${CI:-}${CHECK_DIR:-}" ]; then
   export UI_EVIDENCE_DIR="${CHECK_DIR:-.ci}/browser-evidence"
-  mkdir -p "$UI_EVIDENCE_DIR"
+  export CHECK_BROWSER_EVIDENCE_DIR="${CHECK_DIR:-.ci}/browser-evidence"
+  mkdir -p "$UI_EVIDENCE_DIR" "$CHECK_BROWSER_EVIDENCE_DIR"
 fi
 # CI's runner image has none of Chromium's system libraries; a PC is not asked for sudo
 if [ -n "${CI:-}" ]; then
@@ -67,5 +68,6 @@ run_script scripts/held-rows-demo-regression.ts
 run_script scripts/sidebar-activity-demo-regression.ts
 run_script scripts/workspace-touch-reorder-demo-regression.ts
 run_script scripts/prompt-dock-demo-regression.ts
+run_script scripts/plugin-actions-demo-regression.ts
 run_script scripts/machine-dialog-regression.ts
 run_script scripts/machine-conflict-regression.ts
