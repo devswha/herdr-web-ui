@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Holding an arrow in the touch key bar repeats it until release, including held modifiers and
+  saved arrow combinations. A tap still sends one key, and swiping sideways scrolls the row
+  without sending a key.
+
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
