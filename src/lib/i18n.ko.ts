@@ -6,6 +6,8 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Saved in herdr": "herdr에 저장됨",
+  "Connect once to enable automatic reconnection. Installation and startup need separate approval.": "한 번 연결하면 이후 자동으로 다시 연결됩니다. 설치 및 시작에는 별도의 승인이 필요합니다.",
   "Find in terminal": "터미널에서 찾기",
   "Previous match": "이전 결과",
   "Next match": "다음 결과",
@@ -15,6 +17,8 @@ export const KO: Record<string, string> = {
   "{current} of {total}": "{total}개 중 {current}",
   "Pane changed. Search again.": "패널 내용이 변경되었습니다. 다시 검색하세요.",
   "Search moves the pane for every client.": "검색하면 연결된 모든 클라이언트의 패널 화면이 이동합니다.",
+  "Managed by herdr. Rename, disable or remove it there.": "herdr에서 관리합니다. 이름 변경, 비활성화 또는 삭제는 herdr에서 하세요.",
+
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Paused while you use another window": "다른 창을 쓰는 동안 일시 정지됨",
@@ -261,15 +265,15 @@ export const KO: Record<string, string> = {
   "Bridge update needed": "브리지 업데이트 필요",
   "Setup needed": "설정 필요",
   "This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.": "이 PC의 브리지가 다른 버전의 herdr web ui입니다. 업데이트하면 다시 연결됩니다. herdr 세션은 계속 돕니다.",
-  "Reconnecting needs your approval on this PC.": "다시 연결하려면 이 PC에서 승인이 필요합니다.",
+  "Browser access uses a bridge on this PC. Review any installation or startup changes before connecting.": "브라우저 접근에는 이 PC의 브리지가 사용됩니다. 연결하기 전에 설치 또는 시작에 따른 변경 사항을 확인하세요.",
   "Update bridge": "브리지 업데이트",
   "Update bridge and connect": "브리지를 업데이트하고 연결",
   "Sign in and update…": "로그인해서 업데이트…",
-  "Set up…": "설정하기…",
+  "Set up web access": "웹 접근 설정",
   "Updating the bridge on {name}": "{name}의 브리지 업데이트 중",
   " (+{n} more)": " (외 {n}대)",
   "{name} needs a bridge update to reconnect{others}.": "{name}{others}은(는) 다시 연결하려면 브리지 업데이트가 필요합니다.",
-  "{name} needs setup approval to reconnect{others}.": "{name}{others}은(는) 다시 연결하려면 설정 승인이 필요합니다.",
+  "{name} needs web access setup{others}.": "{name}{others}에 웹 접근 설정이 필요합니다.",
   "Downloading the bridge": "브리지 내려받는 중",
   "Sending it to the PC": "PC로 보내는 중",
   "Verifying and installing": "확인하고 설치하는 중",

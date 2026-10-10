@@ -8,6 +8,8 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Saved in herdr": "herdr に保存済み",
+  "Connect once to enable automatic reconnection. Installation and startup need separate approval.": "一度接続すると、自動で再接続します。インストールと起動には別途承認が必要です。",
   "Find in terminal": "ターミナル内を検索",
   "Previous match": "前の一致",
   "Next match": "次の一致",
@@ -17,6 +19,8 @@ export const JA: Record<string, string> = {
   "{current} of {total}": "{total}件中{current}件目",
   "Pane changed. Search again.": "ペインの内容が変わりました。再検索してください。",
   "Search moves the pane for every client.": "検索すると接続中の全クライアントのペイン画面が移動します。",
+  "Managed by herdr. Rename, disable or remove it there.": "herdr で管理されています。名前の変更、無効化、削除は herdr で行ってください。",
+
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Paused while you use another window": "別のウィンドウを使っている間は一時停止中",
@@ -263,15 +267,15 @@ export const JA: Record<string, string> = {
   "Bridge update needed": "ブリッジの更新が必要です",
   "Setup needed": "セットアップが必要です",
   "This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.": "この PC では別バージョンの herdr web ui のブリッジが動作しています。更新すると再接続されます。herdr のセッションは実行されたままです。",
-  "Reconnecting needs your approval on this PC.": "再接続するには、この PC での承認が必要です。",
+  "Browser access uses a bridge on this PC. Review any installation or startup changes before connecting.": "この PC のブリッジを使ってブラウザーからアクセスします。接続前に、インストールや起動に伴う変更を確認してください。",
   "Update bridge": "ブリッジを更新",
   "Update bridge and connect": "ブリッジを更新して接続",
   "Sign in and update…": "サインインして更新…",
-  "Set up…": "セットアップ…",
+  "Set up web access": "Web アクセスを設定",
   "Updating the bridge on {name}": "{name} のブリッジを更新しています",
   " (+{n} more)": " (他 {n} 台)",
   "{name} needs a bridge update to reconnect{others}.": "{name}{others} を再接続するにはブリッジの更新が必要です。",
-  "{name} needs setup approval to reconnect{others}.": "{name}{others} を再接続するにはセットアップの承認が必要です。",
+  "{name} needs web access setup{others}.": "{name}{others} の Web アクセス設定が必要です。",
   "Downloading the bridge": "ブリッジをダウンロードしています",
   "Sending it to the PC": "PC に送信しています",
   "Verifying and installing": "検証してインストールしています",
