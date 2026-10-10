@@ -13,7 +13,7 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
   const root = mkdtempSync(join(tmpdir(), "herdr-find-browser-"));
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-find-browser" });
   const pane = created.root_pane.pane_id;
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   try {
     const ready = herdrRpc("pane.wait_for_output", {
       pane_id: pane, source: "visible", match: { type: "substring", value: "find_browser_ready" }, timeout_ms: 10000,
@@ -24,7 +24,10 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
       keys: ["enter"],
     });
     await ready;
-    await context.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal"), pane);
+    await context.addInitScript((id) => {
+      localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal");
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ theme: "system" }));
+    }, pane);
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
     const inputFrames: unknown[] = [];
@@ -94,6 +97,37 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
     await page.waitForFunction(() => document.querySelector(".find-bar input") === document.activeElement);
     const previous = await search(() => page.keyboard.press("Shift+Enter"));
     assert.equal(previous.current, 2);
+    const capture = async (name: string) => {
+      if (!process.env.UI_EVIDENCE_DIR) return;
+      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
+      await page.evaluate(() => document.fonts.ready);
+      for (const theme of ["dark", "light"] as const) {
+        await page.emulateMedia({ colorScheme: theme });
+        await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
+        await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `${name}-${theme}.png`), animations: "disabled" });
+      }
+    };
+    const staleNavigation = async (name: string) => {
+      const value = `find_browser_changed_${name}`;
+      const output = herdrRpc("pane.wait_for_output", {
+        pane_id: pane, source: "detection", match: { type: "substring", value }, timeout_ms: 10000,
+      }, undefined, 12000);
+      await herdrRpc("pane.send_input", { pane_id: pane, text: `${value}\n` });
+      await output;
+      const response = page.waitForResponse((answer) => answer.url().endsWith("/pane/find") && answer.request().method() === "POST");
+      await page.getByRole("button", { name: "Next match", exact: true }).click();
+      assert.equal((await response).status(), 409);
+      await page.getByRole("alert").filter({ hasText: "Pane changed. Search again." }).waitFor();
+      await page.waitForFunction(() => document.querySelector(".find-bar-count")?.textContent === "");
+      await capture(`${name}-stale`);
+      const request = page.waitForRequest((message) => message.url().endsWith("/pane/find") && message.method() === "POST");
+      const fresh = await search(() => field.press("Enter"));
+      assert.equal((await request).postDataJSON().previous, undefined, "retry must not reuse the stale native range");
+      assert.equal(fresh.total, 2);
+      await page.locator(".find-bar-count", { hasText: `${fresh.current} of 2` }).waitFor();
+      await capture(`${name}-find`);
+    };
+    await staleNavigation("desktop");
     await page.getByRole("button", { name: "Chat", exact: true }).click();
     await page.keyboard.press("Control+Shift+F");
     await page.waitForFunction(() => document.querySelector(".find-bar input") === document.activeElement);
@@ -163,11 +197,8 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
     assert.equal((await search(() => field.press("Enter"))).total, 2);
     await page.locator(".xterm-rows", { hasText: "find_browser_marker" }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    if (process.env.UI_EVIDENCE_DIR) {
-      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
-      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "phone-find-regression.png") });
-    }
-    console.log("PASS pane find: history jump, count, next/previous, no match, Escape, touch menu, no find input, deferred-upload focus");
+    await staleNavigation("phone");
+    console.log("PASS pane find: history jump, count, next/previous, stale range clearing and retry, no match, Escape, touch menu, no find input, deferred-upload focus");
   } catch (error) {
     console.error("find viewport at failure", await herdrRpc("pane.get", { pane_id: pane }));
     console.error("find visible text at failure", await herdrRpc("pane.read", { pane_id: pane, source: "visible" }));

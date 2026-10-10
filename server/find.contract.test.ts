@@ -29,7 +29,7 @@ describe("POST /api/pane/find", () => {
     }, undefined, 12000);
     await herdrRpc("pane.send_input", {
       pane_id: paneId,
-      text: "printf 'find_%s\\n' needle_contract; seq 1 150; printf 'find_%s\\n' needle_contract; seq 151 320; printf 'find_%s\\n' ready_contract; exec cat",
+      text: "printf 'log: find_%s tail\\n' needle_contract; seq 1 150; printf 'log: find_%s tail\\n' needle_contract; seq 151 320; printf 'find_%s\\n' ready_contract; exec cat",
       keys: ["enter"],
     });
     await ready;
@@ -107,13 +107,35 @@ describe("POST /api/pane/find", () => {
     }
   });
 
-  it("refuses a match invalidated after searching without scrolling to stale coordinates", async () => {
+  for (const direction of ["forward", "backward"] as const) {
+    it(`refuses stale previous ranges when navigating ${direction} after unrelated output`, async () => {
+      await paneScroll(paneId, 0);
+      const first: PaneFindResponse = await (await post({ pane_id: paneId, query: marker, direction: "backward" })).json();
+      expect(first.match?.start.col).toBeGreaterThan(0);
+      const value = `find_navigation_${direction}`;
+      const output = herdrRpc("pane.wait_for_output", {
+        pane_id: paneId, source: "detection", match: { type: "substring", value }, timeout_ms: 10000,
+      }, undefined, 12000);
+      await herdrRpc("pane.send_input", { pane_id: paneId, text: `${value}\n` });
+      await output;
+      const afterOutput = await paneScrollInfo(paneId);
+      expect(afterOutput?.offset_from_bottom).toBeGreaterThan(0);
+      const response = await post({
+        pane_id: paneId, query: marker, direction, previous: first.match, content_revision: first.content_revision,
+      });
+      expect(response.status).toBe(409);
+      expect((await response.json() as ApiError).error.code).toBe("stale_content");
+      expect(await paneScrollInfo(paneId)).toEqual(afterOutput);
+    });
+  }
+
+  it.each(["pane.copy_search", "pane.scroll"])("refuses a match invalidated at %s instead of claiming success", async (changeAt) => {
     await paneScroll(paneId, 0);
     const realSocket = herdrSocketPath();
     const oldSocket = process.env.HERDR_SOCKET;
     const proxyPath = join(stateDir, "find-race.sock");
-    // Forward to the real herdr, but produce new output between its search response and
-    // the bridge's scroll. This exercises the actual native revision check without sleeps.
+    // Forward to real herdr and inject output on either side of the final pre-scroll
+    // revision check. The native guard and shared scroll remain real, without sleeps.
     let changed = false;
     const proxy = Bun.listen({
       unix: proxyPath,
@@ -125,15 +147,20 @@ describe("POST /api/pane/find", () => {
           connection.data = "";
           void (async () => {
             try {
-              const result = await herdrRpc(request.method, request.params, realSocket);
-              if (!changed && request.method === "pane.copy_search" && request.params.pane_id === paneId) {
+              const change = async () => {
                 changed = true;
+                const value = `find_race_changed_${changeAt}`;
                 const output = herdrRpc("pane.wait_for_output", {
-                  pane_id: paneId, source: "detection", match: { type: "substring", value: "find_race_changed" }, timeout_ms: 10000,
+                  pane_id: paneId, source: "detection", match: { type: "substring", value }, timeout_ms: 10000,
                 }, realSocket, 12000);
-                await herdrRpc("pane.send_input", { pane_id: paneId, text: "find_race_changed\n" }, realSocket);
+                await herdrRpc("pane.send_input", { pane_id: paneId, text: `${value}\n` }, realSocket);
                 await output;
-              }
+              };
+              const inject = !changed && request.method === changeAt && request.params.pane_id === paneId;
+              // For scroll, inject AFTER the final revision check, BEFORE herdr applies it.
+              if (inject && changeAt === "pane.scroll") await change();
+              const result = await herdrRpc(request.method, request.params, realSocket);
+              if (inject && changeAt === "pane.copy_search") await change();
               connection.write(`${JSON.stringify({ id: request.id, result })}\n`);
             } catch (error) {
               connection.write(`${JSON.stringify({ id: request.id, error: {
@@ -152,7 +179,7 @@ describe("POST /api/pane/find", () => {
       expect(response.status).toBe(409);
       expect((await response.json() as ApiError).error.code).toBe("stale_content");
       expect(changed).toBe(true);
-      expect((await paneScrollInfo(paneId, realSocket))?.offset_from_bottom).toBe(0);
+      if (changeAt === "pane.copy_search") expect((await paneScrollInfo(paneId, realSocket))?.offset_from_bottom).toBe(0);
     } finally {
       if (oldSocket === undefined) delete process.env.HERDR_SOCKET;
       else process.env.HERDR_SOCKET = oldSocket;

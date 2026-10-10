@@ -390,7 +390,10 @@ export async function paneFind(request: PaneFindRequest, socketPath?: string): P
   const motion = await herdrRpc<{ cursor: PaneTextPoint; content_revision: number }>("pane.copy_motion", {
     pane_id: request.pane_id, cursor: { row, col: 0 }, motion: "line_end",
   }, socketPath);
-  const previous = request.content_revision === motion.content_revision ? request.previous : undefined;
+  if (request.previous && request.content_revision !== motion.content_revision) {
+    throw new HerdrError("stale_content", "Pane changed. Search again.");
+  }
+  const previous = request.previous;
   const result = await herdrRpc<{
     matches: PaneFindMatch[]; total: number; current?: number | null; current_global?: number | null; content_revision: number;
   }>("pane.copy_search", {
@@ -407,7 +410,14 @@ export async function paneFind(request: PaneFindRequest, socketPath?: string): P
     await herdrRpc("pane.copy_motion", {
       pane_id: request.pane_id, cursor: match.start, motion: "line_end", content_revision: result.content_revision,
     }, socketPath);
-    if (currentScroll) await paneScroll(request.pane_id, Math.max(0, currentScroll.max_offset_from_bottom - match.start.row), socketPath);
+    if (currentScroll) {
+      await paneScroll(request.pane_id, Math.max(0, currentScroll.max_offset_from_bottom - match.start.row), socketPath);
+      // herdr 0.9.3 cannot guard pane.scroll atomically. Refuse success if output or reflow
+      // arrived after the pre-scroll check; the shared view may already have moved.
+      await herdrRpc("pane.copy_motion", {
+        pane_id: request.pane_id, cursor: match.start, motion: "line_end", content_revision: result.content_revision,
+      }, socketPath);
+    }
   }
   return {
     total: result.total, current: result.current_global == null ? null : result.current_global + 1,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Search, X } from "lucide-react";
 import type { PaneFindResponse } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
+import { findResultAfterError } from "../lib/paneFind.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
 import "./FindBar.css";
@@ -35,9 +36,12 @@ export function FindBar({ paneId, disabled, focusRequest, onClose }: { paneId: s
       });
       if (active.current) setResult(answer);
     } catch (cause) {
-      if (active.current) setError(cause instanceof ApiError
+      if (active.current) {
+        setResult((current) => findResultAfterError(current, cause));
+        setError(cause instanceof ApiError
         ? cause.code === "stale_content" ? t("Pane changed. Search again.") : cause.detail
         : cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       pending.current = false;
       if (active.current) setBusy(false);
