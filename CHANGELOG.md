@@ -8,10 +8,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A request that carries a session cookie but states no `Origin` is now read as cross-site rather
+  than same-origin, so a header that went missing is no longer trusted as though a browser had
+  sent it. What genuinely cannot state one keeps working — a same-origin read such as the PC
+  event stream, the WebSocket upgrade a browser cannot add the custom header to, signing out, and
+  push subscribe — as does any client that proves itself with `x-herdr-machine`. A browser is
+  unaffected: it always states an `Origin` on a cross-origin request, and `SameSite=Strict`
+  already covered what this closes.
 - On Windows, a Codex chat is found when `CODEX_HOME` carries the `\\?\` prefix, or when Codex
   stored the working directory with a drive letter in another case than herdr reports
-  (`\\?\d:\work\app` for `D:\work\app`). A Claude pane whose process two stores both claim (`~/.claude` and a
-  `~/.claude-*` copy) now says its chat is unavailable instead of showing `~/.claude`'s session.
+  (`\\?\d:\work\app` for `D:\work\app`). A Claude pane whose process two stores both claim
+  (`~/.claude` and a `~/.claude-*` copy) now says its chat is unavailable instead of showing
+  `~/.claude`'s session.
   ([#714](https://github.com/devswha/herdr-web-ui/pull/714))
 
 ## [0.4.5] - 2026-10-09
