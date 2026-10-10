@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { gunzipSync } from "node:zlib";
 
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
@@ -12,6 +13,14 @@ const remote = Bun.serve({
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
     if (path === "/api/fs/file") return new Response("%PDF-1.7", { headers: { "content-type": "application/pdf" } });
+    if (path === "/api/pane/conversation" && new URL(request.url).searchParams.has("compressed")) {
+      const headers = { etag: "\"gzip-v1\"", vary: "Accept-Encoding", "content-type": "application/json" };
+      if (request.headers.get("if-none-match") === headers.etag) return new Response(null, { status: 304, headers });
+      const body = JSON.stringify({ source: "omp-transcript", turns: [{ role: "assistant", ts: null, parts: [{ kind: "text", text: "remote native answer" }] }] });
+      return request.headers.get("accept-encoding") === "gzip"
+        ? new Response(Bun.gzipSync(body), { headers: { ...headers, "content-encoding": "gzip" } })
+        : new Response(body, { headers });
+    }
     const ifNoneMatch = request.headers.get("if-none-match");
     asked.push(ifNoneMatch);
     if (ifNoneMatch === "\"v1\"") return new Response(null, { status: 304, headers: { etag: "\"v1\"" } });
@@ -38,6 +47,22 @@ describe("PC proxy", () => {
     expect(await unchanged.text()).toBe("");
     expect(asked).toEqual([null, "\"v1\""]);
   });
+});
+
+it("preserves negotiated remote conversation bytes without decompressing the phone response", async () => {
+  const url = "http://127.0.0.1/api/machines/pc1/pane/conversation?pane_id=w1:p1&compressed=1";
+  const compressed = await handleMachineRequest(new Request(url, { headers: { "accept-encoding": "gzip" } }), manager);
+  expect(compressed.headers.get("content-encoding")).toBe("gzip");
+  expect(compressed.headers.get("vary")).toBe("Accept-Encoding");
+  const decoded = JSON.parse(gunzipSync(await compressed.arrayBuffer()).toString());
+  const identity = await handleMachineRequest(new Request(url, { headers: { "accept-encoding": "identity" } }), manager);
+  expect(identity.headers.get("content-encoding")).toBeNull();
+  expect(await identity.json()).toEqual(decoded);
+  const unchanged = await handleMachineRequest(new Request(url, { headers: { "accept-encoding": "gzip", "if-none-match": "\"gzip-v1\"" } }), manager);
+  expect(unchanged.status).toBe(304);
+  expect(unchanged.headers.get("etag")).toBe("\"gzip-v1\"");
+  expect(unchanged.headers.get("vary")).toBe("Accept-Encoding");
+  expect(await unchanged.text()).toBe("");
 });
 
 it("forwards conversation images and complete output, while rejecting arbitrary nested paths", async () => {

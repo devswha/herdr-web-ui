@@ -1,8 +1,11 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { get, type IncomingHttpHeaders } from "node:http";
+import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { gunzipSync } from "node:zlib";
+import { forgetTranscriptState } from "./conversation.ts";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
@@ -119,6 +122,125 @@ describe("usage API", () => {
       const withToken = await fetch(`http://localhost:${gated.port}/api/usage`, { headers: { authorization: "Bearer test-usage-token" } });
       expect(withToken.status).toBe(200);
     } finally { open.stop(); gated.stop(); rmSync(usageState, { recursive: true, force: true }); }
+  });
+});
+
+describe("conversation response encoding", () => {
+  type WireResponse = { status: number; headers: IncomingHttpHeaders; bytes: Buffer };
+
+  const root = mkdtempSync(join(tmpdir(), "herdr-conversation-encoding-"));
+  const sessionStore = join(homedir(), ".omp", "agent", "sessions");
+  mkdirSync(sessionStore, { recursive: true, mode: 0o700 });
+  const store = mkdtempSync(join(sessionStore, "herdr-conversation-encoding-"));
+  const path = join(store, "rollout.jsonl");
+  let bridge: { port: number; stop: () => void };
+  let workspaceId: string;
+  let paneId: string;
+
+  beforeAll(async () => {
+    forgetTranscriptState();
+    writeFileSync(path, [
+      { type: "session", version: 3, id: "01a0c7a1-56d9-7e20-9f08-f7a2d973bcff", cwd: root },
+      { type: "model_change", modelId: "contract-model" },
+      { type: "thinking_level_change", thinkingLevel: "high" },
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "Read the native transcript" }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "A compressible native transcript response. ".repeat(100) }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    mkdirSync(join(root, "bin"));
+    const executable = join(root, "bin", "omp");
+    writeFileSync(executable, "#!/bin/sh\nsleep 600\n");
+    chmodSync(executable, 0o755);
+    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-conversation-encoding" });
+    workspaceId = created.workspace.workspace_id;
+    paneId = created.root_pane.pane_id;
+    await herdrRpc("pane.send_text", { pane_id: paneId, text: `${executable}\n` });
+    // Real herdr process detection runs outside this test's clock.
+    const deadline = Date.now() + 10_000;
+    while ((await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.agent !== "omp") {
+      if (Date.now() >= deadline) throw new Error("owned omp process was not detected");
+      await Bun.sleep(50);
+    }
+    const seq = Date.now() * 1000;
+    await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr:omp", agent: "omp", state: "idle", seq });
+    await herdrRpc("pane.report_agent_session", { pane_id: paneId, source: "herdr:omp", agent: "omp", seq: seq + 1, agent_session_path: path, session_start_source: "startup" });
+    bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
+  });
+
+  afterAll(async () => {
+    bridge?.stop();
+    if (workspaceId) await workspaceClose(workspaceId);
+    forgetTranscriptState();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  });
+
+  // node:http retains the wire bytes; fetch transparently decompresses them.
+  function raw(headers: Record<string, string>, route = `/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`): Promise<WireResponse> {
+    const { promise, resolve, reject } = Promise.withResolvers<WireResponse>();
+    const request = get(`http://127.0.0.1:${bridge.port}${route}`, { headers }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.on("error", reject);
+      response.on("end", () => resolve({ status: response.statusCode!, headers: response.headers, bytes: Buffer.concat(chunks) }));
+    });
+    request.on("error", reject);
+    request.setTimeout(5000, () => request.destroy(new Error("conversation response timed out")));
+    return promise;
+  }
+
+  it("gzips equivalent JSON, retains the semantic ETag across encodings, and keeps 304 empty", async () => {
+    const identity = await raw({ "accept-encoding": "identity" });
+    const gzip = await raw({ "accept-encoding": "gzip" });
+    expect(identity.status).toBe(200);
+    expect(identity.headers["content-encoding"]).toBeUndefined();
+    expect(gzip.status).toBe(200);
+    expect(gzip.headers["content-encoding"]).toBe("gzip");
+    expect(gzip.headers["content-type"]).toBe("application/json; charset=utf-8");
+    expect(gzip.headers.vary).toBe("Accept-Encoding");
+    expect(identity.headers.vary).toBe("Accept-Encoding");
+    expect(gzip.headers.etag).toBe(identity.headers.etag);
+    expect(gzip.headers["cache-control"]).toBe("no-store");
+    expect(JSON.parse(gunzipSync(gzip.bytes).toString())).toEqual(JSON.parse(identity.bytes.toString()));
+    expect(gzip.bytes.length).toBeLessThan(identity.bytes.length);
+    const unchanged = await raw({ "accept-encoding": "gzip", "if-none-match": gzip.headers.etag! });
+    expect(unchanged.status).toBe(304);
+    expect(unchanged.headers.etag).toBe(gzip.headers.etag);
+    expect(unchanged.headers.vary).toBe("Accept-Encoding");
+    expect(unchanged.headers["content-encoding"]).toBeUndefined();
+    expect(unchanged.bytes.length).toBe(0);
+  });
+
+  it("honours explicit exclusions, wildcards, identity preferences and unacceptable encodings", async () => {
+    for (const encoding of ["identity", "gzip;q=0", "gzip;q=0, *;q=1", "gzip;q=0.2, identity;q=0.8", "gzip;q=0, gzip;q=1", "gzip;q=0;q=1", "gzip ; q = 0", "gzip;q=invalid", "gzip;q=2"]) {
+      const response = await raw({ "accept-encoding": encoding });
+      expect(response.status).toBe(200);
+      expect(response.headers["content-encoding"]).toBeUndefined();
+      expect(JSON.parse(response.bytes.toString()).source).toBe("omp-transcript");
+    }
+    for (const encoding of ["*", "br, *;q=0.5", "gzip;q=0.5, identity;q=0", "GZip;Q=1", "*;q=0, gzip;q=1"]) {
+      const response = await raw({ "accept-encoding": encoding });
+      expect(response.status).toBe(200);
+      expect(response.headers["content-encoding"]).toBe("gzip");
+      expect(JSON.parse(gunzipSync(response.bytes).toString()).source).toBe("omp-transcript");
+    }
+    const absent = await raw({});
+    expect(absent.headers["content-encoding"]).toBeUndefined();
+    for (const encoding of ["*;q=0", "identity;q=0, gzip;q=0", "br, identity;q=0"]) {
+      const response = await raw({ "accept-encoding": encoding });
+      expect(response.status).toBe(406);
+      expect(JSON.parse(response.bytes.toString())).toMatchObject({ error: { code: "not_acceptable" } });
+    }
+  });
+
+  it("compresses the scrollback JSON fallback but leaves other routes and errors uncompressed", async () => {
+    const fallback = await raw({ "accept-encoding": "gzip" }, "/api/pane/conversation?pane_id=w999999:p999999");
+    expect(fallback.status).toBe(200);
+    expect(fallback.headers.vary).toBe("Accept-Encoding");
+    expect(JSON.parse(gunzipSync(fallback.bytes).toString())).toEqual({ source: "scrollback", turns: [] });
+    expect((await raw({ "accept-encoding": "gzip" }, "/api/session")).headers["content-encoding"]).toBeUndefined();
+    const invalid = await raw({ "accept-encoding": "gzip" }, "/api/pane/conversation");
+    expect(invalid.status).toBe(400);
+    expect(invalid.headers["content-encoding"]).toBeUndefined();
   });
 });
 

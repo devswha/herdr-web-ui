@@ -103,6 +103,8 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
       // a remote conversation answers 304 when unchanged, as a local one does
       const ifNoneMatch = request.headers.get("if-none-match");
       if (ifNoneMatch) headers.set("if-none-match", ifNoneMatch);
+      const conversation = path === "pane/conversation";
+      if (conversation) headers.set("accept-encoding", request.headers.get("accept-encoding") ?? "identity");
       const abort = new AbortController();
       if (path === "fs/file") {
         // a file (a video, say) streams through, with its ranges, never held here; it can
@@ -121,11 +123,16 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
       }
       const untrack = manager.trackTerminal(id, () => abort.abort());
       try {
-        const response = await fetch(`${endpoint.url}/api/${path}${url.search}`, { method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "error", signal: AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(path === "worktree/create" ? 165_000 : 75_000)]) });
-        const etag = response.headers.get("etag");
-        return new Response(response.status === 304 ? null : await response.arrayBuffer(), { status: response.status, headers: {
-          "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store", ...(etag ? { etag } : {}),
-        } });
+        // Conversation bytes retain the browser's negotiated encoding through the relay.
+        const response = await fetch(`${endpoint.url}/api/${path}${url.search}`, { method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "error", decompress: !conversation, signal: AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(path === "worktree/create" ? 165_000 : 75_000)]) });
+        const passed = new Headers({
+          "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store",
+        });
+        for (const name of conversation ? ["etag", "content-encoding", "vary"] : ["etag"]) {
+          const value = response.headers.get(name);
+          if (value) passed.set(name, value);
+        }
+        return new Response(response.status === 304 ? null : await response.arrayBuffer(), { status: response.status, headers: passed });
       } catch (error) { return transportFailure(id, path, error); }
       finally { untrack(); }
     }

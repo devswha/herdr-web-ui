@@ -53,6 +53,10 @@ export class HerdrSocket {
   private readonly attached = new Map<string, AttachState>();
   /** panes this tab views read-only while out of use (feature "watch"), at the grid it asked for; replayed after each snapshot */
   private readonly watched = new Map<string, { cols: number; rows: number }>();
+  /** Panes whose mounted, visible chat asks for transcript invalidations. The server drops interest
+   * with the attachment, so each attach of a pane listed here (a reconnect's, or a tab back in use
+   * after letting go of it) asks again; only the chat taking its interest back removes it. */
+  private readonly conversationWanted = new Set<string>();
   private retries = 0;
   private reconnectTimer: number | null = null;
   private disposed = false;
@@ -120,6 +124,13 @@ export class HerdrSocket {
         this.features = new Set(message.features ?? []);
         this.snapshotKnown = true;
         if (!this.features.has("input-ready")) for (const pane of this.outputSeen) if (this.attached.has(pane)) this.inputReady.add(pane);
+        // Capabilities arrive after open's role/attach replay. Restore only current interest,
+        // never send an unknown frame to an older bridge or replay a hidden/detached chat.
+        if (this.features.has("conversation-watch")) {
+          for (const paneId of this.attached.keys()) {
+            if (this.conversationWanted.has(paneId)) this.rawSend({ type: "conversation-watch", pane_id: paneId, enabled: true });
+          }
+        }
         if (this.features.has("watch")) {
           for (const [paneId, grid] of this.watched) this.rawSend({ type: "watch", pane_id: paneId, cols: grid.cols, rows: grid.rows });
         } else {
@@ -217,10 +228,29 @@ export class HerdrSocket {
     this.inputReady.delete(paneId);
     this.attached.set(paneId, { cols, rows, keepSize });
     this.send({ type: "attach", pane_id: paneId, cols, rows, flow_control: "ack", ...(keepSize ? { keep_size: true } : {}) });
+    if (this.conversationWanted.has(paneId) && this.features.has("conversation-watch")) {
+      this.send({ type: "conversation-watch", pane_id: paneId, enabled: true });
+    }
     if (this.outputStopped) {
       this.outputStopped = false;
       this.connect();
     }
+  }
+
+  /** Retained control state, not queued input: kept across detach, asked again by the next attach. */
+  watchConversation(paneId: string, enabled: boolean): void {
+    if (this.conversationWanted.has(paneId) === enabled) return;
+    if (enabled) this.conversationWanted.add(paneId);
+    else this.conversationWanted.delete(paneId);
+    // a detached pane has no interest on the server: its next attach asks
+    if (this.attached.has(paneId) && this.features.has("conversation-watch")) {
+      this.send({ type: "conversation-watch", pane_id: paneId, enabled });
+    }
+  }
+
+  /** Whether this connection's bridge pushes transcript changes to a watching chat. */
+  conversationPushes(): boolean {
+    return this.connected && this.features.has("conversation-watch");
   }
 
   /** Capture connection AND subscription before xterm's asynchronous write. Never queue ACKs. */

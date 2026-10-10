@@ -280,8 +280,19 @@ export function PaneTerminal({
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const clipboardTimerRef = useRef<number | null>(null);
-  // the composer's send bumps this so the chat lens refetches without waiting a poll beat
+  // Explicit sends refresh immediately; continuous transcript invalidations are rate-limited.
   const [chatRefresh, setChatRefresh] = useState(0);
+  const [chatInvalidation, setChatInvalidation] = useState(0);
+  // an older bridge pushes no transcript changes: the chat reads at the former 2s cadence
+  const [conversationPushes, setConversationPushes] = useState(false);
+  const onConversationWatch = useCallback((pane: string, enabled: boolean) => {
+    socketRef.current?.watchConversation(pane, enabled);
+  }, []);
+  /** A scrollback stand-in's listener; a ref, so terminal output never re-renders the pane. */
+  const chatOutputRef = useRef<(() => void) | null>(null);
+  const onTerminalOutput = useCallback((listener: (() => void) | null) => {
+    chatOutputRef.current = listener;
+  }, []);
   // bumped as a composer message goes out: the chat must not title the turn before it as running
   const [chatSent, setChatSent] = useState(0);
   const [chatMetadata, setChatMetadata] = useState<{ pane: string; value: ConversationMetadata | null } | null>(null);
@@ -339,7 +350,7 @@ export function PaneTerminal({
     if (agentStatus === "working") setPendingAnswer(null);
   }, [agentStatus]);
   const onChatMetadata = useCallback((pane: string, value: ConversationMetadata | null) => {
-    // the same settings keep the same object: every 2 s poll would otherwise re-render the composer
+    // the same settings keep the same object: every conversation read would otherwise re-render the composer
     setChatMetadata((previous) => previous?.pane === pane && previous.value?.model === value?.model
       && previous.value?.reasoning_effort === value?.reasoning_effort
       && previous.value?.context?.used === value?.context?.used
@@ -867,9 +878,16 @@ export function PaneTerminal({
           }
         }
       }
+      // Ignore late invalidations for a detached pane or a chat no longer on screen.
+      if (message.type === "conversation-changed" && message.pane_id === paneRef.current
+        && chatViewRef.current && document.visibilityState !== "hidden") {
+        setChatInvalidation((current) => current + 1);
+      }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
       if (message.type === "pty-data") {
         if (message.pane_id !== paneRef.current || releasedRef.current) return;
+        // A chat showing herdr's scrollback has no native file to watch: output invalidates it.
+        if (chatViewRef.current) chatOutputRef.current?.();
         // raw pty bytes: append, never repaint, so xterm keeps the screen and selection
         const acknowledge = socket.outputAcknowledgement(message);
         const owner = message.pane_id;
@@ -978,6 +996,7 @@ export function PaneTerminal({
         term.writeln(`\r\n\u001b[31m[herdr-web-ui] ${message.code}: ${message.message}\u001b[0m`);
       }
       setConnected(socket.connected);
+      setConversationPushes(socket.conversationPushes());
     });
     const offDisconnect = socket.onDisconnect(() => {
       clearModifiers();
@@ -988,6 +1007,7 @@ export function PaneTerminal({
       setOutputReady(false);
       setInputReady(false);
       setConnected(false);
+      setConversationPushes(false);
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       setHeld(false);
@@ -996,7 +1016,7 @@ export function PaneTerminal({
     });
     socket.connect();
 
-    const poll = window.setInterval(() => setConnected(socket.connected), 1000);
+    const poll = window.setInterval(() => { setConnected(socket.connected); setConversationPushes(socket.conversationPushes()); }, 1000);
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
@@ -1978,6 +1998,10 @@ export function PaneTerminal({
             key={paneId}
             paneId={paneId}
             refreshKey={chatRefresh}
+            invalidationKey={chatInvalidation}
+            onConversationWatch={onConversationWatch}
+            conversationPushes={conversationPushes && !released}
+            onTerminalOutput={onTerminalOutput}
             sentKey={chatSent}
             connected={connected}
             ended={ended}
