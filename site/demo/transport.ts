@@ -8,16 +8,18 @@
  * What works: the sidebar and its live statuses, every chat, the Codex approval card (answering it
  * sets Codex to work and ends the turn), the command palette, settings, and the terminal: the shell
  * pane replays a recording of `git log` and `bun test`, then a small pretend shell answers what you
- * type; agent panes show one notice instead of a TUI. A message sent from a chat gets a demo answer.
+ * type. `demo logs` loads fictional retained history for scrolling and search; agent panes show
+ * one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
-import { closeLayoutPane, resizeLayout, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
+import { closeLayoutPane, resizeLayout, setLayoutSplitRatio, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
+import { DemoHistory } from "./history.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
 import commandsFixture from "./fixtures/commands.json";
@@ -25,6 +27,13 @@ import panesFixture from "./fixtures/panes.json";
 import terminalFixture from "./fixtures/terminal.json";
 
 const DEMO_VERSION = "demo";
+/** Only an explicit `demo logs` command starts this fictional retained history. */
+const histories = new Map<string, DemoHistory>();
+const terminalGrids = new Map<string, { cols: number; rows: number }>();
+const demoGrid = (paneId: string) => terminalGrids.get(paneId) ?? { cols: 80, rows: 24 };
+function redrawHistory(paneId: string): void {
+  for (const socket of sockets) socket.renderHistory(paneId);
+}
 const PROMPT_ANSWER_TURN_MS = 2600;
 const CHAT_ANSWER_MS = 2400;
 /** the recording's gaps, capped so the replay stays brisk */
@@ -302,6 +311,13 @@ function moveDemoPane(pane: Pane, destination: Record<string, unknown>, focus = 
   }
   const crossing = targetTab.workspace_id !== previous.workspace_id;
   const paneId = crossing ? `${targetTab.workspace_id}:p${(nextWorkspace++).toString(36)}` : pane.pane_id;
+  const target = snap.layouts.find((layout) => layout.tab_id === targetTab.tab_id);
+  if (target) {
+    const beside = target.panes.find((candidate) => candidate.pane_id === (destination["target_pane_id"] ?? target.focused_pane_id)) ?? target.panes.at(-1);
+    if (!beside || !splitLayout(target, beside.pane_id, { pane_id: paneId, focused: false, rect: beside.rect }, destination["split"] === "down" ? "down" : "right")) {
+      return error("split_failed", "The demo pane is too small to split.", 400);
+    }
+  } else addDemoLayout(targetTab.workspace_id, targetTab.tab_id, paneId);
   if (crossing) {
     movedPaneIds.set(previous.pane_id, paneId);
     const key = keyOfPane.get(previous.pane_id);
@@ -315,16 +331,9 @@ function moveDemoPane(pane: Pane, destination: Record<string, unknown>, focus = 
   pane.tab_id = targetTab.tab_id;
   const source = snap.layouts.find((layout) => layout.tab_id === previous.tab_id);
   if (source) {
-    source.panes = source.panes.filter((candidate) => candidate.pane_id !== previous.pane_id);
+    closeLayoutPane(source, previous.pane_id);
     if (source.focused_pane_id === previous.pane_id) source.focused_pane_id = source.panes[0]?.pane_id ?? "";
     for (const candidate of source.panes) candidate.focused = candidate.pane_id === source.focused_pane_id;
-  }
-  const target = snap.layouts.find((layout) => layout.tab_id === targetTab.tab_id);
-  if (target) {
-    const beside = target.panes.find((candidate) => candidate.pane_id === target.focused_pane_id) ?? target.panes[target.panes.length - 1];
-    const half = beside ? Math.floor(beside.rect.width / 2) : target.area.width;
-    if (beside) beside.rect.width -= half;
-    target.panes.push({ pane_id: paneId, focused: false, rect: beside ? { x: beside.rect.x + beside.rect.width, y: beside.rect.y, width: half, height: beside.rect.height } : { ...target.area } });
   }
   let closedTabId: string | null = null;
   let closedWorkspaceId: string | null = null;
@@ -347,12 +356,11 @@ function moveDemoPane(pane: Pane, destination: Record<string, unknown>, focus = 
     snap.focused_tab_id = targetTab.tab_id;
     snap.focused_workspace_id = targetTab.workspace_id;
   } else {
-    // the pane ID changed (crossed workspaces): keep tracking it without moving tab/workspace focus
-    if (snap.focused_pane_id === previous.pane_id) snap.focused_pane_id = paneId;
     // focus was not asked to follow, but it cannot stay on a tab or workspace that closed behind
     // the pane: a pane still there takes it, one outside the destination when there is one
-    if (!snap.tabs.some((tab) => tab.tab_id === snap.focused_tab_id) || !snap.workspaces.some((workspace) => workspace.workspace_id === snap.focused_workspace_id)) {
-      const heir = snap.panes.find((candidate) => candidate.workspace_id === previous.workspace_id && candidate.pane_id !== paneId)
+    if (snap.focused_pane_id === previous.pane_id || !snap.tabs.some((tab) => tab.tab_id === snap.focused_tab_id) || !snap.workspaces.some((workspace) => workspace.workspace_id === snap.focused_workspace_id)) {
+      const heir = snap.panes.find((candidate) => candidate.pane_id === source?.focused_pane_id)
+        ?? snap.panes.find((candidate) => candidate.workspace_id === previous.workspace_id && candidate.pane_id !== paneId)
         ?? snap.panes.find((candidate) => candidate.workspace_id !== targetTab.workspace_id)
         ?? pane;
       snap.focused_pane_id = heir.pane_id;
@@ -363,6 +371,8 @@ function moveDemoPane(pane: Pane, destination: Record<string, unknown>, focus = 
   for (const candidate of snap.panes) candidate.focused = candidate.pane_id === snap.focused_pane_id;
   for (const tab of snap.tabs) tab.focused = tab.tab_id === snap.focused_tab_id;
   snap.workspaces.forEach((workspace, index) => { workspace.number = index + 1; workspace.focused = workspace.workspace_id === snap.focused_workspace_id; });
+  const focused = snap.panes.find((candidate) => candidate.pane_id === snap.focused_pane_id);
+  if (focused) focusDemoPane(focused);
   return {
     changed: true, previous_pane_id: previous.pane_id, previous_workspace_id: previous.workspace_id, previous_tab_id: previous.tab_id, pane,
     created_tab: createdTab, created_workspace: createdWorkspace, closed_tab_id: closedTabId, closed_workspace_id: closedWorkspaceId,
@@ -396,6 +406,25 @@ function structureChanged(): void {
   emitSse({ type: "machines", machines });
   emitSse({ type: "machine-message", machine_id: local.id, message: { type: "session-changed" } });
   for (const socket of sockets) socket.push({ type: "session-changed" });
+}
+
+/** A click in herdr focuses the pane, its tab and its workspace while preserving other tabs' own focus. */
+function focusDemoPane(pane: Pane): void {
+  const snap = snapshot();
+  snap.focused_pane_id = pane.pane_id;
+  snap.focused_tab_id = pane.tab_id;
+  snap.focused_workspace_id = pane.workspace_id;
+  const layout = snap.layouts.find((candidate) => candidate.tab_id === pane.tab_id);
+  if (layout) {
+    layout.focused_pane_id = pane.pane_id;
+    for (const candidate of layout.panes) candidate.focused = candidate.pane_id === pane.pane_id;
+  }
+  for (const candidate of snap.panes) candidate.focused = candidate.pane_id === pane.pane_id;
+  for (const tab of snap.tabs) tab.focused = tab.tab_id === pane.tab_id;
+  for (const workspace of snap.workspaces) {
+    workspace.focused = workspace.workspace_id === pane.workspace_id;
+    if (workspace.focused) workspace.active_tab_id = pane.tab_id;
+  }
 }
 
 function agentOf(paneId: string): string {
@@ -465,6 +494,16 @@ async function bodyOf(init: RequestInit | undefined, input: RequestInfo | URL): 
     if (input instanceof Request) return (await input.clone().json()) as Record<string, unknown>;
   } catch { /* not JSON */ }
   return {};
+}
+
+async function layoutBodyOf(method: string, init: RequestInit | undefined, input: RequestInfo | URL): Promise<Record<string, unknown> | Response> {
+  if (method !== "POST") return error("method_not_allowed", "use POST", 400);
+  let body: unknown;
+  try { body = init?.body ? JSON.parse(String(init.body)) : input instanceof Request ? await input.clone().json() : undefined; }
+  catch { return error("invalid_json", "request body must be JSON", 400); }
+  if (body === undefined) return error("invalid_json", "request body must be JSON", 400);
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return error("invalid_body", "request body must be a JSON object", 400);
+  return body as Record<string, unknown>;
 }
 
 const DEMO_FILES = ["src/routes/payments.ts", "src/lib/idempotency.ts", "src/metrics.ts", "src/pages/Reports.tsx", "src/money.ts", "src/money.test.ts", "package.json", "README.md"];
@@ -615,7 +654,51 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     return json({ ok: true });
   }
   if (path === "/api/pane/commands") return json(commandsFixture);
-  if (path === "/api/pane/find") return error("find_unavailable", "History search needs a real herdr pane; the demo only replays terminal output.", 404);
+  if (path === "/api/pane/scroll") {
+    const body = method === "POST" ? await bodyOf(init, input) : {};
+    const target = method === "POST" ? String(body["pane_id"] ?? "") : paneId;
+    if (!target) return error("missing_pane_id", "pane_id is required", 400);
+    if (!paneOf(target)) return error("pane_not_found", "pane not found", 404);
+    const history = histories.get(target);
+    if (method === "POST") {
+      const offset = body["offset_from_bottom"];
+      if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) return error("invalid_offset", "offset_from_bottom must be a non-negative integer", 400);
+      history?.setOffset(offset);
+      if (history) redrawHistory(target);
+    } else if (method !== "GET") return error("method_not_allowed", "use GET or POST", 400);
+    return json({ scroll: history?.scroll() ?? { offset_from_bottom: 0, max_offset_from_bottom: 0, viewport_rows: demoGrid(target).rows } });
+  }
+  if (path === "/api/pane/find") {
+    if (method !== "POST") return error("method_not_allowed", "use POST", 400);
+    const body = await bodyOf(init, input);
+    const target = body["pane_id"];
+    if (typeof target !== "string" || target.length === 0) return error("missing_pane_id", "pane_id is required", 400);
+    if (typeof body["query"] !== "string" || body["query"].length === 0 || body["query"].length > 1024) return error("invalid_query", "query must contain 1 to 1024 characters", 400);
+    if (body["direction"] !== "forward" && body["direction"] !== "backward") return error("invalid_direction", "direction must be forward or backward", 400);
+    if (body["jump"] !== undefined && typeof body["jump"] !== "boolean") return error("invalid_jump", "jump must be a boolean", 400);
+    const point = (value: unknown): value is { row: number; col: number } => {
+      if (!value || typeof value !== "object") return false;
+      const { row, col } = value as { row: unknown; col: unknown };
+      return typeof row === "number" && Number.isSafeInteger(row) && row >= 0 && row <= 0xffffffff
+        && typeof col === "number" && Number.isSafeInteger(col) && col >= 0 && col <= 0xffff;
+    };
+    const previous = body["previous"] as Partial<PaneFindMatch> | undefined;
+    const revision = body["content_revision"];
+    if (previous !== undefined && (!previous || !point(previous.start) || !point(previous.end) || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)) return error("invalid_previous", "previous requires two history cells and content_revision", 400);
+    if (revision !== undefined && (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)) return error("invalid_revision", "content_revision must be a non-negative integer", 400);
+    if (!paneOf(target)) return error("pane_not_found", "pane not found", 404);
+    const history = histories.get(target);
+    if (!history) return error("find_unavailable", "Type demo logs in a demo shell to browse and search fictional log history.", 404);
+    if (previous && revision !== history.revision) return error("stale_content", "Pane changed. Search again.", 409);
+    const request: PaneFindRequest = {
+      pane_id: target, query: body["query"], direction: body["direction"],
+      ...(typeof body["jump"] === "boolean" ? { jump: body["jump"] } : {}),
+      ...(previous && point(previous.start) && point(previous.end) ? { previous: { start: previous.start, end: previous.end }, content_revision: revision as number } : {}),
+    };
+    const result = history.find(request);
+    if (request.jump !== false && result.match) redrawHistory(target);
+    return json(result);
+  }
   if (path === "/api/pane/omo-tasks") return json(keyOfPane.get(paneId) === OMO_TASKS_PANE ? { tasks: omoTasks(), runs: omoRuns() } : { tasks: [], runs: [] });
   if (path === "/api/pane/files") {
     const q = (query.get("q") ?? "").toLowerCase();
@@ -736,18 +819,40 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     return json(moved satisfies PaneMoved);
   }
+  if (path === "/api/layout/ratio") {
+    const body = await layoutBodyOf(method, init, input);
+    if (body instanceof Response) return body;
+    if (typeof body["tab_id"] !== "string" || !body["tab_id"].trim()) return error("missing_tab_id", "tab_id is required", 400);
+    const steps = body["path"];
+    if (!Array.isArray(steps) || !steps.every((step) => typeof step === "boolean")) return error("invalid_path", "path must be an array of booleans", 400);
+    const ratio = body["ratio"];
+    if (typeof ratio !== "number" || !Number.isFinite(ratio) || ratio < 0.1 || ratio > 0.9) return error("invalid_ratio", "ratio must be a number from 0.1 to 0.9", 400);
+    const layout = snapshot().layouts.find((candidate) => candidate.tab_id === body["tab_id"]);
+    if (!layout) return error("layout_not_found", "layout target not found", 404);
+    if (!setLayoutSplitRatio(layout, steps, ratio)) return error("split_not_found", "split path not found", 404);
+    structureChanged();
+    return json({ ok: true });
+  }
   // herdr's layout operations on the demo's own layouts: a split halves the pane's rect for a new
   // shell pane, a zoom flips the tab's flag (after focusing the pane, as herdr does), a swap
   // exchanges two rects, a resize moves the ratio of the split the border belongs to and lays its
   // panes out again (src/lib/layoutTree.ts), and a clear blanks the pane's screen on every socket attached to it
-  if (path === "/api/pane/split" || path === "/api/pane/zoom" || path === "/api/pane/swap" || path === "/api/pane/resize" || path === "/api/pane/clear") {
-    const body = await bodyOf(init, input);
-    const pane = paneOf(String(body["pane_id"] ?? ""));
+  if (path === "/api/pane/split" || path === "/api/pane/zoom" || path === "/api/pane/swap" || path === "/api/pane/resize" || path === "/api/pane/clear" || path === "/api/pane/focus") {
+    const body = await layoutBodyOf(method, init, input);
+    if (body instanceof Response) return body;
+    if (typeof body["pane_id"] !== "string" || !body["pane_id"].trim()) return error("missing_pane_id", "pane_id is required", 400);
+    const pane = paneOf(body["pane_id"]);
     const snap = snapshot();
     const layout = pane ? snap.layouts.find((candidate) => candidate.tab_id === pane.tab_id) : undefined;
     const cell = layout?.panes.find((candidate) => candidate.pane_id === pane?.pane_id);
     if (!pane || !layout || !cell) return error("pane_not_found", "pane not found", 404);
+    if (path === "/api/pane/focus") {
+      focusDemoPane(pane);
+      structureChanged();
+      return json({ ok: true });
+    }
     if (path === "/api/pane/clear") {
+      histories.get(pane.pane_id)?.clear();
       for (const socket of sockets) socket.clearScreen(pane.pane_id);
       return json({ ok: true });
     }
@@ -761,12 +866,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
         return error("split_failed", "The demo pane is too small to split.", 400);
       }
       snap.panes.push(made);
-      if (focus) {
-        layout.focused_pane_id = made.pane_id;
-        for (const candidate of layout.panes) candidate.focused = candidate.pane_id === made.pane_id;
-        for (const candidate of snap.panes) if (candidate.tab_id === pane.tab_id) candidate.focused = candidate.pane_id === made.pane_id;
-        snap.focused_pane_id = made.pane_id;
-      }
+      if (focus) focusDemoPane(made);
       const tab = snap.tabs.find((candidate) => candidate.tab_id === pane.tab_id);
       if (tab) tab.pane_count += 1;
       const workspace = snap.workspaces.find((candidate) => candidate.workspace_id === pane.workspace_id);
@@ -780,15 +880,10 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
       // herdr focuses the pane before it reads the mode, or counts the panes: a zoomed tab then
       // shows this pane alone even when the flag's answer is already_zoomed
       const moved = layout.focused_pane_id !== pane.pane_id;
-      if (moved) {
-        layout.focused_pane_id = pane.pane_id;
-        for (const candidate of layout.panes) candidate.focused = candidate.pane_id === pane.pane_id;
-        for (const candidate of snap.panes) if (candidate.tab_id === pane.tab_id) candidate.focused = candidate.pane_id === pane.pane_id;
-        snap.focused_pane_id = pane.pane_id;
-      }
+      focusDemoPane(pane);
       const answer = (zoomed: boolean, changed: boolean, reason: string | null) => {
         if (moved || changed) structureChanged();
-        return json({ ok: true, zoomed, changed, reason } satisfies PaneZoomed);
+        return json({ ok: true, zoomed, changed: moved || changed, reason } satisfies PaneZoomed);
       };
       if (layout.panes.length < 2) return answer(layout.zoomed, false, "single_pane");
       const zoomed = mode === "toggle" ? !layout.zoomed : mode === "on";
@@ -797,15 +892,29 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
       return answer(zoomed, true, null);
     }
     const direction = body["direction"];
-    if (direction !== "left" && direction !== "right" && direction !== "up" && direction !== "down") return error("invalid_direction", "direction must be left, right, up or down", 400);
     const beside = (side: PaneDirection) => { const id = neighborPane(layout, pane.pane_id, side); return id === null ? undefined : layout.panes.find((candidate) => candidate.pane_id === id); };
     if (path === "/api/pane/swap") {
+      const target = body["target_pane_id"];
+      if (target !== undefined && direction !== undefined) return error("invalid_pane_swap", "provide exactly one of direction or target_pane_id", 400);
+      if (target !== undefined) {
+        if (typeof target !== "string" || !target.trim()) return error("invalid_target_pane_id", "target_pane_id must be a non-empty string", 400);
+        const other = paneOf(target);
+        const reason = !other ? "not_found" : other.pane_id === pane.pane_id ? "same_pane" : other.tab_id !== pane.tab_id ? "cross_tab" : null;
+        if (reason) return json({ ok: true, changed: false, reason, target_pane_id: target } satisfies PaneSwapped);
+        swapLayoutPanes(layout, pane.pane_id, target);
+        focusDemoPane(pane);
+        structureChanged();
+        return json({ ok: true, changed: true, reason: null, target_pane_id: target } satisfies PaneSwapped);
+      }
+      if (direction !== "left" && direction !== "right" && direction !== "up" && direction !== "down") return error("invalid_direction", "direction must be left, right, up or down", 400);
       const other = beside(direction);
       if (!other) return json({ ok: true, changed: false, reason: "no_neighbor", target_pane_id: null } satisfies PaneSwapped);
       swapLayoutPanes(layout, pane.pane_id, other.pane_id);
+      focusDemoPane(pane);
       structureChanged();
       return json({ ok: true, changed: true, reason: null, target_pane_id: other.pane_id } satisfies PaneSwapped);
     }
+    if (direction !== "left" && direction !== "right" && direction !== "up" && direction !== "down") return error("invalid_direction", "direction must be left, right, up or down", 400);
     const amount = body["amount"];
     if (amount !== undefined && (typeof amount !== "number" || !(amount > 0) || amount > 0.5)) return error("invalid_amount", "amount must be a number above 0 and at most 0.5", 400);
     const resized = resizeLayout(layout, pane.pane_id, direction, amount ?? 0.05);
@@ -824,6 +933,26 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     autoTabs.delete(tab.tab_id);
     structureChanged();
     return json({ ok: true });
+  }
+  if (path === "/api/tab/move") {
+    const body = await bodyOf(init, input);
+    if (typeof body["tab_id"] !== "string" || !body["tab_id"]) return error("missing_tab_id", "tab_id is required", 400);
+    const insertIndex = body["insert_index"];
+    if (typeof insertIndex !== "number" || !Number.isSafeInteger(insertIndex) || insertIndex < 0) return error("invalid_index", "insert_index must be a non-negative safe integer", 400);
+    const snap = snapshot();
+    const tab = snap.tabs.find((entry) => entry.tab_id === body["tab_id"]);
+    if (!tab) return error("tab_not_found", "no such tab", 404);
+    const tabs = snap.tabs.filter((entry) => entry.workspace_id === tab.workspace_id);
+    if (insertIndex > tabs.length) return error("tab_move_failed", "insert_index exceeds the tab count", 404);
+    const source = tabs.indexOf(tab);
+    const target = source < insertIndex ? insertIndex - 1 : insertIndex;
+    tabs.splice(source, 1);
+    tabs.splice(target, 0, tab);
+    let place = 0;
+    snap.tabs = snap.tabs.map((entry) => entry.workspace_id === tab.workspace_id ? tabs[place++]! : entry);
+    relabelAutoTabs(tab.workspace_id);
+    structureChanged();
+    return json({ ok: true, tabs } satisfies TabMoved);
   }
   if (path === "/api/tab/close") {
     const body = await bodyOf(init, input);
@@ -1044,7 +1173,7 @@ class DemoSocket extends EventTarget {
 
   send(raw: string): void {
     if (this.readyState !== 1) return;
-    let message: { type: string; pane_id?: string; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; pending_id?: string; action?: unknown };
+    let message: { type: string; pane_id?: string; cols?: number; rows?: number; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; pending_id?: string; action?: unknown };
     try { message = JSON.parse(raw); } catch { return; }
     if ((message.type === "submit" || message.type === "pending-action") && Number.isSafeInteger(message.id)) {
       const signature = JSON.stringify({ type: message.type, pane_id: message.pane_id, text: message.text, payload: message.payload, typed: message.typed, delivery: message.delivery, pending_id: message.pending_id, action: message.action });
@@ -1080,7 +1209,12 @@ class DemoSocket extends EventTarget {
         if (this.mode === "observe") this.holdPending(undefined, "read_only", "This connection now only watches. Pending messages will not be sent automatically.");
         this.push({ type: "role-ack", mode: this.mode });
         break;
-      case "attach": if (message.pane_id) this.attach(message.pane_id); break;
+      case "attach":
+        if (message.pane_id) { this.resizeGrid(message.pane_id, message.cols, message.rows); this.attach(message.pane_id); }
+        break;
+      case "resize":
+        if (message.pane_id && this.attached.has(message.pane_id) && this.mode === "interact") this.resizeGrid(message.pane_id, message.cols, message.rows);
+        break;
       // The demo has no competing attach slots and does not advertise this capability.
       case "take-over":
         this.push({ type: "error", code: "unsupported", message: "The demo has no competing terminal attachments.", pane_id: message.pane_id });
@@ -1156,7 +1290,7 @@ class DemoSocket extends EventTarget {
           }
         }
         break;
-      default: /* resize, pty-ack: nothing to do in the demo */
+      default: /* pty-ack: nothing to do in the demo */
     }
   }
 
@@ -1242,25 +1376,37 @@ class DemoSocket extends EventTarget {
     if (this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" });
   }
 
+  private resizeGrid(paneId: string, cols: number | undefined, rows: number | undefined): void {
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols! < 2 || rows! < 1 || cols! > 1000 || rows! > 1000) return;
+    terminalGrids.set(paneId, { cols: cols!, rows: rows! });
+    if (histories.get(paneId)?.resize(cols!, rows!)) redrawHistory(paneId);
+  }
+
+  renderHistory(paneId: string): void {
+    const history = histories.get(paneId);
+    if (history && this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: history.render() });
+  }
+
   private attach(paneId: string): void {
     this.attached.add(paneId);
     this.publishPending(paneId);
     this.push({ type: "input-ready", pane_id: paneId });
     const key = keyOfPane.get(paneId);
     const pane = paneOf(paneId);
+    if (histories.has(paneId)) { this.renderHistory(paneId); return; }
     if (key === "shell") {
       let at = 0;
       let previous = 0;
       for (const frame of terminalFixture.frames) {
         at += Math.min(MAX_FRAME_GAP_MS, frame.at - previous);
         previous = frame.at;
-        this.later(() => { if (this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: frame.data }); }, at);
+        this.later(() => { if (this.attached.has(paneId) && !histories.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: frame.data }); }, at);
       }
       return;
     }
     if (pane && !pane.agent && !chats.has(paneId)) {
       // a shell the demo user started: an empty prompt
-      this.later(() => this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" + PROMPT_TEXT }), 60);
+      this.later(() => { if (this.attached.has(paneId) && !histories.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" + PROMPT_TEXT }); }, 60);
       return;
     }
     this.later(() => this.push({ type: "pty-data", pane_id: paneId, data: NOTICE }), 60);
@@ -1269,26 +1415,46 @@ class DemoSocket extends EventTarget {
   /** the pretend shell: echo, backspace, and a few commands it knows */
   private typed(paneId: string, text: string): void {
     const pane = paneOf(paneId);
-    if (!pane || pane.agent || chats.has(paneId)) return;
+    if (!pane || pane.agent || chats.has(paneId) || this.mode === "observe") return;
+    let history = histories.get(paneId);
+    // xterm sends SGR wheel reports once demo history has enabled mouse reporting.
+    text = text.replace(/\x1b\[<(\d+);\d+;\d+[Mm]/g, (_report, value: string) => {
+      const button = Number(value);
+      if (history && (button & 64) !== 0) history.setOffset(history.offset + ((button & 1) === 0 ? 3 : -3));
+      return "";
+    });
     let line = this.lines.get(paneId) ?? "";
     let out = "";
     for (const ch of text) {
       if (ch === "\r" || ch === "\n") {
         const command = line.trim();
         line = "";
-        out += "\r\n";
-        if (command) out += (SHELL_COMMANDS[command] ?? SHELL_COMMANDS[command.replace(/\s+--.*$/, "")] ?? (command.startsWith("git log") ? SHELL_COMMANDS["git log"] : `bash: ${command.split(" ")[0]}: command not found`)) + "\r\n";
-        out += PROMPT_TEXT;
+        if (command === "demo logs") {
+          const grid = demoGrid(paneId);
+          const revision = (history?.revision ?? 0) + 2;
+          history = new DemoHistory(grid.cols, grid.rows);
+          history.revision = revision;
+          histories.set(paneId, history);
+          out = "";
+          continue;
+        }
+        const answer = command ? (SHELL_COMMANDS[command] ?? SHELL_COMMANDS[command.replace(/\s+--.*$/, "")] ?? (command.startsWith("git log") ? SHELL_COMMANDS["git log"] : `bash: ${command.split(" ")[0]}: command not found`)) : "";
+        if (history) {
+          history.append([...(answer ? answer.replace(/\x1b\[[0-9;]*m/g, "").split("\r\n") : []), "release $ "]);
+        } else out += "\r\n" + (answer ? answer + "\r\n" : "") + PROMPT_TEXT;
       } else if (ch === "\x7f" || ch === "\b") {
-        if (line.length > 0) { line = line.slice(0, -1); out += "\b \b"; }
+        if (line.length > 0) { line = line.slice(0, -1); out += "\b \b"; history?.setPrompt("release $ " + line); }
       } else if (ch === "\x03") {
         line = ""; out += "^C\r\n" + PROMPT_TEXT;
+        if (history) { history.setPrompt("release $ ^C"); history.append(["release $ "]); }
       } else if (ch >= " ") {
         line += ch; out += ch;
+        history?.setPrompt("release $ " + line);
       }
     }
     this.lines.set(paneId, line);
-    if (out) this.push({ type: "pty-data", pane_id: paneId, data: out });
+    if (history) redrawHistory(paneId);
+    else if (out) this.push({ type: "pty-data", pane_id: paneId, data: out });
   }
 
   close(code = 1000, reason = ""): void {

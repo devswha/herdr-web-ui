@@ -67,8 +67,6 @@ function labelMapKeys(): string[] {
     ...grab("components/DevicesPanel.tsx", "VIA", value),
     ...grab("components/KeyBar.tsx", "ARROWS", /label: "([^"]+)"/g),
     ...grab("components/KeyBar.tsx", "EXTRA_KEY_CAPS", /label: "([^"]+)"/g),
-    ...grab("components/TabStrip.tsx", "SWAP_ITEMS", /label: "([^"]+)"/g),
-    ...grab("components/TabStrip.tsx", "RESIZE_ITEMS", /label: "([^"]+)"/g),
     ...grab("lib/shortcuts.ts", "SHORTCUTS", /label: "([^"]+)"/g),
     ...grab("lib/bridgeProgress.ts", "STAGES", /label: "([^"]+)"/g),
     ...grab("lib/updateProgress.ts", "STEPS", /label: "([^"]+)"/g),
