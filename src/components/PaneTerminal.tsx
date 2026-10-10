@@ -282,6 +282,8 @@ export function PaneTerminal({
   // Explicit sends refresh immediately; continuous transcript invalidations are rate-limited.
   const [chatRefresh, setChatRefresh] = useState(0);
   const [chatInvalidation, setChatInvalidation] = useState(0);
+  // an older bridge pushes no transcript changes: the chat reads at the former 2s cadence
+  const [conversationPushes, setConversationPushes] = useState(false);
   const onConversationWatch = useCallback((pane: string, enabled: boolean) => {
     socketRef.current?.watchConversation(pane, enabled);
   }, []);
@@ -993,6 +995,7 @@ export function PaneTerminal({
         term.writeln(`\r\n\u001b[31m[herdr-web-ui] ${message.code}: ${message.message}\u001b[0m`);
       }
       setConnected(socket.connected);
+      setConversationPushes(socket.conversationPushes());
     });
     const offDisconnect = socket.onDisconnect(() => {
       clearModifiers();
@@ -1003,6 +1006,7 @@ export function PaneTerminal({
       setOutputReady(false);
       setInputReady(false);
       setConnected(false);
+      setConversationPushes(false);
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       setHeld(false);
@@ -1011,7 +1015,7 @@ export function PaneTerminal({
     });
     socket.connect();
 
-    const poll = window.setInterval(() => setConnected(socket.connected), 1000);
+    const poll = window.setInterval(() => { setConnected(socket.connected); setConversationPushes(socket.conversationPushes()); }, 1000);
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
@@ -1995,6 +1999,7 @@ export function PaneTerminal({
             refreshKey={chatRefresh}
             invalidationKey={chatInvalidation}
             onConversationWatch={onConversationWatch}
+            conversationPushes={conversationPushes && !released}
             onTerminalOutput={onTerminalOutput}
             sentKey={chatSent}
             connected={connected}

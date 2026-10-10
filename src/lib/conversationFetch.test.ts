@@ -115,10 +115,17 @@ async function settleRefresh(): Promise<void> {
   for (let step = 0; step < 20; step++) await Promise.resolve();
 }
 
+/** A chat on a bridge that pushes its pane's transcript changes. */
+function pushedRefresh(): ConversationRefresh {
+  const refresh = new ConversationRefresh();
+  refresh.setPushes(true);
+  return refresh;
+}
+
 describe("conversation invalidation refresh", () => {
   it("coalesces pushes at exactly 2000ms and keeps the 10s backstop, ETag and 304 identity", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const requests: { resolve: (response: Response) => void }[] = [];
     const etags: (string | null)[] = [];
     const answers: unknown[] = [];
@@ -163,7 +170,7 @@ describe("conversation invalidation refresh", () => {
 
   it("bounds sustained pushes without extending the deadline and eventually shows the latest REST output", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const starts: number[] = [];
     const answers: ConversationResponse[] = [];
     let output = "initial";
@@ -208,7 +215,7 @@ describe("conversation invalidation refresh", () => {
 
   it("lets an explicit refresh bypass and replace a delayed push", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const starts: number[] = [];
     refresh.setRead(async () => { starts.push(performance.now()); });
     refresh.refresh();
@@ -233,7 +240,7 @@ describe("conversation invalidation refresh", () => {
 
   it("runs an immediate refresh after the in-flight read, without waiting for a push deadline", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const first = Promise.withResolvers<void>();
     const starts: number[] = [];
     refresh.setRead(async () => {
@@ -256,7 +263,7 @@ describe("conversation invalidation refresh", () => {
 
   it("keeps long in-flight reads serial and trails at the later of completion and the fixed deadline", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const starts: number[] = [];
     const releases: (() => void)[] = [];
     let output = "initial";
@@ -307,7 +314,7 @@ describe("conversation invalidation refresh", () => {
 
   it("serializes newest reads, gap fills and older pages without delaying an explicit page for a push", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const first = Promise.withResolvers<void>();
     const gap = Promise.withResolvers<void>();
     const page = Promise.withResolvers<void>();
@@ -355,7 +362,7 @@ describe("conversation invalidation refresh", () => {
 
   it("resumes visibility with the current reader only after the cancelled request finishes", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const old = Promise.withResolvers<void>();
     const current = Promise.withResolvers<void>();
     const reads: string[] = [];
@@ -382,7 +389,7 @@ describe("conversation invalidation refresh", () => {
 
   it("drops an old reader's in-flight trailing work on replacement without starting the new reader", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const old = Promise.withResolvers<void>();
     const reads: string[] = [];
     refresh.setRead(async () => { reads.push("old"); await old.promise; });
@@ -401,7 +408,7 @@ describe("conversation invalidation refresh", () => {
 
   it("drops delayed push work on reader replacement even without stop", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const reads: string[] = [];
     refresh.setRead(async () => { reads.push("old"); });
     refresh.refresh();
@@ -421,7 +428,7 @@ describe("conversation invalidation refresh", () => {
 
   it("cancels the delayed trailing read and its timer when the chat becomes hidden", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     let reads = 0;
     refresh.setRead(async () => { reads += 1; });
     refresh.refresh();
@@ -438,7 +445,7 @@ describe("conversation invalidation refresh", () => {
 
   it("drops pending pushes and timers while hidden, even when a read is still in flight", async () => {
     const clock = refreshClock();
-    const refresh = new ConversationRefresh();
+    const refresh = pushedRefresh();
     const result = Promise.withResolvers<void>();
     let reads = 0;
     refresh.setRead(async () => { reads += 1; await result.promise; });
@@ -452,6 +459,35 @@ describe("conversation invalidation refresh", () => {
     await settleRefresh();
     clock.advance(30_000);
     expect(reads).toBe(1);
+    expect(clock.pending()).toBe(0);
+  });
+
+  it("reads every 2s without pushes and moves a waiting backstop when pushes come and go", async () => {
+    const clock = refreshClock();
+    const refresh = new ConversationRefresh();
+    let reads = 0;
+    refresh.setRead(async () => { reads += 1; });
+    refresh.refresh();
+    await settleRefresh();
+    clock.advance(1999);
+    expect(reads).toBe(1);
+    clock.advance(1);
+    await settleRefresh();
+    expect(reads).toBe(2);
+    // the bridge starts pushing: the waiting poll becomes the 10s backstop from now
+    clock.advance(1000);
+    refresh.setPushes(true);
+    clock.advance(9999);
+    expect(reads).toBe(2);
+    clock.advance(1);
+    await settleRefresh();
+    expect(reads).toBe(3);
+    // the tab lets go of its pane: no pushes, so the 2s poll is back without waiting out 10s
+    refresh.setPushes(false);
+    clock.advance(2000);
+    await settleRefresh();
+    expect(reads).toBe(4);
+    refresh.stop();
     expect(clock.pending()).toBe(0);
   });
 });

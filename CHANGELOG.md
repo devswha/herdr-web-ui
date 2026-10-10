@@ -11,7 +11,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
   Only visible Chat views subscribe; Terminal views and hidden tabs release conversation
   monitoring. Continuous pushes coalesce into at most one newest-page refresh every 2 seconds,
-  with a 10-second fallback. Initial display, sends, reconnect and returning to the tab refresh
+  with a 10-second fallback; without pushes (an older remote PC, or a tab that let go of its pane)
+  Chat reads every 2 seconds as before. Initial display, sends, reconnect and returning to the tab refresh
   immediately without overlapping reads or dropping held history. A Chat that shows the
   terminal's text because no native transcript exists yet rereads on the pane's output instead.
   Conversation responses use negotiated gzip locally, and through a remote PC once its bridge

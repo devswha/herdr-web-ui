@@ -1,7 +1,8 @@
-/** A lost push or an older bridge still gets a full conversation read. */
+/** With pushes, a lost one still gets a full conversation read. */
 const BACKSTOP_MS = 10_000;
 
-/** Pushes never start newest-page reads faster than the former 2s polling cadence. */
+/** Pushes never start newest-page reads faster than the former 2s polling cadence, and a chat
+ * without them (an older bridge, a tab that let go of its pane) reads at that cadence. */
 const INVALIDATION_MS = 2000;
 
 /** One serial lane for newest pages, their gap fills and explicitly requested older pages. */
@@ -12,6 +13,7 @@ export class ConversationRefresh {
   private running = false;
   private timer: number | undefined;
   private newestAt = -Infinity;
+  private pushes = false;
   private readonly pages: (() => Promise<void>)[] = [];
 
   /** Replace a cancelled reader without letting its still-pending REST request overlap this one. */
@@ -21,6 +23,17 @@ export class ConversationRefresh {
     this.invalidated = false;
     this.newestAt = -Infinity;
     this.read = read;
+  }
+
+  /** Whether the bridge pushes this pane's transcript changes; without, the backstop is the poll. */
+  setPushes(available: boolean): void {
+    if (this.pushes === available) return;
+    this.pushes = available;
+    // a waiting backstop takes the new cadence; a read in flight schedules it when it ends
+    if (this.read !== null && !this.running && !this.invalidated && this.timer !== undefined) {
+      this.clearTimer();
+      this.timer = window.setTimeout(() => this.refresh(), this.backstop());
+    }
   }
 
   refresh(): void {
@@ -59,6 +72,10 @@ export class ConversationRefresh {
     this.clearTimer();
   }
 
+  private backstop(): number {
+    return this.pushes ? BACKSTOP_MS : INVALIDATION_MS;
+  }
+
   private clearTimer(): void {
     window.clearTimeout(this.timer);
     this.timer = undefined;
@@ -90,7 +107,7 @@ export class ConversationRefresh {
             this.timer = undefined;
             void this.drain();
           }, Math.max(0, this.newestAt + INVALIDATION_MS - performance.now()))
-          : window.setTimeout(() => this.refresh(), BACKSTOP_MS);
+          : window.setTimeout(() => this.refresh(), this.backstop());
       }
     }
   }

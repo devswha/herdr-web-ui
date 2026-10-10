@@ -118,13 +118,13 @@ paged conversation, including metadata and history identity.
 
 A mounted, visible Chat enables `conversation-watch {pane_id, enabled:true}` on its existing
 machine-bound WebSocket, after attaching. Bridges advertise the `"conversation-watch"` feature;
-older bridges receive no unknown control frame and still use the visible 10 s backstop.
+older bridges receive no unknown control frame, and their visible Chat reads every 2 s as before.
 The client retains current interest through reconnect, replaying it after attachment and
 capability discovery. Hiding the page, leaving Chat or unmounting disables interest. The bridge
 drops interest with the attachment, and the client asks again with the pane's next attach: a
 tab that let go of its pane while out of use (Settings → Use alongside herdr's own window) has
-no pushes while it only watches, and gets them back when it attaches. Observers may subscribe
-without gaining input or resize authority.
+no pushes while it only watches, so it reads every 2 s, and gets pushes back when it attaches.
+Observers may subscribe without gaining input or resize authority.
 
 The bridge shares one native-file monitor per interested attached pane and one 250 ms stat
 timer. Terminal-only and hidden clients do not keep a conversation monitor alive. The monitor
@@ -136,8 +136,9 @@ Newest-page refreshes are single-flight. Push-triggered reads start at least 2 s
 monotonic elapsed time, with one trailing refresh at a fixed deadline: continuous writes cannot
 keep postponing it. A push after idle reads immediately. Initial display, explicit sends,
 status/history repairs, reconnect and visibility return bypass that delay but not serialization.
-Older pages and gap fills use the same serial lane. A visible Chat retains a 10 s backstop for
-older bridges and lost notifications. Hidden Chat starts no new automatic reads or queued
+Older pages and gap fills use the same serial lane. A visible Chat with pushes retains a 10 s
+backstop for lost notifications; without pushes (an older bridge, a released pane) the backstop
+is the former 2 s poll. Hidden Chat starts no new automatic reads or queued
 pagination work; returning preserves held history and scroll. Pending work never follows a
 pane or machine switch.
 

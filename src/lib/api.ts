@@ -163,7 +163,8 @@ export type ConversationPageQuery = { before?: string; since?: string; from?: st
 
 /**
  * The last answer per newest-page conversation URL and its ETag. The chat reads it again on
- * every transcript push (at most every 2s), every send and status edge, and a 10s backstop,
+ * every transcript push (at most every 2s), every send and status edge, and a 10s backstop
+ * (2s without pushes),
  * and a newest page can be megabytes: an unchanged one comes back as a bodyless 304,
  * and the chat gets the very same object back, which tells it nothing changed. An
  * older page (`before`) is asked for once, so it keeps no ETag and takes no slot.
