@@ -498,8 +498,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
     (frame) => {
       if (parseLayoutFrame(frame)) handlers.onStructureChange();
     },
-    // a layout change missed meanwhile shows in the snapshot the clients read on the next change
-    () => {},
+    // a layout change missed meanwhile shows in the snapshot the clients are told to read again
+    () => handlers.onStructureChange(),
     () => stopped,
   );
 

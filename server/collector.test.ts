@@ -663,6 +663,27 @@ describe("startStatusCollector layout changes", () => {
     collector.stop();
   });
 
+  it("tells the clients to read the layout again when its subscription comes back, not on its first start", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.layout().start();
+    await tick(20);
+    expect(log.structure).toBe(0);
+    const calls = herdr.snapshotCalls();
+    // a border moved while the layout stream was lost: left alone, the clients would draw the old
+    // layout until the next move
+    herdr.layout().drop();
+    await tick(10);
+    herdr.layout().start();
+    await tick(20);
+    expect(log.structure).toBe(1);
+    // the pane set is as it was: the collector takes no snapshot of its own
+    expect(herdr.snapshotCalls()).toBe(calls);
+    collector.stop();
+  });
+
   it("loses no pane exit when an older herdr refuses the layout type", async () => {
     const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
     const ended: string[] = [];
