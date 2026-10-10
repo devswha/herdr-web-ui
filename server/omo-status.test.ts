@@ -17,6 +17,8 @@ const message = (role: string, stopReason?: string, at = "2026-10-02T00:00:10.00
 const runtime = (customType: string) => JSON.stringify({ type: "custom_message", customType, display: false, content: "…", timestamp: "2026-10-02T00:00:20.000Z" });
 const bookkeeping = (customType: string) => JSON.stringify({ type: "custom", customType });
 const lines = (...entries: string[]) => entries.join("\n") + "\n";
+// an answer written after the failures below
+const LATER = "2026-10-02T00:02:00.000Z";
 // the answer OmO records for a request the provider gave up on (OmO 5.1.28)
 const failure = (text: string) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:01:00.000Z", message: { role: "assistant", content: [], stopReason: "error", errorMessage: text } });
 // a question for the user, as OmO 5.1.19 records it: the call, the result of one asked without waiting, its settlement
@@ -144,7 +146,7 @@ describe("OmO panes' status in place of herdr's", () => {
     const append = (...entries: string[]) => { files[FILE] += lines(...entries); };
     /** the file put anew in place of the old one, as a rewrite does */
     const replace = (...entries: string[]) => { files[FILE] = lines(...entries); ids[FILE] = `${Number(ids[FILE] ?? 1) + 1}`; };
-    return { omo, told, found, append, replace, state };
+    return { omo, told, found, append, replace, state, files };
   }
   const statuses = (snapshot: SessionSnapshot) => Object.fromEntries(snapshot.panes.map((p) => [p.pane_id, `${p.agent}/${p.agent_status}`]));
 
@@ -202,7 +204,7 @@ describe("OmO panes' status in place of herdr's", () => {
     // a retry that gets an answer ends the turn after all: that is a finish, alerted as one. It
     // goes straight to DONE: a RUN told just before would make it a turn of no length, which the
     // default alerts (a finish after a long turn) leave untold; a turn whose start was not seen is told
-    append(message("assistant", "stop"));
+    append(message("assistant", "stop", LATER));
     omo.poll(); settle();
     expect(shown.slice(4)).toEqual(["done"]);
     expect(statuses(await served())["omo"]).toBe("omo/done");
@@ -240,11 +242,60 @@ describe("OmO panes' status in place of herdr's", () => {
     state.discovered.set("omo", { path: null, startedAt: null });
     state.clock += 10_000;
     await omo.refresh(herdr().panes);
-    append(message("assistant", "stop"));
+    append(message("assistant", "stop", LATER));
     state.discovered.set("omo", { path: FILE, startedAt: null });
     state.clock += 10_000;
     await omo.refresh(herdr().panes);
     expect(settle()).toEqual(["done"]);
+  });
+
+  it("takes no finish from another session's history after a model error (#687)", async () => {
+    const { omo, told, files, state } = setup(lines(message("user"), failure("Request timed out.")));
+    const completions = new CompletionTracker(null);
+    await omo.refresh(herdr().panes);
+    const settle = () => told.splice(0).filter(([id, , , turn]) => id === "omo" && turn).map(([id, status, , , rest]) => completions.observe(id, status, "omo", rest));
+    expect(settle()).toEqual(["idle"]);
+    // /resume puts a session that finished long ago in the pane: its last answer is no new work
+    const other = "/s/2026_01a0f88b-0000-7139-8125-c9cd453b9e17.jsonl";
+    files[other] = lines(message("user"), message("assistant", "stop", LATER));
+    state.discovered.set("omo", { path: other, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(settle()).not.toContain("done");
+    expect(completions.current("omo")).toBe("idle");
+  });
+
+  it("does not finish a retry twice when herdr's word told it while the session could not be (#687)", async () => {
+    const { omo, told, append, state } = setup(lines(message("user"), failure("Request timed out.")));
+    const completions = new CompletionTracker(null);
+    await omo.refresh(herdr().panes);
+    const settle = () => told.splice(0).filter(([id, , , turn]) => id === "omo" && turn).map(([id, status, , , rest]) => completions.observe(id, status, "omo", rest));
+    expect(settle()).toEqual(["idle"]);
+    state.discovered.set("omo", { path: null, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    // meanwhile herdr's status stands for the pane: the retry runs and finishes there, alerted, and is seen
+    expect(completions.observe("omo", "working", "omo")).toBe("working");
+    expect(completions.observe("omo", "idle", "omo")).toBe("done");
+    expect(completions.seen("omo")).toBe(true);
+    append(message("assistant", "stop", LATER));
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(settle()).not.toContain("done");
+    expect(completions.current("omo")).toBe("idle");
+  });
+
+  it("keeps another turn's DONE when a session found anew ends in an old error (#687)", async () => {
+    // the server restarts with the pane's last finish kept unseen, and the pane now holds an older session that failed
+    const completions = new CompletionTracker(null);
+    expect(completions.observe("omo", "working", "omo")).toBe("working");
+    expect(completions.observe("omo", "idle", "omo")).toBe("done");
+    const { omo, told } = setup(lines(message("user"), failure("Request timed out.")));
+    await omo.refresh(herdr().panes);
+    const shown = told.splice(0).filter(([id, , , turn]) => id === "omo" && turn).map(([id, status, , , rest]) => completions.observe(id, status, "omo", rest));
+    expect(shown).not.toContain("idle");
+    expect(completions.current("omo")).toBe("done");
   });
 
   it("restores INPUT when an unanswered call predates the last megabyte at startup", async () => {
