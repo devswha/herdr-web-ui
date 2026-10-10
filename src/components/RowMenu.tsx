@@ -49,7 +49,8 @@ interface Props {
   onClose: () => void;
 }
 
-const SHEET_QUERY = "(max-width: 640px)";
+/** where the menu is the bottom sheet; a caller that lays its header out for the sheet reads the same line */
+export const SHEET_QUERY = "(max-width: 640px)";
 const GAP = 4;
 const EDGE = 8;
 /** a popover never grows past this, however much room the screen has */

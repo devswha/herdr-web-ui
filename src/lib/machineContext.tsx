@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
-import type { CreateWorktreeRequest, OpenWorktreeRequest, RemoveWorktreeRequest } from "../../shared/protocol.ts";
+import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, RemoveWorktreeRequest, SplitPaneDirection } from "../../shared/protocol.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
 /** Bound functions retain their owner across an async upload or a fast PC switch. */
@@ -23,6 +23,11 @@ export function useMachineApi() {
     openWorktree: (request: OpenWorktreeRequest) => api.openWorktree(request, id),
     removeWorktree: (request: RemoveWorktreeRequest) => api.removeWorktree(request, id),
     renamePane: (pane: string, label: string) => api.renamePane(pane, label, id),
+    splitPane: (pane: string, direction: SplitPaneDirection, focus = false) => api.splitPane(pane, direction, focus, id),
+    zoomPane: (pane: string) => api.zoomPane(pane, "toggle", id),
+    swapPane: (pane: string, direction: PaneDirection) => api.swapPane(pane, direction, id),
+    resizePane: (pane: string, direction: PaneDirection) => api.resizePane(pane, direction, id),
+    clearPane: (pane: string) => api.clearPane(pane, id),
     renameWorkspace: (workspace: string, label: string) => api.renameWorkspace(workspace, label, id),
     moveWorkspace: (workspace: string, index: number) => api.moveWorkspace(workspace, index, id),
     fetchAgentKinds: () => api.fetchAgentKinds(id),

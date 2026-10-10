@@ -13,19 +13,30 @@ import type {
   OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
+  PaneDirection,
+  PaneInfo,
   PaneReadResult,
+  PaneResized,
+  PaneSplit,
+  PaneSwapped,
+  PaneZoomed,
   PromptAnswer,
   PushKey,
   RemoteAccess,
   RemoveWorktreeRequest,
+  ResizePaneRequest,
   SessionSnapshot,
   SlashCommand,
+  SplitPaneDirection,
+  SplitPaneRequest,
+  SwapPaneRequest,
   TabCreated,
   UsageReport,
   WorkspaceCreated,
   WorktreeListing,
   WorktreeOpened,
   WorktreeRemoved,
+  ZoomPaneRequest,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import { readInstalledNotes, readUpdateNotes, type HerdrUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
@@ -383,6 +394,39 @@ export async function closePane(paneId: string, machineId = "local"): Promise<vo
 /** POST /api/pane/rename: sets the pane's label in herdr (an empty label clears it). */
 export async function renamePane(paneId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/rename"), "POST", { pane_id: paneId, label });
+}
+
+/**
+ * POST /api/pane/split: a new pane beside this one in herdr (its prefix+v / prefix+-), answered as
+ * herdr lists it. herdr's focus stays put unless `focus` asks for the new pane; the sidebar and the
+ * tab strip learn of it from the server's session-changed broadcast.
+ */
+export async function splitPane(paneId: string, direction: SplitPaneDirection, focus = false, machineId = "local"): Promise<PaneInfo> {
+  const response = await sendJson(machinePath(machineId, "pane/split"), "POST", { pane_id: paneId, direction, ...(focus ? { focus: true } : {}) } satisfies SplitPaneRequest);
+  return ((await response.json()) as PaneSplit).pane;
+}
+
+/** POST /api/pane/zoom: herdr's prefix+z on that pane; `zoomed` is the tab's state after it. */
+export async function zoomPane(paneId: string, mode: ZoomPaneRequest["mode"] = "toggle", machineId = "local"): Promise<PaneZoomed> {
+  const response = await sendJson(machinePath(machineId, "pane/zoom"), "POST", { pane_id: paneId, mode } satisfies ZoomPaneRequest);
+  return (await response.json()) as PaneZoomed;
+}
+
+/** POST /api/pane/swap: the pane and its neighbour on that side change places; `changed` false when it has none there. */
+export async function swapPane(paneId: string, direction: PaneDirection, machineId = "local"): Promise<PaneSwapped> {
+  const response = await sendJson(machinePath(machineId, "pane/swap"), "POST", { pane_id: paneId, direction } satisfies SwapPaneRequest);
+  return (await response.json()) as PaneSwapped;
+}
+
+/** POST /api/pane/resize: the border the pane shares with a neighbour moves that way, by herdr's default share of the tab. */
+export async function resizePane(paneId: string, direction: PaneDirection, machineId = "local"): Promise<PaneResized> {
+  const response = await sendJson(machinePath(machineId, "pane/resize"), "POST", { pane_id: paneId, direction } satisfies ResizePaneRequest);
+  return (await response.json()) as PaneResized;
+}
+
+/** POST /api/pane/clear: clears the pane's terminal screen in herdr. */
+export async function clearPane(paneId: string, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/clear"), "POST", { pane_id: paneId });
 }
 
 /** GET /api/agents: the agent kinds herdr can start, for the new-session dialog. */

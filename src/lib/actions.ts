@@ -4,6 +4,8 @@
  * keyboard shortcut, a palette row and a sidebar button all run the same code.
  */
 
+import type { SplitPaneDirection } from "../../shared/protocol.ts";
+
 export type PaneView = "chat" | "terminal";
 
 export interface AppActions {
@@ -32,4 +34,12 @@ export interface AppActions {
   refresh: () => void;
   /** null without a pane: the files of its folder, each opened in the file viewer */
   openFiles: (() => void) | null;
+  /**
+   * herdr's split beside the selected pane (its prefix+v and prefix+-), null without a pane. The
+   * selection stays on this pane, as herdr's --no-focus keeps its focus, unless `focus` asks for
+   * the new pane: then herdr focuses it and the app opens it.
+   */
+  splitPane: ((direction: SplitPaneDirection, focus?: boolean) => void) | null;
+  /** herdr's prefix+z on the selected pane: its tab shows it alone, or every pane again; null without a pane */
+  zoomPane: (() => void) | null;
 }

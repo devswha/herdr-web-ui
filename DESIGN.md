@@ -418,7 +418,8 @@ One set for both themes: the card is island black wherever it shows.
   confirmed close, focus lands on the header's workspace-list toggle.
 - The tab strip's pane picker is the same menu: one item per pane of the tab, the agent's mark
   (or the shell glyph) and the pane's title, the open pane named in the strong colour
-  (`aria-current`).
+  (`aria-current`). A tab of several panes heads it with the layout map (below), in the
+  popover's header and in the sheet's head under the title.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
@@ -609,7 +610,25 @@ One set for both themes: the card is island black wherever it shows.
   a right-click opens the tab's menu under its left edge; the middle button closes. With keys
   on a focused tab: F2 and Delete. On a touch screen there is no `x`: the open tab carries the
   chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
-  several, then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+  several, then herdr's layout operations on the pane the tab opens (the open pane on the open
+  tab): **Split right**, **Split down** (prefix+v, prefix+-), **Zoom pane** / **Unzoom pane**
+  (prefix+z, a checkbox item) and **Swap left / right / up / down** (prefix+shift+hjkl), only for
+  the sides the pane has a neighbour on, **Wider / Narrower / Taller / Shorter** (the resize
+  mode, by herdr's own share of the tab), only for an axis the pane shares with a neighbour, and
+  **Clear pane**; then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+  A split keeps the open pane, as herdr's `--no-focus` keeps its focus. herdr's "nothing
+  changed" answers (no neighbour on that side, a border that cannot move) read as a line of
+  `--status-blocked` text at the strip's end, like a refusal.
+- The layout map (`.layout-map`, components/LayoutMap.tsx): the tab's area as a box of the
+  area's columns over its rows (a terminal cell counts twice as tall as wide), held between
+  1.2:1 and 3:1 and no taller than 96px in the popover (whose 320px hold the items under it)
+  or 140px in the sheet, `--radius-md`. Each pane is a `.layout-map-cell`
+  button at its rect's place and size in percent, `--bg-hover` with a hairline of the menu's
+  surface (`--bg-elevated`) between cells and `--radius-sm` corners; `--border-strong` under the
+  pointer. The open pane's cell (`.is-current`, `aria-current`) is the `--accent-tint` wash
+  edged in `--accent`, and the pane herdr zooms carries a 12px Maximize2 glyph (`.is-zoomed`),
+  named "(zoomed)" for assistive tech. A cell opens its pane and closes the menu. Nothing in it
+  is to the terminal's scale: the rects are herdr's layout, not the attached terminal's size.
 - A close is immediate, as herdr's, and the tab beside it opens. It asks first (the confirm
   dialog) only when it costs more than the tab: an agent in it is working or blocked, or it is
   the workspace's last tab, which takes the workspace with it. A refusal shows in the dialog, or
@@ -984,8 +1003,11 @@ One set for both themes: the card is island black wherever it shows.
   lead an empty query; arrows in the search field cycle through visible results, Enter activates
   and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
   with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
-- Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
+- Actions cover new workspace, new tab, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints resolved from this browser's shortcut settings; disabled bindings have no hint.
+  With a pane selected they add herdr's **Split pane right / down**, the same **and open it**
+  (herdr's `--focus`: the new pane is opened here only then) and, in a tab of several panes,
+  **Zoom pane** / **Unzoom pane**.
 
 ### Settings dialog
 - A Settings shortcut opened over a file preview places Settings above it (`--z-modal + 2`, one

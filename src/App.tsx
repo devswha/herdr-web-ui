@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Bell, Ellipsis, FolderOpen, Lock, Menu, MessageSquare, PanelLeft, Plus, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
@@ -715,6 +715,25 @@ export function App() {
       enableNotifications: bellVisible && bell.run === enableNotifications ? () => void enableNotifications() : null,
       refresh: () => void load(),
       openFiles: selectedPaneId !== null ? () => { setDrawerOpen(false); setFilesOpen(true); } : null,
+      // herdr's layout calls on the selected pane (components/TabStrip.tsx has the same for the
+      // tab's own menu): the new layout reaches every client as session-changed, so only a
+      // refusal is left to say, and that is logged as other background failures are
+      splitPane: selectedPaneId !== null ? (direction, focus = false) => {
+        const { machineId, paneId } = selectionRef.current;
+        if (paneId === null) return;
+        void splitPane(paneId, direction, focus, machineId)
+          .then((pane) => {
+            void load();
+            // herdr focused the new pane: the app follows, unless the user moved to another PC meanwhile
+            if (focus && selectionRef.current.machineId === machineId) selectPane(pane.pane_id);
+          })
+          .catch((err) => console.warn("pane split failed", err));
+      } : null,
+      zoomPane: selectedPaneId !== null ? () => {
+        const { machineId, paneId } = selectionRef.current;
+        if (paneId === null) return;
+        void zoomPane(paneId, "toggle", machineId).then(() => void load()).catch((err) => console.warn("pane zoom failed", err));
+      } : null,
     }),
     [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load],
   );
@@ -898,7 +917,7 @@ export function App() {
         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {snapshot && selectedPane && selectedWorkspace && (
-          <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} />
+          <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} onLayoutChanged={actions.refresh} />
         )}
         {/* the tab strip's panel: its id is what each tab's aria-controls points at. No tabIndex -
             the terminal (PaneTerminal) and the composer are the focusable things inside it. */}
