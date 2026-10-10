@@ -300,6 +300,10 @@ export async function acquire(
     }
     const same = holders.filter((holder) => holder.checkout === checkout);
     if (same.length > 0) return { refused: "same-checkout", holders: same };
+    // a run from before slots names no checkout and counts on having the PC to itself: nothing
+    // can say it is not in this checkout, so it is alone until it ends
+    const alone = holders.filter((holder) => !Number.isNaN(holder.heldBy) && holder.checkout === undefined);
+    if (alone.length > 0) return { refused: "busy", holders: alone };
     if (slots > 0 && (!taken || holders.length >= slots)) return { refused: "busy", holders };
     admitted = true;
     return { release, port: taken?.port ?? null };

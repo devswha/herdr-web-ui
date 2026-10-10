@@ -365,6 +365,21 @@ describe("slots", () => {
     expect(lstatSync(marker).isSymbolicLink()).toBe(true);
   });
 
+  it("leaves the PC to a run from before slots, which names no checkout", async () => {
+    const base = await freeRange(3);
+    const old = await lock(base, 111);
+    if (!("release" in old)) throw new Error("the first slot was free");
+    try {
+      const refused = await acquire({ slots: 2, scan: 3, base, checkout: "/mine" });
+      try { expect(refused).toEqual({ refused: "busy", holders: [{ port: base, heldBy: 111 }] }); }
+      finally { release(refused); }
+      // the candidate slot it took while asking is free again
+      const next = await lock(base + 1, 222, "/other");
+      expect("release" in next).toBe(true);
+      if ("release" in next) next.release();
+    } finally { old.release(); }
+  });
+
   it("serializes simultaneous admission without leaving a candidate slot behind", async () => {
     const base = await freeRange(3);
     const results = await Promise.all([
