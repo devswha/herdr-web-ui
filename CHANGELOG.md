@@ -27,6 +27,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   of its own, as herdr's `pane move` does; on a phone the places are a bottom sheet. The app stays
   on the moved pane, also under the new id herdr gives a pane that changes workspace, and the lens
   and unsent drafts kept for it follow. `POST /api/pane/move` carries it, on a remote PC too.
+  ([#734](https://github.com/devswha/herdr-web-ui/pull/734))
 
 ### Changed
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of

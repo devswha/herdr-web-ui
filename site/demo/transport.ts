@@ -248,7 +248,7 @@ function demoLayout(tabId: string): Layout {
 
 // herdr's `pane move`: the pane into another tab, a new tab or a new workspace, under a new id
 // when it leaves its workspace; the tab and workspace it emptied close behind it
-function moveDemoPane(pane: Pane, destination: Record<string, unknown>): PaneMoved | Response {
+function moveDemoPane(pane: Pane, destination: Record<string, unknown>, focus = false): PaneMoved | Response {
   const snap = snapshot();
   const previous = { pane_id: pane.pane_id, workspace_id: pane.workspace_id, tab_id: pane.tab_id };
   const makeTab = (workspaceId: string, label: string): Tab => {
@@ -331,10 +331,13 @@ function moveDemoPane(pane: Pane, destination: Record<string, unknown>): PaneMov
   relabelAutoTabs(targetTab.workspace_id);
   recountDemoWorkspace(previous.workspace_id);
   recountDemoWorkspace(targetTab.workspace_id);
-  if (snap.focused_pane_id === previous.pane_id) {
+  if (focus) {
     snap.focused_pane_id = paneId;
     snap.focused_tab_id = targetTab.tab_id;
     snap.focused_workspace_id = targetTab.workspace_id;
+  } else if (snap.focused_pane_id === previous.pane_id) {
+    // the pane ID changed (crossed workspaces): keep tracking it without moving tab/workspace focus
+    snap.focused_pane_id = paneId;
   }
   for (const candidate of snap.panes) candidate.focused = candidate.pane_id === snap.focused_pane_id;
   for (const tab of snap.tabs) tab.focused = tab.tab_id === snap.focused_tab_id;
@@ -688,7 +691,9 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     if (!pane) return error("pane_not_found", "source pane not found", 404);
     const destination = body["destination"];
     if (!destination || typeof destination !== "object" || Array.isArray(destination)) return error("invalid_destination", "destination must be an object", 400);
-    const moved = moveDemoPane(pane, destination as Record<string, unknown>);
+    const focus = body["focus"];
+    if (focus !== undefined && typeof focus !== "boolean") return error("invalid_focus", "focus must be a boolean", 400);
+    const moved = moveDemoPane(pane, destination as Record<string, unknown>, focus === true);
     if (moved instanceof Response) return moved;
     structureChanged();
     return json(moved satisfies PaneMoved);

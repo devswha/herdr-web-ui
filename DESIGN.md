@@ -405,7 +405,9 @@ One set for both themes: the card is island black wherever it shows.
   New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
   ends in **Delete worktree checkout…** after Close workspace. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
-  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
+  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
+  rows scroll between the head and Cancel (`.row-sheet-items`), which stay put, when the sheet's
+  92% of the screen cannot hold them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
   A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
@@ -424,7 +426,10 @@ One set for both themes: the card is island black wherever it shows.
   (`.move-pane-head`), then New tab and the workspace's other tabs, every other workspace under
   a hairline, and New workspace under another. A pick moves the pane at once (`POST
   /api/pane/move`); the app stays on a moved pane that was open, also under the new id herdr
-  gives a pane that changes workspace. A refusal reads as the row's or the strip's inline error.
+  gives a pane that changes workspace, and waits for the move's answer before it would read a
+  roster without the pane as the pane gone. A refusal reads as the row's or the strip's inline
+  error, herdr's own too ("Move failed: the tab is zoomed; unzoom it in herdr, then move the
+  pane"): a `changed: false` answer never closes the menu as if the pane had moved.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane

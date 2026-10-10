@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { SessionSnapshot } from "../../shared/protocol.ts";
 import { ComposerDraftStore } from "./composerDraft.ts";
-import { carryPaneRecords, paneMoveTargets } from "./paneMove.ts";
+import { carryPaneRecords, moveRefusal, paneMoveTargets } from "./paneMove.ts";
+import { readTerminalDraft, setTerminalDraftSending, writeTerminalDraft } from "./terminalDraft.ts";
 
 const t = (key: string, vars?: Record<string, string | number>): string => key.replace(/\{(\w+)\}/g, (_, name: string) => String(vars?.[name] ?? ""));
 
@@ -71,6 +72,36 @@ describe("carryPaneRecords", () => {
     expect(data.get("herdr-web-ui:queue:w1:p1")).toBe("held");
   });
 
+  it("moves the phone's terminal line too, and leaves one that is being sent", () => {
+    const { storage } = fakeStorage({});
+    const drafts = new ComposerDraftStore(() => storage);
+    writeTerminalDraft("w1:p1", "ls -la");
+    carryPaneRecords("local", "w1:p1", "w2:p3", { storage: () => storage, drafts });
+    expect(readTerminalDraft("w2:p3")).toBe("ls -la");
+    expect(readTerminalDraft("w1:p1")).toBe("");
+    // on its way: the acknowledgement clears it under the owner that sent it
+    writeTerminalDraft("w3:p1", "make");
+    setTerminalDraftSending("w3:p1", true);
+    carryPaneRecords("local", "w3:p1", "w4:p1", { storage: () => storage, drafts });
+    expect(readTerminalDraft("w3:p1")).toBe("make");
+    expect(readTerminalDraft("w4:p1")).toBe("");
+    setTerminalDraftSending("w3:p1", false);
+    writeTerminalDraft("w3:p1", "");
+    writeTerminalDraft("w2:p3", "");
+  });
+
+  it("leaves a draft another tab is sending, read through its lease", () => {
+    // the sidebar's move never opened the composer here: this tab's store has not read the draft
+    const { data, storage } = fakeStorage({ "herdr-web-ui:composer-draft:w1:p1": "on its way" });
+    const otherTab = new ComposerDraftStore(() => storage);
+    expect(otherTab.begin("herdr-web-ui:composer-draft:w1:p1", "on its way")).toBe(true);
+    const thisTab = new ComposerDraftStore(() => storage);
+    carryPaneRecords("local", "w1:p1", "w2:p1", { storage: () => storage, drafts: thisTab });
+    expect(data.get("herdr-web-ui:composer-draft:w1:p1")).toBe("on its way");
+    expect(data.has("herdr-web-ui:composer-draft:w2:p1")).toBe(false);
+    expect(thisTab.read("herdr-web-ui:composer-draft:w2:p1").text).toBe("");
+  });
+
   it("keeps a remote pane's namespace and leaves a draft that is being sent", () => {
     const { data, storage } = fakeStorage({ "herdr-web-ui:view:remote:pc:w1%3Ap1": "terminal", "herdr-web-ui:composer-draft:remote:pc:w1%3Ap1": "on its way" });
     const drafts = new ComposerDraftStore(() => storage);
@@ -85,5 +116,15 @@ describe("carryPaneRecords", () => {
     const { data, storage } = fakeStorage({ "herdr-web-ui:view:w1:p1": "chat" });
     carryPaneRecords("local", "w1:p1", "w1:p1", { storage: () => storage, drafts: new ComposerDraftStore(() => storage) });
     expect([...data.keys()]).toEqual(["herdr-web-ui:view:w1:p1"]);
+  });
+});
+
+describe("moveRefusal", () => {
+  it("says what to do about a zoomed tab, names a pane already in place, and passes an unknown reason on", () => {
+    expect(moveRefusal("zoomed_tab", t)).toBe("the tab is zoomed; unzoom it in herdr, then move the pane");
+    expect(moveRefusal("same_tab", t)).toBe("the pane is already in that tab");
+    expect(moveRefusal("locked_layout", t)).toBe("locked_layout");
+    expect(moveRefusal(null, t)).toBe("herdr left the pane where it was");
+    expect(moveRefusal(undefined, t)).toBe("herdr left the pane where it was");
   });
 });
