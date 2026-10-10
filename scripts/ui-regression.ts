@@ -1294,7 +1294,8 @@ try {
   await childHeader.locator(".row-menu-toggle").click();
   const childMenu = page.getByRole("menu");
   await childMenu.waitFor();
-  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "New tab", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
+  // the row's pane was reported as a codex agent above, so herdr lists it and the menu offers its name
+  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "Agent name…", "New tab", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
   await childMenu.getByRole("menuitem", { name: "Delete worktree checkout…", exact: true }).click();
   const deleteConfirm = page.getByRole("alertdialog");
   await deleteConfirm.waitFor();
