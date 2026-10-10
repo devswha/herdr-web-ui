@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Bell, Ellipsis, FolderOpen, Lock, Menu, MessageSquare, PanelLeft, Plus, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
@@ -210,9 +210,13 @@ export function App() {
   // narrow window opened must not come back (with its scrim) the next time the window narrows
   const wideScreen = useMediaQuery("(min-width: 769px)");
   useEffect(() => { if (wideScreen) setDrawerOpen(false); }, [wideScreen]);
-  // with a generation (lib/selectionMark.ts): a call that answers after the user opened another pane or PC leaves the selection alone
+  // with a generation (lib/selectionMark.ts): a call that answers after the user opened another pane or PC leaves
+  // the selection alone. Marked at commit, not in render: a render React throws away (Strict Mode, a replay)
+  // must not move the generation on, and every reader runs from an event or a reply, after the commit
   const selectionRef = useRef<SelectionMark>({ machineId: selectedMachineId, paneId: selectedPaneId, generation: 0 });
-  selectionRef.current = markSelection(selectionRef.current, selectedMachineId, selectedPaneId);
+  useLayoutEffect(() => {
+    selectionRef.current = markSelection(selectionRef.current, selectedMachineId, selectedPaneId);
+  }, [selectedMachineId, selectedPaneId]);
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
