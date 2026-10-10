@@ -3564,6 +3564,14 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         name: "omo's review, from its comment up to an answer", agent: "pi", rows: 3, start: 2, choice: { option_index: 2 }, sent: ["up", "enter"],
         draw: (at) => `\n [표시 위치] [월 한도] wait for answer\n\n${rule}\n\n Ask user · 30m\n   표시 위치 ✓    월 한도 ✓  → Submit\n Review your answers\n ${at === 0 ? "→" : " "} 표시 위치: 설정 > 음성 입력 (추천)\n ${at === 1 ? "→" : " "} 월 한도: 월 $5 한도\n\n Comment (optional; unanswered questions are reported)\n>\n Submit (2/2 answered)\n ${at === 2 ? "enter submit  ↑ review answers  shift+tab back  tab next question  esc back" : "enter edit answer  ↑↓ move  tab next question  esc back"}\n${omoFooter}`,
       },
+      {
+        name: "Hermes's clarify question: Blue", agent: "hermes", rows: 3, choice: { option_index: 1 }, sent: ["down", "enter"],
+        draw: (at) => `\n ask 1 question\n ▸ Pick a colour\n${["Red (Recommended)", "Blue", "Other (type your answer)"].map((row, index) => `   ${at === index ? "▸" : " "} ${index + 1}. ${row}`).join("\n")}\n 0/1 answered · ↑/↓ select · Enter confirm and continue · Tab/Shift+Tab switch question · Esc/Ctrl+C cancel\n ─ (⌐■_■) deliberating…  · 10s │ opus 5.5\n`,
+      },
+      {
+        name: "Hermes's multi-select question: Red and Blue", agent: "hermes", rows: 4, choice: { option_indices: [0, 1] }, sent: ["space", "down", "space", "enter"],
+        draw: (at, ticked) => `\n ask 1 question\n ▸ Pick colours\n${["Red", "Blue", "Green"].map((row, index) => `   ${at === index ? "▸" : " "} ${ticked.includes(index) ? "[x]" : "[ ]"} ${index + 1}. ${row}`).join("\n")}\n   ${at === 3 ? "▸" : " "} 4. Other (type your answer)\n 0/1 answered · Space toggle · ↑/↓ select · Enter confirm and continue · Tab/Shift+Tab switch question · Esc/Ctrl+C cancel\n ─ (⌐■_■) deliberating…  · 10s │ opus 5.5\n`,
+      },
     ];
     for (const { name, agent, status = "blocked", rows, start = 0, draw, choice, sent } of cases) {
       test(name, async () => {

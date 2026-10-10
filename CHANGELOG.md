@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
+  choice, a typed answer for its "Other" row and for an open question, and ticks for a question
+  that takes several answers.
+
 ### Fixed
 - A Claude pane that used an agent team no longer counts its teammates as running after they
   shut down: a teammate that approved its lead's shutdown request reads as completed, so the
