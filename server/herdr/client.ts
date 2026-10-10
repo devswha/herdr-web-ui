@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import type {
+  AgentIntegration,
   PaneReadResult,
   ReadFormat,
   ReadSource,
@@ -173,6 +174,12 @@ export async function sessionSnapshot(socketPath?: string, timeoutMs?: number): 
   return result.snapshot;
 }
 
+/** One pane's metadata; an unknown pane rejects with herdr's `pane_not_found`. */
+export async function paneGet(paneId: string, socketPath?: string): Promise<PaneInfo> {
+  const result = await herdrRpc<{ pane: PaneInfo }>("pane.get", { pane_id: paneId }, socketPath);
+  return result.pane;
+}
+
 export async function agentManifests(socketPath?: string): Promise<{ manifests: AgentManifestInfo[] }> {
   return herdrRpc("server.agent_manifests", {}, socketPath);
 }
@@ -249,6 +256,11 @@ export async function pluginActionInvoke(
 
 export async function pluginLogList(pluginId: string, limit: number, socketPath?: string): Promise<PluginCommandLog[]> {
   return (await herdrRpc<{ logs: PluginCommandLog[] }>("plugin.log.list", { plugin_id: pluginId, limit }, socketPath)).logs;
+}
+
+/** herdr's built-in agent integrations and whether each is installed. Read only: this bridge never installs one. */
+export async function integrationList(socketPath?: string): Promise<AgentIntegration[]> {
+  return (await herdrRpc<{ integrations: AgentIntegration[] }>("integration.list", {}, socketPath)).integrations;
 }
 
 export interface WorkspaceCreateResult {
@@ -430,8 +442,8 @@ export interface PaneTextPoint { row: number; col: number }
 
 /** Where the pane's viewport sits in its scrollback; null when herdr reports none. */
 export async function paneScrollInfo(paneId: string, socketPath?: string): Promise<PaneScrollInfo | null> {
-  const result = await herdrRpc<{ pane: PaneInfo }>("pane.get", { pane_id: paneId }, socketPath);
-  return result.pane.scroll ?? null;
+  const pane = await paneGet(paneId, socketPath);
+  return pane.scroll ?? null;
 }
 
 /** Scrolls the pane's viewport; herdr redraws every attached terminal. */

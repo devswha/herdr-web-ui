@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
 import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
@@ -39,6 +39,18 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
+
+describe("single-pane context lookup", () => {
+  for (const route of ["commands", "files"] as const) {
+    it(`rejects an unknown pane on /api/pane/${route} with the shared error envelope`, async () => {
+      const response = await fetch(`${base()}/api/pane/${route}?pane_id=w9999:p9999`);
+      expect(response.status).toBe(404);
+      const body: ApiError = await response.json();
+      expect(body.error.code).toBe("pane_not_found");
+      expect(typeof body.error.message).toBe("string");
+    });
+  }
+});
 
 describe("Devin conversation API", () => {
   it("keeps the terminal fallback rather than guessing a shell pane's session", async () => {
@@ -616,6 +628,20 @@ describe("workspace and discovery endpoints", () => {
     expect(agents.some((agent) => agent.kind === "claude")).toBeTrue();
     expect(agents.some((agent) => agent.kind === "omp")).toBeTrue();
     expect(agents.map((agent) => agent.label)).toEqual([...agents.map((agent) => agent.label)].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("lists herdr's integrations as integration.list reports them, and refuses anything but GET", async () => {
+    const res = await fetch(`${base()}/api/integrations`);
+    expect(res.status).toBe(200);
+    const { integrations } = (await res.json()) as IntegrationsResponse;
+    const fromHerdr = (await herdrRpc<IntegrationsResponse>("integration.list", {})).integrations;
+    expect(integrations).toEqual(fromHerdr);
+    const claude = integrations.find((integration) => integration.target === "claude");
+    expect(claude).toMatchObject({ label: "claude", command: "claude" });
+    for (const integration of integrations) expect(["not_installed", "current", "outdated"]).toContain(integration.state);
+    const post = await fetch(`${base()}/api/integrations`, { method: "POST" });
+    expect(post.status).toBe(400);
+    expect(((await post.json()) as ApiError).error.code).toBe("method_not_allowed");
   });
 
   it("offers omo and gjc, which herdr cannot start, exactly when they are on PATH", async () => {
@@ -2330,6 +2356,10 @@ describe("PC management API", () => {
     expect(data.machines[0]).toMatchObject({ id: "local", kind: "local" });
     const local = await fetch(`${base()}/api/machines/local/session`);
     expect(local.status).toBe(200);
+    const viaAlias = await fetch(`${base()}/api/machines/local/integrations`);
+    expect(viaAlias.status).toBe(200);
+    const direct = await fetch(`${base()}/api/integrations`);
+    expect(await viaAlias.json()).toEqual(await direct.json());
   });
   it("rejects CSRF, malformed targets and remote forwarding outside the allowlist", async () => {
     for (const headers of [{}, { "x-herdr-machine": "1", origin: "https://evil.invalid" }, { "x-herdr-machine": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
