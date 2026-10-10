@@ -10,6 +10,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Added
 - Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
   Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
+  ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
 
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
