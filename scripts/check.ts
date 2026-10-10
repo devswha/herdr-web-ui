@@ -31,10 +31,10 @@
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { availableParallelism, tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { finished } from "node:stream/promises";
 import { DISPOSABLE_CONFIG_ENV, DISPOSABLE_CONFIG_FILE } from "./disposable-config.ts";
 import {
@@ -230,29 +230,69 @@ export function lock(port = LOCK_PORT, pid = process.pid, checkout?: string): Pr
 export type SlotHolder = Holder & { port: number };
 
 /**
- * Takes the first free of `slots` ports from `base`, unless a run in the same checkout holds any
- * of the `scan` ports (one with more slots may sit past ours). Two runs started together in one
- * checkout both see the other and both step back, which is the safe side.
+ * Admission is serialized on the port after the slot range. While holding it, claim explicit
+ * resources and take a candidate slot, then scan ALL slots again: an earlier holder may have
+ * turned over while we asked it. Zero slots claims only resources (fast needs no herdr slot).
+ * The admission port also serializes dead-pid marker reclamation, so two reclaimers cannot
+ * unlink each other's newly acquired marker. A busy admission port refuses rather than waits.
  */
 export async function acquire(
-  { slots, checkout, base = LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number },
-): Promise<{ release: () => void; port: number } | { refused: "busy" | "same-checkout"; holders: SlotHolder[] }> {
-  const holders: SlotHolder[] = [];
+  { slots, checkout, base = LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [] }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[] },
+): Promise<{ release: () => void; port: number | null } | { refused: "busy" | "same-checkout" | "resource"; holders: SlotHolder[]; resource?: string }> {
+  const admissionPort = base + Math.max(slots, scan);
+  const admission = await lock(admissionPort, pid, checkout);
+  if (!("release" in admission)) return { refused: "busy", holders: [{ ...admission, port: admissionPort }] };
   let taken: { release: () => void; port: number } | null = null;
-  for (let index = 0; index < Math.max(slots, scan); index++) {
-    const port = base + index;
-    if (!taken && index < slots) {
+  const markers: string[] = [];
+  let admitted = false;
+  const release = (): void => {
+    taken?.release();
+    for (const marker of markers.splice(0)) rmSync(marker);
+  };
+  try {
+    for (const resource of resources) {
+      const absolute = resolve(resource);
+      mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
+      const canonical = existsSync(absolute) ? realpathSync(absolute) : join(realpathSync(dirname(absolute)), basename(absolute));
+      const marker = existsSync(canonical) && lstatSync(canonical).isDirectory()
+        ? join(canonical, ".check-lock") : `${canonical}.check-lock`;
+      if (markers.includes(marker)) continue;
+      if (existsSync(marker)) {
+        const owner = JSON.parse(readFileSync(marker, "utf8")) as { pid: number; checkout: string };
+        if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error(`invalid check lock owner: ${marker}`);
+        let dead = false;
+        try { process.kill(owner.pid, 0); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+          dead = true;
+        }
+        if (!dead) return { refused: "resource", resource: canonical, holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
+        rmSync(marker);
+      }
+      writeFileSync(marker, JSON.stringify({ pid, checkout }), { flag: "wx", mode: 0o600 });
+      markers.push(marker);
+    }
+    for (let index = 0; index < slots; index++) {
+      const port = base + index;
       const result = await lock(port, pid, checkout);
-      if ("release" in result) taken = { release: result.release, port };
-      else holders.push({ ...result, port });
-    } else {
+      if ("release" in result) { taken = { release: result.release, port }; break; }
+    }
+    const holders: SlotHolder[] = [];
+    for (let index = 0; slots > 0 && index < Math.max(slots, scan); index++) {
+      const port = base + index;
+      if (port === taken?.port) continue;
       const holder = await ask(port);
       if (holder) holders.push({ ...holder, port });
     }
+    const same = holders.filter((holder) => holder.checkout === checkout);
+    if (same.length > 0) return { refused: "same-checkout", holders: same };
+    if (slots > 0 && (!taken || holders.length >= slots)) return { refused: "busy", holders };
+    admitted = true;
+    return { release, port: taken?.port ?? null };
+  } finally {
+    if (!admitted) release();
+    admission.release();
   }
-  const same = holders.filter((holder) => holder.checkout === checkout);
-  if (same.length > 0) { taken?.release(); return { refused: "same-checkout", holders: same }; }
-  return taken ?? { refused: "busy", holders: holders.filter((holder) => holder.port < base + slots) };
 }
 
 /** One line per holder for a refusal. */
@@ -268,6 +308,15 @@ async function main(): Promise<void> {
   try { todo = plan(args); } catch (error) { console.error((error as Error).message); process.exit(2); }
   const needsHerdr = needsLock(todo);
   const cwd = process.cwd();
+  const runId = createRunId();
+  const paths = reportPaths(cwd, process.env, runId);
+  const resources: string[] = [];
+  if (process.env["CHECK_DIR"]) {
+    const dir = resolve(cwd, process.env["CHECK_DIR"]!);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    resources.push(dir);
+  }
+  if (process.env["CHECK_REPORT"] || process.env["CHECK_DIR"]) resources.push(paths.reportPath);
   const cleanups: (() => void)[] = [];
   let cleaned = false;
   const cleanup = (): void => {
@@ -275,32 +324,33 @@ async function main(): Promise<void> {
     cleaned = true;
     for (const step of cleanups.reverse()) try { step(); } catch (error) { console.error(`check: cleanup failed: ${(error as Error).message}`); }
   };
-  if (needsHerdr) {
+  if (needsHerdr || resources.length > 0) {
     try {
       let slots: number;
-      try { slots = maxRuns(process.env); } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
-      const held = await acquire({ slots, checkout: realpathSync(cwd) });
+      try { slots = needsHerdr ? maxRuns(process.env) : 0; } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
+      const held = await acquire({ slots, checkout: realpathSync(cwd), resources });
       if ("refused" in held) {
         const message = held.refused === "same-checkout"
           ? `another herdr-backed \`bun run check\` is running in this checkout, and the two would share dist/ and the generated types (${describeHolders(held.holders)}); wait for it to end or use another worktree`
-          : `all ${slots} herdr-backed check slots on this PC are taken (${describeHolders(held.holders)}); wait for one to end, or set CHECK_MAX_RUNS (1 to ${MAX_RUNS_LIMIT})`;
+          : held.refused === "resource"
+            ? `check resource ${held.resource} is already held (${describeHolders(held.holders)}); use a different CHECK_DIR / CHECK_REPORT or wait for the holder`
+            : `herdr-backed check admission is busy or the ${slots}-run limit is reached (${describeHolders(held.holders)}); wait for one to end, or set CHECK_MAX_RUNS (1 to ${MAX_RUNS_LIMIT})`;
         console.error(`check: ${message}`);
         process.exit(1);
       }
-      cleanups.push(held.release);
+      // Keep output ownership through cleanup AND the final report write.
+      process.once("exit", held.release);
     } catch (error) {
       console.error(`check: could not acquire the herdr-backed check lock: ${(error as Error).message}`);
       process.exit(1);
     }
   }
-  const runId = createRunId();
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
-  const paths = reportPaths(cwd, process.env, runId);
   const logDirectory = paths.logDirectory;
   mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") chmodSync(logDirectory, 0o700);
-  const sourceExcludes = [paths.reportPath, logDirectory];
+  const sourceExcludes = [paths.reportPath, `${paths.reportPath}.check-lock`, logDirectory];
   if (process.env["CHECK_DIR"]) {
     const checkDirectory = resolve(cwd, process.env["CHECK_DIR"]!);
     const relativeCheckDirectory = relative(cwd, checkDirectory);

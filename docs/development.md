@@ -41,8 +41,14 @@ generated-types check (`bun run generate:types --check`) is read-only, but `test
 `scripts/generate-protocol-types.test.ts`, which rewrites the generated file while it runs. Fast
 checks and the browser lane also build into `dist/`; avoid overlapping runs that write to the same
 checkout. (`check run` runs only its named command unless `--build` is supplied.)
+Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
+eight slots again for its checkout and counts every active holder against its requested limit,
+including holders above its candidate range. A busy admission port refuses rather than waits.
+Explicit `CHECK_DIR` and `CHECK_REPORT` paths are claimed exclusively by canonical path, even for
+`fast`, before writing reports, logs or isolated state. Pid markers are released at exit after the
+final report and session cleanup; a dead owner's marker is reclaimed under serialized admission.
 Lock refusal exits with the holder's identity before writing a report, so it cannot overwrite
-an active run's `CHECK_DIR/report.json`.
+an active run's output or stop its sessions.
 
 Each admitted check run writes a JSON verification report and per-command logs. The default report is
 `node_modules/.cache/check/<run-id>/report.json`, or `CHECK_DIR/report.json` when `CHECK_DIR` is set;
