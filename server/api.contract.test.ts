@@ -503,6 +503,34 @@ describe("agent rename", () => {
     } finally { await workspaceClose(id); }
   });
 
+  it("forwards a remote rename with the registered bridge token, not the browser's", async () => {
+    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-agent-rename-bridge" });
+    const paneId = owned.root_pane.pane_id;
+    const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-agent-rename-bridge-"));
+    // the other PC's bridge asks its browsers for a token of its own; the proxy holds only the bridge token it registered
+    const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: state, tailscaleOwner: null });
+    const registered = JSON.parse(readFileSync(descriptorPath(), "utf8")) as BridgeDescriptor;
+    const endpoint = `http://127.0.0.1:${bridge.port}`;
+    const manager = { endpoint: (id: string) => id === "rename-remote" ? { url: endpoint, token: registered.token } : null, trackTerminal: () => () => {} } as unknown as MachineManager;
+    try {
+      expect(registered.token).not.toBe("test-browser-token");
+      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr-web-ui-test", agent: "claude", state: "idle" });
+      // the browser token is deliberately absent: the proxy must authenticate with the bridge token
+      expect((await fetch(`${endpoint}/api/agent/rename`, { method: "POST", body: "{}" })).status).toBe(401);
+      const res = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/rename-remote/agent/rename", {
+        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+        body: JSON.stringify({ pane_id: paneId, name: "webui-rename-b" }),
+      }), manager);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      expect(await nameOf(paneId)).toBe("webui-rename-b");
+    } finally {
+      bridge.stop();
+      await workspaceClose(owned.workspace.workspace_id);
+      rmSync(state, { recursive: true, force: true });
+    }
+  });
+
   it("validates the body before asking herdr", async () => {
     for (const [body, code] of [
       [{}, "missing_pane_id"],
