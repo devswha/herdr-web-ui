@@ -79,8 +79,12 @@ async function freePort(): Promise<number> {
 function newerBundle(version: unknown): boolean {
   return typeof version === "string" && /^\d+$/.test(version) && Number(version) > Number(REMOTE_BUNDLE_VERSION);
 }
-/** ssh's refusals: the PC answered, and only a password or a new host key gets past them */
-const SSH_REFUSED = /Permission denied|Host key verification failed|IDENTIFICATION HAS CHANGED|Too many authentication failures/i;
+/**
+ * ssh's refusals: the PC answered, and only a password or a new host key gets past them. The
+ * remote denial reads "user@host: Permission denied (publickey,…)."; a local key file ssh cannot
+ * read ("Identity file … not accessible: Permission denied.") is only a warning before it connects.
+ */
+const SSH_REFUSED = /Permission denied \(|Host key verification failed|IDENTIFICATION HAS CHANGED|Too many authentication failures/i;
 const newerBridge = (version: string): string => `This PC uses a newer bridge (v${version}); this app requires v${REMOTE_BUNDLE_VERSION}. Update this app, then reconnect. The remote bridge was left running.`;
 const INDEPENDENT_BRIDGE = "This socket uses an independently managed web server. Update it through its own Settings, then reconnect; it was left running.";
 
@@ -267,9 +271,11 @@ export class MachineManager {
    * and SSH uses the PC's saved key only. A PC that needs a password fails with the reason,
    * and its dialog stays the way in.
    */
-  updateBridge(id: string): SetupJob {
+  updateBridge(id: string, scheduled = false): SetupJob {
     const runtime = this.machines.get(id);
     if (!runtime) throw new Error("PC not found");
+    // the user's own Update bridge takes back an earlier Cancel; a scheduled one does not
+    if (!scheduled) runtime.updateCancelled = false;
     return this.setup({ ...runtime.machine.target!, machine_id: id, update_remote: true }, { auto: true });
   }
   setup(request: SetupRequest, options: { auto?: boolean } = {}): SetupJob {
@@ -654,10 +660,11 @@ export class MachineManager {
     this.autoQueued.add(id);
     this.autoChain = this.autoChain.then(async () => {
       const runtime = this.machines.get(id);
-      // still wanted: the PC may have been updated by hand, removed or disabled meanwhile
-      if (this.stopped || !runtime?.machine.enabled || runtime.machine.action_required !== "update_bridge" || !this.preferences.auto_update_bridges) return;
+      // still wanted: the PC may have been updated by hand, removed, disabled or its update
+      // cancelled meanwhile
+      if (this.stopped || !runtime?.machine.enabled || runtime.machine.action_required !== "update_bridge" || runtime.updateCancelled || !this.preferences.auto_update_bridges) return;
       if ([...this.jobs.values()].some((j) => j.public.machine_id === id && !["connected", "failed", "cancelled"].includes(j.public.phase))) return;
-      const job = this.updateBridge(id);
+      const job = this.updateBridge(id, true);
       await this.jobs.get(job.id)?.finished;
     }).catch((e) => { console.error("Automatic bridge update failed:", e instanceof Error ? e.message : String(e)); })
       .finally(() => { this.autoQueued.delete(id); });

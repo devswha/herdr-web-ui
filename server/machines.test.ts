@@ -296,6 +296,11 @@ describe("a bridge update on a PC that cannot be reached", () => {
     expect(machine).toMatchObject({ state: "reconnecting", action_required: null });
   });
 
+  it("waits as offline when ssh only warns that a local key file is unreadable", async () => {
+    const { machine } = await updateOnce({ start: async () => { throw new Error("Warning: Identity file /home/u/.ssh/id_work not accessible: Permission denied.\r\nssh: connect to host macbook port 22: Connection timed out"); } });
+    expect(machine).toMatchObject({ state: "reconnecting", action_required: null });
+  });
+
   it("keeps the update button when the PC refuses the saved key", async () => {
     const { machine } = await updateOnce({ start: async () => { throw new Error("u@macbook: Permission denied (publickey)."); } });
     expect(machine).toMatchObject({ state: "error", action_required: "update_bridge" });
@@ -304,6 +309,47 @@ describe("a bridge update on a PC that cannot be reached", () => {
   it("keeps the update button when the update fails on a PC that still answers", async () => {
     const { machine } = await updateOnce({ start: async () => {}, connected: true, failRun: true });
     expect(machine).toMatchObject({ state: "error", action_required: "update_bridge" });
+  });
+
+  it("counts a killed SSH master as gone", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-killed-master-"));
+    for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+      const ssh = new SshConnection({ destination: "macbook" }, dir);
+      const master = Bun.spawn(["sleep", "30"]);
+      (ssh as unknown as { master: typeof master }).master = master;
+      expect(ssh.connected()).toBe(true);
+      master.kill(signal);
+      await master.exited;
+      // Bun leaves exitCode null after a signal and sets signalCode
+      expect(ssh.connected()).toBe(false);
+      real.close.call(ssh);
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("lets the user's Update bridge take back a Cancel, and keeps a queued automatic update from undoing one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-cancel-flag-"));
+    writeFileSync(join(dir, "machines.json"), JSON.stringify([{ id, name: "macbook", enabled: false, target: { destination: "macbook" }, snapshot: null }]));
+    SshConnection.prototype.start = async () => { throw new Error("ssh: connect to host macbook port 22: Connection timed out"); };
+    SshConnection.prototype.close = () => {};
+    const manager = new MachineManager(dir, {} as PushService, new CompletionTracker(null), async () => { throw new Error("local offline"); });
+    type Internals = { machines: Map<string, { updateCancelled?: boolean; machine: { enabled: boolean; state: string; action_required: string | null } }>; jobs: Map<string, { finished: Promise<void> }>; autoChain: Promise<void>; queueAutoUpdate(id: string): void };
+    const internals = manager as unknown as Internals;
+    const runtime = internals.machines.get(id)!;
+    Object.assign(runtime.machine, { enabled: true, state: "error", action_required: "update_bridge" });
+    try {
+      // an automatic update queued before the Cancel, which runs once the one ahead of it is done
+      runtime.updateCancelled = true;
+      internals.queueAutoUpdate(id);
+      await internals.autoChain;
+      expect(internals.jobs.size).toBe(0);
+      // a scheduled update keeps the Cancel, the user's button takes it back
+      await internals.jobs.get(manager.updateBridge(id, true).id)!.finished;
+      expect(runtime.updateCancelled).toBe(true);
+      Object.assign(runtime.machine, { state: "error", action_required: "update_bridge" });
+      await internals.jobs.get(manager.updateBridge(id).id)!.finished;
+      expect(runtime.updateCancelled).toBe(false);
+    } finally { manager.stop(); rmSync(dir, { recursive: true, force: true }); }
   });
 
   // The record a live server showed for a switched-off MacBook: an earlier failed update left the
