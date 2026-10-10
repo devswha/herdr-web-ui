@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { HerdrPane } from "../shared/protocol.ts";
 import { HerdrError, type EventFrame } from "./herdr/client.ts";
-import { parseFocusFrame, parseLayoutFrame, parseStatusFrame, parseStructureFrame, startStatusCollector, type StatusCollectorDeps, type StatusCollectorHandlers } from "./collector.ts";
+import { parseFocusFrame, parseStatusFrame, parseStructureFrame, startStatusCollector, type StatusCollectorDeps, type StatusCollectorHandlers } from "./collector.ts";
 
 /**
  * Frame shapes are the live wire format observed against herdr protocol 22 (see
@@ -42,17 +42,9 @@ describe("parseStructureFrame", () => {
   });
 
   it("rejects unknown or malformed frames", () => {
-    expect(parseStructureFrame({ data: { type: "workspace_closed" } })).toBeNull();
+    expect(parseStructureFrame({ data: { type: "unrecognized_event" } })).toBeNull();
     expect(parseStructureFrame({ data: { type: "pane_exited", pane_id: 42 } })).toBeNull();
     expect(parseStructureFrame({})).toBeNull();
-  });
-});
-
-describe("parseLayoutFrame", () => {
-  it("knows a layout_updated frame and nothing else", () => {
-    expect(parseLayoutFrame({ event: "layout_updated", data: { type: "layout_updated", layout: { tab_id: "w1:t1", zoomed: true } } })).toBe(true);
-    expect(parseLayoutFrame({ data: { type: "pane_focused", pane_id: "w1:p1" } })).toBe(false);
-    expect(parseLayoutFrame({})).toBe(false);
   });
 });
 
@@ -63,6 +55,192 @@ describe("parseFocusFrame", () => {
     expect(parseFocusFrame({ event: "tab_focused", data: { tab_id: "w1A4:t1", type: "tab_focused", workspace_id: "w1A4" } })).toBeNull();
     expect(parseFocusFrame({ data: { type: "pane_focused", pane_id: 3 } })).toBeNull();
     expect(parseFocusFrame({})).toBeNull();
+  });
+});
+
+describe("lifecycle invalidations", () => {
+  const types = [
+    "workspace_created", "workspace_updated", "workspace_metadata_updated",
+    "workspace_renamed", "workspace_moved", "workspace_reordered", "workspace_closed",
+    "worktree_created", "worktree_opened", "worktree_removed",
+    "tab_created", "tab_closed", "tab_renamed", "tab_moved",
+    "pane_created", "pane_updated", "pane_moved", "layout_updated",
+  ];
+
+  it.each(types)("refreshes for %s", (type) => {
+    expect(parseStructureFrame({ event: type, data: { type } })).toEqual({ kind: "structure-changed" });
+  });
+
+  it("coalesces a lifecycle burst into one push and authoritative reconciliation", async () => {
+    const herdr = fakeHerdr([]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    try {
+      await collector.ready;
+      const calls = herdr.snapshotCalls();
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = () => reconciled.resolve();
+      const pushed = Promise.withResolvers<void>();
+      handlers.onStructureChange = () => { log.structure += 1; pushed.resolve(); };
+      for (const type of types) {
+        expect(herdr.lifecycle().types).toContain(type.replace("_", "."));
+        herdr.lifecycle().emit({ event: type, data: { type } });
+      }
+      expect(log.structure).toBe(0);
+      await pushed.promise;
+      await reconciled.promise;
+      expect(log.structure).toBe(1);
+      expect(herdr.snapshotCalls()).toBe(calls + 1);
+    } finally { collector.stop(); }
+  });
+
+  it("reopens the full status set when pane.moved changes IDs without close/create", async () => {
+    const herdr = fakeHerdr([]);
+    const { handlers } = recorder();
+    const subscribed = Promise.withResolvers<void>();
+    handlers.onReconciled = () => {
+      if (herdr.status()?.paneIds.includes("w1:p1")) subscribed.resolve();
+    };
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        if (subs.some((sub) => sub.type === "pane.agent_status_changed")) {
+          queueMicrotask(() => callbacks.onStarted?.());
+        }
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+      herdr.lifecycle().emit({ data: { type: "pane_created" } });
+      await subscribed.promise;
+      const old = herdr.status();
+      if (!old) throw new Error("status stream missing");
+      const moved = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w2:p1")) moved.resolve();
+      };
+      herdr.setPanes([paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
+      herdr.lifecycle().emit({ data: { type: "pane_moved", previous_pane_id: "w1:p1", pane: { pane_id: "w2:p1", agent_status: "idle" } } });
+      await moved.promise;
+      expect(old.closedByCollector).toBe(true);
+      expect(herdr.status()?.paneIds).toEqual(["w1:p2", "w2:p1"]);
+    } finally { collector.stop(); }
+  });
+
+  for (const status of ["working", "blocked"] as const) it(`replays a completion when a ${status} move overtakes the old-ID status event`, async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "idle")]);
+    const { log, handlers } = recorder();
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        queueMicrotask(() => callbacks.onStarted?.());
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      const old = herdr.status();
+      if (!old) throw new Error("status stream missing");
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w2:p1")) reconciled.resolve();
+      };
+      // Separate connections: the move arrives while the cached baseline is idle,
+      // then the old connection delivers its queued status before the pane finishes.
+      herdr.lifecycle().emit({ data: { type: "pane_moved", previous_pane_id: "w1:p1", pane: { pane_id: "w2:p1", agent_status: status, agent: "claude" } } });
+      old.emit(statusFrame("w1:p1", status));
+      herdr.setPanes([paneOf("w2:p1", "idle")]);
+      await reconciled.promise;
+      expect(log.statuses).toEqual([`w1:p1:${status}`, `w2:p1:idle (was ${status})`]);
+      expect(old.closedByCollector).toBe(true);
+      expect(herdr.status()?.paneIds).toEqual(["w2:p1"]);
+    } finally { collector.stop(); }
+  });
+
+  it("keeps a finished pane finished when a delayed same-ID move still says working", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "idle")]);
+    const { log, handlers } = recorder();
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        queueMicrotask(() => callbacks.onStarted?.());
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      const stream = herdr.status();
+      if (!stream) throw new Error("status stream missing");
+      stream.emit(statusFrame("w1:p1", "working"));
+      stream.emit(statusFrame("w1:p1", "idle"));
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w1:p2")) reconciled.resolve();
+      };
+      // a tab move inside one workspace keeps the pane ID; its frame can arrive after the finish
+      herdr.lifecycle().emit({ data: { type: "pane_moved", previous_pane_id: "w1:p1", pane: { pane_id: "w1:p1", agent_status: "working", agent: "claude" } } });
+      herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+      await reconciled.promise;
+      expect(log.statuses.filter((entry) => entry.startsWith("w1:p1:idle"))).toHaveLength(1);
+    } finally { collector.stop(); }
+  });
+
+  it("replays a completion after a working pane moves and finishes before reconciliation", async () => {
+    // Verbatim herdr 0.9.3 frame captured on herdr-web-ui-qa-H4.
+    const moved: EventFrame = {
+      data: {
+        closed_tab_id: "w5:t1", closed_workspace_id: "w5",
+        created_tab: { agent_status: "working", focused: false, label: "1", number: 1, pane_count: 1, tab_id: "w6:t1", workspace_id: "w6" },
+        created_workspace: { active_tab_id: "w6:t1", agent_status: "working", focused: false, label: "H4 working moved", number: 4, pane_count: 1, tab_count: 1, workspace_id: "w6" },
+        pane: {
+          agent: "codex", agent_status: "working",
+          cwd: "/home/devswha/workspace/herdr-web-ui-wt/fix-session-events-refresh",
+          focused: false, foreground_cwd: "/home/devswha/workspace/herdr-web-ui-wt/fix-session-events-refresh",
+          pane_id: "w6:p1", revision: 0,
+          scroll: { max_offset_from_bottom: 0, offset_from_bottom: 0, viewport_rows: 40 },
+          tab_id: "w6:t1", terminal_id: "term_65d72f77c76c24", workspace_id: "w6",
+        },
+        previous_pane_id: "w5:p1", previous_tab_id: "w5:t1", previous_workspace_id: "w5", type: "pane_moved",
+      },
+      event: "pane_moved",
+    };
+    const herdr = fakeHerdr([paneOf("w5:p1", "working")]);
+    const { log, handlers } = recorder();
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        queueMicrotask(() => callbacks.onStarted?.());
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      const old = herdr.status();
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w6:p1")) reconciled.resolve();
+      };
+      herdr.lifecycle().emit(moved);
+      herdr.setPanes([paneOf("w6:p1", "idle")]);
+      await reconciled.promise;
+      expect(log.statuses).toEqual(["w6:p1:idle (was working)"]);
+      expect(old?.closedByCollector).toBe(true);
+      expect(herdr.status()?.paneIds).toEqual(["w6:p1"]);
+    } finally { collector.stop(); }
   });
 });
 
@@ -131,7 +309,6 @@ function fakeHerdr(initial: HerdrPane[]) {
     status: () => subscriptions.filter((s) => s.types[0] === "pane.agent_status_changed" && !s.closedByCollector).at(-1),
     lifecycle: () => subscriptions.filter((s) => s.types.includes("pane.created")).at(-1)!,
     lifecycles: () => subscriptions.filter((s) => s.types.includes("pane.created")),
-    layout: () => subscriptions.filter((s) => s.types.includes("layout.updated")).at(-1)!,
   };
 }
 
@@ -639,61 +816,5 @@ describe("startStatusCollector recovery", () => {
     await tick(60);
     expect(herdr.subscriptions.length).toBe(subscriptions);
     expect(log.resyncs).toEqual([]);
-  });
-});
-
-describe("startStatusCollector layout changes", () => {
-  it("tells the clients of a moved layout on its own connection, without a snapshot", async () => {
-    const herdr = fakeHerdr([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
-    const { log, handlers } = recorder();
-    const collector = startStatusCollector(handlers, herdr.deps);
-    await tick();
-    herdr.status()!.start();
-    await tick(20);
-    // a connection of its own, apart from the pane lifecycle one
-    expect(herdr.layout().types).toEqual(["layout.updated"]);
-    expect(herdr.layout()).not.toBe(herdr.lifecycle());
-    const calls = herdr.snapshotCalls();
-    const structure = log.structure;
-    herdr.layout().emit({ event: "layout_updated", data: { type: "layout_updated", layout: { tab_id: "w1:t1", zoomed: true, panes: [] } } });
-    await tick(20);
-    // the pane set is as it was: the clients are told to read the snapshot, the collector takes none
-    expect(log.structure).toBe(structure + 1);
-    expect(herdr.snapshotCalls()).toBe(calls);
-    collector.stop();
-  });
-
-  it("tells the clients to read the layout again when its subscription comes back, not on its first start", async () => {
-    const herdr = fakeHerdr([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
-    const { log, handlers } = recorder();
-    const collector = startStatusCollector(handlers, herdr.deps);
-    await tick();
-    herdr.layout().start();
-    await tick(20);
-    expect(log.structure).toBe(0);
-    const calls = herdr.snapshotCalls();
-    // a border moved while the layout stream was lost: left alone, the clients would draw the old
-    // layout until the next move
-    herdr.layout().drop();
-    await tick(10);
-    herdr.layout().start();
-    await tick(20);
-    expect(log.structure).toBe(1);
-    // the pane set is as it was: the collector takes no snapshot of its own
-    expect(herdr.snapshotCalls()).toBe(calls);
-    collector.stop();
-  });
-
-  it("loses no pane exit when an older herdr refuses the layout type", async () => {
-    const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
-    const ended: string[] = [];
-    const { handlers } = recorder();
-    const collector = startStatusCollector({ ...handlers, onPaneEnded: (paneId) => ended.push(paneId) }, herdr.deps);
-    await tick();
-    herdr.layout().drop("invalid_request");
-    await tick(10);
-    herdr.lifecycle().emit({ event: "pane_exited", data: { type: "pane_exited", pane_id: "w1:p1" } });
-    expect(ended).toEqual(["w1:p1"]);
-    collector.stop();
   });
 });

@@ -17,8 +17,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   zoomed one carries the zoom glyph. The command palette has **Split pane right / down**, the same
   **and open it** (herdr's `--focus`; a plain split keeps the pane you are on, like `--no-focus`)
   and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
-  one herdr RPC each, also on remote PCs, and the server now follows herdr's `layout.updated`
-  events, so a zoom, swap or resize made in the TUI reaches every browser at once.
+  one herdr RPC each, also on remote PCs.
   ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - The command palette lists the actions of the herdr plugins installed on the PC under **Plugin
   actions** and runs one against the selected pane, with that pane's workspace and tab as its
@@ -38,6 +37,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- Workspace and tab changes, pane moves and layout updates made in herdr's terminal UI
+  now refresh the web immediately through coalesced lifecycle events instead of waiting
+  for the five-second poll. Pane status subscriptions follow moved pane IDs.
+  ([#725](https://github.com/devswha/herdr-web-ui/pull/725))
 - A numeric custom tab name remains visible when tabs before it close ([#723](https://github.com/devswha/herdr-web-ui/pull/723)).
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
