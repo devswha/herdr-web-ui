@@ -14,7 +14,7 @@ import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft 
 import { messageQueues } from "../lib/messageQueue.ts";
 import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
-import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, submitNote, submitNotTyped } from "../lib/compose.ts";
+import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, submitNote, submitNotTyped, submitRefusal } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
@@ -1604,14 +1604,14 @@ export function PaneTerminal({
   // must not turn a one-letter message into a control key. Offline it sends nothing and
   // keeps its text (never-queue); a message the server could not deliver keeps it too,
   // with the reason. Bracketed-paste wrapping follows the pane program's mode.
-  const submitComposerMessage = useCallback((text: string, delivery: "queue" | "immediate" = "immediate"): Promise<SubmitResult> | null => {
+  const submitComposerMessage = useCallback((text: string, delivery: "queue" | "immediate" = "immediate", clearDraft?: string): Promise<SubmitResult> | null => {
     const term = termRef.current;
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!term || !socket || pane === null || secretRef.current !== null || heldRef.current) return null;
     // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
     const epoch = pendingEpochRef.current;
-    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery);
+    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft);
     if (sent === null) return null;
     const submission = delivery === "queue" ? { pane, socket, epoch } : null;
     if (submission) pendingSubmissionsRef.current.add(submission);
@@ -1796,7 +1796,7 @@ export function PaneTerminal({
   }, [greetingDue, paneId]);
 
   const composerSend = useCallback(
-    (text: string): boolean | string | Promise<boolean | string> => {
+    (text: string, clearDraft?: string): boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal> => {
       const pane = paneRef.current;
       // Codex's queue open in the terminal holds the input: a message would become the answer
       if (pane !== null && heldByOpenQueue) {
@@ -1820,10 +1820,13 @@ export function PaneTerminal({
         );
       }
       if (!socketRef.current?.connected || heldRef.current || secretRef.current !== null) return false;
-      // an older bridge is told apart by the socket, once this connection's snapshot has said what it supports
-      return sendComposerText(text, composerDelivery(agent, agentStatus));
+      // an older bridge is told apart by the socket, once this connection's snapshot has said what it supports.
+      // A draft is cleared only by a send at once: one that waits its turn is checked when it goes
+      const delivery = composerDelivery(agent, agentStatus);
+      const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined);
+      return result === null ? false : result.then((answer) => answer.ok ? true : submitRefusal(answer.code, answer.message, answer.draft));
     },
-    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, queueStore, machineId],
+    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, submitComposerMessage, queueStore, machineId],
   );
 
   const actOnPending = useCallback(async (id: string, action: "steer" | "discard"): Promise<void> => {

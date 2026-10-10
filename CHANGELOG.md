@@ -20,6 +20,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- When a chat message is not sent because Claude Code's input box in the terminal is not empty,
+  the note now says what the box holds, and a one-line draft there can be cleared from the chat
+  with Clear it and send. The chat did not show that text, so Send seemed to do nothing until the
+  text was found and deleted in the terminal. The cleared text comes back in the terminal with Ctrl+Y.
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
   sent it. What genuinely cannot state one keeps working — a same-origin read such as the PC

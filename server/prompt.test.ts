@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, claudeInputDraft, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, claudeClearableDraft, claudeInputDraft, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 const CLAUDE_BACKGROUND_APPROVAL_FOOTER = "Esc to cancel · ctrl+x ctrl+k twice to stop background agents";
@@ -1676,6 +1676,25 @@ describe("Claude's suggested next prompt", () => {
     // an empty live box sends, whatever an older box in the scrolled viewport held
     const empty = screen("❯\u00a0").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
     expect(claudeInputDraft(empty, screen("❯ an old draft"))).toBe(false);
+  });
+
+  test("the chat offers to clear only a typed draft on the box's one row, read with verified colors", () => {
+    const clearable = (ansi: string, live = ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")) => claudeClearableDraft(live, ansi);
+    expect(clearable(screen("❯ ㅔ"))).toBe("ㅔ");
+    expect(clearable(screen("❯ half typed "))).toBe("half typed");
+    // Claude's drawn cursor sits on a typed character too
+    expect(clearable(screen("❯ \u001b[7mr\u001b[27mun"))).toBe("run");
+    // Claude's own grey text and an empty box are no draft
+    expect(clearable(screen("❯ \u001b[2mrun the tests\u001b[0m"))).toBeNull();
+    expect(clearable(screen("❯ "))).toBeNull();
+    // ctrl+k and ctrl+u edit one screen row: a draft on two, wrapped or not, stays the user's to clear
+    expect(clearable(screen("❯ first line", "  second line\r\n" + RULE))).toBeNull();
+    // bash mode takes a Backspace of its own, and a placeholder stands for more than it shows
+    expect(clearable(screen("! echo unfinished"))).toBeNull();
+    expect(clearable(screen("❯ [Pasted text #1 +12 lines]"))).toBeNull();
+    // a box clipped by the pane, or colors not verified to show the live screen
+    expect(clearable(["  more of the draft", RULE, "  footer"].join("\r\n"))).toBeNull();
+    expect(claudeClearableDraft(screen("❯ half typed").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, ""), null)).toBeNull();
   });
 });
 

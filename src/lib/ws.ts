@@ -4,7 +4,8 @@ import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
 type Handler = (message: ServerMessage) => void;
 
 /** A submit was delivered, accepted into the bridge's pending queue, or refused. */
-export type SubmitResult = { ok: true; pending?: PendingMessage } | { ok: false; code: string; message: string };
+/** `draft`: an input_draft refusal's one-row Claude draft, which a send with clearDraft may clear */
+export type SubmitResult = { ok: true; pending?: PendingMessage } | { ok: false; code: string; message: string; draft?: string };
 
 /** Right after a reconnect the snapshot that says what the server supports may still be on its way. */
 const SNAPSHOT_WAIT_MS = 2000;
@@ -135,7 +136,8 @@ export class HerdrSocket {
       }
       if ((message.type === "input-ready" && message.ready === false) || message.type === "pty-exit" || (message.type === "error" && message.pane_id && ["attach_held", "input_not_ready"].includes(message.code))) this.inputReady.delete(message.pane_id!);
       if (message.type === "submit-result" && this.matchesRequest(message.id, "submit", message.pane_id)) {
-        this.resolveRequest(message.id, message.ok ? { ok: true, ...(message.pending ? { pending: message.pending } : {}) } : { ok: false, code: message.code ?? "submit_failed", message: message.message ?? "the pane did not take the message" });
+        this.resolveRequest(message.id, message.ok ? { ok: true, ...(message.pending ? { pending: message.pending } : {}) }
+          : { ok: false, code: message.code ?? "submit_failed", message: message.message ?? "the pane did not take the message", ...(message.draft ? { draft: message.draft } : {}) });
       }
       if (message.type === "pending-messages") {
         // The owner-only live queue is also an acceptance receipt if its submit ACK
@@ -320,8 +322,9 @@ export class HerdrSocket {
    * as written, `payload` the same shaped for the pane's paste mode. null, sending
    * nothing, when offline.
    */
-  /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage) */
-  submit(paneId: string, text: string, payload: string, typed = false, delivery: "immediate" | "queue" = "immediate"): Promise<SubmitResult> | null {
+  /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage).
+   * `clearDraft`: an immediate send over the draft an input_draft refusal named (ClientMessage `clear_draft`) */
+  submit(paneId: string, text: string, payload: string, typed = false, delivery: "immediate" | "queue" = "immediate", clearDraft?: string): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
@@ -334,7 +337,8 @@ export class HerdrSocket {
         return { ok: true };
       }
       const id = this.nextSubmit++;
-      return this.submitRequest({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}), ...(delivery === "queue" ? { delivery: "queue" as const } : {}) });
+      return this.submitRequest({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}), ...(delivery === "queue" ? { delivery: "queue" as const } : {}),
+        ...(clearDraft !== undefined ? { clear_draft: clearDraft } : {}) });
     })();
   }
 
