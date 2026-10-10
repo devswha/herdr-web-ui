@@ -23,6 +23,7 @@ export function useMachineApi() {
     openWorktree: (request: OpenWorktreeRequest) => api.openWorktree(request, id),
     removeWorktree: (request: RemoveWorktreeRequest) => api.removeWorktree(request, id),
     renamePane: (pane: string, label: string) => api.renamePane(pane, label, id),
+    renameAgent: (pane: string, name: string | null) => api.renameAgent(pane, name, id),
     renameWorkspace: (workspace: string, label: string) => api.renameWorkspace(workspace, label, id),
     moveWorkspace: (workspace: string, index: number) => api.moveWorkspace(workspace, index, id),
     fetchAgentKinds: () => api.fetchAgentKinds(id),
