@@ -15,6 +15,8 @@ import type {
   PairedDevice,
   PairingCode,
   PaneReadResult,
+  PaneFindRequest,
+  PaneFindResponse,
   PromptAnswer,
   PushKey,
   RemoteAccess,
@@ -377,6 +379,10 @@ export async function fetchPaneScroll(paneId: string, machineId = "local"): Prom
 export async function scrollPane(paneId: string, offsetFromBottom: number, machineId = "local"): Promise<PaneScrollInfo | null> {
   const response = await sendJson(machinePath(machineId, "pane/scroll"), "POST", { pane_id: paneId, offset_from_bottom: offsetFromBottom });
   return ((await response.json()) as { scroll: PaneScrollInfo | null }).scroll;
+}
+
+export async function findPane(request: PaneFindRequest, machineId = "local"): Promise<PaneFindResponse> {
+  return (await sendJson(machinePath(machineId, "pane/find"), "POST", request)).json();
 }
 
 /** A cell in a pane's whole history: rows count from the top of the scrollback. */

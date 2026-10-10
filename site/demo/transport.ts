@@ -453,6 +453,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     return json({ ok: true });
   }
   if (path === "/api/pane/commands") return json(commandsFixture);
+  if (path === "/api/pane/find") return error("find_unavailable", "History search needs a real herdr pane; the demo only replays terminal output.", 404);
   if (path === "/api/pane/omo-tasks") return json(keyOfPane.get(paneId) === OMO_TASKS_PANE ? { tasks: omoTasks(), runs: omoRuns() } : { tasks: [], runs: [] });
   if (path === "/api/pane/files") {
     const q = (query.get("q") ?? "").toLowerCase();

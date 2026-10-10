@@ -5,6 +5,9 @@ import type {
   ReadFormat,
   ReadSource,
   SessionSnapshot,
+  PaneFindRequest,
+  PaneFindResponse,
+  PaneFindMatch,
 } from "../../shared/protocol.ts";
 import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
 import type { HerdrIdentity } from "../../shared/machines.ts";
@@ -450,6 +453,55 @@ export async function paneScrollInfo(paneId: string, socketPath?: string): Promi
 export async function paneScroll(paneId: string, offsetFromBottom: number, socketPath?: string): Promise<PaneScrollInfo | null> {
   const result = await herdrRpc<{ pane: PaneInfo }>("pane.scroll", { pane_id: paneId, offset_from_bottom: offsetFromBottom }, socketPath);
   return result.pane.scroll ?? null;
+}
+
+/** Copy search is stateless; scrolling is the same shared viewport used by herdr's TUI. */
+export async function paneFind(request: PaneFindRequest, socketPath?: string): Promise<PaneFindResponse> {
+  const scroll = await paneScrollInfo(request.pane_id, socketPath);
+  const row = scroll ? scroll.max_offset_from_bottom - scroll.offset_from_bottom : 0;
+  // pane.read.revision is NOT copy_search's content_revision. copy_motion supplies the latter
+  // without entering copy mode or changing any client's cursor.
+  const motion = await herdrRpc<{ cursor: PaneTextPoint; content_revision: number }>("pane.copy_motion", {
+    pane_id: request.pane_id, cursor: { row, col: 0 }, motion: "line_end",
+  }, socketPath);
+  if (request.previous && request.content_revision !== motion.content_revision) {
+    throw new HerdrError("stale_content", "Pane changed. Search again.");
+  }
+  const previous = request.previous;
+  const result = await herdrRpc<{
+    matches: PaneFindMatch[]; total: number; current?: number | null; current_global?: number | null; content_revision: number;
+  }>("pane.copy_search", {
+    pane_id: request.pane_id, query: request.query, direction: request.direction,
+    cursor: previous?.start ?? (request.direction === "backward" ? motion.cursor : { row, col: 0 }),
+    content_revision: motion.content_revision, ...(previous ? { previous } : {}),
+  }, socketPath);
+  const match = result.current == null ? null : result.matches[result.current] ?? null;
+  if (match) {
+    // A browser resize can reflow history while searching. Use the viewport herdr has now,
+    // not the one read to choose the search's starting cursor.
+    const currentScroll = await paneScrollInfo(request.pane_id, socketPath);
+    // Let herdr reject a reflow or history eviction after copy_search before moving the view.
+    await herdrRpc("pane.copy_motion", {
+      pane_id: request.pane_id, cursor: match.start, motion: "line_end", content_revision: result.content_revision,
+    }, socketPath);
+    if (currentScroll) {
+      await paneScroll(request.pane_id, Math.max(0, currentScroll.max_offset_from_bottom - match.start.row), socketPath);
+      // herdr 0.9.3 cannot guard pane.scroll atomically. Refuse success if output or reflow
+      // arrived after the pre-scroll check; the shared view may already have moved.
+      await herdrRpc("pane.copy_motion", {
+        pane_id: request.pane_id, cursor: match.start, motion: "line_end", content_revision: result.content_revision,
+      }, socketPath);
+    }
+  } else {
+    // No match is an answer about one revision too: output since copy_search may hold the text.
+    await herdrRpc("pane.copy_motion", {
+      pane_id: request.pane_id, cursor: { row, col: 0 }, motion: "line_end", content_revision: result.content_revision,
+    }, socketPath);
+  }
+  return {
+    total: result.total, current: result.current_global == null ? null : result.current_global + 1,
+    match, content_revision: result.content_revision,
+  };
 }
 
 /**

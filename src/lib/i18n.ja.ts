@@ -8,6 +8,15 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Find in terminal": "ターミナル内を検索",
+  "Previous match": "前の一致",
+  "Next match": "次の一致",
+  "Close search": "検索を閉じる",
+  "Searching…": "検索中…",
+  "No matches": "一致なし",
+  "{current} of {total}": "{total}件中{current}件目",
+  "Pane changed. Search again.": "ペインの内容が変わりました。再検索してください。",
+  "Search moves the pane for every client.": "検索すると接続中の全クライアントのペイン画面が移動します。",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Paused while you use another window": "別のウィンドウを使っている間は一時停止中",

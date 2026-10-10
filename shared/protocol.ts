@@ -89,6 +89,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
  *  POST   /api/pane/scroll { pane_id, offset_from_bottom } -> { scroll } (pane.scroll; herdr
  *         redraws every attached terminal)
+ *  POST   /api/pane/find -> PaneFindResponse; PaneFindRequest searches literal text in herdr's
+ *         stored history and scrolls the shared viewport to the match. No copy mode is entered.
+ *         A previous match is reused only while content_revision still matches; 409 stale_content
+ *         means output changed during the search, so the user can search again.
  *  GET    /api/pane/selection?pane_id=&anchor_row=&anchor_col=&cursor_row=&cursor_col=
  *         -> { text } (pane.selection.read: both cells inclusive, rows from the top of the
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
@@ -166,6 +170,27 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  */
 export interface ApiError {
   error: { code: string; message: string };
+}
+
+export interface PaneFindMatch {
+  start: { row: number; col: number };
+  end: { row: number; col: number };
+}
+
+export interface PaneFindRequest {
+  pane_id: string;
+  query: string;
+  direction: "forward" | "backward";
+  previous?: PaneFindMatch;
+  content_revision?: number;
+}
+
+export interface PaneFindResponse {
+  total: number;
+  /** One-based ordinal, or null when no match was found. */
+  current: number | null;
+  match: PaneFindMatch | null;
+  content_revision: number;
 }
 
 /** The subscriptions whose plan limits GET /api/usage can read from a CLI's own sign-in. */
