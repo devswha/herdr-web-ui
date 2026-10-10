@@ -12,6 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   says whether it is installed, older than the running herdr, or missing. Agents found on the PC
   come first. A missing or outdated one shows its `herdr integration install …` command with a
   Copy button; the page only reads herdr's state and never installs or removes anything.
+  ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
 
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
