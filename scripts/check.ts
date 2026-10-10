@@ -19,9 +19,11 @@
  * CHECK_REPORT overrides the durable JSON report path; otherwise the report is in CHECK_DIR or
  * node_modules/.cache/check/<run-id>. The report and streamed logs are outside ephemeral isolation.
  *
- * Only one herdr-backed run at a time on this PC: contract and browser tests are bound by timing,
- * and two runs side by side fail each other. A second one says so and exits. The lock is a loopback
- * port the run listens on (LOCK_PORT), so a run that died holds nothing.
+ * A few herdr-backed runs at a time on this PC (CHECK_MAX_RUNS, see maxRuns): contract and browser
+ * tests are bound by timing, so too many side by side fail each other. Each run holds a slot, a
+ * loopback port it listens on (LOCK_PORT and the ports after it), so a run that died holds nothing.
+ * A run that finds every slot taken names the holders and exits, and so does a second run in the
+ * same checkout, which would share its dist/ and generated types.
  *
  * What a run still shares with the PC: the checkout (`fast` rewrites the generated types file
  * while it checks it, and fast/lane modes build into dist/), herdr's worktree root, and Playwright's
@@ -29,9 +31,9 @@
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { finished } from "node:stream/promises";
 import { DISPOSABLE_CONFIG_ENV, DISPOSABLE_CONFIG_FILE } from "./disposable-config.ts";
@@ -163,27 +165,59 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
   return { env, sessions, remove: () => { if (!kept) rmSync(dir, { recursive: true, force: true }); } };
 }
 
-/** The loopback port a herdr-backed run listens on while it runs: the lock. */
+/** The first loopback port a herdr-backed run listens on while it runs: slot 1. Slot n is LOCK_PORT + n - 1. */
 export const LOCK_PORT = 41737;
+/** The most slots CHECK_MAX_RUNS may ask for; every run looks at all of them for its own checkout. */
+export const MAX_RUNS_LIMIT = 8;
 
 /**
- * One run with a lane at a time on this PC. The lock is a listening loopback port: taking it is
- * one step, and it is free again the moment its run is gone, however it ended, so there is no
- * lock left behind to take over. Whoever holds it answers a connection with its pid. Resolves
- * with the release, or with the pid of the run that holds it (NaN when something else listens
- * there).
+ * How many herdr-backed runs may share this PC: CHECK_MAX_RUNS (1 to 8), else one per eight cores,
+ * at least one and at most two. On a 32-core PC two side by side stayed green; with three,
+ * machine-conflict-regression.ts lost Chromium screenshots, and with four integration tests
+ * that wait on live processes failed (measured for the PR that added slots).
  */
-export function lock(port = LOCK_PORT, pid = process.pid): Promise<{ release: () => void } | { heldBy: number }> {
+export function maxRuns(env: Record<string, string | undefined>, cores = availableParallelism()): number {
+  const asked = env["CHECK_MAX_RUNS"];
+  if (asked === undefined || asked === "") return Math.max(1, Math.min(2, Math.floor(cores / 8)));
+  const count = /^\d+$/.test(asked) ? Number(asked) : Number.NaN;
+  if (!(count >= 1 && count <= MAX_RUNS_LIMIT)) throw new Error(`CHECK_MAX_RUNS must be a whole number from 1 to ${MAX_RUNS_LIMIT}, not "${asked}"`);
+  return count;
+}
+
+/** What a slot's holder says: its pid (NaN when what listens there is no run) and its checkout, when it names one. */
+export type Holder = { heldBy: number; checkout?: string };
+
+/** Asks the holder of a port who it is; null when nothing listens there. */
+function ask(port: number): Promise<Holder | null> {
+  return new Promise((resolve) => {
+    let said = "";
+    let refused = false;
+    const client = connect(port, "127.0.0.1");
+    client.setTimeout(2_000, () => client.destroy());
+    client.on("data", (chunk) => { said += chunk.toString(); });
+    client.on("error", (error: NodeJS.ErrnoException) => { refused = error.code === "ECONNREFUSED"; });
+    client.on("close", () => {
+      if (refused) { resolve(null); return; }
+      // `<pid>` from a run before slots, `<pid>\n<checkout>` from one since
+      const match = /^(\d+)(?:\n([^]+))?$/.exec(said);
+      resolve(!match ? { heldBy: Number.NaN } : match[2] ? { heldBy: Number(match[1]), checkout: match[2] } : { heldBy: Number(match[1]) });
+    });
+  });
+}
+
+/**
+ * One slot. The lock is a listening loopback port: taking it is one step, and it is free again the
+ * moment its run is gone, however it ended, so there is no lock left behind to take over. Whoever
+ * holds it answers a connection with its pid and checkout. Resolves with the release, or with who
+ * holds it (NaN when something else listens there).
+ */
+export function lock(port = LOCK_PORT, pid = process.pid, checkout?: string): Promise<{ release: () => void } | Holder> {
   return new Promise((resolve, reject) => {
-    const server = createServer((socket) => { socket.on("error", () => undefined); socket.end(String(pid)); });
+    const answer = checkout === undefined ? String(pid) : `${pid}\n${checkout}`;
+    const server = createServer((socket) => { socket.on("error", () => undefined); socket.end(answer); });
     server.once("error", (error: NodeJS.ErrnoException) => {
       if (error.code !== "EADDRINUSE") { reject(error); return; }
-      let said = "";
-      const client = connect(port, "127.0.0.1");
-      client.setTimeout(2_000, () => client.destroy());
-      client.on("data", (chunk) => { said += chunk.toString(); });
-      client.on("error", () => undefined);
-      client.on("close", () => resolve({ heldBy: /^\d+$/.test(said) ? Number(said) : Number.NaN }));
+      void ask(port).then((holder) => resolve(holder ?? { heldBy: Number.NaN }));
     });
     server.listen(port, "127.0.0.1", () => {
       // the lock must not keep the run alive once its work is done
@@ -191,6 +225,41 @@ export function lock(port = LOCK_PORT, pid = process.pid): Promise<{ release: ()
       resolve({ release: () => { server.close(); } });
     });
   });
+}
+
+export type SlotHolder = Holder & { port: number };
+
+/**
+ * Takes the first free of `slots` ports from `base`, unless a run in the same checkout holds any
+ * of the `scan` ports (one with more slots may sit past ours). Two runs started together in one
+ * checkout both see the other and both step back, which is the safe side.
+ */
+export async function acquire(
+  { slots, checkout, base = LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number },
+): Promise<{ release: () => void; port: number } | { refused: "busy" | "same-checkout"; holders: SlotHolder[] }> {
+  const holders: SlotHolder[] = [];
+  let taken: { release: () => void; port: number } | null = null;
+  for (let index = 0; index < Math.max(slots, scan); index++) {
+    const port = base + index;
+    if (!taken && index < slots) {
+      const result = await lock(port, pid, checkout);
+      if ("release" in result) taken = { release: result.release, port };
+      else holders.push({ ...result, port });
+    } else {
+      const holder = await ask(port);
+      if (holder) holders.push({ ...holder, port });
+    }
+  }
+  const same = holders.filter((holder) => holder.checkout === checkout);
+  if (same.length > 0) { taken?.release(); return { refused: "same-checkout", holders: same }; }
+  return taken ?? { refused: "busy", holders: holders.filter((holder) => holder.port < base + slots) };
+}
+
+/** One line per holder for a refusal. */
+export function describeHolders(holders: readonly SlotHolder[]): string {
+  return holders.map((holder) => Number.isNaN(holder.heldBy)
+    ? `port ${holder.port}: something that is no check run`
+    : `port ${holder.port}: pid ${holder.heldBy}${holder.checkout ? ` in ${holder.checkout}` : ""}`).join("; ");
 }
 
 async function main(): Promise<void> {
@@ -208,11 +277,13 @@ async function main(): Promise<void> {
   };
   if (needsHerdr) {
     try {
-      const held = await lock();
-      if ("heldBy" in held) {
-        const message = Number.isNaN(held.heldBy)
-          ? `port ${LOCK_PORT} on 127.0.0.1, which a herdr-backed check run holds while it runs, is in use by something else`
-          : `another \`bun run check\` with a herdr-backed command is running on this PC (pid ${held.heldBy}); wait for it to end`;
+      let slots: number;
+      try { slots = maxRuns(process.env); } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
+      const held = await acquire({ slots, checkout: realpathSync(cwd) });
+      if ("refused" in held) {
+        const message = held.refused === "same-checkout"
+          ? `another herdr-backed \`bun run check\` is running in this checkout, and the two would share dist/ and the generated types (${describeHolders(held.holders)}); wait for it to end or use another worktree`
+          : `all ${slots} herdr-backed check slots on this PC are taken (${describeHolders(held.holders)}); wait for one to end, or set CHECK_MAX_RUNS (1 to ${MAX_RUNS_LIMIT})`;
         console.error(`check: ${message}`);
         process.exit(1);
       }

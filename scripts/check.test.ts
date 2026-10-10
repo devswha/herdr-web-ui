@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isolate, lock, needsLock, plan, sanitizeCommand } from "./check.ts";
+import { acquire, describeHolders, isolate, lock, maxRuns, needsLock, plan, sanitizeCommand } from "./check.ts";
 
 const made: string[] = [];
 afterEach(() => { for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -109,6 +109,109 @@ describe("lock", () => {
     } finally {
       other.stop(true);
     }
+  });
+
+  it("is free again once the run that held it is killed", async () => {
+    const port = await freePort();
+    const holder = Bun.spawn([process.execPath, "-e", `const { lock } = await import(${JSON.stringify(fileURLToPath(new URL("./check.ts", import.meta.url)))}); await lock(${port}, 111, "/a"); console.log("HELD"); setInterval(() => {}, 1000);`], { stdout: "pipe" });
+    try {
+      const reader = holder.stdout.getReader();
+      let said = "";
+      while (!said.includes("HELD")) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error("the holder ended before it held the lock");
+        said += new TextDecoder().decode(value);
+      }
+      expect(await lock(port, 222)).toEqual({ heldBy: 111, checkout: "/a" });
+      holder.kill("SIGKILL");
+      await holder.exited;
+      const next = await lock(port, 222);
+      expect("release" in next).toBe(true);
+      (next as { release: () => void }).release();
+    } finally {
+      holder.kill("SIGKILL");
+    }
+  });
+});
+
+describe("slots", () => {
+  /** `count` consecutive ports nothing listens on, held for a moment to make sure, then given back */
+  const freeRange = async (count: number): Promise<number> => {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const base = 20_000 + Math.floor(Math.random() * 30_000);
+      const held: { stop: (force?: boolean) => void }[] = [];
+      try {
+        for (let index = 0; index < count; index++) held.push(Bun.listen({ hostname: "127.0.0.1", port: base + index, socket: { data() {} } }));
+        return base;
+      } catch { /* taken: another base */ } finally {
+        for (const listener of held) listener.stop(true);
+      }
+    }
+    throw new Error("no free port range");
+  };
+  const release = (result: Awaited<ReturnType<typeof acquire>> | Awaited<ReturnType<typeof lock>>): void => {
+    if ("release" in result) result.release();
+  };
+
+  it("takes the first free slot when another checkout holds an earlier one", async () => {
+    const base = await freeRange(3);
+    const other = await lock(base, 111, "/other");
+    try {
+      const mine = await acquire({ slots: 3, scan: 3, base, pid: 222, checkout: "/mine" });
+      expect(mine).toMatchObject({ port: base + 1 });
+      expect(await lock(base + 1, 333)).toEqual({ heldBy: 222, checkout: "/mine" });
+      release(mine);
+    } finally {
+      release(other);
+    }
+  });
+
+  it("refuses when every slot is taken and names each holder", async () => {
+    const base = await freeRange(3);
+    const first = await lock(base, 111, "/a");
+    const second = await lock(base + 1, 333, "/c");
+    try {
+      const refused = await acquire({ slots: 2, scan: 3, base, pid: 222, checkout: "/b" });
+      expect(refused).toEqual({ refused: "busy", holders: [{ port: base, heldBy: 111, checkout: "/a" }, { port: base + 1, heldBy: 333, checkout: "/c" }] });
+      expect(describeHolders((refused as { holders: Parameters<typeof describeHolders>[0] }).holders)).toBe(`port ${base}: pid 111 in /a; port ${base + 1}: pid 333 in /c`);
+      // what it refused it does not keep: the third port is still free
+      const third = await lock(base + 2, 444);
+      expect("release" in third).toBe(true);
+      release(third);
+    } finally {
+      release(first);
+      release(second);
+    }
+  });
+
+  it("refuses a second run in the same checkout while slots are free, also past its own slot count", async () => {
+    const base = await freeRange(3);
+    const same = await lock(base + 2, 111, "/mine");
+    try {
+      const refused = await acquire({ slots: 2, scan: 3, base, pid: 222, checkout: "/mine" });
+      expect(refused).toEqual({ refused: "same-checkout", holders: [{ port: base + 2, heldBy: 111, checkout: "/mine" }] });
+      // the slot it took on the way is given back
+      const first = await lock(base, 333);
+      expect("release" in first).toBe(true);
+      release(first);
+      const elsewhere = await acquire({ slots: 2, scan: 3, base, pid: 222, checkout: "/elsewhere" });
+      expect(elsewhere).toMatchObject({ port: base });
+      release(elsewhere);
+    } finally {
+      release(same);
+    }
+  });
+
+  it("reads CHECK_MAX_RUNS as 1 to 8, else one slot per eight cores, from 1 to 2", () => {
+    expect(maxRuns({}, 32)).toBe(2);
+    expect(maxRuns({}, 64)).toBe(2);
+    expect(maxRuns({}, 16)).toBe(2);
+    expect(maxRuns({}, 15)).toBe(1);
+    expect(maxRuns({}, 4)).toBe(1);
+    expect(maxRuns({ CHECK_MAX_RUNS: "" }, 32)).toBe(2);
+    expect(maxRuns({ CHECK_MAX_RUNS: "1" }, 32)).toBe(1);
+    expect(maxRuns({ CHECK_MAX_RUNS: "8" }, 4)).toBe(8);
+    for (const value of ["0", "9", "-1", "1.5", "two", " 3"]) expect(() => maxRuns({ CHECK_MAX_RUNS: value }, 32)).toThrow("CHECK_MAX_RUNS");
   });
 });
 
