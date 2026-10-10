@@ -43,6 +43,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const machineId = useMachineId();
   const { closeTab, renameTab, moveTab } = useMachineApi();
   const touchMenu = useMediaQuery("(pointer: coarse), (max-width: 768px)");
+  // a short phone screen (landscape, a small phone) has no height to spare: a lone tab is not
+  // drawn there, so an approval card keeps its options in reach; its actions stay in the header
+  const cramped = useMediaQuery("(max-width: 768px) and (max-height: 600px)");
   const strip = useRef<HTMLDivElement>(null);
   const [picker, setPicker] = useState<{ anchor: HTMLElement; tab: HerdrTab; point?: { x: number; y: number }; previousFocus: HTMLElement | null; touch: boolean } | null>(null);
   const [editing, setEditing] = useState<{ tabId: string; value: string } | null>(null);
@@ -171,7 +174,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     if (row) scroll.current = stripScrolled(scroll.current, row.scrollLeft, row.scrollWidth - row.clientWidth);
   };
 
-  if (!shown) return null;
+  if (!shown || (cramped && tabs.length === 1)) return null;
 
   const panesOf = (tab: HerdrTab): PaneInfo[] => panes.filter((pane) => pane.tab_id === tab.tab_id);
   const paneFor = (tab: HerdrTab): PaneInfo | undefined => {
