@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
-import { CompletionTracker } from "./completion.ts";
+import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { paneAfterStatus } from "./machines.ts";
 import { earliestStart, holderStartedAt } from "./omo.ts";
 import { noTurn, OMO_ALIASES, omoBackgroundTasks, omoSessionId, OmoStatus, omoTurnAfter, omoTurnStatus, readLines, type OmoLine, type OmoPane } from "./omo-status.ts";
@@ -17,6 +17,8 @@ const message = (role: string, stopReason?: string, at = "2026-10-02T00:00:10.00
 const runtime = (customType: string) => JSON.stringify({ type: "custom_message", customType, display: false, content: "…", timestamp: "2026-10-02T00:00:20.000Z" });
 const bookkeeping = (customType: string) => JSON.stringify({ type: "custom", customType });
 const lines = (...entries: string[]) => entries.join("\n") + "\n";
+// the answer OmO records for a request the provider gave up on (OmO 5.1.28)
+const failure = (text: string) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:01:00.000Z", message: { role: "assistant", content: [], stopReason: "error", errorMessage: text } });
 // a question for the user, as OmO 5.1.19 records it: the call, the result of one asked without waiting, its settlement
 const asking = (id: string, waitForAnswer: boolean) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:00:30.000Z", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id, name: "ask_user_question", arguments: { questions: [{ header: "Place", question: "Where?", multiSelect: false, options: [{ label: "a" }, { label: "b" }] }], waitForAnswer } }] } });
 const result = (id: string, details: Record<string, unknown> = {}, isError = false) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:00:40.000Z", message: { role: "toolResult", toolCallId: id, toolName: "ask_user_question", content: [], details, isError } });
@@ -123,14 +125,14 @@ describe("OmO panes' status in place of herdr's", () => {
   function setup(initial = lines(message("user"), message("assistant", "stop"))) {
     const files: Record<string, string> = { [FILE]: initial };
     const ids: Record<string, string> = {};
-    const told: ([string, AgentStatus, number, boolean] | [string, AgentStatus, number, boolean, true])[] = [];
+    const told: ([string, AgentStatus, number, boolean] | [string, AgentStatus, number, boolean, OmoRest])[] = [];
     const found: string[] = [];
     const state = { background: 0, discovered: new Map<string, OmoPane>([["omo", { path: FILE, startedAt: null }], ["lost", { path: null, startedAt: null }]]), lookups: 0, clock: 0, failing: false, during: () => {} };
     const omo = new OmoStatus({
       // the session of `lost` cannot be told (two OmO panes in one folder without /proc)
       discover: async () => { state.lookups += 1; state.during(); return new Map(state.discovered); },
       snapshot: async () => herdr(),
-      onChange: (id, status, count, turn, failed) => told.push(failed ? [id, status, count, turn, true] : [id, status, count, turn]),
+      onChange: (id, status, count, turn, rest) => told.push(rest ? [id, status, count, turn, rest] : [id, status, count, turn]),
       onFound: (id) => found.push(id),
       file: {
         stat: (path) => path in files ? { size: Buffer.byteLength(files[path]!), id: ids[path] ?? "1" } : null,
@@ -182,9 +184,7 @@ describe("OmO panes' status in place of herdr's", () => {
     await served();
     /** what the pane reads after each change OmO tells, as index.ts settles it */
     const shown: AgentStatus[] = [];
-    const settle = () => { for (const [id, status, , turn, failed] of told.splice(0)) if (id === "omo" && turn) shown.push(completions.observe(id, status, "omo", failed === true)); };
-    // the answer OmO records for a request the provider gave up on, and the fallback it switches to
-    const failure = (text: string) => JSON.stringify({ type: "message", timestamp: "2026-10-02T00:01:00.000Z", message: { role: "assistant", content: [], stopReason: "error", errorMessage: text } });
+    const settle = () => { for (const [id, status, , turn, rest] of told.splice(0)) if (id === "omo" && turn) shown.push(completions.observe(id, status, "omo", rest)); };
     const fallback = JSON.stringify({ type: "model_change", timestamp: "2026-10-02T00:01:00.050Z", provider: "eons", modelId: "GLM-5.3", reason: "fallback", originalModelId: "DeepSeek-V4.1-Flash" });
     append(message("user"), message("assistant", "toolUse"), message("toolResult"));
     omo.poll(); settle();
@@ -199,17 +199,52 @@ describe("OmO panes' status in place of herdr's", () => {
     expect(shown).toEqual(["working", "idle", "working", "idle"]);
     for (let i = 0; i < 3; i++) { state.clock += 10_000; expect(statuses(await served())["omo"]).toBe("omo/idle"); }
     expect(completions.current("omo")).toBe("idle");
-    // a retry that gets an answer ends the turn after all: that is a finish, alerted as one
+    // a retry that gets an answer ends the turn after all: that is a finish, alerted as one. It
+    // goes straight to DONE: a RUN told just before would make it a turn of no length, which the
+    // default alerts (a finish after a long turn) leave untold; a turn whose start was not seen is told
     append(message("assistant", "stop"));
     omo.poll(); settle();
-    expect(shown.slice(4)).toEqual(["working", "done"]);
+    expect(shown.slice(4)).toEqual(["done"]);
     expect(statuses(await served())["omo"]).toBe("omo/done");
     // and a turn that ends well, as before
     append(message("user"));
     omo.poll(); settle();
     append(message("assistant", "stop"));
     omo.poll(); settle();
-    expect(shown.slice(6)).toEqual(["working", "done"]);
+    expect(shown.slice(5)).toEqual(["working", "done"]);
+  });
+
+  it("drops a DONE kept from before when the turn after it ended on a model error (#687)", async () => {
+    // the pane finished a turn, and nobody has seen it yet (or the server restarted with it kept as DONE)
+    const { omo, told, append } = setup(lines(message("user")));
+    const completions = new CompletionTracker(null);
+    await omo.refresh(herdr().panes);
+    append(message("assistant", "stop"));
+    omo.poll();
+    const settle = () => told.splice(0).filter(([id, , , turn]) => id === "omo" && turn).map(([id, status, , , rest]) => completions.observe(id, status, "omo", rest));
+    expect(settle()).toEqual(["working", "done"]);
+    // a new prompt and its failure land between two reads: the DONE was the turn before's, and this one did not finish
+    append(message("user"), failure("Request timed out."));
+    omo.poll();
+    expect(settle()).toEqual(["idle"]);
+    expect(completions.present(herdr()).panes.find((p) => p.pane_id === "omo")!.agent_status).toBe("idle");
+  });
+
+  it("finishes a retry that answered while the pane's session could not be told (#687)", async () => {
+    const { omo, told, append, state } = setup(lines(message("user"), failure("Request timed out.")));
+    const completions = new CompletionTracker(null);
+    await omo.refresh(herdr().panes);
+    const settle = () => told.splice(0).filter(([id, , , turn]) => id === "omo" && turn).map(([id, status, , , rest]) => completions.observe(id, status, "omo", rest));
+    expect(settle()).toEqual(["idle"]);
+    // the session cannot be told for a while, and the retry's answer lands meanwhile
+    state.discovered.set("omo", { path: null, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    append(message("assistant", "stop"));
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(settle()).toEqual(["done"]);
   });
 
   it("restores INPUT when an unanswered call predates the last megabyte at startup", async () => {

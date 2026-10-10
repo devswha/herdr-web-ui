@@ -37,6 +37,16 @@ import { herdrSocketPath } from "./herdr/client.ts";
  * panes still working are not: what became of them while this server was down (finished,
  * and seen at herdr's terminal?) is unknown, and a DONE nobody needs is an alert too.
  */
+/**
+ * Why an OmO pane is at rest, where its session records tell more than `idle` does (#687).
+ * `failed`: its turn ended in an error (the model gave up after its retries, or timed out). The
+ * work is over, but nothing finished: READY, and a DONE still kept from an earlier turn is gone
+ * too, since a turn came after it. `answered`: an answer after such a rest (a retry that got
+ * through) ended the turn after all. That is a finish, though the work was never told as RUN:
+ * told as RUN now, its turn would be of no length, which the default alerts leave untold.
+ */
+export type OmoRest = "failed" | "answered";
+
 export class CompletionTracker {
   /** panes that worked (or were blocked) since they were last idle, done or seen, with the agent that did */
   private readonly worked = new Map<string, string | null>();
@@ -69,12 +79,15 @@ export class CompletionTracker {
   }
 
   /**
-   * A status change as herdr sent it, to the status to report. `failed`: the agent is at rest
-   * because its turn ended in an error (OmO's model gave up, #687), and an idle after work is
-   * then no finish: the work is over, but nothing finished, so it reads READY and alerts nothing.
+   * A status change as herdr sent it, to the status to report. `rest` says more of an idle where
+   * the agent's own records do (OmO's, #687); see `OmoRest`.
    */
-  observe(paneId: string, status: AgentStatus, agent: string | null = null, failed = false): AgentStatus {
-    if (failed && status === "idle") this.worked.delete(paneId);
+  observe(paneId: string, status: AgentStatus, agent: string | null = null, rest?: OmoRest): AgentStatus {
+    if (status === "idle" && rest === "failed") {
+      this.worked.delete(paneId);
+      this.finished.delete(paneId);
+    }
+    if (status === "idle" && rest === "answered") this.worked.set(paneId, agent);
     const reported = this.settle(paneId, status, agent);
     this.record(paneId, reported, ++this.order);
     this.save();

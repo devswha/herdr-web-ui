@@ -40,6 +40,7 @@ export { readOmoLines as readLines, type OmoLine } from "./omo-records.ts";
 
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { omoAsksAfter, type OmoAsks } from "./omo-ask.ts";
+import type { OmoRest } from "./completion.ts";
 
 /** runtime messages that start a turn nobody typed; one not named here shows as RUN from its first answer on */
 const TURN_STARTS = new Set([
@@ -152,9 +153,9 @@ export interface OmoStatusDeps {
   snapshot: () => Promise<SessionSnapshot>;
   /**
    * `turn`: the pane's turn started or ended; otherwise only its background tasks changed.
-   * `failed`: it ended in an error, so it is at rest without having finished
+   * `rest`: why a pane at rest is (completion.ts `OmoRest`), where an error had a part in it
    */
-  onChange: (paneId: string, status: AgentStatus, background: number, turn: boolean, failed: boolean) => void;
+  onChange: (paneId: string, status: AgentStatus, background: number, turn: boolean, rest?: OmoRest) => void;
   /** a pane was found to run OmO: what herdr called it until now is the same agent */
   onFound?: (paneId: string) => void;
   file?: OmoFile;
@@ -183,7 +184,7 @@ export class OmoStatus {
   /** every pane that runs OmO; those whose session is known carry a status */
   private readonly panes = new Map<string, Tracked>();
   /** what a pane read when its OmO was last told from it, while the pane itself is still there: found again, it goes on from that */
-  private readonly last = new Map<string, { status: OmoPaneStatus; background: number; path: string; startedAt: number | null }>();
+  private readonly last = new Map<string, { status: OmoPaneStatus; failed: boolean; background: number; path: string; startedAt: number | null }>();
   private refreshedAt = -Infinity;
   private refreshedFor = "";
   private refreshing: Promise<void> | null = null;
@@ -273,7 +274,7 @@ export class OmoStatus {
           if (before) this.remember(paneId, before);
           const prior = this.last.get(paneId);
           const startedAt = pane.startedAt ?? before?.startedAt ?? (prior?.path === pane.path ? prior.startedAt : null);
-          this.panes.set(paneId, { ...pane, startedAt, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", retell: prior !== undefined, turn: noTurn(), status: prior?.status ?? "idle", failed: false, background: prior?.background ?? 0 });
+          this.panes.set(paneId, { ...pane, startedAt, cwd: cwds.get(paneId) ?? "", offset: -1, size: -1, id: "", retell: prior !== undefined, turn: noTurn(), status: prior?.status ?? "idle", failed: prior?.failed ?? false, background: prior?.background ?? 0 });
         }
         if (pane.path !== null) this.last.delete(paneId);
       }
@@ -285,7 +286,7 @@ export class OmoStatus {
   }
 
   private remember(paneId: string, tracked: Tracked): void {
-    if (tracked.path !== null) this.last.set(paneId, { status: tracked.status, background: tracked.background, path: tracked.path, startedAt: tracked.startedAt });
+    if (tracked.path !== null) this.last.set(paneId, { status: tracked.status, failed: tracked.failed, background: tracked.background, path: tracked.path, startedAt: tracked.startedAt });
   }
 
   /**
@@ -330,14 +331,14 @@ export class OmoStatus {
       const failed = status === "idle" && tracked.turn.failed === true;
       // an answer after an error that ended the turn (a retry's, or one to a new prompt): the pane
       // worked meanwhile, though it read READY, and this rest is the finish of that work
-      if (tracked.failed && status === "idle" && !failed && tracked.turn.status === "idle") this.deps.onChange(paneId, "working", tracked.background, true, false);
+      const answered = tracked.failed && status === "idle" && !failed && tracked.turn.status === "idle";
       const turn = status !== tracked.status || failed !== tracked.failed || (tracked.retell && status !== "idle");
       tracked.retell = false;
       const changed = turn || background !== tracked.background;
       tracked.status = status;
       tracked.failed = failed;
       tracked.background = background;
-      if (changed) this.deps.onChange(paneId, status, background, turn, failed);
+      if (changed) this.deps.onChange(paneId, status, background, turn, failed ? "failed" : answered ? "answered" : undefined);
     }
   }
 
