@@ -6,6 +6,7 @@
  * list names them.
  */
 import { Maximize2 } from "lucide-react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 
 import "./LayoutMap.css";
 
@@ -28,6 +29,14 @@ function aspectRatio(layout: PaneLayoutSnapshot): number {
   return Math.min(3, Math.max(1.2, ratio));
 }
 
+/**
+ * The map heads a row menu, which closes when focus leaves it. Safari on a Mac does not focus a
+ * clicked button, so the press would blur the focused item with no relatedTarget and close the
+ * menu before the click selects the pane (as RowMenu's own items guard): the press keeps the
+ * focus where it is, and the click still comes.
+ */
+const keepFocus = (event: ReactMouseEvent<HTMLButtonElement>): void => event.preventDefault();
+
 export function LayoutMap({ layout, panes, selectedPaneId, onSelect }: Props) {
   const t = useT();
   const zoomed = zoomedPaneId(layout);
@@ -49,6 +58,7 @@ export function LayoutMap({ layout, panes, selectedPaneId, onSelect }: Props) {
             aria-current={current ? "true" : undefined}
             aria-label={cell.paneId === zoomed ? t("{pane} (zoomed)", { pane: title }) : title}
             title={title}
+            onMouseDown={keepFocus}
             onClick={() => onSelect(cell.paneId)}
           >
             {cell.paneId === zoomed && <Maximize2 aria-hidden="true" />}

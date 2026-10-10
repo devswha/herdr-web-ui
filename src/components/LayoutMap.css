@@ -1,8 +1,8 @@
 /* A tab's panes as herdr lays them out, at the head of the pane menu: cells of the tab's area on
    the menu's surface, the surface showing between them as hairlines, the open pane in the accent
    and the zoomed one carrying its glyph. Schematic, never to scale with the terminal: the area's
-   columns over its rows (LayoutMap.tsx), no taller than 96px in the popover, whose 320px hold
-   the items under it, and 140px in the phone's sheet, which has the height. */
+   columns over its rows (LayoutMap.tsx), no taller than 96px in the popover, so the items under
+   it stand on a short screen, and 140px in the phone's sheet, whose items scroll. */
 .layout-map {
   position: relative;
   width: 100%;
