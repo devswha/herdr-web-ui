@@ -165,6 +165,37 @@ describe("lifecycle invalidations", () => {
     } finally { collector.stop(); }
   });
 
+  it("keeps a finished pane finished when a delayed same-ID move still says working", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "idle")]);
+    const { log, handlers } = recorder();
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        queueMicrotask(() => callbacks.onStarted?.());
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      const stream = herdr.status();
+      if (!stream) throw new Error("status stream missing");
+      stream.emit(statusFrame("w1:p1", "working"));
+      stream.emit(statusFrame("w1:p1", "idle"));
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w1:p2")) reconciled.resolve();
+      };
+      // a tab move inside one workspace keeps the pane ID; its frame can arrive after the finish
+      herdr.lifecycle().emit({ data: { type: "pane_moved", previous_pane_id: "w1:p1", pane: { pane_id: "w1:p1", agent_status: "working", agent: "claude" } } });
+      herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+      await reconciled.promise;
+      expect(log.statuses.filter((entry) => entry.startsWith("w1:p1:idle"))).toHaveLength(1);
+    } finally { collector.stop(); }
+  });
+
   it("replays a completion after a working pane moves and finishes before reconciliation", async () => {
     // Verbatim herdr 0.9.3 frame captured on herdr-web-ui-qa-H4.
     const moved: EventFrame = {

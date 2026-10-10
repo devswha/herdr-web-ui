@@ -481,7 +481,8 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         handlers.onPaneEnded(parsed.paneId);
       }
       else {
-        if (parsed.moved !== undefined) {
+        // a move inside one workspace keeps the pane ID: its subscription and status history stay as they are
+        if (parsed.moved !== undefined && parsed.moved.previousPaneId !== parsed.moved.paneId) {
           const { previousPaneId, paneId, status, agent } = parsed.moved;
           // A move changes the subscription key, not the work. Keep its last
           // baseline so a finish before the new subscription starts is replayed.
