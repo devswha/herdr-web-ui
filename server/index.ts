@@ -91,6 +91,7 @@ import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, Re
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
+import { handlePortalRequest, PortalService } from "./portal.ts";
 import { handleTelemetryRequest, Telemetry } from "./telemetry.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
 import { handleVoiceRequest, VoiceService } from "./voice.ts";
@@ -386,6 +387,8 @@ export function createServer(
     updates?: UpdateService;
     /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
     herdrUpdate?: HerdrUpdater;
+    /** a public address through Portal (server/portal.ts); unset, the app offers none. Tests pass one that runs a stand-in portal. */
+    portal?: PortalService;
     /** anonymous install and update counts (server/telemetry.ts); unset, the server sends none and answers 404. Only the real entrypoint passes one. */
     telemetry?: Telemetry;
     /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
@@ -1538,6 +1541,9 @@ export function createServer(
         return handleUpdateRequest(request, pathname, options.updates);
       }
       if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
+      if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
+        return handlePortalRequest(request, pathname, options.portal, { here: loopback && !forwarded, port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
+      }
       if (pathname === "/api/telemetry") return handleTelemetryRequest(request, options.telemetry);
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
@@ -2882,6 +2888,8 @@ export function createServer(
   });
 
   const registration = options.registerBridge ? registerBridge(server.port ?? 0, bridgeToken) : null;
+  // an address left on comes back with the server (an app update restarts it)
+  void options.portal?.resume({ port: server.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
 
   // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
   const outputTimer = setInterval(() => {
@@ -2902,6 +2910,7 @@ export function createServer(
       claudeAgents.stop();
       clearInterval(waitTimer);
       machines?.stop();
+      options.portal?.shutdown();
       registration?.close();
       for (const client of clients) killWatches(client);
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
@@ -2914,7 +2923,7 @@ if (import.meta.main) {
   const updates = connectUpdater();
   const version = (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as { version: string }).version;
   const telemetry = new Telemetry({ stateDir: defaultStateDir(), version, env: process.env, fetch, previousVersion: () => updates.installed().previous_version });
-  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), telemetry, registerBridge: true });
+  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal: new PortalService({ stateDir: defaultStateDir() }), telemetry, registerBridge: true });
   telemetry.start();
   let stopping = false;
   const shutdown = () => {
