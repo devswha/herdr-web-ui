@@ -8,6 +8,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- The command palette lists the actions of the herdr plugins installed on the PC under **Plugin
+  actions** and runs one against the selected pane, with that pane's workspace and tab as its
+  context. The row shows that it is running, a command that fails says why above the list, and a
+  pane the action opens and focuses is selected. Settings → About lists the installed plugins and
+  their actions, to read only: installing, enabling and removing a plugin stay with herdr.
+  ([#720](https://github.com/devswha/herdr-web-ui/pull/720))
+- **Settings → Agent integrations** lists herdr's integration for each agent it supports and
+  says whether it is installed, older than the running herdr, or missing. Agents found on the PC
+  come first. A missing or outdated one shows its `herdr integration install …` command with a
+  Copy button; the page only reads herdr's state and never installs or removes anything.
+  ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
 - The command palette now lists panes the way herdr's Goto picker does: one row per pane under
   its workspace's heading (a linked worktree's branch beside the name), with status chips above
   the list — **All**, **INPUT**, **RUN**, **READY**, **DONE** and **BG**, each with its count — and
@@ -18,7 +29,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   focus is on the list or the chips, never while typing.
   ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
 
+### Changed
+- Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
+  rebuilding a whole-session snapshot. Layout and transcript peer checks keep their snapshots.
+  ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
+
 ### Fixed
+- Workspace and tab changes, pane moves and layout updates made in herdr's terminal UI
+  now refresh the web immediately through coalesced lifecycle events instead of waiting
+  for the five-second poll. Pane status subscriptions follow moved pane IDs.
+  ([#725](https://github.com/devswha/herdr-web-ui/pull/725))
+- A numeric custom tab name remains visible when tabs before it close ([#723](https://github.com/devswha/herdr-web-ui/pull/723)).
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
   sent it. What genuinely cannot state one keeps working — a same-origin read such as the PC

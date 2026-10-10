@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
-import type { HerdrPane, TabInfo, WorkspaceInfo } from "../../shared/protocol.ts";
+import type { HerdrPane, PluginActions, TabInfo, WorkspaceInfo } from "../../shared/protocol.ts";
 import { translate } from "./i18n.ts";
-import { filterPanesByStatus, groupByWorkspace, parseQuery, rankPanes, recentPanes, statusCounts } from "./paletteSearch.ts";
+import { filterPanesByStatus, groupByWorkspace, offeredPluginActions, parseQuery, rankPanes, recentPanes, statusCounts } from "./paletteSearch.ts";
 
 function pane(paneId: string, fields: Partial<HerdrPane> = {}): HerdrPane {
   return {
@@ -184,5 +184,30 @@ describe("recentPanes", () => {
     expect(ids(recentPanes(panes, ["gamma", "closed", "alpha", "beta"], "alpha", 3))).toEqual(["gamma", "beta"]);
     expect(ids(recentPanes(panes, ["gamma", "beta", "alpha"], null, 2))).toEqual(["gamma", "beta"]);
     expect(recentPanes(panes, [], null, 3)).toEqual([]);
+  });
+});
+
+const plugin = (overrides: Partial<PluginActions>): PluginActions => ({ plugin_id: "example.layout", name: "Layout", version: "0.1.0", description: null, enabled: true, actions: [], ...overrides });
+const action = (action_id: string, contexts: string[], title = action_id) => ({ action_id, title, description: null, contexts });
+const offeredIds = (offered: ReturnType<typeof offeredPluginActions>) => offered.map(({ plugin: owner, action: entry }) => `${owner.plugin_id}.${entry.action_id}`);
+
+describe("offeredPluginActions", () => {
+  const plugins = [
+    plugin({ actions: [action("apply", ["workspace"], "Apply layout"), action("anywhere", ["global"]), action("bare", []), action("quote", ["selection"]), action("pane-or-text", ["pane", "selection"])] }),
+    plugin({ plugin_id: "example.off", name: "Off", enabled: false, actions: [action("hidden", ["global"])] }),
+  ];
+
+  it("offers what applies to the selected pane and leaves out a disabled plugin and a selection-only action", () => {
+    expect(offeredIds(offeredPluginActions(plugins, true, ""))).toEqual(["example.layout.apply", "example.layout.anywhere", "example.layout.bare", "example.layout.pane-or-text"]);
+  });
+
+  it("offers only an action that needs no place when no pane is selected", () => {
+    expect(offeredIds(offeredPluginActions(plugins, false, ""))).toEqual(["example.layout.anywhere", "example.layout.bare"]);
+  });
+
+  it("searches the action's title and its plugin's name", () => {
+    expect(offeredIds(offeredPluginActions(plugins, true, " APPLY "))).toEqual(["example.layout.apply"]);
+    expect(offeredIds(offeredPluginActions(plugins, true, "layout")).length).toBe(4);
+    expect(offeredPluginActions(plugins, true, "nothing like it")).toEqual([]);
   });
 });

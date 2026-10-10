@@ -1,4 +1,4 @@
-import type { HerdrPane, TabInfo, WorkspaceInfo } from "../../shared/protocol.ts";
+import type { HerdrPane, PluginAction, PluginActions, TabInfo, WorkspaceInfo } from "../../shared/protocol.ts";
 import { t as moduleT, type Translate } from "./i18n.ts";
 import { paneStatus, type KnownStatus } from "./status.ts";
 import { tabLabel } from "./tabName.ts";
@@ -63,6 +63,34 @@ function tabNames(tabs: readonly TabInfo[], t: Translate): Map<string, string[]>
     names.set(tab.tab_id, shown === tab.label ? [tab.label] : [tab.label, shown]);
   }
   return names;
+}
+
+/** One row of the palette's Plugin actions group. */
+export interface OfferedPluginAction {
+  plugin: PluginActions;
+  action: PluginAction;
+}
+
+/**
+ * The plugin actions the palette can run now. A disabled plugin's are left out (herdr refuses
+ * them), as is one that only applies to selected text, which the web has none of to hand over.
+ * Without a selected pane only an action that needs no place is offered: herdr would otherwise
+ * run it against its own focus, a pane the user is not looking at here.
+ */
+export function offeredPluginActions(plugins: readonly PluginActions[], hasPane: boolean, query: string): OfferedPluginAction[] {
+  const needle = query.trim().toLocaleLowerCase();
+  const offered: OfferedPluginAction[] = [];
+  for (const plugin of plugins) {
+    if (!plugin.enabled) continue;
+    for (const action of plugin.actions) {
+      const anywhere = action.contexts.length === 0 || action.contexts.includes("global");
+      const placed = action.contexts.some((context) => context === "workspace" || context === "tab" || context === "pane");
+      if (!anywhere && !(hasPane && placed)) continue;
+      if (needle && !action.title.toLocaleLowerCase().includes(needle) && !plugin.name.toLocaleLowerCase().includes(needle)) continue;
+      offered.push({ plugin, action });
+    }
+  }
+  return offered;
 }
 
 function fuzzyScore(query: string, candidate: string): number | null {

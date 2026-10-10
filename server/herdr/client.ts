@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import type {
+  AgentIntegration,
   PaneReadResult,
   ReadFormat,
   ReadSource,
@@ -173,8 +174,93 @@ export async function sessionSnapshot(socketPath?: string, timeoutMs?: number): 
   return result.snapshot;
 }
 
+/** One pane's metadata; an unknown pane rejects with herdr's `pane_not_found`. */
+export async function paneGet(paneId: string, socketPath?: string): Promise<PaneInfo> {
+  const result = await herdrRpc<{ pane: PaneInfo }>("pane.get", { pane_id: paneId }, socketPath);
+  return result.pane;
+}
+
 export async function agentManifests(socketPath?: string): Promise<{ manifests: AgentManifestInfo[] }> {
   return herdrRpc("server.agent_manifests", {}, socketPath);
+}
+
+/** herdr's `InstalledPluginInfo`, the fields the bridge reads. */
+export interface InstalledPluginInfo {
+  plugin_id: string;
+  name: string;
+  version: string;
+  description?: string | null;
+  enabled: boolean;
+}
+
+/** herdr's `PluginActionInfo`. `platforms` null or absent: every platform. */
+export interface PluginActionInfo {
+  plugin_id: string;
+  action_id: string;
+  title: string;
+  description?: string | null;
+  contexts?: string[];
+  command: string[];
+  platforms?: string[] | null;
+}
+
+/**
+ * herdr's `PluginInvocationContext`. herdr takes each field as given and fills a missing one
+ * from its own focus, never from the pane or workspace another field names (measured on 0.9.3:
+ * `focused_pane_id` alone came back with the focused workspace's ID and label).
+ */
+export interface PluginInvocationContext {
+  workspace_id?: string;
+  workspace_label?: string;
+  workspace_cwd?: string;
+  worktree?: unknown;
+  tab_id?: string;
+  tab_label?: string;
+  focused_pane_id?: string;
+  focused_pane_cwd?: string;
+  focused_pane_agent?: string;
+  focused_pane_status?: string;
+  invocation_source?: string;
+}
+
+/** herdr's `PluginCommandLogInfo`. */
+export interface PluginCommandLog {
+  log_id: string;
+  plugin_id: string;
+  action_id?: string | null;
+  status: "running" | "succeeded" | "failed" | (string & {});
+  exit_code?: number | null;
+  error?: string | null;
+  stdout?: string | null;
+  stderr?: string | null;
+}
+
+export async function pluginList(socketPath?: string): Promise<InstalledPluginInfo[]> {
+  return (await herdrRpc<{ plugins: InstalledPluginInfo[] }>("plugin.list", {}, socketPath)).plugins;
+}
+
+/** Every plugin's manifest actions, a disabled plugin's and another platform's included. */
+export async function pluginActionList(socketPath?: string): Promise<PluginActionInfo[]> {
+  return (await herdrRpc<{ actions: PluginActionInfo[] }>("plugin.action.list", {}, socketPath)).actions;
+}
+
+/** Starts the action's command and answers at once: its log entry is still `running`. */
+export async function pluginActionInvoke(
+  pluginId: string,
+  actionId: string,
+  context?: PluginInvocationContext,
+  socketPath?: string,
+): Promise<{ log: PluginCommandLog }> {
+  return herdrRpc("plugin.action.invoke", { plugin_id: pluginId, action_id: actionId, ...(context === undefined ? {} : { context }) }, socketPath);
+}
+
+export async function pluginLogList(pluginId: string, limit: number, socketPath?: string, timeoutMs?: number): Promise<PluginCommandLog[]> {
+  return (await herdrRpc<{ logs: PluginCommandLog[] }>("plugin.log.list", { plugin_id: pluginId, limit }, socketPath, timeoutMs)).logs;
+}
+
+/** herdr's built-in agent integrations and whether each is installed. Read only: this bridge never installs one. */
+export async function integrationList(socketPath?: string): Promise<AgentIntegration[]> {
+  return (await herdrRpc<{ integrations: AgentIntegration[] }>("integration.list", {}, socketPath)).integrations;
 }
 
 export interface WorkspaceCreateResult {
@@ -356,8 +442,8 @@ export interface PaneTextPoint { row: number; col: number }
 
 /** Where the pane's viewport sits in its scrollback; null when herdr reports none. */
 export async function paneScrollInfo(paneId: string, socketPath?: string): Promise<PaneScrollInfo | null> {
-  const result = await herdrRpc<{ pane: PaneInfo }>("pane.get", { pane_id: paneId }, socketPath);
-  return result.pane.scroll ?? null;
+  const pane = await paneGet(paneId, socketPath);
+  return pane.scroll ?? null;
 }
 
 /** Scrolls the pane's viewport; herdr redraws every attached terminal. */

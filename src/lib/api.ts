@@ -8,6 +8,7 @@ import type {
   DirectoryListing,
   FileInfo,
   HealthAuth,
+  IntegrationsResponse,
   InteractivePrompt,
   OmoActivity,
   OpenWorktreeRequest,
@@ -23,6 +24,10 @@ import type {
   TabCreated,
   UsageReport,
   WorkspaceCreated,
+  PluginActionRequest,
+  PluginActionResult,
+  PluginActions,
+  PluginActionsResponse,
   WorktreeListing,
   WorktreeOpened,
   WorktreeRemoved,
@@ -347,6 +352,22 @@ async function sendJson(url: string, method: "POST" | "PATCH" | "DELETE", body: 
   return response;
 }
 
+/** GET /api/plugins/actions: the PC's herdr plugins and the actions it can run. */
+export async function fetchPluginActions(machineId = "local"): Promise<PluginActions[]> {
+  return (await getJson<PluginActionsResponse>(machinePath(machineId, "plugins/actions"))).plugins;
+}
+
+/** POST /api/plugin/action: runs one plugin action, against the pane named when there is one. */
+export async function runPluginAction(request: PluginActionRequest, machineId = "local"): Promise<PluginActionResult> {
+  const response = await sendJson(machinePath(machineId, "plugin/action"), "POST", request);
+  return (await response.json()) as PluginActionResult;
+}
+
+/** GET /api/plugin/action: where a run the POST answered `running` for stands now. */
+export async function fetchPluginActionStatus(pluginId: string, logId: string, machineId = "local"): Promise<PluginActionResult> {
+  return getJson<PluginActionResult>(machinePath(machineId, `plugin/action?plugin_id=${encodeURIComponent(pluginId)}&log_id=${encodeURIComponent(logId)}`));
+}
+
 /** GET /api/pane/scroll: where the pane's viewport sits in its history (null: herdr reports none). */
 export async function fetchPaneScroll(paneId: string, machineId = "local"): Promise<PaneScrollInfo | null> {
   return (await getJson<{ scroll: PaneScrollInfo | null }>(machinePath(machineId, `pane/scroll?pane_id=${encodeURIComponent(paneId)}`))).scroll;
@@ -388,6 +409,11 @@ export async function renamePane(paneId: string, label: string, machineId = "loc
 /** GET /api/agents: the agent kinds herdr can start, for the new-session dialog. */
 export async function fetchAgentKinds(machineId = "local"): Promise<AgentKind[]> {
   return (await getJson<{ agents: AgentKind[] }>(machinePath(machineId, "agents"))).agents;
+}
+
+/** GET /api/integrations: herdr's agent integrations on that PC and whether each is installed. */
+export async function fetchIntegrations(machineId = "local"): Promise<IntegrationsResponse["integrations"]> {
+  return (await getJson<IntegrationsResponse>(machinePath(machineId, "integrations"))).integrations;
 }
 
 /** GET /api/workspace/directories: the folders in `path` (empty: home), for the folder browser. */

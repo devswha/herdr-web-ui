@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
-import type { CreateWorktreeRequest, OpenWorktreeRequest, RemoveWorktreeRequest } from "../../shared/protocol.ts";
+import type { CreateWorktreeRequest, OpenWorktreeRequest, PluginActionRequest, RemoveWorktreeRequest } from "../../shared/protocol.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
 /** Bound functions retain their owner across an async upload or a fast PC switch. */
@@ -26,6 +26,7 @@ export function useMachineApi() {
     renameWorkspace: (workspace: string, label: string) => api.renameWorkspace(workspace, label, id),
     moveWorkspace: (workspace: string, index: number) => api.moveWorkspace(workspace, index, id),
     fetchAgentKinds: () => api.fetchAgentKinds(id),
+    fetchIntegrations: () => api.fetchIntegrations(id),
     fetchDirectories: (path: string, hidden: boolean, files = false, pane: string | null = null) => api.fetchDirectories(path, hidden, id, files, pane),
     fetchFileInfo: (path: string, pane: string | null) => api.fetchFileInfo(path, pane, id),
     fileUrl: (path: string, pane: string | null, download = false) => api.fileUrl(path, pane, id, download),
@@ -33,5 +34,8 @@ export function useMachineApi() {
     createTab: (request: api.CreateTabRequest) => api.createTab(request, id),
     renameTab: (tab: string, label: string) => api.renameTab(tab, label, id),
     closeTab: (tab: string) => api.closeTab(tab, id),
+    fetchPluginActions: () => api.fetchPluginActions(id),
+    runPluginAction: (request: PluginActionRequest) => api.runPluginAction(request, id),
+    fetchPluginActionStatus: (pluginId: string, logId: string) => api.fetchPluginActionStatus(pluginId, logId, id),
   }), [id]);
 }

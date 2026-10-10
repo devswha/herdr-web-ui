@@ -1,13 +1,15 @@
-import { useMachineId } from "../lib/machineContext.tsx";
+import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, Monitor, PanelLeft, Plus, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
+import { Bell, FolderOpen, LoaderCircle, LockKeyhole, MessageSquarePlus, Monitor, PanelLeft, Plus, Puzzle, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
-import type { HerdrPane, SessionSnapshot } from "../../shared/protocol.ts";
+import type { HerdrPane, PluginActions, SessionSnapshot } from "../../shared/protocol.ts";
+import { ApiError } from "../lib/api.ts";
 import { paneStatus, STATUS_WORD } from "../lib/status.ts";
 import type { AppActions, PaneView } from "../lib/actions.ts";
-import { FILTER_KEYS, filterPanesByStatus, groupByWorkspace, parseQuery, rankPanes, recentPanes, STATUS_FILTERS, statusCounts, type PaletteStatusFilter } from "../lib/paletteSearch.ts";
+import { FILTER_KEYS, filterPanesByStatus, groupByWorkspace, offeredPluginActions, parseQuery, rankPanes, recentPanes, STATUS_FILTERS, statusCounts, type OfferedPluginAction, type PaletteStatusFilter } from "../lib/paletteSearch.ts";
+import { Ownership, runPluginActionToEnd } from "../lib/pluginRun.ts";
 import { shortcutDisplayKeys, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
 import { useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -45,7 +47,8 @@ interface PaletteAction {
 
 interface PaneRow { kind: "pane"; pane: HerdrPane }
 interface ActionRow { kind: "action"; action: PaletteAction }
-type PaletteRow = PaneRow | ActionRow;
+interface PluginRow { kind: "plugin"; offered: OfferedPluginAction }
+type PaletteRow = PaneRow | ActionRow | PluginRow;
 
 interface PaletteSectionView {
   id: string;
@@ -68,8 +71,13 @@ interface PaletteSelection {
 
 const NO_SELECTION: PaletteSelection = { key: null, index: 0 };
 
+/** `<plugin_id>.<action_id>`: the row's identity, and the name of the run under way. */
+function pluginActionKey({ plugin, action }: OfferedPluginAction): string {
+  return `${plugin.plugin_id}.${action.action_id}`;
+}
+
 function rowKey(sectionId: string, row: PaletteRow): string {
-  return `${sectionId}:${row.kind === "pane" ? row.pane.pane_id : row.action.id}`;
+  return `${sectionId}:${row.kind === "pane" ? row.pane.pane_id : row.kind === "action" ? row.action.id : pluginActionKey(row.offered)}`;
 }
 
 function loadRecentPanes(machineId: string): string[] {
@@ -112,10 +120,18 @@ function ShortcutHint({ shortcutId }: { shortcutId?: ShortcutId }) {
 export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId, view, actions }: CommandPaletteProps) {
   const t = useT();
   const machineId = useMachineId();
+  const api = useMachineApi();
   const touch = useMediaQuery("(pointer: coarse)");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PaletteStatusFilter>("all");
   const [selection, setSelection] = useState<PaletteSelection>(NO_SELECTION);
+  const [plugins, setPlugins] = useState<PluginActions[]>([]);
+  /** `<plugin_id>.<action_id>` of the plugin action under way; the palette stays open until it answers */
+  const [running, setRunning] = useState<string | null>(null);
+  const [pluginError, setPluginError] = useState<string | null>(null);
+  /** one claim per opening: an answer that arrives after the palette closed, or left for another PC, belongs to no one */
+  const owner = useRef<Ownership | null>(null);
+  owner.current ??= new Ownership();
   const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
   const surface = useFocusTrap<HTMLElement>(open, { initialFocus: inputRef });
@@ -155,6 +171,26 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     setRecentPaneIds(loadRecentPanes(machineId));
   }, [open]);
 
+  // The PC's plugin actions, read on each opening. A herdr with no plugins, an older bridge
+  // without the route and an unreachable herdr all leave the group out. A layout effect: the
+  // rows of the last opening are drawn again at once, and a tap on one must find this opening's
+  // state, not a run left over from the last one nor a claim this effect is about to end.
+  useLayoutEffect(() => {
+    const claims = owner.current!;
+    claims.end();
+    setRunning(null);
+    setPluginError(null);
+    if (!open) return;
+    const alive = claims.claim();
+    void api.fetchPluginActions().then(
+      (list) => { if (alive()) setPlugins(list); },
+      () => { if (alive()) setPlugins([]); },
+    );
+    // also on unmount: App keys the palette by PC, and the answer of the PC left behind must
+    // not select its pane ID on the PC now shown, nor close that PC's palette
+    return () => claims.end();
+  }, [open, api]);
+
   useEffect(() => {
     if (selectedPaneId === null) return;
     setRecentPaneIds((current) => rememberPane(selectedPaneId, current, machineId));
@@ -182,8 +218,8 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   const { actionsOnly, text } = parseQuery(query);
 
   // herdr's Goto picker: a row per pane under its workspace; `>` keeps the actions alone (T3 Code's
-  // palette); a status filter is about panes, so it leaves the actions out; the panes went to last
-  // lead an unsearched, unfiltered list
+  // palette); a status filter is about panes, so it leaves the actions out, the plugins' with them;
+  // the panes went to last lead an unsearched, unfiltered list
   const sections = useMemo<PaletteSectionView[]>(() => {
     const list: PaletteSectionView[] = [];
     if (!actionsOnly) {
@@ -201,9 +237,11 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
       const needle = text.toLocaleLowerCase();
       const visible = needle ? paletteActions.filter((action) => action.label.toLocaleLowerCase().includes(needle)) : paletteActions;
       if (visible.length > 0) list.push({ id: "actions", heading: t("Actions"), branch: null, placeNamesWorkspace: false, rows: visible.map((action) => ({ kind: "action", action })) });
+      const offered = offeredPluginActions(plugins, selectedPaneId !== null, text);
+      if (offered.length > 0) list.push({ id: "plugins", heading: t("Plugin actions"), branch: null, placeNamesWorkspace: false, rows: offered.map((item) => ({ kind: "plugin", offered: item })) });
     }
     return list;
-  }, [actionsOnly, text, filter, allPanes, workspaces, tabs, branches, recentPaneIds, selectedPaneId, paletteActions, t]);
+  }, [actionsOnly, text, filter, allPanes, workspaces, tabs, branches, recentPaneIds, selectedPaneId, paletteActions, plugins, t]);
 
   const rows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
   const rowKeys = useMemo(() => sections.flatMap((section) => section.rows.map((row) => rowKey(section.id, row))), [sections]);
@@ -274,11 +312,40 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     action.run();
     onClose();
   };
+  const runPluginAction = async ({ plugin, action }: OfferedPluginAction): Promise<void> => {
+    if (running !== null) return;
+    const alive = owner.current!.claim();
+    setRunning(pluginActionKey({ plugin, action }));
+    setPluginError(null);
+    try {
+      // stays Running… past the server's own wait: a command that fails late is still said
+      const result = await runPluginActionToEnd(api, { plugin_id: plugin.plugin_id, action_id: action.action_id, ...(selectedPaneId === null ? {} : { pane_id: selectedPaneId }) }, alive);
+      if (result === null) return;
+      if (result.status === "failed") {
+        setPluginError(result.output !== null
+          ? t("{action} failed: {detail}", { action: action.title, detail: result.output })
+          : t("{action} failed (exit code {code})", { action: action.title, code: result.exit_code ?? "?" }));
+        return;
+      }
+      if (result.opened_pane_id !== null) {
+        // the pane may be newer than the snapshot on screen
+        actions.refresh();
+        actions.selectPane(result.opened_pane_id);
+      }
+      onClose();
+    } catch (error) {
+      if (!alive()) return;
+      setPluginError(t("{action} failed: {detail}", { action: action.title, detail: error instanceof ApiError ? error.detail : error instanceof Error ? error.message : String(error) }));
+    } finally {
+      if (alive()) setRunning(null);
+    }
+  };
   const activate = (index: number): void => {
     const row = rows[index];
     if (!row) return;
     if (row.kind === "pane") runPane(row.pane);
-    else runAction(row.action);
+    else if (row.kind === "action") runAction(row.action);
+    else void runPluginAction(row.offered);
   };
   const adjacentSectionStart = (index: number, direction: -1 | 1): number => {
     let current = 0;
@@ -372,7 +439,8 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   const activeTab = activeRow?.kind === "pane" ? tabOf(activeRow.pane) : undefined;
   const footerPlace = activeRow?.kind === "pane"
     ? [activeWorkspace?.label ?? t("Unknown workspace"), activeTab?.tab ? tabLabel(activeTab.tab, t, activeTab.place) : null].filter(Boolean).join(" › ")
-    : activeRow?.action.label ?? "";
+    : activeRow?.kind === "action" ? activeRow.action.label
+    : activeRow?.offered.action.title ?? "";
   const footerPath = activeRow?.kind === "pane" ? panePath(activeRow.pane) : "";
 
   const onSurfaceFocus = (event: ReactFocusEvent<HTMLElement>): void => {
@@ -397,6 +465,7 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
             ))}
           </div>
         )}
+        {pluginError !== null && <p className="palette-error" role="alert">{pluginError}</p>}
         <div ref={resultsRef} className="palette-results" id="palette-results" role="listbox">
           {sections.map((section) => (
             <div key={section.id} className="palette-section" data-section={section.id}>
@@ -408,6 +477,17 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
               {section.rows.map((row) => {
                 const index = rowIndex;
                 rowIndex += 1;
+                if (row.kind === "plugin") {
+                  const { offered } = row;
+                  const key = pluginActionKey(offered);
+                  const busy = running === key;
+                  return (
+                    <button key={key} id={`palette-item-${index}`} type="button" role="option" className={busy ? "menu-item palette-plugin-action is-running" : "menu-item palette-plugin-action"} title={offered.action.description ?? undefined} aria-selected={activeIndex === index} aria-busy={busy} aria-disabled={running !== null} onFocus={() => select(index)} onMouseMove={() => select(index)} onClick={() => void runPluginAction(offered)}>
+                      {busy ? <LoaderCircle aria-hidden="true" /> : <Puzzle aria-hidden="true" />}
+                      <span className="menu-item-main"><span className="palette-row-title">{offered.action.title}</span><span className="palette-row-subtitle">{busy ? t("Running…") : offered.plugin.name}</span></span>
+                    </button>
+                  );
+                }
                 if (row.kind === "action") {
                   const Icon = row.action.icon;
                   return <button key={row.action.id} id={`palette-item-${index}`} type="button" role="option" className="menu-item" aria-selected={activeIndex === index} onFocus={() => select(index)} onMouseMove={() => select(index)} onClick={() => runAction(row.action)}><Icon /><span className="menu-item-main">{row.action.label}</span><ShortcutHint shortcutId={row.action.shortcut} /></button>;
