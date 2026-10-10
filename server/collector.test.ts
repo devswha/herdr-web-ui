@@ -132,6 +132,39 @@ describe("lifecycle invalidations", () => {
     } finally { collector.stop(); }
   });
 
+  for (const status of ["working", "blocked"] as const) it(`replays a completion when a ${status} move overtakes the old-ID status event`, async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "idle")]);
+    const { log, handlers } = recorder();
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        queueMicrotask(() => callbacks.onStarted?.());
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      const old = herdr.status();
+      if (!old) throw new Error("status stream missing");
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w2:p1")) reconciled.resolve();
+      };
+      // Separate connections: the move arrives while the cached baseline is idle,
+      // then the old connection delivers its queued status before the pane finishes.
+      herdr.lifecycle().emit({ data: { type: "pane_moved", previous_pane_id: "w1:p1", pane: { pane_id: "w2:p1", agent_status: status, agent: "claude" } } });
+      old.emit(statusFrame("w1:p1", status));
+      herdr.setPanes([paneOf("w2:p1", "idle")]);
+      await reconciled.promise;
+      expect(log.statuses).toEqual([`w1:p1:${status}`, `w2:p1:idle (was ${status})`]);
+      expect(old.closedByCollector).toBe(true);
+      expect(herdr.status()?.paneIds).toEqual(["w2:p1"]);
+    } finally { collector.stop(); }
+  });
+
   it("replays a completion after a working pane moves and finishes before reconciliation", async () => {
     // Verbatim herdr 0.9.3 frame captured on herdr-web-ui-qa-H4.
     const moved: EventFrame = {

@@ -485,9 +485,12 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
           const { previousPaneId, paneId, status, agent } = parsed.moved;
           // A move changes the subscription key, not the work. Keep its last
           // baseline so a finish before the new subscription starts is replayed.
-          const before = heard.get(previousPaneId) ?? { status, agent };
+          // The lifecycle connection can overtake a queued working/blocked event
+          // on the old status connection. The move's active payload advances a
+          // resting baseline; a resting payload must not erase unfinished work.
+          const before = heard.get(previousPaneId);
           heard.delete(previousPaneId);
-          heard.set(paneId, before);
+          heard.set(paneId, before === undefined || status === "working" || status === "blocked" ? { status, agent } : before);
           // A snapshot already in flight still holds the old ID. It must neither
           // restore that baseline nor prune the one just carried to the new ID.
           actedOn.set(previousPaneId, ++statusEvents);

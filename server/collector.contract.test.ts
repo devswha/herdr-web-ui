@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ServerMessage } from "../shared/protocol.ts";
 import { startStatusCollector } from "./collector.ts";
 import { createServer } from "./index.ts";
-import { herdrRpc, subscribeEvents, workspaceClose, workspaceCreate } from "./herdr/client.ts";
+import { herdrRpc, sessionSnapshot, subscribeEvents, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 
 describe("socket lifecycle changes reach WebSocket clients", () => {
   let app: ReturnType<typeof createServer>;
@@ -77,17 +77,21 @@ describe("socket lifecycle changes reach WebSocket clients", () => {
 });
 
 describe("completion replay across a moved subscription key", () => {
-  it("replays the finish on the new ID when its status stream has not subscribed yet", async () => {
+  it("replays the finish when a working move overtakes a queued old-ID status event", async () => {
     const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-test-moved-gap-"));
     const workspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-moved-gap" });
     let workspaceId = workspace.workspace.workspace_id;
     const statuses: { paneId: string; before: string | undefined }[] = [];
-    const working = Promise.withResolvers<void>();
+    await herdrRpc("pane.report_agent", { pane_id: workspace.root_pane.pane_id, source: "manual", agent: "codex", state: "idle" });
+    const queued = Promise.withResolvers<void>();
+    const moved = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    let moving = false;
+    let delayedWorking: (() => void) | undefined;
     let reconciled = Promise.withResolvers<void>();
     const collector = startStatusCollector({
       onStatus(paneId, status, _agent, replay) {
         statuses.push({ paneId, before: replay?.before });
-        if (paneId === workspace.root_pane.pane_id && status === "working") working.resolve();
       },
       onBaseline() {},
       onPaneEnded() {},
@@ -96,11 +100,25 @@ describe("completion replay across a moved subscription key", () => {
         if (panes.some((pane) => pane.workspace_id === workspaceId && pane.agent_status !== "working")) reconciled.resolve();
       },
     }, {
+      async snapshot() {
+        // No timing luck: reconciliation can read the moved pane only after
+        // it finishes, even if the machine stalls beyond the debounce.
+        if (moving) await finished.promise;
+        return sessionSnapshot();
+      },
       subscribe(subs, handlers, ...rest) {
         const subscribedIds = new Set(subs.flatMap((sub) => "pane_id" in sub ? [sub.pane_id] : []));
         return subscribeEvents(subs, {
           ...handlers,
           onEvent(frame) {
+            const data = frame.data as { type?: string; pane_id?: string; agent_status?: string };
+            if (frame.event === "pane.agent_status_changed" && data.pane_id === workspace.root_pane.pane_id && data.agent_status === "working") {
+              // Hold the old connection's event until the lifecycle connection
+              // has delivered the move, preserving the real frame and callbacks.
+              delayedWorking = () => handlers.onEvent(frame);
+              queued.resolve();
+              return;
+            }
             // Model the known move gap: a stream opened for the old ID gives no
             // guarantee of delivery for the new ID until the collector reopens it.
             if (frame.event === "pane.agent_status_changed") {
@@ -108,6 +126,10 @@ describe("completion replay across a moved subscription key", () => {
               if (!subscribedIds.has(data.pane_id)) return;
             }
             handlers.onEvent(frame);
+            if (data.type === "pane_moved") {
+              delayedWorking?.();
+              moved.resolve();
+            }
           },
         }, ...rest);
       },
@@ -115,17 +137,23 @@ describe("completion replay across a moved subscription key", () => {
     try {
       await collector.ready;
       await herdrRpc("pane.report_agent", { pane_id: workspace.root_pane.pane_id, source: "manual", agent: "codex", state: "working" });
-      await working.promise;
+      await queued.promise;
+      expect(statuses).toEqual([]);
+      moving = true;
       const { move_result } = await herdrRpc<{ move_result: { pane: { pane_id: string; workspace_id: string } } }>("pane.move", {
         pane_id: workspace.root_pane.pane_id, destination: { type: "new_workspace", label: "herdr-web-ui-test-moved-gap" }, focus: false,
       });
       workspaceId = move_result.pane.workspace_id;
+      await moved.promise;
+      expect(statuses).toEqual([{ paneId: workspace.root_pane.pane_id, before: undefined }]);
       statuses.length = 0;
       reconciled = Promise.withResolvers<void>();
       await herdrRpc("pane.report_agent", { pane_id: move_result.pane.pane_id, source: "manual", agent: "codex", state: "idle" });
+      finished.resolve();
       await reconciled.promise;
       expect(statuses).toEqual([{ paneId: move_result.pane.pane_id, before: "working" }]);
     } finally {
+      finished.resolve();
       collector.stop();
       await workspaceClose(workspaceId);
       rmSync(root, { recursive: true, force: true });
