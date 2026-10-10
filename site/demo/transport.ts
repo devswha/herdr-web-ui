@@ -11,8 +11,10 @@
  * type; agent panes show one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
+import { neighborPane } from "../../src/lib/layoutMap.ts";
+import { closeLayoutPane, resizeLayout, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
 import machinesFixture from "./fixtures/machines.json";
@@ -104,6 +106,12 @@ const omoRuns = () => [
  * here instead, which keeps adding an agent to the demo to a change in `fixtures.ts` alone. Panes
  * the fixtures do record are left exactly as they were recorded.
  */
+/** herdr lays a new tab out as its one pane over the whole area: the demo's layout for it, so the layout operations find the pane. */
+function addDemoLayout(workspaceId: string, tabId: string, paneId: string): void {
+  const area = { x: 0, y: 0, width: 120, height: 40 };
+  snapshot().layouts.push({ workspace_id: workspaceId, tab_id: tabId, zoomed: false, area, focused_pane_id: paneId, panes: [{ pane_id: paneId, focused: true, rect: { ...area } }], splits: [] });
+}
+
 function backfillPanes(): void {
   const snap = snapshot();
   const recorded = new Set<string>(keyOfPane.values());
@@ -118,6 +126,7 @@ function backfillPanes(): void {
     addAgent(pane);
     snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: `${id}:t1`, workspace_id: id, label: spec.label, number: 1, agent_status: pane.agent_status, focused: false, pane_count: 1 });
     snap.workspaces.push({ ...structuredClone(template), workspace_id: id, label: spec.label, number: snap.workspaces.length + 1, active_tab_id: `${id}:t1`, agent_status: pane.agent_status, focused: false, pane_count: 1, tab_count: 1 });
+    addDemoLayout(id, `${id}:t1`, pane.pane_id);
     keyOfPane.set(pane.pane_id, spec.key);
   }
   // the fixture's own order is kept; a backfilled pane joins at the end of the list
@@ -165,6 +174,7 @@ function createDemoWorkspace(cwd: string, label: string, agent: string | null, w
   addAgent(pane);
   snap.tabs.push({ ...structuredClone(newTabTemplate), tab_id: `${id}:t1`, workspace_id: id, label, number: 1, agent_status: pane.agent_status, focused: false, pane_count: 1 });
   snap.workspaces.push({ ...structuredClone(newWorkspaceTemplate), workspace_id: id, label, number: snap.workspaces.length + 1, active_tab_id: `${id}:t1`, agent_status: pane.agent_status, focused: false, pane_count: 1, tab_count: 1, worktree: worktree ?? worktreeMetadata(repositoryAt(cwd)) });
+  addDemoLayout(id, `${id}:t1`, pane.pane_id);
   if (agent) {
     keyOfPane.set(pane.pane_id, pane.pane_id);
     chats.set(pane.pane_id, { turns: [], metadata: { model: agent === "codex" ? "gpt-5.6-sol" : "claude-opus-5-5", reasoning_effort: "medium" } });
@@ -495,6 +505,8 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const pane = paneOf(String(body["pane_id"] ?? ""));
     if (!pane) return error("not_found", "no such pane", 404);
     const snap = snapshot();
+    const closedLayout = snap.layouts.find((layout) => layout.tab_id === pane.tab_id);
+    if (closedLayout) closeLayoutPane(closedLayout, pane.pane_id);
     for (const socket of sockets) socket.holdPending(pane.pane_id, "pane_not_found", "This demo pane closed. Copy the message before discarding it.");
     replying.delete(pane.pane_id);
     snap.panes = snap.panes.filter((candidate) => candidate.pane_id !== pane.pane_id);
@@ -543,6 +555,84 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     }
     structureChanged();
     return json({ ok: true });
+  }
+  // herdr's layout operations on the demo's own layouts: a split halves the pane's rect for a new
+  // shell pane, a zoom flips the tab's flag (after focusing the pane, as herdr does), a swap
+  // exchanges two rects, a resize moves the ratio of the split the border belongs to and lays its
+  // panes out again (src/lib/layoutTree.ts), and a clear blanks the pane's screen on every socket attached to it
+  if (path === "/api/pane/split" || path === "/api/pane/zoom" || path === "/api/pane/swap" || path === "/api/pane/resize" || path === "/api/pane/clear") {
+    const body = await bodyOf(init, input);
+    const pane = paneOf(String(body["pane_id"] ?? ""));
+    const snap = snapshot();
+    const layout = pane ? snap.layouts.find((candidate) => candidate.tab_id === pane.tab_id) : undefined;
+    const cell = layout?.panes.find((candidate) => candidate.pane_id === pane?.pane_id);
+    if (!pane || !layout || !cell) return error("pane_not_found", "pane not found", 404);
+    if (path === "/api/pane/clear") {
+      for (const socket of sockets) socket.clearScreen(pane.pane_id);
+      return json({ ok: true });
+    }
+    if (path === "/api/pane/split") {
+      const direction = body["direction"];
+      if (direction !== "right" && direction !== "down") return error("invalid_direction", "direction must be right or down", 400);
+      const focus = body["focus"] === true;
+      const serial = (nextWorkspace++).toString(36);
+      const made: Pane = { ...structuredClone(pane), pane_id: `${pane.workspace_id}:p${serial}`, terminal_id: `${pane.workspace_id}:term${serial}`, label: null, title: null, agent: null, agent_session: null, agent_status: "unknown", focused: focus, terminal_title: null, terminal_title_stripped: null, revision: 1 };
+      if (!splitLayout(layout, pane.pane_id, { pane_id: made.pane_id, focused: focus, rect: cell.rect }, direction)) {
+        return error("split_failed", "The demo pane is too small to split.", 400);
+      }
+      snap.panes.push(made);
+      if (focus) {
+        layout.focused_pane_id = made.pane_id;
+        for (const candidate of layout.panes) candidate.focused = candidate.pane_id === made.pane_id;
+        for (const candidate of snap.panes) if (candidate.tab_id === pane.tab_id) candidate.focused = candidate.pane_id === made.pane_id;
+        snap.focused_pane_id = made.pane_id;
+      }
+      const tab = snap.tabs.find((candidate) => candidate.tab_id === pane.tab_id);
+      if (tab) tab.pane_count += 1;
+      const workspace = snap.workspaces.find((candidate) => candidate.workspace_id === pane.workspace_id);
+      if (workspace) workspace.pane_count += 1;
+      structureChanged();
+      return json({ ok: true, pane: made } satisfies PaneSplit);
+    }
+    if (path === "/api/pane/zoom") {
+      const mode = body["mode"] ?? "toggle";
+      if (mode !== "toggle" && mode !== "on" && mode !== "off") return error("invalid_mode", "mode must be toggle, on or off", 400);
+      // herdr focuses the pane before it reads the mode, or counts the panes: a zoomed tab then
+      // shows this pane alone even when the flag's answer is already_zoomed
+      const moved = layout.focused_pane_id !== pane.pane_id;
+      if (moved) {
+        layout.focused_pane_id = pane.pane_id;
+        for (const candidate of layout.panes) candidate.focused = candidate.pane_id === pane.pane_id;
+        for (const candidate of snap.panes) if (candidate.tab_id === pane.tab_id) candidate.focused = candidate.pane_id === pane.pane_id;
+        snap.focused_pane_id = pane.pane_id;
+      }
+      const answer = (zoomed: boolean, changed: boolean, reason: string | null) => {
+        if (moved || changed) structureChanged();
+        return json({ ok: true, zoomed, changed, reason } satisfies PaneZoomed);
+      };
+      if (layout.panes.length < 2) return answer(layout.zoomed, false, "single_pane");
+      const zoomed = mode === "toggle" ? !layout.zoomed : mode === "on";
+      if (zoomed === layout.zoomed) return answer(zoomed, false, zoomed ? "already_zoomed" : "already_unzoomed");
+      layout.zoomed = zoomed;
+      return answer(zoomed, true, null);
+    }
+    const direction = body["direction"];
+    if (direction !== "left" && direction !== "right" && direction !== "up" && direction !== "down") return error("invalid_direction", "direction must be left, right, up or down", 400);
+    const beside = (side: PaneDirection) => { const id = neighborPane(layout, pane.pane_id, side); return id === null ? undefined : layout.panes.find((candidate) => candidate.pane_id === id); };
+    if (path === "/api/pane/swap") {
+      const other = beside(direction);
+      if (!other) return json({ ok: true, changed: false, reason: "no_neighbor", target_pane_id: null } satisfies PaneSwapped);
+      swapLayoutPanes(layout, pane.pane_id, other.pane_id);
+      structureChanged();
+      return json({ ok: true, changed: true, reason: null, target_pane_id: other.pane_id } satisfies PaneSwapped);
+    }
+    const amount = body["amount"];
+    if (amount !== undefined && (typeof amount !== "number" || !(amount > 0) || amount > 0.5)) return error("invalid_amount", "amount must be a number above 0 and at most 0.5", 400);
+    const resized = resizeLayout(layout, pane.pane_id, direction, amount ?? 0.05);
+    if (!resized) return json({ ok: true, changed: false, reason: "unchanged" } satisfies PaneResized);
+    layout.panes = resized;
+    structureChanged();
+    return json({ ok: true, changed: true, reason: null } satisfies PaneResized);
   }
   if (path === "/api/tab/rename") {
     const body = await bodyOf(init, input);
@@ -623,6 +713,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     snap.panes.push(pane);
     addAgent(pane);
     snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: tabId, workspace_id: id, label: String(body["label"] ?? ""), number, agent_status: pane.agent_status, focused: false, pane_count: 1 });
+    addDemoLayout(id, tabId, pane.pane_id);
     if (String(body["label"] ?? "") === "") autoTabs.add(tabId);
     else autoTabs.delete(tabId);
     relabelAutoTabs(id);
@@ -964,6 +1055,11 @@ class DemoSocket extends EventTarget {
     if (this.pendingTargetError(paneId) !== null || !["idle", "done"].includes(paneOf(paneId)?.agent_status ?? "")) return false;
     const pending = this.pending.get(paneId)?.find((item) => item.state === "queued");
     return pending !== undefined && this.deliverPending(paneId, pending);
+  }
+
+  /** herdr's pane.clear: the screen goes blank with the cursor at home; what the program writes next shows again */
+  clearScreen(paneId: string): void {
+    if (this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" });
   }
 
   private attach(paneId: string): void {

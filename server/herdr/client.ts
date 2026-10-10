@@ -1,15 +1,17 @@
 import { stripVTControlCharacters } from "node:util";
 import type {
   AgentIntegration,
+  PaneDirection,
   PaneReadResult,
   ReadFormat,
   ReadSource,
   SessionSnapshot,
+  SplitPaneDirection,
   PaneFindRequest,
   PaneFindResponse,
   PaneFindMatch,
 } from "../../shared/protocol.ts";
-import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
+import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneLayoutSnapshot, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
 import type { HerdrIdentity } from "../../shared/machines.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -532,6 +534,52 @@ export async function paneSendKeys(paneId: string, keys: string[], socketPath?: 
 
 export async function paneClose(paneId: string, socketPath?: string): Promise<void> {
   await herdrRpc("pane.close", { pane_id: paneId }, socketPath);
+}
+
+/**
+ * A new pane beside `paneId` (herdr's prefix+v / prefix+-), answered as herdr's snapshot lists it.
+ * herdr's focus stays where it is unless `focus` asks for the new pane, as its --focus does.
+ */
+export async function paneSplit(paneId: string, direction: SplitPaneDirection, focus: boolean, socketPath?: string): Promise<PaneInfo> {
+  const result = await herdrRpc<{ pane: PaneInfo }>("pane.split", { target_pane_id: paneId, direction, focus }, socketPath);
+  return result.pane;
+}
+
+/** How herdr answers a layout change: whether anything moved, why not, and the tab's layout after it. */
+export interface PaneLayoutOutcome {
+  changed: boolean;
+  reason: string | null;
+  focused_pane_id: string;
+  layout: PaneLayoutSnapshot;
+}
+
+/** herdr's prefix+z: the tab shows the pane alone (and focuses it), or every pane again. */
+export async function paneZoom(paneId: string, mode: "toggle" | "on" | "off", socketPath?: string): Promise<PaneLayoutOutcome & { zoomed: boolean }> {
+  const result = await herdrRpc<{ zoom: PaneLayoutOutcome & { zoomed: boolean; reason?: string | null } }>("pane.zoom", { pane_id: paneId, mode }, socketPath);
+  return { ...result.zoom, reason: result.zoom.reason ?? null };
+}
+
+/** herdr's prefix+shift+hjkl: the pane and its neighbour on that side change places; no_neighbor when it has none. */
+export async function paneSwap(paneId: string, direction: PaneDirection, socketPath?: string): Promise<PaneLayoutOutcome & { target_pane_id: string | null }> {
+  const result = await herdrRpc<{ swap: PaneLayoutOutcome & { target_pane_id?: string | null; reason?: string | null } }>("pane.swap", { pane_id: paneId, direction }, socketPath);
+  return { ...result.swap, reason: result.swap.reason ?? null, target_pane_id: result.swap.target_pane_id ?? null };
+}
+
+/**
+ * herdr's resize mode: the border the pane shares with a neighbour moves `direction`-wards by
+ * `amount` of the split that border belongs to, measured on the split's own extent rather than
+ * the tab's (herdr's own 0.05 when undefined; herdr caps it at 0.5 and holds the ratio to
+ * 0.1..0.9). Measured on 0.9.3: the direction is the border's, so the left pane of a split
+ * shrinks on `left` and the right one grows.
+ */
+export async function paneResize(paneId: string, direction: PaneDirection, amount: number | undefined, socketPath?: string): Promise<PaneLayoutOutcome> {
+  const result = await herdrRpc<{ resize: PaneLayoutOutcome & { reason?: string | null } }>("pane.resize", { pane_id: paneId, direction, ...(amount === undefined ? {} : { amount }) }, socketPath);
+  return { ...result.resize, reason: result.resize.reason ?? null };
+}
+
+/** Clears the pane's terminal screen, as herdr's own `pane clear` does. */
+export async function paneClear(paneId: string, socketPath?: string): Promise<void> {
+  await herdrRpc("pane.clear", { pane_id: paneId }, socketPath);
 }
 
 export interface HerdrSubscription {

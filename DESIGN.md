@@ -338,7 +338,10 @@ One set for both themes: the card is island black wherever it shows.
   it from `769px` (`--strip-bg`: `--bg` under the chat lens, `--term-bg` otherwise, `--bg-panel`
   below `769px`) and keeps its hairline, under the chat the one line over the transcript (no
   fade under it). The update notice and a PC's action banner are drawn in the pane column, over
-  the tab strip, never across the window: the sidebar and its top row stay one piece. With the
+  the tab strip, never across the window: the sidebar and its top row stay one piece. A layout
+  call the palette made that a PC's bridge from before the route answered 404 to reads there too,
+  for a moment, as a `.pane-notice` line of `--status-blocked` `--fs-xs` text under a hairline
+  ("This PC's bridge does not offer this yet"); the tab's menu says the same at the strip's end. With the
   sidebar collapsed the toggle and the palette sit in the one bar. Below `769px` the header is the `--bg-panel` bar with
   its rule: the installed app's `theme-color` matches it.
 - From `769px` the sidebar's right edge is a grip (`.sidebar-resizer`, `role="separator"`): drag
@@ -404,8 +407,11 @@ One set for both themes: the card is island black wherever it shows.
   A row offers Rename workspace, Rename pane (the pane it opens), New tab,
   New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
   ends in **Delete worktree checkout…** after Close workspace. The
-  danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
-  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
+  danger item takes `--status-blocked`. The popover is as tall as its items, up to the room on
+  its side of the button (it scrolls only on a screen too short for it). At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
+  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
+  rows scroll between the head and Cancel (`.row-sheet-items`), which stay put, when the sheet's
+  92% of the screen cannot hold them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
   A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
@@ -418,7 +424,8 @@ One set for both themes: the card is island black wherever it shows.
   confirmed close, focus lands on the header's workspace-list toggle.
 - The tab strip's pane picker is the same menu: one item per pane of the tab, the agent's mark
   (or the shell glyph) and the pane's title, the open pane named in the strong colour
-  (`aria-current`).
+  (`aria-current`). A tab of several panes heads it with the layout map (below), in the
+  popover's header and in the sheet's head under the title.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
@@ -609,7 +616,26 @@ One set for both themes: the card is island black wherever it shows.
   a right-click opens the tab's menu under its left edge; the middle button closes. With keys
   on a focused tab: F2 and Delete. On a touch screen there is no `x`: the open tab carries the
   chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
-  several, then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+  several, then herdr's layout operations on the pane the tab opens (the open pane on the open
+  tab): **Split right**, **Split down** (prefix+v, prefix+-), **Zoom pane** / **Unzoom pane**
+  (prefix+z, a checkbox item; it sends the mode it names, never herdr's toggle, which would
+  unzoom a tab zoomed on another pane) and **Swap left / right / up / down** (prefix+shift+hjkl), only for
+  the sides the pane has a neighbour on, **Wider / Narrower / Taller / Shorter** (the resize
+  mode, by herdr's own share of the split the border belongs to), only for an axis the pane shares with a neighbour, and
+  **Clear pane**; then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+  A split keeps the open pane, as herdr's `--no-focus` keeps its focus. herdr's "nothing
+  changed" answers (no neighbour on that side, a border that cannot move) read as a line of
+  `--status-blocked` text at the strip's end, like a refusal.
+- The layout map (`.layout-map`, components/LayoutMap.tsx): the tab's area as a box of the
+  area's columns over its rows (a terminal cell counts twice as tall as wide), held between
+  1.2:1 and 3:1 and no taller than 96px in the popover (so the items under it stand on a
+  short screen) or 140px in the sheet, `--radius-md`. Each pane is a `.layout-map-cell`
+  button at its rect's place and size in percent, `--bg-hover` with a hairline of the menu's
+  surface (`--bg-elevated`) between cells and `--radius-sm` corners; `--border-strong` under the
+  pointer. The open pane's cell (`.is-current`, `aria-current`) is the `--accent-tint` wash
+  edged in `--accent`, and the pane herdr zooms carries a 12px Maximize2 glyph (`.is-zoomed`),
+  named "(zoomed)" for assistive tech. A cell opens its pane and closes the menu. Nothing in it
+  is to the terminal's scale: the rects are herdr's layout, not the attached terminal's size.
 - A close is immediate, as herdr's, and the tab beside it opens. It asks first (the confirm
   dialog) only when it costs more than the tab: an agent in it is working or blocked, or it is
   the workspace's last tab, which takes the workspace with it. A refusal shows in the dialog, or
@@ -984,8 +1010,11 @@ One set for both themes: the card is island black wherever it shows.
   lead an empty query; arrows in the search field cycle through visible results, Enter activates
   and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
   with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
-- Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
+- Actions cover new workspace, new tab, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints resolved from this browser's shortcut settings; disabled bindings have no hint.
+  With a pane selected they add herdr's **Split pane right / down**, the same **and open it**
+  (herdr's `--focus`: the new pane is opened here only then) and, in a tab of several panes,
+  **Zoom pane** / **Unzoom pane**.
 - Rows are grouped as herdr's Goto picker groups them: a `.menu-heading` per workspace (its name, a
   linked worktree's branch in mono when the name does not say it, the row count), Recent (up to
   three, an unsearched and unfiltered list only) before the workspaces, Actions last. The

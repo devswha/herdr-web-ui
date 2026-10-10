@@ -8,6 +8,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- herdr's pane layout operations from the web: a tab's menu (right-click a tab, or its chevron;
+  a bottom sheet on a phone) now offers **Split right** and **Split down** (herdr's prefix+v and
+  prefix+-), **Zoom pane** (prefix+z), **Swap left / right / up / down** with the pane's
+  neighbours (prefix+shift+hjkl), **Wider / Narrower / Taller / Shorter** (herdr's resize mode)
+  and **Clear pane**. A tab of several panes heads the menu with a small map of its layout, drawn
+  from herdr's own pane rects: a cell opens its pane, the open pane is marked in the accent and the
+  zoomed one carries the zoom glyph. The command palette has **Split pane right / down**, the same
+  **and open it** (herdr's `--focus`; a plain split keeps the pane you are on, like `--no-focus`)
+  and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
+  one herdr RPC each, also on remote PCs.
+  ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
   Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
   ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
@@ -38,6 +49,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- The browser demo keeps each row's own split when resizing a grid and keeps deeply split
+  panes visible and resizable. ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Workspace and tab changes, pane moves and layout updates made in herdr's terminal UI
   now refresh the web immediately through coalesced lifecycle events instead of waiting
   for the five-second poll. Pane status subscriptions follow moved pane IDs.

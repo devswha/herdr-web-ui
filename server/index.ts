@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -36,9 +36,11 @@ import {
   HerdrError,
   herdrSocketPath,
   integrationList,
+  paneClear,
   paneClose,
   paneGet,
   paneRead,
+  paneResize,
   paneScroll,
   paneScrollInfo,
   paneFind,
@@ -46,6 +48,9 @@ import {
   paneRename,
   paneSendKeys,
   paneSendText,
+  paneSplit,
+  paneSwap,
+  paneZoom,
   ping,
   pluginActionInvoke,
   pluginActionList,
@@ -179,6 +184,9 @@ const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-inp
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+
+/** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
+const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
 /** pane.read's own enums; a read outside them is refused here rather than sent to herdr as a guess (the generated types are open-ended) */
 const READ_SOURCES = new Set<ReadSource>(["detection", "recent", "recent_unwrapped", "visible"]);
 const READ_FORMATS = new Set<ReadFormat>(["ansi", "text"]);
@@ -2161,6 +2169,55 @@ export function createServer(
           // the pane is gone: whatever its chat parsed is released with it (server/conversation.ts)
           forgetPaneTranscriptState(payload.pane_id);
           return jsonResponse({ ok: true });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      // herdr's own layout operations, as its TUI has them: prefix+v and prefix+- (split), prefix+z
+      // (zoom), prefix+shift+hjkl (swap), its resize mode, and pane clear. Each is one herdr RPC. No
+      // answer carries the layout: a new pane reaches every client through the collector's
+      // pane.created subscription and a moved border, zoom or swap through its layout.updated one,
+      // both as session-changed, the same way the TUI's own changes do.
+      if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { pane_id?: unknown; direction?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
+        const paneId = payload.pane_id;
+        try {
+          if (pathname === "/api/pane/split") {
+            if (payload.direction !== "right" && payload.direction !== "down") return badRequest("invalid_direction", "direction must be right or down");
+            if (payload.focus !== undefined && typeof payload.focus !== "boolean") return badRequest("invalid_focus", "focus must be a boolean");
+            const pane = await paneSplit(paneId, payload.direction, payload.focus === true);
+            return jsonResponse({ ok: true, pane } satisfies PaneSplit);
+          }
+          if (pathname === "/api/pane/zoom") {
+            if (payload.mode !== undefined && payload.mode !== "toggle" && payload.mode !== "on" && payload.mode !== "off") return badRequest("invalid_mode", "mode must be toggle, on or off");
+            const zoom = await paneZoom(paneId, payload.mode ?? "toggle");
+            return jsonResponse({ ok: true, zoomed: zoom.zoomed, changed: zoom.changed, reason: zoom.reason } satisfies PaneZoomed);
+          }
+          if (pathname === "/api/pane/clear") {
+            await paneClear(paneId);
+            return jsonResponse({ ok: true });
+          }
+          if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
+          if (pathname === "/api/pane/swap") {
+            const swap = await paneSwap(paneId, payload.direction);
+            return jsonResponse({ ok: true, changed: swap.changed, reason: swap.reason, target_pane_id: swap.target_pane_id } satisfies PaneSwapped);
+          }
+          // a share of the split the border belongs to, as herdr counts it, and no more than the
+          // half herdr would quietly cap it to (shared/protocol.ts); its own default when absent
+          if (payload.amount !== undefined && !(typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0 && payload.amount <= 0.5)) {
+            return badRequest("invalid_amount", "amount must be a number above 0 and at most 0.5");
+          }
+          const resize = await paneResize(paneId, payload.direction, payload.amount);
+          return jsonResponse({ ok: true, changed: resize.changed, reason: resize.reason } satisfies PaneResized);
         } catch (error) {
           return errorResponse(error);
         }

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Bell, Ellipsis, FolderOpen, Lock, Menu, MessageSquare, PanelLeft, Plus, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
@@ -51,6 +51,7 @@ import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useFileViewer } from "./lib/useFileViewer.ts";
 import { useT } from "./lib/i18n.ts";
+import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
@@ -170,6 +171,13 @@ export function App() {
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // a palette layout call a PC's bridge could not take: a line over the pane, gone after a moment as the tab strip's is
+  const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!layoutNotice) return;
+    const timer = window.setTimeout(() => setLayoutNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [layoutNotice]);
   // null until the server has said whether it wants a token: the shell, and with it
   // the WebSocket, never mounts before that is known
   const [locked, setLocked] = useState<boolean | null>(null);
@@ -202,8 +210,13 @@ export function App() {
   // narrow window opened must not come back (with its scrim) the next time the window narrows
   const wideScreen = useMediaQuery("(min-width: 769px)");
   useEffect(() => { if (wideScreen) setDrawerOpen(false); }, [wideScreen]);
-  const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
-  selectionRef.current = { machineId: selectedMachineId, paneId: selectedPaneId };
+  // with a generation (lib/selectionMark.ts): a call that answers after the user opened another pane or PC leaves
+  // the selection alone. Marked at commit, not in render: a render React throws away (Strict Mode, a replay)
+  // must not move the generation on, and every reader runs from an event or a reply, after the commit
+  const selectionRef = useRef<SelectionMark>({ machineId: selectedMachineId, paneId: selectedPaneId, generation: 0 });
+  useLayoutEffect(() => {
+    selectionRef.current = markSelection(selectionRef.current, selectedMachineId, selectedPaneId);
+  }, [selectedMachineId, selectedPaneId]);
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -567,6 +580,14 @@ export function App() {
     setDrawerOpen(false);
   }, []);
 
+  // a layout call the palette made and the PC refused: a bridge from before the route says so
+  // over the pane (the tab's own menu has a line of its own); anything else is logged, as
+  // other background failures are
+  const layoutRefused = useCallback((what: string, err: unknown): void => {
+    if (routeMissing(err)) setLayoutNotice(t("This PC's bridge does not offer this yet"));
+    else console.warn(what, err);
+  }, [t]);
+
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id, target.view)), []);
 
@@ -721,8 +742,28 @@ export function App() {
       enableNotifications: bellVisible && bell.run === enableNotifications ? () => void enableNotifications() : null,
       refresh: () => void load(),
       openFiles: selectedPaneId !== null ? () => { setDrawerOpen(false); setFilesOpen(true); } : null,
+      // herdr's layout calls on the selected pane (components/TabStrip.tsx has the same for the
+      // tab's own menu): the new layout reaches every client as session-changed, so only a
+      // refusal is left to say, and that is logged as other background failures are
+      splitPane: selectedPaneId !== null ? (direction, focus = false) => {
+        const asked = selectionRef.current;
+        if (asked.paneId === null) return;
+        void splitPane(asked.paneId, direction, focus, asked.machineId)
+          .then((pane) => {
+            void load();
+            // herdr focused the new pane: the app follows, unless another pane or PC was opened
+            // while herdr answered (over SSH, say): what the user went to is theirs to keep
+            if (focus && selectionStill(asked, selectionRef.current)) selectPane(pane.pane_id);
+          })
+          .catch((err) => layoutRefused("pane split failed", err));
+      } : null,
+      zoomPane: selectedPaneId !== null ? (mode) => {
+        const { machineId, paneId } = selectionRef.current;
+        if (paneId === null) return;
+        void zoomPane(paneId, mode, machineId).then(() => void load()).catch((err) => layoutRefused("pane zoom failed", err));
+      } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused],
   );
 
   useShortcuts(actions, locked === false);
@@ -904,8 +945,9 @@ export function App() {
         <UpdateNotice updates={updates} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
+        {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
         {snapshot && selectedPane && selectedWorkspace && (
-          <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} />
+          <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} onLayoutChanged={actions.refresh} />
         )}
         {/* the tab strip's panel: its id is what each tab's aria-controls points at. No tabIndex -
             the terminal (PaneTerminal) and the composer are the focusable things inside it. */}

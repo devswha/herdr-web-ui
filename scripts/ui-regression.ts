@@ -21,6 +21,7 @@ import { checkNotificationStartup } from "./notification-startup-regression.ts";
 import { checkNotificationView } from "./notification-view-regression.ts";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
+import { checkTabMenu } from "./tab-menu-regression.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkSafariIme } from "./terminal-safari-ime-regression.ts";
@@ -770,6 +771,7 @@ try {
   await checkNotificationView(browser, origin);
   await checkMobileViewport(browser, origin, paneB);
   await checkMobileTabs(browser, origin);
+  await checkTabMenu(browser, origin);
   await checkDefaultView(browser, origin);
   await checkComposerReconnect(browser, origin, paneB);
   await checkDroplet(browser, origin);
@@ -1388,7 +1390,8 @@ try {
   await strip.getByRole("tab", { name: "second", exact: true }).click({ button: "right" });
   const tabMenu = page.getByRole("menu", { name: "second", exact: true });
   await tabMenu.waitFor();
-  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Close tab"]);
+  // a tab of one pane: herdr's split and clear for that pane, then the tab's own name and close
+  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Close tab"]);
   await tabMenu.getByRole("menuitem", { name: "Rename tab", exact: true }).click();
   await tabName.fill("build");
   await page.keyboard.press("Enter");
@@ -1407,7 +1410,7 @@ try {
   await phoneStrip.getByRole("button", { name: "Actions for build", exact: true }).tap();
   const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
   await tabSheet.waitFor();
-  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Rename tab", "Close tab"]);
+  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Close tab"]);
   await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
   await tabSheet.waitFor({ state: "detached" });
   if (tabPhoneEvidence) await tabPhoneEvidence.finish();
