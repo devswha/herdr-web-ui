@@ -145,6 +145,17 @@ export function PaneTerminal({
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
   const hostRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * Whether the grid may take the keyboard by itself, later than the user's own action (an upload
+   * that finished, a dropped text): the focus is nowhere, or already in this terminal's own half.
+   * The other half of a split view keeps the focus the user put there (lib/split.ts).
+   */
+  const mayTakeFocus = (): boolean => {
+    const focused = document.activeElement;
+    if (focused === null || focused === document.body) return true;
+    const half = focused.closest(".pane-slot");
+    return half === null || (hostRef.current !== null && half.contains(hostRef.current));
+  };
   const stackRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -359,9 +370,22 @@ export function PaneTerminal({
   onServerMessageRef.current = onServerMessage;
   onRoleAckRef.current = onRoleAck;
 
+  // also when the callback itself changes: the other half of a split, made active, hands its
+  // connection to callbacks that were no-ops and would otherwise hear of it only at a change
+  // a stalled output this terminal reported while its callbacks were no-ops, told to the live ones
+  const stalledRef = useRef<ServerMessage | null>(null);
   useEffect(() => {
+    // a connection made again has its output back: the stall it reported is over
+    if (connected) stalledRef.current = null;
     onConnectionChangeRef.current?.(connected);
-  }, [connected]);
+  }, [connected, onConnectionChange]);
+  useEffect(() => {
+    if (stalledRef.current !== null) onServerMessageRef.current?.(stalledRef.current);
+  }, [onServerMessage]);
+  const lastRoleAckRef = useRef<ClientRole | null>(null);
+  useEffect(() => {
+    if (lastRoleAckRef.current !== null) onRoleAckRef.current?.(lastRoleAckRef.current);
+  }, [onRoleAck]);
 
   const noteClipboard = useCallback((note: string) => {
     if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
@@ -850,6 +874,7 @@ export function PaneTerminal({
     socketRef.current = socket;
     let outputGeneration = 0;
     const off = socket.on((message) => {
+      if (message.type === "error" && message.code === "output_stalled") stalledRef.current = message;
       onServerMessageRef.current?.(message);
       if (message.type === "snapshot" && pendingScopeRef.current === null) pendingScopeRef.current = `${Date.now()}-${Math.random()}`;
       if (message.type === "pending-messages" && pendingScopeRef.current !== null) {
@@ -922,6 +947,7 @@ export function PaneTerminal({
         observeRef.current = nowObserving;
         setObserving(nowObserving);
         term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
+        lastRoleAckRef.current = message.mode;
         onRoleAckRef.current?.(message.mode);
         if (!nowObserving && !fixedGridRef.current && !chatViewRef.current && inUse()) {
           try {
@@ -1106,7 +1132,7 @@ export function PaneTerminal({
         // An upload can finish after the user has switched panes or lost input access.
         if (paneRef.current !== pane || chatViewRef.current || !socket.connected || term.options.disableStdin) return;
         pasteText(paths.map((path) => `'${path.replaceAll("'", "'\\''")}'`).join(" ") + " ");
-        term.focus();
+        if (mayTakeFocus()) term.focus();
       } catch (error) {
         if (paneRef.current === pane) noteClipboard(error instanceof Error ? error.message : String(error));
       }
@@ -1138,7 +1164,7 @@ export function PaneTerminal({
       const text = event.dataTransfer.getData("text/plain");
       if (text) {
         pasteText(text);
-        term.focus();
+        if (mayTakeFocus()) term.focus();
       }
     };
     host.addEventListener("paste", onFilePaste, { capture: true });
