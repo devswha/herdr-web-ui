@@ -195,6 +195,9 @@ const sockets = new Set<DemoSocket>();
 // closes; a renamed tab keeps its name. The demo tracks which tabs still carry the automatic name.
 const autoTabs = new Set<string>();
 function relabelAutoTabs(workspaceId: string): void {
+  // a tab that is gone is forgotten, so a later tab given its ID keeps the name it was created with
+  const live = new Set(snapshot().tabs.map((tab) => tab.tab_id));
+  for (const id of autoTabs) if (!live.has(id)) autoTabs.delete(id);
   let place = 0;
   for (const tab of snapshot().tabs) {
     if (tab.workspace_id !== workspaceId) continue;
