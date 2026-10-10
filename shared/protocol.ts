@@ -12,17 +12,20 @@ export type {
   AgentSessionInfo,
   AgentStatus,
   PaneInfo,
+  PaneMoveReason,
+  PaneMoveResult,
   PaneReadResult,
   PaneScrollInfo,
   ReadFormat,
   ReadSource,
   SessionSnapshot,
+  SplitDirection,
   Subscription as HerdrSubscriptionSpec,
   TabInfo,
   WorkspaceInfo,
 } from "./herdr-api.generated.ts";
 
-import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
+import type { AgentStatus, PaneInfo, PaneMoveResult, SessionSnapshot, SplitDirection, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
 
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
@@ -99,6 +102,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
+ *  POST   /api/pane/move   { pane_id, destination, focus? } -> PaneMoved (pane.move: the pane into
+ *         another tab of its workspace, a new tab there or in another workspace, or a new workspace;
+ *         a pane that leaves its workspace gets a NEW pane id, reported beside previous_pane_id; an
+ *         emptied tab or workspace closes behind it; focus defaults to false, so herdr's own focus
+ *         stays where it was and only the caller follows the pane)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/ (under HERDR_WEB_PASTE_DIR when the
  *         server's environment sets it), path for the prompt
@@ -619,6 +627,33 @@ export interface WorkspaceCreated {
  * launch leaves the tab there, reachable through pane_id, as workspace creation does.
  */
 export type TabCreated = WorkspaceCreated;
+
+/**
+ * POST /api/pane/move: where the pane goes. herdr's PaneMoveDestination with the `type` the
+ * generated union widens to a string spelled out, so a caller cannot send a kind herdr has not got.
+ * `tab` lands beside the tab's focused pane (`target_pane_id` names another) on the side `split`
+ * says, right when absent; `new_tab` without a workspace stays in the pane's own.
+ */
+export type MovePaneDestination =
+  | { type: "tab"; tab_id: string; split?: SplitDirection; target_pane_id?: string | null; ratio?: number | null }
+  | { type: "new_tab"; workspace_id?: string | null; label?: string | null }
+  | { type: "new_workspace"; label?: string | null; tab_label?: string | null };
+
+export interface MovePaneRequest {
+  pane_id: string;
+  destination: MovePaneDestination;
+  /** herdr's focus follows the pane when true; absent or false leaves it where it was */
+  focus?: boolean;
+}
+
+/**
+ * POST /api/pane/move: herdr's move result. `pane` is the pane where it now stands, under a new
+ * `pane_id` when it changed workspace (`previous_pane_id` is the one the caller sent); `changed`
+ * false with `reason: "same_tab"` means it already was where it was asked to go. `created_tab`
+ * and `created_workspace` name what the move made, `closed_tab_id` and `closed_workspace_id` what
+ * it emptied and herdr closed behind it.
+ */
+export type PaneMoved = PaneMoveResult;
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */
 export interface SlashCommand {
