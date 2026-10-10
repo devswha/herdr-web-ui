@@ -469,16 +469,18 @@ export function sameDirectory(left: string, right: string): boolean {
   if (directoryKey(left) === directoryKey(right)) return true;
   if (process.platform !== "win32") return false;
   try {
-    const a = statSync(left);
-    const b = statSync(right);
+    // bigint: a Windows file ID is 64-bit, and two of them can round to one number
+    const a = statSync(left, { bigint: true });
+    const b = statSync(right, { bigint: true });
     return a.isDirectory() && b.isDirectory() && a.dev === b.dev && a.ino === b.ino;
   } catch { return false; }
 }
 
 /** The other Codex panes herdr shows in this pane's directory, in any spelling `sameDirectory` takes. */
 export function codexPeersIn(panes: readonly HerdrPane[], paneId: string, cwd: string): HerdrPane[] {
-  return panes.filter((pane) => pane.pane_id !== paneId && pane.cwd != null && sameDirectory(pane.cwd, cwd)
-    && (pane.agent ?? pane.agent_session?.agent) === "codex");
+  // the agent first: sameDirectory can ask the file system, and only Codex panes need it
+  return panes.filter((pane) => pane.pane_id !== paneId && (pane.agent ?? pane.agent_session?.agent) === "codex"
+    && pane.cwd != null && sameDirectory(pane.cwd, cwd));
 }
 
 /**
