@@ -621,7 +621,8 @@ export function App() {
       setSelectedPaneId(selectedLayout.focused_pane_id);
       setAutoSelected(true);
     }
-  }, [selectedMachineId, selectedLayout?.zoomed, selectedLayout?.focused_pane_id]);
+    // a pick of another pane of a zoomed tab lands on herdr's zoomed one too: herdr shows only it
+  }, [selectedMachineId, selectedPaneId, selectedLayout?.zoomed, selectedLayout?.focused_pane_id]);
   const targetHerdr = selectedMachineId === "local" ? health?.herdr : selectedMachine?.herdr;
   const selectedTitle = selectedPane ? displayPaneTitle(selectedPane) : null;
   // the tab that governs the pane region, so the strip's tabs and the pane they select are

@@ -6,7 +6,7 @@
         "Search a pane's terminal history, with highlighted matches and a history scrollbar.",
         "The command palette works like herdr's Goto picker and runs herdr plugin actions.",
         "Reorder tabs, and move a pane to another tab or workspace, as in herdr's own window.",
-        "Set an agent's herdr name, and see herdr's agent integrations in Settings."
+        "Agents show the names set with herdr, and Settings lists herdr's agent integrations."
       ],
       "improved": [
         "Answers are compressed, so opening a long chat is faster over a slow connection.",
@@ -27,7 +27,7 @@
         "패널의 터미널 기록을 검색하고, 일치 항목 강조와 기록 스크롤바를 제공합니다.",
         "명령 팔레트가 herdr의 Goto 선택기처럼 동작하고 herdr 플러그인 동작을 실행합니다.",
         "herdr 창처럼 탭 순서를 바꾸고 패널을 다른 탭이나 워크스페이스로 옮길 수 있습니다.",
-        "에이전트의 herdr 이름을 정하고, 설정에서 herdr 에이전트 연동 상태를 볼 수 있습니다."
+        "herdr에서 정한 에이전트 이름이 보이고, 설정에서 herdr 에이전트 연동 상태를 볼 수 있습니다."
       ],
       "improved": [
         "응답을 압축해 느린 연결에서도 긴 채팅을 더 빨리 엽니다.",
@@ -48,7 +48,7 @@
         "ペインのターミナル履歴を検索でき、一致箇所の強調と履歴スクロールバーがあります。",
         "コマンドパレットがherdrのGotoピッカーのように動き、herdrプラグインの操作を実行します。",
         "herdrのウィンドウと同じく、タブを並べ替え、ペインを別のタブやワークスペースへ移せます。",
-        "エージェントのherdr名を設定し、設定画面でherdrのエージェント連携を確認できます。"
+        "herdrで付けたエージェント名が表示され、設定画面でherdrのエージェント連携を確認できます。"
       ],
       "improved": [
         "応答を圧縮するため、遅い回線でも長いチャットを速く開けます。",
@@ -69,7 +69,7 @@
         "可搜索窗格的终端历史，并高亮匹配项、提供历史滚动条。",
         "命令面板像 herdr 的 Goto 选择器一样工作，并可运行 herdr 插件操作。",
         "像 herdr 窗口一样重新排列标签页，并把窗格移到其他标签页或工作区。",
-        "可设置代理的 herdr 名称，并在设置中查看 herdr 的代理集成状态。"
+        "会显示在 herdr 中设置的代理名称，并可在设置中查看 herdr 的代理集成状态。"
       ],
       "improved": [
         "响应经过压缩，在慢速连接下也能更快打开较长的聊天。",
