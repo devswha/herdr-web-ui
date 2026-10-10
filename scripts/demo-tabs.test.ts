@@ -30,6 +30,15 @@ it("the demo relabels automatic tab names by place and leaves custom numeric nam
     await post("/api/tab/rename", { tab_id: `${workspace}:t4`, label: "3" });
     await post("/api/tab/close", { tab_id: `${workspace}:t2` });
     assert.deepEqual(await labels(workspace), ["t3=1", "t4=3"]);
+
+    // a tab closed through its last pane is forgotten: a named tab made afterwards keeps its name
+    await post("/api/tab/create", { workspace_id: workspace });
+    const after = (await (await demo.fetch("/api/session")).json()).snapshot;
+    const unnamed = after.tabs.filter((tab: any) => tab.workspace_id === workspace).at(-1).tab_id as string;
+    const pane = after.panes.find((candidate: any) => candidate.tab_id === unnamed);
+    await post("/api/pane/close", { pane_id: pane.pane_id });
+    await post("/api/tab/create", { workspace_id: workspace, label: "build" });
+    assert.deepEqual((await labels(workspace)).map((entry: string) => entry.split("=")[1]), ["1", "3", "build"]);
   } finally {
     for (const [key, descriptor] of saved) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);

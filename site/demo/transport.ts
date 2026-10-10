@@ -598,6 +598,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     addAgent(pane);
     snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: tabId, workspace_id: id, label: String(body["label"] ?? ""), number, agent_status: pane.agent_status, focused: false, pane_count: 1 });
     if (String(body["label"] ?? "") === "") autoTabs.add(tabId);
+    else autoTabs.delete(tabId);
     relabelAutoTabs(id);
     workspace.tab_count = tabs.length + 1;
     workspace.pane_count = siblings.length + 1;
