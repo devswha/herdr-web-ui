@@ -115,6 +115,8 @@ type Responder =
   | "pi-confirm"
   | "pi-input"
   | "pi-model"
+  | "hermes-question"
+  | "hermes-input"
   | "fallback-menu"
   | "fallback-gjc-menu"
   | "fallback-keys";
@@ -1844,6 +1846,9 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   const ends = (re: RegExp): boolean => [1, 2, 3].some((span) =>
     re.test(shown.slice(-span).join(" ")) && (span === 1 || !re.test(shown.slice(-span, -1).join(" "))));
   if (prompt.responder === "omp-question") return ends(OMP_SINGLE_HINT_RE) || ends(OMP_MULTI_HINT_RE);
+  // Hermes keeps its status line (and maybe the hint's wrapped tail) under the hint; an answered
+  // question leaves the screen, so a hint among the last few lines is the live one
+  if (prompt.responder === "hermes-question" || prompt.responder === "hermes-input") return shown.slice(-4).some((line) => HERMES_HINT_RE.test(line));
   if (prompt.responder === "codex-menu") return ends(CODEX_CONTINUE_HINT_RE);
   if (prompt.responder === "codex-question") return ends(CODEX_ASK_HINT_RE);
   if (prompt.responder === "codex-async-question") return cleanLines.slice(-4).some((line) => CODEX_ASYNC_ASK_HINT_RE.test(line)) || ends(CODEX_ASYNC_ASK_HINT_RE);
@@ -2166,6 +2171,94 @@ function parsePiDialog(screen: string, moved = false): ParsedPrompt | null {
   });
 }
 
+/**
+ * Hermes's clarify question, as its Ink TUI draws it (ui-tui/src/components/prompts.tsx):
+ *
+ *   ask 1 question
+ *   ▸ Pick a colour
+ *     ▸ 1. Red (Recommended)
+ *       2. Blue
+ *       3. Other (type your answer)
+ *   0/1 answered · ↑/↓ select · Enter confirm and continue · Tab/Shift+Tab switch question · Esc/Ctrl+C cancel
+ *
+ * An open question, or "Other" once picked, shows a `> ` line instead of the rows. A batch of
+ * questions shows each one's line (✓ answered, · waiting) and expands only the active (▸) one,
+ * so the card is that question; the next one becomes the next card.
+ */
+const HERMES_HINT_RE = /^(\d+)\/(\d+) answered · /;
+const HERMES_ASK_RE = /^ask \d+ questions?$/;
+const HERMES_ROW_RE = /^(▸ )?(\[[ x]\] )?(\d+)\. (.+)$/;
+const HERMES_OTHER = "Other (type your answer)";
+
+function parseHermesClarify(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
+  const hintIndex = findLastIndex(lines, (line) => HERMES_HINT_RE.test(line.trim()));
+  if (hintIndex < 0) return null;
+  const askIndex = findLastIndex(lines.slice(0, hintIndex), (line) => HERMES_ASK_RE.test(line.trim()));
+  if (askIndex < 0) return null;
+  const block = lines.slice(askIndex + 1, hintIndex).filter((line) => line.trim());
+  const indent = (line: string) => line.length - line.trimStart().length;
+  const at = block.findIndex((line) => line.trimStart().startsWith("▸ ") && !HERMES_ROW_RE.test(line.trim()));
+  if (at < 0) return null;
+  const base = indent(block[at]!);
+  // the question wraps at its own indent; its rows (or `> ` line) sit deeper
+  let end = at + 1;
+  while (end < block.length && indent(block[end]!) === base && !/^[▸·✓] /.test(block[end]!.trim())) end += 1;
+  const question = block.slice(at, end).map((line) => line.trim()).join(" ").slice(2);
+  const member: string[] = [];
+  for (let i = end; i < block.length && indent(block[i]!) > base; i += 1) member.push(block[i]!.trim());
+  const [answered, total] = lines[hintIndex]!.trim().match(HERMES_HINT_RE)!.slice(1).map(Number);
+  const body = total! > 1 ? `${answered}/${total} answered` : null;
+  if (member[0]?.startsWith(">")) {
+    // text already typed on the `>` line in the terminal stays ahead of the answer
+    return finishPrompt("hermes", {
+      kind: "question", title: "Question", question, body,
+      options: [{ label: "Type your answer", description: null }], multi_select: false, custom_option_index: 0,
+    }, {
+      responder: "hermes-input", menuLabels: [], selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: 0,
+      rejectWithEscapeIndex: null, customSteps: (text) => [{ text }, ...keySteps([KEY.enter])],
+    });
+  }
+  const rows: { label: string; selected: boolean; box: boolean; checked: boolean }[] = [];
+  for (const line of member) {
+    const row = line.match(HERMES_ROW_RE);
+    if (row && Number(row[3]) === rows.length + 1) rows.push({ label: row[4]!, selected: Boolean(row[1]), box: Boolean(row[2]), checked: row[2] === "[x] " });
+    else if (rows.length) rows.at(-1)!.label += ` ${line}`; // a label wrapped onto the next line
+    else return null;
+  }
+  if (rows.length < 2 || rows.at(-1)!.label !== HERMES_OTHER) return null;
+  const selectedIndex = rows.findIndex((row) => row.selected);
+  if (selectedIndex < 0) return null;
+  const choices = rows.slice(0, -1);
+  // a multi-select question draws a box on every choice; its Other row has none
+  const multi = choices.every((row) => row.box);
+  if (!multi && choices.some((row) => row.box)) return null;
+  const checked = choices.flatMap((row, index) => row.checked ? [index] : []);
+  return finishPrompt("hermes", {
+    kind: "question", title: "Question", question, body,
+    options: choices.map((row) => ({ label: row.label.replace(/ \(Recommended\)$/i, ""), description: null })),
+    // typed text on a multi-select question joins the ticks, which the card has no way to say
+    multi_select: multi, custom_option_index: multi ? null : choices.length,
+  }, {
+    responder: "hermes-question", menuLabels: rows.map((row) => row.label), selectedIndex,
+    checkedOptionIndices: checked, customMenuIndex: multi ? null : choices.length, rejectWithEscapeIndex: null,
+    // Space ticks the row under the cursor; Enter then locks the ticked rows
+    ...(multi ? { multiSteps: (picked: number[]) => {
+      const want = new Set(picked);
+      let cursor = selectedIndex;
+      const keys: string[] = [];
+      for (const index of choices.keys()) {
+        if (want.has(index) === checked.includes(index)) continue;
+        keys.push(...navigationKeys(index - cursor), KEY.space);
+        cursor = index;
+      }
+      // Enter on the Other row opens its text line instead of locking the ticks
+      if (cursor === choices.length) keys.push(KEY.up);
+      return keySteps([...keys, KEY.enter]);
+    } } : {}),
+  });
+}
+
 function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true, omoOpen: OmoAsk[] = [], sent: string | null = null, working = false): ParsedPrompt | null {
   const omo = () => {
     const forms = (ask: OmoAsk | null, trusted: boolean) => [parseOmoQuestion(screen, ask, trusted), parseOmoTyping(screen, ask, trusted), parseOmoReview(screen, ask, trusted)];
@@ -2184,6 +2277,8 @@ function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null
         ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), parseClaudeModel(screen), parseClaudeEffort(screen), parseClaudeHeld(screen, sent, working), ...omo()]
         : agent === "pi"
           ? [parsePiModel(screen), parsePiDialog(screen), ...omo()]
+        : agent === "hermes"
+          ? [parseHermesClarify(screen)]
         : agent === "omo" || agent === ""
           ? omo()
           : [];
@@ -2823,6 +2918,11 @@ export async function claudeHeldIsGrey(paneId: string, prompt: InteractivePrompt
     .then((read) => same(claudeGreyInput(read.text)), () => false);
 }
 
+/** The card a pane shows now, read like the chat's own poll: a blocked pane's push alert says it. */
+export async function currentPrompt(paneId: string, codexHome?: string): Promise<InteractivePrompt | null> {
+  return (await readPrompt(paneId, codexHome)).prompt;
+}
+
 async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: string; status: string; prompt: InteractivePrompt | null; pane: HerdrPane; panes: HerdrPane[] }> {
   const { panes } = await sessionSnapshot();
   // a closed pane's wait has ended too
@@ -2890,7 +2990,7 @@ async function readKnownPrompt(
   codexHome?: string,
   panes: HerdrPane[] = [],
 ): Promise<{ prompt: InteractivePrompt | null; screen?: string }> {
-  if (!["claude", "omp", "codex", "omo", "pi", "gjc", ""].includes(agent)) return { prompt: null };
+  if (!["claude", "omp", "codex", "omo", "pi", "gjc", "hermes", ""].includes(agent)) return { prompt: null };
   const screen = await liveScreen(paneId);
   // omo's form reads its text from the session's call, the screen showing where the form stands
   const omoAsks = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)

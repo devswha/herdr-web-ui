@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
+  choice, a typed answer for its "Other" row and for an open question, and ticks for a question
+  that takes several answers.
+
 ## [0.4.6] - 2026-10-11
 
 ### Added
