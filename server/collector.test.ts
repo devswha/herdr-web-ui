@@ -42,7 +42,7 @@ describe("parseStructureFrame", () => {
   });
 
   it("rejects unknown or malformed frames", () => {
-    expect(parseStructureFrame({ data: { type: "workspace_closed" } })).toBeNull();
+    expect(parseStructureFrame({ data: { type: "unrecognized_event" } })).toBeNull();
     expect(parseStructureFrame({ data: { type: "pane_exited", pane_id: 42 } })).toBeNull();
     expect(parseStructureFrame({})).toBeNull();
   });
@@ -55,6 +55,81 @@ describe("parseFocusFrame", () => {
     expect(parseFocusFrame({ event: "tab_focused", data: { tab_id: "w1A4:t1", type: "tab_focused", workspace_id: "w1A4" } })).toBeNull();
     expect(parseFocusFrame({ data: { type: "pane_focused", pane_id: 3 } })).toBeNull();
     expect(parseFocusFrame({})).toBeNull();
+  });
+});
+
+describe("lifecycle invalidations", () => {
+  const types = [
+    "workspace_created", "workspace_updated", "workspace_metadata_updated",
+    "workspace_renamed", "workspace_moved", "workspace_reordered", "workspace_closed",
+    "worktree_created", "worktree_opened", "worktree_removed",
+    "tab_created", "tab_closed", "tab_renamed", "tab_moved",
+    "pane_created", "pane_updated", "pane_moved", "layout_updated",
+  ];
+
+  it.each(types)("refreshes for %s", (type) => {
+    expect(parseStructureFrame({ event: type, data: { type } })).toEqual({ kind: "structure-changed" });
+  });
+
+  it("coalesces a lifecycle burst into one push and authoritative reconciliation", async () => {
+    const herdr = fakeHerdr([]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    try {
+      await collector.ready;
+      const calls = herdr.snapshotCalls();
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = () => reconciled.resolve();
+      const pushed = Promise.withResolvers<void>();
+      handlers.onStructureChange = () => { log.structure += 1; pushed.resolve(); };
+      for (const type of types) {
+        expect(herdr.lifecycle().types).toContain(type.replace("_", "."));
+        herdr.lifecycle().emit({ event: type, data: { type } });
+      }
+      expect(log.structure).toBe(0);
+      await pushed.promise;
+      await reconciled.promise;
+      expect(log.structure).toBe(1);
+      expect(herdr.snapshotCalls()).toBe(calls + 1);
+    } finally { collector.stop(); }
+  });
+
+  it("reopens the full status set when pane.moved changes IDs without close/create", async () => {
+    const herdr = fakeHerdr([]);
+    const { handlers } = recorder();
+    const subscribed = Promise.withResolvers<void>();
+    handlers.onReconciled = () => {
+      if (herdr.status()?.paneIds.includes("w1:p1")) subscribed.resolve();
+    };
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        if (subs.some((sub) => sub.type === "pane.agent_status_changed")) {
+          queueMicrotask(() => callbacks.onStarted?.());
+        }
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      herdr.setPanes([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+      herdr.lifecycle().emit({ data: { type: "pane_created" } });
+      await subscribed.promise;
+      const old = herdr.status();
+      if (!old) throw new Error("status stream missing");
+      const moved = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w2:p1")) moved.resolve();
+      };
+      herdr.setPanes([paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
+      herdr.lifecycle().emit({ data: { type: "pane_moved", old_pane_id: "w1:p1", pane_id: "w2:p1" } });
+      await moved.promise;
+      expect(old.closedByCollector).toBe(true);
+      expect(herdr.status()?.paneIds).toEqual(["w1:p2", "w2:p1"]);
+    } finally { collector.stop(); }
   });
 });
 
