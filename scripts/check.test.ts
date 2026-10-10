@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -321,16 +321,48 @@ describe("slots", () => {
     const link = join(dir, "latest.json");
     writeFileSync(target, "{}");
     symlinkSync(target, link);
-    const first = await acquire({ slots: 0, scan: 3, base, checkout: "/first", resources: [link] });
+    const first = await acquire({ slots: 0, scan: 3, base, checkout: "/first", reports: [link] });
     try {
       expect("release" in first).toBe(true);
       // Simulate persistReport replacing the symlink with a regular file
       rmSync(link);
       writeFileSync(link, '{"replaced": true}');
-      const second = await acquire({ slots: 0, scan: 3, base, checkout: "/second", resources: [link] });
+      const second = await acquire({ slots: 0, scan: 3, base, checkout: "/second", reports: [link] });
       try { expect(second).toMatchObject({ refused: "resource" }); }
       finally { release(second); }
     } finally { release(first); }
+  });
+
+  it("locks a report by its name when the name is a symlink to a directory", async () => {
+    const base = await freeRange(3);
+    const dir = scratch();
+    const target = join(dir, "previous");
+    const link = join(dir, "latest.json");
+    mkdirSync(target);
+    symlinkSync(target, link);
+    const first = await acquire({ slots: 0, scan: 3, base, checkout: "/first", reports: [link] });
+    try {
+      expect("release" in first).toBe(true);
+      expect(existsSync(join(target, ".check-lock"))).toBe(false);
+      // persistReport's rename puts a regular file where the symlink was
+      rmSync(link);
+      writeFileSync(link, '{"replaced": true}');
+      const second = await acquire({ slots: 0, scan: 3, base, checkout: "/second", reports: [link] });
+      try { expect(second).toMatchObject({ refused: "resource" }); }
+      finally { release(second); }
+    } finally { release(first); }
+  });
+
+  it("leaves a marker it cannot read where it is, and does not claim the resource", async () => {
+    const base = await freeRange(3);
+    const dir = scratch();
+    const marker = join(dir, ".check-lock");
+    // a read that fails for a reason other than its content, whoever runs the test: the name
+    // exists and can be unlinked, but reading it answers EISDIR
+    mkdirSync(join(dir, "elsewhere"));
+    symlinkSync(join(dir, "elsewhere"), marker);
+    await expect(acquire({ slots: 0, scan: 3, base, checkout: "/mine", resources: [dir] })).rejects.toThrow();
+    expect(lstatSync(marker).isSymbolicLink()).toBe(true);
   });
 
   it("serializes simultaneous admission without leaving a candidate slot behind", async () => {

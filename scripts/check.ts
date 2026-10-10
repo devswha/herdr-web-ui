@@ -237,7 +237,7 @@ export type SlotHolder = Holder & { port: number };
  * unlink each other's newly acquired marker. A busy admission port refuses rather than waits.
  */
 export async function acquire(
-  { slots, checkout, base = LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [] }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[] },
+  { slots, checkout, base = LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [], reports = [] }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[]; reports?: readonly string[] },
 ): Promise<{ release: () => void; port: number | null } | { refused: "busy" | "same-checkout" | "resource"; holders: SlotHolder[]; resource?: string }> {
   const admissionPort = base + Math.max(slots, scan);
   const admission = await lock(admissionPort, pid, checkout);
@@ -250,25 +250,30 @@ export async function acquire(
     for (const marker of markers.splice(0)) rmSync(marker);
   };
   try {
-    for (const resource of resources) {
-      const absolute = resolve(resource);
+    // A report is written by renaming over its name (check-report.ts), which replaces a symlink
+    // there whatever it points to: its lock is the name in its real directory, never the target.
+    const claims = [...resources.map((path) => ({ path, report: false })), ...reports.map((path) => ({ path, report: true }))];
+    for (const { path, report } of claims) {
+      const absolute = resolve(path);
       mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
-      const isDir = existsSync(absolute) && statSync(absolute).isDirectory();
+      const isDir = !report && existsSync(absolute) && statSync(absolute).isDirectory();
       const canonical = isDir ? realpathSync(absolute) : join(realpathSync(dirname(absolute)), basename(absolute));
-      const marker = existsSync(canonical) && lstatSync(canonical).isDirectory()
-        ? join(canonical, ".check-lock") : `${canonical}.check-lock`;
+      const marker = isDir ? join(canonical, ".check-lock") : `${canonical}.check-lock`;
       if (markers.includes(marker)) continue;
       if (existsSync(marker)) {
+        // a marker that cannot be read may be a live holder's: only one that was read and is not
+        // JSON (a write cut short) is taken over
+        const text = readFileSync(marker, "utf8");
         let owner: { pid: number; checkout: string };
         try {
-          owner = JSON.parse(readFileSync(marker, "utf8")) as { pid: number; checkout: string };
+          owner = JSON.parse(text) as { pid: number; checkout: string };
         } catch {
           rmSync(marker, { force: true });
           writeFileSync(marker, JSON.stringify({ pid, checkout }), { flag: "wx", mode: 0o600 });
           markers.push(marker);
           continue;
         }
-        if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error(`invalid check lock owner: ${marker}`);
+        if (owner === null || typeof owner !== "object" || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error(`invalid check lock owner: ${marker}`);
         let dead = false;
         try { process.kill(owner.pid, 0); }
         catch (error) {
@@ -325,7 +330,7 @@ async function main(): Promise<void> {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     resources.push(dir);
   }
-  if (process.env["CHECK_REPORT"] || process.env["CHECK_DIR"]) resources.push(paths.reportPath);
+  const reports = process.env["CHECK_REPORT"] || process.env["CHECK_DIR"] ? [paths.reportPath] : [];
   const cleanups: (() => void)[] = [];
   let cleaned = false;
   const cleanup = (): void => {
@@ -333,11 +338,11 @@ async function main(): Promise<void> {
     cleaned = true;
     for (const step of cleanups.reverse()) try { step(); } catch (error) { console.error(`check: cleanup failed: ${(error as Error).message}`); }
   };
-  if (needsHerdr || resources.length > 0) {
+  if (needsHerdr || resources.length > 0 || reports.length > 0) {
     try {
       let slots: number;
       try { slots = needsHerdr ? maxRuns(process.env) : 0; } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
-      const held = await acquire({ slots, checkout: realpathSync(cwd), resources });
+      const held = await acquire({ slots, checkout: realpathSync(cwd), resources, reports });
       if ("refused" in held) {
         const message = held.refused === "same-checkout"
           ? `another herdr-backed \`bun run check\` is running in this checkout, and the two would share dist/ and the generated types (${describeHolders(held.holders)}); wait for it to end or use another worktree`
