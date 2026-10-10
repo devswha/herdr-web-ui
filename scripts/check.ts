@@ -34,6 +34,7 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { finished } from "node:stream/promises";
+import { DISPOSABLE_CONFIG_ENV, DISPOSABLE_CONFIG_FILE } from "./disposable-config.ts";
 import {
   artifactIdentity,
   artifactUnchangedAfterBuild,
@@ -137,6 +138,8 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`isolated state path is not a real directory: ${path}`);
     if (process.platform !== "win32") chmodSync(path, 0o700);
   }
+  // what lets a test write to herdr's per-user plugin registry: this one is the run's own
+  writeFileSync(join(config, DISPOSABLE_CONFIG_FILE), "", { mode: 0o600 });
   const sessions = join(config, "herdr", "sessions");
   // the integration lane's workers are `<session>-<n>`
   const socket = join(sessions, `${session}-9`, "herdr.sock");
@@ -149,6 +152,7 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
   for (const [name, value] of Object.entries(base)) if (value !== undefined && !LIVE_HERDR.includes(name)) env[name] = value;
   Object.assign(env, {
     XDG_CONFIG_HOME: config,
+    [DISPOSABLE_CONFIG_ENV]: config,
     XDG_STATE_HOME: join(dir, "state"),
     HERDR_WEB_STATE_DIR: join(dir, "web-state"),
     HERDR_TEST_SESSION: session,
