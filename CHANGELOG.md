@@ -7,6 +7,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- herdr's pane layout operations from the web: a tab's menu (right-click a tab, or its chevron;
+  a bottom sheet on a phone) now offers **Split right** and **Split down** (herdr's prefix+v and
+  prefix+-), **Zoom pane** (prefix+z), **Swap left / right / up / down** with the pane's
+  neighbours (prefix+shift+hjkl), **Wider / Narrower / Taller / Shorter** (herdr's resize mode)
+  and **Clear pane**. A tab of several panes heads the menu with a small map of its layout, drawn
+  from herdr's own pane rects: a cell opens its pane, the open pane is marked in the accent and the
+  zoomed one carries the zoom glyph. The command palette has **Split pane right / down**, the same
+  **and open it** (herdr's `--focus`; a plain split keeps the pane you are on, like `--no-focus`)
+  and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
+  one herdr RPC each, also on remote PCs, and the server now follows herdr's `layout.updated`
+  events, so a zoom, swap or resize made in the TUI reaches every browser at once.
+
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
