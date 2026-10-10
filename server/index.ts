@@ -16,6 +16,7 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
+import { sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
@@ -2502,21 +2503,30 @@ export function createServer(
               // The turn is taken before herdr is asked what it can do: a message sent while
               // that answer is on its way must not overtake the typing.
               if (terminalAttachKnown === false || (!attachment && terminalAttachKnown === null)) {
+                // an attach this client is not a member of owns this pane's screen, and typing
+                // here would reach past it — the same refusal the pty branch below makes. A
+                // pane with no attachment at all is left as it was: that is the key bar, and
+                // an older bridge's composer send, neither of which attaches first.
+                if (attachment && !attachment.clients.has(client)) {
+                  send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
+                  break;
+                }
                 const text = message.text;
                 // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
                 const origin = attachment?.clients.has(client) ? attachment : undefined;
                 const claim = client.data.attached.get(message.pane_id);
                 const roles = client.data.roles;
                 // checked again right before herdr is written to: its connect is awaited (#545)
+                // and into the same attach, or still none: one made while this waited is someone else's (#732)
                 const allowed = () => mayType(client) && client.data.roles === roles && client.data.attached.get(message.pane_id) === claim
-                  && (!origin || (attachments.get(message.pane_id) === origin && origin.clients.has(client)));
+                  && sameAttachment(origin, attachments.get(message.pane_id), client);
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) { inputFailed(); return; }
                   // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
                   const shaped = await mirrorInput(text, async () => (await paneContext(message.pane_id)).agent);
                   if (client.data.attached.get(message.pane_id) !== claim
-                    || (origin && (attachments.get(message.pane_id) !== origin || !origin.clients.has(client)))) { inputFailed(); return; }
+                    || !sameAttachment(origin, attachments.get(message.pane_id), client)) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
