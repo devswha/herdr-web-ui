@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- A line over the panes says when the server can be reached from the network with no access
+  token set and no device paired, and what to do about it. Nothing about who is let in changes:
+  pairing a device or setting a token is still the owner's call.
+  ([#698](https://github.com/devswha/herdr-web-ui/pull/698))
 - The command palette lists the actions of the herdr plugins installed on the PC under **Plugin
   actions** and runs one against the selected pane, with that pane's workspace and tab as its
   context. The row shows that it is running, a command that fails says why above the list, and a

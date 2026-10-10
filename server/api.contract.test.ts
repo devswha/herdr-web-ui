@@ -4,8 +4,8 @@ import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, LanExposure, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
 import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
@@ -2217,6 +2217,28 @@ describe("token auth", () => {
     expect(body.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
     // a Unix herdr attaches terminals; Windows PCs report false and open in the chat lens
     expect(body.herdr.terminal_attach).toBe(true);
+  });
+
+  it("tells a client that got in when this server is open to the network, and nobody else", async () => {
+    // the health body is JSON off the wire; LanExposure is the shape this endpoint adds to it
+    type HealthBody = { lan_exposure?: LanExposure };
+    const readExposure = async (root: string): Promise<HealthBody["lan_exposure"]> => {
+      const instance = createServer({ port: 0, hostname: root === "open" ? "0.0.0.0" : "127.0.0.1", stateDir: mkdtempSync(join(tmpdir(), `herdr-lan-${root}-`)) });
+      try {
+        const res = await fetch(`http://127.0.0.1:${instance.port}/api/health`);
+        const body = await res.json() as HealthBody;
+        return body.lan_exposure;
+      } finally {
+        instance.stop();
+      }
+    };
+    // bound past this PC, no token, nothing paired: the one state the warning is for
+    expect(await readExposure("open")).toEqual({ host: "0.0.0.0" });
+    // the same empty configuration on a loopback bind is unreachable from the network
+    expect(await readExposure("loopback")).toBeUndefined();
+    // and a token is a closed gate, which this endpoint already reported
+    const securedBody = await (await fetch(`${securedBase()}/api/health`)).json() as HealthBody;
+    expect(securedBody.lan_exposure).toBeUndefined();
   });
 
   it("refuses a token that does not match", async () => {

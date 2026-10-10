@@ -36,7 +36,7 @@ import { TelemetryControls } from "./TelemetryControls.tsx";
 export interface SettingsDialogProps {
   open: boolean;
   /** the section to open on, for a button that points at it; the top otherwise */
-  section?: "updates" | null;
+  section?: "updates" | "devices" | null;
   onClose: () => void;
   actions: AppActions;
   updates: UpdatesModel;
@@ -709,9 +709,10 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
   const narrow = useNarrow();
   // opened by Forward, the dialog shows what that entry of the history showed
   const [restored] = useState(() => shownBy(settingsEntry(window.history.state)));
-  // a phone opens on the list of pages; a wider dialog shows the list beside the first page. A
-  // button that points at Updates opens on About whatever an entry still landing would restore
-  const [chosen, setChosen] = useState<SettingsPage | null>(section === "updates" ? "about" : restored ? restored.page : null);
+  // a phone opens on the list of pages; a wider dialog shows the list beside the first page.
+  // A button that points at Updates opens on About whatever an entry still landing would
+  // restore; one that points at Devices opens that page outright.
+  const [chosen, setChosen] = useState<SettingsPage | null>(section === "updates" ? "about" : section === "devices" ? "devices" : restored ? restored.page : null);
   const page = chosen ?? (narrow ? null : PAGES[0]!.id);
   const [keyBarOpen, setKeyBarOpen] = useState(section === "updates" ? false : restored?.keyBar ?? false);
   // every step in is an entry of the history, so the system Back button takes one step out
