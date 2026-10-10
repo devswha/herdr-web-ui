@@ -211,6 +211,7 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [lens, setLens] = useState<{ key: string; view: PaneView }>({ key: "", view: "terminal" });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [findRequest, setFindRequest] = useState(0);
   // the header's More menu: its button, and whether it opened on a phone-width screen
   const [more, setMore] = useState<{ anchor: HTMLElement; phone: boolean } | null>(null);
   const closeMore = useCallback(() => setMore(null), []);
@@ -694,6 +695,11 @@ export function App() {
         setNewSessionOpen(true);
       },
       openPalette: () => setPaletteOpen(true),
+      openFind: () => {
+        if (selectedPaneId === null) return;
+        setView("terminal");
+        setFindRequest((request) => request + 1);
+      },
       openSettings: () => {
         setDrawerOpen(false);
         setSettingsSection(null);
@@ -726,6 +732,7 @@ export function App() {
   // pane's title, and the palette is the menu's first item.
   const paletteItem: RowMenuItem = { id: "palette", label: t("Command palette"), icon: Search, run: () => setPaletteOpen(true) };
   const moreItems: RowMenuItem[] = [
+    ...(selectedPane && !selectedPane.restore_error ? [{ id: "find", label: t("Find in terminal"), icon: Search, run: actions.openFind }] : []),
     ...(selectedPane && selectedWorkspace
       ? [{ id: "new-tab", label: t("New tab"), title: t("New tab in {workspace}", { workspace: selectedWorkspace.label }), icon: Plus, run: () => actions.openNewTab() }]
       : []),
@@ -917,6 +924,7 @@ export function App() {
             cwd={selectedPane?.cwd ?? null}
             machineName={selectedMachine?.name ?? selectedMachineId}
             view={view}
+            findRequest={findRequest}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
             terminalWheelSpeed={settings.terminalWheelSpeed}

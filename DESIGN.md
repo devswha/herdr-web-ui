@@ -1054,6 +1054,13 @@ One set for both themes: the card is island black wherever it shows.
   its eye closes; it stays listed so it can be shown again.
 
 ### Terminal host, key bar and drawer
+- **Find in terminal** in the header's More menu and Mod+Shift+F opens a find bar above the
+  grid. It uses the existing input and icon-button primitives: a query, match ordinal,
+  previous/next and close controls, with a dim note that scrolling is shared by all clients.
+  A phone places the query above the controls so neither counts nor touch targets are cut.
+  Enter searches backward initially, then advances forward; Shift+Enter goes backward.
+  Escape closes the bar and returns desktop focus to the terminal without changing its viewport.
+  Searches are explicit, literal and supplied by herdr; no browser scrollback is added.
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount clips its own gutter and hides the unused xterm scrollbar.
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.

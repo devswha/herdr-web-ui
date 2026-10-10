@@ -15,6 +15,7 @@ import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkSecretInput } from "./secret-input-regression.ts";
 import { checkTerminalCopy } from "./terminal-copy-regression.ts";
+import { checkPaneFind } from "./pane-find-regression.ts";
 import { checkUsageMeters } from "./usage-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
 import { checkNotificationView } from "./notification-view-regression.ts";
@@ -760,6 +761,7 @@ try {
   await checkWakeLock(browser, origin, paneA);
   await checkSecretInput(browser, origin);
   await checkTerminalCopy(browser, origin);
+  await checkPaneFind(browser, origin);
   await checkUsageMeters(browser, origin);
   await checkNotificationStartup(browser, origin, paneA, paneB);
   await checkNotificationView(browser, origin);
