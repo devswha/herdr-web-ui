@@ -688,8 +688,11 @@ export type ClientMessage =
    * works the bridge keeps the message until its next turn, or the owner explicitly steers it.
    * Omission keeps the legacy immediate submission. Queued messages never resume after lease loss.
    * Queue request ids increase monotonically per connection; recent duplicates replay their
-   * receipt, and retired ids are rejected rather than executed after history eviction. */
-  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" }
+   * receipt, and retired ids are rejected rather than executed after history eviction.
+   * `clear_draft`: an immediate chat message only, sent again over the `draft` its input_draft
+   * refusal named: the server clears Claude's input box first while it still holds exactly that,
+   * and refuses again (input_draft) when it holds anything else or does not read empty after. */
+  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue"; clear_draft?: string }
   | { type: "pending-action"; id: number; pane_id: string; pending_id: string; action: "steer" | "discard" }
   /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
@@ -717,8 +720,10 @@ export type ServerMessage =
   /** the shared pty's grid changed: observe clients adopt it, interact clients drive it. `fixed`: the grid is the pane's own in herdr (a mirrored pane), so every client adopts it and none resizes */
   | { type: "pane-geometry"; pane_id: string; cols: number; rows: number; fixed?: boolean }
   | { type: "role-ack"; mode: ClientRole }
-  /** ok after Enter delivery, or bridge acceptance (`pending`); never an agent execution acknowledgement. */
-  | { type: "submit-result"; id: number; pane_id: string; ok: boolean; pending?: PendingMessage; code?: string; message?: string }
+  /** ok after Enter delivery, or bridge acceptance (`pending`); never an agent execution acknowledgement.
+   * `draft`: on an immediate send's input_draft, the one-row draft in Claude's input box that a send
+   * with `clear_draft` may clear (absent when the box is not one the server clears). */
+  | { type: "submit-result"; id: number; pane_id: string; ok: boolean; pending?: PendingMessage; code?: string; message?: string; draft?: string }
   | { type: "pending-result"; id: number; pane_id: string; pending_id: string; ok: boolean; code?: string; message?: string }
   /** Owner-only receipt and state; only an explicit removed outcome permits deleting a retained client message. */
   | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" }> }

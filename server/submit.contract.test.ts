@@ -107,11 +107,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 const claudeRule = "─".repeat(60);
 const claudeInputScreen = (input: string) => `${claudeRule}\r\n${input}\r\n${claudeRule}`;
 
-function mockClaudeInput(paneId: string, screen: string) {
+/** Every read of `paneId` shows `screen`; a function gives the screen as it is at each read. */
+function mockClaudeInput(paneId: string, screen: string | (() => string)) {
   const originalRead = herdr.paneRead;
   const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
     const result = await originalRead(options, socketPath);
-    return options.paneId === paneId ? { ...result, text: screen } : result;
+    return options.paneId === paneId ? { ...result, text: typeof screen === "string" ? screen : screen() } : result;
   });
   const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(null);
   return { read, scroll };
@@ -225,6 +226,7 @@ describe("WebSocket submit", () => {
         ok: false,
         code: "input_draft",
         message: "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message",
+        draft: "still typing",
       });
       expect(prompt).not.toHaveBeenCalled();
       expect(sendText).not.toHaveBeenCalled();
@@ -247,7 +249,10 @@ describe("WebSocket submit", () => {
     const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
     try {
       socket.send({ type: "submit", id: 28, pane_id: agent.pane, text: "chat message", payload: "chat message" });
-      expect(await socket.result(28)).toMatchObject({ ok: false, code: "input_draft" });
+      const refused = await socket.result(28);
+      expect(refused).toMatchObject({ ok: false, code: "input_draft" });
+      // bash mode is not a draft the chat clears
+      expect(refused.draft).toBeUndefined();
       expect(prompt).not.toHaveBeenCalled();
       expect(sendText).not.toHaveBeenCalled();
       expect(sendKeys).not.toHaveBeenCalled();
@@ -279,6 +284,99 @@ describe("WebSocket submit", () => {
       prompt.mockRestore();
       screen.scroll.mockRestore();
       screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("clears the draft a refusal named, once asked to, and sends when the box reads empty", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("❯ ㅔ");
+    const screen = mockClaudeInput(agent.pane, () => shown);
+    const order: string[] = [];
+    const prompt = spyOn(herdr, "agentPrompt").mockImplementation(async () => { order.push("prompt"); });
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    // Claude draws the emptied box a moment after the keys
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockImplementation(async (_pane, keys) => {
+      order.push(keys.join(" "));
+      setTimeout(() => { shown = claudeInputScreen("❯\u00a0"); }, 120);
+    });
+    try {
+      socket.send({ type: "submit", id: 66, pane_id: agent.pane, text: "이 스킬 pr 올려줘", payload: "이 스킬 pr 올려줘" });
+      expect(await socket.result(66)).toMatchObject({ ok: false, code: "input_draft", draft: "ㅔ" });
+      expect(sendKeys).not.toHaveBeenCalled();
+      socket.send({ type: "submit", id: 67, pane_id: agent.pane, text: "이 스킬 pr 올려줘", payload: "이 스킬 pr 올려줘", clear_draft: "ㅔ" });
+      expect(await socket.result(67)).toMatchObject({ ok: true, pane_id: agent.pane });
+      expect(sendKeys).toHaveBeenCalledWith(agent.pane, ["ctrl+k", "ctrl+u"]);
+      expect(prompt).toHaveBeenCalledWith(agent.pane, "이 스킬 pr 올려줘");
+      expect(order).toEqual(["ctrl+k ctrl+u", "prompt"]);
+      expect(sendText).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      sendText.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("clears nothing when the box holds another draft than the one named, and names the new one", async () => {
+    const socket = await Socket.connect();
+    const screen = mockClaudeInput(agent.pane, claudeInputScreen("❯ typed since"));
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 68, pane_id: agent.pane, text: "chat message", payload: "chat message", clear_draft: "ㅔ" });
+      expect(await socket.result(68)).toMatchObject({ ok: false, code: "input_draft", draft: "typed since" });
+      expect(sendKeys).not.toHaveBeenCalled();
+      expect(prompt).not.toHaveBeenCalled();
+      expect(sendText).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      sendText.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("types nothing when the cleared box does not read empty", async () => {
+    const socket = await Socket.connect();
+    const screen = mockClaudeInput(agent.pane, claudeInputScreen("❯ ㅔ"));
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 69, pane_id: agent.pane, text: "chat message", payload: "chat message", clear_draft: "ㅔ" });
+      expect(await socket.result(69)).toMatchObject({ ok: false, code: "input_draft", draft: "ㅔ" });
+      expect(sendKeys).toHaveBeenCalledTimes(1);
+      expect(prompt).not.toHaveBeenCalled();
+      expect(sendText).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      sendText.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("clears a terminal draft only for a chat message sent at once", async () => {
+    const socket = await Socket.connect();
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 70, pane_id: agent.pane, text: "chat message", payload: "chat message", delivery: "queue", clear_draft: "ㅔ" });
+      expect(await socket.result(70)).toMatchObject({ ok: false, code: "invalid_delivery" });
+      socket.send({ type: "submit", id: 71, pane_id: agent.pane, text: "chat message", payload: "chat message", typed: true, clear_draft: "ㅔ" });
+      expect(await socket.result(71)).toMatchObject({ ok: false, code: "invalid_delivery" });
+      socket.send({ type: "submit", id: 72, pane_id: agent.pane, text: "chat message", payload: "chat message", clear_draft: "" });
+      expect(await socket.result(72)).toMatchObject({ ok: false, code: "invalid_delivery" });
+      expect(sendKeys).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
       socket.close();
     }
   }, 30_000);

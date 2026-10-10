@@ -2784,6 +2784,24 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
   return cursor && !grey;
 }
 
+/** What empties a one-row Claude input box: the row after the cursor, then before it (measured on 2.1.295; Ctrl+Y puts it back). */
+export const CLAUDE_CLEAR_INPUT_KEYS = ["ctrl+k", "ctrl+u"];
+
+/**
+ * The draft the chat may offer to clear before it sends (claudeInputDraft with the same reads):
+ * typed text on the only row of a `❯` box, read with verified colors, as the user sees it there.
+ * CLAUDE_CLEAR_INPUT_KEYS edit one screen row, so a draft on more rows (a long line wraps), bash
+ * mode, a pasted or image placeholder and a box read without colors are not offered: null.
+ */
+export function claudeClearableDraft(live: string, colors: string | null): string | null {
+  if (colors === null || !claudeInputDraft(live, colors)) return null;
+  const box = claudeInputBox(live);
+  if (box === null || box === "clipped" || box.plain.length !== 1 || !box.plain[0]!.startsWith("❯")) return null;
+  if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain[0]!)) return null;
+  const draft = box.plain[0]!.slice(1).replace(/ /g, " ").trim();
+  return draft === "" ? null : draft;
+}
+
 /**
  * Whether a colored viewport read shows the live screen, so claudeInputDraft may take its colors:
  * the viewport at the bottom of the pane's history before and after the colored read, or, only when
