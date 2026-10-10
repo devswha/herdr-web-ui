@@ -99,6 +99,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
+ *  POST   /api/agent/rename { pane_id, name } -> { ok: true } (agent.rename on the pane's live agent:
+ *         the name other tools address it by, `herdr agent prompt <name>`; null clears it. herdr
+ *         owns the rule (shared/agent-name.ts) and answers invalid_agent_name, agent_name_taken or,
+ *         for a pane without a live agent, agent_not_found; the name is read back from
+ *         `snapshot.agents[].name`, and pane.updated carries the change to every client)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/ (under HERDR_WEB_PASTE_DIR when the
  *         server's environment sets it), path for the prompt
@@ -572,6 +577,12 @@ export interface WorktreeOpened {
   agent_started?: boolean;
   /** The worktree's workspace still exists when its requested agent could not start. */
   error?: { code: string; message: string };
+}
+
+/** POST /api/agent/rename: the live name of the agent in the pane; null clears it. */
+export interface AgentRenameRequest {
+  pane_id: string;
+  name: string | null;
 }
 
 /** POST /api/worktree/remove: `git worktree remove` of the workspace's checkout; force when git refuses a dirty one. */
