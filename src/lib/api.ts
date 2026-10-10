@@ -24,6 +24,10 @@ import type {
   TabCreated,
   UsageReport,
   WorkspaceCreated,
+  PluginActionRequest,
+  PluginActionResult,
+  PluginActions,
+  PluginActionsResponse,
   WorktreeListing,
   WorktreeOpened,
   WorktreeRemoved,
@@ -346,6 +350,22 @@ async function sendJson(url: string, method: "POST" | "PATCH" | "DELETE", body: 
   });
   if (!response.ok) throw await errorFrom(url, response);
   return response;
+}
+
+/** GET /api/plugins/actions: the PC's herdr plugins and the actions it can run. */
+export async function fetchPluginActions(machineId = "local"): Promise<PluginActions[]> {
+  return (await getJson<PluginActionsResponse>(machinePath(machineId, "plugins/actions"))).plugins;
+}
+
+/** POST /api/plugin/action: runs one plugin action, against the pane named when there is one. */
+export async function runPluginAction(request: PluginActionRequest, machineId = "local"): Promise<PluginActionResult> {
+  const response = await sendJson(machinePath(machineId, "plugin/action"), "POST", request);
+  return (await response.json()) as PluginActionResult;
+}
+
+/** GET /api/plugin/action: where a run the POST answered `running` for stands now. */
+export async function fetchPluginActionStatus(pluginId: string, logId: string, machineId = "local"): Promise<PluginActionResult> {
+  return getJson<PluginActionResult>(machinePath(machineId, `plugin/action?plugin_id=${encodeURIComponent(pluginId)}&log_id=${encodeURIComponent(logId)}`));
 }
 
 /** GET /api/pane/scroll: where the pane's viewport sits in its history (null: herdr reports none). */

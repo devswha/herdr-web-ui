@@ -285,6 +285,15 @@ export const ZH: Record<string, string> = {
   "Selected": "已选择",
   "Unknown workspace": "未知工作区",
   "Actions": "操作",
+  "Plugin actions": "插件操作",
+  "Running…": "正在运行…",
+  "{action} failed: {detail}": "{action} 失败：{detail}",
+  "{action} failed (exit code {code})": "{action} 失败（退出码 {code}）",
+  "herdr plugins": "herdr 插件",
+  "Run a plugin's actions from the command palette.": "可在命令面板中运行插件操作。",
+  "No actions": "无操作",
+  "Enabled": "已启用",
+  "Disabled": "已停用",
   "No matching panes or actions": "没有匹配的窗格或操作",
 
   // ---- new workspace ----

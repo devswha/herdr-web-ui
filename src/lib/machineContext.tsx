@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
-import type { CreateWorktreeRequest, OpenWorktreeRequest, RemoveWorktreeRequest } from "../../shared/protocol.ts";
+import type { CreateWorktreeRequest, OpenWorktreeRequest, PluginActionRequest, RemoveWorktreeRequest } from "../../shared/protocol.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
 /** Bound functions retain their owner across an async upload or a fast PC switch. */
@@ -34,5 +34,8 @@ export function useMachineApi() {
     createTab: (request: api.CreateTabRequest) => api.createTab(request, id),
     renameTab: (tab: string, label: string) => api.renameTab(tab, label, id),
     closeTab: (tab: string) => api.closeTab(tab, id),
+    fetchPluginActions: () => api.fetchPluginActions(id),
+    runPluginAction: (request: PluginActionRequest) => api.runPluginAction(request, id),
+    fetchPluginActionStatus: (pluginId: string, logId: string) => api.fetchPluginActionStatus(pluginId, logId, id),
   }), [id]);
 }
