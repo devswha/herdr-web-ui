@@ -73,7 +73,7 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
     await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
     await page.locator(".xterm-rows", { hasText: "find_browser_ready" }).waitFor();
     const openedGeometry = resized();
-    await page.keyboard.press("Control+Shift+F");
+    await page.keyboard.press("ControlOrMeta+Shift+F");
     await openedGeometry;
     const field = page.getByRole("searchbox", { name: "Find in terminal" });
     await field.fill("find_browser_marker");
@@ -93,7 +93,7 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
     assert.equal(next.current, 1);
     await page.locator(".find-bar-count", { hasText: "1 of 2" }).waitFor();
     await page.locator(".xterm-helper-textarea").focus();
-    await page.keyboard.press("Control+Shift+F");
+    await page.keyboard.press("ControlOrMeta+Shift+F");
     await page.waitForFunction(() => document.querySelector(".find-bar input") === document.activeElement);
     const previous = await search(() => page.keyboard.press("Shift+Enter"));
     assert.equal(previous.current, 2);
@@ -132,7 +132,7 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
     };
     await staleNavigation("desktop");
     await page.getByRole("button", { name: "Chat", exact: true }).click();
-    await page.keyboard.press("Control+Shift+F");
+    await page.keyboard.press("ControlOrMeta+Shift+F");
     await page.waitForFunction(() => document.querySelector(".find-bar input") === document.activeElement);
     await page.keyboard.type("find_browser_marker");
     assert.equal(await field.inputValue(), "find_browser_marker", "Find from Chat must own query focus, not xterm");
@@ -169,7 +169,7 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
       await transfer.dispose();
       await request;
       const uploadFindGeometry = resized();
-      await page.keyboard.press("Control+Shift+F");
+      await page.keyboard.press("ControlOrMeta+Shift+F");
       await uploadFindGeometry;
       const response = page.waitForResponse((answer) => answer.url().endsWith("/pane/image"));
       assert(paneSocket.current);
@@ -203,11 +203,19 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
     await staleNavigation("phone");
     console.log("PASS pane find: history jump, count, next/previous, stale range clearing and retry, no match, Escape, touch menu, no find input, deferred-upload focus");
   } catch (error) {
-    console.error("find viewport at failure", await herdrRpc("pane.get", { pane_id: pane }));
-    console.error("find visible text at failure", await herdrRpc("pane.read", { pane_id: pane, source: "visible" }));
+    // evidence only: a closed pane, a gone herdr or a crashed page must not replace the failure itself
+    const evidence = async (label: string, read: () => Promise<unknown>) => {
+      try { console.error(label, await read()); } catch (cause) { console.error(`${label} unavailable:`, cause); }
+    };
+    await evidence("find viewport at failure", () => herdrRpc("pane.get", { pane_id: pane }));
+    await evidence("find visible text at failure", () => herdrRpc("pane.read", { pane_id: pane, source: "visible" }));
     if (process.env.UI_EVIDENCE_DIR) {
-      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
-      await context.pages()[0]?.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "find-regression-failure.png") });
+      const dir = process.env.UI_EVIDENCE_DIR;
+      await evidence("find failure screenshot", async () => {
+        mkdirSync(dir, { recursive: true });
+        await context.pages()[0]?.screenshot({ path: join(dir, "find-regression-failure.png") });
+        return "saved";
+      });
     }
     throw error;
   } finally {
