@@ -350,6 +350,20 @@ describe("a Windows Claude's store", () => {
     expect(await storeOf(dir)).toBe(join(dir, ".claude"));
   });
 
+  it("counts one store reached by two names once, rather than as two that claim the process (#586)", async () => {
+    const dir = home();
+    record(join(dir, ".claude"));
+    // CLAUDE_CONFIG_DIR naming ~/.claude another way (on Windows its \\?\ spelling, or a junction to it)
+    symlinkSync(join(dir, ".claude"), join(dir, "claude-link"));
+    const before = process.env["CLAUDE_CONFIG_DIR"];
+    process.env["CLAUDE_CONFIG_DIR"] = join(dir, "claude-link");
+    try {
+      expect(await storeOf(dir)).toBe(join(dir, "claude-link"));
+    } finally {
+      if (before === undefined) delete process.env["CLAUDE_CONFIG_DIR"]; else process.env["CLAUDE_CONFIG_DIR"] = before;
+    }
+  });
+
   it("looks again after a miss, since Claude writes its record as it starts", async () => {
     const dir = home();
     expect(await storeOf(dir)).toBeNull();

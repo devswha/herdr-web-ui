@@ -77,8 +77,13 @@ async function windowsClaudeStores(home: string): Promise<string[]> {
   } catch { /* no home to list: the default store alone */ }
   const stores = new Map<string, string>();
   for (const store of [defaultClaudeConfigDir(home), join(home, ".claude"), ...siblings]) {
-    // one directory spelled two ways (Windows ignores case) is one store, not two that both claim the process
-    const key = resolve(store).toLowerCase();
+    // one directory reached two ways (another letter case, the \\?\ prefix, a junction) is one
+    // store, not two that both claim the process: known by its volume and file id where it has one
+    let key = resolve(store).toLowerCase();
+    try {
+      const { dev, ino } = await stat(store, { bigint: true });
+      if (ino !== 0n) key = `${dev}:${ino}`;
+    } catch { /* not there: its spelling stands for it */ }
     if (!stores.has(key)) stores.set(key, store);
   }
   return [...stores.values()];

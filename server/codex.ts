@@ -453,14 +453,61 @@ export function storedCwds(cwd: string): [string, string] {
   return [cwd, cwd];
 }
 
+/** A directory's volume and file id, or null when it cannot be read or the file system has no ids. */
+function directoryIdentity(path: string): string | null {
+  try {
+    const stat = statSync(path, { bigint: true });
+    return stat.isDirectory() && stat.ino !== 0n ? `${stat.dev}:${stat.ino}` : null;
+  } catch { return null; }
+}
+
 /**
- * Codex's `WHERE` condition for the threads of a directory, and its parameters: a Windows cwd is
- * one directory whatever the letter case (herdr reports `D:\work\app` for the `\\?\d:\Work\app`
- * Codex stored, #587), a POSIX one only as it is. NOCASE folds ASCII letters only.
+ * Whether two cwds are one directory: the same once the `\\?\` prefix is gone, or on Windows a
+ * spelling in another letter case the file system shows to be the same directory. A
+ * case-sensitive Windows directory keeps `app` and `App` apart (#587); POSIX compares exactly.
  */
-export function storedCwdCondition(cwd: string): { where: string; params: [string, string] } {
-  const params = storedCwds(cwd);
-  return { where: params[0] === params[1] ? "cwd IN (?, ?)" : "cwd COLLATE NOCASE IN (?, ?)", params };
+export function sameDirectory(left: string, right: string, identity: (path: string) => string | null = directoryIdentity): boolean {
+  const a = withoutVerbatimPrefix(left);
+  const b = withoutVerbatimPrefix(right);
+  if (a === b) return true;
+  if (storedCwds(a)[0] === storedCwds(a)[1] || a.toLowerCase() !== b.toLowerCase()) return false;
+  const id = identity(a);
+  return id !== null && id === identity(b);
+}
+
+/** The other Codex panes herdr shows in this pane's directory, under any spelling of it. */
+export function codexPeersIn(panes: readonly HerdrPane[], paneId: string, cwd: string, identity?: (path: string) => string | null): HerdrPane[] {
+  return panes.filter((pane) => pane.pane_id !== paneId && pane.cwd != null && sameDirectory(pane.cwd, cwd, identity)
+    && (pane.agent ?? pane.agent_session?.agent) === "codex");
+}
+
+/** The cwd spellings each store holds for a directory in another letter case, found by one scan. */
+const cwdSpellings = new Map<string, { spellings: string[]; at: number }>();
+const CWD_SPELLINGS_MS = 30_000;
+
+/**
+ * Codex's `WHERE` condition for the threads of a directory, and its parameters: every spelling
+ * Codex stored for it (#587). Codex on Windows may store `\\?\d:\Work\app` for the `D:\work\app`
+ * herdr reports; such a spelling counts once `sameDirectory` shows it is that directory. Finding
+ * them takes a scan, so they are kept for CWD_SPELLINGS_MS and the queries compare exactly, on
+ * Codex's own binary cwd index. A POSIX cwd is only itself.
+ */
+export function storedCwdCondition(db: Database, cwd: string, identity?: (path: string) => string | null): { where: string; params: string[] } {
+  const exact = storedCwds(cwd);
+  let params: string[] = [...new Set(exact)];
+  if (exact[0] !== exact[1]) {
+    const key = `${db.filename}\0${exact[0]}`;
+    const known = cwdSpellings.get(key);
+    if (known !== undefined && Date.now() - known.at < CWD_SPELLINGS_MS) params = known.spellings;
+    else {
+      const stored = db.query<{ cwd: string }, [string, string]>("SELECT DISTINCT cwd FROM threads WHERE cwd COLLATE NOCASE IN (?, ?) LIMIT 64").all(...exact);
+      params = [...new Set([...exact, ...stored.map((row) => row.cwd).filter((spelling) => sameDirectory(spelling, cwd, identity))])];
+      cwdSpellings.delete(key);
+      cwdSpellings.set(key, { spellings: params, at: Date.now() });
+      if (cwdSpellings.size > 64) cwdSpellings.delete(cwdSpellings.keys().next().value!);
+    }
+  }
+  return { where: `cwd IN (${params.map(() => "?").join(", ")})`, params };
 }
 
 /**
@@ -610,6 +657,7 @@ export function forgetAllCodexState(): void {
   questionScans.clear();
   questionScansInFlight.clear();
   linesBeforeCut.clear();
+  cwdSpellings.clear();
 }
 
 /** Lines before a cut, per file identity and cut: the bytes before a cut never change. */
@@ -1004,8 +1052,8 @@ const boundRollouts = new Map<string, { processes: string; path: string; at: num
  */
 function newerThreads(db: Database, cwd: string, since: number, except: string | null, paneId: string, home: string, firsts?: Map<string, string>): string[] {
   const first = db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : "";
-  const { where, params } = storedCwdCondition(cwd);
-  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, [string, string, number]>(
+  const { where, params } = storedCwdCondition(db, cwd);
+  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, (string | number)[]>(
     `SELECT id, rollout_path${first} FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
   ).all(...params, since);
   return theirs(rows.flatMap((row) => {
@@ -1098,9 +1146,7 @@ const CLAIM_CHECK_MS = 5000;
 async function claimedByOtherPanes(paneId: string, cwd: string, threads: string[], own: string[], firsts: ReadonlyMap<string, string>, home: string, sessionPanes?: HerdrPane[]): Promise<Set<string>> {
   const claimed = new Set<string>();
   const key = `${paneId}\0${[...threads].sort().join("\0")}`;
-  const panes = (sessionPanes ?? (await sessionSnapshot()).panes)
-    .filter((pane) => pane.pane_id !== paneId && pane.cwd === cwd && (pane.agent ?? pane.agent_session?.agent) === "codex")
-    .slice(0, 8);
+  const panes = codexPeersIn(sessionPanes ?? (await sessionSnapshot()).panes, paneId, cwd).slice(0, 8);
   // a pane that appeared since is looked at at once
   const last = claimChecks.get(key);
   const seen = panes.map((pane) => pane.pane_id).join();
@@ -1139,8 +1185,7 @@ async function claimedByOtherPanes(paneId: string, cwd: string, threads: string[
 
 /** Whether another Codex pane in this cwd was started as `codex resume <thread>`. */
 async function resumedElsewhere(paneId: string, cwd: string, thread: string, sessionPanes?: HerdrPane[]): Promise<boolean> {
-  const panes = (sessionPanes ?? (await sessionSnapshot()).panes)
-    .filter((pane) => pane.pane_id !== paneId && pane.cwd === cwd && (pane.agent ?? pane.agent_session?.agent) === "codex");
+  const panes = codexPeersIn(sessionPanes ?? (await sessionSnapshot()).panes, paneId, cwd);
   for (const pane of panes) {
     try {
       if (resumedThread((await codexProcessesOf(pane.pane_id)).list.map((process) => process.argv ?? [])) === thread) return true;
@@ -1209,17 +1254,16 @@ async function shortThreadFromProcess(
   let db: Database | undefined;
   try {
     const peers = panes ?? (await sessionSnapshot()).panes;
-    const cwds = storedCwds(cwd);
     if (peers.some((pane) => pane.pane_id !== paneId
       && (pane.agent ?? pane.agent_session?.agent) === "codex"
-      && (pane.cwd == null || storedCwds(pane.cwd).some((path) => cwds.includes(path))))) return null;
+      && (pane.cwd == null || sameDirectory(pane.cwd, cwd)))) return null;
     db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
     const columns = new Set(db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('threads')").all().map((column) => column.name));
     if (!columns.has("first_user_message") || !columns.has("source")) return null;
     const created = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000)" : "created_at * 1000";
     // The 33rd row disables this bounded lookup, never establishes uniqueness.
-    const { where, params } = storedCwdCondition(cwd);
-    const rows = db.query<CodexThreadRow, [string, string]>(
+    const { where, params } = storedCwdCondition(db, cwd);
+    const rows = db.query<CodexThreadRow, string[]>(
       `SELECT rollout_path AS rolloutPath, first_user_message AS firstUserMessage, ${created} AS createdAtMs
        FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} LIMIT 33`,
     ).all(...params);
@@ -1330,8 +1374,8 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // the same guard for a match: after /new the process writes a thread begun since
     // (created_at has whole seconds, so one begun in the match's second counts too)
     if (boundHere !== undefined) boundNewer = newerThreads(db, cwd, Math.floor(boundHere.at / 1000), null, paneId, home, firsts);
-    const { where, params } = storedCwdCondition(cwd);
-    const rows = db.query<{ rollout_path: string }, [string, string]>(
+    const { where, params } = storedCwdCondition(db, cwd);
+    const rows = db.query<{ rollout_path: string }, string[]>(
       // a burst of `codex exec` runs must not push the pane's own thread out of the 32
       `SELECT rollout_path FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
     ).all(...params);
