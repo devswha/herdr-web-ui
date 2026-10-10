@@ -1,0 +1,43 @@
+name: Websocket harness
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: websocket-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  websocket:
+    name: Websocket harness (no service)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Isolate the websocket run from any herdr service
+        run: |
+          echo "HERDR_SOCKET=$RUNNER_TEMP/herdr-websocket-no-service.sock" >> "$GITHUB_ENV"
+          echo "SODAM_WS_RUN_ROOT=$RUNNER_TEMP/herdr-websocket-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run build
+      - name: Assert no service socket exists
+        run: test ! -e "$HERDR_SOCKET"
+      - run: bun --config=bunfig.websocket.toml test --isolate src/lib server/updater.test.ts
+      - run: bun run test:websocket
+      - run: bun run test:websocket:mutations
+      - name: Upload websocket failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: websocket-test-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/herdr-websocket-*/**
+          if-no-files-found: warn
+          retention-days: 7
