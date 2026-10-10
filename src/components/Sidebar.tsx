@@ -71,11 +71,12 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
   const t = useT();
   const value = knownStatus(status);
   const label = t(STATUS_WORD[value]);
-  const description = t("Agent {status}", { status: label });
+  const description = value === "waiting" ? t("Agent waiting on background work") : t("Agent {status}", { status: label });
   // a compact cell draws only the states that ask for a look: a red question mark while the agent
   // waits for an answer, a green dot once it has finished and was not looked at, a dim arc while
-  // it runs. Ready and unknown keep the cell, its label and its tooltip
-  const Icon = { idle: null, working: LoaderCircle, blocked: null, done: null, unknown: null }[value];
+  // it runs, the same arc held still in the working colour while its turn waits on background work.
+  // Ready and unknown keep the cell, its label and its tooltip
+  const Icon = { idle: null, working: LoaderCircle, blocked: null, done: null, waiting: LoaderCircle, unknown: null }[value];
   return (
     <span
       className={`badge badge-${value}${compact ? " sidebar-status" : ""}`}

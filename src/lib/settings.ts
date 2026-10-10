@@ -78,6 +78,9 @@ export interface Settings {
    *  Stored under this key, not 0.4.1's `terminalOsc52`: settings are saved whole, so a `false` there
    *  was written by any change at all, not chosen, and is ignored. */
   paneClipboard: boolean;
+  /** a desktop tab out of use for a moment detaches its pane (PaneTerminal's release) and only watches it, so herdr's own
+   *  window keeps the pane at its size; paused where the server cannot watch. Off: the tab keeps the pane and its size. */
+  releasePaneAway: boolean;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
   chatFontSize: number | null;
   /** fonts tried before the UI font in the chat's prose (code stays mono), as a CSS font-family list; "" keeps the UI font */
@@ -126,6 +129,8 @@ export interface Settings {
   voicePolishChat: boolean;
   /** off by default: a terminal line is usually a command, kept as spoken */
   voicePolishTerminal: boolean;
+  /** code is colored by its language; off, it is plain text */
+  highlightCode: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -143,6 +148,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
   paneClipboard: true,
+  releasePaneAway: false,
   chatFontSize: null,
   chatFontFamily: "",
   chatWidth: "default",
@@ -168,6 +174,7 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceLanguage: "auto",
   voicePolishChat: true,
   voicePolishTerminal: false,
+  highlightCode: true,
 };
 
 export const QUICK_REPLIES_MAX = 12;
@@ -297,6 +304,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       : DEFAULT_SETTINGS.chatFontSize,
     terminalFontFamily: sanitizeFontFamily(record["terminalFontFamily"]),
     paneClipboard: typeof record["paneClipboard"] === "boolean" ? record["paneClipboard"] : DEFAULT_SETTINGS.paneClipboard,
+    releasePaneAway: typeof record["releasePaneAway"] === "boolean" ? record["releasePaneAway"] : DEFAULT_SETTINGS.releasePaneAway,
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
@@ -324,6 +332,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     voiceLanguage: DICTATION_LANGUAGES.includes(record["voiceLanguage"] as (typeof DICTATION_LANGUAGES)[number]) ? record["voiceLanguage"] as DictationLanguage : DEFAULT_SETTINGS.voiceLanguage,
     voicePolishChat: typeof record["voicePolishChat"] === "boolean" ? record["voicePolishChat"] : DEFAULT_SETTINGS.voicePolishChat,
     voicePolishTerminal: typeof record["voicePolishTerminal"] === "boolean" ? record["voicePolishTerminal"] : DEFAULT_SETTINGS.voicePolishTerminal,
+    highlightCode: typeof record["highlightCode"] === "boolean" ? record["highlightCode"] : DEFAULT_SETTINGS.highlightCode,
   };
 }
 
