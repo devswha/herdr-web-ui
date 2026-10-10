@@ -1005,8 +1005,11 @@ One set for both themes: the card is island black wherever it shows.
 - Keys: Left and Right step to the previous or next section from a row, or from the search field
   while the caret sits at the text's edge; inside the text they move the caret. herdr's picker
   letters (`b` `w` `i` `d` `a` for a filter, `/` back to the search) act only while the focus is
-  outside the search field, so they never take a letter from a query. Left and Right on the chips
-  move the filter. Below 640px the sheet is one fixed height, the chips and footer staying put.
+  outside the search field, so they never take a letter from a query. A letter puts the focus on
+  the first row, also when it names the filter already shown. Left and Right on the chips move the
+  filter. The pick is a row, not a place: a pane leaving the filter above it moves the pick with its
+  row, and a picked row that leaves hands its place, and the focus, to the row now there (the search
+  when none is left). Below 640px the sheet is one fixed height, the chips and footer staying put.
 
 ### Settings dialog
 - A Settings shortcut opened over a file preview places Settings above it (`--z-modal + 2`, one

@@ -1,5 +1,5 @@
 import { useMachineId } from "../lib/machineContext.tsx";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, Monitor, PanelLeft, Plus, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
@@ -55,6 +55,22 @@ interface PaletteSectionView {
   rows: PaletteRow[];
 }
 
+/**
+ * The picked row, by what it is (its section and its pane or action) and by where it stood. A
+ * roster change that moves the row (a pane before it left the filter) carries the pick with it;
+ * one that takes the row away leaves the pick at its place, so the keyboard loses nothing.
+ */
+interface PaletteSelection {
+  key: string | null;
+  index: number;
+}
+
+const NO_SELECTION: PaletteSelection = { key: null, index: 0 };
+
+function rowKey(sectionId: string, row: PaletteRow): string {
+  return `${sectionId}:${row.kind === "pane" ? row.pane.pane_id : row.action.id}`;
+}
+
 function loadRecentPanes(machineId: string): string[] {
   try {
     const value: unknown = JSON.parse(window.localStorage.getItem(machineId === "local" ? RECENT_KEY : `${RECENT_KEY}:${machineId}`) ?? "[]");
@@ -98,13 +114,16 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   const touch = useMediaQuery("(pointer: coarse)");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PaletteStatusFilter>("all");
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [selection, setSelection] = useState<PaletteSelection>(NO_SELECTION);
   const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
   const surface = useFocusTrap<HTMLElement>(open, { initialFocus: inputRef });
   const resultsRef = useRef<HTMLDivElement>(null);
-  // a filter key pressed over the list keeps the keyboard in the list: the first row takes the focus once it is drawn
-  const focusFirstRow = useRef(false);
+  // a filter letter pressed over the list keeps the keyboard in the list: the first row takes the
+  // focus once the filter is drawn, also when the letter named the filter already shown
+  const [rowFocusRequest, setRowFocusRequest] = useState(0);
+  // the row the focus is on, told from one the focus left, for a roster change that takes it out of the list
+  const focusedRow = useRef<HTMLElement | null>(null);
   // the branch inventory is read only while the palette is open: the sidebar keeps its own
   const { branches } = useWorktreeBranches(snapshot, open && online);
 
@@ -128,7 +147,8 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     if (!open) return;
     setQuery("");
     setFilter("all");
-    setActiveIndex(0);
+    setSelection(NO_SELECTION);
+    focusedRow.current = null;
     setRecentPaneIds(loadRecentPanes(machineId));
   }, [open]);
 
@@ -183,6 +203,7 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   }, [actionsOnly, text, filter, allPanes, workspaces, tabs, branches, recentPaneIds, selectedPaneId, paletteActions, t]);
 
   const rows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
+  const rowKeys = useMemo(() => sections.flatMap((section) => section.rows.map((row) => rowKey(section.id, row))), [sections]);
   const sectionStarts = useMemo(() => {
     const starts: number[] = [];
     let index = 0;
@@ -190,10 +211,9 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     return starts;
   }, [sections]);
   const itemCount = rows.length;
-
-  useEffect(() => {
-    setActiveIndex((index) => Math.min(index, Math.max(0, itemCount - 1)));
-  }, [itemCount]);
+  // the picked row where it stands now, else the row at the pick's place (the last one when the list shrank under it)
+  const pickedAt = selection.key === null ? -1 : rowKeys.indexOf(selection.key);
+  const activeIndex = pickedAt >= 0 ? pickedAt : Math.min(selection.index, Math.max(0, itemCount - 1));
 
   // Arrow navigation keeps focus in the search field: aria-activedescendant alone does not
   // scroll its option into view, including when an arrow wraps to the other end of the list.
@@ -205,13 +225,28 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   }, [open, activeIndex, query, itemCount]);
 
   useLayoutEffect(() => {
-    if (!open || !focusFirstRow.current) return;
-    focusFirstRow.current = false;
+    if (!open || rowFocusRequest === 0) return;
     (document.getElementById("palette-item-0") ?? inputRef.current)?.focus();
-  }, [open, filter]);
+  }, [rowFocusRequest]);
+
+  // A row that leaves the list while the focus is on it (its pane's status changed under a filter)
+  // would leave the focus on the page body, where no palette key reaches: the row now at the
+  // pick's place takes it, the search when none is left. A row that stays keeps its element, and
+  // with it the focus, by its key.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const row = focusedRow.current;
+    if (!row || row.isConnected) return;
+    focusedRow.current = null;
+    (document.getElementById(`palette-item-${activeIndex}`) ?? inputRef.current)?.focus();
+  }, [rowKeys]);
 
   if (!open) return null;
 
+  const select = (index: number): void => {
+    const key = rowKeys[index] ?? null;
+    setSelection((current) => (current.key === key && current.index === index ? current : { key, index }));
+  };
   const runPane = (pane: HerdrPane): void => {
     setRecentPaneIds((current) => rememberPane(pane.pane_id, current, machineId));
     actions.selectPane(pane.pane_id);
@@ -234,7 +269,7 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   };
   const applyFilter = (next: PaletteStatusFilter): void => {
     setFilter(next);
-    setActiveIndex(0);
+    setSelection(NO_SELECTION);
   };
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
     // Candidate navigation and the committing Enter belong to the IME. WebKit can report
@@ -242,10 +277,10 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "ArrowDown" && itemCount > 0) {
       event.preventDefault();
-      setActiveIndex((index) => (index + 1) % itemCount);
+      select((activeIndex + 1) % itemCount);
     } else if (event.key === "ArrowUp" && itemCount > 0) {
       event.preventDefault();
-      setActiveIndex((index) => (index - 1 + itemCount) % itemCount);
+      select((activeIndex - 1 + itemCount) % itemCount);
     } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && sectionStarts.length > 1) {
       // a caret inside the text keeps its own Left and Right; at the text's edge they walk the sections
       const input = event.currentTarget;
@@ -253,7 +288,7 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
       const atEdge = event.key === "ArrowLeft" ? input.selectionStart === 0 : input.selectionEnd === input.value.length;
       if (!collapsed || !atEdge) return;
       event.preventDefault();
-      setActiveIndex((index) => adjacentSectionStart(index, event.key === "ArrowLeft" ? -1 : 1));
+      select(adjacentSectionStart(activeIndex, event.key === "ArrowLeft" ? -1 : 1));
     } else if (event.key === "Enter" && itemCount > 0) {
       event.preventDefault();
       activate(activeIndex);
@@ -267,8 +302,8 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     const filterKey = FILTER_KEYS[event.key];
     if (filterKey) {
       event.preventDefault();
-      focusFirstRow.current = true;
       applyFilter(filterKey);
+      setRowFocusRequest((count) => count + 1);
       return;
     }
     if (event.key === "/") {
@@ -322,12 +357,16 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     : activeRow?.action.label ?? "";
   const footerPath = activeRow?.kind === "pane" ? panePath(activeRow.pane) : "";
 
+  const onSurfaceFocus = (event: ReactFocusEvent<HTMLElement>): void => {
+    focusedRow.current = (event.target as HTMLElement).closest<HTMLElement>("[role=\"option\"]");
+  };
+
   let rowIndex = 0;
   return (
     <div className="modal-scrim palette-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section ref={surface} className="menu command-palette" role="dialog" aria-modal="true" aria-label={t("Command palette")} onKeyDown={onSurfaceKeyDown}>
+      <section ref={surface} className="menu command-palette" role="dialog" aria-modal="true" aria-label={t("Command palette")} onKeyDown={onSurfaceKeyDown} onFocus={onSurfaceFocus}>
         <div className="palette-search">
-          <input ref={inputRef} className="input" type="search" value={query} placeholder={t("Search panes and actions…")} aria-label={t("Search panes and actions")} aria-controls="palette-results" aria-activedescendant={itemCount ? `palette-item-${activeIndex}` : undefined} onKeyDown={onInputKeyDown} onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }} />
+          <input ref={inputRef} className="input" type="search" value={query} placeholder={t("Search panes and actions…")} aria-label={t("Search panes and actions")} aria-controls="palette-results" aria-activedescendant={itemCount ? `palette-item-${activeIndex}` : undefined} onKeyDown={onInputKeyDown} onChange={(event) => { setQuery(event.target.value); setSelection(NO_SELECTION); }} />
           <button type="button" className="icon-button" aria-label={t("Close command palette")} onClick={onClose}><X /></button>
         </div>
         {!actionsOnly && (
@@ -353,7 +392,7 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
                 rowIndex += 1;
                 if (row.kind === "action") {
                   const Icon = row.action.icon;
-                  return <button key={row.action.id} id={`palette-item-${index}`} type="button" role="option" className="menu-item" aria-selected={activeIndex === index} onFocus={() => setActiveIndex(index)} onMouseMove={() => setActiveIndex(index)} onClick={() => runAction(row.action)}><Icon /><span className="menu-item-main">{row.action.label}</span><ShortcutHint shortcutId={row.action.shortcut} /></button>;
+                  return <button key={row.action.id} id={`palette-item-${index}`} type="button" role="option" className="menu-item" aria-selected={activeIndex === index} onFocus={() => select(index)} onMouseMove={() => select(index)} onClick={() => runAction(row.action)}><Icon /><span className="menu-item-main">{row.action.label}</span><ShortcutHint shortcutId={row.action.shortcut} /></button>;
                 }
                 const { pane } = row;
                 const workspace = workspaces.find((item) => item.workspace_id === pane.workspace_id);
@@ -363,7 +402,7 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
                   : placeLine(tabName(pane) ?? "", folder);
                 const selected = pane.pane_id === selectedPaneId;
                 return (
-                  <button key={pane.pane_id} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-pane" aria-selected={activeIndex === index} aria-current={selected ? "true" : undefined} onFocus={() => setActiveIndex(index)} onMouseMove={() => setActiveIndex(index)} onClick={() => runPane(pane)}>
+                  <button key={pane.pane_id} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-pane" aria-selected={activeIndex === index} aria-current={selected ? "true" : undefined} onFocus={() => select(index)} onMouseMove={() => select(index)} onClick={() => runPane(pane)}>
                     <span className="palette-mark"><AgentMark agent={pane.agent ?? "shell"} /></span>
                     <span className="menu-item-main"><span className="palette-row-title">{displayPaneTitle(pane)}{selected && <span className="palette-selected">{t("Selected")}</span>}</span><span className="palette-row-subtitle">{place}</span></span>
                     <StatusBadge status={paneStatus(pane)} />

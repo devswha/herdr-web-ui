@@ -34,6 +34,7 @@ import { checkCommandBackspace } from "./terminal-command-backspace-regression.t
 import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkFolderFilter } from "./folder-filter-regression.ts";
+import { checkPaletteKeys } from "./palette-keys-regression.ts";
 import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { UsageService } from "../server/usage.ts";
 import { openSettingsPage } from "./settings-page.ts";
@@ -310,6 +311,7 @@ try {
   await page.mouse.move(0, 0);
   await page.setViewportSize(paletteViewport);
   console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
+  await checkPaletteKeys(page, { paneA, paneB, workspaceB: workspaces[1]! });
 
   // Hold a real machines response, then deliver a newer status through herdr/SSE.
   const badge = page.locator(".pane-item.is-selected .badge");
