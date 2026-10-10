@@ -125,10 +125,57 @@ describe("lifecycle invalidations", () => {
         if (panes.some((pane) => pane.pane_id === "w2:p1")) moved.resolve();
       };
       herdr.setPanes([paneOf("w1:p2", "idle"), paneOf("w2:p1", "idle")]);
-      herdr.lifecycle().emit({ data: { type: "pane_moved", old_pane_id: "w1:p1", pane_id: "w2:p1" } });
+      herdr.lifecycle().emit({ data: { type: "pane_moved", previous_pane_id: "w1:p1", pane: { pane_id: "w2:p1", agent_status: "idle" } } });
       await moved.promise;
       expect(old.closedByCollector).toBe(true);
       expect(herdr.status()?.paneIds).toEqual(["w1:p2", "w2:p1"]);
+    } finally { collector.stop(); }
+  });
+
+  it("replays a completion after a working pane moves and finishes before reconciliation", async () => {
+    // Verbatim herdr 0.9.3 frame captured on herdr-web-ui-qa-H4.
+    const moved: EventFrame = {
+      data: {
+        closed_tab_id: "w5:t1", closed_workspace_id: "w5",
+        created_tab: { agent_status: "working", focused: false, label: "1", number: 1, pane_count: 1, tab_id: "w6:t1", workspace_id: "w6" },
+        created_workspace: { active_tab_id: "w6:t1", agent_status: "working", focused: false, label: "H4 working moved", number: 4, pane_count: 1, tab_count: 1, workspace_id: "w6" },
+        pane: {
+          agent: "codex", agent_status: "working",
+          cwd: "/home/devswha/workspace/herdr-web-ui-wt/fix-session-events-refresh",
+          focused: false, foreground_cwd: "/home/devswha/workspace/herdr-web-ui-wt/fix-session-events-refresh",
+          pane_id: "w6:p1", revision: 0,
+          scroll: { max_offset_from_bottom: 0, offset_from_bottom: 0, viewport_rows: 40 },
+          tab_id: "w6:t1", terminal_id: "term_65d72f77c76c24", workspace_id: "w6",
+        },
+        previous_pane_id: "w5:p1", previous_tab_id: "w5:t1", previous_workspace_id: "w5", type: "pane_moved",
+      },
+      event: "pane_moved",
+    };
+    const herdr = fakeHerdr([paneOf("w5:p1", "working")]);
+    const { log, handlers } = recorder();
+    const subscribe = herdr.deps.subscribe;
+    if (!subscribe) throw new Error("fake subscribe missing");
+    const collector = startStatusCollector(handlers, {
+      ...herdr.deps,
+      subscribe: (subs, callbacks) => {
+        const connection = subscribe(subs, callbacks);
+        queueMicrotask(() => callbacks.onStarted?.());
+        return connection;
+      },
+    });
+    try {
+      await collector.ready;
+      const old = herdr.status();
+      const reconciled = Promise.withResolvers<void>();
+      handlers.onReconciled = (panes) => {
+        if (panes.some((pane) => pane.pane_id === "w6:p1")) reconciled.resolve();
+      };
+      herdr.lifecycle().emit(moved);
+      herdr.setPanes([paneOf("w6:p1", "idle")]);
+      await reconciled.promise;
+      expect(log.statuses).toEqual(["w6:p1:idle (was working)"]);
+      expect(old?.closedByCollector).toBe(true);
+      expect(herdr.status()?.paneIds).toEqual(["w6:p1"]);
     } finally { collector.stop(); }
   });
 });

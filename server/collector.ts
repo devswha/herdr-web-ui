@@ -131,7 +131,7 @@ export function parseStatusFrame(frame: EventFrame): { paneId: string; status: A
 export type StructureEvent =
   | { kind: "pane-ended"; paneId: string }
   /** `closed`: the pane a `pane_closed` frame names */
-  | { kind: "structure-changed"; closed?: string };
+  | { kind: "structure-changed"; closed?: string; moved?: { previousPaneId: string; paneId: string; status: AgentStatus; agent: string | null } };
 
 /** The pane a focus frame (`{data:{type:"pane_focused", pane_id}}`) brought to the front. */
 export function parseFocusFrame(frame: EventFrame): string | null {
@@ -141,15 +141,18 @@ export function parseFocusFrame(frame: EventFrame): string | null {
 
 /** Lifecycle frames carry a snake_case `data.type`; IDs come from the next snapshot. */
 export function parseStructureFrame(frame: EventFrame): StructureEvent | null {
-  const data = frame.data as { type?: unknown; pane_id?: unknown } | undefined;
+  const data = frame.data as { type?: unknown; pane_id?: unknown; previous_pane_id?: unknown; pane?: { pane_id?: unknown; agent_status?: unknown; agent?: unknown } } | undefined;
   switch (data?.type) {
     case "pane_exited":
       return typeof data.pane_id === "string" ? { kind: "pane-ended", paneId: data.pane_id } : null;
     case "pane_closed":
       return typeof data.pane_id === "string" ? { kind: "structure-changed", closed: data.pane_id } : { kind: "structure-changed" };
+    case "pane_moved":
+      return typeof data.previous_pane_id === "string" && typeof data.pane?.pane_id === "string" && typeof data.pane.agent_status === "string"
+        ? { kind: "structure-changed", moved: { previousPaneId: data.previous_pane_id, paneId: data.pane.pane_id, status: data.pane.agent_status as AgentStatus, agent: typeof data.pane.agent === "string" ? data.pane.agent : null } }
+        : { kind: "structure-changed" };
     case "pane_created":
     case "pane_updated":
-    case "pane_moved":
     case "workspace_created":
     case "workspace_updated":
     case "workspace_metadata_updated":
@@ -478,6 +481,18 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
         handlers.onPaneEnded(parsed.paneId);
       }
       else {
+        if (parsed.moved !== undefined) {
+          const { previousPaneId, paneId, status, agent } = parsed.moved;
+          // A move changes the subscription key, not the work. Keep its last
+          // baseline so a finish before the new subscription starts is replayed.
+          const before = heard.get(previousPaneId) ?? { status, agent };
+          heard.delete(previousPaneId);
+          heard.set(paneId, before);
+          // A snapshot already in flight still holds the old ID. It must neither
+          // restore that baseline nor prune the one just carried to the new ID.
+          actedOn.set(previousPaneId, ++statusEvents);
+          lastEventOf.set(paneId, statusEvents);
+        }
         // closed with no exit frame: a snapshot on its way that still holds the pane is no news of it either
         if (parsed.closed !== undefined) {
           actedOn.set(parsed.closed, ++statusEvents);
