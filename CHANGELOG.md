@@ -16,6 +16,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   alone, Left and Right step between workspaces from the edge of the query or from a row, and
   herdr's own keys (`b`, `w`, `i`, `d`, `a` for a filter, `/` for the search) work while the
   focus is on the list or the chips, never while typing.
+  ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
 
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
