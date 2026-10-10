@@ -582,25 +582,47 @@ export function App() {
     if (!snapshot || selectedMachine?.state !== "connected") return;
     // a link lands once its PC's roster is in: its pane, the pane its workspace's row opens, or,
     // when nothing it named is open, the usual fallback below with a word in the header
+    const fallback = (current: typeof snapshot) => current.panes.find((pane) => pane.pane_id === current.focused_pane_id)?.pane_id ?? current.panes[0]?.pane_id ?? null;
     const linked = pendingLink.current;
     if (linked && linked.machine === selectedMachineId) {
-      pendingLink.current = null;
-      setLinkLanded(true);
-      const landed = resolveLink(snapshot, linked);
-      if (landed.note) setHeaderNote(landed.note);
-      if (landed.pane) {
-        if (landed.pane !== selectedPaneId) {
-          setSelectedPaneId(landed.pane);
-          // the link's lens was for its own pane: the one opened instead keeps its own
-          setNotificationViewTarget(landed.pane === linked.pane && linked.view ? { machine_id: linked.machine, pane_id: landed.pane, view: linked.view } : null);
+      const land = (landed: ReturnType<typeof resolveLink>): boolean => {
+        pendingLink.current = null;
+        setLinkLanded(true);
+        if (landed.note) setHeaderNote(landed.note);
+        if (landed.pane) {
+          if (landed.pane !== selectedPaneId) {
+            setSelectedPaneId(landed.pane);
+            // the link's lens was for its own pane: the one opened instead keeps its own
+            setNotificationViewTarget(landed.pane === linked.pane && linked.view ? { machine_id: linked.machine, pane_id: landed.pane, view: linked.view } : null);
+          }
+          if (landed.pane !== linked.pane) pendingFile.current = null;
+          return true;
         }
-        if (landed.pane !== linked.pane) pendingFile.current = null;
-        return;
+        pendingFile.current = null;
+        return false;
+      };
+      const landed = resolveLink(snapshot, linked);
+      if (!landed.note) {
+        if (land(landed)) return;
+      } else {
+        // The combined roster is cached: a pane made just before the link opened can be missing
+        // from it. Ask this PC before saying the link's place has closed.
+        let cancelled = false;
+        void fetchSession(selectedMachineId).then((current) => ({ current, confirmed: resolveLink(current, linked) }), () => null).then((read) => {
+          if (cancelled || pendingLink.current !== linked) return;
+          // a failed read is not evidence that anything closed: the link settles without a word
+          if (read === null) { land({ pane: null, workspace: null, note: null }); return; }
+          const { current, confirmed } = read;
+          if (land(confirmed)) return;
+          // as below: nothing selected takes the fallback, a selection that has gone takes it as auto-selected
+          if (current.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
+          setSelectedPaneId(fallback(current));
+          if (selectedPaneId !== null) setAutoSelected(true);
+        });
+        return () => { cancelled = true; };
       }
-      pendingFile.current = null;
     }
     if (snapshot.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
-    const fallback = (current: typeof snapshot) => current.panes.find((pane) => pane.pane_id === current.focused_pane_id)?.pane_id ?? current.panes[0]?.pane_id ?? null;
     if (selectedPaneId === null) { setSelectedPaneId(fallback(snapshot)); return; }
     // The combined roster is cached: a newly created pane can be selected before it
     // appears there. Confirm absence against this PC before discarding the selection.
