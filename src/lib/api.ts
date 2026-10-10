@@ -1,6 +1,7 @@
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  AgentRenameRequest,
   ConversationResponse,
   CreateWorktreeRequest,
   CreateTabRequest,
@@ -10,19 +11,32 @@ import type {
   HealthAuth,
   IntegrationsResponse,
   InteractivePrompt,
+  MovePaneDestination,
+  MovePaneRequest,
   OmoActivity,
   OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
+  PaneMoved,
+  PaneDirection,
+  PaneInfo,
   PaneReadResult,
+  PaneResized,
+  PaneSplit,
+  PaneSwapped,
+  PaneZoomed,
   PaneFindRequest,
   PaneFindResponse,
   PromptAnswer,
   PushKey,
   RemoteAccess,
   RemoveWorktreeRequest,
+  ResizePaneRequest,
   SessionSnapshot,
   SlashCommand,
+  SplitPaneDirection,
+  SplitPaneRequest,
+  SwapPaneRequest,
   TabCreated,
   UsageReport,
   WorkspaceCreated,
@@ -33,6 +47,7 @@ import type {
   WorktreeListing,
   WorktreeOpened,
   WorktreeRemoved,
+  ZoomPaneRequest,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import { readInstalledNotes, readUpdateNotes, type HerdrUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
@@ -115,6 +130,13 @@ export class ApiError extends Error {
     this.detail = detail;
   }
 }
+
+/**
+ * A 404 for the route itself, not for what it was asked about: a PC whose bridge is from before
+ * the route, whose answer the local server passes through (server/machine-api.ts). What herdr
+ * refuses comes with a code of its own (pane_not_found).
+ */
+export const routeMissing = (error: unknown): boolean => error instanceof ApiError && error.status === 404 && error.code === "not_found";
 
 async function errorFrom(url: string, response: Response): Promise<ApiError> {
   let detail = response.statusText;
@@ -410,6 +432,54 @@ export async function closePane(paneId: string, machineId = "local"): Promise<vo
 /** POST /api/pane/rename: sets the pane's label in herdr (an empty label clears it). */
 export async function renamePane(paneId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/rename"), "POST", { pane_id: paneId, label });
+}
+
+/** POST /api/agent/rename: the live name of the agent in the pane, what `herdr agent prompt <name>` addresses; null clears it. */
+export async function renameAgent(paneId: string, name: string | null, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "agent/rename"), "POST", { pane_id: paneId, name } satisfies AgentRenameRequest);
+}
+
+/**
+ * POST /api/pane/move: the pane into another tab, a new tab (of its workspace or another) or a
+ * new workspace, herdr's `pane move`. A pane that leaves its workspace answers to a new id:
+ * `pane.pane_id`, beside `previous_pane_id`, which is the one sent. herdr's own focus stays.
+ */
+export async function movePane(paneId: string, destination: MovePaneDestination, machineId = "local"): Promise<PaneMoved> {
+  const response = await sendJson(machinePath(machineId, "pane/move"), "POST", { pane_id: paneId, destination } satisfies MovePaneRequest);
+  return (await response.json()) as PaneMoved;
+}
+
+/**
+ * POST /api/pane/split: a new pane beside this one in herdr (its prefix+v / prefix+-), answered as
+ * herdr lists it. herdr's focus stays put unless `focus` asks for the new pane; the sidebar and the
+ * tab strip learn of it from the server's session-changed broadcast.
+ */
+export async function splitPane(paneId: string, direction: SplitPaneDirection, focus = false, machineId = "local"): Promise<PaneInfo> {
+  const response = await sendJson(machinePath(machineId, "pane/split"), "POST", { pane_id: paneId, direction, ...(focus ? { focus: true } : {}) } satisfies SplitPaneRequest);
+  return ((await response.json()) as PaneSplit).pane;
+}
+
+/** POST /api/pane/zoom: herdr's prefix+z on that pane; `zoomed` is the tab's state after it. */
+export async function zoomPane(paneId: string, mode: ZoomPaneRequest["mode"] = "toggle", machineId = "local"): Promise<PaneZoomed> {
+  const response = await sendJson(machinePath(machineId, "pane/zoom"), "POST", { pane_id: paneId, mode } satisfies ZoomPaneRequest);
+  return (await response.json()) as PaneZoomed;
+}
+
+/** POST /api/pane/swap: the pane and its neighbour on that side change places; `changed` false when it has none there. */
+export async function swapPane(paneId: string, direction: PaneDirection, machineId = "local"): Promise<PaneSwapped> {
+  const response = await sendJson(machinePath(machineId, "pane/swap"), "POST", { pane_id: paneId, direction } satisfies SwapPaneRequest);
+  return (await response.json()) as PaneSwapped;
+}
+
+/** POST /api/pane/resize: the border the pane shares with a neighbour moves that way, by herdr's default share (0.05) of the split the border belongs to. */
+export async function resizePane(paneId: string, direction: PaneDirection, machineId = "local"): Promise<PaneResized> {
+  const response = await sendJson(machinePath(machineId, "pane/resize"), "POST", { pane_id: paneId, direction } satisfies ResizePaneRequest);
+  return (await response.json()) as PaneResized;
+}
+
+/** POST /api/pane/clear: clears the pane's terminal screen in herdr. */
+export async function clearPane(paneId: string, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/clear"), "POST", { pane_id: paneId });
 }
 
 /** GET /api/agents: the agent kinds herdr can start, for the new-session dialog. */

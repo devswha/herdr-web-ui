@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
-import type { CreateWorktreeRequest, OpenWorktreeRequest, PluginActionRequest, RemoveWorktreeRequest } from "../../shared/protocol.ts";
+import type { CreateWorktreeRequest, MovePaneDestination, OpenWorktreeRequest, PaneDirection, PluginActionRequest, RemoveWorktreeRequest, SplitPaneDirection } from "../../shared/protocol.ts";
+import type { ZoomMode } from "./layoutMap.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
 /** Bound functions retain their owner across an async upload or a fast PC switch. */
@@ -24,6 +25,13 @@ export function useMachineApi() {
     openWorktree: (request: OpenWorktreeRequest) => api.openWorktree(request, id),
     removeWorktree: (request: RemoveWorktreeRequest) => api.removeWorktree(request, id),
     renamePane: (pane: string, label: string) => api.renamePane(pane, label, id),
+    movePane: (pane: string, destination: MovePaneDestination) => api.movePane(pane, destination, id),
+    renameAgent: (pane: string, name: string | null) => api.renameAgent(pane, name, id),
+    splitPane: (pane: string, direction: SplitPaneDirection, focus = false) => api.splitPane(pane, direction, focus, id),
+    zoomPane: (pane: string, mode: ZoomMode) => api.zoomPane(pane, mode, id),
+    swapPane: (pane: string, direction: PaneDirection) => api.swapPane(pane, direction, id),
+    resizePane: (pane: string, direction: PaneDirection) => api.resizePane(pane, direction, id),
+    clearPane: (pane: string) => api.clearPane(pane, id),
     renameWorkspace: (workspace: string, label: string) => api.renameWorkspace(workspace, label, id),
     moveWorkspace: (workspace: string, index: number) => api.moveWorkspace(workspace, index, id),
     fetchAgentKinds: () => api.fetchAgentKinds(id),

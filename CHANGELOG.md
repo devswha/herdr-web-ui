@@ -8,6 +8,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- herdr's pane layout operations from the web: a tab's menu (right-click a tab, or its chevron;
+  a bottom sheet on a phone) now offers **Split right** and **Split down** (herdr's prefix+v and
+  prefix+-), **Zoom pane** (prefix+z), **Swap left / right / up / down** with the pane's
+  neighbours (prefix+shift+hjkl), **Wider / Narrower / Taller / Shorter** (herdr's resize mode)
+  and **Clear pane**. A tab of several panes heads the menu with a small map of its layout, drawn
+  from herdr's own pane rects: a cell opens its pane, the open pane is marked in the accent and the
+  zoomed one carries the zoom glyph. The command palette has **Split pane right / down**, the same
+  **and open it** (herdr's `--focus`; a plain split keeps the pane you are on, like `--no-focus`)
+  and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
+  one herdr RPC each, also on remote PCs.
+  ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
   Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
   ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
@@ -22,6 +33,27 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   come first. A missing or outdated one shows its `herdr integration install …` command with a
   Copy button; the page only reads herdr's state and never installs or removes anything.
   ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
+- **Move pane to…** in a tab's menu on the tab strip and in a workspace row's ⋯ menu moves the
+  pane into another tab of its workspace, a new tab there or in another workspace, or a workspace
+  of its own, as herdr's `pane move` does; on a phone the places are a bottom sheet. The app stays
+  on the moved pane, also under the new id herdr gives a pane that changes workspace, and the lens
+  and unsent drafts kept for it follow. `POST /api/pane/move` carries it, on a remote PC too.
+  ([#734](https://github.com/devswha/herdr-web-ui/pull/734))
+- The command palette now lists panes the way herdr's Goto picker does: one row per pane under
+  its workspace's heading (a linked worktree's branch beside the name), with status chips above
+  the list — **All**, **INPUT**, **RUN**, **READY**, **DONE** and **BG**, each with its count — and
+  a footer that names where the picked row goes (workspace › tab) and its path. A search also
+  matches the tab's label, the workspace's branch and the agent kind, `>` searches the actions
+  alone, Left and Right step between workspaces from the edge of the query or from a row, and
+  herdr's own keys (`b`, `w`, `i`, `d`, `a` for a filter, `/` for the search) work while the
+  focus is on the list or the chips, never while typing.
+  ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
+- **Agent name…** in a workspace row's menu, next to Rename pane, and in the new `⋯` menu of an
+  Agents row sets or clears the live name herdr addresses the agent by (`herdr agent rename`,
+  what `herdr agent prompt <name>` takes). The dialog checks herdr's rule as you type, shows
+  herdr's own refusal when another agent holds the name, and the Agents row shows the name on its
+  second line. A name set from herdr's terminal UI or CLI shows in the web the same way.
+  ([#736](https://github.com/devswha/herdr-web-ui/pull/736))
 
 ### Changed
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
@@ -29,6 +61,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- The browser demo keeps each row's own split when resizing a grid and keeps deeply split
+  panes visible and resizable. ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Workspace and tab changes, pane moves and layout updates made in herdr's terminal UI
   now refresh the web immediately through coalesced lifecycle events instead of waiting
   for the five-second poll. Pane status subscriptions follow moved pane IDs.

@@ -12,17 +12,23 @@ export type {
   AgentSessionInfo,
   AgentStatus,
   PaneInfo,
+  PaneMoveReason,
+  PaneMoveResult,
+  PaneLayoutPane,
+  PaneLayoutRect,
+  PaneLayoutSnapshot,
   PaneReadResult,
   PaneScrollInfo,
   ReadFormat,
   ReadSource,
   SessionSnapshot,
+  SplitDirection,
   Subscription as HerdrSubscriptionSpec,
   TabInfo,
   WorkspaceInfo,
 } from "./herdr-api.generated.ts";
 
-import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
+import type { AgentStatus, PaneInfo, PaneMoveResult, SessionSnapshot, SplitDirection, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
 
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
@@ -103,6 +109,31 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
+ *  POST   /api/pane/move   { pane_id, destination, focus? } -> PaneMoved (pane.move: the pane into
+ *         another tab of its workspace, a new tab there or in another workspace, or a new workspace;
+ *         a pane that leaves its workspace gets a NEW pane id, reported beside previous_pane_id; an
+ *         emptied tab or workspace closes behind it; focus defaults to false, so herdr's own focus
+ *         stays where it was and only the caller follows the pane)
+ *  POST   /api/agent/rename { pane_id, name } -> { ok: true } (agent.rename on the pane's live agent:
+ *         the name other tools address it by, `herdr agent prompt <name>`; null clears it. herdr
+ *         owns the rule (shared/agent-name.ts) and answers invalid_agent_name, agent_name_taken or,
+ *         for a pane without a live agent, agent_not_found; the name is read back from
+ *         `snapshot.agents[].name`, and pane.updated carries the change to every client)
+ *  POST   /api/pane/split  { pane_id, direction: right|down, focus? } -> PaneSplit { ok: true, pane }
+ *         (pane.split beside that pane, herdr's prefix+v and prefix+-: `pane` is the new one; focus
+ *         false, the default, leaves herdr's focus where it is, true moves it to the new pane as --focus does)
+ *  POST   /api/pane/zoom   { pane_id, mode?: toggle|on|off } -> PaneZoomed { ok: true, zoomed, changed, reason }
+ *         (pane.zoom, prefix+z: the tab shows that pane alone; herdr focuses the pane it zooms; changed
+ *         false names why: single_pane, already_zoomed, already_unzoomed)
+ *  POST   /api/pane/swap   { pane_id, direction: left|right|up|down } -> PaneSwapped { ok: true, changed, reason, target_pane_id }
+ *         (pane.swap with the neighbour on that side, prefix+shift+hjkl; changed false with reason
+ *         no_neighbor when the pane has none there)
+ *  POST   /api/pane/resize { pane_id, direction: left|right|up|down, amount? } -> PaneResized { ok: true, changed, reason }
+ *         (pane.resize, herdr's resize mode: the border the pane shares with a neighbour moves that way
+ *         by `amount` of the split the border belongs to, not of the tab (0 < amount <= 0.5, herdr's
+ *         own cap; its 0.05 when absent); changed false, reason unchanged, when no border of the
+ *         pane can move that way)
+ *  POST   /api/pane/clear  { pane_id } -> { ok: true } (pane.clear: clears the pane's terminal screen)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/ (under HERDR_WEB_PASTE_DIR when the
  *         server's environment sets it), path for the prompt
@@ -599,6 +630,12 @@ export interface WorktreeOpened {
   error?: { code: string; message: string };
 }
 
+/** POST /api/agent/rename: the live name of the agent in the pane; null clears it. */
+export interface AgentRenameRequest {
+  pane_id: string;
+  name: string | null;
+}
+
 /** POST /api/worktree/remove: `git worktree remove` of the workspace's checkout; force when git refuses a dirty one. */
 export interface RemoveWorktreeRequest {
   workspace_id: string;
@@ -644,6 +681,101 @@ export interface WorkspaceCreated {
  * launch leaves the tab there, reachable through pane_id, as workspace creation does.
  */
 export type TabCreated = WorkspaceCreated;
+
+/**
+ * POST /api/pane/move: where the pane goes. herdr's PaneMoveDestination with the `type` the
+ * generated union widens to a string spelled out, so a caller cannot send a kind herdr has not got.
+ * `tab` lands beside the tab's focused pane (`target_pane_id` names another) on the side `split`
+ * says, right when absent; `new_tab` without a workspace stays in the pane's own.
+ */
+export type MovePaneDestination =
+  | { type: "tab"; tab_id: string; split?: SplitDirection; target_pane_id?: string | null; ratio?: number | null }
+  | { type: "new_tab"; workspace_id?: string | null; label?: string | null }
+  | { type: "new_workspace"; label?: string | null; tab_label?: string | null };
+
+export interface MovePaneRequest {
+  pane_id: string;
+  destination: MovePaneDestination;
+  /** herdr's focus follows the pane when true; absent or false leaves it where it was */
+  focus?: boolean;
+}
+
+/**
+ * POST /api/pane/move: herdr's move result. `pane` is the pane where it now stands, under a new
+ * `pane_id` when it changed workspace (`previous_pane_id` is the one the caller sent); `changed`
+ * false with `reason: "same_tab"` means it already was where it was asked to go. `created_tab`
+ * and `created_workspace` name what the move made, `closed_tab_id` and `closed_workspace_id` what
+ * it emptied and herdr closed behind it.
+ */
+export type PaneMoved = PaneMoveResult;
+
+/** The two ways herdr splits a pane: a new pane to its right, or below it. */
+export type SplitPaneDirection = "right" | "down";
+
+/** A neighbour's side, for swapping and resizing: herdr's own left/right/up/down. */
+export type PaneDirection = "left" | "right" | "up" | "down";
+
+/** POST /api/pane/split: `focus` true moves herdr's focus to the new pane (its --focus); false, the default, leaves it. */
+export interface SplitPaneRequest {
+  pane_id: string;
+  direction: SplitPaneDirection;
+  focus?: boolean;
+}
+
+/** The pane herdr made, as its snapshot lists it (focused only when `focus` asked for it). */
+export interface PaneSplit {
+  ok: true;
+  pane: PaneInfo;
+}
+
+/** POST /api/pane/zoom: a toggle by default; `on` and `off` set the state instead. */
+export interface ZoomPaneRequest {
+  pane_id: string;
+  mode?: "toggle" | "on" | "off";
+}
+
+/** `zoomed` is the tab's state after the call; `reason` says why `changed` is false (single_pane, already_zoomed, already_unzoomed). */
+export interface PaneZoomed {
+  ok: true;
+  zoomed: boolean;
+  changed: boolean;
+  reason: string | null;
+}
+
+/** POST /api/pane/swap: the pane changes places with its neighbour on that side. */
+export interface SwapPaneRequest {
+  pane_id: string;
+  direction: PaneDirection;
+}
+
+/** `target_pane_id` is the neighbour swapped with; `changed` false with reason no_neighbor when the pane has none there. */
+export interface PaneSwapped {
+  ok: true;
+  changed: boolean;
+  reason: string | null;
+  target_pane_id: string | null;
+}
+
+/**
+ * POST /api/pane/resize: the border the pane shares with a neighbour moves `direction`-wards by
+ * `amount` of the split that border belongs to, which herdr measures on the split's own extent,
+ * not the tab's (0.25 in a 60-column half of a 120-column tab moves the border 15 columns, not
+ * 30). herdr caps the amount at 0.5 and holds a split's ratio to 0.1..0.9, so the server refuses
+ * more than 0.5 (invalid_amount) rather than let herdr quietly take less; its own 0.05 when
+ * absent. Measured on herdr 0.9.3.
+ */
+export interface ResizePaneRequest {
+  pane_id: string;
+  direction: PaneDirection;
+  amount?: number;
+}
+
+/** `changed` false with reason unchanged: no border of the pane could move that way. */
+export interface PaneResized {
+  ok: true;
+  changed: boolean;
+  reason: string | null;
+}
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */
 export interface SlashCommand {
