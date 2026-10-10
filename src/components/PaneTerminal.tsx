@@ -116,6 +116,9 @@ function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
 }
 
+/** The last refused Send now note per pane, kept across that pane's mounts (see queueError). */
+const heldRowNotes = new Map<string, { owner: string; id: string; text: string }>();
+
 export function PaneTerminal({
   paneId,
   restoreError = null,
@@ -393,7 +396,15 @@ export function PaneTerminal({
   const pending = useSyncExternalStore(pendingMessages.subscribe, () => pendingMessages.read(queueOwner ?? ""));
   const sendingRef = useRef(false);
   const [queueSending, setQueueSending] = useState<string | null>(null);
-  const [queueError, setQueueError] = useState<{ owner: string; id: string; text: string } | null>(null);
+  // a refused Send now's note outlives this mount: a pane left for another workspace unmounts, and
+  // the note must still be there when the user comes back (it is never a retry, only the words)
+  const [queueError, setQueueErrorState] = useState<{ owner: string; id: string; text: string } | null>(() => (queueOwner === null ? null : heldRowNotes.get(queueOwner) ?? null));
+  // the note is kept at once, not in the state update: a Send now answered after this pane
+  // unmounted (the user went to another workspace) runs no update here, and the note must stay
+  const setQueueError = useCallback((note: { owner: string; id: string; text: string } | null): void => {
+    if (note) heldRowNotes.set(note.owner, note);
+    setQueueErrorState(note);
+  }, []);
 
   paneRef.current = paneId;
   endedRef.current = ended;
@@ -2151,8 +2162,8 @@ export function PaneTerminal({
                 onClick={() => {
                   if (sendingRef.current || !queueStore.beginSend(queueOwner, message.id)) return;
                   sendingRef.current = true;
-                  setQueueSending(message.id); setQueueError(null);
                   const owner = queueOwner;
+                  setQueueSending(message.id); setQueueError(null); heldRowNotes.delete(owner);
                   void Promise.resolve(sendComposerText(message.text))
                     .then((result) => {
                       if (result === true) { queueStore.remove(owner, message.id); }
