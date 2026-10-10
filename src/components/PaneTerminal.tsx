@@ -32,7 +32,7 @@ import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
+import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -80,6 +80,10 @@ export interface PaneTerminalProps {
   autoSelected?: boolean;
   /** xterm font size (settings) */
   terminalFontSize: number;
+  /** xterm cursorStyle (settings); a program's own DECSCUSR still changes it, as before this setting existed */
+  terminalCursorStyle: TerminalCursorStyle;
+  /** xterm cursorBlink (settings) */
+  terminalCursorBlink: boolean;
   /** mouse reports sent per wheel event (settings): 1 is xterm's own one report */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in stack (settings); "" keeps the built-in one */
@@ -119,6 +123,8 @@ export function PaneTerminal({
   view,
   autoSelected = false,
   terminalFontSize,
+  terminalCursorStyle,
+  terminalCursorBlink,
   terminalWheelSpeed,
   terminalFontFamily,
   theme,
@@ -382,7 +388,8 @@ export function PaneTerminal({
     const linkPressed = (event: MouseEvent): boolean => event.button === 0 && !term.hasSelection();
     const term = new Terminal({
       convertEol: false,
-      cursorBlink: true,
+      cursorStyle: terminalCursorStyle,
+      cursorBlink: terminalCursorBlink,
       // xterm keeps no scrollback: the attach stream lives in the alternate screen and herdr
       // owns scrollback (wheel and touch go to it). With scrollback on, the fit addon reserves
       // a scrollbar column - 15px by fallback wherever scrollbars are overlays - and the last
@@ -1415,6 +1422,15 @@ export function PaneTerminal({
     const term = termRef.current;
     if (term) term.options.theme = terminalTheme(theme, palette);
   }, [theme, palette]);
+
+  // the cursor's shape and blink follow too; a program's own DECSCUSR still overrides them until
+  // the next change here, as it already could when they were fixed
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.cursorStyle = terminalCursorStyle;
+    term.options.cursorBlink = terminalCursorBlink;
+  }, [terminalCursorStyle, terminalCursorBlink]);
 
   // the font follows too, and a font change moves the grid. xterm measures the cell (and the DOM
   // renderer its glyph widths) when fontFamily or fontSize changes, and setting the same value

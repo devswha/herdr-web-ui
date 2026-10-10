@@ -7,7 +7,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, isMacPlatform, shortcutDisplayKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
 import { isReservedShortcutKey } from "../lib/shortcutBindings.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, type DictationLanguage, type VoiceButton } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, TERMINAL_CURSOR_STYLES, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, type DictationLanguage, type TerminalCursorStyle, type VoiceButton } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
 import { KeyBarSettings } from "./KeyBarSettings.tsx";
@@ -257,6 +257,13 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
       </SettingsRow>
       <SettingsRow label={t("Terminal font")} description={t("Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
         <FontFamilyInput value={settings.terminalFontFamily} label={t("Terminal font")} onCommit={(terminalFontFamily) => update({ terminalFontFamily })} />
+      </SettingsRow>
+      <SettingsRow label={t("Cursor shape")} description={t("A program in the pane can still change this with its own cursor control sequence")} wide>
+        <Segmented label={t("Cursor shape")} value={settings.terminalCursorStyle} onChange={(terminalCursorStyle: TerminalCursorStyle) => update({ terminalCursorStyle })}
+          options={TERMINAL_CURSOR_STYLES.map((style) => ({ value: style, label: t(style === "block" ? "Block" : style === "bar" ? "Bar" : "Underline") }))} />
+      </SettingsRow>
+      <SettingsRow label={t("Blinking cursor")}>
+        <Toggle label={t("Blinking cursor")} checked={settings.terminalCursorBlink} onChange={(terminalCursorBlink) => update({ terminalCursorBlink })} />
       </SettingsRow>
       <SettingsRow label={t("Wheel scroll speed")} description={t("How far one turn of the wheel scrolls the terminal")}>
         <Stepper label={t("Wheel scroll speed")} value={settings.terminalWheelSpeed} text={`${settings.terminalWheelSpeed}×`} min={TERMINAL_WHEEL_SPEED_MIN} max={TERMINAL_WHEEL_SPEED_MAX} decreaseLabel={t("Slower wheel scrolling")} increaseLabel={t("Faster wheel scrolling")} onChange={(terminalWheelSpeed) => update({ terminalWheelSpeed })} />

@@ -919,6 +919,8 @@ export function App() {
             view={view}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
+            terminalCursorStyle={settings.terminalCursorStyle}
+            terminalCursorBlink={settings.terminalCursorBlink}
             terminalWheelSpeed={settings.terminalWheelSpeed}
             terminalFontFamily={settings.terminalFontFamily}
             theme={resolvedTheme}

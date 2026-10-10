@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Settings → Terminal: cursor shape and blink.** Choose block, bar or underline, and turn
+  blinking on or off, for every terminal pane. A program in the pane that sets its own cursor
+  style (DECSCUSR) can still change it, as before this setting existed.
 - **Settings → Agent integrations** lists herdr's integration for each agent it supports and
   says whether it is installed, older than the running herdr, or missing. Agents found on the PC
   come first. A missing or outdated one shows its `herdr integration install …` command with a
