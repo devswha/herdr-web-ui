@@ -530,6 +530,9 @@ function IntegrationRow({ integration }: { integration: AgentIntegration }) {
   const t = useT();
   const commandRef = useRef<HTMLElement>(null);
   const [copied, setCopied] = useState(false);
+  // the latest Copy owns the label: an earlier press's timer must not clear it early
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
   const name = integration.label;
   if (integration.state === "current") {
     return (
@@ -543,7 +546,8 @@ function IntegrationRow({ integration }: { integration: AgentIntegration }) {
   const copy = async (): Promise<void> => {
     if (!(await copyText(command, commandRef.current))) return;
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
   };
   const state = integration.state === "outdated" ? t("Installed, but older than this herdr: run this to update it") : t("Not installed");
   return (
