@@ -355,6 +355,13 @@ export function PaneTerminal({
       ? (current?.pane === pane && current.value === value ? current : { pane, value })
       : current?.pane === pane ? null : current);
   }, []);
+  // a cancelled send the agent put back in its input box, for the composer to take again
+  const [chatRestored, setChatRestored] = useState<{ pane: string; value: string } | null>(null);
+  const onChatRestored = useCallback((pane: string, value: string | null) => {
+    setChatRestored((current) => value !== null
+      ? (current?.pane === pane && current.value === value ? current : { pane, value })
+      : current?.pane === pane ? null : current);
+  }, []);
   // a typed pick of an approval's option, shown in the card until Confirm or Cancel
   const [pendingAnswer, setPendingAnswer] = useState<{ pane: string; promptId: string; answer: TypedAnswer } | null>(null);
   // where the chat draws its prompt card: on the composer's column, between the held messages and
@@ -2105,6 +2112,7 @@ export function PaneTerminal({
             greeted={greeted}
             onPrompt={onChatPrompt}
             onSuggestion={onChatSuggestion}
+            onRestored={onChatRestored}
             promptRefreshKey={promptRefresh}
             pendingAnswer={pendingAnswer !== null && pendingAnswer.pane === paneId ? pendingAnswer : null}
             onPendingAnswerDone={clearPendingAnswer}
@@ -2223,6 +2231,7 @@ export function PaneTerminal({
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt?.pane !== paneId && chatSuggestion?.pane === paneId ? chatSuggestion.value : null}
+          restored={chatPrompt?.pane !== paneId && chatRestored?.pane === paneId ? chatRestored.value : null}
           greeting={greetingDue ? (
             <div className={`composer-greeting${greeted ? "" : " is-out"}`} ref={greetingRef} aria-hidden={greeted ? undefined : true}>
               <p className="composer-greeting-title">{t("What should {agent} do in {folder}?", { agent: agentDisplayLabel(agent), folder })}</p>

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, claudeInputDraft, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, claudeInputDraft, claudeRestoredDraft, lastChatSubmitted, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 const CLAUDE_BACKGROUND_APPROVAL_FOOTER = "Esc to cancel · ctrl+x ctrl+k twice to stop background agents";
@@ -1677,6 +1677,37 @@ describe("Claude's suggested next prompt", () => {
     const empty = screen("❯\u00a0").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
     expect(claudeInputDraft(empty, screen("❯ an old draft"))).toBe(false);
   });
+
+  test("a box holding the chat's own last message is Claude's restored copy, everything else is not", () => {
+    const restored = (ansi: string, sent: string | null, live = ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")) => claudeRestoredDraft(live, ansi, sent);
+    // the copy Claude puts back on a cancel is typed text: the same words, whitespace aside
+    expect(restored(screen("❯ run the tests"), "run the tests")).toBe("run the tests");
+    expect(restored(screen("❯\u00a0run\u00a0the\u00a0tests"), "run the tests")).toBe("run the tests");
+    // a long message wraps onto rows indented two spaces; joined back they are the sent text
+    expect(restored(screen("❯ a longer message that wrapped onto", "  its second row\r\n" + RULE), "a longer message that wrapped onto its second row")).toBe("a longer message that wrapped onto its second row");
+    // typed on or replaced, the words are the user's
+    expect(restored(screen("❯ run the tests edited"), "run the tests")).toBeNull();
+    expect(restored(screen("❯ other words"), "run the tests")).toBeNull();
+    // Claude's grey suggestion is not a draft, an empty box holds nothing, bash mode is the user's
+    expect(restored(screen("❯ \u001b[2mrun the tests\u001b[0m"), "run the tests")).toBeNull();
+    expect(restored(screen("❯\u00a0"), "run the tests")).toBeNull();
+    expect(restored(screen("! run the tests"), "run the tests")).toBeNull();
+    // a paste Claude folded into a placeholder is content, whatever it reads as
+    expect(restored(screen("❯ [Pasted text #1 +12 lines]"), "[Pasted text #1 +12 lines]")).toBeNull();
+    // colors not verified to show the live screen, or no chat send before, say nothing
+    const live = screen("❯ run the tests").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    expect(claudeRestoredDraft(live, null, "run the tests")).toBeNull();
+    expect(restored(screen("❯ run the tests"), null)).toBeNull();
+    expect(restored(screen("❯ run the tests"), "  ")).toBeNull();
+  });
+
+  test("remembers what the chat last sent a pane", () => {
+    noteSubmitted("p_sent", "run the tests");
+    expect(lastChatSubmitted("p_sent")).toBe("run the tests");
+    expect(lastChatSubmitted("p_nothing")).toBeNull();
+    noteSubmitted("p_sent", "another");
+    expect(lastChatSubmitted("p_sent")).toBe("another");
+  });
 });
 
 describe("the fallback card for a blocked pane no reader knows", () => {
@@ -2033,7 +2064,7 @@ describe("Claude's suggestion on a prompt poll", () => {
   test("answers without it once its read is late, rather than waiting on herdr", async () => {
     await stalledAnsiHerdr("idle", async (reads) => {
       const { body, ms } = await poll();
-      expect(body).toEqual({ prompt: null, suggestion: null });
+      expect(body).toEqual({ prompt: null, suggestion: null, restored: null });
       expect(reads).toEqual(["text", "ansi"]);
       expect(ms).toBeLessThan(2_500);
     });
@@ -2042,7 +2073,7 @@ describe("Claude's suggestion on a prompt poll", () => {
   test("is not read while Claude works", async () => {
     await stalledAnsiHerdr("working", async (reads) => {
       const { body, ms } = await poll();
-      expect(body).toEqual({ prompt: null, suggestion: null });
+      expect(body).toEqual({ prompt: null, suggestion: null, restored: null });
       expect(reads).toEqual(["text"]);
       expect(ms).toBeLessThan(1_000);
     });

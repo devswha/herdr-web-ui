@@ -80,7 +80,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, claudeRestoredDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, lastChatSubmitted, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -189,6 +189,10 @@ const MAX_WAITING_KEYS = 256;
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
+/** between the two Esc presses that empty Claude Code's restored copy of the chat's message */
+const RESTORED_CLEAR_GAP_MS = 200;
+/** after them, before the box is read again */
+const RESTORED_CLEAR_SETTLE_MS = 300;
 const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
@@ -541,9 +545,8 @@ export function createServer(
       });
       inTime();
       if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
-        const [live, colors] = await claudeBoxReads(paneId);
+        await freeClaudeBox(paneId, pane?.agent_status === "working");
         inTime();
-        if (claudeInputDraft(live, colors)) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
       }
       try {
         await agentPrompt(paneId, closeMention(text));
@@ -683,6 +686,28 @@ export function createServer(
     return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
   }
 
+  /**
+   * The box check both chat sends share: a Claude Code input box that is not known to be empty is
+   * refused, except the chat's own last message, which Claude puts back as typed text when the send
+   * right after it is cancelled. That copy, while the agent is not working, two Esc presses empty
+   * again — never Ctrl+C, which would arm "press Ctrl-C again to exit" — then the box is read once
+   * more before the send. Every other draft, and a box still not empty after them, refuses as before.
+   */
+  async function freeClaudeBox(paneId: string, working: boolean): Promise<void> {
+    const [live, colors] = await claudeBoxReads(paneId);
+    if (!claudeInputDraft(live, colors)) return;
+    if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
+      throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+    }
+    // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
+    // rewind dialog instead
+    await paneSendKeys(paneId, ["esc"]);
+    await Bun.sleep(RESTORED_CLEAR_GAP_MS);
+    await paneSendKeys(paneId, ["esc"]);
+    await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
+    if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+  }
+
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
@@ -700,9 +725,7 @@ export function createServer(
       // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
       // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
       // read comes after the colors, so text typed between the two is in the box and holds the message.
-      if (context.identity.agent === "claude" && claudeInputDraft(...await claudeBoxReads(paneId))) {
-        throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
-      }
+      if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working);
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
       // asked again right before herdr is written to: its connect is awaited (#666)

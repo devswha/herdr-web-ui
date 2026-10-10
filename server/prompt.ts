@@ -1316,11 +1316,19 @@ export function removedInvisible(sent: string, shown: string): number {
 const heldCandidates = new Map<string, { text: string; at: number }>();
 /** Long enough to read the card and answer it; a message kept past this is the user's own business */
 const HELD_WINDOW_MS = 10 * 60_000;
+/** What the chat last sent to each pane: Claude Code puts that text back in its input box when the send is cancelled right after it. */
+const chatSent = new Map<string, string>();
 
 /** A message the chat just sent to a pane: one with invisible characters may be held by Claude Code. */
 export function noteSubmitted(paneId: string, text: string): void {
+  chatSent.set(paneId, text);
   if (INVISIBLE_CHAR_RE.test(text)) heldCandidates.set(paneId, { text, at: Date.now() });
   else heldCandidates.delete(paneId);
+}
+
+/** The text of the pane's last successful chat send (noteSubmitted), or none. */
+export function lastChatSubmitted(paneId: string): string | null {
+  return chatSent.get(paneId) ?? null;
 }
 
 /** What the chat sent a pane that Claude Code may be holding, for the readers that ask whether it waits. */
@@ -2785,6 +2793,23 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
 }
 
 /**
+ * The chat's own last message back in Claude Code's input box as typed text, where Claude puts it
+ * when the send right before is cancelled: `sent` when the box is a draft (`claudeInputDraft`, so
+ * typed text on a verified viewport) holding exactly it — the `❯` of the first row dropped, the
+ * wrapped rows joined, all whitespace (the box's U+00A0 too) out of both sides. Anything else a
+ * draft could be — bash mode, a clipped box, a `[Pasted text #`/`[Image #` placeholder, other or
+ * edited words — and a box that is no known draft, unverified colors or nothing sent answer null.
+ */
+export function claudeRestoredDraft(live: string, colors: string | null, sent: string | null): string | null {
+  if (sent === null || sent.trim() === "" || colors === null || !claudeInputDraft(live, colors)) return null;
+  const box = claudeInputBox(live);
+  if (box === null || box === "clipped" || !box.plain[0]?.startsWith("❯")) return null;
+  if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain.join(" "))) return null;
+  const text = box.plain.map((row, index) => index === 0 ? row.slice(1) : row).join("");
+  return text.replace(/\s/g, "") === sent.replace(/\s/g, "") ? sent : null;
+}
+
+/**
  * Whether a colored viewport read shows the live screen, so claudeInputDraft may take its colors:
  * the viewport at the bottom of the pane's history before and after the colored read, or, only when
  * herdr reports no scroll for either read, the viewport's whole text equal to the live screen; and
@@ -2830,6 +2855,7 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   for (const known of askings.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) askings.delete(known);
   for (const known of answerTurns.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) answerTurns.delete(known);
   for (const known of heldCandidates.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) heldCandidates.delete(known);
+  for (const known of chatSent.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) chatSent.delete(known);
   const pane = panes.find((candidate) => candidate.pane_id === paneId);
   if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
   const agent = pane.agent ?? "";
@@ -3035,15 +3061,20 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       const paneId = url.searchParams.get("pane_id")?.trim();
       if (!paneId) return badRequest("missing_pane_id", "pane_id is required.");
       const { agent, status, prompt } = await readPrompt(paneId, options.codexHome);
-      // no menu up: what Claude suggests typing next, for the composer's placeholder. Only a
-      // nicety: it is read only while Claude waits for the next prompt (a working agent shows
-      // none), and a failed or slow read of it (a herdr without ansi reads, a busy one) leaves
-      // the prompt answer as it is, on time.
-      const suggestion = prompt === null && agent === "claude" && (status === "idle" || status === "done")
+      // no menu up: what Claude suggests typing next, for the composer's placeholder, and the chat's
+      // own last message where Claude put it back into the box on a cancel. Only a nicety: it is read
+      // only while Claude waits for the next prompt (a working agent shows none), and a failed or
+      // slow read of it (a herdr without ansi reads, a busy one) leaves the prompt answer as it is,
+      // on time.
+      const box = prompt === null && agent === "claude" && (status === "idle" || status === "done")
         ? await paneRead({ paneId, source: "visible", format: "ansi", timeoutMs: SUGGESTION_READ_MS })
-          .then((read) => parseClaudeSuggestion(read.text), () => null)
+          .then((read) => read.text, () => null)
         : null;
-      return jsonResponse({ prompt, suggestion });
+      return jsonResponse({
+        prompt,
+        suggestion: box === null ? null : parseClaudeSuggestion(box),
+        restored: box === null ? null : claudeRestoredDraft(box.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, ""), box, lastChatSubmitted(paneId)),
+      });
     }
 
     if (request.method !== "POST") return badRequest("method_not_allowed", "POST is required.");
