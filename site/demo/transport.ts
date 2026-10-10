@@ -106,6 +106,12 @@ const omoRuns = () => [
  * here instead, which keeps adding an agent to the demo to a change in `fixtures.ts` alone. Panes
  * the fixtures do record are left exactly as they were recorded.
  */
+/** herdr lays a new tab out as its one pane over the whole area: the demo's layout for it, so the layout operations find the pane. */
+function addDemoLayout(workspaceId: string, tabId: string, paneId: string): void {
+  const area = { x: 0, y: 0, width: 120, height: 40 };
+  snapshot().layouts.push({ workspace_id: workspaceId, tab_id: tabId, zoomed: false, area, focused_pane_id: paneId, panes: [{ pane_id: paneId, focused: true, rect: { ...area } }], splits: [] });
+}
+
 function backfillPanes(): void {
   const snap = snapshot();
   const recorded = new Set<string>(keyOfPane.values());
@@ -120,6 +126,7 @@ function backfillPanes(): void {
     addAgent(pane);
     snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: `${id}:t1`, workspace_id: id, label: spec.label, number: 1, agent_status: pane.agent_status, focused: false, pane_count: 1 });
     snap.workspaces.push({ ...structuredClone(template), workspace_id: id, label: spec.label, number: snap.workspaces.length + 1, active_tab_id: `${id}:t1`, agent_status: pane.agent_status, focused: false, pane_count: 1, tab_count: 1 });
+    addDemoLayout(id, `${id}:t1`, pane.pane_id);
     keyOfPane.set(pane.pane_id, spec.key);
   }
   // the fixture's own order is kept; a backfilled pane joins at the end of the list
@@ -167,6 +174,7 @@ function createDemoWorkspace(cwd: string, label: string, agent: string | null, w
   addAgent(pane);
   snap.tabs.push({ ...structuredClone(newTabTemplate), tab_id: `${id}:t1`, workspace_id: id, label, number: 1, agent_status: pane.agent_status, focused: false, pane_count: 1 });
   snap.workspaces.push({ ...structuredClone(newWorkspaceTemplate), workspace_id: id, label, number: snap.workspaces.length + 1, active_tab_id: `${id}:t1`, agent_status: pane.agent_status, focused: false, pane_count: 1, tab_count: 1, worktree: worktree ?? worktreeMetadata(repositoryAt(cwd)) });
+  addDemoLayout(id, `${id}:t1`, pane.pane_id);
   if (agent) {
     keyOfPane.set(pane.pane_id, pane.pane_id);
     chats.set(pane.pane_id, { turns: [], metadata: { model: agent === "codex" ? "gpt-5.6-sol" : "claude-opus-5-5", reasoning_effort: "medium" } });
@@ -548,7 +556,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   // herdr's layout operations on the demo's own layouts: a split halves the pane's rect for a new
   // shell pane, a zoom flips the tab's flag (after focusing the pane, as herdr does), a swap
   // exchanges two rects, a resize moves the ratio of the split the border belongs to and lays its
-  // panes out again (src/lib/layoutTree.ts), and a clear has nothing to clear
+  // panes out again (src/lib/layoutTree.ts), and a clear blanks the pane's screen on every socket attached to it
   if (path === "/api/pane/split" || path === "/api/pane/zoom" || path === "/api/pane/swap" || path === "/api/pane/resize" || path === "/api/pane/clear") {
     const body = await bodyOf(init, input);
     const pane = paneOf(String(body["pane_id"] ?? ""));
@@ -556,7 +564,10 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const layout = pane ? snap.layouts.find((candidate) => candidate.tab_id === pane.tab_id) : undefined;
     const cell = layout?.panes.find((candidate) => candidate.pane_id === pane?.pane_id);
     if (!pane || !layout || !cell) return error("pane_not_found", "pane not found", 404);
-    if (path === "/api/pane/clear") return json({ ok: true });
+    if (path === "/api/pane/clear") {
+      for (const socket of sockets) socket.clearScreen(pane.pane_id);
+      return json({ ok: true });
+    }
     if (path === "/api/pane/split") {
       const direction = body["direction"];
       if (direction !== "right" && direction !== "down") return error("invalid_direction", "direction must be right or down", 400);
@@ -701,6 +712,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     snap.panes.push(pane);
     addAgent(pane);
     snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: tabId, workspace_id: id, label: String(body["label"] ?? ""), number, agent_status: pane.agent_status, focused: false, pane_count: 1 });
+    addDemoLayout(id, tabId, pane.pane_id);
     if (String(body["label"] ?? "") === "") autoTabs.add(tabId);
     else autoTabs.delete(tabId);
     relabelAutoTabs(id);
@@ -1042,6 +1054,11 @@ class DemoSocket extends EventTarget {
     if (this.pendingTargetError(paneId) !== null || !["idle", "done"].includes(paneOf(paneId)?.agent_status ?? "")) return false;
     const pending = this.pending.get(paneId)?.find((item) => item.state === "queued");
     return pending !== undefined && this.deliverPending(paneId, pending);
+  }
+
+  /** herdr's pane.clear: the screen goes blank with the cursor at home; what the program writes next shows again */
+  clearScreen(paneId: string): void {
+    if (this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" });
   }
 
   private attach(paneId: string): void {
