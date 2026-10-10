@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
+  Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
+  ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
 - The command palette lists the actions of the herdr plugins installed on the PC under **Plugin
   actions** and runs one against the selected pane, with that pane's workspace and tab as its
   context. The row shows that it is running, a command that fails says why above the list, and a
@@ -19,6 +22,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   come first. A missing or outdated one shows its `herdr integration install …` command with a
   Copy button; the page only reads herdr's state and never installs or removes anything.
   ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
+- The command palette now lists panes the way herdr's Goto picker does: one row per pane under
+  its workspace's heading (a linked worktree's branch beside the name), with status chips above
+  the list — **All**, **INPUT**, **RUN**, **READY**, **DONE** and **BG**, each with its count — and
+  a footer that names where the picked row goes (workspace › tab) and its path. A search also
+  matches the tab's label, the workspace's branch and the agent kind, `>` searches the actions
+  alone, Left and Right step between workspaces from the edge of the query or from a row, and
+  herdr's own keys (`b`, `w`, `i`, `d`, `a` for a filter, `/` for the search) work while the
+  focus is on the list or the chips, never while typing.
+  ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
 
 ### Changed
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of

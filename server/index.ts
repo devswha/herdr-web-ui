@@ -41,6 +41,7 @@ import {
   paneRead,
   paneScroll,
   paneScrollInfo,
+  paneFind,
   paneSelectionRead,
   paneRename,
   paneSendKeys,
@@ -1989,6 +1990,34 @@ export function createServer(
           const read = await paneRead({ paneId, source: source as ReadSource, format: format as ReadFormat, ...(lines === undefined ? {} : { lines }) });
           return jsonResponse({ read });
         } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/find") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: unknown;
+        try { payload = await request.json(); }
+        catch { return badRequest("invalid_json", "request body must be JSON"); }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
+        if (typeof payload.query !== "string" || payload.query.length === 0 || payload.query.length > 1024) return badRequest("invalid_query", "query must contain 1 to 1024 characters");
+        if (payload.direction !== "forward" && payload.direction !== "backward") return badRequest("invalid_direction", "direction must be forward or backward");
+        const point = (value: unknown): value is { row: number; col: number } =>
+          isJsonObject(value) && isCount(value.row) && value.row <= 0xffffffff && isCount(value.col) && value.col <= 0xffff;
+        const previous = payload.previous;
+        if (previous !== undefined && (!isJsonObject(previous) || !point(previous.start) || !point(previous.end) || !isCount(payload.content_revision))) {
+          return badRequest("invalid_previous", "previous requires two history cells and content_revision");
+        }
+        if (payload.content_revision !== undefined && !isCount(payload.content_revision)) return badRequest("invalid_revision", "content_revision must be a non-negative integer");
+        try {
+          return jsonResponse(await paneFind({
+            pane_id: payload.pane_id, query: payload.query, direction: payload.direction,
+            ...(isJsonObject(previous) && point(previous.start) && point(previous.end) ? { previous: { start: previous.start, end: previous.end } } : {}),
+            ...(isCount(payload.content_revision) ? { content_revision: payload.content_revision } : {}),
+          }));
+        } catch (error) {
+          if (error instanceof HerdrError && error.code === "stale_content") return jsonResponse({ error: { code: error.code, message: error.message } }, 409);
           return errorResponse(error);
         }
       }
