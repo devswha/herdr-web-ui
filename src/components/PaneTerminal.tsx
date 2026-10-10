@@ -1771,7 +1771,8 @@ export function PaneTerminal({
       if (document.activeElement === textarea) textarea.blur();
     } else {
       textarea.removeAttribute("inputmode");
-      if (coarse && !chatView && turnedOn) termRef.current?.focus();
+      // only the selected pane: a focused sibling would take the selection (PaneCanvas onFocusCapture)
+      if (activeRef.current && coarse && !chatView && turnedOn) termRef.current?.focus();
     }
   }, [inputLine, coarse, chatView, directTyping, paneId]);
 
@@ -1915,7 +1916,9 @@ export function PaneTerminal({
           pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
           return;
         }
-        const answer = await result;
+        // as a composer send: the pane keeps its connection and lease until the receipt settles
+        const releaseSubmit = submitRetention?.retain(pane);
+        const answer = await result.finally(() => releaseSubmit?.());
         if (!answer.ok) pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, answer.code === "pending_not_found" || !submitNotTyped(answer.code));
         // Only the matching server removal receipt removes an authoritative item.
       } else if (action === "discard") {
@@ -1937,7 +1940,7 @@ export function PaneTerminal({
     } catch {
       pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
     } finally { pendingMessages.end(owner, id); }
-  }, [answering, ended, heldByOpenQueue, paneId, queueOwner, submitComposerMessage]);
+  }, [answering, ended, heldByOpenQueue, paneId, queueOwner, submitComposerMessage, submitRetention]);
 
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.

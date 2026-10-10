@@ -137,7 +137,11 @@ export function CommandPalette({ open, onClose, machines, onSelect, snapshot, on
   const loadRecent = () => loadRecentTargets((key) => window.localStorage.getItem(key), [machineId, ...machines.map((machine) => machine.id).filter((id) => id !== machineId)]);
   const [recentPaneIds, setRecentPaneIds] = useState<RecentPane[]>(loadRecent);
   const inputRef = useRef<HTMLInputElement>(null);
-  const surface = useFocusTrap<HTMLElement>(open, { initialFocus: inputRef });
+  // a pane picked here is where the keyboard goes: giving it back to the opener (a sibling pane
+  // still mounted in the split) would select that pane again (PaneCanvas onFocusCapture)
+  const navigated = useRef(false);
+  useLayoutEffect(() => { if (open) navigated.current = false; }, [open]);
+  const surface = useFocusTrap<HTMLElement>(open, { initialFocus: inputRef, shouldRestore: () => !navigated.current });
   const resultsRef = useRef<HTMLDivElement>(null);
   // a filter letter pressed over the list keeps the keyboard in the list: the first row takes the
   // focus once the filter is drawn, also when the letter named the filter already shown
@@ -350,6 +354,7 @@ export function CommandPalette({ open, onClose, machines, onSelect, snapshot, on
   const runPane = (target: MachinePane): void => {
     if (!availableTarget(machines, target)) return;
     setRecentPaneIds((current) => storeRecent(rememberTarget({ machineId: target.machineId, paneId: target.paneId }, current)));
+    navigated.current = true;
     onSelect(target.machineId, target.paneId);
     onClose();
   };
@@ -375,6 +380,7 @@ export function CommandPalette({ open, onClose, machines, onSelect, snapshot, on
       if (result.opened_pane_id !== null) {
         // the pane may be newer than the snapshot on screen
         actions.refresh();
+        navigated.current = true;
         actions.selectPane(result.opened_pane_id);
       }
       onClose();
