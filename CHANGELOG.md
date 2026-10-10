@@ -84,6 +84,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Pane attachments share their PC's connection, so leaving a pane stops automatic delivery while
   its server-owned hold receipt still arrives. Real disconnections and reloads never resume a
   queued send. ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
+- A phone or tablet that leaves the web UI (another app, the lock screen, another tab) lets go
+  of the pane at once and only watches it, so herdr's own window on the PC gets its size back
+  instead of keeping the phone's. Coming back to the page attaches again.
+  ([#748](https://github.com/devswha/herdr-web-ui/pull/748))
 - Codex conversations on Windows resolve the transcript even when the pane's working directory
   uses different letter casing from Codex's stored path. The lookup verifies the directory on
   disk before considering its canonical spelling, so another pane's chat is not substituted.

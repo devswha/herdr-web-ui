@@ -278,6 +278,28 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     await keeping.context().close();
     console.log("PASS by default a desktop window out of use keeps its pane and its output");
 
+    // a phone put away lets go of the pane at once, with the default settings and no timer run:
+    // its page can freeze before one does, and its attach would keep herdr's window at its size
+    const pocket = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, { language: "en", defaultView: "terminal" });
+    await attached(pocket);
+    await pocket.clock.install();
+    await pocket.clock.pauseAt(new Date());
+    const pocketVisibility = (hidden: boolean) => pocket.evaluate((hide) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => hide ? "hidden" : "visible" });
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => !hide });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+    await pocketVisibility(true);
+    const pocketFrames = async () => (await framesOf(pocket)).filter((f) => f.dir === "out");
+    assert.ok((await pocketFrames()).some((f) => f.type === "detach"), "a hidden phone detaches before any timer runs");
+    assert.ok((await pocketFrames()).some((f) => f.type === "watch"), "a hidden phone watches the pane it let go of");
+    const pocketAttaches = (await pocketFrames()).filter((f) => f.type === "attach").length;
+    await pocketVisibility(false);
+    await pocket.clock.resume();
+    await pocket.waitForFunction((count) => (window as unknown as { frames_: { dir: string; type: string }[] }).frames_.filter((f) => f.dir === "out" && f.type === "attach").length > count, pocketAttaches, { timeout: 10_000 });
+    await pocket.context().close();
+    console.log("PASS a phone put away lets go of the pane at once and attaches again when it is back");
+
     // a font the user chose loads after every attach and refits the grid: one no device has falls
     // back to the built-in fonts, so the grid keeps its size
     const desktop = await open({ viewport: { width: 1280, height: 800 } }, { terminalFontFamily: "herdr-web-ui-test-no-such-font" });
