@@ -14,7 +14,7 @@
 import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
-import { resizeLayout } from "../../src/lib/layoutTree.ts";
+import { closeLayoutPane, resizeLayout, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
 import machinesFixture from "./fixtures/machines.json";
@@ -505,6 +505,8 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const pane = paneOf(String(body["pane_id"] ?? ""));
     if (!pane) return error("not_found", "no such pane", 404);
     const snap = snapshot();
+    const closedLayout = snap.layouts.find((layout) => layout.tab_id === pane.tab_id);
+    if (closedLayout) closeLayoutPane(closedLayout, pane.pane_id);
     for (const socket of sockets) socket.holdPending(pane.pane_id, "pane_not_found", "This demo pane closed. Copy the message before discarding it.");
     replying.delete(pane.pane_id);
     snap.panes = snap.panes.filter((candidate) => candidate.pane_id !== pane.pane_id);
@@ -575,12 +577,10 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
       const focus = body["focus"] === true;
       const serial = (nextWorkspace++).toString(36);
       const made: Pane = { ...structuredClone(pane), pane_id: `${pane.workspace_id}:p${serial}`, terminal_id: `${pane.workspace_id}:term${serial}`, label: null, title: null, agent: null, agent_session: null, agent_status: "unknown", focused: focus, terminal_title: null, terminal_title_stripped: null, revision: 1 };
+      if (!splitLayout(layout, pane.pane_id, { pane_id: made.pane_id, focused: focus, rect: cell.rect }, direction)) {
+        return error("split_failed", "The demo pane is too small to split.", 400);
+      }
       snap.panes.push(made);
-      const { rect } = cell;
-      const first = direction === "right" ? Math.floor(rect.width / 2) : Math.floor(rect.height / 2);
-      cell.rect = direction === "right" ? { ...rect, width: first } : { ...rect, height: first };
-      layout.panes.push({ pane_id: made.pane_id, focused: focus, rect: direction === "right" ? { x: rect.x + first, y: rect.y, width: rect.width - first, height: rect.height } : { x: rect.x, y: rect.y + first, width: rect.width, height: rect.height - first } });
-      layout.splits.push({ id: `split_${layout.splits.length}_${pane.pane_id}`, direction, ratio: 0.5, rect });
       if (focus) {
         layout.focused_pane_id = made.pane_id;
         for (const candidate of layout.panes) candidate.focused = candidate.pane_id === made.pane_id;
@@ -622,7 +622,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     if (path === "/api/pane/swap") {
       const other = beside(direction);
       if (!other) return json({ ok: true, changed: false, reason: "no_neighbor", target_pane_id: null } satisfies PaneSwapped);
-      [cell.rect, other.rect] = [other.rect, cell.rect];
+      swapLayoutPanes(layout, pane.pane_id, other.pane_id);
       structureChanged();
       return json({ ok: true, changed: true, reason: null, target_pane_id: other.pane_id } satisfies PaneSwapped);
     }

@@ -40,6 +40,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- The browser demo keeps each row's own split when resizing a grid and keeps deeply split
+  panes visible and resizable. ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Workspace and tab changes, pane moves and layout updates made in herdr's terminal UI
   now refresh the web immediately through coalesced lifecycle events instead of waiting
   for the five-second poll. Pane status subscriptions follow moved pane IDs.

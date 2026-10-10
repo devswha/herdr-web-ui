@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import type { PaneLayoutRect, PaneLayoutSnapshot } from "../../shared/protocol.ts";
-import { resizeLayout } from "./layoutTree.ts";
+import { closeLayoutPane, resizeLayout, splitLayout, swapLayoutPanes } from "./layoutTree.ts";
 
 const rect = (x: number, y: number, width: number, height: number): PaneLayoutRect => ({ x, y, width, height });
 const area = rect(0, 0, 120, 40);
@@ -11,11 +11,17 @@ const tab = (panes: { id: string; rect: PaneLayoutRect }[]): PaneLayoutSnapshot 
 });
 const rectOf = (panes: PaneLayoutSnapshot["panes"], id: string): PaneLayoutRect => panes.find((pane) => pane.pane_id === id)!.rect;
 
+function split(layout: PaneLayoutSnapshot, id: string, made: string, direction: "right" | "down"): void {
+  expect(splitLayout(layout, id, { pane_id: made, focused: false, rect: area }, direction)).toBe(true);
+}
+
 /** the rects tile the area: each inside it, none over another, and together they cover it */
 function expectTiling(panes: PaneLayoutSnapshot["panes"]): void {
   let covered = 0;
   for (const [index, pane] of panes.entries()) {
     const { x, y, width, height } = pane.rect;
+    expect(width).toBeGreaterThan(0);
+    expect(height).toBeGreaterThan(0);
     expect(x >= area.x && y >= area.y && x + width <= area.x + area.width && y + height <= area.y + area.height).toBe(true);
     covered += width * height;
     for (const other of panes.slice(index + 1)) {
@@ -27,9 +33,76 @@ function expectTiling(panes: PaneLayoutSnapshot["panes"]): void {
 }
 
 // split right, then the right pane down: the review's layout
-const nested = tab([{ id: "left", rect: rect(0, 0, 60, 40) }, { id: "top", rect: rect(60, 0, 60, 20) }, { id: "bottom", rect: rect(60, 20, 60, 20) }]);
+let nested: PaneLayoutSnapshot;
+beforeEach(() => {
+  nested = tab([{ id: "left", rect: rect(0, 0, 60, 40) }, { id: "top", rect: rect(60, 0, 60, 20) }, { id: "bottom", rect: rect(60, 20, 60, 20) }]);
+});
 
 describe("resizeLayout", () => {
+  it("keeps the tree and current focus through swap, zoom and close before resizing again", () => {
+    const layout = tab([{ id: "top-left", rect: area }]);
+    split(layout, "top-left", "bottom-left", "down");
+    split(layout, "top-left", "top-right", "right");
+    split(layout, "bottom-left", "bottom-right", "right");
+    swapLayoutPanes(layout, "top-left", "bottom-left");
+    layout.zoomed = true;
+    layout.focused_pane_id = "bottom-left";
+    for (const pane of layout.panes) pane.focused = pane.pane_id === "bottom-left";
+    layout.panes = resizeLayout(layout, "bottom-left", "right", 0.05)!;
+    expect(rectOf(layout.panes, "bottom-left")).toEqual(rect(0, 0, 66, 20));
+    expect(layout.panes.find((pane) => pane.pane_id === "bottom-left")!.focused).toBe(true);
+    layout.zoomed = false;
+
+    closeLayoutPane(layout, "top-right");
+
+    expect(rectOf(layout.panes, "bottom-left")).toEqual(rect(0, 0, 120, 20));
+    expectTiling(layout.panes);
+    layout.panes = resizeLayout(layout, "top-left", "right", 0.05)!;
+    expect(rectOf(layout.panes, "bottom-left")).toEqual(rect(0, 0, 120, 20));
+    expect(rectOf(layout.panes, "top-left")).toEqual(rect(0, 20, 66, 20));
+    expectTiling(layout.panes);
+  });
+
+  it("bounds width by descendants and refuses a split that would make a zero-cell leaf", () => {
+    const layout = tab([{ id: "p0", rect: area }]);
+    for (let i = 0; i < 6; i += 1) split(layout, `p${i}`, `p${i + 1}`, "right");
+    for (let i = 0; i < 20; i += 1) layout.panes = resizeLayout(layout, "p0", "right", 0.05) ?? layout.panes;
+    expectTiling(layout.panes);
+    expect(resizeLayout(layout, "p0", "left", 0.05)).not.toBeNull();
+    const narrow = layout.panes.find((pane) => pane.rect.width === 1)!;
+    const before = structuredClone(layout);
+    expect(splitLayout(layout, narrow.pane_id, { pane_id: "extra", focused: false, rect: area }, "right")).toBe(false);
+    expect(layout).toEqual(before);
+  });
+
+  it("preserves the separate bottom split when widening the top-left pane of a down-first grid", () => {
+    const layout = tab([{ id: "top-left", rect: area }]);
+    split(layout, "top-left", "bottom-left", "down");
+    split(layout, "top-left", "top-right", "right");
+    split(layout, "bottom-left", "bottom-right", "right");
+    const bottom = layout.panes.filter((pane) => pane.pane_id.startsWith("bottom")).map((pane) => structuredClone(pane));
+
+    const wider = resizeLayout(layout, "top-left", "right", 0.05)!;
+
+    expect(rectOf(wider, "top-left").width).toBe(66);
+    expect(wider.filter((pane) => pane.pane_id.startsWith("bottom"))).toEqual(bottom);
+    expectTiling(wider);
+  });
+
+  it("keeps six down-split descendants visible and can shorten after three Taller actions", () => {
+    const layout = tab([{ id: "p0", rect: area }]);
+    for (let i = 0; i < 5; i += 1) split(layout, `p${i}`, `p${i + 1}`, "down");
+    expect(layout.panes.map((pane) => pane.rect.height)).toEqual([20, 10, 5, 2, 1, 2]);
+
+    for (let i = 0; i < 3; i += 1) layout.panes = resizeLayout(layout, "p0", "down", 0.05)!;
+
+    expectTiling(layout.panes);
+    const shorter = resizeLayout(layout, "p0", "up", 0.05);
+    expect(shorter).not.toBeNull();
+    expect(rectOf(shorter!, "p0").height).toBeLessThan(rectOf(layout.panes, "p0").height);
+    expectTiling(shorter!);
+  });
+
   it("moves the split the border belongs to and lays every pane under it out again", () => {
     const wider = resizeLayout(nested, "left", "right", 0.05)!;
     expect(rectOf(wider, "left")).toEqual(rect(0, 0, 66, 40));
