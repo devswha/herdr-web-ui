@@ -36,6 +36,7 @@ import {
   HerdrError,
   herdrSocketPath,
   paneClose,
+  paneGet,
   paneRead,
   paneScroll,
   paneScrollInfo,
@@ -193,8 +194,7 @@ function expandedDirectory(value: string): string | null {
 }
 
 async function paneContext(paneId: string): Promise<{ agent: string | null; cwd: string }> {
-  const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-  if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
+  const pane = await paneGet(paneId);
   const cwd = pane.foreground_cwd ?? pane.cwd;
   if (!cwd) throw new HerdrError("cwd_not_found", `pane ${paneId} has no working directory`);
   return { agent: pane.agent ?? pane.agent_session?.agent ?? null, cwd };
@@ -502,7 +502,10 @@ export function createServer(
     // the terminal's input line stands in for the keyboard: it types what the user wrote, an
     // answer into an open menu included, where agent.prompt would refuse
     if (!fromTerminal) {
-      const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+      const pane = await paneGet(paneId).catch((error: unknown) => {
+        if (error instanceof HerdrError && error.code === "pane_not_found") return undefined;
+        throw error;
+      });
       inTime();
       if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
         const [live, colors] = await claudeBoxReads(paneId);
@@ -543,7 +546,10 @@ export function createServer(
 
   /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
   async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> {
-    const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+    const pane = await paneGet(paneId).catch((error: unknown) => {
+      if (error instanceof HerdrError && error.code === "pane_not_found") return undefined;
+      throw error;
+    });
     if ((pane?.agent ?? pane?.agent_session?.agent) !== "codex") return false;
     // A collapsed queue in scrollback must not bypass an approval on the live screen.
     return codexQuestionsCollapsed((await paneRead({ paneId, source: "detection", format: "text" })).text);
@@ -771,8 +777,7 @@ export function createServer(
     loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
     lookupTitle: async (paneId) => {
-      const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-      return pane ? paneTitle(pane) : undefined;
+      return paneTitle(await paneGet(paneId));
     },
   });
 
@@ -1858,11 +1863,10 @@ export function createServer(
           // a Claude pane's subagents, read from its session's files; nothing for any other pane.
           // Its transcript is found here if the background lookup has not got to it yet
           // (for a second at most: a slow herdr answers with what is known, and the next ask has the rest)
-          // An unknown pane costs a fresh herdr snapshot too; the client bounds its discovery retries.
+          // An unknown pane costs a fresh herdr lookup too; the client bounds its discovery retries.
           if (claudeAgents.sessionOf(paneId) === null) {
             await within(1000, (async () => {
-              const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-              if (pane) await claudeAgents.ensure(pane);
+              await claudeAgents.ensure(await paneGet(paneId));
             })());
           }
           const claude = claudeAgents.sessionOf(paneId);
