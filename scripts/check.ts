@@ -31,7 +31,7 @@
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { availableParallelism, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -253,12 +253,21 @@ export async function acquire(
     for (const resource of resources) {
       const absolute = resolve(resource);
       mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
-      const canonical = existsSync(absolute) ? realpathSync(absolute) : join(realpathSync(dirname(absolute)), basename(absolute));
+      const isDir = existsSync(absolute) && statSync(absolute).isDirectory();
+      const canonical = isDir ? realpathSync(absolute) : join(realpathSync(dirname(absolute)), basename(absolute));
       const marker = existsSync(canonical) && lstatSync(canonical).isDirectory()
         ? join(canonical, ".check-lock") : `${canonical}.check-lock`;
       if (markers.includes(marker)) continue;
       if (existsSync(marker)) {
-        const owner = JSON.parse(readFileSync(marker, "utf8")) as { pid: number; checkout: string };
+        let owner: { pid: number; checkout: string };
+        try {
+          owner = JSON.parse(readFileSync(marker, "utf8")) as { pid: number; checkout: string };
+        } catch {
+          rmSync(marker, { force: true });
+          writeFileSync(marker, JSON.stringify({ pid, checkout }), { flag: "wx", mode: 0o600 });
+          markers.push(marker);
+          continue;
+        }
         if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error(`invalid check lock owner: ${marker}`);
         let dead = false;
         try { process.kill(owner.pid, 0); }

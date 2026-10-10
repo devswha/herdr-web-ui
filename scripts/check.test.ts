@@ -301,6 +301,38 @@ describe("slots", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it("recovers from a corrupt resource marker instead of crashing", async () => {
+    const base = await freeRange(3);
+    const dir = scratch();
+    const marker = join(dir, ".check-lock");
+    writeFileSync(marker, "{ truncated");
+    const result = await acquire({ slots: 0, scan: 3, base, checkout: "/mine", resources: [dir] });
+    try {
+      expect("release" in result).toBe(true);
+      expect(JSON.parse(readFileSync(marker, "utf8")).pid).toBe(process.pid);
+    } finally { release(result); }
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("locks a file resource by its name, not a symlink target that renameSync replaces", async () => {
+    const base = await freeRange(3);
+    const dir = scratch();
+    const target = join(dir, "previous.json");
+    const link = join(dir, "latest.json");
+    writeFileSync(target, "{}");
+    symlinkSync(target, link);
+    const first = await acquire({ slots: 0, scan: 3, base, checkout: "/first", resources: [link] });
+    try {
+      expect("release" in first).toBe(true);
+      // Simulate persistReport replacing the symlink with a regular file
+      rmSync(link);
+      writeFileSync(link, '{"replaced": true}');
+      const second = await acquire({ slots: 0, scan: 3, base, checkout: "/second", resources: [link] });
+      try { expect(second).toMatchObject({ refused: "resource" }); }
+      finally { release(second); }
+    } finally { release(first); }
+  });
+
   it("serializes simultaneous admission without leaving a candidate slot behind", async () => {
     const base = await freeRange(3);
     const results = await Promise.all([
