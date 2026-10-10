@@ -33,6 +33,9 @@ describe("socket lifecycle changes reach WebSocket clients", () => {
 
   beforeAll(async () => {
     workspace = await workspaceCreate({ cwd: stateDir, label: "herdr-web-ui-test-collector-lifecycle" });
+    // A single-pane zoom can only change focus, not the layout. Split before
+    // starting the app so its lifecycle frame cannot satisfy the zoom matcher.
+    await herdrRpc("pane.split", { target_pane_id: workspace.root_pane.pane_id, direction: "right", cwd: stateDir, focus: false });
     app = createServer({ port: 0, stateDir });
     await app.statusReady;
     ws = new WebSocket(`ws://localhost:${app.port}/ws`);
@@ -43,7 +46,7 @@ describe("socket lifecycle changes reach WebSocket clients", () => {
     ws?.close();
     app?.stop();
     if (movedWorkspace) await workspaceClose(movedWorkspace);
-    else if (workspace) await workspaceClose(workspace.workspace.workspace_id);
+    if (workspace) await workspaceClose(workspace.workspace.workspace_id);
     rmSync(stateDir, { recursive: true, force: true });
   });
 
@@ -56,21 +59,29 @@ describe("socket lifecycle changes reach WebSocket clients", () => {
           : { pane_id: workspace.root_pane.pane_id, mode: "on" };
       const changed = nextFrame("session-changed");
       const started = performance.now();
-      await herdrRpc(method, params);
+      const result = await herdrRpc(method, params);
+      if (method === "pane.zoom") expect(result).toMatchObject({ zoom: { changed: true, zoom_changed: true } });
       await changed;
       expect(performance.now() - started).toBeLessThan(1000);
+      if (method === "pane.zoom") {
+        const restored = nextFrame("session-changed");
+        await herdrRpc("pane.zoom", { pane_id: workspace.root_pane.pane_id, mode: "off" });
+        await restored;
+      }
     });
   }
 
   it("tells browsers of a completion after a working pane moves before reconciliation", async () => {
-    const working = nextFrame("pane-status", (frame) => frame.type === "pane-status" && frame.agent_status === "working");
+    const working = nextFrame("pane-status", (frame) => frame.type === "pane-status" && frame.pane_id === workspace.root_pane.pane_id && frame.agent_status === "working");
     await herdrRpc("pane.report_agent", { pane_id: workspace.root_pane.pane_id, source: "manual", agent: "codex", state: "working" });
     await working;
-    const completed = nextFrame("pane-status", (frame) => frame.type === "pane-status" && frame.pane_id !== workspace.root_pane.pane_id && frame.agent_status === "done", 2000);
-    const { move_result } = await herdrRpc<{ move_result: { pane: { pane_id: string; workspace_id: string } } }>("pane.move", {
+    const { move_result } = await herdrRpc<{ move_result: { changed: boolean; pane: { pane_id: string; workspace_id: string } } }>("pane.move", {
       pane_id: workspace.root_pane.pane_id, destination: { type: "new_workspace", label: "herdr-web-ui-test-moved-completion" }, focus: false,
     });
+    expect(move_result.changed).toBe(true);
+    expect(move_result.pane.pane_id).not.toBe(workspace.root_pane.pane_id);
     movedWorkspace = move_result.pane.workspace_id;
+    const completed = nextFrame("pane-status", (frame) => frame.type === "pane-status" && frame.pane_id === move_result.pane.pane_id && frame.agent_status === "done", 2000);
     await herdrRpc("pane.report_agent", { pane_id: move_result.pane.pane_id, source: "manual", agent: "codex", state: "idle" });
     await completed;
   });
