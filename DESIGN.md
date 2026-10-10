@@ -408,10 +408,6 @@ One set for both themes: the card is island black wherever it shows.
   lists a live agent in that pane), Move pane to…, New tab,
   New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
   ends in **Delete worktree checkout…** after Close workspace. The
-  danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
-  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
-  rows scroll between the head and Cancel (`.row-sheet-items`), which stay put, when the sheet's
-  92% of the screen cannot hold them. Escape, a press outside and
   danger item takes `--status-blocked`. The popover is as tall as its items, up to the room on
   its side of the button (it scrolls only on a screen too short for it). At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
@@ -435,7 +431,8 @@ One set for both themes: the card is island black wherever it shows.
   confirmed close, focus lands on the header's workspace-list toggle.
 - The tab strip's pane picker is the same menu: one item per pane of the tab, the agent's mark
   (or the shell glyph) and the pane's title, the open pane named in the strong colour
-  (`aria-current`).
+  (`aria-current`). A tab of several panes heads it with the layout map (below), in the
+  popover's header and in the sheet's head under the title.
 - **Move pane to…** (a row's menu, a tab's menu) opens the same menu again under the same button
   (`MovePaneMenu`): a dim uppercase MOVE TO micro label with the pane's name under it
   (`.move-pane-head`), then New tab and the workspace's other tabs, every other workspace under
@@ -445,8 +442,6 @@ One set for both themes: the card is island black wherever it shows.
   roster without the pane as the pane gone. A refusal reads as the row's or the strip's inline
   error, herdr's own too ("Move failed: the tab is zoomed; unzoom it in herdr, then move the
   pane"): a `changed: false` answer never closes the menu as if the pane had moved.
-  (`aria-current`). A tab of several panes heads it with the layout map (below), in the
-  popover's header and in the sheet's head under the title.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
@@ -639,15 +634,14 @@ One set for both themes: the card is island black wherever it shows.
   a right-click opens the tab's menu under its left edge; the middle button closes. With keys
   on a focused tab: F2 and Delete. On a touch screen there is no `x`: the open tab carries the
   chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
-  several, then **Rename tab**, **Move pane to…** (the pane the tab opens), then **Close tab**
-  in the danger colour under a hairline.
   several, then herdr's layout operations on the pane the tab opens (the open pane on the open
   tab): **Split right**, **Split down** (prefix+v, prefix+-), **Zoom pane** / **Unzoom pane**
   (prefix+z, a checkbox item; it sends the mode it names, never herdr's toggle, which would
   unzoom a tab zoomed on another pane) and **Swap left / right / up / down** (prefix+shift+hjkl), only for
   the sides the pane has a neighbour on, **Wider / Narrower / Taller / Shorter** (the resize
   mode, by herdr's own share of the split the border belongs to), only for an axis the pane shares with a neighbour, and
-  **Clear pane**; then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+  **Clear pane**; then **Rename tab**, **Move pane to…** (the same pane), then **Close tab** in the
+  danger colour under a hairline.
   A split keeps the open pane, as herdr's `--no-focus` keeps its focus. herdr's "nothing
   changed" answers (no neighbour on that side, a border that cannot move) read as a line of
   `--status-blocked` text at the strip's end, like a refusal.

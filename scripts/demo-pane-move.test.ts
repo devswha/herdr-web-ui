@@ -62,9 +62,23 @@ it("the demo moves a pane between tabs and workspaces under the ids herdr would 
     assert.equal(back.body.closed_workspace_id, own.body.created_workspace.workspace_id, "a workspace emptied by the move closes");
     assert.ok(!(await snapshot()).workspaces.some((workspace: any) => workspace.workspace_id === own.body.created_workspace.workspace_id));
 
+    // herdr's focus on a pane that has a workspace to itself, then moved out without focus: the
+    // workspace closes behind it, and the focus is left on a tab and a workspace that still exist
+    const home = await post("/api/pane/move", { pane_id: back.body.pane.pane_id, destination: { type: "new_workspace", label: "focus-home" }, focus: true });
+    assert.equal((await snapshot()).focused_workspace_id, home.body.created_workspace.workspace_id, "focus: true takes herdr's focus along");
+    const left = await move(home.body.pane.pane_id, { type: "new_tab", workspace_id: a.workspace_id });
+    assert.equal(left.body.closed_workspace_id, home.body.created_workspace.workspace_id);
+    snap = await snapshot();
+    const focused = snap.panes.find((pane: any) => pane.pane_id === snap.focused_pane_id);
+    assert.ok(focused, "the focused pane exists");
+    assert.ok(snap.tabs.some((tab: any) => tab.tab_id === snap.focused_tab_id), "the focused tab exists");
+    assert.ok(snap.workspaces.some((workspace: any) => workspace.workspace_id === snap.focused_workspace_id), "the focused workspace exists");
+    assert.deepEqual([focused.tab_id, focused.workspace_id], [snap.focused_tab_id, snap.focused_workspace_id], "the three focus ids name one pane");
+    assert.notEqual(snap.focused_workspace_id, a.workspace_id, "a move without focus does not take the focus to the destination");
+
     assert.equal((await move("no-such:p1", { type: "new_tab" })).status, 404);
-    assert.equal((await move(back.body.pane.pane_id, { type: "sideways" })).status, 400);
-    assert.equal((await move(back.body.pane.pane_id, { type: "tab", tab_id: "no-such:t1" })).status, 404);
+    assert.equal((await move(left.body.pane.pane_id, { type: "sideways" })).status, 400);
+    assert.equal((await move(left.body.pane.pane_id, { type: "tab", tab_id: "no-such:t1" })).status, 404);
   } finally {
     for (const [key, descriptor] of saved) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);

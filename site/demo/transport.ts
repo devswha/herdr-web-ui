@@ -346,9 +346,19 @@ function moveDemoPane(pane: Pane, destination: Record<string, unknown>, focus = 
     snap.focused_pane_id = paneId;
     snap.focused_tab_id = targetTab.tab_id;
     snap.focused_workspace_id = targetTab.workspace_id;
-  } else if (snap.focused_pane_id === previous.pane_id) {
+  } else {
     // the pane ID changed (crossed workspaces): keep tracking it without moving tab/workspace focus
-    snap.focused_pane_id = paneId;
+    if (snap.focused_pane_id === previous.pane_id) snap.focused_pane_id = paneId;
+    // focus was not asked to follow, but it cannot stay on a tab or workspace that closed behind
+    // the pane: a pane still there takes it, one outside the destination when there is one
+    if (!snap.tabs.some((tab) => tab.tab_id === snap.focused_tab_id) || !snap.workspaces.some((workspace) => workspace.workspace_id === snap.focused_workspace_id)) {
+      const heir = snap.panes.find((candidate) => candidate.workspace_id === previous.workspace_id && candidate.pane_id !== paneId)
+        ?? snap.panes.find((candidate) => candidate.workspace_id !== targetTab.workspace_id)
+        ?? pane;
+      snap.focused_pane_id = heir.pane_id;
+      snap.focused_tab_id = heir.tab_id;
+      snap.focused_workspace_id = heir.workspace_id;
+    }
   }
   for (const candidate of snap.panes) candidate.focused = candidate.pane_id === snap.focused_pane_id;
   for (const tab of snap.tabs) tab.focused = tab.tab_id === snap.focused_tab_id;
