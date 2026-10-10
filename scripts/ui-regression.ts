@@ -218,7 +218,8 @@ try {
   await openPalette();
   assert.deepEqual(await page.evaluate(() => (window as unknown as { paletteFirstFrame: string[] }).paletteFirstFrame), [""],
     "a reopened palette's first render shows none of the last search's results");
-  const otherPalettePane = palette.locator(".palette-pane").filter({ hasText: "herdr-web-ui-test-browser-b" });
+  // a row names its tab and folder; its workspace is the heading of its section
+  const otherPalettePane = palette.locator(`.palette-section[data-section="${workspaces[1]}"] .palette-pane`);
   // Walk the actual tab order instead of clicking: pointer hover must not pick the row for us.
   for (const deadline = Date.now() + 5_000; ;) {
     await page.keyboard.press("Tab");
