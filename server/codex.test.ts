@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSyn
 import { tmpdir } from "node:os";
 import { join, posix, win32 } from "node:path";
 import { Database } from "bun:sqlite";
-import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexFirstExchange, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, codexPeersIn, resumedThread, rolloutInsideStore, sameDirectory, storedCwdCondition, storedCwds, forgetAllCodexState, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
+import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexFirstExchange, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, codexPeersIn, resumedThread, rolloutInsideStore, sameDirectory, storedCwdCondition, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
 import type { HerdrPane } from "../shared/protocol.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
@@ -423,45 +423,43 @@ describe("Codex rollout resolution", () => {
     }
   });
 
-  /** One directory under three spellings, another that differs only in case (a case-sensitive directory). */
-  const identity = (path: string) => path === "D:\\work\\App" ? "2" : path.toLowerCase() === "d:\\work\\app" ? "1" : null;
   const threadsDb = () => {
     const db = new Database(":memory:");
     // Codex's own cwd index (state migration 0027), binary collation
     db.run("CREATE TABLE threads (id TEXT, cwd TEXT, archived INTEGER, updated_at_ms INTEGER)");
     db.run("CREATE INDEX idx_threads_archived_cwd_updated_at_ms ON threads(archived, cwd, updated_at_ms DESC, id DESC)");
-    const rows: [string, string][] = [["a", "\\\\?\\d:\\Work\\app"], ["b", "D:\\WORK\\APP"], ["c", "D:\\work\\app2"], ["d", "/home/u/app"], ["e", "/home/u/App"], ["f", "\\\\?\\UNC\\Host\\Share\\app"]];
+    const rows: [string, string][] = [["a", "\\\\?\\d:\\work\\app"], ["b", "d:\\work\\app"], ["c", "D:\\work\\app2"], ["d", "/home/u/app"], ["e", "/home/u/App"], ["f", "\\\\?\\UNC\\host\\share\\app"], ["g", "\\\\?\\d:\\Work\\app"], ["h", "D:\\WORK\\APP"]];
     for (let n = 0; n < 33; n++) rows.push([`x${String(n).padStart(2, "0")}`, "D:\\work\\App"]);
     for (const [id, cwd] of rows) db.run("INSERT INTO threads VALUES (?, ?, 0, ?)", [id, cwd, id.startsWith("x") ? 2 : 1]);
     return db;
   };
 
-  it("finds the threads of a Windows cwd stored in another letter case only when it is the same directory (#587)", () => {
-    forgetAllCodexState();
+  it("finds the threads of a Windows cwd stored with another drive-letter case, never another directory's (#587)", () => {
     const db = threadsDb();
     try {
       const ids = (cwd: string) => {
-        const { where, params } = storedCwdCondition(db, cwd, identity);
-        return db.query<{ id: string }, string[]>(`SELECT id FROM threads WHERE ${where} ORDER BY updated_at_ms DESC, id LIMIT 32`).all(...params).map((row) => row.id);
+        const { where, params } = storedCwdCondition(cwd);
+        return db.query<{ id: string }, string[]>(`SELECT id FROM threads WHERE ${where} ORDER BY updated_at_ms DESC, id LIMIT 32`).all(...params).map((row) => row.id).sort();
       };
-      // 33 newer threads of the case-sensitive sibling D:\work\App neither join nor crowd out the 32
-      expect(ids("D:\\work\\app").sort()).toEqual(["a", "b"]);
-      expect(ids("\\\\?\\D:\\work\\app").sort()).toEqual(["a", "b"]);
+      expect(ids("D:\\work\\app")).toEqual(["a", "b"]);
+      expect(ids("\\\\?\\D:\\work\\app")).toEqual(["a", "b"]);
+      expect(ids("d:\\work\\app")).toEqual(["a", "b"]);
+      // another letter case past the drive may be another, case-sensitive directory: no answer
+      // rather than its conversation, and its 33 newer threads do not crowd out the 32
       expect(ids("D:\\work\\App")).toHaveLength(32);
       expect(ids("D:\\work\\App").every((id) => id.startsWith("x"))).toBe(true);
-      // a spelling that cannot be shown to be the same directory (gone, unreadable) is not taken
-      expect(ids("\\\\host\\share\\APP")).toEqual([]);
+      expect(ids("\\\\host\\share\\app")).toEqual(["f"]);
+      expect(ids("\\\\HOST\\share\\app")).toEqual([]);
       expect(ids("/home/u/app")).toEqual(["d"]);
       expect(ids("/home/u/APP")).toEqual([]);
     } finally { db.close(); }
   });
 
   it("looks threads up on Codex's binary cwd index, not by a scan of every thread (#587)", () => {
-    forgetAllCodexState();
     const db = threadsDb();
     try {
       for (const cwd of ["D:\\work\\app", "/home/u/app"]) {
-        const { where, params } = storedCwdCondition(db, cwd, identity);
+        const { where, params } = storedCwdCondition(cwd);
         const plan = db.query<{ detail: string }, string[]>(`EXPLAIN QUERY PLAN SELECT id FROM threads WHERE ${where} AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 33`)
           .all(...params).map((row) => row.detail).join("\n");
         expect(plan).toMatch(/SEARCH threads USING (?:COVERING )?INDEX idx_threads_archived_cwd_updated_at_ms \(archived=\? AND cwd=\?\)/);
@@ -469,13 +467,13 @@ describe("Codex rollout resolution", () => {
     } finally { db.close(); }
   });
 
-  it("counts a Codex pane in another spelling of the same Windows directory as a peer, and only then (#587)", () => {
+  it("counts a Codex pane in another spelling of the same Windows directory as a peer, by the same rule as the queries (#587)", () => {
     const pane = (pane_id: string, cwd: string | null) => ({ pane_id, workspace_id: "w", tab_id: "t", terminal_id: pane_id, agent: "codex", agent_status: "idle", cwd, focused: false, revision: 0 }) as HerdrPane;
-    const panes = [pane("self", "D:\\work\\app"), pane("same", "d:\\Work\\app"), pane("prefixed", "\\\\?\\D:\\work\\app"), pane("sibling", "D:\\work\\App"), pane("unknown", null), { ...pane("shell", "D:\\work\\app"), agent: "shell" } as HerdrPane];
-    expect(codexPeersIn(panes, "self", "D:\\work\\app", identity).map((peer) => peer.pane_id)).toEqual(["same", "prefixed"]);
-    expect(codexPeersIn([pane("self", "/home/u/app"), pane("posix", "/home/u/App"), pane("twin", "/home/u/app")], "self", "/home/u/app", identity).map((peer) => peer.pane_id)).toEqual(["twin"]);
-    expect(sameDirectory("D:\\work\\app", "\\\\?\\D:\\work\\app", () => null)).toBe(true);
-    expect(sameDirectory("D:\\work\\app", "d:\\Work\\app", () => null)).toBe(false);
+    const panes = [pane("self", "D:\\work\\app"), pane("drive", "d:\\work\\app"), pane("prefixed", "\\\\?\\d:\\work\\app"), pane("sibling", "D:\\work\\App"), pane("unknown", null), { ...pane("shell", "D:\\work\\app"), agent: "shell" } as HerdrPane];
+    expect(codexPeersIn(panes, "self", "D:\\work\\app").map((peer) => peer.pane_id)).toEqual(["drive", "prefixed"]);
+    expect(codexPeersIn([pane("self", "/home/u/app"), pane("posix", "/home/u/App"), pane("twin", "/home/u/app")], "self", "/home/u/app").map((peer) => peer.pane_id)).toEqual(["twin"]);
+    expect(sameDirectory("d:\\work\\app", "\\\\?\\D:\\work\\app")).toBe(true);
+    expect(sameDirectory("D:\\work\\app", "D:\\Work\\app")).toBe(false);
   });
 
   /** Rollouts as Codex 0.156 writes them: one record per line, ordinals running on from the cut a rollout starts at. */

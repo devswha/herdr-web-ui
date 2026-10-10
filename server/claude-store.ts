@@ -15,7 +15,8 @@
 
 import { constants } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import nodePath, { isAbsolute, join, type PlatformPath } from "node:path";
+import { withoutVerbatimPrefix } from "./codex.ts";
 import { recentProcessTable } from "./gjc-runtime.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 
@@ -64,6 +65,15 @@ export function configDirInPsLine(text: string): string | null {
 }
 
 /**
+ * What one store is known by, so that a directory reached two ways (another letter case, the
+ * `\\?\` prefix, a junction) is one store, not two that both claim the process (#586): its volume
+ * and file id where it has one, else its spelling without the prefix and without case.
+ */
+export function claudeStoreKey(store: string, id: { dev: bigint; ino: bigint } | null, paths: PlatformPath = nodePath): string {
+  return id !== null && id.ino !== 0n ? `${id.dev}:${id.ino}` : paths.resolve(withoutVerbatimPrefix(store)).toLowerCase();
+}
+
+/**
  * The stores a Claude on Windows may use: the default one and each `~/.claude-*` beside it (the
  * usual second account, as usage.ts finds its sign-in). One listing of home, nothing deeper.
  */
@@ -77,13 +87,9 @@ async function windowsClaudeStores(home: string): Promise<string[]> {
   } catch { /* no home to list: the default store alone */ }
   const stores = new Map<string, string>();
   for (const store of [defaultClaudeConfigDir(home), join(home, ".claude"), ...siblings]) {
-    // one directory reached two ways (another letter case, the \\?\ prefix, a junction) is one
-    // store, not two that both claim the process: known by its volume and file id where it has one
-    let key = resolve(store).toLowerCase();
-    try {
-      const { dev, ino } = await stat(store, { bigint: true });
-      if (ino !== 0n) key = `${dev}:${ino}`;
-    } catch { /* not there: its spelling stands for it */ }
+    let id: { dev: bigint; ino: bigint } | null = null;
+    try { id = await stat(store, { bigint: true }); } catch { /* not there: its spelling stands for it */ }
+    const key = claudeStoreKey(store, id);
     if (!stores.has(key)) stores.set(key, store);
   }
   return [...stores.values()];
