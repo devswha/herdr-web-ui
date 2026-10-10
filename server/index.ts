@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneMoved, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -14,6 +14,7 @@ import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
+import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
@@ -38,6 +39,7 @@ import {
   integrationList,
   paneClose,
   paneGet,
+  paneMove,
   paneRead,
   paneScroll,
   paneScrollInfo,
@@ -1922,6 +1924,30 @@ export function createServer(
         try {
           await paneRename(payload.pane_id, payload.label.length === 0 ? null : payload.label);
           return jsonResponse({ ok: true });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      // herdr's `pane move`: into another tab, a new tab or a new workspace. herdr emits
+      // pane.moved, and the collector's session-changed broadcast redraws every client.
+      if (pathname === "/api/pane/move") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: unknown;
+        try {
+          payload = await request.json();
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const parsed = parseMoveRequest(payload);
+        if ("problem" in parsed) return badRequest(parsed.problem.code, parsed.problem.message);
+        try {
+          const moved = await paneMove(parsed.params);
+          // a pane that left its workspace answers to a new id: what its chat parsed under the
+          // old one is released (server/conversation.ts) and read again under the new
+          if (moved.previous_pane_id !== moved.pane.pane_id) forgetPaneTranscriptState(moved.previous_pane_id);
+          return jsonResponse(moved satisfies PaneMoved);
         } catch (error) {
           return errorResponse(error);
         }

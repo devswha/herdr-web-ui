@@ -6,7 +6,7 @@ import type {
   ReadSource,
   SessionSnapshot,
 } from "../../shared/protocol.ts";
-import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
+import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneMoveParams, PaneMoveResult, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
 import type { HerdrIdentity } from "../../shared/machines.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -480,6 +480,17 @@ export async function paneSendKeys(paneId: string, keys: string[], socketPath?: 
 
 export async function paneClose(paneId: string, socketPath?: string): Promise<void> {
   await herdrRpc("pane.close", { pane_id: paneId }, socketPath);
+}
+
+/**
+ * The pane into another tab, a new tab (of its workspace or another) or a new workspace
+ * (herdr's `pane move`). A pane that leaves its workspace comes back under a new pane id;
+ * `focus` false keeps herdr's own focus where it was (measured on 0.9.3: true moves it to the
+ * pane). herdr answers `{ move_result }`; the result alone is returned.
+ */
+export async function paneMove(params: PaneMoveParams, socketPath?: string): Promise<PaneMoveResult> {
+  const answer = await herdrRpc<{ move_result: PaneMoveResult }>("pane.move", { ...params } satisfies PaneMoveParams, socketPath);
+  return answer.move_result;
 }
 
 export interface HerdrSubscription {
