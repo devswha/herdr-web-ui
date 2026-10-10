@@ -24,6 +24,7 @@ import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar } from "./KeyBar.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
+import { FindBar } from "./FindBar.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
@@ -77,6 +78,7 @@ export interface PaneTerminalProps {
   machineName?: string;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
+  findRequest?: number;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
   autoSelected?: boolean;
   /** xterm font size (settings) */
@@ -118,6 +120,7 @@ export function PaneTerminal({
   cwd = null,
   machineName = "",
   view,
+  findRequest = 0,
   autoSelected = false,
   terminalFontSize,
   terminalWheelSpeed,
@@ -138,6 +141,18 @@ export function PaneTerminal({
   const uploadFileRef = useRef(uploadPaneImage);
   uploadFileRef.current = uploadPaneImage;
   const chatView = view === "chat";
+  const [findOpen, setFindOpen] = useState(false);
+  const findOpenRef = useRef(findOpen);
+  findOpenRef.current = findOpen;
+  const lastFindRequest = useRef(findRequest);
+  useLayoutEffect(() => { findOpenRef.current = false; setFindOpen(false); }, [paneId]);
+  useLayoutEffect(() => {
+    if (findRequest !== lastFindRequest.current) {
+      lastFindRequest.current = findRequest;
+      findOpenRef.current = true;
+      setFindOpen(true);
+    }
+  }, [findRequest]);
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
   // what the grid's region announces: the pane's own name, or the grid's kind while none is open
@@ -321,7 +336,7 @@ export function PaneTerminal({
   // tells a key, a mouse and a tap by the press itself (lib/promptAnswer.ts), so a key on a
   // tablet hands the focus on and a tap on a touch-screen laptop does not.
   const onPromptAnswered = useCallback((toMessageBox: boolean) => {
-    if (toMessageBox) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
+    if (toMessageBox && (chatViewRef.current || !findOpenRef.current)) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
   }, []);
   // only the pick of that pane and prompt: an answer that comes back late must not take another's
   const clearPendingAnswer = useCallback((pane: string, promptId?: string) => {
@@ -1107,7 +1122,7 @@ export function PaneTerminal({
         // An upload can finish after the user has switched panes or lost input access.
         if (paneRef.current !== pane || chatViewRef.current || !socket.connected || term.options.disableStdin) return;
         pasteText(paths.map((path) => `'${path.replaceAll("'", "'\\''")}'`).join(" ") + " ");
-        term.focus();
+        if (!findOpenRef.current) term.focus();
       } catch (error) {
         if (paneRef.current === pane) noteClipboard(error instanceof Error ? error.message : String(error));
       }
@@ -1471,7 +1486,7 @@ export function PaneTerminal({
     // app), only this grid fits, and the refit takes the pane once the user is here
     const pane = paneRef.current;
     if (pane && term && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
-    if (!autoSelected && !coarseRef.current && !modalOpen()) term?.focus();
+    if (!autoSelected && !coarseRef.current && !modalOpen() && !findOpenRef.current) term?.focus();
   }, [chatView]);
 
   // Reset synchronously on pane changes: old composition timers must never see the new pane.
@@ -1533,7 +1548,7 @@ export function PaneTerminal({
     if (away) leaveRef.current();
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
-    if (!chatViewRef.current && !autoSelected && !coarseRef.current && !modalOpen()) term.focus();
+    if (!chatViewRef.current && !autoSelected && !coarseRef.current && !modalOpen() && !findOpenRef.current) term.focus();
     return leavePane;
   }, [paneId]);
 
@@ -1547,7 +1562,7 @@ export function PaneTerminal({
   useEffect(() => {
     const wasAuto = autoSelectedRef.current;
     autoSelectedRef.current = autoSelected;
-    if (wasAuto && !autoSelected && !chatViewRef.current && !coarseRef.current && !modalOpen()) termRef.current?.focus();
+    if (wasAuto && !autoSelected && !chatViewRef.current && !coarseRef.current && !modalOpen() && !findOpenRef.current) termRef.current?.focus();
   }, [autoSelected]);
 
   // key-bar taps go through xterm so the onData -> socket path above is reused
@@ -1959,6 +1974,10 @@ export function PaneTerminal({
           </div>
         )}
       </div>
+      {findOpen && !chatView && paneId !== null && (
+        <FindBar key={paneId} paneId={paneId} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
+          onClose={() => { setFindOpen(false); if (!coarse) termRef.current?.focus(); }} />
+      )}
       <div className="terminal-surface">
         {/* xterm hides its rendered rows from assistive technology, so the region around the
             visible grid carries the pane's name: a screen reader announces which pane

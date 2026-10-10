@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -35,16 +35,23 @@ import {
   agentStart,
   HerdrError,
   herdrSocketPath,
+  integrationList,
   paneClose,
   paneGet,
   paneRead,
   paneScroll,
   paneScrollInfo,
+  paneFind,
   paneSelectionRead,
   paneRename,
   paneSendKeys,
   paneSendText,
   ping,
+  pluginActionInvoke,
+  pluginActionList,
+  pluginList,
+  pluginLogList,
+  type PluginInvocationContext,
   sessionSnapshot,
   tabClose,
   tabCreate,
@@ -84,8 +91,15 @@ import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
+import { PLUGIN_LOG_LIMIT, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
+/** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
+const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
+/** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
+const PLUGIN_ACTION_WAIT_MS = 5_000;
+/** How far back in herdr's plugin command log a run is looked for. */
+const livePaneIds = async (timeoutMs?: number): Promise<string[]> => (await sessionSnapshot(undefined, timeoutMs)).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
  * for a retry. A read of more lines than an idle alt-screen agent (Codex) shows, like the
@@ -367,6 +381,8 @@ export function createServer(
     voice?: VoiceService;
     machines?: boolean;
     registerBridge?: boolean;
+    /** PLUGIN_ACTION_WAIT_MS; a test shortens it to see a run that outlasts the wait */
+    pluginActionWaitMs?: number;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
     /** SUBMIT_DELAY_MS; a test lengthens it to hold a second message behind the first */
@@ -1389,7 +1405,7 @@ export function createServer(
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -1458,7 +1474,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/|plugins\/actions$|plugin\/action$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
@@ -1567,6 +1583,16 @@ export function createServer(
             .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
           return jsonResponse({ agents });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      // read only: installing one changes an agent's own hooks, which stays the user's call in a terminal
+      if (pathname === "/api/integrations") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        try {
+          return jsonResponse({ integrations: await integrationList() } satisfies IntegrationsResponse);
         } catch (error) {
           return errorResponse(error);
         }
@@ -1813,6 +1839,76 @@ export function createServer(
         }
       }
 
+      if (pathname === "/api/plugins/actions") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        try {
+          const [plugins, actions] = await Promise.all([pluginList(), pluginActionList()]);
+          const body: PluginActionsResponse = {
+            plugins: plugins.map((plugin) => ({
+              plugin_id: plugin.plugin_id,
+              name: plugin.name,
+              version: plugin.version,
+              description: plugin.description ?? null,
+              enabled: plugin.enabled,
+              // herdr lists another platform's actions too and refuses them: platform_unsupported
+              actions: actions
+                .filter((action) => action.plugin_id === plugin.plugin_id && (!action.platforms || action.platforms.includes(PLUGIN_PLATFORM)))
+                .map((action) => ({ action_id: action.action_id, title: action.title, description: action.description ?? null, contexts: action.contexts ?? [] })),
+            })),
+          };
+          return jsonResponse(body);
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/plugin/action" && request.method === "GET") {
+        const pluginId = url.searchParams.get("plugin_id");
+        const logId = url.searchParams.get("log_id");
+        if (!pluginId) return badRequest("missing_plugin_id", "plugin_id is required");
+        if (!logId) return badRequest("missing_log_id", "log_id is required");
+        try {
+          const log = await pluginLogEntry(logId, (limit) => pluginLogList(pluginId, limit));
+          return jsonResponse(await pluginActionResult(log, () => livePaneIds()));
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/plugin/action") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use GET or POST");
+        let payload: { plugin_id?: unknown; action_id?: unknown; pane_id?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.plugin_id !== "string" || payload.plugin_id.length === 0) return badRequest("missing_plugin_id", "plugin_id is required");
+        if (typeof payload.action_id !== "string" || payload.action_id.length === 0) return badRequest("missing_action_id", "action_id is required");
+        if (payload.pane_id !== undefined && (typeof payload.pane_id !== "string" || payload.pane_id.length === 0)) return badRequest("invalid_pane_id", "pane_id must be a pane's ID");
+        try {
+          let context: PluginInvocationContext | undefined;
+          if (payload.pane_id !== undefined) {
+            const snapshot = await sessionSnapshot();
+            const pane = snapshot.panes.find((entry) => entry.pane_id === payload.pane_id);
+            // herdr would run the action with whatever ID it was handed
+            if (!pane) throw new HerdrError("pane_not_found", `pane ${payload.pane_id} not found`);
+            context = pluginPaneContext(snapshot, pane);
+          }
+          const pluginId = payload.plugin_id;
+          const invoked = await pluginActionInvoke(pluginId, payload.action_id, context);
+          return jsonResponse(await waitForPluginAction(
+            invoked.log,
+            options.pluginActionWaitMs ?? PLUGIN_ACTION_WAIT_MS,
+            (timeoutMs) => pluginLogList(pluginId, PLUGIN_LOG_LIMIT, undefined, timeoutMs),
+            livePaneIds,
+          ));
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
       if (pathname === "/api/pane/rename") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
         let payload: { pane_id?: unknown; label?: unknown };
@@ -1894,6 +1990,34 @@ export function createServer(
           const read = await paneRead({ paneId, source: source as ReadSource, format: format as ReadFormat, ...(lines === undefined ? {} : { lines }) });
           return jsonResponse({ read });
         } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/find") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: unknown;
+        try { payload = await request.json(); }
+        catch { return badRequest("invalid_json", "request body must be JSON"); }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
+        if (typeof payload.query !== "string" || payload.query.length === 0 || payload.query.length > 1024) return badRequest("invalid_query", "query must contain 1 to 1024 characters");
+        if (payload.direction !== "forward" && payload.direction !== "backward") return badRequest("invalid_direction", "direction must be forward or backward");
+        const point = (value: unknown): value is { row: number; col: number } =>
+          isJsonObject(value) && isCount(value.row) && value.row <= 0xffffffff && isCount(value.col) && value.col <= 0xffff;
+        const previous = payload.previous;
+        if (previous !== undefined && (!isJsonObject(previous) || !point(previous.start) || !point(previous.end) || !isCount(payload.content_revision))) {
+          return badRequest("invalid_previous", "previous requires two history cells and content_revision");
+        }
+        if (payload.content_revision !== undefined && !isCount(payload.content_revision)) return badRequest("invalid_revision", "content_revision must be a non-negative integer");
+        try {
+          return jsonResponse(await paneFind({
+            pane_id: payload.pane_id, query: payload.query, direction: payload.direction,
+            ...(isJsonObject(previous) && point(previous.start) && point(previous.end) ? { previous: { start: previous.start, end: previous.end } } : {}),
+            ...(isCount(payload.content_revision) ? { content_revision: payload.content_revision } : {}),
+          }));
+        } catch (error) {
+          if (error instanceof HerdrError && error.code === "stale_content") return jsonResponse({ error: { code: error.code, message: error.message } }, 409);
           return errorResponse(error);
         }
       }

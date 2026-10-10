@@ -229,6 +229,7 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [lens, setLens] = useState<{ key: string; view: PaneView }>({ key: "", view: "terminal" });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [findRequest, setFindRequest] = useState(0);
   // the header's More menu: its button, and whether it opened on a phone-width screen
   const [more, setMore] = useState<{ anchor: HTMLElement; phone: boolean } | null>(null);
   const closeMore = useCallback(() => setMore(null), []);
@@ -812,6 +813,11 @@ export function App() {
         setNewSessionOpen(true);
       },
       openPalette: () => setPaletteOpen(true),
+      openFind: () => {
+        if (selectedPaneId === null) return;
+        setView("terminal");
+        setFindRequest((request) => request + 1);
+      },
       openSettings: () => {
         setDrawerOpen(false);
         setSettingsSection(null);
@@ -878,6 +884,7 @@ export function App() {
   const closeNewSession = useCallback(() => { setNewSessionOpen(false); setNewPrefill(null); setNewFields(null); }, []);
 
   const moreItems: RowMenuItem[] = [
+    ...(selectedPane && !selectedPane.restore_error ? [{ id: "find", label: t("Find in terminal"), icon: Search, run: actions.openFind }] : []),
     ...(selectedPane && selectedWorkspace
       ? [{ id: "new-tab", label: t("New tab"), title: t("New tab in {workspace}", { workspace: selectedWorkspace.label }), icon: Plus, run: () => actions.openNewTab() }]
       : []),
@@ -1072,6 +1079,7 @@ export function App() {
             cwd={selectedPane?.cwd ?? null}
             machineName={selectedMachine?.name ?? selectedMachineId}
             view={view}
+            findRequest={findRequest}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
             terminalWheelSpeed={settings.terminalWheelSpeed}
@@ -1119,7 +1127,7 @@ export function App() {
       {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
         <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} keyboardActive={!settingsOpen} />
       </MachineContext.Provider>}
-      <CommandPalette key={selectedMachineId} open={paletteOpen} onClose={() => setPaletteOpen(false)} snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} actions={actions} />
+      <CommandPalette key={selectedMachineId} open={paletteOpen} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId} view={view} actions={actions} />
     </div></MachineContext.Provider>
   );
 }

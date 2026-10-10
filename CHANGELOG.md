@@ -8,6 +8,29 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
+  Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
+  ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
+- The command palette lists the actions of the herdr plugins installed on the PC under **Plugin
+  actions** and runs one against the selected pane, with that pane's workspace and tab as its
+  context. The row shows that it is running, a command that fails says why above the list, and a
+  pane the action opens and focuses is selected. Settings → About lists the installed plugins and
+  their actions, to read only: installing, enabling and removing a plugin stay with herdr.
+  ([#720](https://github.com/devswha/herdr-web-ui/pull/720))
+- **Settings → Agent integrations** lists herdr's integration for each agent it supports and
+  says whether it is installed, older than the running herdr, or missing. Agents found on the PC
+  come first. A missing or outdated one shows its `herdr integration install …` command with a
+  Copy button; the page only reads herdr's state and never installs or removes anything.
+  ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
+- The command palette now lists panes the way herdr's Goto picker does: one row per pane under
+  its workspace's heading (a linked worktree's branch beside the name), with status chips above
+  the list — **All**, **INPUT**, **RUN**, **READY**, **DONE** and **BG**, each with its count — and
+  a footer that names where the picked row goes (workspace › tab) and its path. A search also
+  matches the tab's label, the workspace's branch and the agent kind, `>` searches the actions
+  alone, Left and Right step between workspaces from the edge of the query or from a row, and
+  herdr's own keys (`b`, `w`, `i`, `d`, `a` for a filter, `/` for the search) work while the
+  focus is on the list or the chips, never while typing.
+  ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
 - **Deep links.** The address now says where you are, and opens there: the PC, the workspace (by id and a short slug of its name, so `?ws=w2K-herdr-web-ui&pane=w2K:p1&view=chat` reads like the place), the pane and its lens, an open file, a Settings page and group (`&settings=about&section=updates`), the New workspace dialog with its fields filled (`?new=workspace&cwd=…&name=…&agent=…`; a link never creates anything), and a collapsed sidebar (`&sidebar=hidden`). Opening another pane is a history entry, so Back returns to the last one. A link to a pane that has closed opens its workspace, a link to nothing open says so, and **Copy link** in the header's More menu copies the address on a phone.
   ([#675](https://github.com/devswha/herdr-web-ui/pull/675) by @phirschybar)
 
@@ -17,6 +40,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- Workspace and tab changes, pane moves and layout updates made in herdr's terminal UI
+  now refresh the web immediately through coalesced lifecycle events instead of waiting
+  for the five-second poll. Pane status subscriptions follow moved pane IDs.
+  ([#725](https://github.com/devswha/herdr-web-ui/pull/725))
+- A numeric custom tab name remains visible when tabs before it close ([#723](https://github.com/devswha/herdr-web-ui/pull/723)).
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
   sent it. What genuinely cannot state one keeps working — a same-origin read such as the PC
