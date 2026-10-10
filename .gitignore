@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.log
 .env
+.DS_Store
 evidence/
 .omo/
 .gjc/
@@ -22,3 +23,9 @@ _film/
 
 # one-off screenshot and probe scripts kept inside the repo so imports resolve
 scripts/*.tmp.ts
+
+# Orion-OS adoption: internal planning docs. The whole tree — memory bank,
+# manifest.yml and specs/ — lives under .agents/ and must never reach the public
+# upstream, so it is kept local. A bare agents/ dir is ignored for the same reason.
+.agents/
+agents/
