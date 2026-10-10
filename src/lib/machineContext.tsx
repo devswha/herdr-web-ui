@@ -25,6 +25,7 @@ export function useMachineApi() {
     openWorktree: (request: OpenWorktreeRequest) => api.openWorktree(request, id),
     removeWorktree: (request: RemoveWorktreeRequest) => api.removeWorktree(request, id),
     renamePane: (pane: string, label: string) => api.renamePane(pane, label, id),
+    renameAgent: (pane: string, name: string | null) => api.renameAgent(pane, name, id),
     splitPane: (pane: string, direction: SplitPaneDirection, focus = false) => api.splitPane(pane, direction, focus, id),
     zoomPane: (pane: string, mode: ZoomMode) => api.zoomPane(pane, mode, id),
     swapPane: (pane: string, direction: PaneDirection) => api.swapPane(pane, direction, id),

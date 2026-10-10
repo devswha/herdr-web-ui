@@ -42,6 +42,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   herdr's own keys (`b`, `w`, `i`, `d`, `a` for a filter, `/` for the search) work while the
   focus is on the list or the chips, never while typing.
   ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
+- **Agent name…** in a workspace row's menu, next to Rename pane, and in the new `⋯` menu of an
+  Agents row sets or clears the live name herdr addresses the agent by (`herdr agent rename`,
+  what `herdr agent prompt <name>` takes). The dialog checks herdr's rule as you type, shows
+  herdr's own refusal when another agent holds the name, and the Agents row shows the name on its
+  second line. A name set from herdr's terminal UI or CLI shows in the web the same way.
+  ([#736](https://github.com/devswha/herdr-web-ui/pull/736))
 
 ### Changed
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of

@@ -13,6 +13,7 @@
  */
 import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
+import { isAgentName } from "../../shared/agent-name.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
 import { closeLayoutPane, resizeLayout, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
@@ -485,6 +486,21 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const pane = paneOf(String(body["pane_id"] ?? ""));
     if (!pane) return error("not_found", "no such pane", 404);
     pane.label = String(body["label"] ?? "") || null;
+    structureChanged();
+    return json({ ok: true });
+  }
+  if (path === "/api/agent/rename") {
+    const body = await bodyOf(init, input);
+    const paneId = String(body["pane_id"] ?? "");
+    const name = body["name"];
+    if (name !== null && typeof name !== "string") return error("invalid_name", "name must be a string, or null to clear it", 400);
+    const agent = snapshot().agents.find((entry) => entry.pane_id === paneId);
+    if (!agent) return error("agent_not_found", `agent target ${paneId} not found`, 404);
+    // herdr's refusals, in its words and with the status the server gives them
+    if (name !== null && !isAgentName(name)) return error("invalid_agent_name", "agent name must start with a lowercase letter and contain only lowercase letters, digits, '-' or '_' (1-32 characters)", 404);
+    const holder = name === null ? undefined : snapshot().agents.find((entry) => entry.name === name && entry.pane_id !== paneId);
+    if (holder) return error("agent_name_taken", `agent name ${name} is already used; candidates: pane_id=${holder.pane_id} workspace_id=${holder.workspace_id}`, 404);
+    agent.name = name;
     structureChanged();
     return json({ ok: true });
   }

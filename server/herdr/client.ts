@@ -11,7 +11,7 @@ import type {
   PaneFindResponse,
   PaneFindMatch,
 } from "../../shared/protocol.ts";
-import type { AgentManifestInfo, AgentStartParams, PaneInfo, PaneLayoutSnapshot, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
+import type { AgentInfo, AgentManifestInfo, AgentStartParams, PaneInfo, PaneLayoutSnapshot, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
 import type { HerdrIdentity } from "../../shared/machines.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -334,6 +334,16 @@ export async function agentStart(
 
 export async function paneRename(paneId: string, label: string | null, socketPath?: string): Promise<void> {
   await herdrRpc("pane.rename", { pane_id: paneId, label }, socketPath);
+}
+
+/**
+ * The live name other tools address the agent in the pane by (`herdr agent prompt <name>`); null
+ * clears it. herdr keeps the rule: invalid_agent_name for a name outside it, agent_name_taken for
+ * one another live agent holds, agent_not_found for a pane without a live agent.
+ */
+export async function agentRename(paneId: string, name: string | null, socketPath?: string): Promise<AgentInfo> {
+  const answer = await herdrRpc<{ type: "agent_info"; agent: AgentInfo }>("agent.rename", { target: paneId, name }, socketPath);
+  return answer.agent;
 }
 
 export async function workspaceRename(workspaceId: string, label: string, socketPath?: string): Promise<void> {

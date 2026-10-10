@@ -404,7 +404,8 @@ One set for both themes: the card is island black wherever it shows.
 - Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
-  A row offers Rename workspace, Rename pane (the pane it opens), New tab,
+  A row offers Rename workspace, Rename pane (the pane it opens), Agent name… (only while herdr
+  lists a live agent in that pane), New tab,
   New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
   ends in **Delete worktree checkout…** after Close workspace. The
   danger item takes `--status-blocked`. The popover is as tall as its items, up to the room on
@@ -417,8 +418,14 @@ One set for both themes: the card is island black wherever it shows.
   A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
   (the menu key and Shift+F10 too, as the browser sends them); a name field being edited keeps
   the browser's own menu, and a finger's long press is left alone (it picks a workspace row up
-  to be moved, and the `⋯` is always shown on touch). PC headers and agent rows have no menu, so they
-  keep the browser's.
+  to be moved, and the `⋯` is always shown on touch). An Agents row with a live agent has the same
+  `⋯` and right-click menu, with Agent name… alone; PC headers and the other agent rows have no
+  menu, so they keep the browser's.
+- **Agent name…** opens a 440px dialog (`.agent-name-modal`) for the live name herdr addresses
+  the agent by (`herdr agent rename`): one mono field, herdr's rule checked as it is typed (an
+  `aria-invalid` field with the rule under it in `--status-blocked`, Save name disabled), a hint
+  that reads the command back (`herdr agent prompt <name>`), **Clear name** while the agent has
+  one, and herdr's own refusal (a name another agent holds) in its words under the field.
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
   confirmed close, focus lands on the header's workspace-list toggle.
@@ -502,7 +509,9 @@ One set for both themes: the card is island black wherever it shows.
   from that list, including a recognized OmO pane. Each row opens that agent's pane: the agent's
   bare brand mark, the pane's title, and one dim line naming the agent, then the PC (only when two
   or more are registered), the workspace and the tab (only when the workspace has two or more tabs
-  or the tab was renamed, and never when it repeats the workspace). Its background-task count and
+  or the tab was renamed, and never when it repeats the workspace). An agent with a live name
+  leads that line with it in `--font-mono` and `--text` (`.agent-name`); the kind takes the label's
+  place beside it, and the tooltip keeps the name. Its background-task count and
   compact status sit at the right. A pane that waits for an answer is not listed apart or moved
   up: its state shows on its workspace row and its agent row, and the alerts say the rest. Pane state is
   authoritative when the agent roster and pane status differ. The workspace and agent lists

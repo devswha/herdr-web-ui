@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { ArrowDown, ArrowUp, Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, AtSign, Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -9,6 +9,7 @@ import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
 import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { AgentNameDialog } from "./AgentNameDialog.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
@@ -118,6 +119,23 @@ interface InlineError {
   message: string;
 }
 
+/**
+ * A right-click on a row opens the menu its ⋯ opens, under that button, which also takes the
+ * focus back when the menu goes. A name being edited keeps the browser's own menu, for its paste.
+ * A finger's long press is left alone: it picks a workspace row up to be moved (lib/touchReorder.ts),
+ * and the ⋯ is always there on touch.
+ */
+export function onRowContextMenu(event: MouseEvent<HTMLElement>, toggle: (anchor: HTMLElement) => void): void {
+  if ((event.target as HTMLElement).closest("input")) return;
+  // Chrome and Safari say what pressed; Firefox does not, so there the device's main pointer decides
+  const pointer = (event.nativeEvent as PointerEvent).pointerType;
+  if (pointer ? pointer === "touch" : window.matchMedia("(pointer: coarse)").matches) return;
+  const anchor = event.currentTarget.querySelector<HTMLElement>(".row-menu-toggle");
+  if (!anchor) return;
+  event.preventDefault();
+  toggle(anchor);
+}
+
 /** The row whose ⋯ menu is open: a workspace, seen through the pane its row shows. */
 interface MenuState { anchor: HTMLElement; workspace: WorkspaceInfo; pane: PaneInfo; title: string; place: string }
 interface ConfirmState { title: string; body: string; action?: string; run: () => Promise<void>; escalation?: { label: string; code: string; run: () => Promise<void> } }
@@ -145,6 +163,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [worktreeDialog, setWorktreeDialog] = useState<{ mode: WorktreeDialogMode; workspace: WorkspaceInfo } | null>(null);
+  const [agentNameDialog, setAgentNameDialog] = useState<{ paneId: string; title: string; current: string | null } | null>(null);
   const [editingPaneId, setEditingPaneId] = useState<string | null>(null);
   const [paneLabel, setPaneLabel] = useState("");
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
@@ -280,21 +299,6 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  // A right-click on a row opens the menu its ⋯ opens, under that button, which also takes the
-  // focus back when the menu goes. A name being edited keeps the browser's own menu, for its paste.
-  // A finger's long press is left alone: it picks the row up to be moved (lib/touchReorder.ts),
-  // and the ⋯ is always there on touch.
-  const onRowContextMenu = (event: MouseEvent<HTMLElement>, toggle: (anchor: HTMLElement) => void): void => {
-    if ((event.target as HTMLElement).closest("input")) return;
-    // Chrome and Safari say what pressed; Firefox does not, so there the device's main pointer decides
-    const pointer = (event.nativeEvent as PointerEvent).pointerType;
-    if (pointer ? pointer === "touch" : window.matchMedia("(pointer: coarse)").matches) return;
-    const anchor = event.currentTarget.querySelector<HTMLElement>(".row-menu-toggle");
-    if (!anchor) return;
-    event.preventDefault();
-    toggle(anchor);
-  };
-
   // A close takes the workspace with it, so it asks first, as herdr's ui.confirm_close does.
   // The row is gone afterwards, so focus moves to the header's workspace-list toggle.
   const leave = async (close: () => Promise<void>): Promise<void> => {
@@ -321,6 +325,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const items: RowMenuItem[] = [
       { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace) },
       { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) },
+      // only an agent herdr lists can be named: the bridge's own OmO recognition is not one yet
+      ...(agentByPane.get(pane.pane_id)?.agent ? [{ id: "agent-name", label: t("Agent name…"), icon: AtSign, run: () => setAgentNameDialog({ paneId: pane.pane_id, title: displayPaneTitle(pane), current: agentByPane.get(pane.pane_id)?.agent?.name?.trim() || null }) }] : []),
       { id: "new-tab", label: t("New tab"), icon: Plus, run: () => actions.openNewTab({ machineId, workspaceId: workspace.workspace_id }) },
       ...(linked ? [] : [
         { id: "new-worktree", label: t("New worktree"), icon: GitBranch, run: () => setWorktreeDialog({ mode: "create", workspace }) },
@@ -682,6 +688,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
       </nav>
       {menu && <RowMenu anchor={menu.anchor} title={menu.title} subtitle={menu.place} items={menuItems(menu)} onClose={closeMenu} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.action ?? t("Close")} onConfirm={confirm.run} escalation={confirm.escalation} onClose={() => setConfirm(null)} />}
+      {agentNameDialog && <AgentNameDialog paneId={agentNameDialog.paneId} title={agentNameDialog.title} current={agentNameDialog.current} onClose={() => setAgentNameDialog(null)} />}
       {worktreeDialog && <WorktreeDialog mode={worktreeDialog.mode} workspace={worktreeDialog.workspace} onClose={() => setWorktreeDialog(null)} onOpened={(opened) => {
         rememberOpened(opened);
         revealOpenedWorkspace.current = opened.workspace_id;

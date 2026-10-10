@@ -1,6 +1,7 @@
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  AgentRenameRequest,
   ConversationResponse,
   CreateWorktreeRequest,
   CreateTabRequest,
@@ -428,6 +429,11 @@ export async function closePane(paneId: string, machineId = "local"): Promise<vo
 /** POST /api/pane/rename: sets the pane's label in herdr (an empty label clears it). */
 export async function renamePane(paneId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/rename"), "POST", { pane_id: paneId, label });
+}
+
+/** POST /api/agent/rename: the live name of the agent in the pane, what `herdr agent prompt <name>` addresses; null clears it. */
+export async function renameAgent(paneId: string, name: string | null, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "agent/rename"), "POST", { pane_id: paneId, name } satisfies AgentRenameRequest);
 }
 
 /**
