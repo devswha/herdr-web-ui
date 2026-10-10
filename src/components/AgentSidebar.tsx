@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type MouseEvent } from "react";
 import { AtSign, ChevronDown, ChevronRight, Ellipsis, Terminal } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
@@ -88,8 +88,13 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
 
   // the one thing herdr lets another tool do to an agent by name: give it that name
   const menuItems = (state: MenuState): RowMenuItem[] => [
-    { id: "agent-name", label: t("Agent name…"), icon: AtSign, run: () => setNameDialog({ machineId: state.machineId, paneId: state.paneId, title: state.title, current: state.name }) },
+    { id: "agent-name", label: t("Agent name…"), icon: AtSign, run: () => {
+      // read the current name at click time: another client may have renamed the agent since the menu opened
+      const row = rows.find(({ machine, entry }) => machine.id === state.machineId && entry.pane.pane_id === state.paneId);
+      setNameDialog({ machineId: state.machineId, paneId: state.paneId, title: state.title, current: row?.entry.agent?.name?.trim() || null });
+    }},
   ];
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   return <section className={`agents-sidebar${collapsed ? " is-collapsed" : ""}${rows.length === 0 ? " is-empty" : ""}`} aria-label={t("Agents")}>
     <button type="button" className="agent-section-toggle sidebar-section-label" aria-expanded={!collapsed} aria-controls={listId} onClick={() => setCollapsed(!collapsed)}>
@@ -129,7 +134,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
         })}
       </ul>}
     </div>
-    {menu && <RowMenu anchor={menu.anchor} title={menu.title} subtitle={menu.place} items={menuItems(menu)} onClose={() => setMenu(null)} />}
+    {menu && <RowMenu anchor={menu.anchor} title={menu.title} subtitle={menu.place} items={menuItems(menu)} onClose={closeMenu} />}
     {/* the dialog acts on the row's PC, which this list, spanning every PC, is not inside of */}
     {nameDialog && <MachineContext.Provider value={nameDialog.machineId}>
       <AgentNameDialog paneId={nameDialog.paneId} title={nameDialog.title} current={nameDialog.current} onClose={() => setNameDialog(null)} />
