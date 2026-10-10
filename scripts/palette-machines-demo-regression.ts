@@ -133,7 +133,8 @@ try {
         console.log("PASS switching PCs through the palette dismisses an old close confirmation even when tab IDs match");
         await page.waitForFunction(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "{}").machine_id === "remote");
         const calls = await page.evaluate(() => (window as any).paletteMachineCalls);
-        assert.deepEqual(calls.focus.at(-1), { machine: "remote", pane: panes.api }, "selection focuses the captured PC and pane");
+        // a pick is the browser's alone: herdr's focus on either PC stays where it is
+        assert.deepEqual(calls.focus.filter((call: { machine: string }) => call.machine === "remote"), [], "selection leaves the remote PC's herdr focus alone");
         await open();
         await page.waitForFunction(() => (window as any).paletteMachineCalls.plugins.includes("remote"));
         assert.equal(await palette.locator('.palette-section[data-section="plugins"] .palette-section-machine').textContent(), "Build PC", "plugin actions keep the selected PC owner");

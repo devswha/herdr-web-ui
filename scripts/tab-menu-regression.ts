@@ -41,9 +41,9 @@ async function openApp(page: Page, origin: string, paneId: string): Promise<void
   await page.getByRole("tab", { name: TAB, exact: true }).waitFor();
   await screen(page, paneId).waitFor();
 }
+// the browser's selection only: picking a pane in the web leaves herdr's focus where it is
 async function currentPane(page: Page, paneId: string): Promise<void> {
   await page.locator(`${frameSelector(paneId)}.is-current`).waitFor();
-  await until(async () => (await sessionSnapshot()).focused_pane_id === paneId, `herdr focus is ${paneId}`);
 }
 async function paneMenu(page: Page, paneId: string): Promise<Locator> {
   await screen(page, paneId).click({ button: "right", position: { x: 32, y: 32 } });

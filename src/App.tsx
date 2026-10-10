@@ -2,7 +2,7 @@ import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, u
 import { Bell, Ellipsis, FolderInput, FolderOpen, Lock, Menu, MessageSquare, PanelLeft, Plus, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, focusPane, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
@@ -554,13 +554,9 @@ export function App() {
     setSelectedMachineId(machineId); setSelectedPaneId(paneId); setAutoSelected(false); setDrawerOpen(false);
     setOutputStopped(false);
     setNotificationViewTarget(view && paneId !== null ? { machine_id: machineId, pane_id: paneId, view } : null);
+    // this browser's choice only: herdr's focus, its TUI and every other device stay where they are
     storeSelection(machineId, paneId);
-    if (paneId !== null) void focusPane(paneId, machineId).catch((reason) => {
-      if (reason instanceof ApiError && reason.code === "read_only") return;
-      if (selectionRef.current.machineId === machineId && selectionRef.current.paneId === paneId)
-        setLayoutNotice(routeMissing(reason) ? t("This PC's bridge does not offer this yet") : String(reason));
-    });
-  }, [t]);
+  }, []);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   // the moves this client asked for and has no answer to yet (MovePaneMenu): the effect below
   // looks again when one ends, since a failed move leaves the selection to it after all
@@ -594,12 +590,7 @@ export function App() {
     setNotificationViewTarget(null);
     setAutoSelected(!focusInput);
     setDrawerOpen(false);
-    void focusPane(paneId, selectedMachineId).catch((reason) => {
-      if (reason instanceof ApiError && reason.code === "read_only") return;
-      if (selectionRef.current.machineId === selectedMachineId && selectionRef.current.paneId === paneId)
-        setLayoutNotice(routeMissing(reason) ? t("This PC's bridge does not offer this yet") : String(reason));
-    });
-  }, [selectedMachineId, t]);
+  }, []);
 
   // a layout call the palette made and the PC refused: a bridge from before the route says so
   // over the pane (the tab's own menu has a line of its own); anything else is logged, as

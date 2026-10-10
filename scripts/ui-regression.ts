@@ -1441,6 +1441,9 @@ try {
   // A dozen more tabs first: the move menu lists every one, and the sheet (92% of the screen at
   // most, its overflow hidden) must scroll them between its head and Cancel, which stay in reach
   const manyTabs: string[] = [];
+  // herdr puts a new tab after its own focused one, which the web's selection no longer moves:
+  // focus build there, so the dozen land after it and build sits between siblings
+  await herdrRpc("pane.focus", { pane_id: createdTab.pane_id });
   for (let index = 1; index <= 12; index += 1) {
     const made = await herdrRpc<{ tab: { tab_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: `many-${index}`, focus: false });
     manyTabs.push(made.tab.tab_id);

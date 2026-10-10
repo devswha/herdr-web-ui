@@ -58,6 +58,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const closed = useRef<{ tabId: string; beside: string } | null>(null);
   // what is on screen now, for a close that answers after the selection or the PC has moved on
   const latest = useRef({ machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id });
+  const stripTab = (): HTMLElement | null => strip.current?.querySelector<HTMLElement>('.tab-strip-item.is-active [role="tab"]')
+    ?? strip.current?.querySelector<HTMLElement>('[role="tab"]') ?? null;
   latest.current = { machineId, workspaceId: workspace.workspace_id, tabId: selectedPane.tab_id };
   const owner = JSON.stringify([machineId, workspace.workspace_id]);
   const previousOwner = useRef(owner);
@@ -107,8 +109,19 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     closed.current = null;
     const active = document.activeElement;
     if (active && active !== document.body && !strip.current?.contains(active)) return;
-    const beside = strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(was.beside)}"]`);
+    const beside = strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(was.beside)}"]`) ?? stripTab();
     if (beside) beside.focus(); else focusWorkspaceListToggle();
+  });
+  // A tab that held the focus and went (closed here, in the TUI, or picked as the one beside a
+  // close while the roster still listed it) drops the focus to the page: it goes to the open tab
+  const focusedTab = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const was = focusedTab.current;
+    if (!was || was.isConnected) return;
+    focusedTab.current = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const tab = stripTab();
+    if (tab) tab.focus(); else focusWorkspaceListToggle();
   });
   // a name herdr never showed back (renamed again elsewhere) does not stay on the tab
   useEffect(() => {
@@ -292,7 +305,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const panePanel = paneTabPanelLabel(snapshot, selectedPane, t) !== null ? PANE_TABPANEL_ID : undefined;
   return (
     <>
-      <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} aria-busy={reorder.moving} onKeyDown={onKeyDown} onScroll={onScroll}>
+      <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} aria-busy={reorder.moving} onKeyDown={onKeyDown} onScroll={onScroll}
+        onFocus={(event) => { if (event.target.getAttribute("role") === "tab") focusedTab.current = event.target; }}
+        onBlur={(event) => { if (event.relatedTarget !== null) focusedTab.current = null; }}>
         {tabs.map((tab, index) => {
           const active = tab.tab_id === selectedPane.tab_id;
           const own = panesOf(tab);
