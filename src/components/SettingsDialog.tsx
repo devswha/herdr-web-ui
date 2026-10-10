@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowLeft, Bell, ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, Gauge, Info, Keyboard, MessageSquare, Mic, Monitor, Palette, Plus, Smartphone, SquareTerminal, Star, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Bell, Check, ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, Gauge, Info, Keyboard, MessageSquare, Mic, Monitor, Palette, Plug, Plus, Smartphone, SquareTerminal, Star, X, type LucideIcon } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -18,13 +18,15 @@ import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
-import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
+import type { AgentIntegration, HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
+import { useMachineApi } from "../lib/machineContext.tsx";
 import type { VoiceStatus } from "../../shared/voice.ts";
 import { dictationLocale, VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
+import { copyText } from "../lib/clipboard.ts";
 import { PushTestControls } from "./PushTestControls.tsx";
 import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
@@ -92,7 +94,7 @@ function FontFamilyInput({ value, label, onCommit }: { value: string; label: str
 }
 
 
-type SettingsPage = "appearance" | "chat" | "terminal" | "alerts" | "voice" | "usage" | "shortcuts" | "devices" | "remote" | "about";
+type SettingsPage = "appearance" | "chat" | "terminal" | "alerts" | "voice" | "usage" | "shortcuts" | "devices" | "remote" | "integrations" | "about";
 
 /** The pages in the order the list shows them: what is looked at first, then what is set once. */
 const PAGES: readonly { id: SettingsPage; icon: LucideIcon }[] = [
@@ -105,6 +107,7 @@ const PAGES: readonly { id: SettingsPage; icon: LucideIcon }[] = [
   { id: "shortcuts", icon: Keyboard },
   { id: "devices", icon: Smartphone },
   { id: "remote", icon: Monitor },
+  { id: "integrations", icon: Plug },
   { id: "about", icon: Info },
 ];
 
@@ -486,6 +489,69 @@ function UsagePage() {
   );
 }
 
+/**
+ * herdr's own integrations (`integration.list`), read only: installing one writes into an agent's
+ * hooks or settings, which this app leaves to the user, so a row shows the command to run instead.
+ */
+function IntegrationsPage() {
+  const t = useT();
+  const api = useMachineApi();
+  const [integrations, setIntegrations] = useState<AgentIntegration[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.fetchIntegrations().then(
+      (list) => { if (live) setIntegrations(list); },
+      (cause: unknown) => { if (live) setError(cause instanceof Error ? cause.message : String(cause)); },
+    );
+    return () => { live = false; };
+  }, [api]);
+  const note = t("herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.");
+  if (error !== null) return <SettingsGroup note={note}><p className="settings-item settings-hint" role="alert">{error}</p></SettingsGroup>;
+  if (integrations === null) return <SettingsGroup note={note}><p className="settings-item settings-hint" role="status">{t("Loading…")}</p></SettingsGroup>;
+  // agents on the PC's PATH first, in herdr's order: the rest can wait until one is installed
+  const groups = [
+    { title: undefined, rows: integrations.filter((integration) => integration.available) },
+    { title: t("Not found on this PC"), rows: integrations.filter((integration) => !integration.available) },
+  ].filter((group) => group.rows.length > 0);
+  return (
+    <>
+      {groups.map((group, index) => (
+        <SettingsGroup key={group.title ?? "found"} title={group.title} note={index === 0 ? note : undefined}>
+          {group.rows.map((integration) => <IntegrationRow key={integration.target} integration={integration} />)}
+        </SettingsGroup>
+      ))}
+    </>
+  );
+}
+
+function IntegrationRow({ integration }: { integration: AgentIntegration }) {
+  const t = useT();
+  const commandRef = useRef<HTMLElement>(null);
+  const [copied, setCopied] = useState(false);
+  const name = integration.label;
+  if (integration.state === "current") {
+    return (
+      <SettingsRow label={name} description={t("Installed")}>
+        <Check className="settings-integration-check" aria-hidden="true" />
+      </SettingsRow>
+    );
+  }
+  // the label is the name `herdr integration install` takes (antigravity_cli is antigravity-cli)
+  const command = `herdr integration install ${name}`;
+  const copy = async (): Promise<void> => {
+    if (!(await copyText(command, commandRef.current))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+  const state = integration.state === "outdated" ? t("Installed, but older than this herdr: run this to update it") : t("Not installed");
+  return (
+    <SettingsRow label={name} description={<>{state}<code ref={commandRef} className="settings-integration-command">{command}</code></>}>
+      <button type="button" className="btn" aria-label={t("Copy the command for {name}", { name })} onClick={() => void copy()}>{t(copied ? "Copied" : "Copy")}</button>
+    </SettingsRow>
+  );
+}
+
 const SHORTCUT_KEYS: readonly string[] = [..."abcdefghijklmnopqrstuvwxyz0123456789,", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
 function ShortcutsPage() {
@@ -635,7 +701,7 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
   const surface = useFocusTrap<HTMLElement>(true, { initialFocus: backRef });
   const shown = useRef<{ page: SettingsPage | null; keyBar: boolean } | null>(null);
   const label = (id: SettingsPage): string => t(id === "appearance" ? "Appearance" : id === "chat" ? "Chat" : id === "terminal" ? "Terminal" : id === "alerts" ? "Alerts" : id === "voice" ? "Voice input"
-    : id === "usage" ? "Subscription usage" : id === "shortcuts" ? "Shortcuts" : id === "devices" ? "Phone & devices" : id === "remote" ? "Remote PCs" : "About");
+    : id === "usage" ? "Subscription usage" : id === "shortcuts" ? "Shortcuts" : id === "devices" ? "Phone & devices" : id === "remote" ? "Remote PCs" : id === "integrations" ? "Agent integrations" : "About");
   const openPage = (id: SettingsPage): void => { setKeyBarOpen(false); setChosen(id); };
   const openKeyBar = (): void => {
     settingsScrollRef.current = settingsBodyRef.current?.scrollTop ?? 0;
@@ -713,6 +779,7 @@ function OpenSettingsDialog({ section = null, onClose, actions, updates, auth, h
       case "shortcuts": return <ShortcutsPage />;
       case "devices": return <DevicesPage auth={auth} />;
       case "remote": return <RemotePcsPage actions={actions} pcSettings={pcSettings} pcSettingsError={pcSettingsError} onPcSettings={(patch) => void updatePcSettings(patch)} />;
+      case "integrations": return <IntegrationsPage />;
       case "about": return <AboutPage updates={updates} herdrVersion={herdrVersion} bridgesFollow={pcSettings?.auto_update_bridges === true} />;
       default: return null;
     }

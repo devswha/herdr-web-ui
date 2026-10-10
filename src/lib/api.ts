@@ -8,6 +8,7 @@ import type {
   DirectoryListing,
   FileInfo,
   HealthAuth,
+  IntegrationsResponse,
   InteractivePrompt,
   OmoActivity,
   OpenWorktreeRequest,
@@ -388,6 +389,11 @@ export async function renamePane(paneId: string, label: string, machineId = "loc
 /** GET /api/agents: the agent kinds herdr can start, for the new-session dialog. */
 export async function fetchAgentKinds(machineId = "local"): Promise<AgentKind[]> {
   return (await getJson<{ agents: AgentKind[] }>(machinePath(machineId, "agents"))).agents;
+}
+
+/** GET /api/integrations: herdr's agent integrations on that PC and whether each is installed. */
+export async function fetchIntegrations(machineId = "local"): Promise<IntegrationsResponse["integrations"]> {
+  return (await getJson<IntegrationsResponse>(machinePath(machineId, "integrations"))).integrations;
 }
 
 /** GET /api/workspace/directories: the folders in `path` (empty: home), for the folder browser. */
