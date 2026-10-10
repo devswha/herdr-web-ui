@@ -43,6 +43,19 @@ export function zoomedPaneId(layout: PaneLayoutSnapshot): string | null {
   return layout.zoomed ? layout.focused_pane_id : null;
 }
 
+/** `pane.zoom`'s explicit modes: the UI never sends its `toggle`. */
+export type ZoomMode = "on" | "off";
+
+/**
+ * The mode the zoom item on a pane sends: `off` when the pane is the one its tab shows alone
+ * (the item unzooms), else `on` (the tab shows this pane alone). Never `toggle`: herdr focuses
+ * the pane and then flips the tab's flag, so a toggle on another pane of a zoomed tab would
+ * unzoom the tab instead of showing that pane.
+ */
+export function zoomMode(layout: PaneLayoutSnapshot, paneId: string): ZoomMode {
+  return zoomedPaneId(layout) === paneId ? "off" : "on";
+}
+
 export interface PaneNeighbors {
   left: boolean;
   right: boolean;

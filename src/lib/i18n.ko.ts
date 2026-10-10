@@ -866,6 +866,7 @@ export const KO: Record<string, string> = {
   "The pane cannot be resized that way": "패널 크기를 그 방향으로는 바꿀 수 없습니다.",
   "The tab has only one pane": "이 탭에는 패널이 하나뿐입니다.",
   "The layout did not change": "배치가 바뀌지 않았습니다.",
+  "This PC's bridge does not offer this yet": "이 PC의 브리지는 아직 이 기능을 제공하지 않습니다.",
   "Split pane right": "패널을 오른쪽으로 분할",
   "Split pane down": "패널을 아래로 분할",
   "Split pane right and open it": "패널을 오른쪽으로 분할하고 열기",

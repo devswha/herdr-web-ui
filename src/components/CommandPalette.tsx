@@ -6,7 +6,7 @@ import "./CommandPalette.css";
 
 import type { HerdrPane, PaneInfo, SessionSnapshot } from "../../shared/protocol.ts";
 import { paneStatus } from "../lib/status.ts";
-import { zoomedPaneId } from "../lib/layoutMap.ts";
+import { zoomMode } from "../lib/layoutMap.ts";
 import type { AppActions, PaneView } from "../lib/actions.ts";
 import { rankPanes } from "../lib/paletteSearch.ts";
 import { shortcutDisplayKeys, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
@@ -112,7 +112,9 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
   const selectedTab = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId)?.tab_id ?? null;
   const tabPanes = selectedTab === null ? 0 : (snapshot?.panes.filter((pane) => pane.tab_id === selectedTab).length ?? 0);
   const tabLayout = selectedTab === null ? undefined : snapshot?.layouts?.find((layout) => layout.tab_id === selectedTab);
-  const zoomed = tabLayout !== undefined && zoomedPaneId(tabLayout) === selectedPaneId;
+  // the mode the zoom item names, never a toggle (lib/layoutMap.ts): herdr focuses the pane and
+  // then sets the tab's flag, so a toggle on a pane other than the one shown alone would unzoom the tab
+  const zoom = tabLayout !== undefined && selectedPaneId !== null ? zoomMode(tabLayout, selectedPaneId) : null;
   const { splitPane, zoomPane } = actions;
 
   const paletteActions = useMemo<PaletteAction[]>(() => [
@@ -126,7 +128,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
       { id: "split-right-open", label: t("Split pane right and open it"), icon: Columns2, run: () => splitPane("right", true) },
       { id: "split-down-open", label: t("Split pane down and open it"), icon: Rows2, run: () => splitPane("down", true) },
     ] : []),
-    ...(zoomPane && tabPanes > 1 ? [{ id: "zoom", label: t(zoomed ? "Unzoom pane" : "Zoom pane"), icon: zoomed ? Minimize2 : Maximize2, run: zoomPane }] : []),
+    ...(zoomPane && zoom && tabPanes > 1 ? [{ id: "zoom", label: t(zoom === "off" ? "Unzoom pane" : "Zoom pane"), icon: zoom === "off" ? Minimize2 : Maximize2, run: () => zoomPane(zoom) }] : []),
     { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view", run: actions.toggleView },
     { id: "sidebar", label: t("Toggle sidebar"), icon: PanelLeft, shortcut: "toggle-sidebar", run: actions.toggleSidebar },
     { id: "theme", label: t("Toggle theme"), icon: SunMoon, run: actions.toggleTheme },
@@ -136,7 +138,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     ...(actions.lock ? [{ id: "lock", label: t("Sign out"), icon: LockKeyhole, run: actions.lock }] : []),
     ...(actions.openFiles ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: actions.openFiles }] : []),
     { id: "refresh", label: t("Refresh"), icon: RefreshCw, run: actions.refresh },
-  ], [actions, splitPane, zoomPane, tabPanes, zoomed, view, t, selectedPaneId]);
+  ], [actions, splitPane, zoomPane, tabPanes, zoom, view, t, selectedPaneId]);
 
   const panes = useMemo(() => {
     const allPanes = snapshot?.panes ?? [];

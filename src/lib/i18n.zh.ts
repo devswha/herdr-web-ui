@@ -870,6 +870,7 @@ export const ZH: Record<string, string> = {
   "The pane cannot be resized that way": "无法朝那个方向调整窗格大小。",
   "The tab has only one pane": "此标签页只有一个窗格。",
   "The layout did not change": "布局没有变化。",
+  "This PC's bridge does not offer this yet": "此电脑的桥接尚未提供此功能。",
   "Split pane right": "向右拆分窗格",
   "Split pane down": "向下拆分窗格",
   "Split pane right and open it": "向右拆分窗格并打开",

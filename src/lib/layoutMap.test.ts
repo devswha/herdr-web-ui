@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { PaneLayoutSnapshot } from "../../shared/protocol.ts";
-import { layoutCells, paneNeighbors, resizeMove, zoomedPaneId } from "./layoutMap.ts";
+import { layoutCells, paneNeighbors, resizeMove, zoomMode, zoomedPaneId } from "./layoutMap.ts";
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 const tab = (panes: { id: string; rect: ReturnType<typeof rect>; focused?: boolean }[], zoomed = false, area = rect(0, 0, 120, 40)): PaneLayoutSnapshot => ({
@@ -88,5 +88,17 @@ describe("resizeMove", () => {
     expect(resizeMove(columns, "p1", "shorter")).toBeNull();
     expect(resizeMove(grid, "p1", "taller")).toBeNull();
     expect(resizeMove(tab([{ id: "p1", rect: rect(0, 0, 120, 40) }]), "p1", "wider")).toBeNull();
+  });
+});
+
+describe("zoomMode", () => {
+  it("unzooms only the pane the tab shows alone, and shows any other pane alone with an explicit on", () => {
+    // herdr focuses the pane before it reads the mode: a toggle on p2 of a tab zoomed on p1
+    // would unzoom the tab, so p2 is zoomed `on`, and only p1 sends `off`
+    const zoomedOnP1 = tab([{ id: "p1", rect: rect(0, 0, 60, 40), focused: true }, { id: "p2", rect: rect(60, 0, 60, 40) }], true);
+    expect(zoomMode(zoomedOnP1, "p1")).toBe("off");
+    expect(zoomMode(zoomedOnP1, "p2")).toBe("on");
+    expect(zoomMode(columns, "p1")).toBe("on");
+    expect(zoomMode(columns, "p2")).toBe("on");
   });
 });

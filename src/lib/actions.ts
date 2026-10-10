@@ -5,6 +5,7 @@
  */
 
 import type { SplitPaneDirection } from "../../shared/protocol.ts";
+import type { ZoomMode } from "./layoutMap.ts";
 
 export type PaneView = "chat" | "terminal";
 
@@ -40,6 +41,9 @@ export interface AppActions {
    * the new pane: then herdr focuses it and the app opens it.
    */
   splitPane: ((direction: SplitPaneDirection, focus?: boolean) => void) | null;
-  /** herdr's prefix+z on the selected pane: its tab shows it alone, or every pane again; null without a pane */
-  zoomPane: (() => void) | null;
+  /**
+   * herdr's prefix+z on the selected pane, with the mode the caller's item names (`zoomMode`,
+   * lib/layoutMap.ts): its tab shows it alone, or every pane again; null without a pane
+   */
+  zoomPane: ((mode: ZoomMode) => void) | null;
 }

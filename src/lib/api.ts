@@ -120,6 +120,13 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A 404 for the route itself, not for what it was asked about: a PC whose bridge is from before
+ * the route, whose answer the local server passes through (server/machine-api.ts). What herdr
+ * refuses comes with a code of its own (pane_not_found).
+ */
+export const routeMissing = (error: unknown): boolean => error instanceof ApiError && error.status === 404 && error.code === "not_found";
+
 async function errorFrom(url: string, response: Response): Promise<ApiError> {
   let detail = response.statusText;
   let code: string | null = null;
@@ -418,7 +425,7 @@ export async function swapPane(paneId: string, direction: PaneDirection, machine
   return (await response.json()) as PaneSwapped;
 }
 
-/** POST /api/pane/resize: the border the pane shares with a neighbour moves that way, by herdr's default share of the tab. */
+/** POST /api/pane/resize: the border the pane shares with a neighbour moves that way, by herdr's default share (0.05) of the split the border belongs to. */
 export async function resizePane(paneId: string, direction: PaneDirection, machineId = "local"): Promise<PaneResized> {
   const response = await sendJson(machinePath(machineId, "pane/resize"), "POST", { pane_id: paneId, direction } satisfies ResizePaneRequest);
   return (await response.json()) as PaneResized;

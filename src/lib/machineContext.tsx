@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
+import type { ZoomMode } from "./layoutMap.ts";
 import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, RemoveWorktreeRequest, SplitPaneDirection } from "../../shared/protocol.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
@@ -24,7 +25,7 @@ export function useMachineApi() {
     removeWorktree: (request: RemoveWorktreeRequest) => api.removeWorktree(request, id),
     renamePane: (pane: string, label: string) => api.renamePane(pane, label, id),
     splitPane: (pane: string, direction: SplitPaneDirection, focus = false) => api.splitPane(pane, direction, focus, id),
-    zoomPane: (pane: string) => api.zoomPane(pane, "toggle", id),
+    zoomPane: (pane: string, mode: ZoomMode) => api.zoomPane(pane, mode, id),
     swapPane: (pane: string, direction: PaneDirection) => api.swapPane(pane, direction, id),
     resizePane: (pane: string, direction: PaneDirection) => api.resizePane(pane, direction, id),
     clearPane: (pane: string) => api.clearPane(pane, id),

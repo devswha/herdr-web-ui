@@ -868,6 +868,7 @@ export const JA: Record<string, string> = {
   "The pane cannot be resized that way": "その方向にはペインのサイズを変えられません。",
   "The tab has only one pane": "このタブにはペインが 1 つしかありません。",
   "The layout did not change": "配置は変わりませんでした。",
+  "This PC's bridge does not offer this yet": "このPCのブリッジはまだこの機能に対応していません。",
   "Split pane right": "ペインを右に分割",
   "Split pane down": "ペインを下に分割",
   "Split pane right and open it": "ペインを右に分割して開く",

@@ -338,7 +338,10 @@ One set for both themes: the card is island black wherever it shows.
   it from `769px` (`--strip-bg`: `--bg` under the chat lens, `--term-bg` otherwise, `--bg-panel`
   below `769px`) and keeps its hairline, under the chat the one line over the transcript (no
   fade under it). The update notice and a PC's action banner are drawn in the pane column, over
-  the tab strip, never across the window: the sidebar and its top row stay one piece. With the
+  the tab strip, never across the window: the sidebar and its top row stay one piece. A layout
+  call the palette made that a PC's bridge from before the route answered 404 to reads there too,
+  for a moment, as a `.pane-notice` line of `--status-blocked` `--fs-xs` text under a hairline
+  ("This PC's bridge does not offer this yet"); the tab's menu says the same at the strip's end. With the
   sidebar collapsed the toggle and the palette sit in the one bar. Below `769px` the header is the `--bg-panel` bar with
   its rule: the installed app's `theme-color` matches it.
 - From `769px` the sidebar's right edge is a grip (`.sidebar-resizer`, `role="separator"`): drag
@@ -404,8 +407,11 @@ One set for both themes: the card is island black wherever it shows.
   A row offers Rename workspace, Rename pane (the pane it opens), New tab,
   New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
   ends in **Delete worktree checkout…** after Close workspace. The
-  danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
-  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
+  danger item takes `--status-blocked`. The popover is as tall as its items, up to the room on
+  its side of the button (it scrolls only on a screen too short for it). At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
+  a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
+  rows scroll between the head and Cancel (`.row-sheet-items`), which stay put, when the sheet's
+  92% of the screen cannot hold them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
   A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
@@ -612,17 +618,18 @@ One set for both themes: the card is island black wherever it shows.
   chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
   several, then herdr's layout operations on the pane the tab opens (the open pane on the open
   tab): **Split right**, **Split down** (prefix+v, prefix+-), **Zoom pane** / **Unzoom pane**
-  (prefix+z, a checkbox item) and **Swap left / right / up / down** (prefix+shift+hjkl), only for
+  (prefix+z, a checkbox item; it sends the mode it names, never herdr's toggle, which would
+  unzoom a tab zoomed on another pane) and **Swap left / right / up / down** (prefix+shift+hjkl), only for
   the sides the pane has a neighbour on, **Wider / Narrower / Taller / Shorter** (the resize
-  mode, by herdr's own share of the tab), only for an axis the pane shares with a neighbour, and
+  mode, by herdr's own share of the split the border belongs to), only for an axis the pane shares with a neighbour, and
   **Clear pane**; then **Rename tab**, then **Close tab** in the danger colour under a hairline.
   A split keeps the open pane, as herdr's `--no-focus` keeps its focus. herdr's "nothing
   changed" answers (no neighbour on that side, a border that cannot move) read as a line of
   `--status-blocked` text at the strip's end, like a refusal.
 - The layout map (`.layout-map`, components/LayoutMap.tsx): the tab's area as a box of the
   area's columns over its rows (a terminal cell counts twice as tall as wide), held between
-  1.2:1 and 3:1 and no taller than 96px in the popover (whose 320px hold the items under it)
-  or 140px in the sheet, `--radius-md`. Each pane is a `.layout-map-cell`
+  1.2:1 and 3:1 and no taller than 96px in the popover (so the items under it stand on a
+  short screen) or 140px in the sheet, `--radius-md`. Each pane is a `.layout-map-cell`
   button at its rect's place and size in percent, `--bg-hover` with a hairline of the menu's
   surface (`--bg-elevated`) between cells and `--radius-sm` corners; `--border-strong` under the
   pointer. The open pane's cell (`.is-current`, `aria-current`) is the `--accent-tint` wash

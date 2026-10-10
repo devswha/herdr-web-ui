@@ -24,8 +24,8 @@ import { ChevronDown, ChevronsDownUp, ChevronsLeftRight, ChevronsRightLeft, Chev
 import "./TabStrip.css";
 
 import type { HerdrPane, HerdrTab, PaneDirection, PaneInfo, PaneLayoutSnapshot, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
-import { ApiError } from "../lib/api.ts";
-import { paneNeighbors, resizeMove, zoomedPaneId, type ResizeIntent } from "../lib/layoutMap.ts";
+import { ApiError, routeMissing } from "../lib/api.ts";
+import { paneNeighbors, resizeMove, zoomMode, type ResizeIntent } from "../lib/layoutMap.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { useFacesArrived } from "../lib/fontFaces.ts";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
@@ -283,7 +283,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         onLayoutChanged();
         if (result && "changed" in result && !result.changed) setError(unchanged(result.reason));
       })
-      .catch((reason: unknown) => setError(t("Layout change failed: {reason}", { reason: said(reason) })));
+      // a PC whose bridge is from before these routes answers 404 for the route itself: said plainly
+      .catch((reason: unknown) => setError(routeMissing(reason) ? t("This PC's bridge does not offer this yet") : t("Layout change failed: {reason}", { reason: said(reason) })));
   };
 
   // a tab's menu: its panes when it has several, herdr's layout operations on the pane it
@@ -302,8 +303,13 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         { id: "split-down", label: t("Split down"), icon: Rows2, run: () => layoutCall(splitPane(id, "down")) },
       );
       if (layout && own.length > 1) {
-        const zoomed = zoomedPaneId(layout) === id;
-        layoutItems.push({ id: "zoom", label: t(zoomed ? "Unzoom pane" : "Zoom pane"), icon: zoomed ? Minimize2 : Maximize2, checked: zoomed, run: () => layoutCall(zoomPane(id)) });
+        // the mode the item names, never a toggle (lib/layoutMap.ts): herdr focuses the pane and
+        // then sets the tab's flag, so `on` for another pane of a zoomed tab answers already_zoomed
+        // with the tab now showing this pane alone. That is what the item said, not a refusal: the
+        // answer counts as done when the tab's state is the one asked for
+        const mode = zoomMode(layout, id);
+        const unzoom = mode === "off";
+        layoutItems.push({ id: "zoom", label: t(unzoom ? "Unzoom pane" : "Zoom pane"), icon: unzoom ? Minimize2 : Maximize2, checked: unzoom, run: () => layoutCall(zoomPane(id, mode).then((answer) => ({ ...answer, changed: answer.zoomed === !unzoom }))) });
         const beside = paneNeighbors(layout, id);
         layoutItems.push(...SWAP_ITEMS.filter((item) => beside[item.direction]).map((item, index) => ({
           id: `swap-${item.direction}`, label: t(item.label), icon: item.icon, divider: index === 0, run: () => layoutCall(swapPane(id, item.direction)),
