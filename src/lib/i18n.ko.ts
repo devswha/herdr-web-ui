@@ -860,4 +860,11 @@ export const KO: Record<string, string> = {
   "Once when the app is installed and once per update. The receiver notes the country a message came from but stores no IP address, and nothing about your terminals, agents or files is sent.": "앱을 설치할 때 한 번, 업데이트할 때마다 한 번 보냅니다. 받는 쪽은 메시지를 보낸 국가를 기록하지만 IP 주소는 저장하지 않으며, 터미널, 에이전트, 파일에 관한 내용은 보내지 않습니다.",
   "The receiver adds the country this message comes from (two letters, such as KR). It does not store the address.": "받는 쪽에서 이 메시지를 보낸 국가(KR 같은 두 글자)를 덧붙입니다. 주소는 저장하지 않습니다.",
   "This version has already been counted. The next event is sent after an update.": "이 버전은 이미 집계되었습니다. 다음 전송은 업데이트 후입니다.",
+  "Agent integrations": "에이전트 통합",
+  "herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.": "herdr 통합이 있으면 재시작 후 각 에이전트의 세션을 이어서 열 수 있습니다. 이 페이지는 상태를 읽기만 합니다. herdr가 실행되는 PC의 터미널에서 명령을 실행한 뒤 이 페이지를 다시 여세요.",
+  "Not found on this PC": "이 PC에서 찾을 수 없음",
+  "Installed, but older than this herdr: run this to update it": "설치되어 있지만 이 herdr보다 오래되었습니다. 이 명령으로 업데이트하세요",
+  "Not installed": "설치되지 않음",
+  "Copy the command for {name}": "{name} 명령 복사",
+  "This PC's bridge does not offer agent integrations yet. It will after its next runtime update.": "이 PC의 브리지는 아직 에이전트 통합을 제공하지 않습니다. 다음 런타임 업데이트 후에 사용할 수 있습니다.",
 };

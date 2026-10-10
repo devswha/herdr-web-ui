@@ -862,4 +862,11 @@ export const JA: Record<string, string> = {
   "Once when the app is installed and once per update. The receiver notes the country a message came from but stores no IP address, and nothing about your terminals, agents or files is sent.": "アプリのインストール時に 1 回、更新のたびに 1 回送ります。受信側はメッセージの送信元の国を記録しますが IP アドレスは保存せず、ターミナル、エージェント、ファイルについては何も送りません。",
   "The receiver adds the country this message comes from (two letters, such as KR). It does not store the address.": "受信側が、このメッセージの送信元の国（KR のような 2 文字）を付け加えます。アドレスは保存しません。",
   "This version has already been counted. The next event is sent after an update.": "このバージョンは集計済みです。次の送信は更新の後です。",
+  "Agent integrations": "エージェント連携",
+  "This PC's bridge does not offer agent integrations yet. It will after its next runtime update.": "この PC のブリッジはまだエージェント連携に対応していません。次のランタイム更新後に利用できます。",
+  "herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.": "herdr の連携があると、再起動後に各エージェントのセッションを再開できます。このページは状態を読むだけです。herdr が動いている PC のターミナルでコマンドを実行してから、このページを開き直してください。",
+  "Not found on this PC": "この PC には見つかりません",
+  "Installed, but older than this herdr: run this to update it": "インストール済みですが、この herdr より古い版です。このコマンドで更新してください",
+  "Not installed": "未インストール",
+  "Copy the command for {name}": "{name} のコマンドをコピー",
 };

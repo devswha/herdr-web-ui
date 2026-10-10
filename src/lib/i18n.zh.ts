@@ -864,4 +864,11 @@ export const ZH: Record<string, string> = {
   "Once when the app is installed and once per update. The receiver notes the country a message came from but stores no IP address, and nothing about your terminals, agents or files is sent.": "安装应用时发送一次，每次更新再发送一次。接收端会记录消息来自的国家，但不保存 IP 地址，也不发送任何关于终端、代理或文件的内容。",
   "The receiver adds the country this message comes from (two letters, such as KR). It does not store the address.": "接收端会附加这条消息来自的国家（两个字母，例如 KR）。不保存地址。",
   "This version has already been counted. The next event is sent after an update.": "此版本已统计。下一次发送在更新之后。",
+  "Agent integrations": "代理集成",
+  "This PC's bridge does not offer agent integrations yet. It will after its next runtime update.": "这台 PC 的桥接服务暂不提供代理集成。下次运行时更新后即可使用。",
+  "herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.": "有了 herdr 集成，重启后可以恢复每个代理的会话。此页面只读取状态：请在运行 herdr 的 PC 的终端中执行命令，然后重新打开此页面。",
+  "Not found on this PC": "此 PC 上未找到",
+  "Installed, but older than this herdr: run this to update it": "已安装，但比此 herdr 旧：运行此命令以更新",
+  "Not installed": "未安装",
+  "Copy the command for {name}": "复制 {name} 的命令",
 };

@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import type {
+  AgentIntegration,
   PaneReadResult,
   ReadFormat,
   ReadSource,
@@ -181,6 +182,11 @@ export async function paneGet(paneId: string, socketPath?: string): Promise<Pane
 
 export async function agentManifests(socketPath?: string): Promise<{ manifests: AgentManifestInfo[] }> {
   return herdrRpc("server.agent_manifests", {}, socketPath);
+}
+
+/** herdr's built-in agent integrations and whether each is installed. Read only: this bridge never installs one. */
+export async function integrationList(socketPath?: string): Promise<AgentIntegration[]> {
+  return (await herdrRpc<{ integrations: AgentIntegration[] }>("integration.list", {}, socketPath)).integrations;
 }
 
 export interface WorkspaceCreateResult {

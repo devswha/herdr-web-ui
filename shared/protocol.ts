@@ -66,6 +66,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
  *         for the new-session dialog)
+ *  GET    /api/integrations              -> IntegrationsResponse (herdr's `integration.list`, in
+ *         herdr's order; read only: nothing here installs or removes one, Settings shows the
+ *         `herdr integration install` command instead)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
@@ -435,6 +438,27 @@ export interface FileInfo {
 export interface AgentKind {
   kind: string;
   label: string;
+}
+
+/**
+ * GET /api/integrations: one of herdr's built-in agent integrations (`integration.list`, herdr
+ * 0.9.3; the saved schema predates it, so the shape is written out here). `state` widens like the
+ * generated enums: a newer herdr may report one this build does not know.
+ */
+export interface AgentIntegration {
+  /** herdr's integration target, e.g. `claude`, `antigravity_cli` */
+  target: string;
+  /** the name herdr shows, also the argument `herdr integration install` takes */
+  label: string;
+  /** the agent's executable */
+  command: string;
+  /** whether that executable is on the PATH of the PC herdr runs on */
+  available: boolean;
+  state: "not_installed" | "current" | "outdated" | (string & {});
+}
+
+export interface IntegrationsResponse {
+  integrations: AgentIntegration[];
 }
 
 export interface CreateWorkspaceRequest {
