@@ -1,5 +1,18 @@
 import type { HerdrPane, PluginActionResult, SessionSnapshot } from "../shared/protocol.ts";
-import type { PluginCommandLog, PluginInvocationContext } from "./herdr/client.ts";
+import { HerdrError, type PluginCommandLog, type PluginInvocationContext } from "./herdr/client.ts";
+
+/** Every entry herdr keeps in a plugin's command log (0.9.3: src/app/api/plugins/runtime.rs). */
+export const PLUGIN_LOG_LIMIT = 200;
+
+/**
+ * The entry of one run in the plugin's log, searched over all herdr keeps, so a run that is still
+ * listed is found however many newer runs of the plugin came after it.
+ */
+export async function pluginLogEntry(logId: string, list: (limit: number) => Promise<PluginCommandLog[]>): Promise<PluginCommandLog> {
+  const log = (await list(PLUGIN_LOG_LIMIT)).find((entry) => entry.log_id === logId);
+  if (!log) throw new HerdrError("plugin_log_not_found", `plugin log ${logId} not found`);
+  return log;
+}
 
 /** The end of a failed plugin command's output that reaches the browser. */
 const PLUGIN_OUTPUT_CHARS = 2_000;

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import type { PluginCommandLog } from "./herdr/client.ts";
-import { openedPluginPane, pluginActionResult, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
+import { openedPluginPane, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
 const pane = (fields: Partial<HerdrPane>): HerdrPane => ({ pane_id: "w2:p1", workspace_id: "w2", tab_id: "w2:t1", terminal_id: "term", focused: false, agent_status: "unknown", revision: 0, ...fields });
 const worktree = { repo_key: "/repo/.git", repo_name: "repo", repo_root: "/repo", checkout_path: "/repo-feature", is_linked_worktree: true };
@@ -116,5 +116,17 @@ describe("waitForPluginAction", () => {
   it("names the pane a run that ended within the wait opened", async () => {
     const result = await waitForPluginAction(log({ status: "running", exit_code: null }), 300, async () => [log({ stdout: opened("w2:p4") })], async () => ["w2:p4"]);
     expect(result.opened_pane_id).toBe("w2:p4");
+  });
+});
+
+describe("pluginLogEntry", () => {
+  // herdr's log, newest first, answering with at most `limit` of the 200 entries it keeps
+  const herdrLog = (entries: PluginCommandLog[]) => async (limit: number) => entries.slice(0, limit);
+
+  it("finds a long run behind 60 newer runs of the same plugin, and fails once herdr dropped it", async () => {
+    const newer = Array.from({ length: 60 }, (_, index) => log({ log_id: `plugin-log-${100 - index}` }));
+    const late = log({ log_id: "plugin-log-7", status: "failed", exit_code: 1, stderr: "boom" });
+    expect(await pluginLogEntry("plugin-log-7", herdrLog([...newer, late]))).toEqual(late);
+    await expect(pluginLogEntry("plugin-log-6", herdrLog([...newer, late]))).rejects.toMatchObject({ code: "plugin_log_not_found" });
   });
 });

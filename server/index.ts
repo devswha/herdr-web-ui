@@ -90,7 +90,7 @@ import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
-import { pluginActionResult, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
+import { PLUGIN_LOG_LIMIT, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
 /** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
@@ -98,7 +98,6 @@ const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platf
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
 const PLUGIN_ACTION_WAIT_MS = 5_000;
 /** How far back in herdr's plugin command log a run is looked for. */
-const PLUGIN_LOG_LIMIT = 50;
 const livePaneIds = async (timeoutMs?: number): Promise<string[]> => (await sessionSnapshot(undefined, timeoutMs)).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
@@ -1868,8 +1867,7 @@ export function createServer(
         if (!pluginId) return badRequest("missing_plugin_id", "plugin_id is required");
         if (!logId) return badRequest("missing_log_id", "log_id is required");
         try {
-          const log = (await pluginLogList(pluginId, PLUGIN_LOG_LIMIT)).find((entry) => entry.log_id === logId);
-          if (!log) throw new HerdrError("plugin_log_not_found", `plugin log ${logId} not found`);
+          const log = await pluginLogEntry(logId, (limit) => pluginLogList(pluginId, limit));
           return jsonResponse(await pluginActionResult(log, () => livePaneIds()));
         } catch (error) {
           return errorResponse(error);
