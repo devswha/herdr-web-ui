@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import type { PluginCommandLog } from "./herdr/client.ts";
-import { openedPluginPane, pluginActionResult, pluginPaneContext } from "./plugin-actions.ts";
+import { openedPluginPane, pluginActionResult, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
 const pane = (fields: Partial<HerdrPane>): HerdrPane => ({ pane_id: "w2:p1", workspace_id: "w2", tab_id: "w2:t1", terminal_id: "term", focused: false, agent_status: "unknown", revision: 0, ...fields });
 const worktree = { repo_key: "/repo/.git", repo_name: "repo", repo_root: "/repo", checkout_path: "/repo-feature", is_linked_worktree: true };
@@ -85,5 +85,36 @@ describe("pluginActionResult", () => {
     expect(await pluginActionResult(log({ status: "running", exit_code: null, stdout: opened("w2:p4") }), async () => ["w2:p4"])).toEqual({ log_id: "plugin-log-7", status: "running", exit_code: null, output: null, opened_pane_id: null });
     expect(await pluginActionResult(log({ status: "failed", exit_code: 3, stderr: `${"x".repeat(3000)}\nboom\n` }), async () => [])).toMatchObject({ status: "failed", exit_code: 3, output: expect.stringMatching(/^x{1995}\nboom$/) });
     expect((await pluginActionResult(log({ status: "failed", exit_code: null, error: "No such file", stderr: "ignored" }), async () => [])).output).toBe("No such file");
+  });
+});
+
+describe("waitForPluginAction", () => {
+  it("gives each log read only what is left of the wait, and answers running when a read fails", async () => {
+    const timeouts: number[] = [];
+    const result = await waitForPluginAction(log({ status: "running", exit_code: null }), 300, async (timeoutMs) => {
+      timeouts.push(timeoutMs);
+      throw new Error("herdr plugin.log.list timed out");
+    }, async () => []);
+    expect(result).toEqual({ log_id: "plugin-log-7", status: "running", exit_code: null, output: null, opened_pane_id: null });
+    expect(timeouts).toHaveLength(1);
+    expect(timeouts[0]).toBeGreaterThan(0);
+    expect(timeouts[0]).toBeLessThanOrEqual(300);
+  });
+
+  it("bounds the pane lookup after the run and keeps the run's answer when that lookup fails", async () => {
+    const timeouts: number[] = [];
+    const ended = log({ stdout: opened("w2:p4") });
+    const result = await waitForPluginAction(log({ status: "running", exit_code: null }), 300, async () => [ended], async (timeoutMs) => {
+      timeouts.push(timeoutMs);
+      throw new Error("herdr session.snapshot timed out");
+    });
+    expect(result).toEqual({ log_id: "plugin-log-7", status: "succeeded", exit_code: 0, output: null, opened_pane_id: null });
+    expect(timeouts).toHaveLength(1);
+    expect(timeouts[0]).toBeLessThanOrEqual(1_000);
+  });
+
+  it("names the pane a run that ended within the wait opened", async () => {
+    const result = await waitForPluginAction(log({ status: "running", exit_code: null }), 300, async () => [log({ stdout: opened("w2:p4") })], async () => ["w2:p4"]);
+    expect(result.opened_pane_id).toBe("w2:p4");
   });
 });

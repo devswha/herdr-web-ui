@@ -90,7 +90,7 @@ import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
-import { pluginActionResult, pluginPaneContext } from "./plugin-actions.ts";
+import { pluginActionResult, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
 /** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
@@ -99,7 +99,7 @@ const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platf
 const PLUGIN_ACTION_WAIT_MS = 5_000;
 /** How far back in herdr's plugin command log a run is looked for. */
 const PLUGIN_LOG_LIMIT = 50;
-const livePaneIds = async (): Promise<string[]> => (await sessionSnapshot()).panes.map((pane) => pane.pane_id);
+const livePaneIds = async (timeoutMs?: number): Promise<string[]> => (await sessionSnapshot(undefined, timeoutMs)).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
  * for a retry. A read of more lines than an idle alt-screen agent (Codex) shows, like the
@@ -1870,7 +1870,7 @@ export function createServer(
         try {
           const log = (await pluginLogList(pluginId, PLUGIN_LOG_LIMIT)).find((entry) => entry.log_id === logId);
           if (!log) throw new HerdrError("plugin_log_not_found", `plugin log ${logId} not found`);
-          return jsonResponse(await pluginActionResult(log, livePaneIds));
+          return jsonResponse(await pluginActionResult(log, () => livePaneIds()));
         } catch (error) {
           return errorResponse(error);
         }
@@ -1897,13 +1897,14 @@ export function createServer(
             if (!pane) throw new HerdrError("pane_not_found", `pane ${payload.pane_id} not found`);
             context = pluginPaneContext(snapshot, pane);
           }
-          const invoked = await pluginActionInvoke(payload.plugin_id, payload.action_id, context);
-          let log = invoked.log;
-          for (const deadline = Date.now() + (options.pluginActionWaitMs ?? PLUGIN_ACTION_WAIT_MS); log.status === "running" && Date.now() < deadline;) {
-            await Bun.sleep(100);
-            log = (await pluginLogList(payload.plugin_id, PLUGIN_LOG_LIMIT)).find((entry) => entry.log_id === invoked.log.log_id) ?? log;
-          }
-          return jsonResponse(await pluginActionResult(log, livePaneIds));
+          const pluginId = payload.plugin_id;
+          const invoked = await pluginActionInvoke(pluginId, payload.action_id, context);
+          return jsonResponse(await waitForPluginAction(
+            invoked.log,
+            options.pluginActionWaitMs ?? PLUGIN_ACTION_WAIT_MS,
+            (timeoutMs) => pluginLogList(pluginId, PLUGIN_LOG_LIMIT, undefined, timeoutMs),
+            livePaneIds,
+          ));
         } catch (error) {
           return errorResponse(error);
         }

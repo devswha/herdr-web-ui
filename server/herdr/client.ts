@@ -254,8 +254,8 @@ export async function pluginActionInvoke(
   return herdrRpc("plugin.action.invoke", { plugin_id: pluginId, action_id: actionId, ...(context === undefined ? {} : { context }) }, socketPath);
 }
 
-export async function pluginLogList(pluginId: string, limit: number, socketPath?: string): Promise<PluginCommandLog[]> {
-  return (await herdrRpc<{ logs: PluginCommandLog[] }>("plugin.log.list", { plugin_id: pluginId, limit }, socketPath)).logs;
+export async function pluginLogList(pluginId: string, limit: number, socketPath?: string, timeoutMs?: number): Promise<PluginCommandLog[]> {
+  return (await herdrRpc<{ logs: PluginCommandLog[] }>("plugin.log.list", { plugin_id: pluginId, limit }, socketPath, timeoutMs)).logs;
 }
 
 /** herdr's built-in agent integrations and whether each is installed. Read only: this bridge never installs one. */

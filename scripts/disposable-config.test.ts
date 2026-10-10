@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +7,8 @@ import { isolate } from "./check.ts";
 import { DISPOSABLE_CONFIG_ENV, DISPOSABLE_CONFIG_FILE, disposableConfig } from "./disposable-config.ts";
 
 const made: string[] = [];
-const scratch = (): string => { const dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-disposable-")); made.push(dir); return dir; };
+// the root and prefix `isolate` uses: its session socket path has to fit a unix socket address
+const scratch = (): string => { const dir = mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "hwc-")); made.push(dir); return dir; };
 afterAll(() => { for (const dir of made) rmSync(dir, { recursive: true, force: true }); });
 const socketIn = (config: string) => join(config, "herdr", "sessions", "herdr-web-ui-test", "herdr.sock");
 
