@@ -1,0 +1,35 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    env:
+      HERDR_SOCKET: ${{ runner.temp }}/herdr-websocket-no-service.sock
+      SODAM_WS_RUN_ROOT: ${{ runner.temp }}/herdr-websocket-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run build
+      - name: Assert no service socket exists
+        run: test ! -e "$HERDR_SOCKET"
+      - run: bun --config=bunfig.websocket.toml test --isolate src/lib server/updater.test.ts
+      - run: bun run test:websocket
+      - run: bun run test:websocket:mutations
+      - name: Upload websocket failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: websocket-test-artifacts
+          path: ${{ runner.temp }}/herdr-websocket-*/**
+          if-no-files-found: warn
+          retention-days: 7
