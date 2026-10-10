@@ -16,7 +16,7 @@
     "start": "bun run build && bun run server/managed.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "test:websocket": "bun --config=bunfig.websocket.toml test --isolate server/output-window.test.ts server/websocket-test/fake-herdr-client.test.ts server/websocket-test/fake-pty-session.test.ts server/websocket-test/create-server-harness.test.ts server/websocket-test/create-server.smoke.integration.test.ts",
+    "test:websocket": "bun --config=bunfig.websocket.toml test --isolate server/output-window.test.ts server/websocket-test/fake-herdr-client.test.ts server/websocket-test/fake-pty-session.test.ts server/websocket-test/create-server-harness.test.ts server/websocket-test/create-server.smoke.integration.test.ts server/websocket-test/ack-replay.integration.test.ts server/websocket-test/ack-state.integration.test.ts server/websocket-test/reattach-reconnect.integration.test.ts server/websocket-test/backpressure-stall.integration.test.ts server/websocket-test/protocol-guards.integration.test.ts",
     "test:websocket:mutations": "bun --config=bunfig.websocket.toml test --isolate server/websocket-test/mutation-source.test.ts server/websocket-test/mutation-controls.integration.test.ts",
     "test:ui": "bun run build && bun scripts/ui-regression.ts",
     "generate:types": "bun run scripts/generate-protocol-types.ts",

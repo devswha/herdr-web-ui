@@ -134,7 +134,6 @@ export async function createServerHarness(): Promise<{
   const openSocket = (): WebSocket => {
     const opening = new WebSocket(`ws://${runningServer.hostname}:${runningServer.port}/ws`);
     sockets.add(opening);
-    prearmSocketEvent("close");
     return opening;
   };
   const connect = async (): Promise<WebSocket> => {
@@ -161,9 +160,27 @@ export async function createServerHarness(): Promise<{
     async cleanup() {
       const before = fakeHerdrClient.getFakeHerdrCounters().subscriptionCloseCount;
       for (const waiter of ptyWaiters) waiter.cancel();
-      for (const socket of sockets) socket.close();
-      await Promise.all([...closeWaiters.values()]);
+      const closing = [...sockets].flatMap((socket) => {
+        if (socket.readyState === WebSocket.CLOSED) return [];
+        let timer: ReturnType<typeof setTimeout>;
+        const closed = new Promise<Event>((resolvePromise, rejectPromise) => {
+          const onClose = (event: Event) => {
+            clearTimeout(timer);
+            socket.removeEventListener("close", onClose);
+            resolvePromise(event);
+          };
+          timer = setTimeout(() => {
+            socket.removeEventListener("close", onClose);
+            rejectPromise(new Error("timed out waiting for socket close during cleanup"));
+          }, timeoutMs);
+          socket.addEventListener("close", onClose, { once: true });
+        });
+        closeWaiters.set(socket, closed);
+        return [closed];
+      });
       runningServer.stop();
+      for (const socket of sockets) if (socket.readyState !== WebSocket.CLOSED) socket.close();
+      await Promise.all(closing);
       for (const instance of instances) instance.kill();
       await Promise.all(instances.map((instance) => instance.exited));
       try {

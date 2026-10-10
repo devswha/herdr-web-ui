@@ -97,4 +97,74 @@ describe("original createServer harness boundary", () => {
     expect((await readFile(evidencePath, "utf8")).trim()).toBe(JSON.stringify(evidence));
     expect(cleanup.subscriptionCloseDelta).toBeGreaterThan(0);
   });
+
+  test("cleanup closes a paused ACK socket and still removes its state", async () => {
+    delete process.env.SODAM_WS_SERVER_INDEX;
+    delete process.env.SODAM_WS_EVIDENCE_DIR;
+    const harness = await createServerHarness();
+    const socket = harness.openSocket();
+    const open = harness.prearmSocketEvent("open");
+    const snapshot = new Promise<void>((resolvePromise, rejectPromise) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const onMessage = (event: MessageEvent) => {
+        const frame = JSON.parse(String(event.data)) as { type?: string };
+        if (frame.type !== "snapshot") return;
+        clearTimeout(timer);
+        socket.removeEventListener("message", onMessage);
+        resolvePromise();
+      };
+      socket.addEventListener("message", onMessage);
+      timer = setTimeout(() => {
+        socket.removeEventListener("message", onMessage);
+        rejectPromise(new Error("timed out waiting for paused cleanup test snapshot"));
+      }, 5000);
+    });
+    await Promise.all([open, snapshot]);
+    const pause = harness.waitForPtyEvent(harness.paneId, "pause");
+    const role = new Promise<void>((resolvePromise, rejectPromise) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const onMessage = (event: MessageEvent) => {
+        const frame = JSON.parse(String(event.data)) as { type?: string; mode?: string };
+        if (frame.type !== "role-ack" || frame.mode !== "observe") return;
+        clearTimeout(timer);
+        socket.removeEventListener("message", onMessage);
+        resolvePromise();
+      };
+      socket.addEventListener("message", onMessage);
+      timer = setTimeout(() => {
+        socket.removeEventListener("message", onMessage);
+        rejectPromise(new Error("timed out waiting for observer role acknowledgement"));
+      }, 5000);
+    });
+    socket.send(JSON.stringify({ type: "role", mode: "observe" }));
+    await role;
+    const geometry = new Promise<void>((resolvePromise, rejectPromise) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const onMessage = (event: MessageEvent) => {
+        const frame = JSON.parse(String(event.data)) as { type?: string };
+        if (frame.type !== "pane-geometry") return;
+        clearTimeout(timer);
+        socket.removeEventListener("message", onMessage);
+        resolvePromise();
+      };
+      socket.addEventListener("message", onMessage);
+      timer = setTimeout(() => {
+        socket.removeEventListener("message", onMessage);
+        rejectPromise(new Error("timed out waiting for paused cleanup attach"));
+      }, 5000);
+    });
+    socket.send(JSON.stringify({ type: "attach", pane_id: harness.paneId, cols: 100, rows: 30, flow_control: "ack" }));
+    await geometry;
+    const pty = harness.instances.at(-1);
+    if (!pty) throw new Error("attach did not create a fake PTY session");
+    harness.emitPtyData(harness.paneId, "P".repeat(256 * 1024));
+    await pause.promise;
+    const stateDir = harness.stateDir;
+    const cleanup = await harness.cleanup();
+    const stateDirAbsent = await access(stateDir).then(() => false, (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    expect(socket.readyState).toBe(WebSocket.CLOSED);
+    expect(pty.killCount).toBe(1);
+    expect(cleanup.subscriptionCloseDelta).toBeGreaterThan(0);
+    expect(stateDirAbsent).toBe(true);
+  }, 12000);
 });
