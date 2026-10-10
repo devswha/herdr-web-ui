@@ -8,6 +8,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A numeric custom tab name remains visible when tabs before it close.
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
   sent it. What genuinely cannot state one keeps working — a same-origin read such as the PC
