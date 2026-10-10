@@ -102,7 +102,7 @@ export function AgentNameDialog({ paneId, title, current, onClose }: Props) {
               autoCapitalize="none"
               spellCheck={false}
               aria-invalid={invalid || undefined}
-              aria-describedby={`${id}-hint${invalid ? ` ${id}-rule` : ""}`}
+              aria-describedby={invalid ? `${id}-rule` : `${id}-hint`}
               placeholder="reviewer"
               onChange={(event) => { setName(event.target.value); setError(null); }}
             />
