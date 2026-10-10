@@ -40,6 +40,18 @@ afterAll(() => {
 
 const base = () => `http://localhost:${server.port}`;
 
+describe("single-pane context lookup", () => {
+  for (const route of ["commands", "files"] as const) {
+    it(`rejects an unknown pane on /api/pane/${route} with the shared error envelope`, async () => {
+      const response = await fetch(`${base()}/api/pane/${route}?pane_id=w9999:p9999`);
+      expect(response.status).toBe(404);
+      const body: ApiError = await response.json();
+      expect(body.error.code).toBe("pane_not_found");
+      expect(typeof body.error.message).toBe("string");
+    });
+  }
+});
+
 describe("Devin conversation API", () => {
   it("keeps the terminal fallback rather than guessing a shell pane's session", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-devin-contract-"));

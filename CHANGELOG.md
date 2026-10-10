@@ -14,6 +14,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Copy button; the page only reads herdr's state and never installs or removes anything.
   ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
 
+### Changed
+- Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
+  rebuilding a whole-session snapshot. Layout and transcript peer checks keep their snapshots.
+  ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
+
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
