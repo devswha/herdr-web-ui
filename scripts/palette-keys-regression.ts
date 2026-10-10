@@ -1,7 +1,8 @@
 /**
  * The command palette's picker keys against a roster that changes under them: a filter letter
  * that names the filter already shown, and panes that leave the filter while the keyboard is on
- * the list. Imported by ui-regression.ts, with the palette closed.
+ * the list, or enter it before the row the keyboard is on. Imported by ui-regression.ts, with the
+ * palette closed.
  */
 import assert from "node:assert/strict";
 import type { Page } from "playwright-core";
@@ -12,7 +13,10 @@ export interface PaletteKeysFixture {
   workspaceId: string;
 }
 
-/** Reports a status only for the panes it opens, so the suite's fixture panes keep theirs. */
+/**
+ * Reports a status only for the panes it opens, so the suite's fixture panes keep theirs, and ends
+ * on the pane that was selected when it began.
+ */
 export async function checkPaletteKeys(page: Page, fixture: PaletteKeysFixture): Promise<void> {
   const until = async (check: () => Promise<boolean>, label: string): Promise<void> => {
     const deadline = Date.now() + 10_000;
@@ -29,6 +33,9 @@ export async function checkPaletteKeys(page: Page, fixture: PaletteKeysFixture):
   const focusedId = () => page.evaluate(() => (document.activeElement === document.body ? "body" : document.activeElement?.id ?? ""));
   const pickedId = () => search.getAttribute("aria-activedescendant");
   const report = (pane: string, state: string) => herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "codex", state });
+  const selectedPaneId = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")?.pane_id as string | undefined);
+  const selectedBefore = await selectedPaneId();
+  assert.ok(selectedBefore, "a pane is selected before the check");
 
   const names = ["palette keys C", "palette keys D", "palette keys E", "palette keys F"];
   const tabs: Array<{ tab: { tab_id: string }; root_pane: { pane_id: string } }> = [];
@@ -89,9 +96,30 @@ export async function checkPaletteKeys(page: Page, fixture: PaletteKeysFixture):
     await report(paneF, "idle");
     await until(async () => await rows.count() === 0, "F left RUN");
     await until(() => search.evaluate((input) => document.activeElement === input), "an emptied list hands the focus to the search");
-    await search.press("Escape");
+
+    // the letter pressed again on the first row, then a pane before it enters the filter: the
+    // keyboard stays on its row, and the highlight and Enter name that row (a letter that moves
+    // no focus fires no focus event, so the pick must be told without one)
+    await report(paneD, "working");
+    await report(paneE, "working");
+    await until(async () => await rows.count() === 2, "D and E are back in RUN");
+    await palette.locator("#palette-item-0").focus();
+    await until(async () => await focusedId() === "palette-item-0" && await pickedId() === "palette-item-0", "the first row has the focus and the pick");
+    await page.keyboard.press("w");
+    await until(async () => await focusedId() === "palette-item-0" && await pickedId() === "palette-item-0", "`w` on the first row keeps the focus and the pick there");
+    await report(paneC, "working");
+    await until(async () => await rows.count() === 3, "C entered RUN");
+    assert.equal(await titleAt(1), names[1], "C stands before the row the keyboard is on");
+    assert.equal(await focusedId(), "palette-item-1", "the focused row keeps the focus at its new place");
+    assert.equal(await pickedId(), "palette-item-1", "the pick stays on the focused row, not on the row that entered before it");
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-selected")), "true", "the focused row is the highlighted one");
+    await page.keyboard.press("Enter");
     await palette.waitFor({ state: "hidden" });
-    console.log("PASS palette keys: a repeated filter letter refocuses the first row, and the pick survives panes leaving the filter");
+    await until(async () => await selectedPaneId() === paneD, "Enter runs the row the keyboard was on");
+    // back to the pane selected before: the suite's next steps read its sidebar row
+    await page.locator(`.pane-select[title^="${selectedBefore} —"]`).click();
+    await until(async () => await selectedPaneId() === selectedBefore, "the selection returns to the pane selected before the check");
+    console.log("PASS palette keys: a repeated filter letter refocuses the first row, the pick survives panes leaving and entering the filter, and Enter runs the focused row");
   } finally {
     for (const created of tabs.reverse()) await tabClose(created.tab.tab_id).catch(() => undefined);
   }

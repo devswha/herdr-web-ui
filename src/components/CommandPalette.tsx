@@ -265,9 +265,19 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     resultsRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [open, activeIndex, query, itemCount]);
 
+  // The first row's focus event tells the pick only when the focus moves: a letter pressed on the
+  // first row itself fires none, and a pick left on no row would go by its place to a pane that
+  // enters before that row while the keyboard stays on it. So the pick is told here.
   useLayoutEffect(() => {
     if (!open || rowFocusRequest === 0) return;
-    (document.getElementById("palette-item-0") ?? inputRef.current)?.focus();
+    const first = document.getElementById("palette-item-0");
+    if (!first) {
+      inputRef.current?.focus();
+      return;
+    }
+    const key = rowKeys[0] ?? null;
+    setSelection((current) => (current.key === key && current.index === 0 ? current : { key, index: 0 }));
+    first.focus();
   }, [rowFocusRequest]);
 
   // The roster changed under the pick. A picked row that stayed tells its place again; one that
