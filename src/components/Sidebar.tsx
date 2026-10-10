@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { ArrowDown, ArrowUp, Ellipsis, Folder, FolderOpen, GitBranch, Layers, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Ellipsis, Folder, FolderInput, FolderOpen, GitBranch, Layers, LoaderCircle, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -10,6 +10,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { MovePaneMenu } from "./MovePaneMenu.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
@@ -156,6 +157,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   // the browser's drag and drop is a mouse's: on a touch screen a long press lifts the row instead
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const [inlineError, setInlineError] = useState<InlineError | null>(null);
+  // the Move pane to… menu, under the ⋯ the row menu opened from, for the pane that row opens
+  const [moving, setMoving] = useState<{ anchor: HTMLElement; workspace: WorkspaceInfo; pane: PaneInfo } | null>(null);
   const rosterId = useId();
   const workspaceRoot = useRef<HTMLDivElement>(null);
   const revealOpenedWorkspace = useRef<string | null>(null);
@@ -321,6 +324,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const items: RowMenuItem[] = [
       { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace) },
       { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) },
+      { id: "move-pane", label: t("Move pane to…"), icon: FolderInput, run: () => setMoving({ anchor: state.anchor, workspace, pane }) },
       { id: "new-tab", label: t("New tab"), icon: Plus, run: () => actions.openNewTab({ machineId, workspaceId: workspace.workspace_id }) },
       ...(linked ? [] : [
         { id: "new-worktree", label: t("New worktree"), icon: GitBranch, run: () => setWorktreeDialog({ mode: "create", workspace }) },
@@ -359,6 +363,14 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const alive = snapshot?.workspaces.some((workspace) => workspace.workspace_id === menu.workspace.workspace_id);
     if (alive && menu.anchor.isConnected) return;
     setMenu(null);
+    focusWorkspaceListToggle();
+  });
+  // the pane a move menu is about left (closed, or moved from another client): the menu goes with it
+  useEffect(() => {
+    if (!moving) return;
+    const alive = snapshot?.panes.some((pane) => pane.pane_id === moving.pane.pane_id);
+    if (alive && moving.anchor.isConnected) return;
+    setMoving(null);
     focusWorkspaceListToggle();
   });
 
@@ -681,6 +693,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
         </>
       </nav>
       {menu && <RowMenu anchor={menu.anchor} title={menu.title} subtitle={menu.place} items={menuItems(menu)} onClose={closeMenu} />}
+      {moving && snapshot && <MovePaneMenu anchor={moving.anchor} snapshot={snapshot} pane={moving.pane} paneTitle={displayPaneTitle(moving.pane)} onMoved={(moved) => actions.paneMoved(machineId, moved.previous_pane_id, moved.pane.pane_id)} onError={(reason) => noteError(t("Move failed: {reason}", { reason }), moving.workspace.workspace_id)} onClose={() => setMoving(null)} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.action ?? t("Close")} onConfirm={confirm.run} escalation={confirm.escalation} onClose={() => setConfirm(null)} />}
       {worktreeDialog && <WorktreeDialog mode={worktreeDialog.mode} workspace={worktreeDialog.workspace} onClose={() => setWorktreeDialog(null)} onOpened={(opened) => {
         rememberOpened(opened);

@@ -10,10 +10,13 @@ import type {
   HealthAuth,
   IntegrationsResponse,
   InteractivePrompt,
+  MovePaneDestination,
+  MovePaneRequest,
   OmoActivity,
   OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
+  PaneMoved,
   PaneReadResult,
   PromptAnswer,
   PushKey,
@@ -404,6 +407,16 @@ export async function closePane(paneId: string, machineId = "local"): Promise<vo
 /** POST /api/pane/rename: sets the pane's label in herdr (an empty label clears it). */
 export async function renamePane(paneId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/rename"), "POST", { pane_id: paneId, label });
+}
+
+/**
+ * POST /api/pane/move: the pane into another tab, a new tab (of its workspace or another) or a
+ * new workspace, herdr's `pane move`. A pane that leaves its workspace answers to a new id:
+ * `pane.pane_id`, beside `previous_pane_id`, which is the one sent. herdr's own focus stays.
+ */
+export async function movePane(paneId: string, destination: MovePaneDestination, machineId = "local"): Promise<PaneMoved> {
+  const response = await sendJson(machinePath(machineId, "pane/move"), "POST", { pane_id: paneId, destination } satisfies MovePaneRequest);
+  return (await response.json()) as PaneMoved;
 }
 
 /** GET /api/agents: the agent kinds herdr can start, for the new-session dialog. */

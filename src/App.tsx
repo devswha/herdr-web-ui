@@ -26,6 +26,7 @@ import { paneStorageId, type Machine, type MachineEvent } from "../shared/machin
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
+import { carryPaneRecords } from "./lib/paneMove.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
 import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
@@ -694,6 +695,14 @@ export function App() {
         setNewSessionOpen(true);
       },
       openPalette: () => setPaletteOpen(true),
+      paneMoved: (machineId, previousPaneId, paneId) => {
+        if (previousPaneId === paneId) return;
+        carryPaneRecords(machineId, previousPaneId, paneId);
+        // the new id is selected before a snapshot without the old one can fall the selection
+        // back to herdr's focus; a pane moved from the sidebar while another is open stays unselected
+        const current = selectionRef.current;
+        if (current.machineId === machineId && current.paneId === previousPaneId) selectPane(paneId);
+      },
       openSettings: () => {
         setDrawerOpen(false);
         setSettingsSection(null);
@@ -898,7 +907,7 @@ export function App() {
         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {snapshot && selectedPane && selectedWorkspace && (
-          <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} />
+          <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()} onPaneMoved={(previousPaneId, paneId) => actions.paneMoved(selectedMachineId, previousPaneId, paneId)} />
         )}
         {/* the tab strip's panel: its id is what each tab's aria-controls points at. No tabIndex -
             the terminal (PaneTerminal) and the composer are the focusable things inside it. */}

@@ -401,7 +401,7 @@ One set for both themes: the card is island black wherever it shows.
 - Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
-  A row offers Rename workspace, Rename pane (the pane it opens), New tab,
+  A row offers Rename workspace, Rename pane (the pane it opens), Move pane to…, New tab,
   New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
   ends in **Delete worktree checkout…** after Close workspace. The
   danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
@@ -419,6 +419,12 @@ One set for both themes: the card is island black wherever it shows.
 - The tab strip's pane picker is the same menu: one item per pane of the tab, the agent's mark
   (or the shell glyph) and the pane's title, the open pane named in the strong colour
   (`aria-current`).
+- **Move pane to…** (a row's menu, a tab's menu) opens the same menu again under the same button
+  (`MovePaneMenu`): a dim uppercase MOVE TO micro label with the pane's name under it
+  (`.move-pane-head`), then New tab and the workspace's other tabs, every other workspace under
+  a hairline, and New workspace under another. A pick moves the pane at once (`POST
+  /api/pane/move`); the app stays on a moved pane that was open, also under the new id herdr
+  gives a pane that changes workspace. A refusal reads as the row's or the strip's inline error.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
@@ -609,7 +615,8 @@ One set for both themes: the card is island black wherever it shows.
   a right-click opens the tab's menu under its left edge; the middle button closes. With keys
   on a focused tab: F2 and Delete. On a touch screen there is no `x`: the open tab carries the
   chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
-  several, then **Rename tab**, then **Close tab** in the danger colour under a hairline.
+  several, then **Rename tab**, **Move pane to…** (the pane the tab opens), then **Close tab**
+  in the danger colour under a hairline.
 - A close is immediate, as herdr's, and the tab beside it opens. It asks first (the confirm
   dialog) only when it costs more than the tab: an agent in it is working or blocked, or it is
   the workspace's last tab, which takes the workspace with it. A refusal shows in the dialog, or

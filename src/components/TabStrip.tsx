@@ -5,6 +5,9 @@
  * focused there, else its first. The app shows one pane at a time, so a tab with several panes
  * carries a picker of them beside its name.
  *
+ * The menu also moves the tab's pane (the one the tab opens) to another tab, a new tab or
+ * another workspace, as herdr's `pane move`: MovePaneMenu lists the places under the same button.
+ *
  * A tab is renamed and closed here, as herdr's prefix+shift+t and prefix+shift+x. With a mouse:
  * an x on the tab under the pointer and on the open one, a double-click on the name to type a
  * new one, a right-click for the menu. On a touch screen the open tab's chevron opens the same
@@ -12,7 +15,7 @@
  * costs more than the tab: an agent still at work in it, or the workspace's last tab.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { ChevronDown, Pencil, Plus, Terminal, X } from "lucide-react";
+import { ChevronDown, FolderInput, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./TabStrip.css";
 
@@ -30,6 +33,7 @@ import { paneStatus, rollupStatus } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { displayPaneTitle } from "./Sidebar.tsx";
+import { MovePaneMenu } from "./MovePaneMenu.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 
 const said = (reason: unknown): string => reason instanceof ApiError ? reason.detail : reason instanceof Error ? reason.message : String(reason);
@@ -43,14 +47,17 @@ export interface TabStripProps {
   selectedPane: PaneInfo;
   onSelectPane: (paneId: string) => void;
   onNewTab: () => void;
+  /** a pane this strip moved, under the id it answers to now (a new one when it left the workspace) */
+  onPaneMoved: (previousPaneId: string, paneId: string) => void;
 }
 
-export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab }: TabStripProps) {
+export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab, onPaneMoved }: TabStripProps) {
   const t = useT();
   const machineId = useMachineId();
   const { closeTab, renameTab } = useMachineApi();
   const strip = useRef<HTMLDivElement>(null);
   const [picker, setPicker] = useState<{ anchor: HTMLElement; tab: HerdrTab } | null>(null);
+  const [moving, setMoving] = useState<{ anchor: HTMLElement; pane: PaneInfo } | null>(null);
   const [editing, setEditing] = useState<{ tabId: string; value: string } | null>(null);
   // the name just sent, shown until herdr's snapshot carries it
   const [sent, setSent] = useState<{ tabId: string; label: string } | null>(null);
@@ -77,6 +84,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   useEffect(() => {
     const here = (tabId: string): boolean => tabs.some((tab) => tab.tab_id === tabId);
     if (picker && !here(picker.tab.tab_id)) setPicker(null);
+    if (moving && !panes.some((pane) => pane.pane_id === moving.pane.pane_id)) setMoving(null);
     if (editing && !here(editing.tabId)) setEditing(null);
     if (confirm && !here(confirm.tab.tab_id)) setConfirm(null);
     if (sent && tabs.find((tab) => tab.tab_id === sent.tabId)?.label.trim() === sent.label) setSent(null);
@@ -236,11 +244,12 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     setPicker(picker?.tab.tab_id === tab.tab_id ? null : { anchor: event.currentTarget, tab });
   };
 
-  // a tab's menu: its panes when it has several, then its name and its close
+  // a tab's menu: its panes when it has several, then its name, where its pane can move, and its close
   const pickerItems = (tab: HerdrTab): RowMenuItem[] => {
     // the tab may have changed under the open menu: the items act on what it is now
     const now = tabs.find((candidate) => candidate.tab_id === tab.tab_id) ?? tab;
     const own = panesOf(now);
+    const anchor = picker?.anchor;
     return [
       ...(own.length > 1 ? own.map((pane) => ({
         id: pane.pane_id,
@@ -251,6 +260,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         run: () => onSelectPane(pane.pane_id),
       })) : []),
       { id: "rename-tab", label: t("Rename tab"), icon: Pencil, divider: own.length > 1, run: () => beginRename(now) },
+      // the pane the tab opens: the open one on the open tab
+      { id: "move-pane", label: t("Move pane to…"), icon: FolderInput, run: () => { const pane = paneFor(now); if (anchor && pane) setMoving({ anchor, pane }); } },
       { id: "close-tab", label: t("Close tab"), icon: X, danger: true, divider: true, run: () => requestClose(now) },
     ];
   };
@@ -329,6 +340,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         {error && <span className="tab-strip-error" role="alert">{error}</span>}
       </div>
       {picker && <RowMenu anchor={picker.anchor} title={panesOf(picker.tab).length > 1 ? t("Panes in {tab}", { tab: nameOf(picker.tab) }) : nameOf(picker.tab)} items={pickerItems(picker.tab)} align="start" onClose={() => setPicker(null)} />}
+      {moving && <MovePaneMenu anchor={moving.anchor} align="start" snapshot={snapshot} pane={moving.pane} paneTitle={displayPaneTitle(moving.pane)} onMoved={(moved) => onPaneMoved(moved.previous_pane_id, moved.pane.pane_id)} onError={(reason) => setError(t("Move failed: {reason}", { reason }))} onClose={() => setMoving(null)} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close tab")} onConfirm={async () => { await close(confirm.tab); setConfirm(null); }} onClose={() => setConfirm(null)} />}
     </>
   );
