@@ -988,9 +988,11 @@ One set for both themes: the card is island black wherever it shows.
   `.kbd` hints resolved from this browser's shortcut settings; disabled bindings have no hint.
 - Rows are grouped as herdr's Goto picker groups them: a `.menu-heading` per workspace (its name, a
   linked worktree's branch in mono when the name does not say it, the row count), Recent (up to
-  three, an unsearched and unfiltered list only) before the workspaces, Actions last. A row's
-  subtitle is "tab · folder" (the tab only in a workspace with several), "workspace · folder" under
-  Recent.
+  three, an unsearched and unfiltered list only) before the workspaces, Actions last. The
+  workspaces stand in the roster's order (a move in the sidebar moves the section); a search puts
+  the best match's workspace first, and finds a tab by the name the strip shows it under ("Tab 2").
+  A row's subtitle is "tab · folder" (the tab only in a workspace with several), "workspace · folder"
+  under Recent.
 - Status chips (`.palette-filter`, a `radiogroup`) sit between the search and the list: All, then
   INPUT, RUN, READY, DONE, BG in `STATUS_WORD`'s words with their counts over the whole roster. The
   checked chip takes its badge's tint and text (All and READY the neutral hover fill); a chip no

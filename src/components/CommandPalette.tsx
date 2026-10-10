@@ -164,12 +164,12 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   const sections = useMemo<PaletteSectionView[]>(() => {
     const list: PaletteSectionView[] = [];
     if (!actionsOnly) {
-      const panes = rankPanes(text, filterPanesByStatus(allPanes, filter), workspaces, { tabs, branches });
+      const panes = rankPanes(text, filterPanesByStatus(allPanes, filter), workspaces, { tabs, branches, t });
       if (text === "" && filter === "all") {
         const recent = recentPanes(panes, recentPaneIds, selectedPaneId, RECENT_SHOWN);
         if (recent.length > 0) list.push({ id: "recent", heading: t("Recent"), branch: null, placeNamesWorkspace: true, rows: recent.map((pane) => ({ kind: "pane", pane })) });
       }
-      for (const group of groupByWorkspace(panes, workspaces)) {
+      for (const group of groupByWorkspace(panes, workspaces, text !== "")) {
         const heading = group.workspace?.label ?? t("Unknown workspace");
         list.push({ id: group.workspaceId, heading, branch: branchBeside(heading, branches.get(group.workspaceId)?.branch), placeNamesWorkspace: false, rows: group.panes.map((pane) => ({ kind: "pane", pane })) });
       }

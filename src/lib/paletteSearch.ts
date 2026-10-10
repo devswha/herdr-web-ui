@@ -1,5 +1,7 @@
 import type { HerdrPane, TabInfo, WorkspaceInfo } from "../../shared/protocol.ts";
+import { t as moduleT, type Translate } from "./i18n.ts";
 import { paneStatus, type KnownStatus } from "./status.ts";
+import { tabLabel } from "./tabName.ts";
 
 export type PaletteStatusFilter = "all" | Exclude<KnownStatus, "unknown">;
 
@@ -43,6 +45,24 @@ export interface PaletteSearchContext {
   tabs?: readonly TabInfo[];
   /** a linked worktree's branch per workspace id, as useWorktreeBranches reads the inventory */
   branches?: ReadonlyMap<string, { branch: string | null }>;
+  /** names a tab the way the strip and the footer show it ("Tab 2" in the user's language); the module's `t` otherwise */
+  t?: Translate;
+}
+
+/**
+ * What a tab can be found by: its label as herdr holds it, and the name the UI shows for it
+ * ("Tab 2" for a tab herdr still names by its place), when the two differ.
+ */
+function tabNames(tabs: readonly TabInfo[], t: Translate): Map<string, string[]> {
+  const names = new Map<string, string[]>();
+  const placed = new Map<string, number>();
+  for (const tab of tabs) {
+    const place = (placed.get(tab.workspace_id) ?? 0) + 1;
+    placed.set(tab.workspace_id, place);
+    const shown = tabLabel(tab, t, place);
+    names.set(tab.tab_id, shown === tab.label ? [tab.label] : [tab.label, shown]);
+  }
+  return names;
 }
 
 function fuzzyScore(query: string, candidate: string): number | null {
@@ -67,7 +87,7 @@ function fuzzyScore(query: string, candidate: string): number | null {
   return 500 - first * 2 - (previous - first) - runs * 12;
 }
 
-function searchableText(pane: HerdrPane, workspaceLabel: string, tabLabel: string, branch: string): string[] {
+function searchableText(pane: HerdrPane, workspaceLabel: string, tabNames: readonly string[], branch: string): string[] {
   return [
     pane.label ?? "",
     pane.title ?? "",
@@ -76,7 +96,7 @@ function searchableText(pane: HerdrPane, workspaceLabel: string, tabLabel: strin
     pane.cwd ?? "",
     pane.foreground_cwd ?? "",
     workspaceLabel,
-    tabLabel,
+    ...tabNames,
     branch,
     pane.agent ?? "",
     pane.display_agent ?? "",
@@ -87,12 +107,12 @@ function searchableText(pane: HerdrPane, workspaceLabel: string, tabLabel: strin
 export function rankPanes(query: string, panes: readonly HerdrPane[], workspaces: readonly WorkspaceInfo[], context: PaletteSearchContext = {}): HerdrPane[] {
   if (query.trim().length === 0) return [...panes];
   const workspaceLabels = new Map(workspaces.map((workspace) => [workspace.workspace_id, workspace.label]));
-  const tabLabels = new Map((context.tabs ?? []).map((tab) => [tab.tab_id, tab.label]));
+  const tabsByName = tabNames(context.tabs ?? [], context.t ?? moduleT);
   return panes
     .map((pane, index) => {
       let score: number | null = null;
       const branch = context.branches?.get(pane.workspace_id)?.branch ?? "";
-      for (const candidate of searchableText(pane, workspaceLabels.get(pane.workspace_id) ?? "", tabLabels.get(pane.tab_id) ?? "", branch)) {
+      for (const candidate of searchableText(pane, workspaceLabels.get(pane.workspace_id) ?? "", tabsByName.get(pane.tab_id) ?? [], branch)) {
         const candidateScore = fuzzyScore(query, candidate);
         if (candidateScore !== null && (score === null || candidateScore > score)) score = candidateScore;
       }
@@ -110,11 +130,13 @@ export interface PaletteSection {
 }
 
 /**
- * One section per workspace, as herdr's Goto picker lists its rows. A section stands where its
- * first pane stands in `panes`: in session order for an unsearched list, and best match first for
- * a ranked one, so the top result stays the first row. Rows keep their order inside a section.
+ * One section per workspace, as herdr's Goto picker lists its rows. An unsearched list has its
+ * sections in the workspaces' order, the one the sidebar shows and a move in it changes (the pane
+ * roster keeps its own order); a workspace the roster does not list comes after them. A ranked
+ * list has a section where its first pane stands, best match first, so the top result stays the
+ * first row. Rows keep their order inside a section.
  */
-export function groupByWorkspace(panes: readonly HerdrPane[], workspaces: readonly WorkspaceInfo[]): PaletteSection[] {
+export function groupByWorkspace(panes: readonly HerdrPane[], workspaces: readonly WorkspaceInfo[], ranked = false): PaletteSection[] {
   const byId = new Map(workspaces.map((workspace) => [workspace.workspace_id, workspace]));
   const sections = new Map<string, PaletteSection>();
   for (const pane of panes) {
@@ -125,7 +147,11 @@ export function groupByWorkspace(panes: readonly HerdrPane[], workspaces: readon
     }
     section.panes.push(pane);
   }
-  return [...sections.values()];
+  const list = [...sections.values()];
+  if (ranked) return list;
+  const order = new Map(workspaces.map((workspace, index) => [workspace.workspace_id, index]));
+  // a stable sort: the workspaces not listed keep their place among themselves
+  return list.sort((a, b) => (order.get(a.workspaceId) ?? workspaces.length) - (order.get(b.workspaceId) ?? workspaces.length));
 }
 
 /**
