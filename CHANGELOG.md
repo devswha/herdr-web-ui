@@ -13,6 +13,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   context. The row shows that it is running, a command that fails says why above the list, and a
   pane the action opens and focuses is selected. Settings → About lists the installed plugins and
   their actions, to read only: installing, enabling and removing a plugin stay with herdr.
+  ([#720](https://github.com/devswha/herdr-web-ui/pull/720))
 
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
