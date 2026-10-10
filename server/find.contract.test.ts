@@ -129,7 +129,9 @@ describe("POST /api/pane/find", () => {
     });
   }
 
-  it.each(["pane.copy_search", "pane.scroll"])("refuses a match invalidated at %s instead of claiming success", async (changeAt) => {
+  it.each([
+    ["pane.copy_search", "match"], ["pane.scroll", "match"], ["pane.copy_search", "no match"],
+  ] as const)("refuses a %s result (%s) invalidated meanwhile instead of claiming it", async (changeAt, kind) => {
     await paneScroll(paneId, 0);
     const realSocket = herdrSocketPath();
     const oldSocket = process.env.HERDR_SOCKET;
@@ -175,7 +177,7 @@ describe("POST /api/pane/find", () => {
     });
     try {
       process.env.HERDR_SOCKET = proxyPath;
-      const response = await post({ pane_id: paneId, query: marker, direction: "backward" });
+      const response = await post({ pane_id: paneId, query: kind === "match" ? marker : "find_race_absent_text", direction: "backward" });
       expect(response.status).toBe(409);
       expect((await response.json() as ApiError).error.code).toBe("stale_content");
       expect(changed).toBe(true);

@@ -492,6 +492,11 @@ export async function paneFind(request: PaneFindRequest, socketPath?: string): P
         pane_id: request.pane_id, cursor: match.start, motion: "line_end", content_revision: result.content_revision,
       }, socketPath);
     }
+  } else {
+    // No match is an answer about one revision too: output since copy_search may hold the text.
+    await herdrRpc("pane.copy_motion", {
+      pane_id: request.pane_id, cursor: { row, col: 0 }, motion: "line_end", content_revision: result.content_revision,
+    }, socketPath);
   }
   return {
     total: result.total, current: result.current_global == null ? null : result.current_global + 1,
