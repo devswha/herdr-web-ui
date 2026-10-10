@@ -15,6 +15,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - Never import KaTeX statically: Markdown.tsx loads lib/katex.ts with the first expression (it is a fifth of the app's script).
 
 ## REMOTE TARGET OWNERSHIP
+- `MachineSessionsProvider` owns one WebSocket per visited PC while the app is unlocked. Pane mounts only own their attach/watch and renderer subscriptions: leaving a pane detaches without closing the PC connection or suspending pending proof. `MachineSession` alone publishes pending receipts and suspends their scope on real disconnect/close. Do not infer held state locally or replay input when a pane returns.
 - `MachineContext` binds every pane/workspace API call to a PC; PaneTerminal and CommandPalette remount on machine changes. Never use a mutable global target for async work.
 - Local storage keeps legacy keys for local panes; remote drafts, held queues, lenses and caches use `paneStorageId(machineId, paneId)`. Held messages require Send now, including after reconnect/reload.
 - App consumes a combined machine roster over SSE with a periodic GET backstop. A local herdr failure must never hide remote PCs or Add PC (Settings → Remote PCs; the row does not wait for `/api/machines/settings`, only the bridge switch does); auth discovery uses health `scope=bridge`.

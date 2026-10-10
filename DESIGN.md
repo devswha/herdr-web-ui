@@ -641,18 +641,23 @@ One set for both themes: the card is island black wherever it shows.
   the pane is busy or is the last pane of the workspace. Rename is herdr's label; clearing it
   returns to its automatic title. Herdr owns every resulting layout and name.
 - Zoom uses herdr's zoom flag and focused pane. The other panes keep their mounted terminals
-  hidden, preserving connections and drafts; unzoom restores their rectangles. Explicit pane
-  navigation also calls `pane.focus`, so choosing another pane in a zoomed tab reveals it.
+  hidden, preserving attachments and drafts; unzoom restores their rectangles. Web selection
+  stays local to this browser and does not change herdr's focus in another client.
 - Drag the actual split boundary to resize, with an 8px hit region and native 0.1–0.9 ratio
   limits. Its keyboard separator accepts arrow keys. `layout.set_split_ratio` receives the
   binary path (false first, true second), at most 30 times a second, one request in flight;
   release flushes the final ratio. A tab/topology change cancels the drag.
-- Every pane keeps its own xterm, connection, input ownership, lens, chat state and file-path
+- Every pane keeps its own xterm, attachment, input ownership, lens, chat state and file-path
   context. Only the active pane may take keyboard focus after an asynchronous operation.
 - Switching tabs retains an outgoing terminal only while its explicit submit awaits a receipt;
   its chat/input UI is unmounted and its grid is not resized. The receipt settles the original
-  draft before the connection is released. No input is replayed. A canvas that already released
+  draft before the pane attachment is released. No input is replayed. A canvas that already released
   its panes while away opens a replacement as view-only until the user returns.
+- The unlocked app owns one connection per visited PC, shared by its pane mounts. A pane leaving
+  the canvas sends detach and loses its automatic-delivery lease, while the PC connection keeps
+  receiving authoritative held/removal receipts. Returning exposes the same pending ID for an
+  explicit Send now. Only an actual disconnect, PC removal, sign-out or app teardown suspends
+  connection proof; reconnect/reload never resumes pending delivery.
   A newly split pane awaiting its first snapshot does not unmount its siblings. Geometry is
   fitted inside each rendered pane; layout rectangles are never used as PTY dimensions.
 - Plain right-click can be passed to a mouse-reporting terminal when enabled for that pane.

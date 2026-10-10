@@ -7,6 +7,8 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
+import { MachineSession } from "../lib/machineSession.ts";
+import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import { ViewportIntentGate } from "../lib/viewportIntent.ts";
 import { PanePresentedContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
@@ -145,6 +147,8 @@ export function PaneTerminal({
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
   const machineId = useMachineId();
+  const machineSessions = useMachineSessions();
+  const sessionRef = useRef<MachineSession | null>(null);
   const submitRetention = useContext(PaneSubmitContext);
   const presented = useContext(PanePresentedContext);
   const presentedRef = useRef(presented); presentedRef.current = presented;
@@ -191,7 +195,7 @@ export function PaneTerminal({
   const onRoleAckRef = useRef(onRoleAck);
   const [connected, setConnected] = useState(false);
   const pendingScopeRef = useRef<string | null>(null);
-  /** counts this terminal's disconnects: an answer belongs to the connection that was up when its request left */
+  /** The PC session's epoch: a receipt belongs to the connection on which its request left. */
   const pendingEpochRef = useRef(0);
   const [outputReady, setOutputReady] = useState(false);
   const [ended, setEnded] = useState(false);
@@ -891,26 +895,25 @@ export function PaneTerminal({
     const modifyOtherKeysSet = modifyOtherKeys("m");
     const modifyOtherKeysOff = modifyOtherKeys("n");
 
-    const socket = new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);
+    // The authenticated app owns the PC connection; this mount owns only one pane's attach.
+    const session = machineSessions?.get(machineId) ?? new MachineSession(machineId);
+    const socket = session.socket;
+    sessionRef.current = session;
+    pendingScopeRef.current = session.scope;
+    pendingEpochRef.current = session.epoch;
     socketRef.current = socket;
     let outputGeneration = 0;
-    const off = socket.on((message) => {
+    const off = session.on((message, sent) => {
       onServerMessageRef.current?.(message);
-      if (message.type === "snapshot" && pendingScopeRef.current === null) pendingScopeRef.current = `${Date.now()}-${Math.random()}`;
-      if (message.type === "pending-messages" && pendingScopeRef.current !== null) {
-        const owner = paneStorageId(machineId, message.pane_id);
-        const scope = pendingScopeRef.current;
-        const known = new Set(pendingMessages.read(owner).filter((item) => pendingMessages.isOwned(owner, item.id, scope)).map((item) => item.id));
-        pendingMessages.publish(owner, message.messages, message.removed ?? [], scope);
-        if (message.removed?.some((item) => item.outcome === "sent" && known.has(item.id))) {
-          const memory = greetingMemory(owner);
-          rememberGreeting(owner, afterSettled(afterSend(memory), true, memory.history)); redrawGreeting();
-          if (message.pane_id === paneRef.current) {
-            onChatSuggestion(message.pane_id, null);
-            setChatSent((current) => current + 1);
-            setChatRefresh((current) => current + 1);
-          }
-        }
+      pendingScopeRef.current = session.scope;
+      pendingEpochRef.current = session.epoch;
+      // Every pane-addressed frame, errors included, belongs only to that pane's renderer.
+      if ("pane_id" in message && message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
+      if (message.type === "pending-messages" && sent) {
+        redrawGreeting();
+        onChatSuggestion(message.pane_id, null);
+        setChatSent((current) => current + 1);
+        setChatRefresh((current) => current + 1);
       }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
       if (message.type === "pty-data") {
@@ -1025,11 +1028,10 @@ export function PaneTerminal({
       }
       setConnected(socket.connected);
     });
-    const offDisconnect = socket.onDisconnect(() => {
+    const offDisconnect = session.onDisconnect(() => {
       clearModifiers();
-      if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
-      pendingScopeRef.current = null;
-      pendingEpochRef.current++;
+      pendingScopeRef.current = session.scope;
+      pendingEpochRef.current = session.epoch;
       outputGeneration++;
       setOutputReady(false);
       setInputReady(false);
@@ -1040,7 +1042,7 @@ export function PaneTerminal({
       // and its stream says the keyboard modes again, from the start or in the replay
       modifyOtherKeysRef.current = 0;
     });
-    socket.connect();
+    session.connect();
 
     const poll = window.setInterval(() => setConnected(socket.connected), 1000);
 
@@ -1320,7 +1322,7 @@ export function PaneTerminal({
         return;
       }
       socket.detach(current);
-      if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, current), pendingScopeRef.current);
+      // The server's detach receipt holds pending input on this still-live PC connection.
       // Only an actual release marks the canvas. A queue-held pane never transfers that
       // ownership or skips the next pane's normal initial attach/release delay.
       if (awayReleased) awayReleased.current = true;
@@ -1409,7 +1411,6 @@ export function PaneTerminal({
     return () => {
       disposed = true;
       term.options.disableStdin = true;
-      if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
       pendingScopeRef.current = null;
       window.clearInterval(poll);
       observer.disconnect();
@@ -1448,7 +1449,7 @@ export function PaneTerminal({
       modifyOtherKeysOff.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
       off();
-      socket.close();
+      if (!machineSessions) session.close();
       stopGlyphs();
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
@@ -1460,6 +1461,7 @@ export function PaneTerminal({
       termRef.current = null;
       setTerminal((current) => current === term ? null : current);
       socketRef.current = null;
+      sessionRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one terminal for the mount; theme/font follow in their own effect
   }, []);
@@ -1567,7 +1569,7 @@ export function PaneTerminal({
         socket.unwatch(paneId);
         setWatching(false);
       }
-      if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, paneId), pendingScopeRef.current);
+      // Keep connection proof until the server confirms the detach as held.
     };
     // A fresh keyed terminal inherits a prior release only within this PC's canvas and
     // while the browser remains away. Initial inactive loads still attach with keep_size
@@ -1673,10 +1675,11 @@ export function PaneTerminal({
   const submitComposerMessage = useCallback((text: string, delivery: "queue" | "immediate" = "immediate"): Promise<SubmitResult> | null => {
     const term = termRef.current;
     const socket = socketRef.current;
+    const session = sessionRef.current;
     const pane = paneRef.current;
-    if (!term || !socket || pane === null || secretRef.current !== null || heldRef.current) return null;
+    if (!term || !socket || !session || pane === null || secretRef.current !== null || heldRef.current) return null;
     // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
-    const epoch = pendingEpochRef.current;
+    const epoch = session.epoch;
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery);
     if (sent === null) return null;
     const releaseSubmit = submitRetention?.retain(pane);
@@ -1700,7 +1703,7 @@ export function PaneTerminal({
       }
       if (!result.ok) return result;
       if (result.pending) {
-        pendingMessages.accept(owner, result.pending, socketRef.current === socket && socket.connected && pendingEpochRef.current === epoch && paneRef.current === pane ? pendingScopeRef.current : null);
+        session.acceptPending(pane, result.pending, epoch);
       } else {
         if (paneRef.current === pane) {
           if (delivery === "queue") setChatSent((current) => current + 1);

@@ -12,7 +12,7 @@ import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSe
 /** how long a resize that should not happen gets to show up */
 const NO_RESIZE_WAIT_MS = 400;
 
-type Frame = { dir: "in" | "out"; type: string; keep_size?: boolean };
+type Frame = { dir: "in" | "out"; type: string; keep_size?: boolean; pane_id?: string };
 const framesOf = (page: Page) => page.evaluate(() => (window as unknown as { frames_: Frame[] }).frames_);
 
 async function stopHolder(holder: PtySession): Promise<void> {
@@ -51,19 +51,20 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
   await context.addInitScript((stored) => {
     localStorage.setItem("herdr-web-ui:settings", JSON.stringify(stored));
     // every frame this page's socket sends and receives, to wait on the server's answers
-    const frames: { dir: "in" | "out"; type: string; keep_size?: boolean }[] = [];
+    const frames: { dir: "in" | "out"; type: string; keep_size?: boolean; pane_id?: string }[] = [];
     (window as unknown as { frames_: typeof frames }).frames_ = frames;
     const Native = window.WebSocket;
     class Recording extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
         super(url, protocols);
         (window as unknown as { socket_: WebSocket }).socket_ = this;
+        frames.push({ dir: "in", type: "socket-opened" });
         this.addEventListener("message", (event) => { try { frames.push({ dir: "in", type: JSON.parse(String(event.data)).type }); } catch {} });
-        // A keyed pane mount releases its lease by closing this connection, not by sending
-        // detach for the next pane on a reused socket. Keep that lifecycle evidence too.
+        // Navigation releases a pane with detach while the PC connection retains receipts.
+        // Physical closes remain separate evidence for the explicit reconnect scenarios.
         this.addEventListener("close", () => frames.push({ dir: "in", type: "socket-closed" }));
       }
-      override send(data: string): void { try { const frame = JSON.parse(data); frames.push({ dir: "out", type: frame.type, keep_size: frame.keep_size }); } catch {} super.send(data); }
+      override send(data: string): void { try { const frame = JSON.parse(data); frames.push({ dir: "out", type: frame.type, keep_size: frame.keep_size, ...(frame.type === "detach" ? { pane_id: frame.pane_id } : {}) }); } catch {} super.send(data); }
     }
     Object.assign(window, { WebSocket: Recording });
   }, settings);
@@ -407,9 +408,16 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
     const waitDetach = (page: Page, count = 1) => page.waitForFunction((n) =>
       (window as unknown as { frames_: Frame[] }).frames_.filter((f) => f.dir === "out" && f.type === "detach").length >= n,
     count, { timeout: 10_000 });
-    const waitSocketClose = (page: Page) => page.waitForFunction(() =>
-      (window as unknown as { frames_: Frame[] }).frames_.some((frame) => frame.type === "socket-closed"),
-    undefined, { timeout: 10_000 });
+    const waitPaneDetach = (page: Page, paneId: string) => page.waitForFunction((pane) =>
+      (window as unknown as { frames_: Frame[] }).frames_.some((frame) => frame.dir === "out" && frame.type === "detach" && frame.pane_id === pane),
+    paneId, { timeout: 10_000 });
+    const detachedPanes = (frames: Frame[]): Array<string | undefined> => frames.filter((frame) => frame.dir === "out" && frame.type === "detach").map((frame) => frame.pane_id);
+    const assertSharedConnection = async (page: Page): Promise<void> => {
+      const frames = await framesOf(page);
+      assert.equal(frames.filter((frame) => frame.type === "socket-opened").length, 1, "pane navigation reuses the PC connection");
+      assert.equal(frames.filter((frame) => frame.type === "socket-closed").length, 0, "the receipt-owning connection stays open");
+      assert.equal(await page.evaluate(() => (window as unknown as { socket_: WebSocket }).socket_.readyState === WebSocket.OPEN), true);
+    };
     const sent = async (page: Page, start = 0) => (await framesOf(page)).slice(start)
       .filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
     const scenarios = ["mount", "switch", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
@@ -434,7 +442,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
         const listeners = new Set<() => void>();
         const record = (raw: string | Buffer, dir: "in" | "out"): void => {
           const frame = JSON.parse(String(raw));
-          wire.push({ dir, type: frame.type, ...(dir === "out" ? { keep_size: frame.keep_size } : {}) });
+          wire.push({ dir, type: frame.type, ...(dir === "out" ? { keep_size: frame.keep_size } : {}), ...(frame.type === "detach" ? { pane_id: frame.pane_id } : {}) });
           for (const listener of listeners) listener();
         };
         const waitWire = (dir: "in" | "out", type: string, count = 1): Promise<void> => new Promise((resolve, reject) => {
@@ -557,10 +565,11 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
               await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
               await waitWire("out", "attach", 2);
               await page.locator(`.terminal-stack[data-pane-owner="${next}"]`).waitFor({ state: "attached" });
-              await waitSocketClose(page);
+              await waitWire("out", "detach", 1);
               await page.clock.runFor(0);
-              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 0,
-                "pane A closes its own connection; pane B starts its own release delay");
+              assert.deepEqual(detachedPanes(await recorded()), [first],
+                "navigation detaches pane A while pane B starts its own release delay");
+              await assertSharedConnection(page);
               await waitWire("in", "input-ready", 2);
               await page.clock.runFor(900);
               await page.evaluate(() => {
@@ -570,10 +579,12 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
                 window.dispatchEvent(new Event("blur"));
               });
               await page.clock.runFor(100);
-              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 0,
+              assert.deepEqual(detachedPanes(await recorded()), [first],
                 "pane A's orphaned timer cannot shorten pane B's new delay");
               await page.clock.runFor(900);
-              await waitWire("out", "detach", 1);
+              await waitWire("out", "detach", 2);
+              assert.deepEqual(detachedPanes(await recorded()), [first, next], "pane B releases only after its full new delay");
+              await assertSharedConnection(page);
             } else {
               assert.ok(releaseSubmit, "the explicit Send is waiting at the server boundary");
               releaseSubmit();
@@ -626,9 +637,13 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
             await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
             await attached(page, 2);
             assert.deepEqual(await sent(page, before), [{ dir: "out", type: "attach", keep_size: true }]);
-            await waitSocketClose(page); // the old keyed pane releases its connection
+            await waitPaneDetach(page, first);
+            assert.deepEqual(detachedPanes(await framesOf(page)), [first], "navigation releases only the old pane's lease");
+            await assertSharedConnection(page);
             await page.clock.runFor(1000);
-            await waitDetach(page); // the new pane still releases after its own full delay
+            await waitDetach(page, 2); // the new pane still releases after its own full delay
+            assert.deepEqual(detachedPanes(await framesOf(page)), [first, next], "the new pane releases its own lease after the delay");
+            await assertSharedConnection(page);
           } else if (scenario === "resume") {
             await page.clock.runFor(1000);
             await waitDetach(page);

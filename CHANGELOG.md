@@ -73,13 +73,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   split boundaries. Right-click a pane for herdr's pane menu without changing focus; splits open
   the new pane, Swap with focused pane preserves the original focus, and zoom restores the same
   layout. Tab menus contain tab creation, renaming, reordering and closing, and the strip stays visible
-  for a single pane. Each pane retains its own terminal connection, chat lens and unsent draft.
+  for a single pane. Each pane retains its own terminal stream, chat lens and unsent draft.
   ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
   rebuilding a whole-session snapshot. Layout and transcript peer checks keep their snapshots.
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- Pending messages remain available for **Send now** after switching tabs, workspaces or PCs.
+  Pane attachments share their PC's connection, so leaving a pane stops automatic delivery while
+  its server-owned hold receipt still arrives. Real disconnections and reloads never resume a
+  queued send. ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Codex conversations on Windows resolve the transcript even when the pane's working directory
   uses different letter casing from Codex's stored path. The lookup verifies the directory on
   disk before considering its canonical spelling, so another pane's chat is not substituted.
