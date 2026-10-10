@@ -202,6 +202,8 @@ export function PaneTerminal({
   const [inputError, setInputError] = useState<string | null>(null);
   const [inputReady, setInputReady] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
+  // a 4008 overload close stopped this PC's shared connection: cleared when it comes back
+  const stalledRef = useRef(false);
   // the server answered terminal_unsupported (a bridge too old to mirror): the lens is a notice, the chat still works
   const [unsupported, setUnsupported] = useState(false);
   // another web bridge has this pane's terminal: the server waits for it and says attach-resumed
@@ -909,6 +911,14 @@ export function PaneTerminal({
       pendingEpochRef.current = session.epoch;
       // Every pane-addressed frame, errors included, belongs only to that pane's renderer.
       if ("pane_id" in message && message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
+      // the PC's shared connection came back after an overload close (another pane's mount, or an
+      // explicit pick, reconnected it): its replayed attach serves this pane again
+      if (message.type === "snapshot" && stalledRef.current) {
+        stalledRef.current = false;
+        setOutputError(null);
+        setEnded(false);
+        term.options.disableStdin = observeRef.current || secretRef.current !== null || heldRef.current;
+      }
       if (message.type === "pending-messages" && sent) {
         redrawGreeting();
         onChatSuggestion(message.pane_id, null);
@@ -1018,6 +1028,7 @@ export function PaneTerminal({
           return;
         }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
+          if (message.code === "output_stalled") stalledRef.current = true;
           setOutputError(message.message);
           setEnded(true);
           setConnected(false);
@@ -1386,6 +1397,8 @@ export function PaneTerminal({
       if (releaseAwayRef.current && releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(() => {
         if (paneRef.current === current) release();
       }, RELEASE_AFTER_MS);
+      // already put away on a phone (a pane that replaced a closed one while away): let go now
+      if (hiddenOnTouch()) release();
     };
     leaveRef.current = leave;
     const back = (): void => {
@@ -1548,6 +1561,7 @@ export function PaneTerminal({
     setComposing(false);
     setOutputReady(false);
     setOutputError(null);
+    stalledRef.current = false;
     setHeld(false);
     setUnsupported(false);
     fixedGridRef.current = false;
@@ -1580,8 +1594,10 @@ export function PaneTerminal({
     // A fresh keyed terminal inherits a prior release only within this PC's canvas and
     // while the browser remains away. Initial inactive loads still attach with keep_size
     // and get their normal release delay; no queued input or connection state is inherited.
-    if (awayReleased && (inUse() || !releaseAwayRef.current)) awayReleased.current = false;
-    if (releaseAwayRef.current && !inUse() && awayReleased?.current) setReleased(true);
+    // a phone put away releases whatever the setting (#748), so its replacement inherits that too
+    const releasing = releaseAwayRef.current || (coarseRef.current && document.visibilityState === "hidden");
+    if (awayReleased && (inUse() || !releasing)) awayReleased.current = false;
+    if (releasing && !inUse() && awayReleased?.current) setReleased(true);
     // A tab that let go watches its replacement until the user returns.
     if (releasedRef.current) {
       watchRef.current(paneId);
