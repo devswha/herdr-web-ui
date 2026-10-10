@@ -1282,7 +1282,7 @@ export function PaneTerminal({
     const release = (): void => {
       cancelLeave();
       const current = paneRef.current;
-      if (!current || !releaseAwayRef.current || releasedRef.current || inUse() || embedded || fixedGridRef.current || endedRef.current) return;
+      if (!current || !(releaseAwayRef.current || hiddenOnTouch()) || releasedRef.current || inUse() || embedded || fixedGridRef.current || endedRef.current) return;
       if (queueWaits(current)) {
         queueHeld = true;
         return;
@@ -1355,9 +1355,15 @@ export function PaneTerminal({
       if (releasedRef.current) resume();
       else refit();
     };
+    // A phone or tablet put away lets go of the pane at once, whatever the setting: its page can
+    // freeze before a timer runs, and its attach would keep herdr's own window at the phone's size.
+    const hiddenOnTouch = (): boolean => coarseRef.current && document.visibilityState === "hidden";
     const onVisibility = (): void => {
       if (inUse()) back();
-      else leave();
+      else {
+        leave();
+        if (hiddenOnTouch()) release();
+      }
     };
     // a click or a tap is the user here, whatever the window says about its focus
     const onPointer = (): void => {
