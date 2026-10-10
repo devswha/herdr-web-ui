@@ -429,8 +429,10 @@ export async function paneSwap(paneId: string, direction: PaneDirection, socketP
 
 /**
  * herdr's resize mode: the border the pane shares with a neighbour moves `direction`-wards by
- * `amount` of the tab (herdr's own 0.05 when undefined). Measured on 0.9.3: the direction is the
- * border's, so the left pane of a split shrinks on `left` and the right one grows.
+ * `amount` of the split that border belongs to, measured on the split's own extent rather than
+ * the tab's (herdr's own 0.05 when undefined; herdr caps it at 0.5 and holds the ratio to
+ * 0.1..0.9). Measured on 0.9.3: the direction is the border's, so the left pane of a split
+ * shrinks on `left` and the right one grows.
  */
 export async function paneResize(paneId: string, direction: PaneDirection, amount: number | undefined, socketPath?: string): Promise<PaneLayoutOutcome> {
   const result = await herdrRpc<{ resize: PaneLayoutOutcome & { reason?: string | null } }>("pane.resize", { pane_id: paneId, direction, ...(amount === undefined ? {} : { amount }) }, socketPath);

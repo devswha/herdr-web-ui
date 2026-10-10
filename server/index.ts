@@ -2083,9 +2083,10 @@ export function createServer(
             const swap = await paneSwap(paneId, payload.direction);
             return jsonResponse({ ok: true, changed: swap.changed, reason: swap.reason, target_pane_id: swap.target_pane_id } satisfies PaneSwapped);
           }
-          // a share of the tab, as herdr counts it; its own default when absent
-          if (payload.amount !== undefined && !(typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0 && payload.amount <= 1)) {
-            return badRequest("invalid_amount", "amount must be a number above 0 and at most 1");
+          // a share of the split the border belongs to, as herdr counts it, and no more than the
+          // half herdr would quietly cap it to (shared/protocol.ts); its own default when absent
+          if (payload.amount !== undefined && !(typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0 && payload.amount <= 0.5)) {
+            return badRequest("invalid_amount", "amount must be a number above 0 and at most 0.5");
           }
           const resize = await paneResize(paneId, payload.direction, payload.amount);
           return jsonResponse({ ok: true, changed: resize.changed, reason: resize.reason } satisfies PaneResized);

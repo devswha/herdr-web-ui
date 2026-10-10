@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
-import { workspaceClose, workspaceCreate } from "./herdr/client.ts";
+import { paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ApiError, PaneLayoutSnapshot, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, SessionSnapshot } from "../shared/protocol.ts";
 
 /**
@@ -89,6 +89,8 @@ describe("pane layout routes: validation", () => {
       ["resize", { pane_id: root, direction: "wider" }, "invalid_direction"],
       ["resize", { pane_id: root, direction: "left", amount: 0 }, "invalid_amount"],
       ["resize", { pane_id: root, direction: "left", amount: 1.5 }, "invalid_amount"],
+      // herdr would quietly take half of this: refused instead (shared/protocol.ts)
+      ["resize", { pane_id: root, direction: "left", amount: 0.75 }, "invalid_amount"],
       ["resize", { pane_id: root, direction: "left", amount: "0.1" }, "invalid_amount"],
     ] as const) {
       const response = await post(route, body);
@@ -126,9 +128,10 @@ describe("pane layout routes: validation", () => {
 });
 
 describe("pane layout routes: herdr's layout changes", () => {
-  /** the pane split off to the root's right, then the one split off below it */
+  /** the pane split off to the root's right, then the one split off below it, then the one split off the root inside its column */
   let right: string;
   let below: string;
+  let nested: string;
 
   it("splits a pane to the right and leaves herdr's focus where it was", async () => {
     const before = rectOf(await layout(), root);
@@ -185,6 +188,21 @@ describe("pane layout routes: herdr's layout changes", () => {
     expect(offAgain).toEqual({ ok: true, zoomed: false, changed: false, reason: "already_unzoomed" });
   });
 
+  it("shows another pane of a zoomed tab alone on an explicit on, where herdr's toggle would unzoom the tab", async () => {
+    // herdr focuses the pane before it reads the mode (0.9.3 apply_pane_zoom), which is what the
+    // web's Zoom pane item relies on when it sends `on` for a pane other than the one shown alone
+    expect((await (await post("zoom", { pane_id: root, mode: "on" })).json()) as PaneZoomed).toMatchObject({ zoomed: true, changed: true });
+    await untilLayout((tab) => tab.zoomed && tab.focused_pane_id === root, "the layout zoomed on the root");
+    // the flag was set already, so herdr says so; the focus it moved counts as the change
+    const other = (await (await post("zoom", { pane_id: right, mode: "on" })).json()) as PaneZoomed;
+    expect(other).toEqual({ ok: true, zoomed: true, changed: true, reason: "already_zoomed" });
+    await untilLayout((tab) => tab.zoomed && tab.focused_pane_id === right, "the layout zoomed on the right pane");
+    // a toggle on a third pane does not show it alone: it unzooms the tab, which is why no UI sends one
+    const toggled = (await (await post("zoom", { pane_id: below, mode: "toggle" })).json()) as PaneZoomed;
+    expect(toggled).toEqual({ ok: true, zoomed: false, changed: true, reason: null });
+    await untilLayout((tab) => !tab.zoomed && tab.focused_pane_id === below, "the layout unzoomed, the third pane focused");
+  });
+
   it("swaps a pane with its neighbour on that side, and reports when it has none", async () => {
     const before = await layout();
     const response = await post("swap", { pane_id: root, direction: "right" });
@@ -207,10 +225,11 @@ describe("pane layout routes: herdr's layout changes", () => {
     expect(none).toEqual({ ok: true, changed: false, reason: "no_neighbor", target_pane_id: null });
   });
 
-  it("moves a split's border by the share of the tab asked, and says when no border can move that way", async () => {
+  it("moves a split's border by the share asked, and says when no border can move that way", async () => {
     const before = await layout();
     // the root now sits in the right column, over or under another pane: the border between
-    // them moves up by a quarter of the tab, herdr's own 0.05 when no amount is given
+    // them moves up by a quarter of their split, which spans the tab's height here (the next
+    // case has a split that does not); herdr's own 0.05 when no amount is given
     const response = await post("resize", { pane_id: root, direction: "up", amount: 0.25 });
     expect(response.status).toBe(200);
     expect((await response.json()) as PaneResized).toEqual({ ok: true, changed: true, reason: null });
@@ -229,10 +248,46 @@ describe("pane layout routes: herdr's layout changes", () => {
     await untilLayout((candidate) => rectOf(candidate, column.pane_id).width < columnBefore, "the left column narrower");
   });
 
-  it("clears a pane and the pane stays", async () => {
+  it("takes the amount on the split the border belongs to, not on the tab", async () => {
+    // a pane split off the root's right stands with it in the right column: their split's extent
+    // is the column's width, roughly half the tab's
+    const column = rectOf(await layout(), root);
+    const response = await post("split", { pane_id: root, direction: "right" });
+    expect(response.status).toBe(200);
+    nested = ((await response.json()) as PaneSplit).pane.pane_id;
+    const split = await untilLayout((candidate) => candidate.panes.length === 4, "the fourth pane in the layout");
+    const rootBefore = rectOf(split, root).width;
+    const quarter = (await (await post("resize", { pane_id: root, direction: "right", amount: 0.25 })).json()) as PaneResized;
+    expect(quarter).toEqual({ ok: true, changed: true, reason: null });
+    const tab = await untilLayout((candidate) => rectOf(candidate, root).width !== rootBefore, "the root's width changed");
+    // a quarter of the column (herdr rounds the ratio onto the column's cells), nowhere near a quarter of the tab
+    const moved = rectOf(tab, root).width - rootBefore;
+    expect(Math.abs(moved - column.width * 0.25)).toBeLessThanOrEqual(2);
+    expect(Math.abs(moved - tab.area.width * 0.25)).toBeGreaterThan(5);
+    // the border between the columns belongs to another split and stayed where it was
+    expect(rectOf(tab, root).x).toBe(column.x);
+    expect(rectOf(tab, root).width + rectOf(tab, nested).width).toBe(column.width);
+  });
+
+  it("clears the pane's screen and the pane stays", async () => {
+    // a marker the root's shell prints: on the screen before the clear, gone after it
+    const marker = `herdr-web-ui-clear-${Date.now().toString(36)}`;
+    const untilScreen = async (check: (text: string) => boolean, label: string): Promise<void> => {
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const { text } = await paneRead({ paneId: root, source: "visible", format: "text" });
+        if (check(text)) return;
+        if (Date.now() > deadline) throw new Error(`Timed out: ${label}: ${JSON.stringify(text.slice(-400))}`);
+        await Bun.sleep(100);
+      }
+    };
+    await paneSendText(root, `echo ${marker}`);
+    await paneSendKeys(root, ["Enter"]);
+    await untilScreen((text) => text.includes(marker), "the marker on the root's screen");
     const response = await post("clear", { pane_id: root });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
-    expect((await layout()).panes.map((pane) => pane.pane_id).sort()).toEqual([root, right, below].sort());
+    await untilScreen((text) => !text.includes(marker), "the root's screen without the marker");
+    expect((await layout()).panes.map((pane) => pane.pane_id).sort()).toEqual([root, right, below, nested].sort());
   });
 });

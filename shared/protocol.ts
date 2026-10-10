@@ -95,8 +95,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         no_neighbor when the pane has none there)
  *  POST   /api/pane/resize { pane_id, direction: left|right|up|down, amount? } -> PaneResized { ok: true, changed, reason }
  *         (pane.resize, herdr's resize mode: the border the pane shares with a neighbour moves that way
- *         by `amount` of the tab, herdr's 0.05 when absent; changed false, reason unchanged, when no
- *         border of the pane can move that way)
+ *         by `amount` of the split the border belongs to, not of the tab (0 < amount <= 0.5, herdr's
+ *         own cap; its 0.05 when absent); changed false, reason unchanged, when no border of the
+ *         pane can move that way)
  *  POST   /api/pane/clear  { pane_id } -> { ok: true } (pane.clear: clears the pane's terminal screen)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/ (under HERDR_WEB_PASTE_DIR when the
@@ -592,7 +593,14 @@ export interface PaneSwapped {
   target_pane_id: string | null;
 }
 
-/** POST /api/pane/resize: the border the pane shares with a neighbour moves `direction`-wards by `amount` of the tab (0 < amount <= 1; herdr's 0.05 when absent). */
+/**
+ * POST /api/pane/resize: the border the pane shares with a neighbour moves `direction`-wards by
+ * `amount` of the split that border belongs to, which herdr measures on the split's own extent,
+ * not the tab's (0.25 in a 60-column half of a 120-column tab moves the border 15 columns, not
+ * 30). herdr caps the amount at 0.5 and holds a split's ratio to 0.1..0.9, so the server refuses
+ * more than 0.5 (invalid_amount) rather than let herdr quietly take less; its own 0.05 when
+ * absent. Measured on herdr 0.9.3.
+ */
 export interface ResizePaneRequest {
   pane_id: string;
   direction: PaneDirection;
