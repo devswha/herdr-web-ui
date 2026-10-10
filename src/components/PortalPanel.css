@@ -1,0 +1,14 @@
+.portal-start {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.portal-start .phone-actions {
+  margin-top: var(--space-1);
+}
+
+.portal-start .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}

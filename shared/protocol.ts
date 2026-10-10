@@ -61,6 +61,16 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
+ *  GET    /api/portal                    -> PortalStatus (an optional public HTTPS address through
+ *         Portal, server/portal.ts), no-store
+ *  POST   /api/portal/install            -> 202 { accepted: true } (the official release, checked
+ *         against its pinned SHA-256); 403 portal_not_here, 409 portal_busy / portal_unsupported
+ *  POST   /api/portal/start              -> 202 { accepted: true }; body { relay }; 403 portal_not_here,
+ *         409 token_required / serve_only / portal_busy, 400 invalid_relay
+ *  POST   /api/portal/stop               -> 202 { accepted: true }, from any client that can type
+ *         (not a watch-only device).
+ *         Portal POSTs require X-Herdr-Update: 1 and same-origin; install and start only from
+ *         this PC itself (a loopback connection that came through no proxy).
  *  GET    /api/updates                   -> UpdateStatus (shared/update.ts), no-store
  *  POST   /api/updates/check             -> 202 { accepted: true }
  *  POST   /api/updates/install           -> 202 { accepted: true }
@@ -321,6 +331,34 @@ export interface TailscaleAccess {
   readonly serve_command: string | null;
   /** ... and the address that command gives, when the DNS name is known */
   readonly serve_url: string | null;
+}
+
+/**
+ * GET /api/portal: a public HTTPS address for this server through Portal (gosuda/portal-tunnel),
+ * which the app installs, starts and stops itself (Settings → Phone & devices).
+ */
+export interface PortalStatus {
+  /** false where Portal has no release for this PC and none is installed: the section stays hidden */
+  readonly supported: boolean;
+  /** what `portal version` says of the binary this server would run; null when none answers */
+  readonly version: string | null;
+  /** the oldest Portal that can run this app's tunnel, and the one Install puts on this PC */
+  readonly min_version: string;
+  /** `version` is `min_version` or later: Start is offered, Install is not */
+  readonly usable: boolean;
+  readonly phase: "idle" | "installing" | "starting" | "running" | "stopping" | "error";
+  /** the relay the tunnel uses, or used last; an https origin */
+  readonly relay: string | null;
+  /** the public address while it runs, without the default port */
+  readonly url: string | null;
+  /** why a start would be refused now: no token set, or tailscale serve declared the only way in */
+  readonly blocked: "token_required" | "serve_only" | null;
+  /** the asking client is this PC itself: only it may install or start Portal */
+  readonly here: boolean;
+  /** what went wrong last; null after a success */
+  readonly error: string | null;
+  /** the tail of what Portal printed, for when the error alone does not say enough */
+  readonly output: string | null;
 }
 
 /** GET /api/push: base64url VAPID public key, the `applicationServerKey` a browser subscribes with. */

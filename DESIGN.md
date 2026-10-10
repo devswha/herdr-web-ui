@@ -1082,8 +1082,9 @@ One set for both themes: the card is island black wherever it shows.
   **Composer**: Enter sends, suggestion chip; then **Quick replies**), **Terminal** (font size and family, wheel
   speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings), **Phone & devices** (the phone address,
-  Keep screen on, Install; then paired devices), **Remote PCs**, **About** (Updates, herdr,
-  the repository links). A button that points at Updates opens the dialog on About.
+  Keep screen on, Install; then Portal, where the server offers it; then paired devices),
+  **Remote PCs**, **About** (Updates, herdr, the repository links). A button that points at
+  Updates opens the dialog on About.
 - Every page is built from the same parts (`components/SettingsControls.tsx`). A group is an
   optional caption (`--fs-sm`, `--fw-semibold`, `--text-dim`, sentence case) over one card:
   `--bg-elevated`, hairline `--border`, `--radius-lg`, its rows parted by hairlines and never
