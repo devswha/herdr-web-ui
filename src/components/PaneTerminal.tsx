@@ -39,6 +39,7 @@ import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { fileUriPath, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
+import { terminalLabel } from "../lib/terminalLabel.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
@@ -139,7 +140,7 @@ export function PaneTerminal({
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
   // what the grid's region announces: the pane's own name, or the grid's kind while none is open
-  const terminalName = paneId === null ? t("Terminal") : t("Terminal for {title}", { title: title ?? paneId });
+  const terminalName = terminalLabel(paneId, title, t);
   /** read by the wheel handler, which is attached once for the terminal's life */
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
