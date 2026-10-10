@@ -72,7 +72,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   so a second tab or a second bridge could type into a pane someone else was attached to. A pane
   nobody is attached to is unaffected, which is what keeps the key bar and an older bridge's
   composer working.
-  ([#732](https://github.com/devswha/herdr-web-ui/pull/732))
+  ([#732](https://github.com/devswha/herdr-web-ui/pull/732) by @pt-act)
 - A numeric custom tab name remains visible when tabs before it close ([#723](https://github.com/devswha/herdr-web-ui/pull/723)).
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had

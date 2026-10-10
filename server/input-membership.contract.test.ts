@@ -59,7 +59,6 @@ function connect(port: number): Client {
     if (frame.type === "input-ready" && frame.pane_id) readyPanes.push(frame.pane_id);
     if (frame.type === "snapshot") snapshotted = true;
   });
-  until(async () => ws.readyState === WebSocket.OPEN, "socket open");
   return { send: (message) => ws.send(JSON.stringify(message)), errors: () => codes, ready: (paneId) => readyPanes.includes(paneId), snapshotted: () => snapshotted };
 }
 
