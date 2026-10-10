@@ -283,6 +283,15 @@ export const JA: Record<string, string> = {
   "Selected": "選択中",
   "Unknown workspace": "不明なワークスペース",
   "Actions": "操作",
+  "Plugin actions": "プラグインの操作",
+  "Running…": "実行中…",
+  "{action} failed: {detail}": "{action} に失敗しました: {detail}",
+  "{action} failed (exit code {code})": "{action} に失敗しました (終了コード {code})",
+  "herdr plugins": "herdr プラグイン",
+  "Run a plugin's actions from the command palette.": "プラグインの操作はコマンドパレットから実行します。",
+  "No actions": "操作なし",
+  "Enabled": "有効",
+  "Disabled": "無効",
   "No matching panes or actions": "一致するペインや操作はありません",
 
   // ---- new workspace ----

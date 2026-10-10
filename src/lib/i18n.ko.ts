@@ -281,6 +281,15 @@ export const KO: Record<string, string> = {
   "Selected": "선택됨",
   "Unknown workspace": "알 수 없는 워크스페이스",
   "Actions": "동작",
+  "Plugin actions": "플러그인 동작",
+  "Running…": "실행 중…",
+  "{action} failed: {detail}": "{action} 실패: {detail}",
+  "{action} failed (exit code {code})": "{action} 실패 (종료 코드 {code})",
+  "herdr plugins": "herdr 플러그인",
+  "Run a plugin's actions from the command palette.": "플러그인 동작은 명령 팔레트에서 실행합니다.",
+  "No actions": "동작 없음",
+  "Enabled": "사용 중",
+  "Disabled": "사용 안 함",
   "No matching panes or actions": "일치하는 패널이나 동작이 없습니다",
 
   // ---- new workspace ----

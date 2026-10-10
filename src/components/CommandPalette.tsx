@@ -1,13 +1,14 @@
-import { useMachineId } from "../lib/machineContext.tsx";
+import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, Monitor, PanelLeft, Plus, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
+import { Bell, FolderOpen, LoaderCircle, LockKeyhole, MessageSquarePlus, Monitor, PanelLeft, Plus, Puzzle, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
-import type { HerdrPane, PaneInfo, SessionSnapshot } from "../../shared/protocol.ts";
+import type { HerdrPane, PaneInfo, PluginActions, SessionSnapshot } from "../../shared/protocol.ts";
+import { ApiError } from "../lib/api.ts";
 import { paneStatus } from "../lib/status.ts";
 import type { AppActions, PaneView } from "../lib/actions.ts";
-import { rankPanes } from "../lib/paletteSearch.ts";
+import { offeredPluginActions, rankPanes, type OfferedPluginAction } from "../lib/paletteSearch.ts";
 import { shortcutDisplayKeys, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
 import { useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -72,7 +73,14 @@ function ShortcutHint({ shortcutId }: { shortcutId?: ShortcutId }) {
 export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, actions }: CommandPaletteProps) {
   const t = useT();
   const machineId = useMachineId();
+  const api = useMachineApi();
   const [query, setQuery] = useState("");
+  const [plugins, setPlugins] = useState<PluginActions[]>([]);
+  /** `<plugin_id>.<action_id>` of the plugin action under way; the palette stays open until it answers */
+  const [running, setRunning] = useState<string | null>(null);
+  const [pluginError, setPluginError] = useState<string | null>(null);
+  /** one per opening: an answer that arrives after the palette closed belongs to no one */
+  const opening = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +109,20 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     setActiveIndex(0);
     setRecentPaneIds(loadRecentPanes(machineId));
   }, [open]);
+
+  // The PC's plugin actions, read on each opening. A herdr with no plugins, an older bridge
+  // without the route and an unreachable herdr all leave the group out.
+  useEffect(() => {
+    opening.current += 1;
+    setRunning(null);
+    setPluginError(null);
+    if (!open) return;
+    const mine = opening.current;
+    void api.fetchPluginActions().then(
+      (list) => { if (opening.current === mine) setPlugins(list); },
+      () => { if (opening.current === mine) setPlugins([]); },
+    );
+  }, [open, api]);
 
   useEffect(() => {
     if (selectedPaneId === null) return;
@@ -136,7 +158,8 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     const needle = query.trim().toLocaleLowerCase();
     return needle ? paletteActions.filter((action) => action.label.toLocaleLowerCase().includes(needle)) : paletteActions;
   }, [paletteActions, query]);
-  const itemCount = panes.length + visibleActions.length;
+  const pluginActions = useMemo(() => offeredPluginActions(plugins, selectedPaneId !== null, query), [plugins, selectedPaneId, query]);
+  const itemCount = panes.length + visibleActions.length + pluginActions.length;
 
   useEffect(() => {
     setActiveIndex((index) => Math.min(index, Math.max(0, itemCount - 1)));
@@ -162,6 +185,33 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     action.run();
     onClose();
   };
+  const runPluginAction = async ({ plugin, action }: OfferedPluginAction): Promise<void> => {
+    if (running !== null) return;
+    const mine = opening.current;
+    setRunning(`${plugin.plugin_id}.${action.action_id}`);
+    setPluginError(null);
+    try {
+      const result = await api.runPluginAction({ plugin_id: plugin.plugin_id, action_id: action.action_id, ...(selectedPaneId === null ? {} : { pane_id: selectedPaneId }) });
+      if (opening.current !== mine) return;
+      if (result.status === "failed") {
+        setPluginError(result.output !== null
+          ? t("{action} failed: {detail}", { action: action.title, detail: result.output })
+          : t("{action} failed (exit code {code})", { action: action.title, code: result.exit_code ?? "?" }));
+        return;
+      }
+      if (result.opened_pane_id !== null) {
+        // the pane may be newer than the snapshot on screen
+        actions.refresh();
+        actions.selectPane(result.opened_pane_id);
+      }
+      onClose();
+    } catch (error) {
+      if (opening.current !== mine) return;
+      setPluginError(t("{action} failed: {detail}", { action: action.title, detail: error instanceof ApiError ? error.detail : error instanceof Error ? error.message : String(error) }));
+    } finally {
+      if (opening.current === mine) setRunning(null);
+    }
+  };
   const activate = (index: number): void => {
     if (index < panes.length) {
       const pane = panes[index];
@@ -169,7 +219,9 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
       return;
     }
     const action = visibleActions[index - panes.length];
-    if (action) runAction(action);
+    if (action) { runAction(action); return; }
+    const pluginAction = pluginActions[index - panes.length - visibleActions.length];
+    if (pluginAction) void runPluginAction(pluginAction);
   };
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
     // Candidate navigation and the committing Enter belong to the IME. WebKit can report
@@ -194,6 +246,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
           <input ref={inputRef} className="input" type="search" value={query} placeholder={t("Search panes and actions…")} aria-label={t("Search panes and actions")} aria-controls="palette-results" aria-activedescendant={itemCount ? `palette-item-${activeIndex}` : undefined} onKeyDown={onKeyDown} onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }} />
           <button type="button" className="icon-button" aria-label={t("Close command palette")} onClick={onClose}><X /></button>
         </div>
+        {pluginError !== null && <p className="palette-error" role="alert">{pluginError}</p>}
         <div ref={resultsRef} className="palette-results" id="palette-results" role="listbox">
           {panes.length > 0 && <div className="menu-heading">{t("Panes")}</div>}
           {panes.map((pane, index) => {
@@ -212,6 +265,18 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
             const index = panes.length + actionIndex;
             const Icon = action.icon;
             return <button key={action.id} id={`palette-item-${index}`} type="button" role="option" className="menu-item" aria-selected={activeIndex === index} onFocus={() => setActiveIndex(index)} onMouseMove={() => setActiveIndex(index)} onClick={() => runAction(action)}><Icon /><span className="menu-item-main">{action.label}</span><ShortcutHint shortcutId={action.shortcut} /></button>;
+          })}
+          {pluginActions.length > 0 && <div className="menu-heading">{t("Plugin actions")}</div>}
+          {pluginActions.map((offered, pluginIndex) => {
+            const index = panes.length + visibleActions.length + pluginIndex;
+            const key = `${offered.plugin.plugin_id}.${offered.action.action_id}`;
+            const busy = running === key;
+            return (
+              <button key={key} id={`palette-item-${index}`} type="button" role="option" className={busy ? "menu-item palette-plugin-action is-running" : "menu-item palette-plugin-action"} title={offered.action.description ?? undefined} aria-selected={activeIndex === index} aria-busy={busy} aria-disabled={running !== null} onFocus={() => setActiveIndex(index)} onMouseMove={() => setActiveIndex(index)} onClick={() => void runPluginAction(offered)}>
+                {busy ? <LoaderCircle aria-hidden="true" /> : <Puzzle aria-hidden="true" />}
+                <span className="menu-item-main"><span className="palette-row-title">{offered.action.title}</span><span className="palette-row-subtitle">{busy ? t("Running…") : offered.plugin.name}</span></span>
+              </button>
+            );
           })}
           {itemCount === 0 && <p className="palette-empty" role="status">{t("No matching panes or actions")}</p>}
         </div>

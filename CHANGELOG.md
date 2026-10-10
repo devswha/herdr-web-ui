@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- The command palette lists the actions of the herdr plugins installed on the PC under **Plugin
+  actions** and runs one against the selected pane, with that pane's workspace and tab as its
+  context. The row shows that it is running, a command that fails says why above the list, and a
+  pane the action opens and focuses is selected. Settings → About lists the installed plugins and
+  their actions, to read only: installing, enabling and removing a plugin stay with herdr.
+
 ### Fixed
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had

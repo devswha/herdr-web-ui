@@ -18,7 +18,8 @@ import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
-import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
+import type { HealthAuth, PluginActions, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
+import { useMachineApi } from "../lib/machineContext.tsx";
 import type { VoiceStatus } from "../../shared/voice.ts";
 import { dictationLocale, VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
@@ -582,12 +583,38 @@ function RemotePcsPage({ actions, pcSettings, pcSettingsError, onPcSettings }: {
   );
 }
 
+/**
+ * The herdr plugins of the PC on screen and what each can do, to read only: installing, enabling
+ * and removing a plugin stay with herdr. Nothing is drawn where there is none to list.
+ */
+function PluginsGroup() {
+  const t = useT();
+  const api = useMachineApi();
+  const [plugins, setPlugins] = useState<PluginActions[]>([]);
+  useEffect(() => {
+    let current = true;
+    void api.fetchPluginActions().then((list) => { if (current) setPlugins(list); }, () => { if (current) setPlugins([]); });
+    return () => { current = false; };
+  }, [api]);
+  if (plugins.length === 0) return null;
+  return (
+    <SettingsGroup title={t("herdr plugins")} note={t("Run a plugin's actions from the command palette.")} className="settings-plugins">
+      {plugins.map((plugin) => (
+        <SettingsRow key={plugin.plugin_id} label={`${plugin.name} ${plugin.version}`} description={plugin.actions.length > 0 ? plugin.actions.map((action) => action.title).join(" · ") : t("No actions")}>
+          <span className="settings-hint">{plugin.enabled ? t("Enabled") : t("Disabled")}</span>
+        </SettingsRow>
+      ))}
+    </SettingsGroup>
+  );
+}
+
 function AboutPage({ updates, herdrVersion, bridgesFollow }: { updates: UpdatesModel; herdrVersion: string | null; bridgesFollow: boolean }) {
   const t = useT();
   return (
     <>
       <UpdateControls updates={updates} bridgesFollow={bridgesFollow} />
       <HerdrUpdateControls enabled herdrVersion={herdrVersion} />
+      <PluginsGroup />
       <TelemetryControls />
       <SettingsGroup title={t("About")} className="settings-about">
         <div className="settings-row">
